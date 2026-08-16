@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
@@ -30,6 +31,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/organization"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
@@ -90,6 +92,42 @@ type MetricsReader interface {
 	CountAnomalyBands(ctx context.Context, tenantID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (telemetry.BandCounts, error)
 }
 
+// IncidentStore is the api package's port over the investigation store: the
+// triage queue, one room with everything in it, and the moves a person makes on
+// one. Reading a room is also how a route resolves an id somebody typed, which
+// is why the single-room read is part of the port rather than folded into the
+// detail read.
+type IncidentStore interface {
+	Queue(ctx context.Context, filter alerts.Filter) (alerts.Page, error)
+	Incident(ctx context.Context, incidentID, organizationID uuid.UUID) (alerts.Incident, error)
+	Investigation(ctx context.Context, incidentID, organizationID uuid.UUID) (alerts.Investigation, error)
+	Transition(ctx context.Context, incidentID uuid.UUID, change alerts.Change) error
+	Assign(ctx context.Context, incidentID, assignee, actor uuid.UUID) error
+	Comment(ctx context.Context, incidentID, actor uuid.UUID, note string) (alerts.Event, error)
+	Evidence(ctx context.Context, incidentID, alertID uuid.UUID) ([]byte, string, error)
+}
+
+// RulePack is the curated catalogue compiled into this build. Definitions are
+// read-only here by construction: they are validated and cost-bounded in CI,
+// which is the whole reason they do not live in the database.
+type RulePack interface {
+	All() []rules.Definition
+}
+
+// RuleRolloutReader reads how far each rule has reached across one customer's
+// estate.
+type RuleRolloutReader interface {
+	ListRollouts(ctx context.Context, organizationID uuid.UUID) (map[string]rules.Rollout, error)
+}
+
+// RuleCoverageReader reads how much of one customer's estate each rule is
+// actually watching, against a fleet the caller has counted. The fleet size is
+// passed in rather than read here so the split and the total it is a split of
+// come from one moment.
+type RuleCoverageReader interface {
+	RuleCoverage(ctx context.Context, organizationID uuid.UUID, fleetSize int) map[string]agentapi.RuleCoverageCounts
+}
+
 // ServerConfig holds all dependencies for the API server.
 type ServerConfig struct {
 	Store                 *db.PostgresStore
@@ -116,6 +154,10 @@ type ServerConfig struct {
 	TelemetryReader       MetricsReader
 	Purger                DevicePurger
 	PurgeJobs             PurgeJobReader
+	Investigations        IncidentStore
+	RuleCatalogue         RulePack
+	RuleRollouts          RuleRolloutReader
+	RuleCoverage          RuleCoverageReader
 	Relay                 *relay.Relay
 	Signaling             *signaling.Tracker
 	Notifier              notifications.Notifier
@@ -163,6 +205,10 @@ type Server struct {
 	telemetryReader MetricsReader
 	purger          DevicePurger
 	purgeJobs       PurgeJobReader
+	investigations  IncidentStore
+	ruleCatalogue   RulePack
+	ruleRollouts    RuleRolloutReader
+	ruleCoverage    RuleCoverageReader
 	relay           *relay.Relay
 	signaling       *signaling.Tracker
 	notifier        notifications.Notifier
@@ -266,6 +312,10 @@ func NewServer(cfg ServerConfig) *Server {
 		telemetryReader: cfg.TelemetryReader,
 		purger:          cfg.Purger,
 		purgeJobs:       cfg.PurgeJobs,
+		investigations:  cfg.Investigations,
+		ruleCatalogue:   cfg.RuleCatalogue,
+		ruleRollouts:    cfg.RuleRollouts,
+		ruleCoverage:    cfg.RuleCoverage,
 		relay:           cfg.Relay,
 		signaling:       cfg.Signaling,
 		notifier:        cfg.Notifier,

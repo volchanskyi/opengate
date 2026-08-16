@@ -980,6 +980,505 @@ components:
           type: string
           format: uuid
 
+    IncidentSeverity:
+      type: string
+      description: How bad an incident or one of its alerts is.
+      enum: [info, warning, critical]
+
+    IncidentStatus:
+      type: string
+      description: >-
+        Where an incident stands. An incident in `new` is the triage queue,
+        which is why there is no separate promotion state.
+      enum: [new, acknowledged, investigating, resolved]
+
+    IncidentScope:
+      type: string
+      description: >-
+        How wide an incident is — the rung its grouping key names. The customer
+        is the broadest there is: folding across customers would put two
+        estates' unrelated events in one room with no correct assignee.
+      enum: [device, site, organization]
+
+    IncidentCauseCode:
+      type: string
+      description: >-
+        A person's answer for why an incident ended, required when resolving
+        one. `false_positive` is the channel that says which curated rule needs
+        its threshold moved.
+      enum:
+        [
+          resolved_self,
+          fixed_by_tech,
+          hardware_fault,
+          expected_load,
+          false_positive,
+          duplicate,
+          wont_fix,
+        ]
+
+    Incident:
+      type: object
+      description: One room a customer's alerts are investigated in.
+      required:
+        [
+          id,
+          organization_id,
+          rule_id,
+          scope,
+          scope_key,
+          severity,
+          status,
+          opened_at,
+          first_seen,
+          last_seen,
+          occurrences,
+          device_count,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        rule_id:
+          type: string
+          description: >-
+            The rule that raised it, never the rule version — upgrading a rule
+            while an incident is open must not fork the room somebody is
+            working in.
+        scope:
+          $ref: "#/components/schemas/IncidentScope"
+        scope_key:
+          type: string
+          format: uuid
+          description: What the incident is about at that rung.
+        severity:
+          $ref: "#/components/schemas/IncidentSeverity"
+        status:
+          $ref: "#/components/schemas/IncidentStatus"
+        assignee_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Who is working it, absent when nobody has taken it.
+        cause_code:
+          allOf:
+            - $ref: "#/components/schemas/IncidentCauseCode"
+          nullable: true
+          description: Absent while open, and when the system closed it.
+        opened_at:
+          type: string
+          format: date-time
+        first_seen:
+          type: string
+          format: date-time
+          description: >-
+            Event time, not receipt time — a retroactive finding belongs where
+            it happened.
+        last_seen:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        occurrences:
+          type: integer
+          description: How many alerts have folded in.
+        device_count:
+          type: integer
+          description: Across how many machines.
+
+    IncidentPage:
+      type: object
+      description: One page of the triage queue, and where the next one starts.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Incident"
+        next_cursor:
+          type: string
+          description: >-
+            Pass as `cursor` to read on. Absent when the page reached the end of
+            the queue. The queue is paged by position rather than by offset,
+            because an offset over a queue that is being written to skips rows
+            silently.
+
+    IncidentAlert:
+      type: object
+      description: >-
+        One alert as its incident lists it. The evidence blob is deliberately
+        not here — it is tens of kilobytes per alert and an incident holds
+        hundreds — so this says what evidence exists and what fetching it costs.
+      required:
+        [
+          id,
+          device_id,
+          rule_id,
+          rule_version,
+          severity,
+          observed_at,
+          received_at,
+          window_start,
+          window_end,
+          backfilled,
+          evidence_bytes,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        rule_id:
+          type: string
+        rule_version:
+          type: integer
+        severity:
+          $ref: "#/components/schemas/IncidentSeverity"
+        metric:
+          type: string
+          description: Empty for a rule that fires on an event rather than a reading.
+        value:
+          type: number
+          format: double
+          nullable: true
+        window_start:
+          type: string
+          format: date-time
+        window_end:
+          type: string
+          format: date-time
+        observed_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+        backfilled:
+          type: boolean
+          description: A finding a retroactive scan produced over local history.
+        evidence_codec:
+          type: string
+          description: How the evidence is compressed, empty when there is none.
+        evidence_bytes:
+          type: integer
+          description: Compressed weight of the evidence, zero when there is none.
+
+    IncidentEvent:
+      type: object
+      description: >-
+        One line of an incident's history. The incident's own fields say where
+        it stands; these say how it got there, which is what a handover between
+        two technicians reads.
+      required: [id, at, kind, body]
+      properties:
+        id:
+          type: string
+          format: uuid
+        at:
+          type: string
+          format: date-time
+        kind:
+          type: string
+          enum:
+            [
+              alert_folded,
+              status_change,
+              assignment,
+              comment,
+              device_offline,
+              resolution,
+            ]
+        actor_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Who did it, absent when the system did.
+        body:
+          type: object
+          additionalProperties: true
+          description: What the line says, in the shape its kind defines.
+
+    IncidentDetail:
+      type: object
+      description: The whole of one incident, as somebody opening it sees it.
+      required:
+        [incident, alerts, alerts_total, events, events_total]
+      properties:
+        incident:
+          $ref: "#/components/schemas/Incident"
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentAlert"
+          description: The most recent alerts, bounded.
+        alerts_total:
+          type: integer
+          description: How many there are altogether, so a bounded page says what it is a page of.
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentEvent"
+          description: The history, in the order it happened.
+        events_total:
+          type: integer
+
+    SetIncidentStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/IncidentStatus"
+        cause_code:
+          allOf:
+            - $ref: "#/components/schemas/IncidentCauseCode"
+          description: >-
+            Required when resolving, refused otherwise. A resolution that skips
+            it spends the feedback the rule pack is tuned from.
+
+    SetIncidentAssigneeRequest:
+      type: object
+      properties:
+        assignee_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Who takes it. Null hands it back to the queue, which is the move a
+            technician going off shift makes.
+
+    AddIncidentCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 4096
+
+    EvidencePoint:
+      type: object
+      required: [ts, value]
+      properties:
+        ts:
+          type: integer
+          format: int64
+        value:
+          type: number
+          format: double
+
+    EvidenceRankedDim:
+      type: object
+      description: One dimension the machine's own correlation ranked, and how badly it broke pattern.
+      required: [dim, score]
+      properties:
+        dim:
+          type: string
+        score:
+          type: number
+          format: double
+
+    EvidenceSeries:
+      type: object
+      description: >-
+        One dimension's readings either side of the event, at the resolution
+        only the machine holds.
+      required: [dim, points]
+      properties:
+        dim:
+          type: string
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidencePoint"
+
+    EvidenceProcess:
+      type: object
+      description: One process at the event instant.
+      required: [rank, basename, pid, cpu, mem]
+      properties:
+        rank:
+          type: integer
+        basename:
+          type: string
+        pid:
+          type: integer
+        cpu:
+          type: number
+          format: double
+        mem:
+          type: number
+          format: double
+
+    AlertEvidence:
+      type: object
+      description: >-
+        Everything the machine knew about why an alert fired, frozen at write
+        time. Nothing can be fetched from the machine afterwards, so what is not
+        here about an event is not recorded anywhere.
+      required: [ranked, series, processes, log_samples, truncated]
+      properties:
+        ranked:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceRankedDim"
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceSeries"
+        processes:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceProcess"
+        log_samples:
+          type: array
+          items:
+            type: string
+          description: Host log lines, redacted on the machine before they were sent.
+        truncated:
+          type: boolean
+          description: >-
+            Whether the size cap cost this evidence anything, so "nothing was
+            dropped" and "nobody checked" never look alike.
+
+    RuleCoverage:
+      type: object
+      description: >-
+        How much of a customer's estate one rule is actually watching. The four
+        states always add up to the fleet — three of them would make a rule look
+        like it was watching a smaller estate than it is.
+      required: [active, throttled, unsupported, unknown]
+      properties:
+        active:
+          type: integer
+          description: Machines evaluating the rule.
+        throttled:
+          type: integer
+          description: Machines that stopped evaluating it because it cost more than its allowance.
+        unsupported:
+          type: integer
+          description: Machines that cannot evaluate it at all — a standing hole in the monitoring.
+        unknown:
+          type: integer
+          description: Machines that have reported nothing.
+
+    RuleRollout:
+      type: object
+      description: How far a rule has reached across a customer's estate.
+      required: [enabled, rollout_percent, kill]
+      properties:
+        enabled:
+          type: boolean
+        canary_group:
+          type: string
+        rollout_percent:
+          type: integer
+        kill:
+          type: boolean
+          description: The switch that stops a rule without a deploy.
+
+    RuleParameterBounds:
+      type: object
+      description: How far a customer may retune one parameter.
+      required: [min, max, shipped]
+      properties:
+        min:
+          type: number
+          format: double
+        max:
+          type: number
+          format: double
+        shipped:
+          type: number
+          format: double
+          description: The value the catalogue ships.
+
+    Rule:
+      type: object
+      description: >-
+        One curated rule as the fleet runs it. Definitions are compiled into the
+        server and are not editable here — what a customer may change is the
+        numbers each rule declares tunable, and whether it is rolled out.
+      required:
+        [
+          id,
+          version,
+          summary,
+          metric,
+          comparator,
+          threshold,
+          group_by,
+          group_window_secs,
+          evidence,
+          coverage_requires,
+          tunable,
+          rollout,
+          coverage,
+        ]
+      properties:
+        id:
+          type: string
+        version:
+          type: integer
+        summary:
+          type: string
+          description: What the rule is for, in an operator's words.
+        metric:
+          type: string
+        comparator:
+          type: string
+          enum: [gt, lt, gte, lte]
+        threshold:
+          type: number
+          format: double
+        sustain_secs:
+          type: integer
+        group_by:
+          type: array
+          items:
+            type: string
+        group_window_secs:
+          type: integer
+          description: How long firings on one key stay one incident, and the hold before an idle one resolves itself.
+        evidence:
+          type: array
+          items:
+            type: string
+        coverage_requires:
+          type: array
+          items:
+            type: string
+          description: What a machine must be able to read for this rule to be evaluable on it.
+        tunable:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/RuleParameterBounds"
+        rollout:
+          $ref: "#/components/schemas/RuleRollout"
+        coverage:
+          $ref: "#/components/schemas/RuleCoverage"
+
+    RuleCatalogue:
+      type: object
+      description: The curated pack and what each rule is watching.
+      required: [fleet_size, rules]
+      properties:
+        fleet_size:
+          type: integer
+          description: >-
+            How many machines the coverage counts were taken against. Every
+            rule's four coverage states add up to this.
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/Rule"
+
 paths:
   /api/v1/health:
     get:
@@ -3147,6 +3646,433 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Purge job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/investigations:
+    get:
+      operationId: listInvestigations
+      summary: The triage queue
+      description: >-
+        Incidents in the caller's tenant, most recent activity first. Every
+        parameter narrows; omitting all of them returns every customer in the
+        tenant. Paged by cursor rather than by offset, because a queue that is
+        being written to silently loses rows under an offset.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          description: Narrow to one customer.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Narrow to a set of statuses.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/IncidentStatus"
+        - name: severity
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/IncidentSeverity"
+        - name: rule_id
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: device_id
+          in: query
+          description: Narrow to the incidents holding an alert this machine raised.
+          schema:
+            type: string
+            format: uuid
+        - name: assignee_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          description: Where the previous page ended, from that page's next_cursor.
+          schema:
+            type: string
+            maxLength: 128
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+      responses:
+        "200":
+          description: One page of the queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPage"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/investigations/{id}:
+    get:
+      operationId: getInvestigation
+      summary: One incident with its alerts and its timeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: organization_id
+          in: query
+          description: >-
+            The customer being looked at. An incident outside it answers the
+            same as one that does not exist.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The incident
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentDetail"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Incident not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/investigations/{id}/status:
+    post:
+      operationId: setInvestigationStatus
+      summary: Move an incident through its lifecycle
+      description: >-
+        A cause code is required when resolving and refused otherwise. Every
+        accepted move appends a line to the incident's history.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: organization_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetIncidentStatusRequest"
+      responses:
+        "200":
+          description: The incident as it now stands
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "400":
+          description: A move the lifecycle does not allow, or a cause code that is missing, refused or outside the set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Incident not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/investigations/{id}/assignee:
+    post:
+      operationId: setInvestigationAssignee
+      summary: Say who is working an incident
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: organization_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetIncidentAssigneeRequest"
+      responses:
+        "200":
+          description: The incident as it now stands
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Incident or assignee not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/investigations/{id}/comments:
+    post:
+      operationId: addInvestigationComment
+      summary: Add a note to an incident's history
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: organization_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddIncidentCommentRequest"
+      responses:
+        "201":
+          description: The line that was added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentEvent"
+        "400":
+          description: A comment that says nothing or weighs more than one
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Incident not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/investigations/{id}/alerts/{alertId}/evidence:
+    get:
+      operationId: getAlertEvidence
+      summary: What the machine knew about why one alert fired
+      description: >-
+        The stored blob is decompressed and decoded by the server. Evidence
+        under a codec this build does not read is reported as such rather than
+        handed back as bytes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: organization_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertEvidence"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Incident or alert not found, or the alert carries no evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: The evidence cannot be read by this build
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/incidents:
+    get:
+      operationId: listDeviceIncidents
+      summary: The incidents one machine is caught up in
+      description: >-
+        The same queue read, narrowed to the incidents holding an alert this
+        machine raised — including the customer-wide ones it is one of forty
+        machines in.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/IncidentStatus"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+      responses:
+        "200":
+          description: One page of the machine's incidents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPage"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/rules:
+    get:
+      operationId: listRules
+      summary: The curated rule pack, and how much of the estate each rule watches
+      description: >-
+        Definitions are compiled into the server; this read shows what each rule
+        watches, how far it has rolled out, and its coverage split. The four
+        coverage states always add up to the fleet size, so a rule with a
+        standing blind spot says so rather than looking healthy.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          description: Whose estate the coverage counts are taken against.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The catalogue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleCatalogue"
+        "401":
+          description: Unauthorized
           content:
             application/json:
               schema:

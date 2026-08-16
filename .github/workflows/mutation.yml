@@ -78,6 +78,7 @@ jobs:
           - { language: go, shard: go-api-runtime }
           - { language: go, shard: go-api-identity-admin }
           - { language: go, shard: go-api-device-operations }
+          - { language: go, shard: go-api-investigations }
           - { language: go, shard: go-api-provisioning-lifecycle }
           # Run 29305387129 showed conn_backfill.go and handshaker.go each
           # produce long timeout waves; separate them so neither pays both.

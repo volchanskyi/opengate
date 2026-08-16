@@ -175,7 +175,7 @@ mutation_web_shards() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-identity-admin go-api-device-operations go-api-provisioning-lifecycle go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
+  echo "go-api-runtime go-api-identity-admin go-api-device-operations go-api-investigations go-api-provisioning-lifecycle go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
 }
 
 mutation_all_shards() {
@@ -204,6 +204,9 @@ mutation_go_shard_units() {
       ;;
     go-api-device-operations)
       echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_summary.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_maintenance.go file:internal/api/handlers_device_history.go file:internal/api/handlers_device_inventory.go file:internal/api/handlers_device_metrics.go file:internal/api/handlers_amt.go file:internal/api/handlers_relay.go file:internal/api/handlers_sessions.go"
+      ;;
+    go-api-investigations)
+      echo "file:internal/api/handlers_incidents.go file:internal/api/handlers_incident_moves.go file:internal/api/handlers_incident_evidence.go file:internal/api/handlers_rules.go file:internal/api/converters_incidents.go"
       ;;
     go-api-provisioning-lifecycle)
       echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"

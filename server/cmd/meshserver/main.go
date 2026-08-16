@@ -311,6 +311,14 @@ func main() {
 		WebDir:                *webDir,
 		MetricsRegistry:       metricsRegistry,
 		Metrics:               appMetrics,
+		// The triage queue reads the same store the ingest path writes, and the
+		// rules view is the compiled pack beside how far each rule has reached
+		// and how much of an estate it is watching — the last read comes from the
+		// connection server, which is the only thing that knows what is live.
+		Investigations: alertStore,
+		RuleCatalogue:  ruleCatalogue,
+		RuleRollouts:   ruleStore,
+		RuleCoverage:   agentSrv,
 	})
 
 	httpSrv := &http.Server{

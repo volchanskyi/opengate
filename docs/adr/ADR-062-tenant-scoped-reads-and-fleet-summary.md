@@ -62,9 +62,10 @@ filing label, not an access boundary. Because dropping a column is lossy, the
 down migration restores `owner_id` as nullable; the original `NOT NULL` cannot
 be recreated without the values it held.
 
-Three named guards make the tenant check explicit where a handler acts on
+Named guards make the tenant check explicit where a handler acts on
 a resource addressed by a caller-supplied id: `requireDeviceInScope`,
-`requireAMTDeviceInScope` and `requireSessionInScope`. Naming the step matters
+`requireAMTDeviceInScope`, `requireSessionInScope` and
+`requireIncidentInScope`. Naming the step matters
 for more than readability — the adversarial pen-test gate
 ([ADR-027](ADR-027-adversarial-pentest-precommit-gate.md)) recognises these
 identifiers as valid authorization forms, so a new mutating handler with neither

@@ -113,6 +113,135 @@ func (e DeviceUpdateStatus) Valid() bool {
 	}
 }
 
+// Defines values for IncidentCauseCode.
+const (
+	Duplicate     IncidentCauseCode = "duplicate"
+	ExpectedLoad  IncidentCauseCode = "expected_load"
+	FalsePositive IncidentCauseCode = "false_positive"
+	FixedByTech   IncidentCauseCode = "fixed_by_tech"
+	HardwareFault IncidentCauseCode = "hardware_fault"
+	ResolvedSelf  IncidentCauseCode = "resolved_self"
+	WontFix       IncidentCauseCode = "wont_fix"
+)
+
+// Valid indicates whether the value is a known member of the IncidentCauseCode enum.
+func (e IncidentCauseCode) Valid() bool {
+	switch e {
+	case Duplicate:
+		return true
+	case ExpectedLoad:
+		return true
+	case FalsePositive:
+		return true
+	case FixedByTech:
+		return true
+	case HardwareFault:
+		return true
+	case ResolvedSelf:
+		return true
+	case WontFix:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IncidentEventKind.
+const (
+	AlertFolded   IncidentEventKind = "alert_folded"
+	Assignment    IncidentEventKind = "assignment"
+	Comment       IncidentEventKind = "comment"
+	DeviceOffline IncidentEventKind = "device_offline"
+	Resolution    IncidentEventKind = "resolution"
+	StatusChange  IncidentEventKind = "status_change"
+)
+
+// Valid indicates whether the value is a known member of the IncidentEventKind enum.
+func (e IncidentEventKind) Valid() bool {
+	switch e {
+	case AlertFolded:
+		return true
+	case Assignment:
+		return true
+	case Comment:
+		return true
+	case DeviceOffline:
+		return true
+	case Resolution:
+		return true
+	case StatusChange:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IncidentScope.
+const (
+	IncidentScopeDevice       IncidentScope = "device"
+	IncidentScopeOrganization IncidentScope = "organization"
+	IncidentScopeSite         IncidentScope = "site"
+)
+
+// Valid indicates whether the value is a known member of the IncidentScope enum.
+func (e IncidentScope) Valid() bool {
+	switch e {
+	case IncidentScopeDevice:
+		return true
+	case IncidentScopeOrganization:
+		return true
+	case IncidentScopeSite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IncidentSeverity.
+const (
+	Critical IncidentSeverity = "critical"
+	Info     IncidentSeverity = "info"
+	Warning  IncidentSeverity = "warning"
+)
+
+// Valid indicates whether the value is a known member of the IncidentSeverity enum.
+func (e IncidentSeverity) Valid() bool {
+	switch e {
+	case Critical:
+		return true
+	case Info:
+		return true
+	case Warning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IncidentStatus.
+const (
+	Acknowledged  IncidentStatus = "acknowledged"
+	Investigating IncidentStatus = "investigating"
+	New           IncidentStatus = "new"
+	Resolved      IncidentStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the IncidentStatus enum.
+func (e IncidentStatus) Valid() bool {
+	switch e {
+	case Acknowledged:
+		return true
+	case Investigating:
+		return true
+	case New:
+		return true
+	case Resolved:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InventoryItemKind.
 const (
 	Container InventoryItemKind = "container"
@@ -209,6 +338,30 @@ func (e PurgeJobState) Valid() bool {
 	}
 }
 
+// Defines values for RuleComparator.
+const (
+	Gt  RuleComparator = "gt"
+	Gte RuleComparator = "gte"
+	Lt  RuleComparator = "lt"
+	Lte RuleComparator = "lte"
+)
+
+// Valid indicates whether the value is a known member of the RuleComparator enum.
+func (e RuleComparator) Valid() bool {
+	switch e {
+	case Gt:
+		return true
+	case Gte:
+		return true
+	case Lt:
+		return true
+	case Lte:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetDeviceLogsParamsLevel.
 const (
 	DEBUG GetDeviceLogsParamsLevel = "DEBUG"
@@ -283,6 +436,11 @@ type AMTPowerRequest struct {
 // AMTPowerRequestAction defines model for AMTPowerRequest.Action.
 type AMTPowerRequestAction string
 
+// AddIncidentCommentRequest defines model for AddIncidentCommentRequest.
+type AddIncidentCommentRequest struct {
+	Body string `json:"body"`
+}
+
 // AddSecurityGroupMemberRequest defines model for AddSecurityGroupMemberRequest.
 type AddSecurityGroupMemberRequest struct {
 	UserId openapi_types.UUID `json:"user_id"`
@@ -305,6 +463,18 @@ type AgentSession struct {
 	DeviceId  openapi_types.UUID `json:"device_id"`
 	Token     string             `json:"token"`
 	UserId    openapi_types.UUID `json:"user_id"`
+}
+
+// AlertEvidence Everything the machine knew about why an alert fired, frozen at write time. Nothing can be fetched from the machine afterwards, so what is not here about an event is not recorded anywhere.
+type AlertEvidence struct {
+	// LogSamples Host log lines, redacted on the machine before they were sent.
+	LogSamples []string            `json:"log_samples"`
+	Processes  []EvidenceProcess   `json:"processes"`
+	Ranked     []EvidenceRankedDim `json:"ranked"`
+	Series     []EvidenceSeries    `json:"series"`
+
+	// Truncated Whether the size cap cost this evidence anything, so "nothing was dropped" and "nobody checked" never look alike.
+	Truncated bool `json:"truncated"`
 }
 
 // ApiError defines model for ApiError.
@@ -550,6 +720,33 @@ type EnrollmentToken struct {
 	UseCount  int                `json:"use_count"`
 }
 
+// EvidencePoint defines model for EvidencePoint.
+type EvidencePoint struct {
+	Ts    int64   `json:"ts"`
+	Value float64 `json:"value"`
+}
+
+// EvidenceProcess One process at the event instant.
+type EvidenceProcess struct {
+	Basename string  `json:"basename"`
+	Cpu      float64 `json:"cpu"`
+	Mem      float64 `json:"mem"`
+	Pid      int     `json:"pid"`
+	Rank     int     `json:"rank"`
+}
+
+// EvidenceRankedDim One dimension the machine's own correlation ranked, and how badly it broke pattern.
+type EvidenceRankedDim struct {
+	Dim   string  `json:"dim"`
+	Score float64 `json:"score"`
+}
+
+// EvidenceSeries One dimension's readings either side of the event, at the resolution only the machine holds.
+type EvidenceSeries struct {
+	Dim    string          `json:"dim"`
+	Points []EvidencePoint `json:"points"`
+}
+
 // FleetHealthCounts Devices per edge-health band, classified by the latest node anomaly rate. unknown is total minus the three measured bands — the devices that reported no rate in the badge lookback window.
 type FleetHealthCounts struct {
 	Anomalous int `json:"anomalous"`
@@ -573,6 +770,122 @@ type ICEServer struct {
 	Urls       []string `json:"urls"`
 	Username   *string  `json:"username,omitempty"`
 }
+
+// Incident One room a customer's alerts are investigated in.
+type Incident struct {
+	// AssigneeId Who is working it, absent when nobody has taken it.
+	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
+
+	// CauseCode Absent while open, and when the system closed it.
+	CauseCode *IncidentCauseCode `json:"cause_code,omitempty"`
+
+	// DeviceCount Across how many machines.
+	DeviceCount int `json:"device_count"`
+
+	// FirstSeen Event time, not receipt time — a retroactive finding belongs where it happened.
+	FirstSeen time.Time          `json:"first_seen"`
+	Id        openapi_types.UUID `json:"id"`
+	LastSeen  time.Time          `json:"last_seen"`
+
+	// Occurrences How many alerts have folded in.
+	Occurrences    int                `json:"occurrences"`
+	OpenedAt       time.Time          `json:"opened_at"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+	ResolvedAt     *time.Time         `json:"resolved_at,omitempty"`
+
+	// RuleId The rule that raised it, never the rule version — upgrading a rule while an incident is open must not fork the room somebody is working in.
+	RuleId string `json:"rule_id"`
+
+	// Scope How wide an incident is — the rung its grouping key names. The customer is the broadest there is: folding across customers would put two estates' unrelated events in one room with no correct assignee.
+	Scope IncidentScope `json:"scope"`
+
+	// ScopeKey What the incident is about at that rung.
+	ScopeKey openapi_types.UUID `json:"scope_key"`
+
+	// Severity How bad an incident or one of its alerts is.
+	Severity IncidentSeverity `json:"severity"`
+
+	// Status Where an incident stands. An incident in `new` is the triage queue, which is why there is no separate promotion state.
+	Status IncidentStatus `json:"status"`
+}
+
+// IncidentAlert One alert as its incident lists it. The evidence blob is deliberately not here — it is tens of kilobytes per alert and an incident holds hundreds — so this says what evidence exists and what fetching it costs.
+type IncidentAlert struct {
+	// Backfilled A finding a retroactive scan produced over local history.
+	Backfilled bool               `json:"backfilled"`
+	DeviceId   openapi_types.UUID `json:"device_id"`
+
+	// EvidenceBytes Compressed weight of the evidence, zero when there is none.
+	EvidenceBytes int `json:"evidence_bytes"`
+
+	// EvidenceCodec How the evidence is compressed, empty when there is none.
+	EvidenceCodec *string            `json:"evidence_codec,omitempty"`
+	Id            openapi_types.UUID `json:"id"`
+
+	// Metric Empty for a rule that fires on an event rather than a reading.
+	Metric      *string   `json:"metric,omitempty"`
+	ObservedAt  time.Time `json:"observed_at"`
+	ReceivedAt  time.Time `json:"received_at"`
+	RuleId      string    `json:"rule_id"`
+	RuleVersion int       `json:"rule_version"`
+
+	// Severity How bad an incident or one of its alerts is.
+	Severity    IncidentSeverity `json:"severity"`
+	Value       *float64         `json:"value,omitempty"`
+	WindowEnd   time.Time        `json:"window_end"`
+	WindowStart time.Time        `json:"window_start"`
+}
+
+// IncidentCauseCode A person's answer for why an incident ended, required when resolving one. `false_positive` is the channel that says which curated rule needs its threshold moved.
+type IncidentCauseCode string
+
+// IncidentDetail The whole of one incident, as somebody opening it sees it.
+type IncidentDetail struct {
+	// Alerts The most recent alerts, bounded.
+	Alerts []IncidentAlert `json:"alerts"`
+
+	// AlertsTotal How many there are altogether, so a bounded page says what it is a page of.
+	AlertsTotal int `json:"alerts_total"`
+
+	// Events The history, in the order it happened.
+	Events      []IncidentEvent `json:"events"`
+	EventsTotal int             `json:"events_total"`
+
+	// Incident One room a customer's alerts are investigated in.
+	Incident Incident `json:"incident"`
+}
+
+// IncidentEvent One line of an incident's history. The incident's own fields say where it stands; these say how it got there, which is what a handover between two technicians reads.
+type IncidentEvent struct {
+	// ActorId Who did it, absent when the system did.
+	ActorId *openapi_types.UUID `json:"actor_id,omitempty"`
+	At      time.Time           `json:"at"`
+
+	// Body What the line says, in the shape its kind defines.
+	Body map[string]interface{} `json:"body"`
+	Id   openapi_types.UUID     `json:"id"`
+	Kind IncidentEventKind      `json:"kind"`
+}
+
+// IncidentEventKind defines model for IncidentEvent.Kind.
+type IncidentEventKind string
+
+// IncidentPage One page of the triage queue, and where the next one starts.
+type IncidentPage struct {
+	Items []Incident `json:"items"`
+
+	// NextCursor Pass as `cursor` to read on. Absent when the page reached the end of the queue. The queue is paged by position rather than by offset, because an offset over a queue that is being written to skips rows silently.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// IncidentScope How wide an incident is — the rung its grouping key names. The customer is the broadest there is: folding across customers would put two estates' unrelated events in one room with no correct assignee.
+type IncidentScope string
+
+// IncidentSeverity How bad an incident or one of its alerts is.
+type IncidentSeverity string
+
+// IncidentStatus Where an incident stands. An incident in `new` is the triage queue, which is why there is no separate promotion state.
+type IncidentStatus string
 
 // InventoryItem defines model for InventoryItem.
 type InventoryItem struct {
@@ -727,6 +1040,78 @@ type RestartDeviceRequest struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// Rule One curated rule as the fleet runs it. Definitions are compiled into the server and are not editable here — what a customer may change is the numbers each rule declares tunable, and whether it is rolled out.
+type Rule struct {
+	Comparator RuleComparator `json:"comparator"`
+
+	// Coverage How much of a customer's estate one rule is actually watching. The four states always add up to the fleet — three of them would make a rule look like it was watching a smaller estate than it is.
+	Coverage RuleCoverage `json:"coverage"`
+
+	// CoverageRequires What a machine must be able to read for this rule to be evaluable on it.
+	CoverageRequires []string `json:"coverage_requires"`
+	Evidence         []string `json:"evidence"`
+	GroupBy          []string `json:"group_by"`
+
+	// GroupWindowSecs How long firings on one key stay one incident, and the hold before an idle one resolves itself.
+	GroupWindowSecs int    `json:"group_window_secs"`
+	Id              string `json:"id"`
+	Metric          string `json:"metric"`
+
+	// Rollout How far a rule has reached across a customer's estate.
+	Rollout RuleRollout `json:"rollout"`
+
+	// Summary What the rule is for, in an operator's words.
+	Summary     string                         `json:"summary"`
+	SustainSecs *int                           `json:"sustain_secs,omitempty"`
+	Threshold   float64                        `json:"threshold"`
+	Tunable     map[string]RuleParameterBounds `json:"tunable"`
+	Version     int                            `json:"version"`
+}
+
+// RuleComparator defines model for Rule.Comparator.
+type RuleComparator string
+
+// RuleCatalogue The curated pack and what each rule is watching.
+type RuleCatalogue struct {
+	// FleetSize How many machines the coverage counts were taken against. Every rule's four coverage states add up to this.
+	FleetSize int    `json:"fleet_size"`
+	Rules     []Rule `json:"rules"`
+}
+
+// RuleCoverage How much of a customer's estate one rule is actually watching. The four states always add up to the fleet — three of them would make a rule look like it was watching a smaller estate than it is.
+type RuleCoverage struct {
+	// Active Machines evaluating the rule.
+	Active int `json:"active"`
+
+	// Throttled Machines that stopped evaluating it because it cost more than its allowance.
+	Throttled int `json:"throttled"`
+
+	// Unknown Machines that have reported nothing.
+	Unknown int `json:"unknown"`
+
+	// Unsupported Machines that cannot evaluate it at all — a standing hole in the monitoring.
+	Unsupported int `json:"unsupported"`
+}
+
+// RuleParameterBounds How far a customer may retune one parameter.
+type RuleParameterBounds struct {
+	Max float64 `json:"max"`
+	Min float64 `json:"min"`
+
+	// Shipped The value the catalogue ships.
+	Shipped float64 `json:"shipped"`
+}
+
+// RuleRollout How far a rule has reached across a customer's estate.
+type RuleRollout struct {
+	CanaryGroup *string `json:"canary_group,omitempty"`
+	Enabled     bool    `json:"enabled"`
+
+	// Kill The switch that stops a rule without a deploy.
+	Kill           bool `json:"kill"`
+	RolloutPercent int  `json:"rollout_percent"`
+}
+
 // SecurityGroup defines model for SecurityGroup.
 type SecurityGroup struct {
 	CreatedAt   time.Time          `json:"created_at"`
@@ -746,6 +1131,21 @@ type SecurityGroupWithMembers struct {
 	Members     []User             `json:"members"`
 	Name        string             `json:"name"`
 	UpdatedAt   time.Time          `json:"updated_at"`
+}
+
+// SetIncidentAssigneeRequest defines model for SetIncidentAssigneeRequest.
+type SetIncidentAssigneeRequest struct {
+	// AssigneeId Who takes it. Null hands it back to the queue, which is the move a technician going off shift makes.
+	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
+}
+
+// SetIncidentStatusRequest defines model for SetIncidentStatusRequest.
+type SetIncidentStatusRequest struct {
+	// CauseCode Required when resolving, refused otherwise. A resolution that skips it spends the feedback the rule pack is tuned from.
+	CauseCode *IncidentCauseCode `json:"cause_code,omitempty"`
+
+	// Status Where an incident stands. An incident in `new` is the triage queue, which is why there is no separate promotion state.
+	Status IncidentStatus `json:"status"`
 }
 
 // SetMaintenanceRequest defines model for SetMaintenanceRequest.
@@ -849,6 +1249,13 @@ type GetDeviceHistoryParams struct {
 	MaxPoints *int `form:"max_points,omitempty" json:"max_points,omitempty"`
 }
 
+// ListDeviceIncidentsParams defines parameters for ListDeviceIncidents.
+type ListDeviceIncidentsParams struct {
+	Status *[]IncidentStatus `form:"status,omitempty" json:"status,omitempty"`
+	Cursor *string           `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int              `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // GetDeviceLogsParams defines parameters for GetDeviceLogs.
 type GetDeviceLogsParams struct {
 	Level  *GetDeviceLogsParamsLevel `form:"level,omitempty" json:"level,omitempty"`
@@ -889,9 +1296,60 @@ type GetDeviceMetricsParams struct {
 // GetDeviceMetricsParamsBand defines parameters for GetDeviceMetrics.
 type GetDeviceMetricsParamsBand string
 
+// ListInvestigationsParams defines parameters for ListInvestigations.
+type ListInvestigationsParams struct {
+	// OrganizationId Narrow to one customer.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+
+	// Status Narrow to a set of statuses.
+	Status   *[]IncidentStatus   `form:"status,omitempty" json:"status,omitempty"`
+	Severity *[]IncidentSeverity `form:"severity,omitempty" json:"severity,omitempty"`
+	RuleId   *string             `form:"rule_id,omitempty" json:"rule_id,omitempty"`
+
+	// DeviceId Narrow to the incidents holding an alert this machine raised.
+	DeviceId   *openapi_types.UUID `form:"device_id,omitempty" json:"device_id,omitempty"`
+	AssigneeId *openapi_types.UUID `form:"assignee_id,omitempty" json:"assignee_id,omitempty"`
+
+	// Cursor Where the previous page ended, from that page's next_cursor.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetInvestigationParams defines parameters for GetInvestigation.
+type GetInvestigationParams struct {
+	// OrganizationId The customer being looked at. An incident outside it answers the same as one that does not exist.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// GetAlertEvidenceParams defines parameters for GetAlertEvidence.
+type GetAlertEvidenceParams struct {
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// SetInvestigationAssigneeParams defines parameters for SetInvestigationAssignee.
+type SetInvestigationAssigneeParams struct {
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// AddInvestigationCommentParams defines parameters for AddInvestigationComment.
+type AddInvestigationCommentParams struct {
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// SetInvestigationStatusParams defines parameters for SetInvestigationStatus.
+type SetInvestigationStatusParams struct {
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
 // ListOrganizationsParams defines parameters for ListOrganizations.
 type ListOrganizationsParams struct {
 	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+}
+
+// ListRulesParams defines parameters for ListRules.
+type ListRulesParams struct {
+	// OrganizationId Whose estate the coverage counts are taken against.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
 }
 
 // ListSessionsParams defines parameters for ListSessions.
@@ -934,6 +1392,15 @@ type EnrollJSONRequestBody = EnrollRequest
 
 // CreateEnrollmentTokenJSONRequestBody defines body for CreateEnrollmentToken for application/json ContentType.
 type CreateEnrollmentTokenJSONRequestBody = CreateEnrollmentTokenRequest
+
+// SetInvestigationAssigneeJSONRequestBody defines body for SetInvestigationAssignee for application/json ContentType.
+type SetInvestigationAssigneeJSONRequestBody = SetIncidentAssigneeRequest
+
+// AddInvestigationCommentJSONRequestBody defines body for AddInvestigationComment for application/json ContentType.
+type AddInvestigationCommentJSONRequestBody = AddIncidentCommentRequest
+
+// SetInvestigationStatusJSONRequestBody defines body for SetInvestigationStatus for application/json ContentType.
+type SetInvestigationStatusJSONRequestBody = SetIncidentStatusRequest
 
 // CreateOrganizationJSONRequestBody defines body for CreateOrganization for application/json ContentType.
 type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
@@ -1006,6 +1473,9 @@ type ServerInterface interface {
 	// On-demand full-resolution local history for one dimension
 	// (GET /api/v1/devices/{id}/history)
 	GetDeviceHistory(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params GetDeviceHistoryParams)
+	// The incidents one machine is caught up in
+	// (GET /api/v1/devices/{id}/incidents)
+	ListDeviceIncidents(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params ListDeviceIncidentsParams)
 	// Discovered software and service inventory for a device
 	// (GET /api/v1/devices/{id}/inventory)
 	GetDeviceInventory(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
@@ -1039,6 +1509,24 @@ type ServerInterface interface {
 	// Health check
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// The triage queue
+	// (GET /api/v1/investigations)
+	ListInvestigations(w http.ResponseWriter, r *http.Request, params ListInvestigationsParams)
+	// One incident with its alerts and its timeline
+	// (GET /api/v1/investigations/{id})
+	GetInvestigation(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params GetInvestigationParams)
+	// What the machine knew about why one alert fired
+	// (GET /api/v1/investigations/{id}/alerts/{alertId}/evidence)
+	GetAlertEvidence(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, alertId openapi_types.UUID, params GetAlertEvidenceParams)
+	// Say who is working an incident
+	// (POST /api/v1/investigations/{id}/assignee)
+	SetInvestigationAssignee(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params SetInvestigationAssigneeParams)
+	// Add a note to an incident's history
+	// (POST /api/v1/investigations/{id}/comments)
+	AddInvestigationComment(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params AddInvestigationCommentParams)
+	// Move an incident through its lifecycle
+	// (POST /api/v1/investigations/{id}/status)
+	SetInvestigationStatus(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params SetInvestigationStatusParams)
 	// List the tenant's customers
 	// (GET /api/v1/organizations)
 	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
@@ -1066,6 +1554,9 @@ type ServerInterface interface {
 	// Get server VAPID public key
 	// (GET /api/v1/push/vapid-key)
 	GetVapidKey(w http.ResponseWriter, r *http.Request)
+	// The curated rule pack, and how much of the estate each rule watches
+	// (GET /api/v1/rules)
+	ListRules(w http.ResponseWriter, r *http.Request, params ListRulesParams)
 	// List all security groups (admin only)
 	// (GET /api/v1/security-groups)
 	ListSecurityGroups(w http.ResponseWriter, r *http.Request)
@@ -1219,6 +1710,12 @@ func (_ Unimplemented) GetDeviceHistory(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The incidents one machine is caught up in
+// (GET /api/v1/devices/{id}/incidents)
+func (_ Unimplemented) ListDeviceIncidents(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params ListDeviceIncidentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Discovered software and service inventory for a device
 // (GET /api/v1/devices/{id}/inventory)
 func (_ Unimplemented) GetDeviceInventory(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
@@ -1285,6 +1782,42 @@ func (_ Unimplemented) GetHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The triage queue
+// (GET /api/v1/investigations)
+func (_ Unimplemented) ListInvestigations(w http.ResponseWriter, r *http.Request, params ListInvestigationsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One incident with its alerts and its timeline
+// (GET /api/v1/investigations/{id})
+func (_ Unimplemented) GetInvestigation(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params GetInvestigationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What the machine knew about why one alert fired
+// (GET /api/v1/investigations/{id}/alerts/{alertId}/evidence)
+func (_ Unimplemented) GetAlertEvidence(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, alertId openapi_types.UUID, params GetAlertEvidenceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Say who is working an incident
+// (POST /api/v1/investigations/{id}/assignee)
+func (_ Unimplemented) SetInvestigationAssignee(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params SetInvestigationAssigneeParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a note to an incident's history
+// (POST /api/v1/investigations/{id}/comments)
+func (_ Unimplemented) AddInvestigationComment(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params AddInvestigationCommentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Move an incident through its lifecycle
+// (POST /api/v1/investigations/{id}/status)
+func (_ Unimplemented) SetInvestigationStatus(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params SetInvestigationStatusParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List the tenant's customers
 // (GET /api/v1/organizations)
 func (_ Unimplemented) ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams) {
@@ -1336,6 +1869,12 @@ func (_ Unimplemented) SubscribePush(w http.ResponseWriter, r *http.Request) {
 // Get server VAPID public key
 // (GET /api/v1/push/vapid-key)
 func (_ Unimplemented) GetVapidKey(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The curated rule pack, and how much of the estate each rule watches
+// (GET /api/v1/rules)
+func (_ Unimplemented) ListRules(w http.ResponseWriter, r *http.Request, params ListRulesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1913,6 +2452,64 @@ func (siw *ServerInterfaceWrapper) GetDeviceHistory(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ListDeviceIncidents operation middleware
+func (siw *ServerInterfaceWrapper) ListDeviceIncidents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDeviceIncidentsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", false, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDeviceIncidents(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetDeviceInventory operation middleware
 func (siw *ServerInterfaceWrapper) GetDeviceInventory(w http.ResponseWriter, r *http.Request) {
 
@@ -2333,6 +2930,314 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListInvestigations operation middleware
+func (siw *ServerInterfaceWrapper) ListInvestigations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListInvestigationsParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", false, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "severity" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", false, false, "severity", r.URL.Query(), &params.Severity, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "severity", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "rule_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "rule_id", r.URL.Query(), &params.RuleId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rule_id", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "device_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "device_id", r.URL.Query(), &params.DeviceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "device_id", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "assignee_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee_id", r.URL.Query(), &params.AssigneeId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assignee_id", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInvestigations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetInvestigation operation middleware
+func (siw *ServerInterfaceWrapper) GetInvestigation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetInvestigationParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetInvestigation(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAlertEvidence operation middleware
+func (siw *ServerInterfaceWrapper) GetAlertEvidence(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "alertId" -------------
+	var alertId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "alertId", chi.URLParam(r, "alertId"), &alertId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "alertId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAlertEvidenceParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAlertEvidence(w, r, id, alertId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetInvestigationAssignee operation middleware
+func (siw *ServerInterfaceWrapper) SetInvestigationAssignee(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetInvestigationAssigneeParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetInvestigationAssignee(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddInvestigationComment operation middleware
+func (siw *ServerInterfaceWrapper) AddInvestigationComment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AddInvestigationCommentParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddInvestigationComment(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetInvestigationStatus operation middleware
+func (siw *ServerInterfaceWrapper) SetInvestigationStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetInvestigationStatusParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetInvestigationStatus(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListOrganizations operation middleware
 func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 
@@ -2561,6 +3466,39 @@ func (siw *ServerInterfaceWrapper) GetVapidKey(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetVapidKey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRules operation middleware
+func (siw *ServerInterfaceWrapper) ListRules(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRulesParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRules(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3371,6 +4309,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/devices/{id}/history", wrapper.GetDeviceHistory)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/devices/{id}/incidents", wrapper.ListDeviceIncidents)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{id}/inventory", wrapper.GetDeviceInventory)
 	})
 	r.Group(func(r chi.Router) {
@@ -3404,6 +4345,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/health", wrapper.GetHealth)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/investigations", wrapper.ListInvestigations)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/investigations/{id}", wrapper.GetInvestigation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/investigations/{id}/alerts/{alertId}/evidence", wrapper.GetAlertEvidence)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/investigations/{id}/assignee", wrapper.SetInvestigationAssignee)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/investigations/{id}/comments", wrapper.AddInvestigationComment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/investigations/{id}/status", wrapper.SetInvestigationStatus)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/organizations", wrapper.ListOrganizations)
 	})
 	r.Group(func(r chi.Router) {
@@ -3429,6 +4388,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/push/vapid-key", wrapper.GetVapidKey)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/rules", wrapper.ListRules)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/security-groups", wrapper.ListSecurityGroups)
@@ -3991,6 +4953,51 @@ func (response GetDeviceHistory504JSONResponse) VisitGetDeviceHistoryResponse(w 
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListDeviceIncidentsRequestObject struct {
+	Id     openapi_types.UUID `json:"id"`
+	Params ListDeviceIncidentsParams
+}
+
+type ListDeviceIncidentsResponseObject interface {
+	VisitListDeviceIncidentsResponse(w http.ResponseWriter) error
+}
+
+type ListDeviceIncidents200JSONResponse IncidentPage
+
+func (response ListDeviceIncidents200JSONResponse) VisitListDeviceIncidentsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDeviceIncidents400JSONResponse ApiError
+
+func (response ListDeviceIncidents400JSONResponse) VisitListDeviceIncidentsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDeviceIncidents401JSONResponse ApiError
+
+func (response ListDeviceIncidents401JSONResponse) VisitListDeviceIncidentsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDeviceIncidents404JSONResponse ApiError
+
+func (response ListDeviceIncidents404JSONResponse) VisitListDeviceIncidentsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type GetDeviceInventoryRequestObject struct {
 	Id openapi_types.UUID `json:"id"`
 }
@@ -4488,6 +5495,261 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListInvestigationsRequestObject struct {
+	Params ListInvestigationsParams
+}
+
+type ListInvestigationsResponseObject interface {
+	VisitListInvestigationsResponse(w http.ResponseWriter) error
+}
+
+type ListInvestigations200JSONResponse IncidentPage
+
+func (response ListInvestigations200JSONResponse) VisitListInvestigationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListInvestigations400JSONResponse ApiError
+
+func (response ListInvestigations400JSONResponse) VisitListInvestigationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListInvestigations401JSONResponse ApiError
+
+func (response ListInvestigations401JSONResponse) VisitListInvestigationsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetInvestigationRequestObject struct {
+	Id     openapi_types.UUID `json:"id"`
+	Params GetInvestigationParams
+}
+
+type GetInvestigationResponseObject interface {
+	VisitGetInvestigationResponse(w http.ResponseWriter) error
+}
+
+type GetInvestigation200JSONResponse IncidentDetail
+
+func (response GetInvestigation200JSONResponse) VisitGetInvestigationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetInvestigation401JSONResponse ApiError
+
+func (response GetInvestigation401JSONResponse) VisitGetInvestigationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetInvestigation404JSONResponse ApiError
+
+func (response GetInvestigation404JSONResponse) VisitGetInvestigationResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAlertEvidenceRequestObject struct {
+	Id      openapi_types.UUID `json:"id"`
+	AlertId openapi_types.UUID `json:"alertId"`
+	Params  GetAlertEvidenceParams
+}
+
+type GetAlertEvidenceResponseObject interface {
+	VisitGetAlertEvidenceResponse(w http.ResponseWriter) error
+}
+
+type GetAlertEvidence200JSONResponse AlertEvidence
+
+func (response GetAlertEvidence200JSONResponse) VisitGetAlertEvidenceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAlertEvidence401JSONResponse ApiError
+
+func (response GetAlertEvidence401JSONResponse) VisitGetAlertEvidenceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAlertEvidence404JSONResponse ApiError
+
+func (response GetAlertEvidence404JSONResponse) VisitGetAlertEvidenceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAlertEvidence422JSONResponse ApiError
+
+func (response GetAlertEvidence422JSONResponse) VisitGetAlertEvidenceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SetInvestigationAssigneeRequestObject struct {
+	Id     openapi_types.UUID `json:"id"`
+	Params SetInvestigationAssigneeParams
+	Body   *SetInvestigationAssigneeJSONRequestBody
+}
+
+type SetInvestigationAssigneeResponseObject interface {
+	VisitSetInvestigationAssigneeResponse(w http.ResponseWriter) error
+}
+
+type SetInvestigationAssignee200JSONResponse Incident
+
+func (response SetInvestigationAssignee200JSONResponse) VisitSetInvestigationAssigneeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SetInvestigationAssignee400JSONResponse ApiError
+
+func (response SetInvestigationAssignee400JSONResponse) VisitSetInvestigationAssigneeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SetInvestigationAssignee401JSONResponse ApiError
+
+func (response SetInvestigationAssignee401JSONResponse) VisitSetInvestigationAssigneeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SetInvestigationAssignee404JSONResponse ApiError
+
+func (response SetInvestigationAssignee404JSONResponse) VisitSetInvestigationAssigneeResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AddInvestigationCommentRequestObject struct {
+	Id     openapi_types.UUID `json:"id"`
+	Params AddInvestigationCommentParams
+	Body   *AddInvestigationCommentJSONRequestBody
+}
+
+type AddInvestigationCommentResponseObject interface {
+	VisitAddInvestigationCommentResponse(w http.ResponseWriter) error
+}
+
+type AddInvestigationComment201JSONResponse IncidentEvent
+
+func (response AddInvestigationComment201JSONResponse) VisitAddInvestigationCommentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AddInvestigationComment400JSONResponse ApiError
+
+func (response AddInvestigationComment400JSONResponse) VisitAddInvestigationCommentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AddInvestigationComment401JSONResponse ApiError
+
+func (response AddInvestigationComment401JSONResponse) VisitAddInvestigationCommentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AddInvestigationComment404JSONResponse ApiError
+
+func (response AddInvestigationComment404JSONResponse) VisitAddInvestigationCommentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SetInvestigationStatusRequestObject struct {
+	Id     openapi_types.UUID `json:"id"`
+	Params SetInvestigationStatusParams
+	Body   *SetInvestigationStatusJSONRequestBody
+}
+
+type SetInvestigationStatusResponseObject interface {
+	VisitSetInvestigationStatusResponse(w http.ResponseWriter) error
+}
+
+type SetInvestigationStatus200JSONResponse Incident
+
+func (response SetInvestigationStatus200JSONResponse) VisitSetInvestigationStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SetInvestigationStatus400JSONResponse ApiError
+
+func (response SetInvestigationStatus400JSONResponse) VisitSetInvestigationStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SetInvestigationStatus401JSONResponse ApiError
+
+func (response SetInvestigationStatus401JSONResponse) VisitSetInvestigationStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SetInvestigationStatus404JSONResponse ApiError
+
+func (response SetInvestigationStatus404JSONResponse) VisitSetInvestigationStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListOrganizationsRequestObject struct {
 	Params ListOrganizationsParams
 }
@@ -4830,6 +6092,32 @@ func (response GetVapidKey200JSONResponse) VisitGetVapidKeyResponse(w http.Respo
 type GetVapidKey401JSONResponse ApiError
 
 func (response GetVapidKey401JSONResponse) VisitGetVapidKeyResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListRulesRequestObject struct {
+	Params ListRulesParams
+}
+
+type ListRulesResponseObject interface {
+	VisitListRulesResponse(w http.ResponseWriter) error
+}
+
+type ListRules200JSONResponse RuleCatalogue
+
+func (response ListRules200JSONResponse) VisitListRulesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListRules401JSONResponse ApiError
+
+func (response ListRules401JSONResponse) VisitListRulesResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
 
@@ -5823,6 +7111,9 @@ type StrictServerInterface interface {
 	// On-demand full-resolution local history for one dimension
 	// (GET /api/v1/devices/{id}/history)
 	GetDeviceHistory(ctx context.Context, request GetDeviceHistoryRequestObject) (GetDeviceHistoryResponseObject, error)
+	// The incidents one machine is caught up in
+	// (GET /api/v1/devices/{id}/incidents)
+	ListDeviceIncidents(ctx context.Context, request ListDeviceIncidentsRequestObject) (ListDeviceIncidentsResponseObject, error)
 	// Discovered software and service inventory for a device
 	// (GET /api/v1/devices/{id}/inventory)
 	GetDeviceInventory(ctx context.Context, request GetDeviceInventoryRequestObject) (GetDeviceInventoryResponseObject, error)
@@ -5856,6 +7147,24 @@ type StrictServerInterface interface {
 	// Health check
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// The triage queue
+	// (GET /api/v1/investigations)
+	ListInvestigations(ctx context.Context, request ListInvestigationsRequestObject) (ListInvestigationsResponseObject, error)
+	// One incident with its alerts and its timeline
+	// (GET /api/v1/investigations/{id})
+	GetInvestigation(ctx context.Context, request GetInvestigationRequestObject) (GetInvestigationResponseObject, error)
+	// What the machine knew about why one alert fired
+	// (GET /api/v1/investigations/{id}/alerts/{alertId}/evidence)
+	GetAlertEvidence(ctx context.Context, request GetAlertEvidenceRequestObject) (GetAlertEvidenceResponseObject, error)
+	// Say who is working an incident
+	// (POST /api/v1/investigations/{id}/assignee)
+	SetInvestigationAssignee(ctx context.Context, request SetInvestigationAssigneeRequestObject) (SetInvestigationAssigneeResponseObject, error)
+	// Add a note to an incident's history
+	// (POST /api/v1/investigations/{id}/comments)
+	AddInvestigationComment(ctx context.Context, request AddInvestigationCommentRequestObject) (AddInvestigationCommentResponseObject, error)
+	// Move an incident through its lifecycle
+	// (POST /api/v1/investigations/{id}/status)
+	SetInvestigationStatus(ctx context.Context, request SetInvestigationStatusRequestObject) (SetInvestigationStatusResponseObject, error)
 	// List the tenant's customers
 	// (GET /api/v1/organizations)
 	ListOrganizations(ctx context.Context, request ListOrganizationsRequestObject) (ListOrganizationsResponseObject, error)
@@ -5883,6 +7192,9 @@ type StrictServerInterface interface {
 	// Get server VAPID public key
 	// (GET /api/v1/push/vapid-key)
 	GetVapidKey(ctx context.Context, request GetVapidKeyRequestObject) (GetVapidKeyResponseObject, error)
+	// The curated rule pack, and how much of the estate each rule watches
+	// (GET /api/v1/rules)
+	ListRules(ctx context.Context, request ListRulesRequestObject) (ListRulesResponseObject, error)
 	// List all security groups (admin only)
 	// (GET /api/v1/security-groups)
 	ListSecurityGroups(ctx context.Context, request ListSecurityGroupsRequestObject) (ListSecurityGroupsResponseObject, error)
@@ -6331,6 +7643,33 @@ func (sh *strictHandler) GetDeviceHistory(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// ListDeviceIncidents operation middleware
+func (sh *strictHandler) ListDeviceIncidents(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params ListDeviceIncidentsParams) {
+	var request ListDeviceIncidentsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDeviceIncidents(ctx, request.(ListDeviceIncidentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDeviceIncidents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDeviceIncidentsResponseObject); ok {
+		if err := validResponse.VisitListDeviceIncidentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetDeviceInventory operation middleware
 func (sh *strictHandler) GetDeviceInventory(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	var request GetDeviceInventoryRequestObject
@@ -6651,6 +7990,189 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListInvestigations operation middleware
+func (sh *strictHandler) ListInvestigations(w http.ResponseWriter, r *http.Request, params ListInvestigationsParams) {
+	var request ListInvestigationsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInvestigations(ctx, request.(ListInvestigationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInvestigations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInvestigationsResponseObject); ok {
+		if err := validResponse.VisitListInvestigationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetInvestigation operation middleware
+func (sh *strictHandler) GetInvestigation(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params GetInvestigationParams) {
+	var request GetInvestigationRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetInvestigation(ctx, request.(GetInvestigationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetInvestigation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetInvestigationResponseObject); ok {
+		if err := validResponse.VisitGetInvestigationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAlertEvidence operation middleware
+func (sh *strictHandler) GetAlertEvidence(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, alertId openapi_types.UUID, params GetAlertEvidenceParams) {
+	var request GetAlertEvidenceRequestObject
+
+	request.Id = id
+	request.AlertId = alertId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAlertEvidence(ctx, request.(GetAlertEvidenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAlertEvidence")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAlertEvidenceResponseObject); ok {
+		if err := validResponse.VisitGetAlertEvidenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetInvestigationAssignee operation middleware
+func (sh *strictHandler) SetInvestigationAssignee(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params SetInvestigationAssigneeParams) {
+	var request SetInvestigationAssigneeRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body SetInvestigationAssigneeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetInvestigationAssignee(ctx, request.(SetInvestigationAssigneeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetInvestigationAssignee")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetInvestigationAssigneeResponseObject); ok {
+		if err := validResponse.VisitSetInvestigationAssigneeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddInvestigationComment operation middleware
+func (sh *strictHandler) AddInvestigationComment(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params AddInvestigationCommentParams) {
+	var request AddInvestigationCommentRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body AddInvestigationCommentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddInvestigationComment(ctx, request.(AddInvestigationCommentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddInvestigationComment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddInvestigationCommentResponseObject); ok {
+		if err := validResponse.VisitAddInvestigationCommentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetInvestigationStatus operation middleware
+func (sh *strictHandler) SetInvestigationStatus(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, params SetInvestigationStatusParams) {
+	var request SetInvestigationStatusRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body SetInvestigationStatusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetInvestigationStatus(ctx, request.(SetInvestigationStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetInvestigationStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetInvestigationStatusResponseObject); ok {
+		if err := validResponse.VisitSetInvestigationStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListOrganizations operation middleware
 func (sh *strictHandler) ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams) {
 	var request ListOrganizationsRequestObject
@@ -6898,6 +8420,32 @@ func (sh *strictHandler) GetVapidKey(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetVapidKeyResponseObject); ok {
 		if err := validResponse.VisitGetVapidKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRules operation middleware
+func (sh *strictHandler) ListRules(w http.ResponseWriter, r *http.Request, params ListRulesParams) {
+	var request ListRulesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRules(ctx, request.(ListRulesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRules")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRulesResponseObject); ok {
+		if err := validResponse.VisitListRulesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7584,173 +9132,242 @@ func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id o
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"AA==",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

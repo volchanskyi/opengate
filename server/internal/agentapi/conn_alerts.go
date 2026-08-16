@@ -43,13 +43,10 @@ const (
 	maxAlertPayloadBytes = protocol.MaxEvidenceBytes + alertEnvelopeHeadroomBytes
 
 	// maxEvidenceInflatedBytes bounds what compressed evidence is allowed to
-	// expand to while it is being checked. The composition is fixed — eight
-	// ranked dimensions, three series of at most 512 points, ten processes,
-	// twenty log lines — so a megabyte is orders of magnitude more than any
-	// honest blob needs. What it refuses is the dishonest one: 64 KiB of
-	// DEFLATE can name gigabytes of output, and inflating it to find out would
-	// be the server doing the endpoint's bidding.
-	maxEvidenceInflatedBytes = 1 << 20
+	// expand to while it is being checked. It is the bound the read path applies
+	// too: a blob admitted here is one somebody opens an incident to read, and
+	// two numbers for one contract would let a blob be storable and unreadable.
+	maxEvidenceInflatedBytes = protocol.MaxEvidenceInflatedBytes
 
 	// fallbackGroupWindow is how long two firings stay one room when the rule
 	// that raised them cannot be resolved. A quarter of an hour is the shortest

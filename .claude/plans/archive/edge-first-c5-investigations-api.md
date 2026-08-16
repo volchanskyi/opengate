@@ -21,7 +21,7 @@ the rules view).
 
 ## Authorization — a decision the master plan leaves open (state it, don't drift)
 
-[ADR-062](../../docs/adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md) settles the shape:
+[ADR-062](../../../docs/adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md) settles the shape:
 the **tenant** is the visibility boundary, `is_admin` the mutation boundary for *configuration*,
 and device *commands* need tenant membership only. (That ADR predates the tenancy rework and says
 "organization" for what is now the tenant — EF-Z1 reconciles its wording.)
@@ -33,11 +33,11 @@ handler code, and use the named-guard idiom the ADR-027 pen-test rules recognise
 
 ## File inventory
 
-- **Modify:** [api/openapi.yaml](../../api/openapi.yaml) — the paths above; regen Go
+- **Modify:** [api/openapi.yaml](../../../api/openapi.yaml) — the paths above; regen Go
   (`oapi-codegen`) and TS (`npm run generate:api`) in the same commit.
 - **Create:** `server/internal/api/handlers_incidents.go` (+ tests).
-- **Modify:** [api.go](../../server/internal/api/api.go) — wire the store/engine ports.
-- **Docs:** [API-Reference.md](../../docs/API-Reference.md).
+- **Modify:** [api.go](../../../server/internal/api/api.go) — wire the store/engine ports.
+- **Docs:** [API-Reference.md](../../../docs/API-Reference.md).
 
 ## Steps (TDD-first)
 

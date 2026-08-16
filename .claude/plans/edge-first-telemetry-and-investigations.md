@@ -1380,7 +1380,7 @@ W1–W6 and §14's close-out folds them back.
 | `archive/edge-first-c2-alert-store-and-ingest.md` | 16, 18 (erasure) | C1, C7, C8 | C1 |
 | `archive/edge-first-c3-incident-engine.md` | 17 | C2–C6 | C2 |
 | `archive/edge-first-c4-aggregate-metrics-and-q12.md` | 19 | C11, C15 | C2, C3, B8 |
-| `edge-first-c5-investigations-api.md` | 20 | C12 | C3, B8, B9 |
+| `archive/edge-first-c5-investigations-api.md` | 20 | C12 | C3, B8, B9 |
 | `edge-first-c6-investigations-web.md` | 21 | W1–W6 (plan-local) | C5, B2 |
 | `edge-first-z1-close-out.md` | 22 | — | all |
 
