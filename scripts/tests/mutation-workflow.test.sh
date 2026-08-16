@@ -282,7 +282,7 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "expected shard set drifted (all='$(mutation_all_shards)')"
   fi
 
-  meaningful_go="go-api-runtime go-api-identity-admin go-api-device-operations go-api-provisioning-lifecycle go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
+  meaningful_go="go-api-runtime go-api-identity-admin go-api-device-operations go-api-investigations go-api-provisioning-lifecycle go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
   if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
     pass "Go shard ids describe their owned behavior"
   else

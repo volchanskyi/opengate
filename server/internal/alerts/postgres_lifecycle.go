@@ -41,9 +41,12 @@ const applyTransitionSQL = `
 // appendRoomEventSQL adds one line to a room's history. The tenant and the
 // customer are read from the room itself rather than passed in, so an event can
 // never be filed against a customer its own room does not belong to.
+//
+// The line's own id comes from the caller, because a comment is handed back to
+// the person who wrote it and needs a name they can refer to it by.
 const appendRoomEventSQL = `
 	INSERT INTO incident_events (id, tenant_id, organization_id, incident_id, at, kind, actor_id, body)
-	SELECT gen_random_uuid(), i.tenant_id, i.organization_id, i.id, $2::timestamptz, $3::text,
+	SELECT $6::uuid, i.tenant_id, i.organization_id, i.id, $2::timestamptz, $3::text,
 	       NULLIF($4::text, '')::uuid, $5::jsonb
 	  FROM incidents i
 	 WHERE i.tenant_id = current_setting('app.current_tenant')::uuid AND i.id = $1`
@@ -177,7 +180,7 @@ func applyChange(
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, appendRoomEventSQL,
-		incidentID, at, eventKind(change.To), actorArg(change.Actor), encoded); err != nil {
+		incidentID, at, eventKind(change.To), actorArg(change.Actor), encoded, uuid.New()); err != nil {
 		return fmt.Errorf("record incident transition: %w", err)
 	}
 	return nil

@@ -797,6 +797,157 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/investigations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The triage queue
+         * @description Incidents in the caller's tenant, most recent activity first. Every parameter narrows; omitting all of them returns every customer in the tenant. Paged by cursor rather than by offset, because a queue that is being written to silently loses rows under an offset.
+         */
+        get: operations["listInvestigations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One incident with its alerts and its timeline */
+        get: operations["getInvestigation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move an incident through its lifecycle
+         * @description A cause code is required when resolving and refused otherwise. Every accepted move appends a line to the incident's history.
+         */
+        post: operations["setInvestigationStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}/assignee": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Say who is working an incident */
+        post: operations["setInvestigationAssignee"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a note to an incident's history */
+        post: operations["addInvestigationComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/investigations/{id}/alerts/{alertId}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the machine knew about why one alert fired
+         * @description The stored blob is decompressed and decoded by the server. Evidence under a codec this build does not read is reported as such rather than handed back as bytes.
+         */
+        get: operations["getAlertEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{id}/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The incidents one machine is caught up in
+         * @description The same queue read, narrowed to the incidents holding an alert this machine raised — including the customer-wide ones it is one of forty machines in.
+         */
+        get: operations["listDeviceIncidents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The curated rule pack, and how much of the estate each rule watches
+         * @description Definitions are compiled into the server; this read shows what each rule watches, how far it has rolled out, and its coverage split. The four coverage states always add up to the fleet size, so a rule with a standing blind spot says so rather than looking healthy.
+         */
+        get: operations["listRules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1281,6 +1432,241 @@ export interface components {
         AddSecurityGroupMemberRequest: {
             /** Format: uuid */
             user_id: string;
+        };
+        /**
+         * @description How bad an incident or one of its alerts is.
+         * @enum {string}
+         */
+        IncidentSeverity: "info" | "warning" | "critical";
+        /**
+         * @description Where an incident stands. An incident in `new` is the triage queue, which is why there is no separate promotion state.
+         * @enum {string}
+         */
+        IncidentStatus: "new" | "acknowledged" | "investigating" | "resolved";
+        /**
+         * @description How wide an incident is — the rung its grouping key names. The customer is the broadest there is: folding across customers would put two estates' unrelated events in one room with no correct assignee.
+         * @enum {string}
+         */
+        IncidentScope: "device" | "site" | "organization";
+        /**
+         * @description A person's answer for why an incident ended, required when resolving one. `false_positive` is the channel that says which curated rule needs its threshold moved.
+         * @enum {string}
+         */
+        IncidentCauseCode: "resolved_self" | "fixed_by_tech" | "hardware_fault" | "expected_load" | "false_positive" | "duplicate" | "wont_fix";
+        /** @description One room a customer's alerts are investigated in. */
+        Incident: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            organization_id: string;
+            /** @description The rule that raised it, never the rule version — upgrading a rule while an incident is open must not fork the room somebody is working in. */
+            rule_id: string;
+            scope: components["schemas"]["IncidentScope"];
+            /**
+             * Format: uuid
+             * @description What the incident is about at that rung.
+             */
+            scope_key: string;
+            severity: components["schemas"]["IncidentSeverity"];
+            status: components["schemas"]["IncidentStatus"];
+            /**
+             * Format: uuid
+             * @description Who is working it, absent when nobody has taken it.
+             */
+            assignee_id?: string | null;
+            /** @description Absent while open, and when the system closed it. */
+            cause_code?: components["schemas"]["IncidentCauseCode"] | null;
+            /** Format: date-time */
+            opened_at: string;
+            /**
+             * Format: date-time
+             * @description Event time, not receipt time — a retroactive finding belongs where it happened.
+             */
+            first_seen: string;
+            /** Format: date-time */
+            last_seen: string;
+            /** Format: date-time */
+            resolved_at?: string | null;
+            /** @description How many alerts have folded in. */
+            occurrences: number;
+            /** @description Across how many machines. */
+            device_count: number;
+        };
+        /** @description One page of the triage queue, and where the next one starts. */
+        IncidentPage: {
+            items: components["schemas"]["Incident"][];
+            /** @description Pass as `cursor` to read on. Absent when the page reached the end of the queue. The queue is paged by position rather than by offset, because an offset over a queue that is being written to skips rows silently. */
+            next_cursor?: string;
+        };
+        /** @description One alert as its incident lists it. The evidence blob is deliberately not here — it is tens of kilobytes per alert and an incident holds hundreds — so this says what evidence exists and what fetching it costs. */
+        IncidentAlert: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            device_id: string;
+            rule_id: string;
+            rule_version: number;
+            severity: components["schemas"]["IncidentSeverity"];
+            /** @description Empty for a rule that fires on an event rather than a reading. */
+            metric?: string;
+            /** Format: double */
+            value?: number | null;
+            /** Format: date-time */
+            window_start: string;
+            /** Format: date-time */
+            window_end: string;
+            /** Format: date-time */
+            observed_at: string;
+            /** Format: date-time */
+            received_at: string;
+            /** @description A finding a retroactive scan produced over local history. */
+            backfilled: boolean;
+            /** @description How the evidence is compressed, empty when there is none. */
+            evidence_codec?: string;
+            /** @description Compressed weight of the evidence, zero when there is none. */
+            evidence_bytes: number;
+        };
+        /** @description One line of an incident's history. The incident's own fields say where it stands; these say how it got there, which is what a handover between two technicians reads. */
+        IncidentEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            at: string;
+            /** @enum {string} */
+            kind: "alert_folded" | "status_change" | "assignment" | "comment" | "device_offline" | "resolution";
+            /**
+             * Format: uuid
+             * @description Who did it, absent when the system did.
+             */
+            actor_id?: string | null;
+            /** @description What the line says, in the shape its kind defines. */
+            body: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description The whole of one incident, as somebody opening it sees it. */
+        IncidentDetail: {
+            incident: components["schemas"]["Incident"];
+            /** @description The most recent alerts, bounded. */
+            alerts: components["schemas"]["IncidentAlert"][];
+            /** @description How many there are altogether, so a bounded page says what it is a page of. */
+            alerts_total: number;
+            /** @description The history, in the order it happened. */
+            events: components["schemas"]["IncidentEvent"][];
+            events_total: number;
+        };
+        SetIncidentStatusRequest: {
+            status: components["schemas"]["IncidentStatus"];
+            /** @description Required when resolving, refused otherwise. A resolution that skips it spends the feedback the rule pack is tuned from. */
+            cause_code?: components["schemas"]["IncidentCauseCode"];
+        };
+        SetIncidentAssigneeRequest: {
+            /**
+             * Format: uuid
+             * @description Who takes it. Null hands it back to the queue, which is the move a technician going off shift makes.
+             */
+            assignee_id?: string | null;
+        };
+        AddIncidentCommentRequest: {
+            body: string;
+        };
+        EvidencePoint: {
+            /** Format: int64 */
+            ts: number;
+            /** Format: double */
+            value: number;
+        };
+        /** @description One dimension the machine's own correlation ranked, and how badly it broke pattern. */
+        EvidenceRankedDim: {
+            dim: string;
+            /** Format: double */
+            score: number;
+        };
+        /** @description One dimension's readings either side of the event, at the resolution only the machine holds. */
+        EvidenceSeries: {
+            dim: string;
+            points: components["schemas"]["EvidencePoint"][];
+        };
+        /** @description One process at the event instant. */
+        EvidenceProcess: {
+            rank: number;
+            basename: string;
+            pid: number;
+            /** Format: double */
+            cpu: number;
+            /** Format: double */
+            mem: number;
+        };
+        /** @description Everything the machine knew about why an alert fired, frozen at write time. Nothing can be fetched from the machine afterwards, so what is not here about an event is not recorded anywhere. */
+        AlertEvidence: {
+            ranked: components["schemas"]["EvidenceRankedDim"][];
+            series: components["schemas"]["EvidenceSeries"][];
+            processes: components["schemas"]["EvidenceProcess"][];
+            /** @description Host log lines, redacted on the machine before they were sent. */
+            log_samples: string[];
+            /** @description Whether the size cap cost this evidence anything, so "nothing was dropped" and "nobody checked" never look alike. */
+            truncated: boolean;
+        };
+        /** @description How much of a customer's estate one rule is actually watching. The four states always add up to the fleet — three of them would make a rule look like it was watching a smaller estate than it is. */
+        RuleCoverage: {
+            /** @description Machines evaluating the rule. */
+            active: number;
+            /** @description Machines that stopped evaluating it because it cost more than its allowance. */
+            throttled: number;
+            /** @description Machines that cannot evaluate it at all — a standing hole in the monitoring. */
+            unsupported: number;
+            /** @description Machines that have reported nothing. */
+            unknown: number;
+        };
+        /** @description How far a rule has reached across a customer's estate. */
+        RuleRollout: {
+            enabled: boolean;
+            canary_group?: string;
+            rollout_percent: number;
+            /** @description The switch that stops a rule without a deploy. */
+            kill: boolean;
+        };
+        /** @description How far a customer may retune one parameter. */
+        RuleParameterBounds: {
+            /** Format: double */
+            min: number;
+            /** Format: double */
+            max: number;
+            /**
+             * Format: double
+             * @description The value the catalogue ships.
+             */
+            shipped: number;
+        };
+        /** @description One curated rule as the fleet runs it. Definitions are compiled into the server and are not editable here — what a customer may change is the numbers each rule declares tunable, and whether it is rolled out. */
+        Rule: {
+            id: string;
+            version: number;
+            /** @description What the rule is for, in an operator's words. */
+            summary: string;
+            metric: string;
+            /** @enum {string} */
+            comparator: "gt" | "lt" | "gte" | "lte";
+            /** Format: double */
+            threshold: number;
+            sustain_secs?: number;
+            group_by: string[];
+            /** @description How long firings on one key stay one incident, and the hold before an idle one resolves itself. */
+            group_window_secs: number;
+            evidence: string[];
+            /** @description What a machine must be able to read for this rule to be evaluable on it. */
+            coverage_requires: string[];
+            tunable: {
+                [key: string]: components["schemas"]["RuleParameterBounds"];
+            };
+            rollout: components["schemas"]["RuleRollout"];
+            coverage: components["schemas"]["RuleCoverage"];
+        };
+        /** @description The curated pack and what each rule is watching. */
+        RuleCatalogue: {
+            /** @description How many machines the coverage counts were taken against. Every rule's four coverage states add up to this. */
+            fleet_size: number;
+            rules: components["schemas"]["Rule"][];
         };
     };
     responses: never;
@@ -3890,6 +4276,402 @@ export interface operations {
             };
             /** @description Purge job not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listInvestigations: {
+        parameters: {
+            query?: {
+                /** @description Narrow to one customer. */
+                organization_id?: string;
+                /** @description Narrow to a set of statuses. */
+                status?: components["schemas"]["IncidentStatus"][];
+                severity?: components["schemas"]["IncidentSeverity"][];
+                rule_id?: string;
+                /** @description Narrow to the incidents holding an alert this machine raised. */
+                device_id?: string;
+                assignee_id?: string;
+                /** @description Where the previous page ended, from that page's next_cursor. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the queue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPage"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getInvestigation: {
+        parameters: {
+            query?: {
+                /** @description The customer being looked at. An incident outside it answers the same as one that does not exist. */
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incident */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Incident not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setInvestigationStatus: {
+        parameters: {
+            query?: {
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetIncidentStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The incident as it now stands */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Incident"];
+                };
+            };
+            /** @description A move the lifecycle does not allow, or a cause code that is missing, refused or outside the set */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Incident not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setInvestigationAssignee: {
+        parameters: {
+            query?: {
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetIncidentAssigneeRequest"];
+            };
+        };
+        responses: {
+            /** @description The incident as it now stands */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Incident"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Incident or assignee not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    addInvestigationComment: {
+        parameters: {
+            query?: {
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddIncidentCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The line that was added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentEvent"];
+                };
+            };
+            /** @description A comment that says nothing or weighs more than one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Incident not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAlertEvidence: {
+        parameters: {
+            query?: {
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+                alertId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The evidence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEvidence"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Incident or alert not found, or the alert carries no evidence */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The evidence cannot be read by this build */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listDeviceIncidents: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["IncidentStatus"][];
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the machine's incidents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentPage"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listRules: {
+        parameters: {
+            query?: {
+                /** @description Whose estate the coverage counts are taken against. */
+                organization_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The catalogue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleCatalogue"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

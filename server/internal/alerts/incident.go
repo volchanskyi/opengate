@@ -51,6 +51,18 @@ var (
 	// closed one cannot come back: there is exactly one open room per key, and
 	// the live one is where the alerts are landing.
 	ErrKeyAlreadyOpen = errors.New("another open incident already holds this grouping key")
+	// ErrAlertNotFound covers an alert that is not in the room it was asked for
+	// through, which includes one in another tenant. An alert is only ever
+	// reachable through its room, so an id on its own names nothing.
+	ErrAlertNotFound = errors.New("alert not found in this incident")
+	// ErrNoEvidence means the alert carries none. A machine that had nothing to
+	// attach still says it is in trouble, and that is a different answer from an
+	// alert whose evidence could not be read.
+	ErrNoEvidence = errors.New("alert carries no evidence")
+	// ErrCommentUnusable is a comment that says nothing or weighs more than one.
+	// An empty line in a handover is worse than no line, and an unbounded one
+	// lets a text box decide how much a row weighs.
+	ErrCommentUnusable = errors.New("comment is empty or too long")
 )
 
 // CauseCode is a person's answer for why an incident ended. The set is closed

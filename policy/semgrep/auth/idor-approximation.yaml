@@ -20,7 +20,7 @@ rules:
     message: >-
       Resource fetched by caller-supplied id ("$REQ.$IDF") with no ownership
       derivation in this handler (no ContextUserID / isOwner / requireDeviceInScope /
-      denyIfNotAdmin). Confirm the caller is authorized for this specific
+      requireIncidentInScope / denyIfNotAdmin). Confirm the caller is authorized for this specific
       object, not just authenticated. If this is an admin-only or global
       resource, gate it explicitly. ADR-027 (MEDIUM — review, not blocking).
     metadata:
@@ -57,6 +57,12 @@ rules:
           func ($RECV $TYPE) $NAME(...) (...) {
             ...
             $S.requireDeviceInScope(...)
+            ...
+          }
+      - pattern-not-inside: |
+          func ($RECV $TYPE) $NAME(...) (...) {
+            ...
+            $S.requireIncidentInScope(...)
             ...
           }
       - pattern-not-inside: |

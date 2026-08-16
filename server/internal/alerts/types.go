@@ -163,6 +163,19 @@ type Incident struct {
 	Severity Severity
 	// Status is where it stands.
 	Status Status
+	// AssigneeID is who is working it, zero when nobody has taken it. It is a
+	// column as well as a line in the room's history because the queue is
+	// filtered on it — "what am I holding" is the first question of a shift.
+	AssigneeID uuid.UUID
+	// OpenedAt is when the room was raised, which is receipt time rather than
+	// event time: it says when the estate started being able to act.
+	OpenedAt time.Time
+	// ResolvedAt is when it ended, zero while it is open.
+	ResolvedAt time.Time
+	// CauseCode is the answer a person gave for closing it, empty while it is
+	// open and when the system closed it — inventing one there would put a
+	// technician's vocabulary in the system's mouth.
+	CauseCode CauseCode
 	// FirstSeen and LastSeen are event times, not receipt times: a retroactive
 	// finding belongs where it happened, or a week-old freeze would sort as
 	// today's.

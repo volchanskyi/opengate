@@ -83,6 +83,14 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/devices/{id}/logs` | GET | JWT (admin) | Get device log entries (on-demand via agent) |
 | `/api/v1/devices/{id}/metrics` | GET | JWT | Downsampled numeric telemetry for a device window, on a request-derived bucket grid |
 | `/api/v1/devices/{id}/inventory` | GET | JWT | Get the device's auto-discovered footprint (ports, services, DB engines, containers, packages) |
+| `/api/v1/devices/{id}/incidents` | GET | JWT | The incidents this machine raised an alert into, paged by cursor |
+| `/api/v1/investigations` | GET | JWT | The triage queue, newest activity first, paged by cursor |
+| `/api/v1/investigations/{id}` | GET | JWT | One incident with its folded alerts and its timeline |
+| `/api/v1/investigations/{id}/status` | POST | JWT | Move an incident through its lifecycle (`cause_code` required on resolution) |
+| `/api/v1/investigations/{id}/assignee` | POST | JWT | Say who is working an incident, or hand it back to the queue |
+| `/api/v1/investigations/{id}/comments` | POST | JWT | Add a note to an incident's timeline |
+| `/api/v1/investigations/{id}/alerts/{alertId}/evidence` | GET | JWT | The decoded evidence one alert arrived with |
+| `/api/v1/rules` | GET | JWT | The curated rule pack, its rollout state, and per-rule coverage |
 | `/api/v1/sessions` | POST | JWT | Create a remote session |
 | `/api/v1/sessions` | GET | JWT | List sessions (requires `device_id` query param) |
 | `/api/v1/sessions/{token}` | DELETE | JWT | Delete a session |
@@ -279,6 +287,53 @@ It is tenant-scoped for every caller, administrators included, so the
 tiles and the health bands always describe one device set and `unknown` is
 exact. With telemetry unconfigured or its query failing, the status counts are
 still returned and every device lands in `unknown`; the endpoint does not fail.
+
+### Investigations
+
+An incident is the room a customer's alerts are investigated in, and an incident
+in `new` **is** the triage queue — there is no separate promotion state. Reading
+the queue, moving an incident, assigning it and commenting on it are operational
+work on the tenant's own resources, so **tenant membership is the whole gate**,
+the same rule device commands follow ([ADR-062](adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md)).
+`organization_id` narrows to the customer on screen; an incident outside it
+answers exactly as one that does not exist, so neither the tenant wall nor the
+customer narrowing is discoverable by probing ids. Rule bindings and rollout are
+configuration and stay admin-gated.
+
+The queue is **paged by cursor, not by offset**. A triage queue is read while it
+is being written to: an alert lands, an incident's last activity moves, and under
+an offset every row behind it shifts by one — so the first row of the next page
+is one nobody ever sees, silently. `next_cursor` names where a page ended and is
+opaque; pass it back as `cursor`. A page that reached the end of the queue
+carries none.
+
+Evidence is a call of its own. It is tens of kilobytes per alert and one
+incident folds hundreds of them, so neither the queue nor the incident detail
+carries it — the detail says which alerts have evidence and what fetching one
+costs, and
+`GET /api/v1/investigations/{id}/alerts/{alertId}/evidence` returns the decoded
+structure. The stored blob is DEFLATE around MessagePack under a codec named on
+the row, so a build that cannot read one answers `422` rather than handing back
+bytes. Log lines inside it were redacted on the machine before they were sent
+([ADR-049](adr/ADR-049-edge-sentinel-raw-log-privacy.md)); this path returns the
+stored structure unchanged.
+
+The device page's strip, `GET /api/v1/devices/{id}/incidents`, is the same queue
+read narrowed to the incidents holding an alert that machine raised — including
+the customer-wide ones where it is one of forty machines.
+
+### Rules
+
+`GET /api/v1/rules` answers with the curated pack this build ships beside, per
+rule, how far it has rolled out and how much of the estate it is watching. The
+four coverage states — `active`, `throttled`, `unsupported`, `unknown` — always
+add up to `fleet_size`, so a rule with a standing blind spot says so instead of
+reading as healthy.
+
+It is a read and only a read. Rule definitions are compiled into the server and
+cost-bounded in CI before they can reach a machine, so the response carries what
+a rule watches and the parameters it declares tunable — never the predicate
+grammar, which would imply an authoring surface this product does not have.
 
 ### Intel AMT
 

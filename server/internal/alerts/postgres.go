@@ -85,7 +85,8 @@ const foldIntoStormSQL = `
 // what make that resolve to nothing.
 const openIncidentSQL = `
 	SELECT id, organization_id, rule_id, scope, scope_key, severity, status,
-	       first_seen, last_seen, occurrences, device_count
+	       assignee_id, opened_at, first_seen, last_seen, resolved_at, cause_code,
+	       occurrences, device_count
 	  FROM incidents
 	 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 	   AND organization_id = $1 AND rule_id = $2 AND scope = $3 AND scope_key = $4
@@ -267,14 +268,11 @@ func (s *Store) OpenIncident(
 		found    bool
 	)
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
-		switch err := tx.QueryRowContext(ctx, openIncidentSQL,
-			organizationID, ruleID, string(scope), scopeKey).Scan(
-			&incident.ID, &incident.OrganizationID, &incident.RuleID, &incident.Scope,
-			&incident.ScopeKey, &incident.Severity, &incident.Status,
-			&incident.FirstSeen, &incident.LastSeen,
-			&incident.Occurrences, &incident.DeviceCount); {
+		read, err := scanIncident(tx.QueryRowContext(ctx, openIncidentSQL,
+			organizationID, ruleID, string(scope), scopeKey))
+		switch {
 		case err == nil:
-			found = true
+			incident, found = read, true
 			return nil
 		case errors.Is(err, sql.ErrNoRows):
 			return nil
