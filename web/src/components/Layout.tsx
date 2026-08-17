@@ -19,6 +19,9 @@ export function Layout() {
           <Link to="/devices" className="text-sm text-gray-400 hover:text-white">
             Devices
           </Link>
+          <Link to="/investigations" className="text-sm text-gray-400 hover:text-white">
+            Investigations
+          </Link>
           {user?.is_admin && (
             <Link to="/settings" className="text-sm text-gray-400 hover:text-white">
               Settings
@@ -34,6 +37,7 @@ export function Layout() {
             </Link>
           )}
           <button
+            type="button"
             onClick={logout}
             className="text-sm text-gray-400 hover:text-white"
           >

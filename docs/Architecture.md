@@ -269,7 +269,9 @@ The React web client (`web/`) provides management and session features:
 |---------|------|-------------|
 | **Dashboard** | `/` | Landing page — overview of the fleet for the selected customer |
 | **Device List** | `/devices` | Device listing with search/filter, site sidebar, per-card discovered-footprint hint (service/container counts) |
-| **Device Detail** | `/devices/:id` | Device info, AMT power actions, filing into a site, move to another customer, hardware inventory, discovered footprint (sortable ports/services/DB engines/containers/packages), on-demand device logs, agent restart |
+| **Device Detail** | `/devices/:id` | Device info, a strip of the open incidents the machine is caught up in, AMT power actions, filing into a site, move to another customer, hardware inventory, discovered footprint (sortable ports/services/DB engines/containers/packages), on-demand device logs, agent restart |
+| **Investigations** | `/investigations` | The triage queue — open incidents with severity, status, rule, how many alerts across how many machines, filtered by status, severity, rule and device, paged by cursor. Carries the per-rule coverage split |
+| **Investigation Room** | `/investigations/:id` | One incident: its history, the alerts it folded, and each alert's frozen evidence; status moves, assignment and notes |
 | **Session View** | `/sessions/:token` | Tab container with toolbar and connection status |
 | **Remote Desktop** | Desktop tab | Canvas-based screen viewer with mouse/keyboard input forwarding |
 | **Terminal** | Terminal tab | xterm.js terminal connected to relay |
@@ -278,6 +280,16 @@ The React web client (`web/`) provides management and session features:
 | **Profile** | `/profile` | Self-service display name editing |
 
 All features use the binary frame protocol ([`web/src/lib/protocol/`](../web/src/lib/protocol/)) and share a single WebSocket connection managed by a Zustand store ([`connection-store.ts`](../web/src/features/session/state/connection-store.ts)).
+
+**The investigation room reads a snapshot, never a machine.** Everything it shows
+comes from the incident read: the alerts, and the evidence each one carried when
+it was written. Nothing on the page can be fetched from the device afterwards, so
+the room states an absence — no evidence recorded, a size cap that cost the blob
+something, no alerts left in the room — rather than leaving a gap a reader would
+take for a pending load. The lifecycle
+([`incident-lifecycle.ts`](../web/src/features/investigations/incident-lifecycle.ts))
+mirrors the moves the server permits, so a transition the server would refuse is
+never offered, and resolving asks for its cause code before it is sent.
 
 **Capability-based tab visibility**: The Session View dynamically shows/hides tabs based on the device's reported capabilities. Linux agents report Terminal + FileManager only; an agent whose platform crate provides desktop capture and input injection additionally reports RemoteDesktop. The web client receives capabilities via the Device API and passes them to Session View via React Router state. Devices without the `RemoteDesktop` capability will only show Terminal and Files tabs; Desktop and Chat tabs require it.
 

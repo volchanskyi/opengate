@@ -1294,6 +1294,24 @@ Project standard applies unchanged: `make lint`, `make test`, `make golden`,
 - C12 Incident list p99 ≤ 200 ms at 10 000 open incidents.
 - C13 Golden round-trip for the new control pair passes both directions.
 
+**Web (step 21)**
+- W1 `/investigations` lists open incidents with status, severity, rule,
+  `occurrences`, `device_count`, first/last seen; filters by status, severity,
+  rule and device; keyset pagination.
+- W2 `/investigations/:id` shows the timeline, the folded alerts, and each
+  alert's evidence — ranked dimensions, the three series, processes, redacted
+  log lines — rendered from the frozen snapshot, with **no** call back to the
+  device.
+- W3 Status transitions, assignment and comments are issued from the room;
+  resolving requires a cause code from the closed set; an illegal transition is
+  not offerable in the UI.
+- W4 The device page carries an **incidents strip** linking into the room.
+- W5 A truncated evidence blob says so; an incident whose device was purged
+  renders without it, not as an error.
+- W6 Per-rule coverage is visible — I8's "surfaced in the UI". Silent partial
+  coverage is the failure class WS-A exists to eliminate, and a number nobody
+  can see is silent.
+
 ---
 
 ## 13. Implementation steps
@@ -1358,8 +1376,7 @@ This document is the **master plan + micro-plan index**. Each execution spec is 
 plans by plain path (never a markdown link) — only repo source and docs are linked.
 
 Every step above is owned by exactly one micro-plan, and every §12 acceptance criterion by exactly
-one micro-plan. §12 defines no criterion for step 21; `edge-first-c6-investigations-web.md` supplies
-W1–W6 and §14's close-out folds them back.
+one micro-plan.
 
 | Micro-plan | Steps | Criteria | Depends on |
 |---|---|---|---|
@@ -1381,7 +1398,7 @@ W1–W6 and §14's close-out folds them back.
 | `archive/edge-first-c3-incident-engine.md` | 17 | C2–C6 | C2 |
 | `archive/edge-first-c4-aggregate-metrics-and-q12.md` | 19 | C11, C15 | C2, C3, B8 |
 | `archive/edge-first-c5-investigations-api.md` | 20 | C12 | C3, B8, B9 |
-| `edge-first-c6-investigations-web.md` | 21 | W1–W6 (plan-local) | C5, B2 |
+| `archive/edge-first-c6-investigations-web.md` | 21 | W1–W6 | C5, B2 |
 | `edge-first-z1-close-out.md` | 22 | — | all |
 
 **Parallelisable now:** `a1`, `a2`, `b1`, `b6`, `b7` share no files. `b2` waits on `b1`; the

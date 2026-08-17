@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-08-15; coverage-exclusion retirement left one production carve-out (the QUIC accept path). -->
+<!-- Last reviewed: 2026-08-17; the investigations workspace left the web bundle within 10 KB of its budget. -->
 
 ## Severity: High
 
@@ -255,6 +255,24 @@ TypeScript 6.x.
 **Pay-down trigger:** revisit once `openapi-typescript` ships a release supporting
 TypeScript 6.x (`npm view openapi-typescript versions` / its peerDependencies
 range), then bump both together.
+
+### The initial JS bundle sits within 10 KB of its budget
+
+[`.size-limit.json`](../web/.size-limit.json) caps the initial JS at 250 KB
+gzipped excluding the lazy charts chunk. The investigations workspace took it to
+roughly 240 KB — about one more feature of headroom before the gate refuses a
+commit that is otherwise correct, and the person who hits it will be whoever
+happens to add the next route rather than whoever spent the budget.
+
+The workspace itself is already lazy and drew its evidence series as inline SVG
+precisely to avoid a second charting dependency, so the remaining spend is in the
+shared entry chunk, not in any one feature. Nothing has measured where.
+
+**Pay-down trigger:** the next feature that lands within 5 KB of the cap, or the
+first CI failure on the gate. Read the chunk breakdown `npm run build` prints,
+split what the entry chunk is carrying that only one route needs, and move the
+budget only after that has been done — raising the number is how a budget stops
+being one.
 
 ### `reopen_window` has no per-rule override
 

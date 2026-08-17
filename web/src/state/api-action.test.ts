@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { apiAction } from './api-action';
+import { apiAction, progressAdapter } from './api-action';
 
 // openapi-fetch always returns the raw Response; these tests only need ok + status.
 function fakeResponse(status: number): Response {
@@ -129,5 +129,37 @@ describe('apiAction', () => {
 
     expect(res).toEqual({ ok: true, data: 7 });
     expect(set).toHaveBeenNthCalledWith(2, { isLoading: false });
+  });
+});
+
+describe('progressAdapter', () => {
+  it('routes a message and a clear into the store’s own error slot', () => {
+    const errors: (string | null)[] = [];
+    const report = progressAdapter((e) => errors.push(e));
+
+    report({ error: null });
+    report({ error: 'boom' });
+    expect(errors).toEqual([null, 'boom']);
+  });
+
+  it('says nothing about an error the call did not report', () => {
+    const errors: (string | null)[] = [];
+    const report = progressAdapter((e) => errors.push(e));
+
+    report({ isLoading: true });
+    expect(errors).toEqual([]);
+  });
+
+  it('routes the in-flight flag when the store keeps one', () => {
+    const flags: boolean[] = [];
+    const report = progressAdapter(() => { /* error slot unused here */ }, (l) => flags.push(l));
+
+    report({ isLoading: true, error: null });
+    report({ isLoading: false });
+    expect(flags).toEqual([true, false]);
+  });
+
+  it('drops the in-flight flag for a store that keeps none', () => {
+    expect(() => progressAdapter(() => { /* no loading slot */ })({ isLoading: true })).not.toThrow();
   });
 });

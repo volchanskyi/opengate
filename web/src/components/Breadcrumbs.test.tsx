@@ -37,6 +37,25 @@ describe('Breadcrumbs', () => {
     expect(node.tagName).toBe('SPAN');
   });
 
+  it('renders the investigations crumb at /investigations (last segment, no link)', () => {
+    renderAt('/investigations');
+    const node = screen.getByText('Investigations');
+    expect(node.tagName).toBe('SPAN');
+  });
+
+  it('links back to the queue from inside a room, and names the room by its leading block', () => {
+    const router = createMemoryRouter(
+      [{ path: 'investigations/:id', element: <Breadcrumbs /> }],
+      { initialEntries: ['/investigations/6f2b9c31-1111-2222-3333-444455556666'] },
+    );
+    render(<RouterProvider router={router} />);
+
+    const queue = screen.getByText('Investigations');
+    expect(queue.tagName).toBe('A');
+    expect(queue.getAttribute('href')).toBe('/investigations');
+    expect(screen.getByText('6f2b9c31')).toBeInTheDocument();
+  });
+
   it('renders setup breadcrumb at /setup', () => {
     renderAt('/setup');
     expect(screen.getByText('Add Device')).toBeInTheDocument();

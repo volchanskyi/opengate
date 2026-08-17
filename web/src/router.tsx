@@ -10,6 +10,8 @@ import { LoadingSpinner } from './components/LoadingSpinner';
 const Dashboard = lazy(() => import('./features/dashboard/Dashboard').then((m) => ({ default: m.Dashboard })));
 const DeviceList = lazy(() => import('./features/devices/DeviceList').then((m) => ({ default: m.DeviceList })));
 const DeviceDetail = lazy(() => import('./features/devices/DeviceDetail').then((m) => ({ default: m.DeviceDetail })));
+const InvestigationList = lazy(() => import('./features/investigations').then((m) => ({ default: m.InvestigationList })));
+const InvestigationDetail = lazy(() => import('./features/investigations').then((m) => ({ default: m.InvestigationDetail })));
 const SessionView = lazy(() => import('./features/session/SessionView').then((m) => ({ default: m.SessionView })));
 const AgentSetupPage = lazy(() => import('./features/agent-setup/AgentSetupPage').then((m) => ({ default: m.AgentSetupPage })));
 const ProfilePage = lazy(() => import('./features/profile/ProfilePage').then((m) => ({ default: m.ProfilePage })));
@@ -42,6 +44,8 @@ export const router = createBrowserRouter([
           { index: true, element: withSuspense(Dashboard) },
           { path: 'devices', element: withSuspense(DeviceList) },
           { path: 'devices/:id', element: withSuspense(DeviceDetail) },
+          { path: 'investigations', element: withSuspense(InvestigationList) },
+          { path: 'investigations/:id', element: withSuspense(InvestigationDetail) },
           { path: 'sessions/:token', element: withSuspense(SessionView) },
           { path: 'setup', element: withSuspense(AgentSetupPage) },
           { path: 'profile', element: withSuspense(ProfilePage) },

@@ -37,6 +37,32 @@ function failureMessage(error: unknown, response?: Response): string {
   return 'Request failed';
 }
 
+/** What [apiAction] reports back as a call starts and finishes. */
+export interface Progress {
+  isLoading?: boolean;
+  error?: string | null;
+}
+
+/**
+ * Adapt [apiAction]'s progress reports to a store that names its slots something
+ * other than `isLoading` and `error` — one holding several independent reads
+ * needs a slot per read, and a message routed to the wrong one reports a failed
+ * evidence fetch as a failed queue read.
+ *
+ * A field the call did not report is not forwarded, so "unchanged" stays
+ * distinct from "cleared". `onLoading` is optional: a store that shows no
+ * spinner for a call has no flag to keep.
+ */
+export function progressAdapter(
+  onError: (error: string | null) => void,
+  onLoading?: (loading: boolean) => void,
+): (progress: Progress) => void {
+  return ({ isLoading, error }) => {
+    if (isLoading !== undefined) onLoading?.(isLoading);
+    if (error !== undefined) onError(error);
+  };
+}
+
 /**
  * Wraps an API call with loading/error state management.
  * Pass `loading: false` for mutation actions that don't show a loading spinner.

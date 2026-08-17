@@ -44,6 +44,11 @@ describe('Layout', () => {
     expect(screen.getByText('Test User')).toBeInTheDocument();
   });
 
+  it('links the triage queue, which everyone in the tenant may work', () => {
+    renderLayout();
+    expect(screen.getByRole('link', { name: 'Investigations' })).toHaveAttribute('href', '/investigations');
+  });
+
   it('renders child content via Outlet', () => {
     renderLayout();
     expect(screen.getByText('Child Content')).toBeInTheDocument();
