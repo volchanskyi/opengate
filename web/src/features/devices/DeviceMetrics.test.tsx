@@ -191,20 +191,22 @@ describe('DeviceMetrics', () => {
     expect(screen.getByText(/loading metrics/i)).toBeInTheDocument();
   });
 
-  it('polls on schedule and clears the interval on unmount', () => {
+  it('polls once per vitals reading and clears the interval on unmount', () => {
     vi.useFakeTimers();
     const fetchMetrics = vi.fn().mockResolvedValue(undefined);
     resetStore({ fetchMetrics, metrics: sampleMetrics });
     const { unmount } = render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
     fetchMetrics.mockClear();
 
-    act(() => { vi.advanceTimersByTime(29_999); });
+    // A device writes its vitals every 60 s, so re-reading sooner spends a
+    // request on a window that cannot have changed.
+    act(() => { vi.advanceTimersByTime(59_999); });
     expect(fetchMetrics).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1); });
     expect(fetchMetrics).toHaveBeenCalledTimes(1);
 
     unmount();
-    act(() => { vi.advanceTimersByTime(60_000); });
+    act(() => { vi.advanceTimersByTime(120_000); });
     expect(fetchMetrics).toHaveBeenCalledTimes(1);
   });
 

@@ -932,6 +932,15 @@ health badges
 [`FleetHealth`](../web/src/features/devices/FleetHealth.tsx)) — no per-device
 series on the grid.
 
+The ranking that arrives inside an alert is read in the investigations workspace
+([`features/investigations/`](../web/src/features/investigations/)): the triage
+queue at `/investigations` and one incident's room at `/investigations/:id`,
+where an alert's frozen evidence — ranked dimensions, series, processes and
+redacted log lines — is rendered from the snapshot the device wrote. The room
+issues no request outside `/api/v1/investigations`, so nothing on it is fetched
+from the machine ([ADR-078](adr/ADR-078-the-triage-workspace-reads-a-snapshot.md)).
+A machine's own page carries a strip of the incidents it is caught up in.
+
 Raw logs are read through the on-demand broker in the logs explorer
 ([`DeviceLogs`](../web/src/features/devices/DeviceLogs.tsx)) with level, time-range,
 and full-text filters plus level facets over the returned page, rendering only the

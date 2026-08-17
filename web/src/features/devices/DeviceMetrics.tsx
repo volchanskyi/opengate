@@ -12,7 +12,9 @@ import { useVisibleInterval } from '../../lib/use-visible-interval';
 type MinMaxSource = components['schemas']['MetricSeries']['min_max_source'];
 
 const MAX_POINTS = 1000;
-const POLL_MS = 30_000;
+/** A device writes its vitals every 60 s; reading faster than that re-reads the
+ *  same window. */
+const POLL_MS = 60_000;
 
 const PRESETS = [
   { key: '1h', seconds: 3600 },

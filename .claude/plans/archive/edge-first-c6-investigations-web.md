@@ -36,14 +36,14 @@ separate promotion step, no "create investigation" button, and nothing to conver
 
 - **Create:** `web/src/features/investigations/` — list, detail, timeline, evidence panels, and a
   Zustand store (`web/src/features/investigations/state/`), mirroring the
-  [devices](../../web/src/features/devices/) feature's layout.
-- **Modify:** [router.tsx](../../web/src/router.tsx) — `investigations` and `investigations/:id` as
+  [devices](../../../web/src/features/devices/) feature's layout.
+- **Modify:** [router.tsx](../../../web/src/router.tsx) — `investigations` and `investigations/:id` as
   lazy routes under the authenticated layout, matching the existing `withSuspense` idiom
-  ([:42-46](../../web/src/router.tsx#L42-L46)).
+  ([:44-48](../../../web/src/router.tsx#L44-L48)).
 - **Modify:** the device detail page — the incidents strip.
-- **Modify:** [DeviceMetrics.tsx](../../web/src/features/devices/DeviceMetrics.tsx) — render the
+- **Modify:** [DeviceMetrics.tsx](../../../web/src/features/devices/DeviceMetrics.tsx) — render the
   vitals set at 60 s (the drag-to-correlate UX is retired by EF-B7, not here).
-- **Docs:** [Architecture.md](../../docs/Architecture.md) (web client features).
+- **Docs:** [Architecture.md](../../../docs/Architecture.md) (web client features).
 
 ## Steps (TDD-first)
 
@@ -63,10 +63,10 @@ separate promotion step, no "create investigation" button, and nothing to conver
 6. **Test first (W6):** the coverage view shows all three states per rule and sums to the fleet size
    the API reports.
 7. **Test first — polling:** any polling uses
-   [`useVisibleInterval`](../../web/src/lib/use-visible-interval.ts) so a hidden tab issues nothing —
+   [`useVisibleInterval`](../../../web/src/lib/use-visible-interval.ts) so a hidden tab issues nothing —
    the established pattern; do not add a bare `setInterval`.
 8. Implement; keep the initial JS bundle inside its budget — **250 KB gzipped, excluding the lazy
-   charts chunk**, enforced by [`.size-limit.json`](../../web/.size-limit.json) in CI. Lazy-load the
+   charts chunk**, enforced by [`.size-limit.json`](../../../web/.size-limit.json) in CI. Lazy-load the
    feature the way the existing routes do.
 
 ## Traps

@@ -87,7 +87,7 @@ each landed, so the master plan's own §12 is not left describing a smaller prog
 2. **`RuleCoverage` had no storage** (§7.4) → in-memory, `unknown` derived (EF-B8).
 3. **Evidence cap 64 KB collides with `maxTelemetryPayloadBytes` 64 KiB** → a separate alert payload
    bound (EF-C1).
-4. **Step 21 (web) had no acceptance criterion** (§12) → W1–W6 (EF-C6).
+4. **Step 21 (web) had no acceptance criterion** (§12) → W1–W6, folded into §12 (EF-C6).
 
 ## File inventory
 

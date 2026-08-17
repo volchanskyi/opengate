@@ -14,8 +14,10 @@ import { DeviceLogs } from './DeviceLogs';
 import { SystemLogs } from './SystemLogs';
 import { DeviceMetrics } from './DeviceMetrics';
 import { DeviceInventory } from './DeviceInventory';
+import { DeviceIncidentsStrip } from '../investigations';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { formatBytes } from '../../lib/format-bytes';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
 import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
 
@@ -67,14 +69,6 @@ const UNASSIGNED_SITE_ID = '00000000-0000-0000-0000-000000000000';
 function isUnassignedSite(id: string | undefined | null): boolean {
   const trimmed = id?.trim();
   return !trimmed || trimmed === UNASSIGNED_SITE_ID;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const idx = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const val = bytes / Math.pow(1024, idx);
-  return `${val.toFixed(val >= 100 ? 0 : 1)} ${units.at(idx) ?? 'B'}`;
 }
 
 export function DeviceDetail() {
@@ -281,6 +275,9 @@ export function DeviceDetail() {
 
   return (
     <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      {/* Open incidents this machine is caught up in — the way into the room */}
+      <DeviceIncidentsStrip deviceId={device.id} className="lg:col-span-2" />
+
       {/* Device Detail Card */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
         <div className="flex items-start justify-between gap-3">

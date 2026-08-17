@@ -19,6 +19,15 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
+// The incidents strip owns its own read and is exercised in
+// DeviceIncidentsStrip.test.tsx; stub it here so these tests assert only that
+// the device page carries it, keyed to the device on screen.
+vi.mock('../investigations', () => ({
+  DeviceIncidentsStrip: ({ deviceId }: { deviceId: string }) => (
+    <div data-testid="incidents-strip">{deviceId}</div>
+  ),
+}));
+
 // The telemetry panel is exercised in DeviceMetrics.test.tsx; stub it here so
 // these tests stay isolated from uPlot/canvas and the metrics fetch. The stub
 // exposes onViewLogs so the correlation-jump glue can be driven.
@@ -127,6 +136,11 @@ describe('DeviceDetail', () => {
     expect(screen.getByText('test-host')).toBeInTheDocument();
     expect(screen.getByText('linux')).toBeInTheDocument();
     expect(screen.getByText('Online')).toBeInTheDocument();
+  });
+
+  it('carries the open incidents this machine is caught up in', () => {
+    renderDetail();
+    expect(screen.getByTestId('incidents-strip')).toHaveTextContent('d1');
   });
 
   it('mounts the telemetry metrics panel for the device', () => {

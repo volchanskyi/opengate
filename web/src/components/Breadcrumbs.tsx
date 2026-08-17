@@ -1,9 +1,45 @@
 import { Link, useLocation, useParams } from 'react-router';
 import { useDeviceStore } from '../features/devices/state/device-store';
+import { shortId } from '../lib/short-id';
 
 interface Crumb {
   label: string;
   to?: string;
+}
+
+/**
+ * How each fixed path segment names itself.
+ *
+ * `lastLabel` is what the segment is called when it is where the reader
+ * currently stands. `link` is where it points when it is not: a literal path for
+ * a section with one home, `'path'` for one that lives wherever it was reached
+ * from, and absent for a segment that is never a link.
+ */
+interface SegmentRule {
+  readonly label: string;
+  readonly lastLabel?: string;
+  readonly link?: string;
+}
+
+const SELF = 'path';
+
+const SEGMENTS = new Map<string, SegmentRule>([
+  ['devices', { label: 'Devices', link: '/devices' }],
+  ['investigations', { label: 'Investigations', link: '/investigations' }],
+  ['sessions', { label: 'Sessions', lastLabel: 'Session', link: SELF }],
+  ['settings', { label: 'Settings', link: '/settings' }],
+  ['users', { label: 'Users', link: SELF }],
+  ['audit', { label: 'Audit Log', link: SELF }],
+  ['updates', { label: 'Agent Settings', link: SELF }],
+  ['permissions', { label: 'Permissions' }],
+  ['setup', { label: 'Add Device' }],
+  ['profile', { label: 'Profile' }],
+]);
+
+function fixedCrumb(rule: SegmentRule, path: string, isLast: boolean): Crumb {
+  const label = isLast ? rule.lastLabel ?? rule.label : rule.label;
+  if (isLast || rule.link === undefined) return { label };
+  return { label, to: rule.link === SELF ? path : rule.link };
 }
 
 export function Breadcrumbs() {
@@ -20,35 +56,25 @@ export function Breadcrumbs() {
   segments.forEach((seg, i, arr) => {
     path += `/${seg}`;
     const isLast = i === arr.length - 1;
-    const next = arr.at(i + 1);
 
-    if (seg === 'devices' && !next) {
-      crumbs.push(isLast ? { label: 'Devices' } : { label: 'Devices', to: '/devices' });
-    } else if (seg === 'devices' && next) {
-      crumbs.push({ label: 'Devices', to: '/devices' });
-    } else if (seg === params.id && crumbs.some((c) => c.label === 'Devices')) {
+    const rule = SEGMENTS.get(seg);
+    if (rule) {
+      crumbs.push(fixedCrumb(rule, path, isLast));
+      return;
+    }
+    if (seg === params.token) {
+      crumbs.push({ label: 'Session' });
+      return;
+    }
+    if (seg !== params.id) return;
+
+    // An id names itself by whatever the section it sits under calls it.
+    const under = crumbs.at(-1)?.label;
+    if (under === 'Devices') {
       const label = device?.hostname ?? seg;
       crumbs.push(isLast ? { label } : { label, to: path });
-    } else if (seg === 'sessions') {
-      crumbs.push(isLast ? { label: 'Session' } : { label: 'Sessions', to: path });
-    } else if (seg === params.token) {
-      crumbs.push({ label: 'Session' });
-    } else if (seg === 'settings') {
-      crumbs.push(isLast ? { label: 'Settings' } : { label: 'Settings', to: '/settings' });
-    } else if (seg === 'security') {
-      // skip, next segment shows the real label
-    } else if (seg === 'users') {
-      crumbs.push(isLast ? { label: 'Users' } : { label: 'Users', to: path });
-    } else if (seg === 'audit') {
-      crumbs.push(isLast ? { label: 'Audit Log' } : { label: 'Audit Log', to: path });
-    } else if (seg === 'updates') {
-      crumbs.push(isLast ? { label: 'Agent Settings' } : { label: 'Agent Settings', to: path });
-    } else if (seg === 'permissions') {
-      crumbs.push({ label: 'Permissions' });
-    } else if (seg === 'setup') {
-      crumbs.push({ label: 'Add Device' });
-    } else if (seg === 'profile') {
-      crumbs.push({ label: 'Profile' });
+    } else if (under === 'Investigations') {
+      crumbs.push({ label: shortId(seg) });
     }
   });
 
@@ -57,8 +83,8 @@ export function Breadcrumbs() {
   return (
     <nav className="px-6 py-2 text-sm text-gray-400 flex items-center gap-1">
       <Link to="/" className="hover:text-white">Dashboard</Link>
-      {crumbs.map((crumb, i) => (
-        <span key={i} className="flex items-center gap-1">
+      {crumbs.map((crumb) => (
+        <span key={`${crumb.label}-${crumb.to ?? ''}`} className="flex items-center gap-1">
           <span className="mx-1">&gt;</span>
           {crumb.to ? (
             <Link to={crumb.to} className="hover:text-white">{crumb.label}</Link>
