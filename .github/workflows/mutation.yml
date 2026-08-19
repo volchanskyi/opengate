@@ -36,6 +36,32 @@ env:
   GREMLINS_VERSION: v0.6.0  # pin Go mutation tool for reproducibility (matches cargo-mutants pinning)
 jobs:
   # -----------------------------------------------------------------------------
+  # Does the Rust split still fit the cap? Counting mutants needs no build, so a
+  # shard that has outgrown its budget is visible in a couple of minutes instead
+  # of after 75 — the shape of failure that costs a whole nightly run.
+  #
+  # It does not gate the matrix: the run still goes ahead and reports whatever it
+  # can, and this job is the red that says why the tail will be short.
+  # -----------------------------------------------------------------------------
+  shard-budget:
+    name: Rust shard budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
+        with:
+          workspaces: agent
+          cache-on-failure: true
+      - name: Install cargo-mutants
+        run: cargo install --locked --version "${CARGO_MUTANTS_VERSION}" cargo-mutants
+      - name: Project every Rust shard against the job cap
+        run: ./scripts/mutation-shard-budget.sh | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # -----------------------------------------------------------------------------
   # Per-language mutation runs in parallel. fail-fast: false so one language
   # failing does not cancel the others — we want partial visibility.
   # -----------------------------------------------------------------------------
@@ -59,15 +85,25 @@ jobs:
           # one crate. The split lives in scripts/lib/mutation-shards.sh and is
           # asserted by the workflow tests, which also prove every mutable source
           # is owned exactly once.
-          - { language: rust, shard: rust-core-ml-backfill }
+          - { language: rust, shard: rust-core-ml-backfill-drain }
+          - { language: rust, shard: rust-core-ml-backfill-tiers }
           - { language: rust, shard: rust-core-ml-sampling }
+          - { language: rust, shard: rust-core-ml-host-sources }
+          - { language: rust, shard: rust-core-ml-store-sink }
           - { language: rust, shard: rust-core-ml-analysis }
-          - { language: rust, shard: rust-core-alerts-retro }
+          - { language: rust, shard: rust-core-ml-redaction }
+          - { language: rust, shard: rust-core-alerts-retro-plan }
+          - { language: rust, shard: rust-core-alerts-retro-scan }
+          - { language: rust, shard: rust-core-alerts-conditions }
           - { language: rust, shard: rust-core-alerts-evaluator }
-          - { language: rust, shard: rust-core-alerts-dispatch }
-          - { language: rust, shard: rust-core-correlate }
-          - { language: rust, shard: rust-core-session }
+          - { language: rust, shard: rust-core-alerts-event }
+          - { language: rust, shard: rust-core-alerts-sink }
+          - { language: rust, shard: rust-core-correlate-divergence }
+          - { language: rust, shard: rust-core-correlate-ranking }
+          - { language: rust, shard: rust-core-session-terminal }
+          - { language: rust, shard: rust-core-session-dispatch }
           - { language: rust, shard: rust-core-discovery }
+          - { language: rust, shard: rust-core-runtime-lifecycle }
           - { language: rust, shard: rust-core-runtime }
           - { language: rust, shard: rust-tsdb-blocks }
           - { language: rust, shard: rust-tsdb-encoding }
@@ -76,13 +112,15 @@ jobs:
           - { language: rust, shard: rust-protocol-wire }
           - { language: web }
           - { language: go, shard: go-api-runtime }
+          - { language: go, shard: go-api-intake }
           - { language: go, shard: go-api-identity-admin }
           - { language: go, shard: go-api-device-operations }
           - { language: go, shard: go-api-investigations }
           - { language: go, shard: go-api-provisioning-lifecycle }
-          # Run 29305387129 showed conn_backfill.go and handshaker.go each
-          # produce long timeout waves; separate them so neither pays both.
-          - { language: go, shard: go-agentapi-connection-handshake }
+          # conn_backfill.go and handshaker.go each produce long timeout waves,
+          # so each is isolated from the connection lifecycle and from the other.
+          - { language: go, shard: go-agentapi-connection }
+          - { language: go, shard: go-agentapi-handshake }
           - { language: go, shard: go-agentapi-backfill }
           - { language: go, shard: go-agentapi-edge-telemetry }
           - { language: go, shard: go-domain-persistence }
@@ -90,8 +128,9 @@ jobs:
           - { language: go, shard: go-protocol-relay-observability }
     runs-on: ubuntu-latest
     # 75min is a flat safety cap, not a target. File-level API units, isolated
-    # agentapi file groups, and scope-grouped Rust legs are sized for at least
-    # 10min of headroom.
+    # agentapi file groups, and scope-grouped Rust legs are sized against each
+    # package's measured per-mutant cost (scripts/lib/mutation-shards.sh) for at
+    # least 15min of headroom.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
@@ -156,6 +195,9 @@ jobs:
         env:
           OPENGATE_GOLDEN_DIR: ${{ github.workspace }}/testdata/golden
         # cargo-mutants writes outcomes.json to mutants.out/ automatically.
+        # The build profile is `mutants` (agent/.cargo/mutants.toml): the test
+        # profile without debug info, which is most of the per-mutant rebuild and
+        # which nothing here reads.
         # --jobs 4 matches the ubuntu-latest 4-vCPU public-runner spec
         # (https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners).
         # --no-shuffle for deterministic ordering when comparing runs.

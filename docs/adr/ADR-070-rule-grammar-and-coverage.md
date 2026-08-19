@@ -51,7 +51,7 @@ boundaries, predicate and window
 ([`control.rs`](../../agent/crates/mesh-protocol/src/control.rs)).
 
 Every predicate's cost is a function of the rule's own declared fields:
-[`rule_cost`](../../agent/crates/mesh-agent-core/src/alerts/evaluator.rs) answers
+[`rule_cost`](../../agent/crates/mesh-agent-core/src/alerts/evaluator/mod.rs) answers
 how many readings a rule retains and may touch, monotone in the window and summed
 over the conditions. **A predicate whose cost cannot be computed statically is
 one the grammar cannot express** — which is why the window and the term count are

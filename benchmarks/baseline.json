@@ -11,7 +11,7 @@
       "name": "BenchmarkCodec_DecodeControl",
       "lang": "go",
       "ns_op": 1402.5,
-      "bytes_op": 1592,
+      "bytes_op": 1848,
       "allocs_op": 15
     },
     {

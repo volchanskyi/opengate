@@ -392,6 +392,13 @@ else
   # fail CI (redb_compact.rs, CI run 29071122300). This checks each changed file's
   # blame-independent absolute duplication after the upload.
   run_check "sonar new-duplication guard" -- bash scripts/sonar-duplication-guard.sh
+  # new-rating guard: `make sonar` enforces new_reliability_rating and
+  # new_security_rating at A, and both are derived from git blame the same way, so
+  # a bug or vulnerability on an uncommitted line sits outside the new-code period
+  # locally and lands inside it once CI re-scans the commit (2acbdbdc: two bad
+  # sorts and one assembled SQL statement, clean locally, D and C in CI). This
+  # checks the blame-independent absolute findings on each changed file.
+  run_check "sonar new-rating guard" -- bash scripts/sonar-rating-guard.sh
 fi
 
 # Summary.
