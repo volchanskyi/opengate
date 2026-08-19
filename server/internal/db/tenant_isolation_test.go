@@ -205,6 +205,18 @@ func tenantIsolationProbes() []tenantIsolationProbe {
 		{"incident_events",
 			`SELECT COUNT(*) FROM incident_events`,
 			`SELECT COUNT(*) FROM incident_events WHERE tenant_id = $1`},
+		{"device_tag_labels",
+			`SELECT COUNT(*) FROM device_tag_labels`,
+			`SELECT COUNT(*) FROM device_tag_labels WHERE tenant_id = $1`},
+		{"device_tags",
+			`SELECT COUNT(*) FROM device_tags`,
+			`SELECT COUNT(*) FROM device_tags WHERE tenant_id = $1`},
+		{"organization_alert_limits",
+			`SELECT COUNT(*) FROM organization_alert_limits`,
+			`SELECT COUNT(*) FROM organization_alert_limits WHERE tenant_id = $1`},
+		{"rule_binding_clamps",
+			`SELECT COUNT(*) FROM rule_binding_clamps`,
+			`SELECT COUNT(*) FROM rule_binding_clamps WHERE tenant_id = $1`},
 	}
 }
 
@@ -301,14 +313,33 @@ func seedTenantRows(t *testing.T, ctx context.Context, db *sql.DB, f tenantFixtu
 	exec(`INSERT INTO device_inventory (tenant_id, device_id, kind, name, first_seen, last_seen) VALUES ($1, $2, 'port', 'isolation', $3, $4)`,
 		f.tenantID, f.deviceID, now, now)
 
+	bindingID := uuid.New()
 	exec(`INSERT INTO rule_bindings (id, tenant_id, organization_id, rule_id, level, level_key, params)
 	      VALUES ($1, $2, $3, 'disk-critical', 'organization', $3, '{"threshold": 95}'::jsonb)`,
-		uuid.New(), f.tenantID, f.orgID)
+		bindingID, f.tenantID, f.orgID)
 	exec(`INSERT INTO rule_rollout (tenant_id, organization_id, rule_id) VALUES ($1, $2, 'disk-critical')`,
 		f.tenantID, f.orgID)
 	exec(`INSERT INTO rule_coverage_unsupported (tenant_id, organization_id, device_id, rule_id)
 	      VALUES ($1, $2, $3, 'io-stalled')`,
 		f.tenantID, f.orgID, f.deviceID)
+
+	labelID := uuid.New()
+	exec(`INSERT INTO device_tag_labels (id, tenant_id, organization_id, key, value)
+	      VALUES ($1, $2, $3, 'role', 'file-server')`,
+		labelID, f.tenantID, f.orgID)
+	exec(`INSERT INTO device_tags (tenant_id, organization_id, device_id, label_id, key, value)
+	      VALUES ($1, $2, $3, $4, 'role', 'file-server')`,
+		f.tenantID, f.orgID, f.deviceID, labelID)
+	exec(`INSERT INTO organization_alert_limits
+	          (tenant_id, organization_id, hourly_ceiling, device_hourly_ceiling)
+	      VALUES ($1, $2, 500, 20)`,
+		f.tenantID, f.orgID)
+
+	exec(`INSERT INTO rule_binding_clamps
+	          (id, tenant_id, organization_id, binding_id, rule_id, rule_version,
+	           param, from_value, to_value)
+	      VALUES ($1, $2, $3, $4, 'disk-critical', 2, 'threshold', 95, 90)`,
+		uuid.New(), f.tenantID, f.orgID, bindingID)
 
 	incidentID := uuid.New()
 	exec(`INSERT INTO incidents (id, tenant_id, organization_id, rule_id, scope, scope_key,

@@ -215,6 +215,24 @@ impl AlertSink {
         self.lock().queue.drain(..).collect()
     }
 
+    /// Sets how many alerts this device may raise in a rolling hour.
+    ///
+    /// The customer chooses this number and it arrives with the ruleset, so it
+    /// has to land on a sink that is already running — a limit that only applies
+    /// after a restart is not a control anybody can use while a machine is
+    /// drowning them. It takes effect on the very next alert, counting the ones
+    /// already admitted inside the current window, so lowering it silences the
+    /// excess immediately rather than at the top of the next hour.
+    ///
+    /// A ceiling of nothing is ignored. It would stop the device raising
+    /// anything at all, which is never what somebody reaching for this meant.
+    pub fn set_ceiling(&self, ceiling: u32) {
+        if ceiling == 0 {
+            return;
+        }
+        self.lock().ceiling = ceiling;
+    }
+
     /// What the sink is holding and what it has lost.
     #[must_use]
     pub fn stats(&self) -> SinkStats {

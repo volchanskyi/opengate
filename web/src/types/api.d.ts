@@ -948,6 +948,248 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rules/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One rule, its tuning, and anything a version change moved
+         * @description The definition is read-only description — a rule's logic is compiled into the server and there is no authoring surface. What comes back beside it is what may change: the tuned values down the tenancy ladder, and any value a new version of the rule had to move.
+         */
+        get: operations["getRule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rules/{rule_id}/resolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The rule as one named machine is actually running it
+         * @description Answers "why is this machine at 95?" — every parameter, the value in force, and which tuned value decided it.
+         */
+        get: operations["getResolvedRule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rules/{rule_id}/bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * File or retune one value
+         * @description Requires administrator access. A value outside the rule's declared range, or one for something the rule does not offer, is refused here — where somebody can still see why — rather than reaching an estate.
+         */
+        put: operations["putRuleBinding"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rules/{rule_id}/bindings/{binding_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one tuned value
+         * @description Requires administrator access. The machines it covered fall back to the next rung up, which is the whole point of removing it.
+         */
+        delete: operations["deleteRuleBinding"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rules/{rule_id}/rollout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * How far and how fast a rule spreads
+         * @description Requires administrator access. Sets whether the customer gets the rule, the population each stage reaches, and how long each is held. The automatic pull-back is not settable through this or any other route.
+         */
+        put: operations["putRuleRollout"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rules/{rule_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a rule, for one customer or for every customer at once
+         * @description Requires administrator access. Deliberately separate from switching a rule off: that is an ordinary choice, this is an intervention, and afterwards the two have to be tellable apart. Effective without a release, including on machines that are offline when it is used — they are stopped when they come back.
+         */
+        post: operations["stopRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rules/{rule_id}/clamps/{clamp_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge a value a new rule version had to move
+         * @description Requires administrator access.
+         */
+        post: operations["acknowledgeRuleClamp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A customer's alert budget */
+        get: operations["getAlertLimits"];
+        /**
+         * Move a customer's alert budget
+         * @description Requires administrator access. Neither half may pass the maximum the code allows, and neither may be set to nothing — that would silence the customer's detection outright.
+         */
+        put: operations["putAlertLimits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/device-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A customer's label list and who carries what */
+        get: operations["listDeviceTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/device-tags/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a label to a customer's list
+         * @description Requires administrator access.
+         */
+        post: operations["createDeviceTagLabel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/device-tags/labels/{label_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a label from a customer's list
+         * @description Requires administrator access. Refused while a rule is aimed at the label: removing it then would take a tuned value off every machine that carried it, which reads as a threshold quietly widening across an estate rather than as a deletion.
+         */
+        delete: operations["deleteDeviceTagLabel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/device-tags/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Give one label to a set of machines
+         * @description Requires administrator access. A machine already carrying a different value for the same key takes the new one — a machine that answered a question twice would match every selector asking it.
+         */
+        put: operations["assignDeviceTag"];
+        post?: never;
+        /**
+         * Take one label key off one machine
+         * @description Requires administrator access.
+         */
+        delete: operations["clearDeviceTag"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1618,14 +1860,6 @@ export interface components {
             /** @description Machines that have reported nothing. */
             unknown: number;
         };
-        /** @description How far a rule has reached across a customer's estate. */
-        RuleRollout: {
-            enabled: boolean;
-            canary_group?: string;
-            rollout_percent: number;
-            /** @description The switch that stops a rule without a deploy. */
-            kill: boolean;
-        };
         /** @description How far a customer may retune one parameter. */
         RuleParameterBounds: {
             /** Format: double */
@@ -1661,6 +1895,198 @@ export interface components {
             };
             rollout: components["schemas"]["RuleRollout"];
             coverage: components["schemas"]["RuleCoverage"];
+            noise: components["schemas"]["RuleNoise"];
+        };
+        /**
+         * @description How a rule's recent count compares with its own usual rate. Relative to the rule rather than to a shared threshold, so a rule meant to be chatty does not sit permanently red; a rule with no history yet is unknown rather than alarming.
+         * @enum {string}
+         */
+        RuleNoiseLevel: "unknown" | "quiet" | "usual" | "elevated" | "high";
+        /** @description How much this rule has been raising lately, for the selected customer. */
+        RuleNoise: {
+            /** @description Alerts the rule raised in the last hour. */
+            recent: number;
+            /**
+             * Format: double
+             * @description The rule's own usual hourly rate for this customer.
+             */
+            baseline_per_hour: number;
+            level: components["schemas"]["RuleNoiseLevel"];
+        };
+        /**
+         * @description How far along a rollout is.
+         * @enum {string}
+         */
+        RuleStage: "off" | "canary" | "staged" | "full";
+        /** @description How far a rule has reached across a customer's estate. */
+        RuleRollout: {
+            enabled: boolean;
+            canary_group?: string;
+            rollout_percent: number;
+            /** @description The switch that stops a rule without a deploy. */
+            kill: boolean;
+            stage: components["schemas"]["RuleStage"];
+            /** @description The share of the estate the first stage reaches. */
+            canary_percent: number;
+            /** @description The share of the estate the second stage reaches. */
+            staged_percent: number;
+            /** @description How long the first stage is held before it may advance. */
+            canary_hold_secs: number;
+            /** @description How long the second stage is held before it may advance. */
+            staged_hold_secs: number;
+        };
+        /** @description What an administrator may change about a rollout. There is deliberately nothing here for the automatic pull-back: it is the mitigation for a bad rule degrading an estate, so it is not configuration. */
+        RuleRolloutInput: {
+            enabled: boolean;
+            canary_percent: number;
+            staged_percent: number;
+            canary_hold_secs: number;
+            staged_hold_secs: number;
+        };
+        /**
+         * @description The rung of the tenancy ladder a tuned value is filed on.
+         * @enum {string}
+         */
+        RuleBindingLevel: "device" | "site" | "organization" | "tenant";
+        /** @description One tuned value, filed on a rung and optionally narrowed to the machines a label picks out. The narrower rung always wins; precedence only settles ties between two labels at one rung. */
+        RuleBinding: {
+            /** Format: uuid */
+            id: string;
+            level: components["schemas"]["RuleBindingLevel"];
+            /**
+             * Format: uuid
+             * @description The machine, office or customer the value is filed against.
+             */
+            level_key: string;
+            /** @description The labels a machine must carry for this value to apply. */
+            selector: {
+                [key: string]: string;
+            };
+            /** @description Which of two labels at one rung wins. Higher takes it. */
+            precedence: number;
+            params: {
+                [key: string]: number;
+            };
+            updated_by: string;
+        };
+        /** @description A tuned value as an administrator states it. */
+        RuleBindingInput: {
+            /**
+             * Format: uuid
+             * @description Omit to file a new value; name one to retune it.
+             */
+            id?: string;
+            level: components["schemas"]["RuleBindingLevel"];
+            /** Format: uuid */
+            level_key: string;
+            selector?: {
+                [key: string]: string;
+            };
+            precedence?: number;
+            params: {
+                [key: string]: number;
+            };
+        };
+        /** @description A tuned value a new version of the rule no longer allows, moved to the nearest one it does. The rule keeps firing at the moved value; the move stays on the screen until an administrator acknowledges it. */
+        RuleClamp: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            binding_id: string;
+            rule_id: string;
+            rule_version: number;
+            param: string;
+            /** Format: double */
+            from_value: number;
+            /** Format: double */
+            to_value: number;
+            /** Format: date-time */
+            clamped_at: string;
+        };
+        /** @description One rule as its page shows it. */
+        RuleDetail: {
+            rule: components["schemas"]["Rule"];
+            bindings: components["schemas"]["RuleBinding"][];
+            clamps: components["schemas"]["RuleClamp"][];
+        };
+        /** @description One parameter as it applies to one machine, and where the value came from — which is the whole answer to "why is this machine at 95?". */
+        ResolvedRuleParameter: {
+            /** Format: double */
+            value: number;
+            /**
+             * @description The rung the value came from, or shipped when nothing overrode it.
+             * @enum {string}
+             */
+            level: "device" | "site" | "organization" | "tenant" | "shipped";
+            /** @description The tuned value that decided it, in words — a rung, a label, or the pack. */
+            source: string;
+        };
+        /** @description A rule as one named machine is actually running it. */
+        ResolvedRule: {
+            rule_id: string;
+            /** Format: uuid */
+            device_id: string;
+            /** @description Whether the machine is getting the rule at all. */
+            delivered: boolean;
+            params: {
+                [key: string]: components["schemas"]["ResolvedRuleParameter"];
+            };
+        };
+        /**
+         * @description Who a stop reaches. The customer scope stops one customer's estate; the tenant scope stops every customer at once, for a rule that is misbehaving everywhere.
+         * @enum {string}
+         */
+        RuleStopScope: "organization" | "tenant";
+        /** @description Stopping a rule, or lifting a stop. */
+        RuleStopInput: {
+            scope: components["schemas"]["RuleStopScope"];
+            stopped: boolean;
+        };
+        /** @description A customer's alert budget, and how far each half of it may be raised. The maxima are the code's, not the customer's — a limit an operator can raise is not a limit. */
+        AlertLimits: {
+            /** @description Alerts this customer may store in a rolling hour, across every machine. */
+            organization_hourly: number;
+            /** @description Alerts one of their machines may raise in a rolling hour. Enforced on the machine, so it travels down with the rules. */
+            device_hourly: number;
+            max_organization_hourly: number;
+            max_device_hourly: number;
+            updated_by: string;
+        };
+        /** @description A customer's alert budget as an administrator states it. */
+        AlertLimitsInput: {
+            organization_hourly: number;
+            device_hourly: number;
+        };
+        /** @description One entry in a customer's label list. Labels cut across the tenancy ladder — the file servers are in four offices — which is exactly the set a threshold is usually meant for and the set no rung names. */
+        DeviceTagLabel: {
+            /** Format: uuid */
+            id: string;
+            key: string;
+            value: string;
+            created_by: string;
+        };
+        DeviceTagLabelInput: {
+            key: string;
+            value: string;
+        };
+        /** @description One machine and the labels it carries. */
+        DeviceTagAssignment: {
+            /** Format: uuid */
+            device_id: string;
+            tags: {
+                [key: string]: string;
+            };
+        };
+        /** @description A customer's label list and who carries what. */
+        DeviceTagCatalogue: {
+            labels: components["schemas"]["DeviceTagLabel"][];
+            assignments: components["schemas"]["DeviceTagAssignment"][];
+        };
+        /** @description Giving one label to a set of machines at once, which is how an estate is labelled without visiting every machine's page. */
+        DeviceTagAssignmentInput: {
+            device_ids: string[];
+            /** Format: uuid */
+            label_id: string;
         };
         /** @description The curated pack and what each rule is watching. */
         RuleCatalogue: {
@@ -4672,6 +5098,688 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getRule: {
+        parameters: {
+            query?: {
+                /** @description Whose tuning and coverage this is. */
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No such rule in the pack this server runs */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getResolvedRule: {
+        parameters: {
+            query: {
+                /** @description The machine to resolve against. */
+                device_id: string;
+            };
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The resolved rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedRule"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No such rule, or no such machine in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    putRuleBinding: {
+        parameters: {
+            query?: {
+                /** @description Whose tuning this is. */
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleBindingInput"];
+            };
+        };
+        responses: {
+            /** @description The stored value */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleBinding"];
+                };
+            };
+            /** @description Outside the rule's bounds, or not something it offers */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No such rule in the pack this server runs */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteRuleBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                binding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    putRuleRollout: {
+        parameters: {
+            query?: {
+                /** @description Whose rollout this is. */
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleRolloutInput"];
+            };
+        };
+        responses: {
+            /** @description The stored rollout */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleRollout"];
+                };
+            };
+            /** @description A population or waiting period outside its bounds */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No such rule in the pack this server runs */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    stopRule: {
+        parameters: {
+            query?: {
+                /** @description Which customer, when the scope is one customer. */
+                organization_id?: string;
+            };
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleStopInput"];
+            };
+        };
+        responses: {
+            /** @description Stopped, or the stop lifted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not a scope this rule can be stopped at */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No such rule in the pack this server runs */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    acknowledgeRuleClamp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                clamp_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acknowledged */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Nothing outstanding under that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAlertLimits: {
+        parameters: {
+            query?: {
+                /** @description Whose budget this is. */
+                organization_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The budget */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertLimits"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    putAlertLimits: {
+        parameters: {
+            query?: {
+                /** @description Whose budget this is. */
+                organization_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertLimitsInput"];
+            };
+        };
+        responses: {
+            /** @description The stored budget */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertLimits"];
+                };
+            };
+            /** @description Past the maximum, or nothing at all */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listDeviceTags: {
+        parameters: {
+            query?: {
+                /** @description Whose labels these are. */
+                organization_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The labels */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceTagCatalogue"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createDeviceTagLabel: {
+        parameters: {
+            query?: {
+                /** @description Whose list this is. */
+                organization_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceTagLabelInput"];
+            };
+        };
+        responses: {
+            /** @description The label */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceTagLabel"];
+                };
+            };
+            /** @description Outside its bounds, or already on the list */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteDeviceTagLabel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                label_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No such label */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A rule is aimed at this label */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    assignDeviceTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceTagAssignmentInput"];
+            };
+        };
+        responses: {
+            /** @description Assigned */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A machine and a label belonging to different customers */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    clearDeviceTag: {
+        parameters: {
+            query: {
+                device_id: string;
+                key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

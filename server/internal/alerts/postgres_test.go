@@ -293,10 +293,10 @@ func TestOrganizationCeilingSuppressesAndFolds(t *testing.T) {
 	// A full hour's budget, received 59 minutes ago — still inside a rolling
 	// hour, and outside the calendar one an off-by-a-clock implementation would
 	// use.
-	e.seedHourOfAlerts(t, OrganizationHourlyCeiling, e.now.Add(-59*time.Minute))
+	e.seedHourOfAlerts(t, DefaultOrganizationHourlyCeiling, e.now.Add(-59*time.Minute))
 
 	e.record(t, e.alert(), CeilingSuppressed)
-	assert.Equal(t, OrganizationHourlyCeiling, e.count(t, qCustomerAlerts, e.org),
+	assert.Equal(t, DefaultOrganizationHourlyCeiling, e.count(t, qCustomerAlerts, e.org),
 		"a suppressed alert writes no row")
 
 	// Suppression is never silent: it folds into one room that says how much was
@@ -327,7 +327,7 @@ func TestOrganizationCeilingSuppressesAndFolds(t *testing.T) {
 func TestCeilingWindowRollsRatherThanResetting(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
-	e.seedHourOfAlerts(t, OrganizationHourlyCeiling, e.now.Add(-59*time.Minute))
+	e.seedHourOfAlerts(t, DefaultOrganizationHourlyCeiling, e.now.Add(-59*time.Minute))
 
 	e.record(t, e.alert(), CeilingSuppressed)
 
@@ -345,7 +345,7 @@ func TestCeilingWindowRollsRatherThanResetting(t *testing.T) {
 func TestCeilingIsPerCustomerNotPerTenant(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
-	e.seedHourOfAlerts(t, OrganizationHourlyCeiling, e.now.Add(-10*time.Minute))
+	e.seedHourOfAlerts(t, DefaultOrganizationHourlyCeiling, e.now.Add(-10*time.Minute))
 
 	// A second customer inside the same tenant, with its own machine.
 	otherOrg := testutil.SeedOrganization(t, e.ctx, e.store, "Fabrikam")

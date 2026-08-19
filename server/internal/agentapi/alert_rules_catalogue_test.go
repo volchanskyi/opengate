@@ -49,7 +49,7 @@ func newCatalogueProvider(t *testing.T, store RuleConfigStore, tags DeviceTagSou
 	t.Helper()
 	cat, err := rules.Embedded()
 	require.NoError(t, err)
-	return NewCatalogueAlertRuleProvider(cat, store, tags, nil, testLogger())
+	return NewCatalogueAlertRuleProvider(cat, store, tags, nil, nil, testLogger())
 }
 
 // orgBinding builds a binding covering one whole customer — the shape every
@@ -75,7 +75,7 @@ func mustResolve(t *testing.T, p *CatalogueAlertRuleProvider, scope settings.Sco
 	t.Helper()
 	got, err := p.RulesFor(context.Background(), scope)
 	require.NoError(t, err)
-	return byRuleID(got)
+	return byRuleID(got.Rules)
 }
 
 func ladderFor(org uuid.UUID) settings.Scope {
@@ -107,9 +107,9 @@ func TestCatalogueProviderServesTheShippedPackByDefault(t *testing.T) {
 
 	cat, err := rules.Embedded()
 	require.NoError(t, err)
-	assert.Len(t, got, len(cat.All()), "every shipped rule should reach a customer who configured nothing")
+	assert.Len(t, got.Rules, len(cat.All()), "every shipped rule should reach a customer who configured nothing")
 
-	indexed := byRuleID(got)
+	indexed := byRuleID(got.Rules)
 	disk, ok := indexed["disk-critical"]
 	require.True(t, ok)
 	assert.InEpsilon(t, 90.0, disk.Threshold, 0.0001)
@@ -212,14 +212,14 @@ rules:
 `), nil)
 	require.NoError(t, err)
 
-	p := NewCatalogueAlertRuleProvider(legacy, &fakeRuleConfig{}, nil, nil, testLogger())
+	p := NewCatalogueAlertRuleProvider(legacy, &fakeRuleConfig{}, nil, nil, nil, testLogger())
 	got, err := p.RulesFor(context.Background(), ladderFor(uuid.New()))
 	require.NoError(t, err)
 
-	indexed := byRuleID(got)
+	indexed := byRuleID(got.Rules)
 	assert.Equal(t, "mem.used_percent", indexed["legacy-memory"].Metric)
 	assert.Equal(t, "disk.used_percent", indexed["legacy-disk"].Metric)
-	for _, r := range got {
+	for _, r := range got.Rules {
 		_, ok := protocol.CanonicalRuleMetric(r.Metric)
 		assert.Truef(t, ok, "%s reached the wire under %s", r.ID, r.Metric)
 	}
@@ -269,7 +269,7 @@ func TestCatalogueProviderReportsAnUnreadableStore(t *testing.T) {
 
 	got, err := p.RulesFor(context.Background(), ladderFor(uuid.New()))
 	require.ErrorIs(t, err, boom)
-	assert.Nil(t, got, "no ruleset is better than one that ignores a kill switch")
+	assert.Empty(t, got.Rules, "no ruleset is better than one that ignores a kill switch")
 }
 
 // A machine with no customer on its ladder has nothing to resolve against, so it

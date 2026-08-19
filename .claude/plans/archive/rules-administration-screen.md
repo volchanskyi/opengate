@@ -1,10 +1,10 @@
 # Rules administration — the operator screen for curated detection
 
-**Status:** specified from a scoping session with the project owner, 2026-08-06. Not started.
-**Depends on:** `archive/tenancy-organizations-and-sites.md` (the tenant → organization → site model, landed),
-`archive/edge-first-b9-rule-catalogue-and-bindings.md` (settings storage),
-`archive/edge-first-b11-rollout-safety.md` (rollout machinery),
-`archive/edge-first-c2-alert-store-and-ingest.md` (alert records for the noise badge).
+**Status:** implemented 2026-08-18.
+**Depends on:** `tenancy-organizations-and-sites.md` (the tenant → organization → site model, landed),
+`edge-first-b9-rule-catalogue-and-bindings.md` (settings storage),
+`edge-first-b11-rollout-safety.md` (rollout machinery),
+`edge-first-c2-alert-store-and-ingest.md` (alert records for the noise badge).
 **Sequencing:** tenancy rework (landed) → edge-first work → this.
 
 ## Intent

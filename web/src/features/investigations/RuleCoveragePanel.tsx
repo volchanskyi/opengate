@@ -3,7 +3,7 @@ import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { countLabel } from './incident-format';
 import { COVERAGE_STATES, coverageCount, coverageStateLabel, coverageTotal } from './rule-coverage';
-import { useCatalogueStore } from './state/catalogue-store';
+import { useCatalogueStore } from '../rules/state/catalogue-store';
 
 type Rule = components['schemas']['Rule'];
 

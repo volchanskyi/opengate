@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
 import { useOrganizationStore } from '../organizations';
 import { InvestigationList } from './InvestigationList';
 import { DEFAULT_QUEUE_FILTERS, useQueueStore } from './state/queue-store';
-import { useCatalogueStore } from './state/catalogue-store';
+import { useCatalogueStore } from '../rules/state/catalogue-store';
 import type { components } from '../../types/api';
 
 vi.mock('../../lib/api', () => ({ api: { GET: vi.fn() } }));

@@ -145,7 +145,7 @@ func TestAProviderWithoutAFleetSourceStillStages(t *testing.T) {
 	t.Parallel()
 
 	org := uuid.New()
-	p := NewCatalogueAlertRuleProvider(mustCatalogue(t), &fakeRuleConfig{rollouts: stagedAt(org, 1)}, nil, nil, testLogger())
+	p := NewCatalogueAlertRuleProvider(mustCatalogue(t), &fakeRuleConfig{rollouts: stagedAt(org, 1)}, nil, nil, nil, testLogger())
 	assert.Less(t, machinesWithTheDiskRule(t, p, org, 500), 500/10)
 }
 
@@ -215,7 +215,7 @@ func mustCatalogue(t *testing.T) *rules.Catalogue {
 
 func newRolloutProvider(t *testing.T, store RuleConfigStore, fleet FleetCounter) *CatalogueAlertRuleProvider {
 	t.Helper()
-	return NewCatalogueAlertRuleProvider(mustCatalogue(t), store, nil, fleet, testLogger())
+	return NewCatalogueAlertRuleProvider(mustCatalogue(t), store, nil, fleet, nil, testLogger())
 }
 
 // newRuleConn is a connection carrying everything the rule push reads: the

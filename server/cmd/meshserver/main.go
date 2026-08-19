@@ -226,10 +226,11 @@ func main() {
 		QuicHost:      quicHost,
 		Tombstones:    tombstoneStore,
 		Settings:      settings.NewPostgresReader(store.DB()),
-		// Each machine gets the curated pack as its customer has retuned it.
-		// Device tags are not a source of targeting yet, so a binding narrows by
-		// the rung it is filed on; selectors start working the moment tags do.
-		AlertRules:   agentapi.NewCatalogueAlertRuleProvider(ruleCatalogue, ruleStore, nil, devicesRepo, logger),
+		// Each machine gets the curated pack as its customer has retuned it,
+		// narrowed by the labels the machine carries, and the customer's
+		// per-machine alert allowance travels down with it.
+		AlertRules: agentapi.NewCatalogueAlertRuleProvider(
+			ruleCatalogue, ruleStore, ruleStore, devicesRepo, alertStore, logger),
 		RuleCoverage: ruleStore,
 		// The same store answers the fleet-wide fold the platform's own coverage
 		// gauge is refreshed from.
@@ -319,6 +320,12 @@ func main() {
 		RuleCatalogue:  ruleCatalogue,
 		RuleRollouts:   ruleStore,
 		RuleCoverage:   agentSrv,
+		// The same store holds everything an operator may change about a rule —
+		// the tuned values, the pace it spreads at, the stop switch, and the
+		// labels a rule is aimed at. The alert store holds the budget those
+		// alerts are counted against, and the counts themselves.
+		RuleAdmin:   ruleStore,
+		AlertBudget: alertStore,
 	})
 
 	httpSrv := &http.Server{

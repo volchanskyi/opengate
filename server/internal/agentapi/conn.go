@@ -317,15 +317,19 @@ func (a *AgentConn) SendRequestHealthWindow(ctx context.Context, sinceTS int64, 
 	})
 }
 
-// SendPushAlertRules pushes a threshold-alert ruleset to the agent (WS-19).
-// Gated by the ThresholdAlerts capability.
-func (a *AgentConn) SendPushAlertRules(ctx context.Context, rules []protocol.ThresholdRule) error {
+// SendPushAlertRules pushes a threshold-alert ruleset to the agent (WS-19),
+// with the customer's per-machine alert allowance. The allowance travels with
+// the rules because it is enforced where alerts are raised; a ceiling of zero
+// leaves the machine on the allowance it already has. Gated by the
+// ThresholdAlerts capability.
+func (a *AgentConn) SendPushAlertRules(ctx context.Context, ruleset RuleSet) error {
 	if err := a.requireCapability(protocol.CapThresholdAlerts); err != nil {
 		return err
 	}
 	return a.sendControl(&protocol.ControlMessage{
-		Type:       protocol.MsgPushAlertRules,
-		AlertRules: rules,
+		Type:                protocol.MsgPushAlertRules,
+		AlertRules:          ruleset.Rules,
+		DeviceHourlyCeiling: ruleset.DeviceHourlyCeiling,
 	})
 }
 

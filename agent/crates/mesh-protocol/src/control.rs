@@ -880,6 +880,13 @@ pub enum ControlMessage {
     PushAlertRules {
         #[serde(default)]
         rules: Vec<ThresholdRule>,
+        /// How many alerts this device may raise in a rolling hour. The customer
+        /// sets it and it travels with the rules, because the limit is enforced
+        /// where the alerts are raised — a check at the far end would receive
+        /// the flood it exists to prevent. Absent or zero leaves the agent on
+        /// the allowance it already has.
+        #[serde(default)]
+        device_hourly_ceiling: u32,
     },
 
     /// Server → Agent: set the device's maintenance state. In maintenance the

@@ -155,9 +155,17 @@ func ValidateBinding(def Definition, b Binding) error {
 	return nil
 }
 
+// Pack is the lookup a write validates against: whatever holds the definitions
+// this server runs. It is an interface so a caller that already has the pack
+// behind its own port does not have to reach past it for the concrete type.
+type Pack interface {
+	Lookup(id string) (Definition, bool)
+	All() []Definition
+}
+
 // ValidateBindingAgainst looks the rule up first, for the write path that has a
-// catalogue and an operator-supplied rule id.
-func ValidateBindingAgainst(cat *Catalogue, b Binding) error {
+// pack and an operator-supplied rule id.
+func ValidateBindingAgainst(cat Pack, b Binding) error {
 	def, ok := cat.Lookup(b.RuleID)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownRule, b.RuleID)

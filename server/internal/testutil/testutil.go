@@ -349,6 +349,25 @@ func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, siteID u
 	return d
 }
 
+// SeedDeviceIn inserts an offline device filed under a named customer rather
+// than the tenant's own. A device that names no customer lands in the tenant's
+// oldest one, so a case about two customers inside one tenant has to say which —
+// otherwise both "customers" are the same row and the case proves nothing.
+func SeedDeviceIn(t testing.TB, ctx context.Context, s *db.PostgresStore, organizationID, siteID uuid.UUID) *device.Device {
+	t.Helper()
+	ctx, _ = tenantOrDefault(ctx, false)
+	d := &device.Device{
+		ID:             uuid.New(),
+		OrganizationID: organizationID,
+		SiteID:         siteID,
+		Hostname:       "host-" + uuid.New().String()[:8],
+		OS:             "linux",
+		Status:         device.StatusOffline,
+	}
+	require.NoError(t, NewTestDevices(t, s).Upsert(ctx, d))
+	return d
+}
+
 // SeedAgentSession inserts an agent session for the given device and user
 // via the session.Repository.
 func SeedAgentSession(t testing.TB, ctx context.Context, s *db.PostgresStore, deviceID, userID uuid.UUID) *session.Session {

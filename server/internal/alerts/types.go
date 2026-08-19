@@ -28,15 +28,6 @@ const (
 	// that slipped past an application check would sit in the table forever.
 	MaxEvidenceBytes = 64 * 1024
 
-	// OrganizationHourlyCeiling is how many alerts one customer may store per
-	// rolling hour. It is roughly twelve times a customer's steady rate, so it
-	// catches a storm without clipping ordinary operation.
-	//
-	// Per customer, never per tenant: at the tenant, one customer's bad night
-	// would consume the budget of every other customer the MSP looks after, and
-	// silencing detection across an estate is a worse failure than the storm.
-	OrganizationHourlyCeiling = 500
-
 	// StormRuleID names the room a customer's suppressed alerts fold into. It is
 	// not a catalogue rule — nothing evaluates it on a machine — but an incident
 	// has to be keyed on something, and keying it here means one storm is one

@@ -43,44 +43,26 @@ const (
 	// three, and it holds for every partial stage, because a rollout that shrank
 	// on its way forward would pull a rule off machines already proving it.
 	canaryFloorDevices = 5
-	// The reach each stage rolls to.
-	canaryPercent = 1
-	stagedPercent = 10
-	fullPercent   = 100
+	// fullPercent is the whole estate. The two partial stages' reaches are the
+	// customer's to set and live on the rollout itself.
+	fullPercent = 100
 	// membershipBuckets is the resolution membership is decided at. Finer than
 	// any estate this serves, so the share a stage aims at is not lost to
 	// rounding on the way to a per-machine answer.
 	membershipBuckets = 1_000_000
 )
 
-// StageFor reads the stage a stored reach puts a rule in.
+// StageFor reads the stage a stored reach puts a rule in, at the pace a customer
+// who has configured nothing is on. A rollout that has been retuned reads its own
+// populations — see [Rollout.Stage].
 func StageFor(percent int) Stage {
-	switch {
-	case percent <= 0:
-		return StageOff
-	case percent < stagedPercent:
-		return StageCanary
-	case percent < fullPercent:
-		return StageStaged
-	default:
-		return StageFull
-	}
+	return Rollout{RolloutPercent: percent}.Stage()
 }
 
-// PercentFor is the reach a stage rolls to.
+// PercentFor is the reach a stage rolls to at the shipped pace. A retuned
+// rollout reads its own — see [Rollout.PercentForStage].
 func PercentFor(stage Stage) int {
-	switch stage {
-	case StageCanary:
-		return canaryPercent
-	case StageStaged:
-		return stagedPercent
-	case StageFull:
-		return fullPercent
-	case StageOff:
-		return 0
-	default:
-		return 0
-	}
+	return Rollout{}.PercentForStage(stage)
 }
 
 // StagePopulation is how many of a fleet of fleetSize a rollout at percent aims
@@ -157,7 +139,7 @@ func NeedsFleetSize(rollouts map[string]Rollout) bool {
 		if !r.Delivers() {
 			continue
 		}
-		switch StageFor(r.RolloutPercent) {
+		switch r.Stage() {
 		case StageCanary, StageStaged:
 			return true
 		case StageOff, StageFull:

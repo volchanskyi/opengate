@@ -74,6 +74,27 @@ func (s *Store) exec(ctx context.Context, what, query string, args ...any) error
 	})
 }
 
+// affected runs one statement inside a tenant-scoped transaction and reports how
+// many rows it touched. Zero is an answer rather than a failure at every call
+// site here: it is how a statement whose own predicate refused the write — a
+// label and a machine belonging to different customers, a duplicate the list
+// already offers — says so, without a check the caller could forget to run.
+func (s *Store) affected(ctx context.Context, what, query string, args ...any) (int64, error) {
+	var rows int64
+	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("%s: %w", what, err)
+		}
+		rows, err = result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("%s: %w", what, err)
+		}
+		return nil
+	})
+	return rows, err
+}
+
 // eachRow runs one query inside a tenant-scoped transaction and hands every row
 // to scan.
 func (s *Store) eachRow(ctx context.Context, what, query string, args []any, scan func(*sql.Rows) error) error {

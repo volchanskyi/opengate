@@ -34,7 +34,7 @@ const (
 // UpsertBinding validates a binding against the rule it names and stores it.
 // Validation happens here rather than at a read, so a value the rule's author
 // never allowed is refused while an operator is still looking at it.
-func (s *Store) UpsertBinding(ctx context.Context, cat *Catalogue, b Binding) error {
+func (s *Store) UpsertBinding(ctx context.Context, cat Pack, b Binding) error {
 	if err := ValidateBindingAgainst(cat, b); err != nil {
 		return err
 	}

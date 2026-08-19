@@ -241,3 +241,72 @@ fn a_backfilled_finding_spends_the_same_allowance_as_a_live_alert() {
     let origins: Vec<AlertOrigin> = sink.drain().into_iter().map(|a| a.origin).collect();
     assert_eq!(origins, vec![AlertOrigin::Live, AlertOrigin::Backfilled]);
 }
+
+/// The per-machine ceiling is the customer's, set on a screen and delivered with
+/// the ruleset, so it has to be changeable on a sink that is already running.
+/// The alternative is a number that only takes effect when the agent next
+/// restarts, which is not a control anybody can use during an incident.
+#[test]
+fn the_ceiling_can_be_raised_while_the_sink_is_running() {
+    let sink = AlertSink::new(64, 2);
+    sink.push(alert("a"), 0);
+    sink.push(alert("b"), SECOND);
+    assert_eq!(
+        sink.push(alert("c"), 2 * SECOND),
+        PushOutcome::SuppressedByCeiling
+    );
+
+    sink.set_ceiling(4);
+    assert_eq!(
+        sink.push(alert("d"), 3 * SECOND),
+        PushOutcome::Queued,
+        "the raised allowance counts the alerts already admitted this hour"
+    );
+    assert_eq!(
+        sink.push(alert("e"), 4 * SECOND),
+        PushOutcome::Queued,
+        "and the rest of the raised allowance is available too"
+    );
+    assert_eq!(
+        sink.push(alert("f"), 5 * SECOND),
+        PushOutcome::SuppressedByCeiling,
+        "past the new ceiling it suppresses again"
+    );
+
+    assert_eq!(
+        sink.stats().suppressed_by_ceiling,
+        2,
+        "what was lost before the raise stays counted"
+    );
+}
+
+/// Lowering it takes effect on the next alert rather than on the next hour: a
+/// customer who has just discovered a machine drowning them does not want the
+/// change to land in fifty-nine minutes.
+#[test]
+fn the_ceiling_can_be_lowered_while_the_sink_is_running() {
+    let sink = AlertSink::new(64, 20);
+    for i in 0..3 {
+        assert_eq!(
+            sink.push(alert(&format!("rule-{i}")), i * SECOND),
+            PushOutcome::Queued
+        );
+    }
+
+    sink.set_ceiling(3);
+    assert_eq!(
+        sink.push(alert("over"), 4 * SECOND),
+        PushOutcome::SuppressedByCeiling,
+        "a machine already at the new ceiling is at it immediately"
+    );
+    assert_eq!(sink.stats().suppressed_by_ceiling, 1);
+}
+
+/// A ceiling of nothing would silence the machine entirely, which is never what
+/// somebody means. The sink keeps the one it has.
+#[test]
+fn a_ceiling_of_nothing_is_ignored() {
+    let sink = AlertSink::new(64, 2);
+    sink.set_ceiling(0);
+    assert_eq!(sink.push(alert("a"), 0), PushOutcome::Queued);
+}
