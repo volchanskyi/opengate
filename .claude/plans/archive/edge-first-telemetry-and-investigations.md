@@ -59,7 +59,7 @@ changing *which dimensions are central* moves the binding constraint.
 **And there is no detail to move.** §2.4 proves the per-entity dimensions do not
 exist: the agent collects one aggregated `disk_used_percent` and primary-interface
 network only. The 40-series/agent figure in
-[spike_test.go](../../server/tests/vmcardinality/spike_test.go) is a **projection
+[spike_test.go](../../../server/tests/vmcardinality/spike_test.go) is a **projection
 of a planned dimension set that was never built**.
 
 So WS-B is honestly **preventive**: establish the O(1) boundary *before* the
@@ -74,9 +74,9 @@ evidence ships with it at fire time. Nothing can be fetched later.
 
 **WS-C must extend the existing WS-19 alert path, not duplicate it.**
 `ThresholdRule` / `AlertBreach` already exist
-([control.rs:41](../../agent/crates/mesh-protocol/src/control.rs#L41)), ride
+([control.rs:41](../../../agent/crates/mesh-protocol/src/control.rs#L41)), ride
 `AgentHealthSummary`, and land in VM through
-[alert_breach.go](../../server/internal/agentapi/alert_breach.go). Two parallel
+[alert_breach.go](../../../server/internal/agentapi/alert_breach.go). Two parallel
 alerting systems would be a maintainability failure.
 
 ### 1.4 Why the three are one design
@@ -92,7 +92,7 @@ Recorded so the reasoning is auditable.
 
 | v1 claim | Reality | Consequence |
 |---|---|---|
-| "extrema (`max`, `p99`)" | `StoredTierPoint` holds `min/max/sum/last/last_ts/count` — **no percentile structure** ([tier.rs:37](../../agent/crates/edge-tsdb/src/tier.rs#L37)) | **p99 dropped.** §2.5 shows `max` alone recovers the signal; a t-digest in the codec, merge and wire is disproportionate |
+| "extrema (`max`, `p99`)" | `StoredTierPoint` holds `min/max/sum/last/last_ts/count` — **no percentile structure** ([tier.rs:37](../../../agent/crates/edge-tsdb/src/tier.rs#L37)) | **p99 dropped.** §2.5 shows `max` alone recovers the signal; a t-digest in the codec, merge and wire is disproportionate |
 | "the agent expands to per-entity dims locally" | Those collectors **do not exist** (§2.4) | Expansion becomes a **separate later program** (§4.2); this program sets the boundary |
 | "disk = worst mount (already an edge reduction)" | It is a **capacity-weighted average across all disks** (§2.4) — a live RMM defect | Redefined as worst-mount + a critical-mount count (§6.2), fixed here |
 | silent on the WS-19 alert path | `ThresholdRule`/`AlertBreach` already exist | WS-C **extends** it (§6.6) |
@@ -152,12 +152,12 @@ Derived figures are labelled.
 counted, never written, never deleted, never rejected, never recorded as dropped.
 
 The only discard path in
-[conn_telemetry.go](../../server/internal/agentapi/conn_telemetry.go) that
+[conn_telemetry.go](../../../server/internal/agentapi/conn_telemetry.go) that
 increments nothing is the `len(samples) == 0` early return in `bufferTelemetry`
 (and its twin in `handleAgentHealthSummary`), reached **after** `acceptTelemetry`
 increments the ingest counter.
 
-**Grid defect:** [`assembleMetricRange`](../../server/internal/api/metrics_assemble.go)
+**Grid defect:** [`assembleMetricRange`](../../../server/internal/api/metrics_assemble.go)
 builds `t[]` from `unionGrid(avg)` — only timestamps VM returned. M1 is the
 measurement: a 1 h request whose grid should hold 360 buckets returns 111.
 
@@ -166,7 +166,7 @@ measurement: a 1 h request whose grid should hold 360 buckets returns 111.
 | Measurement | Value | Method |
 |---|---|---|
 | Retention, **live** | **30 d** | statefulset `-retentionPeriod` |
-| Retention, **chart** | 90 d | [values.yaml](../../deploy/helm/monitoring/values.yaml) — **drift, fixed in A5** |
+| Retention, **chart** | 90 d | [values.yaml](../../../deploy/helm/monitoring/values.yaml) — **drift, fixed in A5** |
 | Disk used | **107.9 MB / 48.9 GB (0 %)** | `df -h /storage` |
 | Total active series | 4 496 | `/api/v1/status/tsdb` |
 | Edge series today | 5 dims + 1 anomaly = **6/device** | `/api/v1/series` |
@@ -202,11 +202,11 @@ today's saving — it is **capping the trajectory at 24 instead of 40–99**.
 
 | Finding | Evidence |
 |---|---|
-| No per-core, per-disk, per-mount or per-interface dimensions exist | `MetricSample` holds five scalars + `processes` ([sampler.rs](../../agent/crates/mesh-agent-core/src/ml/sampler.rs)) |
-| Disk is a **capacity-weighted average across all disks** | `disks.iter().fold(...)` then `(total-free)/total` ([sampler.rs:197-205](../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L197-L205)) |
-| Network is primary-interface only | [primary_iface.rs](../../agent/crates/mesh-agent-core/src/ml/primary_iface.rs) |
+| No per-core, per-disk, per-mount or per-interface dimensions exist | `MetricSample` holds five scalars + `processes` ([sampler.rs](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs)) |
+| Disk is a **capacity-weighted average across all disks** | `disks.iter().fold(...)` then `(total-free)/total` ([sampler.rs:197-205](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L197-L205)) |
+| Network is primary-interface only | [primary_iface.rs](../../../agent/crates/mesh-agent-core/src/ml/primary_iface.rs) |
 | PSI is available on the reference kernel | `/proc/pressure/{cpu,memory,io}` present, both `some` and `full`; kernel 6.6.87.2 |
-| **No disk *performance* signal exists at all** | `MetricSample` has `disk_used_percent` and nothing else about disks ([sampler.rs](../../agent/crates/mesh-agent-core/src/ml/sampler.rs)); `sysinfo 0.39`'s `Disk::usage()` would give bytes but no service time or queue depth |
+| **No disk *performance* signal exists at all** | `MetricSample` has `disk_used_percent` and nothing else about disks ([sampler.rs](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs)); `sysinfo 0.39`'s `Disk::usage()` would give bytes but no service time or queue depth |
 | `/proc/diskstats` carries what is needed | Live on the reference host: per-device completed I/Os, ms spent reading and writing, in-flight count, and weighted ms — the inputs `iostat` derives `await` and `avgqu-sz` from |
 | `/sys/block/` is the non-partition device list | Present; partitions do not appear, so it is the natural filter against double-counting `nvme0n1` and `nvme0n1p1` |
 | cgroup v2 is live, with `io.stat` and `io.pressure` | Both present at the cgroup root; `stat -fc %T /sys/fs/cgroup` = `cgroup2fs` |
@@ -215,7 +215,7 @@ today's saving — it is **capping the trajectory at 24 instead of 40–99**.
 system at 98 %, 2 TB data at 10 %) reports **15.0 %**. The volume is about to fill
 and **no `disk.used` threshold rule can fire** — and `disk.used` is one of only
 three metrics the WS-19 rule vocabulary supports
-([alert_breach.go](../../server/internal/agentapi/alert_breach.go)). Servers are
+([alert_breach.go](../../../server/internal/agentapi/alert_breach.go)). Servers are
 worst affected, since a small OS volume beside large data volumes is the normal
 shape. Fixing it needs **no new collectors** — the code already iterates every
 disk — so it is a pure O(1) reduction and lands in this program.
@@ -239,10 +239,10 @@ sampling rate: inside a 60 s bucket at 1 Hz, a CPU-pinning freeze moves `avg` fr
 
 | Measurement | Value | Source |
 |---|---|---|
-| Local store cap | 512 MB | `EDGE_STORE_CAP_MB` ([main.rs](../../agent/crates/mesh-agent/src/main.rs)) |
+| Local store cap | 512 MB | `EDGE_STORE_CAP_MB` ([main.rs](../../../agent/crates/mesh-agent/src/main.rs)) |
 | On-disk density | ~7.3 B/sample, gate `< 12` | `edge-tsdb` gates |
 | Store live on the reference host | 14.9 MB `localtsdb.redb` | filesystem |
-| Retroactive reach *(measured, Q11)* | ~7 months at 60 s (T1), at ~2.3 B per stored reading | [reach_test.rs](../../agent/crates/mesh-agent-core/tests/reach_test.rs) |
+| Retroactive reach *(measured, Q11)* | ~7 months at 60 s (T1), at ~2.3 B per stored reading | [reach_test.rs](../../../agent/crates/mesh-agent-core/tests/reach_test.rs) |
 
 Both rows are **measured** figures. The reach row is measured at steady state
 through the production write path at three cap sizes, and holds only for the
@@ -405,7 +405,7 @@ requirement, no erasure chase.
 ### 5.5 `/correlate`
 
 Today an **on-demand central engine** that KS-ranks which dimensions broke pattern,
-reading VM ([correlate.go](../../server/internal/correlate/correlate.go)).
+reading VM.
 
 **Adopted: move it to the edge.** When a rule fires on FS01, the agent ranks its
 own full-resolution dimensions over the event window and ships the ranking inside
@@ -654,7 +654,7 @@ emits the top-N into the alert's evidence.
 
 **Curated tunable rules.** Extends `ThresholdRule` / `PushAlertRules` /
 `AlertRuleProvider` — today a hardcoded three-rule Go literal in
-[`DefaultAlertRules`](../../server/internal/agentapi/alert_rules.go) whose
+[`DefaultAlertRules`](../../../server/internal/agentapi/alert_rules.go) whose
 `StaticAlertRuleProvider.byOrg` override map nothing populates.
 
 **Storage: embedded catalogue + Postgres binding and rollout state.**
@@ -692,7 +692,7 @@ Resolution order, narrowest first:
 **device → site → organization → tenant → the embedded default.**
 
 The ordering is not defined here. It is
-[`internal/settings`](../../server/internal/settings/settings.go), shipped by the
+[`internal/settings`](../../../server/internal/settings/settings.go), shipped by the
 tenancy rework: the walk and the tie-break live in one place so they cannot drift
 between the things that depend on them, while the *values* stay in
 `rule_bindings` where the rule that declares them can validate them. That is why
@@ -726,7 +726,7 @@ rewrite. Nothing here forecloses it.
   no WASM, no side effects.
 - **Metric vocabulary alignment.** The rule vocabulary is today `cpu.total`,
   `mem.used`, `disk.used`
-  ([alert_breach.go](../../server/internal/agentapi/alert_breach.go)) while the
+  ([alert_breach.go](../../../server/internal/agentapi/alert_breach.go)) while the
   vitals are `cpu.total`, `mem.used_percent`, `disk.used_percent`. The grammar
   adopts the **vitals names** as canonical and accepts the three current names
   as aliases, so rules already pushed to the fleet keep firing across the
@@ -900,7 +900,7 @@ scope_key) WHERE status <> 'resolved'`, which makes the fold race-safe.
 
 Two migrations, not one, because the rule tables land with WS-B step 12 while
 the investigation tables land with WS-C step 16. The tenancy rework took 010
-through 012 ([migrations/](../../server/internal/db/migrations/)), so 013 is the
+through 012 ([migrations/](../../../server/internal/db/migrations/)), so 013 is the
 next free number; confirm it at implementation time rather than trusting this
 line.
 
@@ -946,7 +946,7 @@ check constraints, not application convention.
 
 Additive, behind a new `Alerts` capability, golden-file tested both directions;
 `controlFieldCount` bumped from its **current 86**
-([control_encode.go](../../server/internal/protocol/control_encode.go)) with a
+([control_encode.go](../../../server/internal/protocol/control_encode.go)) with a
 per-field encoder arm. Read the constant at implementation time rather than
 trusting this figure — it moves with every protocol addition.
 
@@ -1068,7 +1068,7 @@ reversible cheaply once agents are shipping at the new cadence.
 
 **Answered (EF-B10): ~7 months.** A store is driven through the production write
 path until its cap is evicting, then asked for the oldest minute it still holds
-([reach_test.rs](../../agent/crates/mesh-agent-core/tests/reach_test.rs)). Run at
+([reach_test.rs](../../../agent/crates/mesh-agent-core/tests/reach_test.rs)). Run at
 three cap sizes across a fourfold range, the reach scales with the cap to within
 5 %, which is what makes extrapolating to the shipped 512 MB cap evidence rather
 than the same division in a new coat:
@@ -1312,6 +1312,24 @@ Project standard applies unchanged: `make lint`, `make test`, `make golden`,
   coverage is the failure class WS-A exists to eliminate, and a number nobody
   can see is silent.
 
+**Gaps found while decomposing this plan, and where each closed**
+
+Four things this section originally described a smaller program than. Each was
+resolved inside a micro-plan rather than deferred:
+
+1. **Coverage had no wire transport** (§7.5) — `rule_coverage[]` rides
+   `AgentHealthSummary` additively, so an agent that predates it sends the
+   byte-identical frame it always did (EF-B8,
+   [ADR-070](../../../docs/adr/ADR-070-rule-grammar-and-coverage.md)).
+2. **`RuleCoverage` had no storage** (§7.4) — coverage is liveness, so states are
+   held per connected agent and `unknown` is derived as fleet minus reported;
+   only "this machine cannot evaluate this rule at all" is durable (EF-B8).
+3. **Evidence's 64 KB cap collided with `maxTelemetryPayloadBytes`** — the alert
+   payload carries its own bound rather than borrowing the telemetry one (EF-C1,
+   [ADR-074](../../../docs/adr/ADR-074-alert-store-accounted-ingest-and-the-erasure-cascade.md)).
+4. **The web step had no acceptance criterion** — W1–W6 above are it (EF-C6,
+   [ADR-078](../../../docs/adr/ADR-078-the-triage-workspace-reads-a-snapshot.md)).
+
 ---
 
 ## 13. Implementation steps
@@ -1467,7 +1485,7 @@ the trade from hypothetical to arithmetic.
 
 Alerts, evidence and incidents are **declared** 1 y. No age-based deletion ships
 in this program: existing purge machinery in
-[`internal/lifecycle`](../../server/internal/lifecycle/) is device- and
+[`internal/lifecycle`](../../../server/internal/lifecycle/) is device- and
 org-triggered, and adding a scheduled sweep is a self-contained piece of work
 that nothing else here depends on. At §6.6's derived ~1.8 GB/year the cost of
 waiting is small and bounded.

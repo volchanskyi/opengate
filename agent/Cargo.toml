@@ -56,3 +56,13 @@ proptest = "1"
 tempfile = "3"
 mockito = "1"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+# Mutation testing rebuilds this workspace once per mutant and links every test
+# binary each time, which is where nearly all of a shard's wall-clock goes. Debug
+# info is the largest part of that work and nobody reads a backtrace from a
+# mutant, so the profile drops it: the mesh-agent-core rebuild measures 25.8s
+# with it and 19.8s without, and the target directory shrinks from 7.8 GB to
+# 1.2 GB. Selected by `profile = "mutants"` in .cargo/mutants.toml.
+[profile.mutants]
+inherits = "test"
+debug = false

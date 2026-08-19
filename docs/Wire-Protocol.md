@@ -214,7 +214,7 @@ fires. Beyond that it declares:
 | `all` | Extra conditions that must hold at the same instant, at most `MAX_RULE_TERMS` of them, each with its own metric, comparator, boundaries, predicate and window |
 
 The bounds are what make a rule's cost computable before it reaches an endpoint:
-[`rule_cost`](../agent/crates/mesh-agent-core/src/alerts/evaluator.rs) answers how
+[`rule_cost`](../agent/crates/mesh-agent-core/src/alerts/evaluator/mod.rs) answers how
 many readings a rule retains and may touch, from its declared fields alone. A
 shape outside the grammar — a window past the bound, a windowed predicate with no
 window, an instant one carrying a window it would ignore, more extra conditions
@@ -238,7 +238,7 @@ that device — `Active` (evaluating), `Unsupported` (the rule is producing no
 answer here: its metric is outside the vocabulary, its predicate outside the
 grammar's bounds, or the reading is not arriving), or `Throttled` (the rule cost
 this device more than the allowance in
-[`evaluator.rs`](../agent/crates/mesh-agent-core/src/alerts/evaluator.rs), so the
+[`evaluator`](../agent/crates/mesh-agent-core/src/alerts/evaluator/mod.rs), so the
 device stopped running it). A device that reports none of them
 is `unknown`, which only the server can determine because only the server knows
 the fleet. The field is omitted when there is nothing to

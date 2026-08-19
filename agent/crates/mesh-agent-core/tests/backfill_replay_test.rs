@@ -6,6 +6,11 @@
 //! in-order-within-tier + resumable-from-cursor drain, retention clamp, and
 //! clock-skew bounds. The server-side VM-bucket correctness is covered
 //! separately (Go `server/tests/vmbackfill`).
+//!
+//! covers `ml::backfill::drain` (the tier walk, its phases and its batch
+//! boundaries) and `ml::backfill` (the tier bands, the durable cursors and the
+//! 60 s fold) through one public surface, which is what lets the two live in
+//! separate files without either losing its behavior tests.
 
 use std::collections::BTreeMap;
 

@@ -295,3 +295,86 @@ the three curated shapes — fleet event, slow burn, recurrence — needs it.
 grouping window. That is a change to the relationship between the two grouping
 axes, so it lands as a new ADR superseding ADR-075 on this point — not as a YAML
 knob added to the catalogue grammar.
+
+### Every control frame allocates the whole union
+
+[`ControlMessage`](../server/internal/protocol/control.go) is one struct
+carrying a field for every message type on the wire — 100 fields, 1 416 bytes —
+and the decoder allocates one per frame. A heartbeat that sets three of those
+fields costs the same as a discovery report that sets twenty, and Go rounds the
+allocation to a size class, so the price rises in steps: eight bytes of new
+alert fields took `BenchmarkCodec_DecodeControl` from 1 592 to 1 848 B/op by
+crossing 1 408.
+
+The union is what makes the hand-written encoder's field ordering byte-identical
+to the Rust side ([ADR-060](../docs/adr/ADR-060-control-message-hand-written-encoder.md)),
+so the fix is not a smaller struct but a different shape: a type per message,
+decoded after the tag is read. That is a change to both language bindings and to
+every golden fixture, which is why it is not being done for an allocation that
+is measured in kilobytes per frame rather than megabytes.
+
+[`control_size_test.go`](../server/internal/protocol/control_size_test.go) pins
+the union inside its current size class so the next step is a decision rather
+than a nightly benchmark surprise.
+
+**Pay-down trigger:** the decode path shows up in a server CPU or allocation
+profile taken under fleet load, or the union crosses another size class without
+a message type to justify the fields that pushed it.
+
+### Thirteen surviving mutants in the reconnect-backfill drain
+
+The `rust-core-ml-backfill` shard never finished a nightly run before its split,
+so its survivors were only ever seen partially. The run that reported furthest
+([32212640976](https://github.com/volchanskyi/opengate/actions/runs/32212640976))
+named thirteen, all in the tier walk now in
+[`drain.rs`](../agent/crates/mesh-agent-core/src/ml/backfill/drain.rs): the
+production `TierReader` rollup read, both per-tier cursor arms in
+`BackfillCursors::get`, four band-arithmetic operators, and the phase-advance and
+read-window comparisons in `next_batch`.
+
+They are not one job. Some are ordinary test gaps — a resume test exists for the
+1-minute tier and not for the other two, and a T1/T2 read through a real store
+snapshot is never asserted. Others look equivalent on inspection: `emit_ok`'s
+future-clock guard cannot be reached, because the phase band already bounds every
+timestamp the reader is asked for, and the batch-window `+` behaves the same as
+`*` under `.min(band_hi)` for any realistic clock. Separating the two needs the
+shard to run to completion, which is what the split and the budget guard make
+possible.
+
+**Pay-down trigger:** the first nightly run in which both backfill shards
+complete. Kill what a test can kill, and carve out what the run proves
+equivalent with the reason written next to it.
+
+### Alert state stays out of VictoriaMetrics
+
+Three per-device edge series are detail by the rule that keeps central
+cardinality O(1) — `opengate_edge_alert_breach{rule,metric}` and
+`opengate_edge_process_{cpu,mem}_percent{rank}` — and they are left exactly as
+they are. Four shapes were considered and none is satisfying yet: keeping them
+breaches the cardinality rule and charts a line whose meaning shifts under it; an
+agent-reported count creates two answers that can disagree; a server-derived
+projection cannot cross-check its own source; and removing them takes away the
+only external way to watch a bad rollout. The per-device cap is enforced over the
+vitals set, and the aggregate rule metrics
+([ADR-076](../docs/adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md))
+carry no device label, so nothing here is blocked by the deferral.
+
+**Pay-down trigger:** both of two facts, neither of which exists yet — the query
+shape a real fleet board wants, once a technician has worked the incident API for
+a while, and a measured alert volume at customer scale rather than the 0.2 per
+device per day the ceilings were sized against. Together they turn the trade from
+a judgement into arithmetic.
+
+### One-year retention on alerts, evidence and incidents is declared, not swept
+
+Alerts, evidence and incidents are declared to be kept for a year, and no
+age-based deletion runs. The purge machinery in
+[`internal/lifecycle`](../server/internal/lifecycle/) is device- and
+customer-triggered rather than scheduled, so erasure still cascades — a purged
+device or customer takes its alerts and evidence with it — and the aggregate
+counters make row growth visible. What is missing is the sweep that would make
+the declared year the actual one.
+
+**Pay-down trigger:** measured growth projecting past ~10 GB/year, or a
+compliance commitment that makes the year contractual. Build it against the
+measured rate rather than the ~1.8 GB/year the estimate projects.

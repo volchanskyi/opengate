@@ -22,24 +22,42 @@
 # reuse the incremental build, while an interleaved list rebuilds a different
 # crate almost every time.
 #
-# Sizing. Two costs decide whether a shard fits the 75-minute cap: the rebuild,
-# which the grouping above keeps small, and the mutated package's test suite,
-# which cargo-mutants runs once per mutant. mesh-agent-core carries ~1400 of the
-# workspace's ~2700 mutants and gets ten shards; edge-tsdb's ~900 cheap ones get
-# three; mesh-agent and mesh-protocol get one each.
+# Sizing is measured, not guessed. A shard's wall-clock is its mutant count times
+# the per-mutant cost of its package, and that cost differs by an order of
+# magnitude between packages: from completed runs, a mesh-agent-core mutant costs
+# ~0.59 min (114 mutants in 70 min) against ~0.05 for edge-tsdb and ~0.12 for
+# mesh-agent, because every mesh-agent-core mutant relinks the crate's 26 test
+# binaries. Against the 75-minute cap, minus ~3 min of toolchain install and
+# baseline build and 15 min of headroom, that puts a mesh-agent-core shard's
+# ceiling near 120 mutants — which is why its ~1480 are split twenty ways
+# while edge-tsdb's ~900 need three and mesh-agent and mesh-protocol one each.
+#
+# The `mutants` cargo profile (agent/Cargo.toml) drops debug info from that
+# relink and takes roughly a fifth off the per-mutant cost; the ceiling above is
+# stated without it, so it is headroom rather than budget already spent.
 mutation_rust_shards() {
   # Not named `shards`: scripts/mutation-status-build.sh sources this library and
   # keeps a string by that name, and ShellCheck follows the source.
   local ids=(
-    rust-core-ml-backfill
+    rust-core-ml-backfill-drain
+    rust-core-ml-backfill-tiers
     rust-core-ml-sampling
+    rust-core-ml-host-sources
+    rust-core-ml-store-sink
     rust-core-ml-analysis
-    rust-core-alerts-retro
+    rust-core-ml-redaction
+    rust-core-alerts-retro-plan
+    rust-core-alerts-retro-scan
+    rust-core-alerts-conditions
     rust-core-alerts-evaluator
-    rust-core-alerts-dispatch
-    rust-core-correlate
-    rust-core-session
+    rust-core-alerts-event
+    rust-core-alerts-sink
+    rust-core-correlate-divergence
+    rust-core-correlate-ranking
+    rust-core-session-terminal
+    rust-core-session-dispatch
     rust-core-discovery
+    rust-core-runtime-lifecycle
     rust-core-runtime
     rust-tsdb-blocks
     rust-tsdb-encoding
@@ -54,9 +72,15 @@ mutation_rust_shards() {
 # package only, so the package is also what the shard's per-mutant test cost is.
 mutation_rust_shard_package() {
   case "$1" in
-    rust-core-ml-backfill | rust-core-ml-sampling | rust-core-ml-analysis) echo "mesh-agent-core" ;;
-    rust-core-alerts-retro | rust-core-alerts-evaluator | rust-core-alerts-dispatch) echo "mesh-agent-core" ;;
-    rust-core-correlate | rust-core-session | rust-core-discovery | rust-core-runtime) echo "mesh-agent-core" ;;
+    rust-core-ml-backfill-drain | rust-core-ml-backfill-tiers) echo "mesh-agent-core" ;;
+    rust-core-ml-sampling | rust-core-ml-host-sources | rust-core-ml-store-sink) echo "mesh-agent-core" ;;
+    rust-core-ml-analysis | rust-core-ml-redaction) echo "mesh-agent-core" ;;
+    rust-core-alerts-retro-plan | rust-core-alerts-retro-scan) echo "mesh-agent-core" ;;
+    rust-core-alerts-conditions | rust-core-alerts-evaluator) echo "mesh-agent-core" ;;
+    rust-core-alerts-event | rust-core-alerts-sink) echo "mesh-agent-core" ;;
+    rust-core-correlate-divergence | rust-core-correlate-ranking) echo "mesh-agent-core" ;;
+    rust-core-session-terminal | rust-core-session-dispatch) echo "mesh-agent-core" ;;
+    rust-core-discovery | rust-core-runtime-lifecycle | rust-core-runtime) echo "mesh-agent-core" ;;
     rust-tsdb-blocks | rust-tsdb-encoding | rust-tsdb-substrates) echo "edge-tsdb" ;;
     rust-agent-loops) echo "mesh-agent" ;;
     rust-protocol-wire) echo "mesh-protocol" ;;
@@ -75,27 +99,59 @@ mutation_rust_shard_package() {
 # tomorrow is mutated the day it lands instead of falling through the map.
 mutation_rust_shard_units() {
   case "$1" in
-    rust-core-ml-backfill)
-      echo "file:crates/mesh-agent-core/src/ml/backfill.rs"
+    rust-core-ml-backfill-drain)
+      echo "file:crates/mesh-agent-core/src/ml/backfill/drain.rs"
+      ;;
+    rust-core-ml-backfill-tiers)
+      echo "file:crates/mesh-agent-core/src/ml/backfill/mod.rs"
       ;;
     rust-core-ml-sampling)
-      echo "file:crates/mesh-agent-core/src/ml/sampler.rs file:crates/mesh-agent-core/src/ml/store_sink.rs file:crates/mesh-agent-core/src/ml/host_metric_stream.rs file:crates/mesh-agent-core/src/ml/window.rs file:crates/mesh-agent-core/src/ml/primary_iface.rs file:crates/mesh-agent-core/src/ml/pressure.rs file:crates/mesh-agent-core/src/ml/cgroup.rs"
+      echo "file:crates/mesh-agent-core/src/ml/sampler.rs file:crates/mesh-agent-core/src/ml/host_metric_stream.rs file:crates/mesh-agent-core/src/ml/window.rs"
+      ;;
+    rust-core-ml-host-sources)
+      echo "file:crates/mesh-agent-core/src/ml/diskperf.rs file:crates/mesh-agent-core/src/ml/pressure.rs file:crates/mesh-agent-core/src/ml/primary_iface.rs file:crates/mesh-agent-core/src/ml/cgroup.rs"
+      ;;
+    rust-core-ml-store-sink)
+      echo "file:crates/mesh-agent-core/src/ml/store_sink.rs"
       ;;
     rust-core-ml-analysis)
-      echo "file:crates/mesh-agent-core/src/ml/kmeans.rs file:crates/mesh-agent-core/src/ml/ensemble.rs file:crates/mesh-agent-core/src/ml/diskperf.rs file:crates/mesh-agent-core/src/ml/redact.rs file:crates/mesh-agent-core/src/ml/mod.rs"
+      echo "file:crates/mesh-agent-core/src/ml/kmeans.rs file:crates/mesh-agent-core/src/ml/ensemble.rs file:crates/mesh-agent-core/src/ml/mod.rs"
       ;;
-    rust-core-alerts-retro)
-      echo "file:crates/mesh-agent-core/src/alerts/retro.rs"
+    rust-core-ml-redaction)
+      echo "file:crates/mesh-agent-core/src/ml/redact.rs"
+      ;;
+    rust-core-alerts-retro-plan)
+      echo "file:crates/mesh-agent-core/src/alerts/retro/mod.rs"
+      ;;
+    rust-core-alerts-retro-scan)
+      echo "file:crates/mesh-agent-core/src/alerts/retro/scan.rs"
+      ;;
+    rust-core-alerts-conditions)
+      echo "file:crates/mesh-agent-core/src/alerts/evaluator/condition.rs"
       ;;
     rust-core-alerts-evaluator)
-      echo "file:crates/mesh-agent-core/src/alerts/evaluator.rs"
+      echo "file:crates/mesh-agent-core/src/alerts/evaluator/mod.rs"
       ;;
-    rust-core-alerts-dispatch)
-      echo "file:crates/mesh-agent-core/src/alerts/event.rs file:crates/mesh-agent-core/src/alerts/sink.rs file:crates/mesh-agent-core/src/alerts/evidence.rs file:crates/mesh-agent-core/src/alerts/mod.rs"
+    rust-core-alerts-event)
+      echo "file:crates/mesh-agent-core/src/alerts/event.rs file:crates/mesh-agent-core/src/alerts/mod.rs"
       ;;
-    rust-core-correlate) echo "dir:crates/mesh-agent-core/src/correlate" ;;
-    rust-core-session) echo "dir:crates/mesh-agent-core/src/session" ;;
+    rust-core-alerts-sink)
+      echo "file:crates/mesh-agent-core/src/alerts/sink.rs file:crates/mesh-agent-core/src/alerts/evidence.rs"
+      ;;
+    rust-core-correlate-divergence) echo "file:crates/mesh-agent-core/src/correlate/ks.rs" ;;
+    rust-core-correlate-ranking)
+      echo "file:crates/mesh-agent-core/src/correlate/rank.rs file:crates/mesh-agent-core/src/correlate/window.rs file:crates/mesh-agent-core/src/correlate/mod.rs"
+      ;;
+    rust-core-session-terminal)
+      echo "file:crates/mesh-agent-core/src/session/terminal_handle.rs"
+      ;;
+    rust-core-session-dispatch)
+      echo "dir:crates/mesh-agent-core/src/session/handlers file:crates/mesh-agent-core/src/session/handler.rs file:crates/mesh-agent-core/src/session/relay.rs file:crates/mesh-agent-core/src/session/mod.rs"
+      ;;
     rust-core-discovery) echo "dir:crates/mesh-agent-core/src/discovery" ;;
+    rust-core-runtime-lifecycle)
+      echo "file:crates/mesh-agent-core/src/update.rs file:crates/mesh-agent-core/src/maintenance.rs file:crates/mesh-agent-core/src/identity.rs file:crates/mesh-agent-core/src/platform.rs file:crates/mesh-agent-core/src/terminal.rs"
+      ;;
     rust-core-runtime) echo "rest" ;;
     rust-tsdb-blocks)
       echo "dir:crates/edge-tsdb/src/store file:crates/edge-tsdb/src/compact.rs file:crates/edge-tsdb/src/deflate.rs"
@@ -170,12 +226,43 @@ mutation_rust_shard_args() {
   done
 }
 
+# What one shard is allowed to project to, in minutes. The job cap is 75; a run
+# pays about 3 of those for the toolchain install and the unmutated baseline, and
+# 15 are held back as headroom, because a shard sized to finish at 74 minutes is
+# a shard that fails the first time a runner is slow.
+mutation_rust_shard_budget_minutes() {
+  echo 57
+}
+
+# The measured cost of one mutant, in thousandths of a minute, by package.
+#
+# These come from completed nightly shards — mesh-agent-core's 114-mutant alerts
+# leg in 70 min, edge-tsdb's 350 in 17.8, mesh-agent's 264 in 32, mesh-protocol's
+# 83 in 6 — each then scaled by the 0.78 the `mutants` cargo profile takes off a
+# rebuild (agent/Cargo.toml). The spread is not noise: cargo-mutants relinks the
+# mutated package's test binaries once per mutant, and mesh-agent-core has 26 of
+# them, so a mutant there costs an order of magnitude more than one in edge-tsdb.
+#
+# Re-measure from a nightly run rather than adjusting these to make a shard fit.
+mutation_rust_package_milliminutes_per_mutant() {
+  case "$1" in
+    mesh-agent-core) echo 460 ;;
+    edge-tsdb) echo 40 ;;
+    mesh-agent) echo 94 ;;
+    mesh-protocol) echo 56 ;;
+    *)
+      echo "unknown mutation package: $1" >&2
+      return 1
+      ;;
+  esac
+}
+
 mutation_web_shards() {
   echo "web"
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-identity-admin go-api-device-operations go-api-investigations go-api-provisioning-lifecycle go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
+  echo "go-api-runtime go-api-intake go-api-identity-admin go-api-device-operations go-api-investigations go-api-provisioning-lifecycle go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
 }
 
 mutation_all_shards() {
@@ -197,7 +284,10 @@ mutation_go_global_excludes() {
 mutation_go_shard_units() {
   case "$1" in
     go-api-runtime)
-      echo "file:internal/api/api.go file:internal/api/converters.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/log_redact.go file:internal/api/metrics_assemble.go file:internal/api/ratelimit.go file:internal/api/validate.go"
+      echo "file:internal/api/api.go file:internal/api/converters.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/ratelimit.go"
+      ;;
+    go-api-intake)
+      echo "file:internal/api/validate.go file:internal/api/log_redact.go file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/metrics_assemble.go"
       ;;
     go-api-identity-admin)
       echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_sites.go file:internal/api/handlers_organizations.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go file:internal/api/handlers_push.go file:internal/api/handlers_device_tags.go file:internal/api/handlers_alert_limits.go"
@@ -211,8 +301,11 @@ mutation_go_shard_units() {
     go-api-provisioning-lifecycle)
       echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
-    go-agentapi-connection-handshake)
-      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/errors.go file:internal/agentapi/handshaker.go file:internal/agentapi/deregister.go"
+    go-agentapi-connection)
+      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/deregister.go"
+      ;;
+    go-agentapi-handshake)
+      echo "file:internal/agentapi/handshaker.go file:internal/agentapi/errors.go"
       ;;
     go-agentapi-backfill)
       echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go"

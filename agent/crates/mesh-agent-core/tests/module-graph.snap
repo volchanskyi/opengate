@@ -2,9 +2,11 @@
 crate mesh_agent_core
 ├── mod alerts: pub
 │   ├── mod evaluator: pub(self)
+│   │   └── mod condition: pub(self)
 │   ├── mod event: pub(self)
 │   ├── mod evidence: pub(self)
 │   ├── mod retro: pub(self)
+│   │   └── mod scan: pub(self)
 │   └── mod sink: pub(self)
 ├── mod amt_detect: pub
 ├── mod config: pub
@@ -26,6 +28,7 @@ crate mesh_agent_core
 ├── mod maintenance: pub
 ├── mod ml: pub
 │   ├── mod backfill: pub
+│   │   └── mod drain: pub(self)
 │   ├── mod cgroup: pub
 │   ├── mod diskperf: pub
 │   ├── mod ensemble: pub

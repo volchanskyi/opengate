@@ -159,13 +159,22 @@ Rust runs need `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden` so golden file
 tests resolve fixtures inside cargo-mutants' temp tree. The `mutate-rust`
 make target sets this automatically.
 
-CI shard ids and Go source ownership live in
+CI shard ids and source ownership for both languages live in
 [`mutation-shards.sh`](../scripts/lib/mutation-shards.sh). The behavioral guard in
 [`mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh) requires
-every non-test Go source to belong to one mutation unit or an explicit carve-out,
-so shard reports can be merged without duplicate source counts. Rust uses the
-workflow's round-robin cargo-mutants shards to distribute expensive modules
-instead of grouping them into consecutive runtime-heavy slices.
+every non-test source to belong to one mutation unit or an explicit carve-out,
+so shard reports can be merged without duplicate source counts.
+
+Each shard is named for the behavior it mutates, so a red leg says what lost
+coverage rather than which slice of an interleaved list failed. How many mutants
+a shard may hold is a measurement, not a habit: a mutant costs the per-mutant
+rebuild of its cargo package, which differs by an order of magnitude between
+packages, and the same file carries that number in
+`mutation_rust_package_milliminutes_per_mutant`. The projection is checked before
+the matrix runs by
+[`mutation-shard-budget.sh`](../scripts/mutation-shard-budget.sh) — a shard that
+has outgrown the job cap is reported in a couple of minutes instead of taking the
+whole nightly down with it after 75.
 
 ### Mutation testing trend
 
@@ -466,6 +475,29 @@ Uses fake SDP strings — the relay is message-agnostic and just forwards binary
 | Test | What It Verifies |
 |------|-----------------|
 | `test_apply_update_full_pipeline` | Mock HTTP server serves fake binary → `apply_update()` downloads, verifies SHA-256, validates Ed25519 signature, backs up old binary to `.prev`, replaces current binary, writes `.update-pending` sentinel |
+
+### The triage path, agent to resolution (Go)
+
+[`investigations_test.go`](../server/tests/integration/investigations_test.go)
+walks one event from the machine that raised it to the technician who closed it:
+a real agent encodes an `AgentAlert` with compressed evidence onto its own QUIC
+control stream, the server admits and files it, the fold opens a room for it, the
+evidence is read back out of that room, and a resolution that names no cause code
+is refused before one that names it closes the room.
+
+| Test | What It Verifies |
+|------|-----------------|
+| `TestTriagePathFromAgentAlertToResolution` | QUIC `AgentAlert` + evidence → stored alert → open incident in the queue → evidence decoded from the room → resolution refused without a cause code, then accepted with one |
+
+Each leg has unit coverage of its own — admission in
+[`internal/agentapi`](../server/internal/agentapi/), folding and lifecycle in
+[`internal/alerts`](../server/internal/alerts/), the workspace in
+[`investigations.spec.ts`](../web/e2e/investigations.spec.ts). This is the test
+that the legs join up, and it runs against a real Postgres and a real QUIC
+listener because the seams it is about only exist there. It lives here rather
+than in the Playwright suite because the browser stack runs a server and a
+database and no agent, so no spec in it can begin at a machine deciding
+something is wrong.
 
 ## Load Tests
 

@@ -328,6 +328,23 @@ projects to **1.64 GB** over 30 d at 120 000 series. Real vitals repeat more tha
 the synthetic drift does, so the two bracket the answer: 1.64 GB on measured
 production data, 2.81 GB as the harness's conservative upper bound.
 
+**What was decided from these numbers: the pod keeps its limit.** The memory
+limit was deliberately left where it was until the measurement existed, because
+raising it against the same rule of thumb the experiment was run to replace would
+have re-committed the error one layer down. The measurement came back at roughly
+a quarter of that rule of thumb — 514 B per series against the ~2 KB commonly
+cited — so the fleet's 120 000 series project to 127 MB of data inside a
+[512 Mi limit](../deploy/helm/monitoring/values.yaml), and the 223 MB the process
+sat at with an import still uncollected is the number the limit actually has to
+clear. Both fit with room, so the vitals set keeps its 24-series cap, the fleet
+target stands, and nothing about the deployment changes. Read the disk column the
+same way: 30 d at fleet scale lands between 1.64 GB and 2.81 GB against a
+[50 Gi volume](../deploy/helm/monitoring/values.yaml).
+
+Re-run the harness when any of the three inputs move — the cap, the fleet target,
+or the VictoriaMetrics version — because the decision is only as good as the
+measurement under it.
+
 ### Reconnect backfill and deep-history pull
 
 An agent stores its own metric history in the durable local tiers
@@ -336,7 +353,7 @@ offline window loses nothing centrally. On reconnect the agent advertises the
 `Backfill` capability and requests a server-coordinated admission slot; the
 scheduler ([`backfill_scheduler.go`](../server/internal/agentapi/backfill_scheduler.go))
 grants a rate or defers under live load. Once granted, the agent drives the pure
-replay engine ([`backfill.rs`](../agent/crates/mesh-agent-core/src/ml/backfill.rs))
+replay engine ([`backfill`](../agent/crates/mesh-agent-core/src/ml/backfill/mod.rs))
 from the control loop ([`backfill_loop.rs`](../agent/crates/mesh-agent/src/backfill_loop.rs)):
 it drains the recent window first as 60 s points — the same grid the live stream
 emits on, so a backfilled point and a live point for the same second are the same
@@ -491,7 +508,7 @@ cost-bounded in CI, but the endpoint is what pays, and a rule can reach one
 without having come through that gate. So the machine enforces its own ceiling
 over what a rule actually touched — not over what it declared — and stops any
 rule that spends past it
-([`evaluator.rs`](../agent/crates/mesh-agent-core/src/alerts/evaluator.rs)). The
+([`evaluator`](../agent/crates/mesh-agent-core/src/alerts/evaluator/mod.rs)). The
 stop is per rule: one expensive rule must not silence the cheap ones, or a bad
 rollout would become blanket blindness while still looking contained. It is also
 hard — the rule is not retried on that machine until a *different* rule arrives,
@@ -502,7 +519,7 @@ allows can never trip the one on the endpoint.
 
 **"Has this happened before?"** A rule arriving on a machine for the first time
 is also re-run over the history that machine already holds
-([`retro.rs`](../agent/crates/mesh-agent-core/src/alerts/retro.rs)). The local
+([`retro`](../agent/crates/mesh-agent-core/src/alerts/retro/mod.rs)). The local
 store keeps a minute-by-minute rollup of every vital going back further than any
 central recorder of the fleet's seconds could afford, so the question is answered
 on the endpoint and nothing is shipped anywhere to make it possible. Findings

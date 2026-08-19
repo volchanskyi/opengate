@@ -10,6 +10,18 @@ The precommit gauntlet always runs `make sonar` (full scan with fresh coverage u
 
 Requires Docker and `SONAR_TOKEN` set in the environment or in `.env` (gitignored). Generate a User Token at sonarcloud.io/account/security scoped to the `volchanskyi` organization.
 
+### A green local scan is not a green gate on its own
+
+Every `new_*` condition is scoped by git blame, and the gauntlet scans **before** the commit exists — so the lines you just wrote carry no commit, sit outside the new-code period, and are measured by nothing. The same analysis re-run in CI, with those lines committed, measures all of them. Three guards run after `make sonar` to close that, each reading a measure computed from file content rather than from blame:
+
+| Guard | Gate condition it stands in for |
+|---|---|
+| [`sonar-coverage-guard.sh`](../../scripts/sonar-coverage-guard.sh) | `new_coverage`, held off the 80.0 boundary by a buffer |
+| [`sonar-duplication-guard.sh`](../../scripts/sonar-duplication-guard.sh) | `new_duplicated_lines_density`, per changed file |
+| [`sonar-rating-guard.sh`](../../scripts/sonar-rating-guard.sh) | `new_reliability_rating`, `new_security_rating`, `new_security_hotspots_reviewed`, per changed file |
+
+The rating guard fails on a bug, vulnerability or unreviewed hotspot on changed **main** code, and reports — without failing — findings that move no gate condition, such as a code smell or anything in a test file. A finding on a file this change did not touch is somebody else's and does not fail the commit.
+
 ## Fetch everything, not just issues
 
 On the **first** failure, query all three SonarCloud endpoints in parallel. They return disjoint data:

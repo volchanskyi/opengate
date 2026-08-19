@@ -58,6 +58,18 @@ and how much of the store it may occupy.
   [ADR-067](ADR-067-disk-performance-vitals.md) — one of which ships a maximum
   for the same reason the four above do — that is eighteen dims of
   `opengate_edge_metric_avg`.
+- **`disk.used_percent` is the fullest mount**, and `disk.mounts_critical`
+  counts how many are at or past the critical mark. The name is the one that
+  shipped and the meaning is not the one it shipped with: it was every mount's
+  bytes summed and divided once, so a file server with a 120 GB system volume at
+  98 % beside a 2 TB data volume at 10 % reported 14.98 %, and a threshold rule
+  on `disk.used` could not fire for the volume that was about to fill. A small OS
+  volume beside large data volumes is the ordinary shape of a server, so the
+  reading was wrong for the machines the metric exists to watch. The consequence
+  to read deliberately: **an existing `disk.used` rule keeps firing and now means
+  something else** — the fullest mount rather than the pool — which is a
+  correctness change worth more than the continuity of a number nobody could act
+  on.
 - **A per-device cap of 24 series**, counted as the metric dims plus the
   node-wide anomaly rate plus the five per-family rates. A Linux device occupies
   exactly that, so the headroom is spent and the next vital of any kind re-opens

@@ -129,7 +129,7 @@ if [ -f "$SHARDS_LIB" ]; then
   # Rust shard ids name the behavior they mutate, so a red leg says what broke
   # without anyone opening the matrix to decode a slice number.
   have_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  meaningful_rust="rust-agent-loops rust-core-alerts-dispatch rust-core-alerts-evaluator rust-core-alerts-retro rust-core-correlate rust-core-discovery rust-core-ml-analysis rust-core-ml-backfill rust-core-ml-sampling rust-core-runtime rust-core-session rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-substrates "
+  meaningful_rust="rust-agent-loops rust-core-alerts-conditions rust-core-alerts-evaluator rust-core-alerts-event rust-core-alerts-retro-plan rust-core-alerts-retro-scan rust-core-alerts-sink rust-core-correlate-divergence rust-core-correlate-ranking rust-core-discovery rust-core-ml-analysis rust-core-ml-backfill-drain rust-core-ml-backfill-tiers rust-core-ml-host-sources rust-core-ml-redaction rust-core-ml-sampling rust-core-ml-store-sink rust-core-runtime rust-core-runtime-lifecycle rust-core-session-dispatch rust-core-session-terminal rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-substrates "
   if [ "$have_rust" = "$meaningful_rust" ]; then
     pass "Rust shard ids describe their owned behavior"
   else
@@ -282,7 +282,7 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "expected shard set drifted (all='$(mutation_all_shards)')"
   fi
 
-  meaningful_go="go-api-runtime go-api-identity-admin go-api-device-operations go-api-investigations go-api-provisioning-lifecycle go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
+  meaningful_go="go-api-runtime go-api-intake go-api-identity-admin go-api-device-operations go-api-investigations go-api-provisioning-lifecycle go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
   if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
     pass "Go shard ids describe their owned behavior"
   else
@@ -435,20 +435,20 @@ if [ -f "$SHARDS_LIB" ]; then
       fi
     done
     case "$owner" in
-      go-agentapi-connection-handshake | go-agentapi-backfill | go-agentapi-edge-telemetry) : ;;
+      go-agentapi-connection | go-agentapi-handshake | go-agentapi-backfill | go-agentapi-edge-telemetry) : ;;
       *) agentapi_bad="$agentapi_bad [$rel:owner=$owner]" ;;
     esac
     [ "$owners" -eq 1 ] || agentapi_bad="$agentapi_bad [$rel:owners=$owners]"
     agentapi_owners="$agentapi_owners $owner"
   done < <(find "$REPO_ROOT/server/internal/agentapi" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' | sort)
-  for required in go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry; do
+  for required in go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry; do
     case " $agentapi_owners " in
       *" $required "*) : ;;
       *) agentapi_bad="$agentapi_bad [$required:empty]" ;;
     esac
   done
   if [ -z "$agentapi_bad" ]; then
-    pass "agentapi sources are split across three non-empty file-unit shards"
+    pass "agentapi sources are split across four non-empty file-unit shards"
   else
     fail "agentapi file-unit partition mismatch:$agentapi_bad"
   fi
@@ -458,7 +458,7 @@ if [ -f "$SHARDS_LIB" ]; then
   backfill_owner="${unit_owner[$backfill_unit]:-}"
   handshake_owner="${unit_owner[$handshake_unit]:-}"
   if [ "$backfill_owner" = "go-agentapi-backfill" ] \
-    && [ "$handshake_owner" = "go-agentapi-connection-handshake" ] \
+    && [ "$handshake_owner" = "go-agentapi-handshake" ] \
     && [ "$backfill_owner" != "$handshake_owner" ]; then
     pass "timeout-heavy agent API backfill and handshake files run in separate shards"
   else

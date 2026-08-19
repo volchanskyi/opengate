@@ -12,6 +12,11 @@
 # mutants. Its assertions are about storage density, not about code the mutation
 # score tracks, and the behavior it touches is covered by `ml_store_test`, so it
 # is skipped here and runs at full strength under a plain `cargo test`.
+# Build with the workspace's `mutants` profile (agent/Cargo.toml): the same
+# `test` build without debug info, which nothing here reads and which dominates
+# the per-mutant rebuild.
+profile = "mutants"
+
 additional_cargo_test_args = [
     "--",
     "--skip",
