@@ -36,17 +36,17 @@ type RuleConfigStore interface {
 	ListRollouts(ctx context.Context, organizationID uuid.UUID) (map[string]rules.Rollout, error)
 }
 
-// DeviceTagSource supplies the tags a binding's selector picks a machine out by.
+// DeviceTagReader supplies the tags a binding's selector picks a machine out by.
 // It is optional: a machine with no tags simply matches the bindings that name
 // none, which is every binding filed against a rung rather than a tag.
-type DeviceTagSource interface {
+type DeviceTagReader interface {
 	TagsFor(ctx context.Context, deviceID uuid.UUID) (map[string]string, error)
 }
 
-// AlertLimitSource reads a customer's alert budget, the per-machine half of
+// AlertLimitReader reads a customer's alert budget, the per-machine half of
 // which travels down with the rules. It is optional: without one every machine
 // keeps the allowance it already has.
-type AlertLimitSource interface {
+type AlertLimitReader interface {
 	Limits(ctx context.Context, organizationID uuid.UUID) (alerts.Limits, error)
 }
 
@@ -63,9 +63,9 @@ type FleetCounter interface {
 type CatalogueAlertRuleProvider struct {
 	catalogue *rules.Catalogue
 	store     RuleConfigStore
-	tags      DeviceTagSource
+	tags      DeviceTagReader
 	fleet     FleetCounter
-	limits    AlertLimitSource
+	limits    AlertLimitReader
 	logger    *slog.Logger
 }
 
@@ -76,9 +76,9 @@ type CatalogueAlertRuleProvider struct {
 func NewCatalogueAlertRuleProvider(
 	catalogue *rules.Catalogue,
 	store RuleConfigStore,
-	tags DeviceTagSource,
+	tags DeviceTagReader,
 	fleet FleetCounter,
-	limits AlertLimitSource,
+	limits AlertLimitReader,
 	logger *slog.Logger,
 ) *CatalogueAlertRuleProvider {
 	return &CatalogueAlertRuleProvider{

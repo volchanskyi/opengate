@@ -26,7 +26,8 @@ const (
 
 	readLimitsSQL = `SELECT hourly_ceiling, device_hourly_ceiling, updated_by
 		   FROM organization_alert_limits
-		  WHERE ` + tenantPredicate + ` AND organization_id = $1`
+		  WHERE tenant_id = current_setting('app.current_tenant')::uuid
+		    AND organization_id = $1`
 )
 
 // UpsertLimits stores one customer's budget. It is validated here rather than at

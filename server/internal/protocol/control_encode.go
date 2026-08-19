@@ -230,9 +230,31 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	return present
 }
 
-// encodeControlField writes the field at position i. One case per struct field,
-// in declaration order.
+// encodeControlField writes the field at position i, handing off to the group
+// that owns it. The groups follow the struct's own declaration order, so a
+// field's position on the wire is still the position it is declared at.
 func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
+	switch {
+	case i <= 7:
+		return m.encodeEnvelopeField(enc, i)
+	case i <= 35:
+		return m.encodeTelemetryField(enc, i)
+	case i <= 45:
+		return m.encodeSessionField(enc, i)
+	case i <= 60:
+		return m.encodeInteractionField(enc, i)
+	case i <= 69:
+		return m.encodeHardwareField(enc, i)
+	case i <= 86:
+		return m.encodeInventoryField(enc, i)
+	case i <= 99:
+		return m.encodeAlertField(enc, i)
+	}
+	return nil
+}
+
+// encodeEnvelopeField writes one of fields 0–7: who is speaking, when, and for which tenant.
+func (m *ControlMessage) encodeEnvelopeField(enc *msgpack.Encoder, i int) error {
 	switch i {
 	case 0:
 		return putString(enc, "type", string(m.Type))
@@ -250,6 +272,13 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return putInt64(enc, "ts", m.TS)
 	case 7:
 		return putString(enc, "tenant_id", string(m.TenantID))
+	}
+	return nil
+}
+
+// encodeTelemetryField writes one of fields 8–35: vitals, summaries, breaches and the windows they cover.
+func (m *ControlMessage) encodeTelemetryField(enc *msgpack.Encoder, i int) error {
+	switch i {
 	case 8:
 		return putFloat64(enc, "node_anomaly_rate", m.NodeAnomalyRate)
 	case 9:
@@ -306,6 +335,13 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return putValue(enc, "points", m.HistoryPoints)
 	case 35:
 		return putBool(enc, "truncated", *m.Truncated)
+	}
+	return nil
+}
+
+// encodeSessionField writes one of fields 36–45: enrolment, relay and update delivery.
+func (m *ControlMessage) encodeSessionField(enc *msgpack.Encoder, i int) error {
+	switch i {
 	case 36:
 		return putString(enc, "token", string(m.Token))
 	case 37:
@@ -326,6 +362,13 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return putBool(enc, "success", *m.Success)
 	case 45:
 		return putString(enc, "error", string(m.AckError))
+	}
+	return nil
+}
+
+// encodeInteractionField writes one of fields 46–60: screen, input, terminal, files and chat.
+func (m *ControlMessage) encodeInteractionField(enc *msgpack.Encoder, i int) error {
+	switch i {
 	case 46:
 		return putString(enc, "sdp_offer", string(m.SDPOffer))
 	case 47:
@@ -356,6 +399,13 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return putString(enc, "text", string(m.Text))
 	case 60:
 		return putString(enc, "sender", string(m.Sender))
+	}
+	return nil
+}
+
+// encodeHardwareField writes one of fields 61–69: what the machine is made of.
+func (m *ControlMessage) encodeHardwareField(enc *msgpack.Encoder, i int) error {
+	switch i {
 	case 61:
 		return putString(enc, "cpu_model", string(m.CPUModel))
 	case 62:
@@ -374,6 +424,13 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return putBool(enc, "amt_available", *m.AMTAvailable)
 	case 69:
 		return putString(enc, "amt_version", string(m.AMTVersion))
+	}
+	return nil
+}
+
+// encodeInventoryField writes one of fields 70–86: logs and the software inventory read off the machine.
+func (m *ControlMessage) encodeInventoryField(enc *msgpack.Encoder, i int) error {
+	switch i {
 	case 70:
 		return putString(enc, "log_level", string(m.LogLevel))
 	case 71:
@@ -408,6 +465,13 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return putValue(enc, "containers", m.Containers)
 	case 86:
 		return putValue(enc, "packages", m.Packages)
+	}
+	return nil
+}
+
+// encodeAlertField writes one of fields 87–99: one alert and the evidence frozen with it.
+func (m *ControlMessage) encodeAlertField(enc *msgpack.Encoder, i int) error {
+	switch i {
 	case 87:
 		return putBool(enc, "enabled", *m.Enabled)
 	case 88:

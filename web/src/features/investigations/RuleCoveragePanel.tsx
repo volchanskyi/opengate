@@ -82,7 +82,7 @@ export function RuleCoveragePanel() {
           className="flex items-center gap-2 text-sm font-semibold text-gray-300 hover:text-white"
         >
           <span className={`text-xs transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden="true">&#9654;</span>
-          Rule coverage
+          <span>Rule coverage</span>
         </button>
       </h3>
 

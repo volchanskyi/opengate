@@ -85,7 +85,7 @@ function Clamps({
 /** The form for filing a new value, kept to what the rule declares adjustable. */
 function NewValue({ rule, canEdit }: { readonly rule: Rule; readonly canEdit: boolean }) {
   const saveBinding = useRuleStore((s) => s.saveBinding);
-  const params = Object.keys(rule.tunable).sort();
+  const params = Object.keys(rule.tunable).sort((a, b) => a.localeCompare(b));
   const [param, setParam] = useState(params[0] ?? '');
   const [value, setValue] = useState('');
   const [levelKey, setLevelKey] = useState('');

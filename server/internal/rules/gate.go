@@ -40,12 +40,12 @@ func (r GateReport) Clean() bool {
 	return r.CeilingBreaches == 0 && r.ThrottleTrips == 0 && r.EvaluationErrors == 0
 }
 
-// GateSignals answers what one rule has done to one customer's machines since a
+// GateReporter answers what one rule has done to one customer's machines since a
 // moment. It is a port rather than a read of a counter here, because the
 // counters it reads are raised elsewhere — the alert ceiling by the ingest path,
 // the throttle by the agents themselves — and a stage machine that guessed at
 // them would be worse than none: it would look like protection.
-type GateSignals interface {
+type GateReporter interface {
 	// RuleGate reports what happened since `since`. An error means the question
 	// could not be answered, which a caller must read as "not proven quiet"
 	// rather than as a clean gate.

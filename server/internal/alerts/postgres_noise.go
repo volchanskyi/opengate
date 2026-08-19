@@ -25,7 +25,7 @@ const ruleNoiseSQL = `
 	       COUNT(*) FILTER (WHERE received_at > $2::timestamptz) AS recent,
 	       COUNT(*) FILTER (WHERE received_at <= $2::timestamptz) AS history
 	  FROM alerts
-	 WHERE ` + tenantPredicate + `
+	 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 	   AND organization_id = $1
 	   AND received_at > $3::timestamptz
 	 GROUP BY rule_id`

@@ -117,7 +117,7 @@ export function holdLabel(seconds: number): string {
 export function selectorWording(selector: Record<string, string>): string {
   const pairs = Object.entries(selector)
     .map(([key, value]) => `${key}=${value}`)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
   if (pairs.length === 0) return 'every machine at this level';
   return `machines labelled ${pairs.join(', ')}`;
 }

@@ -30,7 +30,7 @@ func (f fixedLimits) Limits(context.Context, uuid.UUID) (alerts.Limits, error) {
 // told assembles what one machine is told: the rules it runs and the allowance
 // it runs them under. Every case here differs only in what the stores answer, so
 // the assembly is stated once.
-func told(t *testing.T, store RuleConfigStore, limits AlertLimitSource, scope settings.Scope) RuleSet {
+func told(t *testing.T, store RuleConfigStore, limits AlertLimitReader, scope settings.Scope) RuleSet {
 	t.Helper()
 	cat, err := rules.Embedded()
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func told(t *testing.T, store RuleConfigStore, limits AlertLimitSource, scope se
 
 // budgetOf is the customer budget half of that, for the cases that are about the
 // allowance rather than about which rules arrive.
-func budgetOf(t *testing.T, limits AlertLimitSource) RuleSet {
+func budgetOf(t *testing.T, limits AlertLimitReader) RuleSet {
 	t.Helper()
 	return told(t, &fakeRuleConfig{}, limits, ladderFor(uuid.New()))
 }
@@ -69,7 +69,7 @@ func TestTheCustomersMachineAllowanceTravelsWithTheRules(t *testing.T) {
 func TestAnUnknownBudgetLeavesTheMachineOnItsCurrentAllowance(t *testing.T) {
 	t.Parallel()
 
-	for name, source := range map[string]AlertLimitSource{
+	for name, source := range map[string]AlertLimitReader{
 		"a budget that cannot be read": fixedLimits{err: errors.New("database is down")},
 		"no budget source at all":      nil,
 	} {

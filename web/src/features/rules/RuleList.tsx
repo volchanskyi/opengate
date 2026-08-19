@@ -23,14 +23,18 @@ function BlindSpot({ rule }: { readonly rule: Rule }) {
   );
 }
 
+/**
+ * How loudly a rollout reads: somebody stopped it, it is part-way out, or it is
+ * simply where it is meant to be.
+ */
+function rolloutTone(rollout: Rule['rollout']): string {
+  if (rollout.kill) return 'bg-red-900 text-red-200';
+  if (rollout.enabled && rollout.rollout_percent < 100) return 'bg-amber-900 text-amber-200';
+  return 'bg-gray-700 text-gray-300';
+}
+
 function RolloutCell({ rule }: { readonly rule: Rule }) {
-  const stopped = rule.rollout.kill;
-  const partial = rule.rollout.enabled && !stopped && rule.rollout.rollout_percent < 100;
-  const tone = stopped
-    ? 'bg-red-900 text-red-200'
-    : partial
-      ? 'bg-amber-900 text-amber-200'
-      : 'bg-gray-700 text-gray-300';
+  const tone = rolloutTone(rule.rollout);
   return <span className={`px-2 py-0.5 rounded text-xs ${tone}`}>{rolloutWording(rule.rollout)}</span>;
 }
 

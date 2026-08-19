@@ -97,6 +97,17 @@ describe('what a rule is doing, in an operator\'s words', () => {
     expect(selectorWording({ role: 'file-server', env: 'production' }))
       .toBe('machines labelled env=production, role=file-server');
   });
+
+  // Label keys are typed in by each customer, so their case and their accents
+  // are whatever somebody entered. Ordering by code unit scatters every
+  // capitalised key to the front of the list and files an accented one after
+  // `z`, which reads as an arbitrary order rather than an alphabetical one.
+  it('orders labels the way somebody reading them expects, not by code unit', () => {
+    expect(selectorWording({ Zone: 'east', az: 'eu-west' }))
+      .toBe('machines labelled az=eu-west, Zone=east');
+    expect(selectorWording({ zone: 'east', Ökonomie: 'finance' }))
+      .toBe('machines labelled Ökonomie=finance, zone=east');
+  });
 });
 
 describe('what floats to the top of the list', () => {

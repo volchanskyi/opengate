@@ -45,7 +45,7 @@ func (s staticTags) TagsFor(context.Context, uuid.UUID) (map[string]string, erro
 	return s, nil
 }
 
-func newCatalogueProvider(t *testing.T, store RuleConfigStore, tags DeviceTagSource) *CatalogueAlertRuleProvider {
+func newCatalogueProvider(t *testing.T, store RuleConfigStore, tags DeviceTagReader) *CatalogueAlertRuleProvider {
 	t.Helper()
 	cat, err := rules.Embedded()
 	require.NoError(t, err)

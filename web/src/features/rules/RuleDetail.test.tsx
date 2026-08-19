@@ -184,4 +184,22 @@ describe('RuleDetail — tuning', () => {
     }), true);
     expect(screen.getAllByText(/allowed 50–99, ships at 90/).length).toBeGreaterThan(0);
   });
+
+  // A rule declares its own adjustable settings, so their names carry whatever
+  // case the author wrote. Ordering by code unit files every capitalised name
+  // ahead of every lower-case one, which puts an arbitrary setting under the
+  // cursor when the form opens.
+  it('offers the adjustable settings in the order somebody reads them', () => {
+    show(detail({
+      rule: {
+        ...detail().rule,
+        tunable: {
+          threshold: { min: 50, max: 99, shipped: 90 },
+          Window: { min: 60, max: 900, shipped: 300 },
+        },
+      },
+    }), true);
+    const options = within(screen.getByLabelText('Setting')).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['threshold', 'Window']);
+  });
 });

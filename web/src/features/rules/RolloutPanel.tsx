@@ -77,7 +77,7 @@ export function RolloutPanel({
           disabled={!canEdit}
           onChange={(e) => { setDraft({ ...draft, enabled: e.target.checked }); }}
         />
-        This customer gets the rule
+        <span>This customer gets the rule</span>
       </label>
 
       <div className="grid grid-cols-2 gap-3">
