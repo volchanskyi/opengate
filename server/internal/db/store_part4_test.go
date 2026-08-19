@@ -141,6 +141,8 @@ func forwardMigrationSteps() []rehearsalStep {
 				assertInvestigationsIntroduced(t, ctx, db, "public")
 			}},
 		{note: "015 added the triage queue's orders", verify: assertQueueIndexesIntroduced},
+		{note: "016 added the tables the rules screen writes to",
+			verify: assertRuleAdministrationIntroduced},
 	}
 }
 
@@ -163,6 +165,7 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertRulesIntroduced(t, ctx, db, "public")
 	assertInvestigationsIntroduced(t, ctx, db, "public")
 	assertQueueIndexesIntroduced(t, ctx, db)
+	assertRuleAdministrationIntroduced(t, ctx, db)
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, asserting
@@ -174,6 +177,7 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"016 removed the rule-administration tables and rollout settings", assertRuleAdministrationDownReversal},
 		{"015 removed the triage queue's orders", assertQueueIndexesDownReversal},
 		{"014 removed the alert, incident and incident-event tables", assertInvestigationsDownReversal},
 		{"013 removed the rule binding, rollout and coverage tables", assertRulesDownReversal},

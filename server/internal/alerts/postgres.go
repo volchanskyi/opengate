@@ -178,12 +178,20 @@ func (s *Store) Record(ctx context.Context, a Alert, g Grouping) (Outcome, error
 
 	outcome := Stored
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
+		// The budget is read on the connection that is about to spend it, so an
+		// alert is counted against the ceiling in force at that moment rather
+		// than one a caller cached before the storm started.
+		limits, err := limitsIn(ctx, tx, a.OrganizationID)
+		if err != nil {
+			return err
+		}
+
 		var stored uuid.UUID
-		err := tx.QueryRowContext(ctx, storeAlertSQL,
+		err = tx.QueryRowContext(ctx, storeAlertSQL,
 			a.ID, tenant.TenantID, a.OrganizationID, a.DeviceID, a.RuleID, a.RuleVersion,
 			string(a.Severity), a.Metric, a.Value, a.WindowStart, a.WindowEnd, a.ObservedAt,
 			now, a.Backfilled, a.Evidence, a.EvidenceCodec,
-			now.Add(-time.Hour), OrganizationHourlyCeiling).Scan(&stored)
+			now.Add(-time.Hour), limits.OrganizationHourly).Scan(&stored)
 		switch {
 		case err == nil:
 			return fold(ctx, tx, tenant.TenantID, a, g, now)

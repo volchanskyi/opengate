@@ -22,6 +22,9 @@ export function Layout() {
           <Link to="/investigations" className="text-sm text-gray-400 hover:text-white">
             Investigations
           </Link>
+          <Link to="/rules" className="text-sm text-gray-400 hover:text-white">
+            Rules
+          </Link>
           {user?.is_admin && (
             <Link to="/settings" className="text-sm text-gray-400 hover:text-white">
               Settings

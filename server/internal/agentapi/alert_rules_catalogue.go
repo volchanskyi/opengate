@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/rules"
@@ -35,11 +36,18 @@ type RuleConfigStore interface {
 	ListRollouts(ctx context.Context, organizationID uuid.UUID) (map[string]rules.Rollout, error)
 }
 
-// DeviceTagSource supplies the tags a binding's selector picks a machine out by.
+// DeviceTagReader supplies the tags a binding's selector picks a machine out by.
 // It is optional: a machine with no tags simply matches the bindings that name
 // none, which is every binding filed against a rung rather than a tag.
-type DeviceTagSource interface {
+type DeviceTagReader interface {
 	TagsFor(ctx context.Context, deviceID uuid.UUID) (map[string]string, error)
+}
+
+// AlertLimitReader reads a customer's alert budget, the per-machine half of
+// which travels down with the rules. It is optional: without one every machine
+// keeps the allowance it already has.
+type AlertLimitReader interface {
+	Limits(ctx context.Context, organizationID uuid.UUID) (alerts.Limits, error)
 }
 
 // FleetCounter counts a customer's estate, which is what sizes a stage: a
@@ -55,8 +63,9 @@ type FleetCounter interface {
 type CatalogueAlertRuleProvider struct {
 	catalogue *rules.Catalogue
 	store     RuleConfigStore
-	tags      DeviceTagSource
+	tags      DeviceTagReader
 	fleet     FleetCounter
+	limits    AlertLimitReader
 	logger    *slog.Logger
 }
 
@@ -67,8 +76,9 @@ type CatalogueAlertRuleProvider struct {
 func NewCatalogueAlertRuleProvider(
 	catalogue *rules.Catalogue,
 	store RuleConfigStore,
-	tags DeviceTagSource,
+	tags DeviceTagReader,
 	fleet FleetCounter,
+	limits AlertLimitReader,
 	logger *slog.Logger,
 ) *CatalogueAlertRuleProvider {
 	return &CatalogueAlertRuleProvider{
@@ -76,6 +86,7 @@ func NewCatalogueAlertRuleProvider(
 		store:     store,
 		tags:      tags,
 		fleet:     fleet,
+		limits:    limits,
 		logger:    logger,
 	}
 }
@@ -87,22 +98,22 @@ func NewCatalogueAlertRuleProvider(
 // set — including a kill switch, at exactly the moment somebody reached for one.
 // The agent keeps the ruleset it already holds, so the cost of reporting is a
 // ruleset that is not refreshed, not a machine that stops being watched.
-func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope settings.Scope) ([]protocol.ThresholdRule, error) {
+func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope settings.Scope) (RuleSet, error) {
 	definitions := p.catalogue.All()
 
 	// A machine with no customer on its ladder has nothing to resolve against.
 	// It takes the pack as it shipped rather than anyone else's numbers.
 	if scope.OrganizationID == uuid.Nil {
-		return resolveAll(definitions, rules.Device{Scope: scope}, nil, nil), nil
+		return RuleSet{Rules: resolveAll(definitions, rules.Device{Scope: scope}, nil, nil)}, nil
 	}
 
 	bindings, err := p.store.ListBindings(ctx, scope.OrganizationID)
 	if err != nil {
-		return nil, fmt.Errorf("read rule bindings: %w", err)
+		return RuleSet{}, fmt.Errorf("read rule bindings: %w", err)
 	}
 	rollouts, err := p.store.ListRollouts(ctx, scope.OrganizationID)
 	if err != nil {
-		return nil, fmt.Errorf("read rule rollout: %w", err)
+		return RuleSet{}, fmt.Errorf("read rule rollout: %w", err)
 	}
 
 	machine := rules.Device{
@@ -110,7 +121,31 @@ func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope setting
 		Tags:      p.tagsFor(ctx, scope.DeviceID),
 		FleetSize: p.fleetSizeFor(ctx, scope.OrganizationID, rollouts),
 	}
-	return resolveAll(definitions, machine, bindings, rollouts), nil
+	return RuleSet{
+		Rules:               resolveAll(definitions, machine, bindings, rollouts),
+		DeviceHourlyCeiling: p.ceilingFor(ctx, scope.OrganizationID),
+	}, nil
+}
+
+// ceilingFor reads the customer's per-machine alert allowance. A budget that
+// cannot be read leaves the machine on the allowance it already has: pushing a
+// zero would be indistinguishable from a customer who set nothing, and pushing a
+// guess would either silence a machine or uncap it, both from a failed query.
+func (p *CatalogueAlertRuleProvider) ceilingFor(ctx context.Context, organizationID uuid.UUID) uint32 {
+	if p.limits == nil {
+		return 0
+	}
+	limits, err := p.limits.Limits(ctx, organizationID)
+	if err != nil {
+		p.logger.Warn("read customer alert budget failed",
+			"organization_id", organizationID, "error", err)
+		return 0
+	}
+
+	// Held to the maximum the code allows on the way out, not only on the way
+	// in. A row written before a maximum was tightened, or written past the API
+	// altogether, would otherwise hand a machine an allowance nobody may set.
+	return clampNonNegativeUint32(min(limits.DeviceHourly, alerts.MaxDeviceHourlyCeiling))
 }
 
 // resolveAll turns the definitions a customer is getting into wire rules.

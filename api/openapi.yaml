@@ -1368,21 +1368,6 @@ components:
           type: integer
           description: Machines that have reported nothing.
 
-    RuleRollout:
-      type: object
-      description: How far a rule has reached across a customer's estate.
-      required: [enabled, rollout_percent, kill]
-      properties:
-        enabled:
-          type: boolean
-        canary_group:
-          type: string
-        rollout_percent:
-          type: integer
-        kill:
-          type: boolean
-          description: The switch that stops a rule without a deploy.
-
     RuleParameterBounds:
       type: object
       description: How far a customer may retune one parameter.
@@ -1420,6 +1405,7 @@ components:
           tunable,
           rollout,
           coverage,
+          noise,
         ]
       properties:
         id:
@@ -1463,6 +1449,371 @@ components:
           $ref: "#/components/schemas/RuleRollout"
         coverage:
           $ref: "#/components/schemas/RuleCoverage"
+        noise:
+          $ref: "#/components/schemas/RuleNoise"
+
+    RuleNoiseLevel:
+      type: string
+      description: >-
+        How a rule's recent count compares with its own usual rate. Relative to
+        the rule rather than to a shared threshold, so a rule meant to be chatty
+        does not sit permanently red; a rule with no history yet is unknown
+        rather than alarming.
+      enum: [unknown, quiet, usual, elevated, high]
+
+    RuleNoise:
+      type: object
+      description: How much this rule has been raising lately, for the selected customer.
+      required: [recent, baseline_per_hour, level]
+      properties:
+        recent:
+          type: integer
+          description: Alerts the rule raised in the last hour.
+        baseline_per_hour:
+          type: number
+          format: double
+          description: The rule's own usual hourly rate for this customer.
+        level:
+          $ref: "#/components/schemas/RuleNoiseLevel"
+
+    RuleStage:
+      type: string
+      description: How far along a rollout is.
+      enum: [off, canary, staged, full]
+
+    RuleRollout:
+      type: object
+      description: How far a rule has reached across a customer's estate.
+      required:
+        [
+          enabled,
+          rollout_percent,
+          kill,
+          stage,
+          canary_percent,
+          staged_percent,
+          canary_hold_secs,
+          staged_hold_secs,
+        ]
+      properties:
+        enabled:
+          type: boolean
+        canary_group:
+          type: string
+        rollout_percent:
+          type: integer
+        kill:
+          type: boolean
+          description: The switch that stops a rule without a deploy.
+        stage:
+          $ref: "#/components/schemas/RuleStage"
+        canary_percent:
+          type: integer
+          description: The share of the estate the first stage reaches.
+        staged_percent:
+          type: integer
+          description: The share of the estate the second stage reaches.
+        canary_hold_secs:
+          type: integer
+          description: How long the first stage is held before it may advance.
+        staged_hold_secs:
+          type: integer
+          description: How long the second stage is held before it may advance.
+
+    RuleRolloutInput:
+      type: object
+      description: >-
+        What an administrator may change about a rollout. There is deliberately
+        nothing here for the automatic pull-back: it is the mitigation for a bad
+        rule degrading an estate, so it is not configuration.
+      required:
+        [enabled, canary_percent, staged_percent, canary_hold_secs, staged_hold_secs]
+      properties:
+        enabled:
+          type: boolean
+        canary_percent:
+          type: integer
+        staged_percent:
+          type: integer
+        canary_hold_secs:
+          type: integer
+        staged_hold_secs:
+          type: integer
+
+    RuleBindingLevel:
+      type: string
+      description: The rung of the tenancy ladder a tuned value is filed on.
+      enum: [device, site, organization, tenant]
+
+    RuleBinding:
+      type: object
+      description: >-
+        One tuned value, filed on a rung and optionally narrowed to the machines
+        a label picks out. The narrower rung always wins; precedence only settles
+        ties between two labels at one rung.
+      required: [id, level, level_key, selector, precedence, params, updated_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        level:
+          $ref: "#/components/schemas/RuleBindingLevel"
+        level_key:
+          type: string
+          format: uuid
+          description: The machine, office or customer the value is filed against.
+        selector:
+          type: object
+          additionalProperties:
+            type: string
+          description: The labels a machine must carry for this value to apply.
+        precedence:
+          type: integer
+          description: Which of two labels at one rung wins. Higher takes it.
+        params:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        updated_by:
+          type: string
+
+    RuleBindingInput:
+      type: object
+      description: A tuned value as an administrator states it.
+      required: [level, level_key, params]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Omit to file a new value; name one to retune it.
+        level:
+          $ref: "#/components/schemas/RuleBindingLevel"
+        level_key:
+          type: string
+          format: uuid
+        selector:
+          type: object
+          additionalProperties:
+            type: string
+        precedence:
+          type: integer
+        params:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+
+    RuleClamp:
+      type: object
+      description: >-
+        A tuned value a new version of the rule no longer allows, moved to the
+        nearest one it does. The rule keeps firing at the moved value; the move
+        stays on the screen until an administrator acknowledges it.
+      required:
+        [id, binding_id, rule_id, rule_version, param, from_value, to_value, clamped_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        binding_id:
+          type: string
+          format: uuid
+        rule_id:
+          type: string
+        rule_version:
+          type: integer
+        param:
+          type: string
+        from_value:
+          type: number
+          format: double
+        to_value:
+          type: number
+          format: double
+        clamped_at:
+          type: string
+          format: date-time
+
+    RuleDetail:
+      type: object
+      description: One rule as its page shows it.
+      required: [rule, bindings, clamps]
+      properties:
+        rule:
+          $ref: "#/components/schemas/Rule"
+        bindings:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleBinding"
+        clamps:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleClamp"
+
+    ResolvedRuleParameter:
+      type: object
+      description: >-
+        One parameter as it applies to one machine, and where the value came
+        from — which is the whole answer to "why is this machine at 95?".
+      required: [value, level, source]
+      properties:
+        value:
+          type: number
+          format: double
+        level:
+          type: string
+          description: The rung the value came from, or shipped when nothing overrode it.
+          enum: [device, site, organization, tenant, shipped]
+        source:
+          type: string
+          description: The tuned value that decided it, in words — a rung, a label, or the pack.
+
+    ResolvedRule:
+      type: object
+      description: A rule as one named machine is actually running it.
+      required: [rule_id, device_id, delivered, params]
+      properties:
+        rule_id:
+          type: string
+        device_id:
+          type: string
+          format: uuid
+        delivered:
+          type: boolean
+          description: Whether the machine is getting the rule at all.
+        params:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ResolvedRuleParameter"
+
+    RuleStopScope:
+      type: string
+      description: >-
+        Who a stop reaches. The customer scope stops one customer's estate; the
+        tenant scope stops every customer at once, for a rule that is misbehaving
+        everywhere.
+      enum: [organization, tenant]
+
+    RuleStopInput:
+      type: object
+      description: Stopping a rule, or lifting a stop.
+      required: [scope, stopped]
+      properties:
+        scope:
+          $ref: "#/components/schemas/RuleStopScope"
+        stopped:
+          type: boolean
+
+    AlertLimits:
+      type: object
+      description: >-
+        A customer's alert budget, and how far each half of it may be raised. The
+        maxima are the code's, not the customer's — a limit an operator can raise
+        is not a limit.
+      required:
+        [
+          organization_hourly,
+          device_hourly,
+          max_organization_hourly,
+          max_device_hourly,
+          updated_by,
+        ]
+      properties:
+        organization_hourly:
+          type: integer
+          description: Alerts this customer may store in a rolling hour, across every machine.
+        device_hourly:
+          type: integer
+          description: >-
+            Alerts one of their machines may raise in a rolling hour. Enforced on
+            the machine, so it travels down with the rules.
+        max_organization_hourly:
+          type: integer
+        max_device_hourly:
+          type: integer
+        updated_by:
+          type: string
+
+    AlertLimitsInput:
+      type: object
+      description: A customer's alert budget as an administrator states it.
+      required: [organization_hourly, device_hourly]
+      properties:
+        organization_hourly:
+          type: integer
+        device_hourly:
+          type: integer
+
+    DeviceTagLabel:
+      type: object
+      description: >-
+        One entry in a customer's label list. Labels cut across the tenancy
+        ladder — the file servers are in four offices — which is exactly the set
+        a threshold is usually meant for and the set no rung names.
+      required: [id, key, value, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        value:
+          type: string
+        created_by:
+          type: string
+
+    DeviceTagLabelInput:
+      type: object
+      required: [key, value]
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+
+    DeviceTagAssignment:
+      type: object
+      description: One machine and the labels it carries.
+      required: [device_id, tags]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+
+    DeviceTagCatalogue:
+      type: object
+      description: A customer's label list and who carries what.
+      required: [labels, assignments]
+      properties:
+        labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceTagLabel"
+        assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceTagAssignment"
+
+    DeviceTagAssignmentInput:
+      type: object
+      description: >-
+        Giving one label to a set of machines at once, which is how an estate is
+        labelled without visiting every machine's page.
+      required: [device_ids, label_id]
+      properties:
+        device_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        label_id:
+          type: string
+          format: uuid
 
     RuleCatalogue:
       type: object
@@ -4073,6 +4424,611 @@ paths:
                 $ref: "#/components/schemas/RuleCatalogue"
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/rules/{rule_id}:
+    get:
+      operationId: getRule
+      summary: One rule, its tuning, and anything a version change moved
+      description: >-
+        The definition is read-only description — a rule's logic is compiled into
+        the server and there is no authoring surface. What comes back beside it
+        is what may change: the tuned values down the tenancy ladder, and any
+        value a new version of the rule had to move.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: organization_id
+          in: query
+          description: Whose tuning and coverage this is.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleDetail"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: No such rule in the pack this server runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/rules/{rule_id}/resolved:
+    get:
+      operationId: getResolvedRule
+      summary: The rule as one named machine is actually running it
+      description: >-
+        Answers "why is this machine at 95?" — every parameter, the value in
+        force, and which tuned value decided it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: device_id
+          in: query
+          required: true
+          description: The machine to resolve against.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The resolved rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvedRule"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: No such rule, or no such machine in this tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/rules/{rule_id}/bindings:
+    put:
+      operationId: putRuleBinding
+      summary: File or retune one value
+      description: >-
+        Requires administrator access. A value outside the rule's declared range,
+        or one for something the rule does not offer, is refused here — where
+        somebody can still see why — rather than reaching an estate.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: organization_id
+          in: query
+          description: Whose tuning this is.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuleBindingInput"
+      responses:
+        "200":
+          description: The stored value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleBinding"
+        "400":
+          description: Outside the rule's bounds, or not something it offers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: No such rule in the pack this server runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/rules/{rule_id}/bindings/{binding_id}:
+    delete:
+      operationId: deleteRuleBinding
+      summary: Remove one tuned value
+      description: >-
+        Requires administrator access. The machines it covered fall back to the
+        next rung up, which is the whole point of removing it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: binding_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Removed
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/rules/{rule_id}/rollout:
+    put:
+      operationId: putRuleRollout
+      summary: How far and how fast a rule spreads
+      description: >-
+        Requires administrator access. Sets whether the customer gets the rule,
+        the population each stage reaches, and how long each is held. The
+        automatic pull-back is not settable through this or any other route.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: organization_id
+          in: query
+          description: Whose rollout this is.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuleRolloutInput"
+      responses:
+        "200":
+          description: The stored rollout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleRollout"
+        "400":
+          description: A population or waiting period outside its bounds
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: No such rule in the pack this server runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/rules/{rule_id}/stop:
+    post:
+      operationId: stopRule
+      summary: Stop a rule, for one customer or for every customer at once
+      description: >-
+        Requires administrator access. Deliberately separate from switching a
+        rule off: that is an ordinary choice, this is an intervention, and
+        afterwards the two have to be tellable apart. Effective without a
+        release, including on machines that are offline when it is used — they
+        are stopped when they come back.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: organization_id
+          in: query
+          description: Which customer, when the scope is one customer.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuleStopInput"
+      responses:
+        "204":
+          description: Stopped, or the stop lifted
+        "400":
+          description: Not a scope this rule can be stopped at
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: No such rule in the pack this server runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/rules/{rule_id}/clamps/{clamp_id}:
+    post:
+      operationId: acknowledgeRuleClamp
+      summary: Acknowledge a value a new rule version had to move
+      description: Requires administrator access.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: clamp_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Acknowledged
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Nothing outstanding under that id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/alert-limits:
+    get:
+      operationId: getAlertLimits
+      summary: A customer's alert budget
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          description: Whose budget this is.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The budget
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertLimits"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    put:
+      operationId: putAlertLimits
+      summary: Move a customer's alert budget
+      description: >-
+        Requires administrator access. Neither half may pass the maximum the code
+        allows, and neither may be set to nothing — that would silence the
+        customer's detection outright.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          description: Whose budget this is.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertLimitsInput"
+      responses:
+        "200":
+          description: The stored budget
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertLimits"
+        "400":
+          description: Past the maximum, or nothing at all
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/device-tags:
+    get:
+      operationId: listDeviceTags
+      summary: A customer's label list and who carries what
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          description: Whose labels these are.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The labels
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceTagCatalogue"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/device-tags/labels:
+    post:
+      operationId: createDeviceTagLabel
+      summary: Add a label to a customer's list
+      description: Requires administrator access.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          description: Whose list this is.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceTagLabelInput"
+      responses:
+        "201":
+          description: The label
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceTagLabel"
+        "400":
+          description: Outside its bounds, or already on the list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/device-tags/labels/{label_id}:
+    delete:
+      operationId: deleteDeviceTagLabel
+      summary: Remove a label from a customer's list
+      description: >-
+        Requires administrator access. Refused while a rule is aimed at the
+        label: removing it then would take a tuned value off every machine that
+        carried it, which reads as a threshold quietly widening across an estate
+        rather than as a deletion.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: label_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Removed
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: No such label
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: A rule is aimed at this label
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/device-tags/assignments:
+    put:
+      operationId: assignDeviceTag
+      summary: Give one label to a set of machines
+      description: >-
+        Requires administrator access. A machine already carrying a different
+        value for the same key takes the new one — a machine that answered a
+        question twice would match every selector asking it.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceTagAssignmentInput"
+      responses:
+        "204":
+          description: Assigned
+        "400":
+          description: A machine and a label belonging to different customers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: clearDeviceTag
+      summary: Take one label key off one machine
+      description: Requires administrator access.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: device_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Cleared
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:

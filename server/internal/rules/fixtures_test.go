@@ -60,6 +60,19 @@ func shippedRule(t *testing.T, id string) Definition {
 	return def
 }
 
+// catalogueWith builds a pack from stated definitions, which is how a case says
+// "the fleet is now running this version of the rule" without a YAML file and a
+// lock entry standing between it and what it is about.
+func catalogueWith(t *testing.T, defs ...Definition) *Catalogue {
+	t.Helper()
+	cat := &Catalogue{byID: make(map[string]Definition, len(defs))}
+	for _, def := range defs {
+		cat.byID[def.ID] = def
+		cat.order = append(cat.order, def.ID)
+	}
+	return cat
+}
+
 // refusesBinding asserts a binding is rejected, and rejected for the stated
 // reason — the typed error is what an API layer turns into an answer an operator
 // can act on, so the case is about which error, not merely that there was one.

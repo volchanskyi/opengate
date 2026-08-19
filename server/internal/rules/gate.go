@@ -19,12 +19,6 @@ import (
 // machinery is decided and proven against stated inputs rather than against
 // whatever a live estate happens to be doing at the time.
 
-// The minimum a stage is held for before it may advance.
-const (
-	canaryHold = time.Hour
-	stagedHold = 6 * time.Hour
-)
-
 // GateReport is what a rule did to one customer's machines over a span. Every
 // field counts occurrences, so zero is the only clean answer and a partial read
 // cannot be mistaken for a quiet one.
@@ -46,12 +40,12 @@ func (r GateReport) Clean() bool {
 	return r.CeilingBreaches == 0 && r.ThrottleTrips == 0 && r.EvaluationErrors == 0
 }
 
-// GateSignals answers what one rule has done to one customer's machines since a
+// GateReporter answers what one rule has done to one customer's machines since a
 // moment. It is a port rather than a read of a counter here, because the
 // counters it reads are raised elsewhere — the alert ceiling by the ingest path,
 // the throttle by the agents themselves — and a stage machine that guessed at
 // them would be worse than none: it would look like protection.
-type GateSignals interface {
+type GateReporter interface {
 	// RuleGate reports what happened since `since`. An error means the question
 	// could not be answered, which a caller must read as "not proven quiet"
 	// rather than as a clean gate.
@@ -89,7 +83,7 @@ type StageDecision struct {
 // misbehaving for six hours reverts rather than advancing on the strength of
 // having survived them.
 func DecideStage(r Rollout, report GateReport, now time.Time) StageDecision {
-	stage := StageFor(r.RolloutPercent)
+	stage := r.Stage()
 	hold := StageDecision{Action: StageHold, Stage: stage, Percent: r.RolloutPercent}
 
 	// A rule somebody stopped is not rolling out. Walking a killed rule forward
@@ -104,12 +98,12 @@ func DecideStage(r Rollout, report GateReport, now time.Time) StageDecision {
 		if back == stage {
 			return StageDecision{Action: StageHalt, Stage: stage, Percent: r.RolloutPercent}
 		}
-		return StageDecision{Action: StageRevert, Stage: back, Percent: PercentFor(back)}
+		return StageDecision{Action: StageRevert, Stage: back, Percent: r.PercentForStage(back)}
 	}
 
 	// A row whose stage clock was never stamped has not held for anything. It is
 	// not a rollout that has been quiet since the beginning of time.
-	if r.StageEnteredAt.IsZero() || now.Sub(r.StageEnteredAt) < holdFor(stage) {
+	if r.StageEnteredAt.IsZero() || now.Sub(r.StageEnteredAt) < r.HoldFor(stage) {
 		return hold
 	}
 
@@ -117,7 +111,7 @@ func DecideStage(r Rollout, report GateReport, now time.Time) StageDecision {
 	if forward == stage {
 		return hold
 	}
-	return StageDecision{Action: StageAdvance, Stage: forward, Percent: PercentFor(forward)}
+	return StageDecision{Action: StageAdvance, Stage: forward, Percent: r.PercentForStage(forward)}
 }
 
 // Apply returns the rollout state to store. A move stamps the moment the new
@@ -131,20 +125,6 @@ func (d StageDecision) Apply(r Rollout, now time.Time) Rollout {
 	r.RolloutPercent = d.Percent
 	r.StageEnteredAt = now
 	return r
-}
-
-// holdFor is the minimum a stage is held for.
-func holdFor(stage Stage) time.Duration {
-	switch stage {
-	case StageCanary:
-		return canaryHold
-	case StageStaged:
-		return stagedHold
-	case StageOff, StageFull:
-		return 0
-	default:
-		return 0
-	}
 }
 
 // nextStage is the stage after this one, or the stage itself at the end of the

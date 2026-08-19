@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
 import { useOrganizationStore } from '../organizations';
 import { InvestigationList } from './InvestigationList';
 import { DEFAULT_QUEUE_FILTERS, useQueueStore } from './state/queue-store';
-import { useCatalogueStore } from './state/catalogue-store';
+import { useCatalogueStore } from '../rules/state/catalogue-store';
 import type { components } from '../../types/api';
 
 vi.mock('../../lib/api', () => ({ api: { GET: vi.fn() } }));
@@ -198,7 +198,7 @@ describe('InvestigationList — polling', () => {
 
     const before = mockedGet.mock.calls.length;
     await vi.advanceTimersByTimeAsync(120_000);
-    expect(mockedGet.mock.calls.length).toBe(before);
+    expect(mockedGet.mock.calls).toHaveLength(before);
     // The pages somebody walked to are still on screen.
     expect(screen.getByRole('link', { name: 'cpu.sustained' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'disk.await' })).toBeInTheDocument();
@@ -213,6 +213,6 @@ describe('InvestigationList — polling', () => {
     setVisibility('hidden');
     const before = mockedGet.mock.calls.length;
     await vi.advanceTimersByTimeAsync(120_000);
-    expect(mockedGet.mock.calls.length).toBe(before);
+    expect(mockedGet.mock.calls).toHaveLength(before);
   });
 });

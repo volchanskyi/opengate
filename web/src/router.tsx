@@ -21,6 +21,10 @@ const AuditLog = lazy(() => import('./features/admin/AuditLog').then((m) => ({ d
 const AgentUpdates = lazy(() => import('./features/admin/AgentUpdates').then((m) => ({ default: m.AgentUpdates })));
 const Permissions = lazy(() => import('./features/admin/Permissions').then((m) => ({ default: m.Permissions })));
 const DataLifecycle = lazy(() => import('./features/admin/DataLifecycle').then((m) => ({ default: m.DataLifecycle })));
+const RuleList = lazy(() => import('./features/rules').then((m) => ({ default: m.RuleList })));
+const RuleDetail = lazy(() => import('./features/rules').then((m) => ({ default: m.RuleDetail })));
+const AlertLimits = lazy(() => import('./features/rules').then((m) => ({ default: m.AlertLimits })));
+const DeviceLabels = lazy(() => import('./features/rules').then((m) => ({ default: m.DeviceLabels })));
 const OrganizationManagement = lazy(() => import('./features/organizations').then((m) => ({ default: m.OrganizationManagement })));
 
 function withSuspense(Component: React.LazyExoticComponent<React.ComponentType>) {
@@ -47,6 +51,14 @@ export const router = createBrowserRouter([
           { path: 'investigations', element: withSuspense(InvestigationList) },
           { path: 'investigations/:id', element: withSuspense(InvestigationDetail) },
           { path: 'sessions/:token', element: withSuspense(SessionView) },
+          // Rules is a top-level section: everyone in the tenant reads it, and a
+          // technician resolving something as a false alarm has to be able to
+          // see the rule that produced it. Only an administrator can change
+          // anything, which each screen decides for itself.
+          { path: 'rules', element: withSuspense(RuleList) },
+          { path: 'rules/alert-limits', element: withSuspense(AlertLimits) },
+          { path: 'rules/labels', element: withSuspense(DeviceLabels) },
+          { path: 'rules/:ruleId', element: withSuspense(RuleDetail) },
           { path: 'setup', element: withSuspense(AgentSetupPage) },
           { path: 'profile', element: withSuspense(ProfilePage) },
           {

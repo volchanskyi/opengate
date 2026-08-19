@@ -21,7 +21,20 @@ type AlertRuleProvider interface {
 	// RulesFor returns the rules to push to the machine at scope. An error
 	// means the ruleset could not be assembled — the caller pushes nothing
 	// rather than something that might ignore what the customer configured.
-	RulesFor(ctx context.Context, scope settings.Scope) ([]protocol.ThresholdRule, error)
+	RulesFor(ctx context.Context, scope settings.Scope) (RuleSet, error)
+}
+
+// RuleSet is everything one machine is told about detection: the rules it
+// evaluates, and how many alerts it may raise in a rolling hour.
+//
+// The allowance is here rather than in a message of its own because it is
+// enforced on the machine, and a machine that received new rules but not the
+// budget they run under would be tuned by half. A ceiling of zero leaves the
+// machine on the allowance it already has, which is what a deployment with no
+// stored budget means.
+type RuleSet struct {
+	Rules               []protocol.ThresholdRule
+	DeviceHourlyCeiling uint32
 }
 
 // StaticAlertRuleProvider serves a minimal default ruleset to every tenant, with
@@ -50,11 +63,11 @@ func NewStaticAlertRuleProvider(defaultRules []protocol.ThresholdRule, byTenant 
 // the default set when that tenant has no override. It reads only the tenant
 // rung; the narrower rungs are carried for the providers that resolve them. It
 // reads nothing outside itself, so it never fails.
-func (p *StaticAlertRuleProvider) RulesFor(_ context.Context, scope settings.Scope) ([]protocol.ThresholdRule, error) {
+func (p *StaticAlertRuleProvider) RulesFor(_ context.Context, scope settings.Scope) (RuleSet, error) {
 	if rules, ok := p.byTenant[scope.TenantID]; ok {
-		return cloneRules(rules), nil
+		return RuleSet{Rules: cloneRules(rules)}, nil
 	}
-	return cloneRules(p.defaultRules), nil
+	return RuleSet{Rules: cloneRules(p.defaultRules)}, nil
 }
 
 // resolveAlertRuleProvider returns provider unchanged, or a default static

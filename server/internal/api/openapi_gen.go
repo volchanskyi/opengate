@@ -338,6 +338,33 @@ func (e PurgeJobState) Valid() bool {
 	}
 }
 
+// Defines values for ResolvedRuleParameterLevel.
+const (
+	ResolvedRuleParameterLevelDevice       ResolvedRuleParameterLevel = "device"
+	ResolvedRuleParameterLevelOrganization ResolvedRuleParameterLevel = "organization"
+	ResolvedRuleParameterLevelShipped      ResolvedRuleParameterLevel = "shipped"
+	ResolvedRuleParameterLevelSite         ResolvedRuleParameterLevel = "site"
+	ResolvedRuleParameterLevelTenant       ResolvedRuleParameterLevel = "tenant"
+)
+
+// Valid indicates whether the value is a known member of the ResolvedRuleParameterLevel enum.
+func (e ResolvedRuleParameterLevel) Valid() bool {
+	switch e {
+	case ResolvedRuleParameterLevelDevice:
+		return true
+	case ResolvedRuleParameterLevelOrganization:
+		return true
+	case ResolvedRuleParameterLevelShipped:
+		return true
+	case ResolvedRuleParameterLevelSite:
+		return true
+	case ResolvedRuleParameterLevelTenant:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RuleComparator.
 const (
 	Gt  RuleComparator = "gt"
@@ -356,6 +383,99 @@ func (e RuleComparator) Valid() bool {
 	case Lt:
 		return true
 	case Lte:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuleBindingLevel.
+const (
+	RuleBindingLevelDevice       RuleBindingLevel = "device"
+	RuleBindingLevelOrganization RuleBindingLevel = "organization"
+	RuleBindingLevelSite         RuleBindingLevel = "site"
+	RuleBindingLevelTenant       RuleBindingLevel = "tenant"
+)
+
+// Valid indicates whether the value is a known member of the RuleBindingLevel enum.
+func (e RuleBindingLevel) Valid() bool {
+	switch e {
+	case RuleBindingLevelDevice:
+		return true
+	case RuleBindingLevelOrganization:
+		return true
+	case RuleBindingLevelSite:
+		return true
+	case RuleBindingLevelTenant:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuleNoiseLevel.
+const (
+	Elevated RuleNoiseLevel = "elevated"
+	High     RuleNoiseLevel = "high"
+	Quiet    RuleNoiseLevel = "quiet"
+	Unknown  RuleNoiseLevel = "unknown"
+	Usual    RuleNoiseLevel = "usual"
+)
+
+// Valid indicates whether the value is a known member of the RuleNoiseLevel enum.
+func (e RuleNoiseLevel) Valid() bool {
+	switch e {
+	case Elevated:
+		return true
+	case High:
+		return true
+	case Quiet:
+		return true
+	case Unknown:
+		return true
+	case Usual:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuleStage.
+const (
+	Canary RuleStage = "canary"
+	Full   RuleStage = "full"
+	Off    RuleStage = "off"
+	Staged RuleStage = "staged"
+)
+
+// Valid indicates whether the value is a known member of the RuleStage enum.
+func (e RuleStage) Valid() bool {
+	switch e {
+	case Canary:
+		return true
+	case Full:
+		return true
+	case Off:
+		return true
+	case Staged:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuleStopScope.
+const (
+	RuleStopScopeOrganization RuleStopScope = "organization"
+	RuleStopScopeTenant       RuleStopScope = "tenant"
+)
+
+// Valid indicates whether the value is a known member of the RuleStopScope enum.
+func (e RuleStopScope) Valid() bool {
+	switch e {
+	case RuleStopScopeOrganization:
+		return true
+	case RuleStopScopeTenant:
 		return true
 	default:
 		return false
@@ -475,6 +595,24 @@ type AlertEvidence struct {
 
 	// Truncated Whether the size cap cost this evidence anything, so "nothing was dropped" and "nobody checked" never look alike.
 	Truncated bool `json:"truncated"`
+}
+
+// AlertLimits A customer's alert budget, and how far each half of it may be raised. The maxima are the code's, not the customer's — a limit an operator can raise is not a limit.
+type AlertLimits struct {
+	// DeviceHourly Alerts one of their machines may raise in a rolling hour. Enforced on the machine, so it travels down with the rules.
+	DeviceHourly          int `json:"device_hourly"`
+	MaxDeviceHourly       int `json:"max_device_hourly"`
+	MaxOrganizationHourly int `json:"max_organization_hourly"`
+
+	// OrganizationHourly Alerts this customer may store in a rolling hour, across every machine.
+	OrganizationHourly int    `json:"organization_hourly"`
+	UpdatedBy          string `json:"updated_by"`
+}
+
+// AlertLimitsInput A customer's alert budget as an administrator states it.
+type AlertLimitsInput struct {
+	DeviceHourly       int `json:"device_hourly"`
+	OrganizationHourly int `json:"organization_hourly"`
 }
 
 // ApiError defines model for ApiError.
@@ -673,6 +811,38 @@ type DeviceSummary struct {
 
 	// Total Devices in the tenant.
 	Total int `json:"total"`
+}
+
+// DeviceTagAssignment One machine and the labels it carries.
+type DeviceTagAssignment struct {
+	DeviceId openapi_types.UUID `json:"device_id"`
+	Tags     map[string]string  `json:"tags"`
+}
+
+// DeviceTagAssignmentInput Giving one label to a set of machines at once, which is how an estate is labelled without visiting every machine's page.
+type DeviceTagAssignmentInput struct {
+	DeviceIds []openapi_types.UUID `json:"device_ids"`
+	LabelId   openapi_types.UUID   `json:"label_id"`
+}
+
+// DeviceTagCatalogue A customer's label list and who carries what.
+type DeviceTagCatalogue struct {
+	Assignments []DeviceTagAssignment `json:"assignments"`
+	Labels      []DeviceTagLabel      `json:"labels"`
+}
+
+// DeviceTagLabel One entry in a customer's label list. Labels cut across the tenancy ladder — the file servers are in four offices — which is exactly the set a threshold is usually meant for and the set no rung names.
+type DeviceTagLabel struct {
+	CreatedBy string             `json:"created_by"`
+	Id        openapi_types.UUID `json:"id"`
+	Key       string             `json:"key"`
+	Value     string             `json:"value"`
+}
+
+// DeviceTagLabelInput defines model for DeviceTagLabelInput.
+type DeviceTagLabelInput struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // DeviceUpdate defines model for DeviceUpdate.
@@ -1034,6 +1204,28 @@ type RegisterRequest struct {
 	Password    string              `json:"password"`
 }
 
+// ResolvedRule A rule as one named machine is actually running it.
+type ResolvedRule struct {
+	// Delivered Whether the machine is getting the rule at all.
+	Delivered bool                             `json:"delivered"`
+	DeviceId  openapi_types.UUID               `json:"device_id"`
+	Params    map[string]ResolvedRuleParameter `json:"params"`
+	RuleId    string                           `json:"rule_id"`
+}
+
+// ResolvedRuleParameter One parameter as it applies to one machine, and where the value came from — which is the whole answer to "why is this machine at 95?".
+type ResolvedRuleParameter struct {
+	// Level The rung the value came from, or shipped when nothing overrode it.
+	Level ResolvedRuleParameterLevel `json:"level"`
+
+	// Source The tuned value that decided it, in words — a rung, a label, or the pack.
+	Source string  `json:"source"`
+	Value  float64 `json:"value"`
+}
+
+// ResolvedRuleParameterLevel The rung the value came from, or shipped when nothing overrode it.
+type ResolvedRuleParameterLevel string
+
 // RestartDeviceRequest defines model for RestartDeviceRequest.
 type RestartDeviceRequest struct {
 	// Reason Why the agent is being restarted, recorded in the audit trail and forwarded to the agent. Omit the field to use the server default; a supplied reason must carry at least one non-whitespace character.
@@ -1057,6 +1249,9 @@ type Rule struct {
 	Id              string `json:"id"`
 	Metric          string `json:"metric"`
 
+	// Noise How much this rule has been raising lately, for the selected customer.
+	Noise RuleNoise `json:"noise"`
+
 	// Rollout How far a rule has reached across a customer's estate.
 	Rollout RuleRollout `json:"rollout"`
 
@@ -1071,11 +1266,58 @@ type Rule struct {
 // RuleComparator defines model for Rule.Comparator.
 type RuleComparator string
 
+// RuleBinding One tuned value, filed on a rung and optionally narrowed to the machines a label picks out. The narrower rung always wins; precedence only settles ties between two labels at one rung.
+type RuleBinding struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// Level The rung of the tenancy ladder a tuned value is filed on.
+	Level RuleBindingLevel `json:"level"`
+
+	// LevelKey The machine, office or customer the value is filed against.
+	LevelKey openapi_types.UUID `json:"level_key"`
+	Params   map[string]float64 `json:"params"`
+
+	// Precedence Which of two labels at one rung wins. Higher takes it.
+	Precedence int `json:"precedence"`
+
+	// Selector The labels a machine must carry for this value to apply.
+	Selector  map[string]string `json:"selector"`
+	UpdatedBy string            `json:"updated_by"`
+}
+
+// RuleBindingInput A tuned value as an administrator states it.
+type RuleBindingInput struct {
+	// Id Omit to file a new value; name one to retune it.
+	Id *openapi_types.UUID `json:"id,omitempty"`
+
+	// Level The rung of the tenancy ladder a tuned value is filed on.
+	Level      RuleBindingLevel   `json:"level"`
+	LevelKey   openapi_types.UUID `json:"level_key"`
+	Params     map[string]float64 `json:"params"`
+	Precedence *int               `json:"precedence,omitempty"`
+	Selector   *map[string]string `json:"selector,omitempty"`
+}
+
+// RuleBindingLevel The rung of the tenancy ladder a tuned value is filed on.
+type RuleBindingLevel string
+
 // RuleCatalogue The curated pack and what each rule is watching.
 type RuleCatalogue struct {
 	// FleetSize How many machines the coverage counts were taken against. Every rule's four coverage states add up to this.
 	FleetSize int    `json:"fleet_size"`
 	Rules     []Rule `json:"rules"`
+}
+
+// RuleClamp A tuned value a new version of the rule no longer allows, moved to the nearest one it does. The rule keeps firing at the moved value; the move stays on the screen until an administrator acknowledges it.
+type RuleClamp struct {
+	BindingId   openapi_types.UUID `json:"binding_id"`
+	ClampedAt   time.Time          `json:"clamped_at"`
+	FromValue   float64            `json:"from_value"`
+	Id          openapi_types.UUID `json:"id"`
+	Param       string             `json:"param"`
+	RuleId      string             `json:"rule_id"`
+	RuleVersion int                `json:"rule_version"`
+	ToValue     float64            `json:"to_value"`
 }
 
 // RuleCoverage How much of a customer's estate one rule is actually watching. The four states always add up to the fleet — three of them would make a rule look like it was watching a smaller estate than it is.
@@ -1093,6 +1335,30 @@ type RuleCoverage struct {
 	Unsupported int `json:"unsupported"`
 }
 
+// RuleDetail One rule as its page shows it.
+type RuleDetail struct {
+	Bindings []RuleBinding `json:"bindings"`
+	Clamps   []RuleClamp   `json:"clamps"`
+
+	// Rule One curated rule as the fleet runs it. Definitions are compiled into the server and are not editable here — what a customer may change is the numbers each rule declares tunable, and whether it is rolled out.
+	Rule Rule `json:"rule"`
+}
+
+// RuleNoise How much this rule has been raising lately, for the selected customer.
+type RuleNoise struct {
+	// BaselinePerHour The rule's own usual hourly rate for this customer.
+	BaselinePerHour float64 `json:"baseline_per_hour"`
+
+	// Level How a rule's recent count compares with its own usual rate. Relative to the rule rather than to a shared threshold, so a rule meant to be chatty does not sit permanently red; a rule with no history yet is unknown rather than alarming.
+	Level RuleNoiseLevel `json:"level"`
+
+	// Recent Alerts the rule raised in the last hour.
+	Recent int `json:"recent"`
+}
+
+// RuleNoiseLevel How a rule's recent count compares with its own usual rate. Relative to the rule rather than to a shared threshold, so a rule meant to be chatty does not sit permanently red; a rule with no history yet is unknown rather than alarming.
+type RuleNoiseLevel string
+
 // RuleParameterBounds How far a customer may retune one parameter.
 type RuleParameterBounds struct {
 	Max float64 `json:"max"`
@@ -1105,12 +1371,49 @@ type RuleParameterBounds struct {
 // RuleRollout How far a rule has reached across a customer's estate.
 type RuleRollout struct {
 	CanaryGroup *string `json:"canary_group,omitempty"`
-	Enabled     bool    `json:"enabled"`
+
+	// CanaryHoldSecs How long the first stage is held before it may advance.
+	CanaryHoldSecs int `json:"canary_hold_secs"`
+
+	// CanaryPercent The share of the estate the first stage reaches.
+	CanaryPercent int  `json:"canary_percent"`
+	Enabled       bool `json:"enabled"`
 
 	// Kill The switch that stops a rule without a deploy.
 	Kill           bool `json:"kill"`
 	RolloutPercent int  `json:"rollout_percent"`
+
+	// Stage How far along a rollout is.
+	Stage RuleStage `json:"stage"`
+
+	// StagedHoldSecs How long the second stage is held before it may advance.
+	StagedHoldSecs int `json:"staged_hold_secs"`
+
+	// StagedPercent The share of the estate the second stage reaches.
+	StagedPercent int `json:"staged_percent"`
 }
+
+// RuleRolloutInput What an administrator may change about a rollout. There is deliberately nothing here for the automatic pull-back: it is the mitigation for a bad rule degrading an estate, so it is not configuration.
+type RuleRolloutInput struct {
+	CanaryHoldSecs int  `json:"canary_hold_secs"`
+	CanaryPercent  int  `json:"canary_percent"`
+	Enabled        bool `json:"enabled"`
+	StagedHoldSecs int  `json:"staged_hold_secs"`
+	StagedPercent  int  `json:"staged_percent"`
+}
+
+// RuleStage How far along a rollout is.
+type RuleStage string
+
+// RuleStopInput Stopping a rule, or lifting a stop.
+type RuleStopInput struct {
+	// Scope Who a stop reaches. The customer scope stops one customer's estate; the tenant scope stops every customer at once, for a rule that is misbehaving everywhere.
+	Scope   RuleStopScope `json:"scope"`
+	Stopped bool          `json:"stopped"`
+}
+
+// RuleStopScope Who a stop reaches. The customer scope stops one customer's estate; the tenant scope stops every customer at once, for a rule that is misbehaving everywhere.
+type RuleStopScope string
 
 // SecurityGroup defines model for SecurityGroup.
 type SecurityGroup struct {
@@ -1216,12 +1519,42 @@ type WebPushUnsubscribeRequest struct {
 	Endpoint string `json:"endpoint"`
 }
 
+// GetAlertLimitsParams defines parameters for GetAlertLimits.
+type GetAlertLimitsParams struct {
+	// OrganizationId Whose budget this is.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// PutAlertLimitsParams defines parameters for PutAlertLimits.
+type PutAlertLimitsParams struct {
+	// OrganizationId Whose budget this is.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
 // ListAuditEventsParams defines parameters for ListAuditEvents.
 type ListAuditEventsParams struct {
 	UserId *openapi_types.UUID `form:"user_id,omitempty" json:"user_id,omitempty"`
 	Action *string             `form:"action,omitempty" json:"action,omitempty"`
 	Limit  *int                `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset *int                `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// ListDeviceTagsParams defines parameters for ListDeviceTags.
+type ListDeviceTagsParams struct {
+	// OrganizationId Whose labels these are.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// ClearDeviceTagParams defines parameters for ClearDeviceTag.
+type ClearDeviceTagParams struct {
+	DeviceId openapi_types.UUID `form:"device_id" json:"device_id"`
+	Key      string             `form:"key" json:"key"`
+}
+
+// CreateDeviceTagLabelParams defines parameters for CreateDeviceTagLabel.
+type CreateDeviceTagLabelParams struct {
+	// OrganizationId Whose list this is.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
 }
 
 // ListDevicesParams defines parameters for ListDevices.
@@ -1352,6 +1685,36 @@ type ListRulesParams struct {
 	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
 }
 
+// GetRuleParams defines parameters for GetRule.
+type GetRuleParams struct {
+	// OrganizationId Whose tuning and coverage this is.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// PutRuleBindingParams defines parameters for PutRuleBinding.
+type PutRuleBindingParams struct {
+	// OrganizationId Whose tuning this is.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// GetResolvedRuleParams defines parameters for GetResolvedRule.
+type GetResolvedRuleParams struct {
+	// DeviceId The machine to resolve against.
+	DeviceId openapi_types.UUID `form:"device_id" json:"device_id"`
+}
+
+// PutRuleRolloutParams defines parameters for PutRuleRollout.
+type PutRuleRolloutParams struct {
+	// OrganizationId Whose rollout this is.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
+// StopRuleParams defines parameters for StopRule.
+type StopRuleParams struct {
+	// OrganizationId Which customer, when the scope is one customer.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
+}
+
 // ListSessionsParams defines parameters for ListSessions.
 type ListSessionsParams struct {
 	DeviceId openapi_types.UUID `form:"device_id" json:"device_id"`
@@ -1362,6 +1725,9 @@ type ListSitesParams struct {
 	// OrganizationId Narrow the list to one customer.
 	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
 }
+
+// PutAlertLimitsJSONRequestBody defines body for PutAlertLimits for application/json ContentType.
+type PutAlertLimitsJSONRequestBody = AlertLimitsInput
 
 // AmtPowerActionJSONRequestBody defines body for AmtPowerAction for application/json ContentType.
 type AmtPowerActionJSONRequestBody = AMTPowerRequest
@@ -1374,6 +1740,12 @@ type RegisterJSONRequestBody = RegisterRequest
 
 // ReportClientErrorJSONRequestBody defines body for ReportClientError for application/json ContentType.
 type ReportClientErrorJSONRequestBody = ClientErrorReport
+
+// AssignDeviceTagJSONRequestBody defines body for AssignDeviceTag for application/json ContentType.
+type AssignDeviceTagJSONRequestBody = DeviceTagAssignmentInput
+
+// CreateDeviceTagLabelJSONRequestBody defines body for CreateDeviceTagLabel for application/json ContentType.
+type CreateDeviceTagLabelJSONRequestBody = DeviceTagLabelInput
 
 // UpdateDeviceJSONRequestBody defines body for UpdateDevice for application/json ContentType.
 type UpdateDeviceJSONRequestBody = UpdateDeviceRequest
@@ -1414,6 +1786,15 @@ type UnsubscribePushJSONRequestBody = WebPushUnsubscribeRequest
 // SubscribePushJSONRequestBody defines body for SubscribePush for application/json ContentType.
 type SubscribePushJSONRequestBody = WebPushSubscribeRequest
 
+// PutRuleBindingJSONRequestBody defines body for PutRuleBinding for application/json ContentType.
+type PutRuleBindingJSONRequestBody = RuleBindingInput
+
+// PutRuleRolloutJSONRequestBody defines body for PutRuleRollout for application/json ContentType.
+type PutRuleRolloutJSONRequestBody = RuleRolloutInput
+
+// StopRuleJSONRequestBody defines body for StopRule for application/json ContentType.
+type StopRuleJSONRequestBody = RuleStopInput
+
 // CreateSecurityGroupJSONRequestBody defines body for CreateSecurityGroup for application/json ContentType.
 type CreateSecurityGroupJSONRequestBody = CreateSecurityGroupRequest
 
@@ -1437,6 +1818,12 @@ type UpdateUserJSONRequestBody = UpdateUserRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// A customer's alert budget
+	// (GET /api/v1/alert-limits)
+	GetAlertLimits(w http.ResponseWriter, r *http.Request, params GetAlertLimitsParams)
+	// Move a customer's alert budget
+	// (PUT /api/v1/alert-limits)
+	PutAlertLimits(w http.ResponseWriter, r *http.Request, params PutAlertLimitsParams)
 	// Send power command to AMT device
 	// (POST /api/v1/amt/devices/{uuid}/power)
 	AmtPowerAction(w http.ResponseWriter, r *http.Request, uuid openapi_types.UUID)
@@ -1452,6 +1839,21 @@ type ServerInterface interface {
 	// Report a browser-side error for server-side log ingestion
 	// (POST /api/v1/client-errors)
 	ReportClientError(w http.ResponseWriter, r *http.Request)
+	// A customer's label list and who carries what
+	// (GET /api/v1/device-tags)
+	ListDeviceTags(w http.ResponseWriter, r *http.Request, params ListDeviceTagsParams)
+	// Take one label key off one machine
+	// (DELETE /api/v1/device-tags/assignments)
+	ClearDeviceTag(w http.ResponseWriter, r *http.Request, params ClearDeviceTagParams)
+	// Give one label to a set of machines
+	// (PUT /api/v1/device-tags/assignments)
+	AssignDeviceTag(w http.ResponseWriter, r *http.Request)
+	// Add a label to a customer's list
+	// (POST /api/v1/device-tags/labels)
+	CreateDeviceTagLabel(w http.ResponseWriter, r *http.Request, params CreateDeviceTagLabelParams)
+	// Remove a label from a customer's list
+	// (DELETE /api/v1/device-tags/labels/{label_id})
+	DeleteDeviceTagLabel(w http.ResponseWriter, r *http.Request, labelId openapi_types.UUID)
 	// List devices, optionally narrowed by customer and site
 	// (GET /api/v1/devices)
 	ListDevices(w http.ResponseWriter, r *http.Request, params ListDevicesParams)
@@ -1557,6 +1959,27 @@ type ServerInterface interface {
 	// The curated rule pack, and how much of the estate each rule watches
 	// (GET /api/v1/rules)
 	ListRules(w http.ResponseWriter, r *http.Request, params ListRulesParams)
+	// One rule, its tuning, and anything a version change moved
+	// (GET /api/v1/rules/{rule_id})
+	GetRule(w http.ResponseWriter, r *http.Request, ruleId string, params GetRuleParams)
+	// File or retune one value
+	// (PUT /api/v1/rules/{rule_id}/bindings)
+	PutRuleBinding(w http.ResponseWriter, r *http.Request, ruleId string, params PutRuleBindingParams)
+	// Remove one tuned value
+	// (DELETE /api/v1/rules/{rule_id}/bindings/{binding_id})
+	DeleteRuleBinding(w http.ResponseWriter, r *http.Request, ruleId string, bindingId openapi_types.UUID)
+	// Acknowledge a value a new rule version had to move
+	// (POST /api/v1/rules/{rule_id}/clamps/{clamp_id})
+	AcknowledgeRuleClamp(w http.ResponseWriter, r *http.Request, ruleId string, clampId openapi_types.UUID)
+	// The rule as one named machine is actually running it
+	// (GET /api/v1/rules/{rule_id}/resolved)
+	GetResolvedRule(w http.ResponseWriter, r *http.Request, ruleId string, params GetResolvedRuleParams)
+	// How far and how fast a rule spreads
+	// (PUT /api/v1/rules/{rule_id}/rollout)
+	PutRuleRollout(w http.ResponseWriter, r *http.Request, ruleId string, params PutRuleRolloutParams)
+	// Stop a rule, for one customer or for every customer at once
+	// (POST /api/v1/rules/{rule_id}/stop)
+	StopRule(w http.ResponseWriter, r *http.Request, ruleId string, params StopRuleParams)
 	// List all security groups (admin only)
 	// (GET /api/v1/security-groups)
 	ListSecurityGroups(w http.ResponseWriter, r *http.Request)
@@ -1638,6 +2061,18 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// A customer's alert budget
+// (GET /api/v1/alert-limits)
+func (_ Unimplemented) GetAlertLimits(w http.ResponseWriter, r *http.Request, params GetAlertLimitsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Move a customer's alert budget
+// (PUT /api/v1/alert-limits)
+func (_ Unimplemented) PutAlertLimits(w http.ResponseWriter, r *http.Request, params PutAlertLimitsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Send power command to AMT device
 // (POST /api/v1/amt/devices/{uuid}/power)
 func (_ Unimplemented) AmtPowerAction(w http.ResponseWriter, r *http.Request, uuid openapi_types.UUID) {
@@ -1665,6 +2100,36 @@ func (_ Unimplemented) Register(w http.ResponseWriter, r *http.Request) {
 // Report a browser-side error for server-side log ingestion
 // (POST /api/v1/client-errors)
 func (_ Unimplemented) ReportClientError(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// A customer's label list and who carries what
+// (GET /api/v1/device-tags)
+func (_ Unimplemented) ListDeviceTags(w http.ResponseWriter, r *http.Request, params ListDeviceTagsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Take one label key off one machine
+// (DELETE /api/v1/device-tags/assignments)
+func (_ Unimplemented) ClearDeviceTag(w http.ResponseWriter, r *http.Request, params ClearDeviceTagParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Give one label to a set of machines
+// (PUT /api/v1/device-tags/assignments)
+func (_ Unimplemented) AssignDeviceTag(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a label to a customer's list
+// (POST /api/v1/device-tags/labels)
+func (_ Unimplemented) CreateDeviceTagLabel(w http.ResponseWriter, r *http.Request, params CreateDeviceTagLabelParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove a label from a customer's list
+// (DELETE /api/v1/device-tags/labels/{label_id})
+func (_ Unimplemented) DeleteDeviceTagLabel(w http.ResponseWriter, r *http.Request, labelId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1878,6 +2343,48 @@ func (_ Unimplemented) ListRules(w http.ResponseWriter, r *http.Request, params 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// One rule, its tuning, and anything a version change moved
+// (GET /api/v1/rules/{rule_id})
+func (_ Unimplemented) GetRule(w http.ResponseWriter, r *http.Request, ruleId string, params GetRuleParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// File or retune one value
+// (PUT /api/v1/rules/{rule_id}/bindings)
+func (_ Unimplemented) PutRuleBinding(w http.ResponseWriter, r *http.Request, ruleId string, params PutRuleBindingParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove one tuned value
+// (DELETE /api/v1/rules/{rule_id}/bindings/{binding_id})
+func (_ Unimplemented) DeleteRuleBinding(w http.ResponseWriter, r *http.Request, ruleId string, bindingId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Acknowledge a value a new rule version had to move
+// (POST /api/v1/rules/{rule_id}/clamps/{clamp_id})
+func (_ Unimplemented) AcknowledgeRuleClamp(w http.ResponseWriter, r *http.Request, ruleId string, clampId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The rule as one named machine is actually running it
+// (GET /api/v1/rules/{rule_id}/resolved)
+func (_ Unimplemented) GetResolvedRule(w http.ResponseWriter, r *http.Request, ruleId string, params GetResolvedRuleParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// How far and how fast a rule spreads
+// (PUT /api/v1/rules/{rule_id}/rollout)
+func (_ Unimplemented) PutRuleRollout(w http.ResponseWriter, r *http.Request, ruleId string, params PutRuleRolloutParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stop a rule, for one customer or for every customer at once
+// (POST /api/v1/rules/{rule_id}/stop)
+func (_ Unimplemented) StopRule(w http.ResponseWriter, r *http.Request, ruleId string, params StopRuleParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List all security groups (admin only)
 // (GET /api/v1/security-groups)
 func (_ Unimplemented) ListSecurityGroups(w http.ResponseWriter, r *http.Request) {
@@ -2037,6 +2544,72 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
+// GetAlertLimits operation middleware
+func (siw *ServerInterfaceWrapper) GetAlertLimits(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAlertLimitsParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAlertLimits(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutAlertLimits operation middleware
+func (siw *ServerInterfaceWrapper) PutAlertLimits(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutAlertLimitsParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutAlertLimits(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AmtPowerAction operation middleware
 func (siw *ServerInterfaceWrapper) AmtPowerAction(w http.ResponseWriter, r *http.Request) {
 
@@ -2158,6 +2731,178 @@ func (siw *ServerInterfaceWrapper) ReportClientError(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReportClientError(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDeviceTags operation middleware
+func (siw *ServerInterfaceWrapper) ListDeviceTags(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDeviceTagsParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDeviceTags(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClearDeviceTag operation middleware
+func (siw *ServerInterfaceWrapper) ClearDeviceTag(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ClearDeviceTagParams
+
+	// ------------- Required query parameter "device_id" -------------
+
+	if paramValue := r.URL.Query().Get("device_id"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "device_id"})
+		return
+	}
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "device_id", r.URL.Query(), &params.DeviceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "device_id", Err: err})
+		return
+	}
+
+	// ------------- Required query parameter "key" -------------
+
+	if paramValue := r.URL.Query().Get("key"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "key"})
+		return
+	}
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "key", r.URL.Query(), &params.Key, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearDeviceTag(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AssignDeviceTag operation middleware
+func (siw *ServerInterfaceWrapper) AssignDeviceTag(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AssignDeviceTag(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDeviceTagLabel operation middleware
+func (siw *ServerInterfaceWrapper) CreateDeviceTagLabel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateDeviceTagLabelParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDeviceTagLabel(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteDeviceTagLabel operation middleware
+func (siw *ServerInterfaceWrapper) DeleteDeviceTagLabel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "label_id" -------------
+	var labelId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label_id", chi.URLParam(r, "label_id"), &labelId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteDeviceTagLabel(w, r, labelId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3508,6 +4253,303 @@ func (siw *ServerInterfaceWrapper) ListRules(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// GetRule operation middleware
+func (siw *ServerInterfaceWrapper) GetRule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "rule_id" -------------
+	var ruleId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rule_id", chi.URLParam(r, "rule_id"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rule_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetRuleParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRule(w, r, ruleId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutRuleBinding operation middleware
+func (siw *ServerInterfaceWrapper) PutRuleBinding(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "rule_id" -------------
+	var ruleId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rule_id", chi.URLParam(r, "rule_id"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rule_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutRuleBindingParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutRuleBinding(w, r, ruleId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRuleBinding operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRuleBinding(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "rule_id" -------------
+	var ruleId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rule_id", chi.URLParam(r, "rule_id"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rule_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "binding_id" -------------
+	var bindingId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "binding_id", chi.URLParam(r, "binding_id"), &bindingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "binding_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRuleBinding(w, r, ruleId, bindingId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcknowledgeRuleClamp operation middleware
+func (siw *ServerInterfaceWrapper) AcknowledgeRuleClamp(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "rule_id" -------------
+	var ruleId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rule_id", chi.URLParam(r, "rule_id"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rule_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "clamp_id" -------------
+	var clampId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "clamp_id", chi.URLParam(r, "clamp_id"), &clampId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "clamp_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcknowledgeRuleClamp(w, r, ruleId, clampId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetResolvedRule operation middleware
+func (siw *ServerInterfaceWrapper) GetResolvedRule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "rule_id" -------------
+	var ruleId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rule_id", chi.URLParam(r, "rule_id"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rule_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetResolvedRuleParams
+
+	// ------------- Required query parameter "device_id" -------------
+
+	if paramValue := r.URL.Query().Get("device_id"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "device_id"})
+		return
+	}
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "device_id", r.URL.Query(), &params.DeviceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "device_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetResolvedRule(w, r, ruleId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutRuleRollout operation middleware
+func (siw *ServerInterfaceWrapper) PutRuleRollout(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "rule_id" -------------
+	var ruleId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rule_id", chi.URLParam(r, "rule_id"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rule_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutRuleRolloutParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutRuleRollout(w, r, ruleId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopRule operation middleware
+func (siw *ServerInterfaceWrapper) StopRule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "rule_id" -------------
+	var ruleId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rule_id", chi.URLParam(r, "rule_id"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rule_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StopRuleParams
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopRule(w, r, ruleId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSecurityGroups operation middleware
 func (siw *ServerInterfaceWrapper) ListSecurityGroups(w http.ResponseWriter, r *http.Request) {
 
@@ -4273,6 +5315,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/alert-limits", wrapper.GetAlertLimits)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/alert-limits", wrapper.PutAlertLimits)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/amt/devices/{uuid}/power", wrapper.AmtPowerAction)
 	})
 	r.Group(func(r chi.Router) {
@@ -4286,6 +5334,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/client-errors", wrapper.ReportClientError)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/device-tags", wrapper.ListDeviceTags)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/device-tags/assignments", wrapper.ClearDeviceTag)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/device-tags/assignments", wrapper.AssignDeviceTag)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/device-tags/labels", wrapper.CreateDeviceTagLabel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/device-tags/labels/{label_id}", wrapper.DeleteDeviceTagLabel)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices", wrapper.ListDevices)
@@ -4393,6 +5456,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/rules", wrapper.ListRules)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/rules/{rule_id}", wrapper.GetRule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/rules/{rule_id}/bindings", wrapper.PutRuleBinding)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/rules/{rule_id}/bindings/{binding_id}", wrapper.DeleteRuleBinding)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/rules/{rule_id}/clamps/{clamp_id}", wrapper.AcknowledgeRuleClamp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/rules/{rule_id}/resolved", wrapper.GetResolvedRule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/v1/rules/{rule_id}/rollout", wrapper.PutRuleRollout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/rules/{rule_id}/stop", wrapper.StopRule)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/security-groups", wrapper.ListSecurityGroups)
 	})
 	r.Group(func(r chi.Router) {
@@ -4469,6 +5553,77 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 
 	return r
+}
+
+type GetAlertLimitsRequestObject struct {
+	Params GetAlertLimitsParams
+}
+
+type GetAlertLimitsResponseObject interface {
+	VisitGetAlertLimitsResponse(w http.ResponseWriter) error
+}
+
+type GetAlertLimits200JSONResponse AlertLimits
+
+func (response GetAlertLimits200JSONResponse) VisitGetAlertLimitsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAlertLimits401JSONResponse ApiError
+
+func (response GetAlertLimits401JSONResponse) VisitGetAlertLimitsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutAlertLimitsRequestObject struct {
+	Params PutAlertLimitsParams
+	Body   *PutAlertLimitsJSONRequestBody
+}
+
+type PutAlertLimitsResponseObject interface {
+	VisitPutAlertLimitsResponse(w http.ResponseWriter) error
+}
+
+type PutAlertLimits200JSONResponse AlertLimits
+
+func (response PutAlertLimits200JSONResponse) VisitPutAlertLimitsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutAlertLimits400JSONResponse ApiError
+
+func (response PutAlertLimits400JSONResponse) VisitPutAlertLimitsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutAlertLimits401JSONResponse ApiError
+
+func (response PutAlertLimits401JSONResponse) VisitPutAlertLimitsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutAlertLimits403JSONResponse ApiError
+
+func (response PutAlertLimits403JSONResponse) VisitPutAlertLimitsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type AmtPowerActionRequestObject struct {
@@ -4641,6 +5796,206 @@ type ReportClientError400JSONResponse ApiError
 func (response ReportClientError400JSONResponse) VisitReportClientErrorResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDeviceTagsRequestObject struct {
+	Params ListDeviceTagsParams
+}
+
+type ListDeviceTagsResponseObject interface {
+	VisitListDeviceTagsResponse(w http.ResponseWriter) error
+}
+
+type ListDeviceTags200JSONResponse DeviceTagCatalogue
+
+func (response ListDeviceTags200JSONResponse) VisitListDeviceTagsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListDeviceTags401JSONResponse ApiError
+
+func (response ListDeviceTags401JSONResponse) VisitListDeviceTagsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ClearDeviceTagRequestObject struct {
+	Params ClearDeviceTagParams
+}
+
+type ClearDeviceTagResponseObject interface {
+	VisitClearDeviceTagResponse(w http.ResponseWriter) error
+}
+
+type ClearDeviceTag204Response struct {
+}
+
+func (response ClearDeviceTag204Response) VisitClearDeviceTagResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ClearDeviceTag401JSONResponse ApiError
+
+func (response ClearDeviceTag401JSONResponse) VisitClearDeviceTagResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ClearDeviceTag403JSONResponse ApiError
+
+func (response ClearDeviceTag403JSONResponse) VisitClearDeviceTagResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDeviceTagRequestObject struct {
+	Body *AssignDeviceTagJSONRequestBody
+}
+
+type AssignDeviceTagResponseObject interface {
+	VisitAssignDeviceTagResponse(w http.ResponseWriter) error
+}
+
+type AssignDeviceTag204Response struct {
+}
+
+func (response AssignDeviceTag204Response) VisitAssignDeviceTagResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AssignDeviceTag400JSONResponse ApiError
+
+func (response AssignDeviceTag400JSONResponse) VisitAssignDeviceTagResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDeviceTag401JSONResponse ApiError
+
+func (response AssignDeviceTag401JSONResponse) VisitAssignDeviceTagResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AssignDeviceTag403JSONResponse ApiError
+
+func (response AssignDeviceTag403JSONResponse) VisitAssignDeviceTagResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateDeviceTagLabelRequestObject struct {
+	Params CreateDeviceTagLabelParams
+	Body   *CreateDeviceTagLabelJSONRequestBody
+}
+
+type CreateDeviceTagLabelResponseObject interface {
+	VisitCreateDeviceTagLabelResponse(w http.ResponseWriter) error
+}
+
+type CreateDeviceTagLabel201JSONResponse DeviceTagLabel
+
+func (response CreateDeviceTagLabel201JSONResponse) VisitCreateDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateDeviceTagLabel400JSONResponse ApiError
+
+func (response CreateDeviceTagLabel400JSONResponse) VisitCreateDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateDeviceTagLabel401JSONResponse ApiError
+
+func (response CreateDeviceTagLabel401JSONResponse) VisitCreateDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateDeviceTagLabel403JSONResponse ApiError
+
+func (response CreateDeviceTagLabel403JSONResponse) VisitCreateDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteDeviceTagLabelRequestObject struct {
+	LabelId openapi_types.UUID `json:"label_id"`
+}
+
+type DeleteDeviceTagLabelResponseObject interface {
+	VisitDeleteDeviceTagLabelResponse(w http.ResponseWriter) error
+}
+
+type DeleteDeviceTagLabel204Response struct {
+}
+
+func (response DeleteDeviceTagLabel204Response) VisitDeleteDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteDeviceTagLabel401JSONResponse ApiError
+
+func (response DeleteDeviceTagLabel401JSONResponse) VisitDeleteDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteDeviceTagLabel403JSONResponse ApiError
+
+func (response DeleteDeviceTagLabel403JSONResponse) VisitDeleteDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteDeviceTagLabel404JSONResponse ApiError
+
+func (response DeleteDeviceTagLabel404JSONResponse) VisitDeleteDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteDeviceTagLabel409JSONResponse ApiError
+
+func (response DeleteDeviceTagLabel409JSONResponse) VisitDeleteDeviceTagLabelResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -6124,6 +7479,321 @@ func (response ListRules401JSONResponse) VisitListRulesResponse(w http.ResponseW
 	return json.NewEncoder(w).Encode(response)
 }
 
+type GetRuleRequestObject struct {
+	RuleId string `json:"rule_id"`
+	Params GetRuleParams
+}
+
+type GetRuleResponseObject interface {
+	VisitGetRuleResponse(w http.ResponseWriter) error
+}
+
+type GetRule200JSONResponse RuleDetail
+
+func (response GetRule200JSONResponse) VisitGetRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetRule401JSONResponse ApiError
+
+func (response GetRule401JSONResponse) VisitGetRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetRule404JSONResponse ApiError
+
+func (response GetRule404JSONResponse) VisitGetRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleBindingRequestObject struct {
+	RuleId string `json:"rule_id"`
+	Params PutRuleBindingParams
+	Body   *PutRuleBindingJSONRequestBody
+}
+
+type PutRuleBindingResponseObject interface {
+	VisitPutRuleBindingResponse(w http.ResponseWriter) error
+}
+
+type PutRuleBinding200JSONResponse RuleBinding
+
+func (response PutRuleBinding200JSONResponse) VisitPutRuleBindingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleBinding400JSONResponse ApiError
+
+func (response PutRuleBinding400JSONResponse) VisitPutRuleBindingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleBinding401JSONResponse ApiError
+
+func (response PutRuleBinding401JSONResponse) VisitPutRuleBindingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleBinding403JSONResponse ApiError
+
+func (response PutRuleBinding403JSONResponse) VisitPutRuleBindingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleBinding404JSONResponse ApiError
+
+func (response PutRuleBinding404JSONResponse) VisitPutRuleBindingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRuleBindingRequestObject struct {
+	RuleId    string             `json:"rule_id"`
+	BindingId openapi_types.UUID `json:"binding_id"`
+}
+
+type DeleteRuleBindingResponseObject interface {
+	VisitDeleteRuleBindingResponse(w http.ResponseWriter) error
+}
+
+type DeleteRuleBinding204Response struct {
+}
+
+func (response DeleteRuleBinding204Response) VisitDeleteRuleBindingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteRuleBinding401JSONResponse ApiError
+
+func (response DeleteRuleBinding401JSONResponse) VisitDeleteRuleBindingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteRuleBinding403JSONResponse ApiError
+
+func (response DeleteRuleBinding403JSONResponse) VisitDeleteRuleBindingResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcknowledgeRuleClampRequestObject struct {
+	RuleId  string             `json:"rule_id"`
+	ClampId openapi_types.UUID `json:"clamp_id"`
+}
+
+type AcknowledgeRuleClampResponseObject interface {
+	VisitAcknowledgeRuleClampResponse(w http.ResponseWriter) error
+}
+
+type AcknowledgeRuleClamp204Response struct {
+}
+
+func (response AcknowledgeRuleClamp204Response) VisitAcknowledgeRuleClampResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AcknowledgeRuleClamp401JSONResponse ApiError
+
+func (response AcknowledgeRuleClamp401JSONResponse) VisitAcknowledgeRuleClampResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcknowledgeRuleClamp403JSONResponse ApiError
+
+func (response AcknowledgeRuleClamp403JSONResponse) VisitAcknowledgeRuleClampResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AcknowledgeRuleClamp404JSONResponse ApiError
+
+func (response AcknowledgeRuleClamp404JSONResponse) VisitAcknowledgeRuleClampResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetResolvedRuleRequestObject struct {
+	RuleId string `json:"rule_id"`
+	Params GetResolvedRuleParams
+}
+
+type GetResolvedRuleResponseObject interface {
+	VisitGetResolvedRuleResponse(w http.ResponseWriter) error
+}
+
+type GetResolvedRule200JSONResponse ResolvedRule
+
+func (response GetResolvedRule200JSONResponse) VisitGetResolvedRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetResolvedRule401JSONResponse ApiError
+
+func (response GetResolvedRule401JSONResponse) VisitGetResolvedRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetResolvedRule404JSONResponse ApiError
+
+func (response GetResolvedRule404JSONResponse) VisitGetResolvedRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleRolloutRequestObject struct {
+	RuleId string `json:"rule_id"`
+	Params PutRuleRolloutParams
+	Body   *PutRuleRolloutJSONRequestBody
+}
+
+type PutRuleRolloutResponseObject interface {
+	VisitPutRuleRolloutResponse(w http.ResponseWriter) error
+}
+
+type PutRuleRollout200JSONResponse RuleRollout
+
+func (response PutRuleRollout200JSONResponse) VisitPutRuleRolloutResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleRollout400JSONResponse ApiError
+
+func (response PutRuleRollout400JSONResponse) VisitPutRuleRolloutResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleRollout401JSONResponse ApiError
+
+func (response PutRuleRollout401JSONResponse) VisitPutRuleRolloutResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleRollout403JSONResponse ApiError
+
+func (response PutRuleRollout403JSONResponse) VisitPutRuleRolloutResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutRuleRollout404JSONResponse ApiError
+
+func (response PutRuleRollout404JSONResponse) VisitPutRuleRolloutResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StopRuleRequestObject struct {
+	RuleId string `json:"rule_id"`
+	Params StopRuleParams
+	Body   *StopRuleJSONRequestBody
+}
+
+type StopRuleResponseObject interface {
+	VisitStopRuleResponse(w http.ResponseWriter) error
+}
+
+type StopRule204Response struct {
+}
+
+func (response StopRule204Response) VisitStopRuleResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type StopRule400JSONResponse ApiError
+
+func (response StopRule400JSONResponse) VisitStopRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StopRule401JSONResponse ApiError
+
+func (response StopRule401JSONResponse) VisitStopRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StopRule403JSONResponse ApiError
+
+func (response StopRule403JSONResponse) VisitStopRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type StopRule404JSONResponse ApiError
+
+func (response StopRule404JSONResponse) VisitStopRuleResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListSecurityGroupsRequestObject struct {
 }
 
@@ -7075,6 +8745,12 @@ func (response UpdateUser404JSONResponse) VisitUpdateUserResponse(w http.Respons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// A customer's alert budget
+	// (GET /api/v1/alert-limits)
+	GetAlertLimits(ctx context.Context, request GetAlertLimitsRequestObject) (GetAlertLimitsResponseObject, error)
+	// Move a customer's alert budget
+	// (PUT /api/v1/alert-limits)
+	PutAlertLimits(ctx context.Context, request PutAlertLimitsRequestObject) (PutAlertLimitsResponseObject, error)
 	// Send power command to AMT device
 	// (POST /api/v1/amt/devices/{uuid}/power)
 	AmtPowerAction(ctx context.Context, request AmtPowerActionRequestObject) (AmtPowerActionResponseObject, error)
@@ -7090,6 +8766,21 @@ type StrictServerInterface interface {
 	// Report a browser-side error for server-side log ingestion
 	// (POST /api/v1/client-errors)
 	ReportClientError(ctx context.Context, request ReportClientErrorRequestObject) (ReportClientErrorResponseObject, error)
+	// A customer's label list and who carries what
+	// (GET /api/v1/device-tags)
+	ListDeviceTags(ctx context.Context, request ListDeviceTagsRequestObject) (ListDeviceTagsResponseObject, error)
+	// Take one label key off one machine
+	// (DELETE /api/v1/device-tags/assignments)
+	ClearDeviceTag(ctx context.Context, request ClearDeviceTagRequestObject) (ClearDeviceTagResponseObject, error)
+	// Give one label to a set of machines
+	// (PUT /api/v1/device-tags/assignments)
+	AssignDeviceTag(ctx context.Context, request AssignDeviceTagRequestObject) (AssignDeviceTagResponseObject, error)
+	// Add a label to a customer's list
+	// (POST /api/v1/device-tags/labels)
+	CreateDeviceTagLabel(ctx context.Context, request CreateDeviceTagLabelRequestObject) (CreateDeviceTagLabelResponseObject, error)
+	// Remove a label from a customer's list
+	// (DELETE /api/v1/device-tags/labels/{label_id})
+	DeleteDeviceTagLabel(ctx context.Context, request DeleteDeviceTagLabelRequestObject) (DeleteDeviceTagLabelResponseObject, error)
 	// List devices, optionally narrowed by customer and site
 	// (GET /api/v1/devices)
 	ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error)
@@ -7195,6 +8886,27 @@ type StrictServerInterface interface {
 	// The curated rule pack, and how much of the estate each rule watches
 	// (GET /api/v1/rules)
 	ListRules(ctx context.Context, request ListRulesRequestObject) (ListRulesResponseObject, error)
+	// One rule, its tuning, and anything a version change moved
+	// (GET /api/v1/rules/{rule_id})
+	GetRule(ctx context.Context, request GetRuleRequestObject) (GetRuleResponseObject, error)
+	// File or retune one value
+	// (PUT /api/v1/rules/{rule_id}/bindings)
+	PutRuleBinding(ctx context.Context, request PutRuleBindingRequestObject) (PutRuleBindingResponseObject, error)
+	// Remove one tuned value
+	// (DELETE /api/v1/rules/{rule_id}/bindings/{binding_id})
+	DeleteRuleBinding(ctx context.Context, request DeleteRuleBindingRequestObject) (DeleteRuleBindingResponseObject, error)
+	// Acknowledge a value a new rule version had to move
+	// (POST /api/v1/rules/{rule_id}/clamps/{clamp_id})
+	AcknowledgeRuleClamp(ctx context.Context, request AcknowledgeRuleClampRequestObject) (AcknowledgeRuleClampResponseObject, error)
+	// The rule as one named machine is actually running it
+	// (GET /api/v1/rules/{rule_id}/resolved)
+	GetResolvedRule(ctx context.Context, request GetResolvedRuleRequestObject) (GetResolvedRuleResponseObject, error)
+	// How far and how fast a rule spreads
+	// (PUT /api/v1/rules/{rule_id}/rollout)
+	PutRuleRollout(ctx context.Context, request PutRuleRolloutRequestObject) (PutRuleRolloutResponseObject, error)
+	// Stop a rule, for one customer or for every customer at once
+	// (POST /api/v1/rules/{rule_id}/stop)
+	StopRule(ctx context.Context, request StopRuleRequestObject) (StopRuleResponseObject, error)
 	// List all security groups (admin only)
 	// (GET /api/v1/security-groups)
 	ListSecurityGroups(ctx context.Context, request ListSecurityGroupsRequestObject) (ListSecurityGroupsResponseObject, error)
@@ -7299,6 +9011,65 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetAlertLimits operation middleware
+func (sh *strictHandler) GetAlertLimits(w http.ResponseWriter, r *http.Request, params GetAlertLimitsParams) {
+	var request GetAlertLimitsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAlertLimits(ctx, request.(GetAlertLimitsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAlertLimits")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAlertLimitsResponseObject); ok {
+		if err := validResponse.VisitGetAlertLimitsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutAlertLimits operation middleware
+func (sh *strictHandler) PutAlertLimits(w http.ResponseWriter, r *http.Request, params PutAlertLimitsParams) {
+	var request PutAlertLimitsRequestObject
+
+	request.Params = params
+
+	var body PutAlertLimitsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutAlertLimits(ctx, request.(PutAlertLimitsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutAlertLimits")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutAlertLimitsResponseObject); ok {
+		if err := validResponse.VisitPutAlertLimitsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // AmtPowerAction operation middleware
@@ -7446,6 +9217,148 @@ func (sh *strictHandler) ReportClientError(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReportClientErrorResponseObject); ok {
 		if err := validResponse.VisitReportClientErrorResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDeviceTags operation middleware
+func (sh *strictHandler) ListDeviceTags(w http.ResponseWriter, r *http.Request, params ListDeviceTagsParams) {
+	var request ListDeviceTagsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDeviceTags(ctx, request.(ListDeviceTagsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDeviceTags")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDeviceTagsResponseObject); ok {
+		if err := validResponse.VisitListDeviceTagsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClearDeviceTag operation middleware
+func (sh *strictHandler) ClearDeviceTag(w http.ResponseWriter, r *http.Request, params ClearDeviceTagParams) {
+	var request ClearDeviceTagRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClearDeviceTag(ctx, request.(ClearDeviceTagRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClearDeviceTag")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClearDeviceTagResponseObject); ok {
+		if err := validResponse.VisitClearDeviceTagResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AssignDeviceTag operation middleware
+func (sh *strictHandler) AssignDeviceTag(w http.ResponseWriter, r *http.Request) {
+	var request AssignDeviceTagRequestObject
+
+	var body AssignDeviceTagJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AssignDeviceTag(ctx, request.(AssignDeviceTagRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AssignDeviceTag")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AssignDeviceTagResponseObject); ok {
+		if err := validResponse.VisitAssignDeviceTagResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateDeviceTagLabel operation middleware
+func (sh *strictHandler) CreateDeviceTagLabel(w http.ResponseWriter, r *http.Request, params CreateDeviceTagLabelParams) {
+	var request CreateDeviceTagLabelRequestObject
+
+	request.Params = params
+
+	var body CreateDeviceTagLabelJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateDeviceTagLabel(ctx, request.(CreateDeviceTagLabelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateDeviceTagLabel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateDeviceTagLabelResponseObject); ok {
+		if err := validResponse.VisitCreateDeviceTagLabelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteDeviceTagLabel operation middleware
+func (sh *strictHandler) DeleteDeviceTagLabel(w http.ResponseWriter, r *http.Request, labelId openapi_types.UUID) {
+	var request DeleteDeviceTagLabelRequestObject
+
+	request.LabelId = labelId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteDeviceTagLabel(ctx, request.(DeleteDeviceTagLabelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteDeviceTagLabel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteDeviceTagLabelResponseObject); ok {
+		if err := validResponse.VisitDeleteDeviceTagLabelResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8453,6 +10366,216 @@ func (sh *strictHandler) ListRules(w http.ResponseWriter, r *http.Request, param
 	}
 }
 
+// GetRule operation middleware
+func (sh *strictHandler) GetRule(w http.ResponseWriter, r *http.Request, ruleId string, params GetRuleParams) {
+	var request GetRuleRequestObject
+
+	request.RuleId = ruleId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRule(ctx, request.(GetRuleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRuleResponseObject); ok {
+		if err := validResponse.VisitGetRuleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutRuleBinding operation middleware
+func (sh *strictHandler) PutRuleBinding(w http.ResponseWriter, r *http.Request, ruleId string, params PutRuleBindingParams) {
+	var request PutRuleBindingRequestObject
+
+	request.RuleId = ruleId
+	request.Params = params
+
+	var body PutRuleBindingJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutRuleBinding(ctx, request.(PutRuleBindingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutRuleBinding")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutRuleBindingResponseObject); ok {
+		if err := validResponse.VisitPutRuleBindingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteRuleBinding operation middleware
+func (sh *strictHandler) DeleteRuleBinding(w http.ResponseWriter, r *http.Request, ruleId string, bindingId openapi_types.UUID) {
+	var request DeleteRuleBindingRequestObject
+
+	request.RuleId = ruleId
+	request.BindingId = bindingId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteRuleBinding(ctx, request.(DeleteRuleBindingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteRuleBinding")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteRuleBindingResponseObject); ok {
+		if err := validResponse.VisitDeleteRuleBindingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcknowledgeRuleClamp operation middleware
+func (sh *strictHandler) AcknowledgeRuleClamp(w http.ResponseWriter, r *http.Request, ruleId string, clampId openapi_types.UUID) {
+	var request AcknowledgeRuleClampRequestObject
+
+	request.RuleId = ruleId
+	request.ClampId = clampId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcknowledgeRuleClamp(ctx, request.(AcknowledgeRuleClampRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcknowledgeRuleClamp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcknowledgeRuleClampResponseObject); ok {
+		if err := validResponse.VisitAcknowledgeRuleClampResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetResolvedRule operation middleware
+func (sh *strictHandler) GetResolvedRule(w http.ResponseWriter, r *http.Request, ruleId string, params GetResolvedRuleParams) {
+	var request GetResolvedRuleRequestObject
+
+	request.RuleId = ruleId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetResolvedRule(ctx, request.(GetResolvedRuleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetResolvedRule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetResolvedRuleResponseObject); ok {
+		if err := validResponse.VisitGetResolvedRuleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutRuleRollout operation middleware
+func (sh *strictHandler) PutRuleRollout(w http.ResponseWriter, r *http.Request, ruleId string, params PutRuleRolloutParams) {
+	var request PutRuleRolloutRequestObject
+
+	request.RuleId = ruleId
+	request.Params = params
+
+	var body PutRuleRolloutJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutRuleRollout(ctx, request.(PutRuleRolloutRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutRuleRollout")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutRuleRolloutResponseObject); ok {
+		if err := validResponse.VisitPutRuleRolloutResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopRule operation middleware
+func (sh *strictHandler) StopRule(w http.ResponseWriter, r *http.Request, ruleId string, params StopRuleParams) {
+	var request StopRuleRequestObject
+
+	request.RuleId = ruleId
+	request.Params = params
+
+	var body StopRuleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StopRule(ctx, request.(StopRuleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopRule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StopRuleResponseObject); ok {
+		if err := validResponse.VisitStopRuleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListSecurityGroups operation middleware
 func (sh *strictHandler) ListSecurityGroups(w http.ResponseWriter, r *http.Request) {
 	var request ListSecurityGroupsRequestObject
@@ -9132,242 +11255,302 @@ func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id o
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/+y923IcN7Io+iuIXifCUkSTlDS244wU64GW5DHXsmwdUR49jB096KrsLpgooAZAsdV2",
-	"KOI87ucd+wvXl+xAJlC3RvWFEklpyCdbbBQuicxE3vPPSabLSitQzk6e/jmxWQElx/89ffX2tV6BeQP/",
-	"qsE6/6fK6AqME4ADeOaEVv7/QNXl5Ok/JpUfP9NqMg3/m60zCZPpxOqFm+nFYjKdFNzkMwMW3OS36cSt",
-	"K5g8nVhnhFpOPnyYTgz8qxYGcj9fWKEdp+e/Q+YmH6aT0zw/U5nIQbnnuixBudF9znW+9v8t+fsfQS1d",
-	"MXn69aO/fjudlELFPzzetRWcZGQj55DVRrj134yuq1dQzrcArbZgZiL3/7vQpuRu8nRS1yKf7NpA/DC5",
-	"hyUo94orsUhflMkK/9/BAtNJZoA7yGfc9faTcwdHTpSwuanpRNvkVLbgT775Nv2TWCruagPJX2sjk3+/",
-	"BGMDem0HTByIW5vSYWnaZlfdPfROPQrMc7Bx9T4srwKyHC5FBvvd+nTi9AWoNKiuijs0ZXcj7WS74SHB",
-	"uJeXntQyvMIcbGZERcQ/eXkJZu0KoZbMFcBKnhVCAbtQsGJ8rmvHVsWaccW4n4ct/J6mbGH0H6AYd2xl",
-	"hAPmQXfMftI0UcYVmwNbgMsKyP3gsjc5XzgwK25yO2VWs1XBHROWKe1YAQbCulwxuATV/GQg0yaHnHG1",
-	"Xvlxx55P9W5X6uXM8rKS9M/+SX/Q1jGpl0wKBXbKDOQ8c5AzrXq7m8NCG/B/WrOV344F5fxawkGZpp7w",
-	"B24MX/t/V0ZnYC3tovns/zGwmDyd/MdJy7NPAsM+iRf0mr5MTWq4uoD84Bnf4GcvRJma04IRV9jlOX2W",
-	"mNCZWmUeHTfh/64AV4BBWFvxB7CMVyzzl+IKYRmEuf31Ihohbvw6UQGpVtyy3OiqgvzXCeMqx988X2dZ",
-	"AdkF/lnBJRgmtb5gXIoLRJGwxbnWErjaIK4A1gYW3dub9jCqe7okpVXipTHabHIdiH/eTuc0LDl1nQv3",
-	"0lPDtnf8kzwQOTguZBrPB8xLKPft1+0cQjlYgkE04GYJ7tNywQHbC8du1mp3vpMlPj99Dsa9AVtpZWET",
-	"ohWUuy/LD0pOLgUoh4jwBipt3CYlfGf0yoI5siIHhpfODA5lC22YBXMZf/TsSqglWP/lMXtVWxdwPNPK",
-	"caEYvg12yjIDXpgSXNop04a9Pjt7RqTmeHbheWiDvCzDLeIKmzy0BGv5EgYS1+NHjx4lkMXq2mTDsU/S",
-	"Q/0+BiO/SY4MIsXucR4X+DIQRWf4XxLDB7cXT5m8QcSel8poKb1k+taDeFQihPeVMGBnQs0KXZvw8Cx4",
-	"Ld3k6ZOvU9Qh+Rxkb9wkRYklfz+rLfRnfLQ54YfRM/xsllyJP7jHntEDKF7CbnTHUePQ6snQo0v1yGDX",
-	"8eO+DhHzd+4SxcIt+ztE0qvAlAIn3Plwvu4MHe65XXSPjY+xLD8DMY79X/Oz5y/P8ZOktAGSr2dj0v2Y",
-	"kDsiuLaTbTmicLATR7fiwnSiO/gebrHPed8WwLLaOl2iICIss158nYPUammZ08fs51I452VcklMcsKUG",
-	"y2qVB9nFgeLKfWWZXql2sv/5//8PfcFLYEofaVMVXDFTS2Cc0R0HYXmhpdQr61nvYS/gKHa/wOkTooFn",
-	"jrNxVWw64aXbhSY0+emrtzhe6ZLL9cxwl1AmfuQOrGOQL+FI6dzLcjic+eFMKPaPR9PHvwWFACSU4Mx6",
-	"iq+eh91CAngVgEtXsDnPl9BcB1sVQGJ6AGXBvVbglQKvIpCI1pH2VO3VeJSBeMXnQgo3FHR3SvFXkZ4K",
-	"bd0IQ90Qn8b4iuTWzSwQge23bMn9a6C4ymA2X29ezFnO9ALB5x9Ntio0s+DwD1ltjAdhZwovMzg4Zq8N",
-	"eN2HaSXXbFUICd1RM62CWAF7oHJ/j5H/j+kH4ZKF9UjT3Vmpc3jKeBSSeO0KbYTjTlwCs3VVGeKUdATU",
-	"W/NSKGGd4c6jmV4uJdhwmlx7zSIX1tQVzuCvj620uThmbyN+oq6B2q8fzE27DuTPmIFSOw8XxZdQIi46",
-	"vraMX3Ih+VzCMXtBz5xnL2zBpQX24DTzyz1MqSd9QBngNgWsnyvAAx35vUgBOaORDS2lrnUlVK5XB97r",
-	"1nu0ImlUeDcgVlAODOTdVa6KXduNW4fz/7DD7gvwEwrYfO5397TPvB0othKu0LXfNzBP6jlz/AIsE/6G",
-	"u29Ddzd7UciIbU7bWS5sJfl6xD7n9hZZPFXUtmvz1UoK5YGpF4vwf5lWCjKP7QkT73RSV/mBbDGlyA2v",
-	"qj1Hh4lGm2DvGRuw9OZQXcbZY969LY8/n/6FSyIM3f9Xlp0pB5KdvnrLwjO7nnqy89zBI49X2DpIbzyp",
-	"xefLq2YGENH7pKFAINfzdKyNszi90gYfOK7wn/FCCI0GT3zkM9sZasFNvoq8C9dpDjNl3Ab9E3I2X+N4",
-	"BHlrufM38pVlr1ou91IthfJvugOz4J6ez1QOFagcaXrR2TTxYjTn+Ln8ifBxD5rsQorsAoxNM8MWY/uH",
-	"e3725nRjjWN2ilTLauWE3AQfAnUOoJgU6sJTru5yAb+DUbpIkkI9xmT8ug3e4F7R1yE8yqwKkRUMPSws",
-	"02XJVW4Zz3P/pHyCExwmU7b4M04ZPwTkSQiYpZvti4H+aYX3lbaAiE34tw2jkvjgV1wIU8b99Bf0wIq/",
-	"ssAwiEQbVA50pz3qiUBvfQJLCckzL3jIzQVfBaMx/vxpVuqI64O1Xp6Mn69Ht7ik/+erl2dJgHZMhFU9",
-	"y7SB7tPTMVX4n5ujf6RnJBf2YrYwALNyvqcdET9x2nG5/zcKnJfgZs2599eIf6JPz+KXZ2qh06b48tBd",
-	"ffSr2XX+tLfSvcDBvobQG1xAElB7PpU/COu0WY+bI3JRjrylogSFWItcq6CJmJVB3F9ok0TTSovg4u7P",
-	"+X0t5ZEBq2WN7JHGea2B2wxUjn4tUYJ1vKyYNjmYnitnGzaEU772Ux7o63hramifepK7WQEyZyX5lrhX",
-	"a97PwnaDhwE1Df+BCYBFp0fGqwryPTwZHugNpHY5K+giz9QlKH/Ij7WFNQDdz/IUlz1zkPBLbcF8mn78",
-	"QD/q5UvlUueRcDnCxToW702bwLgjo0GrPexgzdBp2EfHbbHNFN0cyo7TWvP+zmolUjTyQlgnVOYYeGHU",
-	"UwQObF9lsuIzvViAsY0G6QexhZAODDrecq/TPLBr66DMaYqHx+xlWbl18w0+P0H9WYiI0uitZUr3VoP3",
-	"wjp7mF8VlDvIXznAicSMBbczT5Kd5TvCBvLO1MM4dNyFfcUvOvOO3+p5XZbcJIw134v3kB+hi5QsYkZL",
-	"WVcNkHNui7nmJmfOg/iYncoVX3sR0M8yB7rZjEsJJtwF6aXTvjHEs8lM1jnkjWxO0jbLdO3ZUmRHjUXO",
-	"C6oZChde+Q3yjQW3qZbQJ7vu53t/vB9w6HNccmBfSOAyrmmjeUOuUwai4+QLHAX5jTnxztj//K//zUjo",
-	"f8Y4a3XgeMwIE8vCRCOrqPQiceMr4QrGmRSXUVhLioRdX2pEwvSEQnWs0qkZNmzyhKEJxb8L+Wm8wnEE",
-	"/gVFhZRD+uJaI2zGvOkH+Ker2hYH7nHTdFKRfDGZTmydYdTGdLLgQvZe3CtEROGpu49ea/loTB0Eg+5B",
-	"UvdEPsxRr0pmzSz4uvu49frlqyNQmc4hZ6//+/n5fzx+xDL/3UJ4iYJZsVSeNEyYeZfsGhfatsex5y3j",
-	"s7Q/fjrxW9p9gEBlg+23pg4yJbPnp8lbxx9nXjtPG9/o91x72knHOyCVzALIZheQ4Pg/wPtmuy/zJ998",
-	"8/ivrKrnUmTsAuh1vQQjFmt8vHFC1oTE2d3gJxD2TzPc+/jdND7wTxNOF78hP8Vuag/+9UOW2NvRMh8T",
-	"CTuu9xRH3hLiN8OHYg+hgfYUPKS0lR5wOrvoTtyDyM5QlyauDJWYjfsjcXEPhnnJZQ39C9D1XMKmx234",
-	"3Pjd09db9xfi3jYdHQpYCMhinDxWISpQWRdevEG8MLcw6oLLqnqvU3ixvNxzZEXotgk0w9XFHoiAw6bt",
-	"vmlG2ivtYxvk2vi+JOy6CncT4xid19oYkGiCZxQGN0WZr9ArNue5F64cmxt9AazizoFJ2J+Dpr/JGLMg",
-	"VR+KMKTF0ufbzn3ehC5uOfRXFq1jQi0ti4Z2kUN0hiImTSNedcwI6JPqBoUWWuZ2/9O35orDoj/TpoZt",
-	"en4KRJti9aj0WIEhd31Hxp+yTHJrxUK0j6Qkz/6GU/+Y1epCeWQSlpEgXQpVkwriCgPASuC2Nn4q1B9i",
-	"oEQeduAK7lr3g9JNrIAfRH4CqfXFnGcX0YG56QTBHel6hF/T2dbpH8P+0z+uuOvF3o+RcLuB+E27artE",
-	"6q56RqYR/ty/unM0FnWsWkJ5bfw9s5BplffjSvbg6JtGusXAqEbmKYZfILH01/g0L0EbjZSSMkJs41gK",
-	"woGRHbUFs1/YG86d3G7IXkkzIKN16bXI4Gr+ylIAgcXwAaEuwTqxxFhMkfLpWZRQIenCfldoT2srbS68",
-	"NCg8/yKXEdobQ0h0wS26pRUTLuUUUrUMPhtnakhJaZxEjhyBxKX8eTF5+o9dZr2Q0eO/fe4//fDbdOih",
-	"iXsVEpiuQE2jiYgonuxLLJPaeujg5vubbfXFRtIaLJEZbS2+YiVX68jDbVq9XgjTCbfZSI5QDiltGlMQ",
-	"QFT0F2RknBlwRnMM52ALQQbnGExAdi/hWMGrChQZcT+xBHtwqJDOyHaSpXMkAswCuhb8EuPV8gZTExYP",
-	"PNphSUibcRo7j4r86HL7Qjux2tQSRgNDMFaPniMuCPumwUft4s/R5+Yvv66WBmULjwb+R0JqrpgIhOAJ",
-	"1YOHlRi4rTHA+4Jm8xzC6hKQXLsEnfYM2kxXsNuuTuue4+D4VVrnfFcEsae72ZB54wIYarXcK3DFeiAJ",
-	"t957f3F8z66y15c0es+QknjdEXxdgHR23bGrtMjc4wz92JIuCQ2Y0banAjOx0u8FJVdxCiJqLkQK6//p",
-	"jtlbFFZDgsxc6jlDl78Uc/Dikly3yVMeMwVepgNlvaR7IaSer12Q9sJSKu8hKsq3rKhVbiAIaTZEFli+",
-	"tpSj1eyAbPeBcXNHmV70GmFGj01pZdnFQkiZ8padNpyzz09txpVX/vI6g5yc2lJnXEa3YTpC4EBjYjjT",
-	"DCGUiDPRZYj1YysQy8K1ugN9OGV/gNHNA2aA8tXG7MPNev5pzdIcuDu9ny1r9jBlgP6Wrasd/IqU4IxI",
-	"7KX17fAOc1wIA5Zp1SboGR6iPLjCG0SmmNyQnqPR6bDXAl/dgz9qOX36t01zbOeWPoahbTGVjLxPrSmB",
-	"FJwZqHz/k4ZvrOPmoyLyuhbnlnH2YNXjmd277F/SYE+9Y027nGCD/Laxz1aqTDCQCoxFdZ8ruwKDSBsS",
-	"VxseBwpdXfHgREQkVnje44mI/RMDdGeVtsKzoH8iHy2AZQVXCiRRQOCIIitYVhsU45E8FHjeSa5VA9bz",
-	"VFbqS5L7otegkWMsyAW+Mu/R3jdzQGpjCLaaUW4Mmvsgc5DPpOY5uhi6O/QXV1cSDdse0lq52UK8T3og",
-	"IiRfYKJcWghaFVqifUSrVjTAEMFGWPFvZGD2FjDwNaHCoPyYXqLU1sXAfRo3ZXNd+9vZOzaj/6YmVDya",
-	"eDbiPGvkXOKhXivj0uklhquhN5THLbGKL6HzCNLbyunPejHG5UGNHT88XtNo48CglKGWcBAQKDE05S/H",
-	"bcxG3djTieiosfsstck64g8R5JMB7BtgDLazjdSbTNdNSUkKhejZIeyvmjgiEpQ6f6c4BPCyjeXrViGz",
-	"jqvcYoKkxctFbVE4ttSOcCKGaYpw7ZwVXOUog8zBrcC/vyvNPNEqkQmuyNKYkHx45rQZVeVzkW/o8B09",
-	"OBf5ldT3Q57KWGCD57nwO+PydecAtMCI7oC34WmjwWZb8AqQB14IlbMcFgPVu73tPaUTP0/X7YrYNSOl",
-	"tBHdZ55BL/3xyHhSEkpmVFukfd1aZ3dr39pdyIQSjv00uJnpeDmRiMGvQ0BRwplBfIMMpEb4f/2rhhqm",
-	"nVAZ/5uC95RjgI9oAq8ODbmKBLzJJvxSs6w2ltzqA1cqtxj18E8a8E/mNEWcatUEKzdYi4czwLHuA4qx",
-	"qsk8wlMSheL/etLy49HGTM8Z+iFaWXK+ZnqxsOCmbA5okPJkT38idYCHqVwoITEHLBUQMjWcZvZCVJYZ",
-	"vbLMCokRI8e7xaHRILO+gp18VlYi37ABRJu3V6iRNpZG15Xf6gWsMYnEEmCa3JQgdsyN5jlY18j6T9Ea",
-	"g6oSWbniF5atdC1zVtUOGRNgQLz9itUKfTyQk7COASM6migxGkVp8gRlXgMly2NXYCHKCQkaAzV7q5hx",
-	"3hGiN+E0530NVFNQkV4ggIL9SdjuToRaaDSwG0VxF5kRTmS9xySxjZEMgnf09He2QK/CMTvt3p5i/1Sw",
-	"agTBPsl23oh1Vx9jFiqOjozK6FJ3MhQ6x1GwwjoGF0qvJORLZGetcZiOGMXFkSN24yg37OZ90+aehsdy",
-	"LBRyyIextgFFERB+5PMZYAw/5RA5LhRgjArPLvoBjh9lwIyG+wGbMqLkZs3QkY4Ep1copUbn8QO/34dT",
-	"Cmt8EHb9cMpoy+xBs/uHWD8BWTAvgT1ojsJOWDjKw5EY5ZR550dhHcnL2sTF/Mhn7FG02DvGKxTh517H",
-	"pkg8D+20bFkZ7fSIXqsQaEl/rAuxWlePSwpvX/BRtzphQATaV1yp3U3EqVGDWorR/qiXYkvNhTLoLw3G",
-	"0F9Sl8KtXWmTH1pJIE7YfJ/a5Ss0nLzxksd4ANO8zi7AzRIc6Dv8xb8YrvCMJjjw2IPwXJo1sw6qhywr",
-	"tKX37AKgikHunnmLbhx5Gl9yvVLkwdsZqB5CoTItJa+sV2v5qglOF8ppRofBVNZCK23Sq3fztw6rMEQQ",
-	"3VJfaBSKjT/UDh2i0zYXYIqPoFwzW/GMJI94PcfsVIqlsuzx08f0LnoxhtH+6XXm78kYB7ZN8gkhcJAH",
-	"5zQ5ivDnVZSSvW4SQgieeiWDU7xuxo2fmz1wmh3hJw/ZSbOfCOqgjYYcgiD1xJRUv00pnJPAcu44M6By",
-	"LwugPBQ+oTe+ltL2hKtwyZggQSxnAav2fv0EhX+iye0bTNAqj3E3/p2D95msrbiEnsa6T3mgbeENrluL",
-	"qYu805aUxomxDQsZRskvE8ZdUM5wyfglGP+qV167wzWmjEuKEmzQoZeY4Rhu/hkCNphI55GcSaZqaxJs",
-	"gmZ/i+CQAEr+fvMcv1S4c69ApI5A29/IuAbFSqFmnoJDTH6otBbtyZ903yLhX/0RcyA/9313VkrJHfoy",
-	"hJ4HPccf5zg4Kv4TE9gp76EU6qTk74k3eD1GHeVQ+rPj2KOYC1XVUj5j/HI504vZt48s+8/m0yDz+1W+",
-	"fcRsxNsmCDxg4AN0BlG+pTNQ8ofPEDbsP/20wYSi5NrzKtpuRyrFzXi5tNmAB5seyYBNC2M/1SUYkXWC",
-	"z0iUguPlMcuq+rh2Qj5sMu0bGS2GwHlRKSvzQZT9tqoouN/JxnUl+YS+BAp/2qs80uG+6sH+hhOk9pRM",
-	"PNws8lNdfn1YoIuoLr897IuSZ8lxB1SJokmmtN2wh9Shu+BP20padVhh2B6PaQ74GtH/N6qyrlXuNQBK",
-	"kXHcIxMDtdAmA/sMKa6zIClt9PB50IfkQ7LCeLRcb5aGYPCeZ06uyVXwk1fb0XRcK/GvGqI8xju5GJuF",
-	"XDuOrEFYF3TsKF07gAHnwYtqaZyhfxQvFJLfIQbV+UP4f0eegv+2zIqy8tuvGy9mjDoISTyHRXBfQ0j2",
-	"aODup6k6EfDzkOIQr/tVvjYKml04XaWzxxZCYgGXfMvPWBEq/btQVe1G8tL8nlTPpt9NCt08Qz2XwhaU",
-	"sDNeEHqszvDhNYNvoipw8rJqs4T/0vPkO700/o3RC8aZEcvCHTl9NIejhTZLTfbCpuRP5ec5Zr+iHppx",
-	"+euEzDeWlYAWoyVYMjhKnV1gTVqyd9oa9xKsQJ5xgCFVzksdz1hVrK2fkP1dZE4bwUlqJR8/lbTEuYKd",
-	"+gjyJTAwGEGLYyQ4isY1m/wl/n61fIwrJ2wlA/xIJCZOeIQ2UYLpPuFEhwS/jSeDEVbMckCQpAmpWm7/",
-	"vYm62jCG0smSMlFjamldvkFH9KyHVI4jSYh1FO+s81PEkaMWJ47aXDM61hFtu/N3jOL2mNL9YzN7ap90",
-	"hH0DZQ5nwEjuGEWeBu5luQ34yWyZZsediK5gburMtnH3vYvubOvAl6C+OgttCKZvCtldTXwgno2w4o/i",
-	"q7vOOloml3IP98136g1PrfkGlsK6LcX3QxWs2aiQ8LnYBd8AOu1Iyxg9zlhtt3dFt5ZL49UyNCmFsIRS",
-	"6EHv43UuHHOGY8mg3DPfFccBwbSDU1E1KjL1CJD4Y22ha/kLFVmfMc6GheUwhDXjxkuTjkngNpRA0+po",
-	"VQgHaFJjWcENz8Lz1C3h+/jJ7o4Nm4CsJYypBp3AG2479SNNrSho8gUshEKvIonpnhkKiVALYAmnxmBI",
-	"rFDgGOTCoR2+CaYM7v9GJC/5mpG3OaoeZD2wZDDEDeWQSW7AMlcrP1vj3EX7G4WQGC39ZnTt0i85xyT9",
-	"7juy9EwKY4KWyPLkCGPHFP3gxtlmbPXQfR7Hdr6bBYS3I1HDvEmLQqSYA4ueCyqApENtPYoZ1H4AXHJZ",
-	"4ygdUxIOKPvQ6V6w/1foYw1Zpod+FePXIBsJkveSHVsIg5llmjyqF7DG4o/D0KlYRUHLPDYX8DJkjsAI",
-	"aWeXVEAQ5EhA0UgkYxu5uekM0lLq2u2DA2/CUC+7jBWlaEI+8FKjsiwwClSHYpRfYRR7btMB7LV1XKgG",
-	"pgmrcAya2zPvMtDWeOjK7pO/5oaX4MB8p2uVdz0OLQ/aEiiaklE6sZIBls01Tbt03T1vB1lTGNihgBSR",
-	"tpBob73DBH4b4avPueNSL8eSwCKDrXh20UZ6tyxOWIaZbiHUd+B59px4ZsUfsCX2LublkMUjbDfW2cDO",
-	"G5TBxJdcKOuOGfYqwdW/8vhXm/aroJ3xPGd1FYvipUnJf7+/QwpfoF0ui85x4/yjUO/w5gRc6qwgDbWT",
-	"OkahHMQrAuR55mou5bq9ArSIIUwiKMjJ1IVIfCEpHMVANFmXIXak5BcQQ72xh4YUFxgut+LtZXvRoMTa",
-	"MnFj6E7CNy0Z/CYuYbRung0Pg4v9Z/zaI2VQCqOdSzoxX7WIxB2zDpuEdGcWrgkgChkKnTpcFG4i9QrL",
-	"0qaLt7U5ottWxmypTiqrK/px8L0ZQyHO3efJuELBhI6DJ/BvsJQhAw2jVvwpMXI3SISlVsJpM7J+ok8X",
-	"RhK3MO7vcHsKa4qRJrF7wc1QkDLgakW4XcUpEj0pyOm1T9a+UHuOtIXwaJJmfpTqSmWUApdk/oMrJb76",
-	"PZHjrl11DI5v2ld7DH5IngXWbKU4u+AVSvCMhGDJFTfrGb4xaRUKX5IRjf1CyJGwcbsSLitaArRNTlyo",
-	"lsxZDpXUIzk74dmaVWAy2EubjPvc/DZsMwXhXpeKT9UcrNfS4qq2LGFnFPGbBvzNmMW7Z+lu6TAzSQ/I",
-	"74QrqKWe/ZLgXbZb3ktK+MWmvcef6721J0zfoGvyK0JA6LjFa1eueiyOfsx+qqXEKHqLD7KXK4NYMoym",
-	"pBfskhx+McCeLbFav14sPCteOBRX7BWi4z9sPzLFi44XzbqmxPg36bSkKTOwqC3kTLsCzEpYOGan3Vol",
-	"xHMxzlk4ZivwAKZ4HsgJylFtq2IrqFqFvnzHnywFN0wygk+v2tJy41F97dMzLFZixaB9QOjvgJKsqdHK",
-	"ELsyTEOTBTRH2LocKSQ93lmBFMlGq/WCHLQmN0ryxo4GHh27LQ12Em08YRJIwiUz26TOyMurjX9CuXFl",
-	"KH+EhWy6XvIYZq64MXoF1jEsNsr43NNSt5xNMDWwU+pwgwlNVJDUnwm/okA2rhjPKDYj+NefdsoNMjTC",
-	"W3YprMCC/GuMViP3OXEY0mbicECJHwMbBVV5SSWP3YZ/+SolCa6rE8IVvNShR9mYqf6gfk2p+ckXsMOg",
-	"3elEsUHATihCY0stkLp9XiLnD9ZEtK2Fl6Gpod9tthSiMaU8+gOMtuyXX85esFpRwdnutBL4ZdD/BCl6",
-	"Da00UXrCwSd6QwhGI0FFQ7I2GOg0RQKjoI4TAxgoiuHnc+0KjPjQoYEEWeyFZRIWDhtOwHiAyUFC5PhR",
-	"vFRzdWeMsDMsN7tvkALKUJ9GRtzbT/QR4uPo2T4VX4iept5pOksfxiD+ziuR/zest7nz5lJksVjIjuaX",
-	"7djUYu9g/rq2xXk9p4rE49Jj7YoRNTSvYkmsTd/dk2++zYs9+qnGSZpPprTilj3/ouzOXW/Z3NgONlfE",
-	"2HjSlM69hBWSBYAbMKcBLPSv7yMC/de7t+j49qM9xuGvLTIVzlWTDx8wdIjCB4cSJraqCmFtnY5VXOUM",
-	"W/Sx09dnfj7hPOOb/FyB+psXs+jPjSF88vj40fGjWPuHV2LydPKX40fHf0G/qCvwJCe8EieXj0946U5C",
-	"WNrJn56ePpxg6xMEq04xR78sRtsNxIiO3IEyr16pLrunV4GOlbfBe4UI/pfTV2+bJiwUV0eZVdFk1hTM",
-	"7so2FH2v2g917VDwEi6UGrDs60dfH1PpGINc/yz3HL502H7/NLapbcxbFtUFzzsQWPG9b5hNiz/08pD8",
-	"vU/c6W/TGGryXUjpzbQXThHGIcXI7+bk9yD5tlNvE/xPX73Fo0R6+NDH8lCTK4bG4+U/efQoEYLV7XiD",
-	"XbU9Cn396PGn22nswIxbHMTIq9As7g/Iad2vb2TdF6HPExZ/qlVY+683vXaoMu7P3uE8iIpdnvOP3zwW",
-	"NV7AyTmovN+qyFNm290IZ2tIvc4Fnia0TOhTxI/CuraPtR0hCYyV69BE0+95fzKYpqdqGka3M+35pRSl",
-	"cL0Pm8613zxCy64o67Lf+Lhjt0xPSmnM6VlT0/yWJrG9cWgvO1anz/imz2sDvXB0SCu+XVL+y42s+702",
-	"c5HnoA6jof8PM/koRkfqJXuA8htmYDwc0I8rTqReklwZH8cBFeHP18Poe0mX+3P5T7J2X4FNAB83x0Kl",
-	"/UUt6eIf3cjFn6lLLkXe1Lu/QVyPS3f6u+PyT27mBXmrNTnrqbEBQ+xk3DkoK2fbUB+eUVzfh24MycTT",
-	"g980Vt2vbXDj9NDdhKC/cYyPYYHXhPTDqMO98P7xzeG9V4tZhFLkd7eE9r3LjYBjnClYbV5vJgUod4QB",
-	"2nZc2idmHrEkn2L95yN8crFvJilQsUx0pk2O2bf+6J4quC3a/LcQz4dM9kd9IR566Z0KCKLtibbEaEsY",
-	"8kdFzKhP71vMIqJqnFb8AUehAtQzVvG11Dy33SBIpRmay6Yd0kTTzeuzs0114A1GBTzH9V+G3h3Xgc2d",
-	"FWjJ/fD560TxPz9HY/b+nNDOH4txNjd6ZcEcoTqGV4rsKHSGxr96RKBcDT9zFzmDRtoRVoe6squNsinF",
-	"8JgNLLbB3o4ZYl17/DMWDKLDAY1JPxjxhTtm32lXhHGsLUSGqSCxa9fcDzGdjVGttjbbbFPeDmXe95O1",
-	"2wa8B8nag9TPcAQsDmXdECYY+JmShjfbAR+m9l63ZBxa7O8hFXu4M72IuXh3RE7py+SHiMcIrwCsKdPB",
-	"/SbX0Y2FVRoauz2aDoSDFDWfdKJXt1I1Z4u2xxoKLtG+NDQCYSFcaoqGzdZYJWu70TGBKjyFwkp8uTSw",
-	"9BKPJwSkYIwHprIJbY4ZUgC9Ok1ZAdxQroHy2Zcmlm9oYve2MB8sKo2N4gY013R3c6LbZDJYyJBKeb+D",
-	"HD2mvGyau/U5y9/A9VvYbbCXUZ6Q3uHnyBV2M4N4+pSmiHGWER2/CDL8fmurwSS5/SnyD0RkmGO2Ibm/",
-	"wL+/iClzuy2gn8L+uUuuCTaxmA12t8wWt2n2PAQZCXMaG+M0bVFs+NDtINen5idbwJhjxV57N+3lhyDO",
-	"3yDKEl2YVbGNTx9/ukENN4ZCn17nS8Vm3LD1bhyBaXN5h5TvnDB8z+m3ECzhR6RZqtU8KmycxOLoo06m",
-	"5kn4IY78t3gamtMk4B9/Y+j1/zCdPHn0JJE/EEdRfkpbt27KKi0lJVkxW2jj5PoOvTPasKILwI95ePoT",
-	"UQWMhJu0j9FUoWdUZf3O6Aswtq1HP91oz9YtHBZWtUItJSYmD+pwNXULG39w07OdKpZRrcK2SR9UzfyU",
-	"jRRK5g3rlzzgl8sjdGm1+usFQHXMznEvR1iPjBz/aKArIRf+ZXiKRciCLc/pI8p6D0GnfrzSbMHVka5D",
-	"2adQ1lDYpkJ/1GjJUkz6vLAs45gHNl8PilSOcYxwEzfAMKapFJrNy1oV2sLodTuNNz6mO1OXyPE97un7",
-	"9giz31m3hrelJ8d6sR8/dbIYoscNplUwmEIeqqY+69dxFJY5U6sspLpaF5PTE7ttsSjttX/86NEgGgD/",
-	"LRT9+/F1ePX3eDoIXba5mL4fwTArb0lki8VODeuQ4h3UfbAoeuhYcINhQ6cNBgQpARMEpAGer5nAllxU",
-	"S6tx/7bS/Tc3JOoGtGa14pdcUKg2Ln8zN3WKr1Qu8tAX0vOYBmpCYTXiwwSIn5tyoEOG3+t5hjDX3R7H",
-	"47JFrEEx7uZ6G+281EbB3/C0tbuHGPxmGixhgSngKrSRw8uPSSWhayKZwjNZ5zGpO5p5qQ6YVpgPhr0R",
-	"qeD/QhvXKQdAHRDHnFlnzaFu5qGG95XEZC/MKkq/DE37wAOdSsOUqs0EQuvWGIrrNzoZe0ZD647u8p3K",
-	"O4+f/L/Ta4l0a1+2G37Yek1WEsQ5bLPSdj1vKeKuGiK+BJvA2x7T8UyiyVvzUn29LByrKya2sr7QGWMv",
-	"D3+TZUR9PR3jtdNHubBYXwRyttDaVUYEh6BsWjp4VdpOqdZyaClhp93qs0vP0aas6SFhyaeP3kAs/xQ6",
-	"SpAHsdHOQt1EDEHPWXMY0s6O2Yt4kktg3DmeXRzZGgsHUxl4r4c9C61reSc+Besqk+JHHUmwQAT7u7Ai",
-	"FHDiqql7eylghaV3Ozvaoj41vUj+PSwu7XFS6N1iRotodzSW/aYEvuZC+iLfQV6l9tqsXjg01USLhD9X",
-	"S2f72W6kXo6LVufOAC97hhsDOc/Q5IbBwH4bile20E34QcOIDF8xP72nUY5tZ8csN8fsJyo0g/20wFiB",
-	"3SiCncbzgU6bCqpXa1mtnJCdIoNETLnFzjeiBItl6dgbauXa7sbrAYqBhEtUmEPBWgOeMHFLnoXkXjDw",
-	"+3babDO4/OjBdzNCXFLWgUuQPVkn1tmbTCdv35w+fzmZTl68/O6Xv02mk7Ofvv95Mp28O33z02Q6efnm",
-	"zc9vkm3jthpRDja+UD+dQ7+yEMolb/1yI7qaUc38p+zXiQW5+HXCHnhVg/JPH1J3wxZlmuaKEuwz9uvE",
-	"P4G/TujhbCraoVFOcudvKHY0xODM33VtFJdooPlRqPr9w2N2Ss9oTMz164VGrv0+K6HnQ8y+wvEeKTEC",
-	"UPGSEn6b9HVqmOzFwTG7TugVkJR6J6FLa0SN8E+/05H7T4W+WDoaklAIfYEY1Rf6USFwcvzXw2N2tlSa",
-	"5A6TBvnYWfz3V8GZQ7NRDtcf/tIzjpGt7BbMYZ7p7EgzYJ51CrhbKS1UTKzLuqMNvmG8d9EQ5rnVVYxg",
-	"NwqmgRmKXuqr2KDI2dRvTmP46shDgbxL2Ltmp2DUKYoyHvh/Tn2mYtT+USAAx1Gt2az10pXJyBNEf++J",
-	"PdhKCAtN90ofU9+sID05o2Vs6P2sKQzYXRDroeSh6gyt0u9xL/0WQ0LklG4fM5Mgx/omqu3k0RRxDugb",
-	"kq0zrTKMxtRUlwK7vQbJLha6bIsMB3HRC2RU8zNJqZui1nkUtTrld77gQJd0HaHPOtTl3swzzm1eKgcG",
-	"u2K+F65Hf6XOYU8djErr7k7kyLSsS3WkjQCF1TmDt7WNx+7XpGk5Ruzrh7Wt+4YZZIcDT3hgTZSJVAmv",
-	"bXVaw+WuiNHYXW+1ddhfftjQkRlYcpPL0LckuMVsxZVnOqAaIVgTs1kakcfef9hTsqykCLYlqqYQNhLU",
-	"zWHzQuSl1Gxt2kSud2DSPjQYQyIstr+bspJX2M348dPHqAHGRKus4AaFXDKEfWWb1m45d/yYPfe/203P",
-	"tw0WrGFfMAoICJ3BKIGLjFyNk7cAA1tUznBHt6h1fnn+9HQzN1RkFuCyIrQVQHKVsi2U1t4mtpfbw42S",
-	"i3LEibKzbPuGn2RrTEDscun/SK0m2QNeVUa/FyV3IKn/AmIvq8R7kERPDz9hZMCuwICNI3yHok3bbdBp",
-	"bGhQO8BqUEvMJEOJI7T4G9vsnKt8RNnt9fxr2lRrBf1+gL/drEE21WU39Ri1rUI7XJ0Y230Qw50LQr05",
-	"y/TbBtmubpnu4G5aMun0/CWEHhOI9KCrYlWP+P3DfG3zwFjjaLrROhBlBzIyX8CadCtBvrDQk1VkRadp",
-	"YVsbqVY5mKDJBNGI6kx2yoCHHiLpMkybj3m6f+cXrNZsb0j62ag3b0NR3vtY/puxPfU0/Fs0wmnT0mpr",
-	"kHvAZdBjsPr8UciXzUGFojZ7875XVOg5sCP0QWOp43bV0YI5PcYX+mNtKyTS6cr1BfOLZHexD4FP7CrC",
-	"Fj5OlGG7aUqmfYQyzPeF4G4gXPEj6sBFtAnWVJWyy4AyWsqTP7EsyodxOnyJ4/YiQCpIfEgY+zXRHO35",
-	"lt7kuPi47kMjsJjn7VTI+o43jzN7IAKNPz9/8/AmKSzyFsIav/DjRzdUJesCFIP3FToM0KJZ8No2VNYx",
-	"eRpKtvI3VVsMkMVvH1BF3YcJgvK3eoSj7Nbaii0OvKXBN1EWZbDoIfVR2tOxcLq7ItVtelYPrpeyAbyB",
-	"kDQd4b3PsWT08NauqRZVaq1bKrO2gadjRBxqat/j4l64SFe8gY3jEvsGS9uziMgmxn4e1UQIae5QMZER",
-	"pLm5R54g/nF1RfbHVyrytC3d/Aca8ZGP7aCRRtOQZ3t5+dGeO5tgO48xrpbRmdY3aSKNq28YSJubITCy",
-	"rIDsoncDQl2CdWKJWxr38zZpQSN2xCkrtcUKkpRe7MSlcGu2EKbtLNqwlFhU61lbfI9L2XTLjDX4yKXa",
-	"mj17kfLsNdahx9plxmrTiyCZrxlF3E2b+BMecrDQfds0/V4Z4RyVw7dCgnJyzaS2YBmGFZJ5laswWzpv",
-	"6qwPwT2LdV1/ha7p+NKcWfJSE4bD3i7EG8zE2ms7HkU8Y7r6huIMV00OM7XcqOrYyQ779uuDLubwfMDR",
-	"/HQ0IHyq2u6dLnQfhYLvsO07hmcYuBS6tpRJBqH0AgXhc4d//YritmZE4GMHvc/O256dh2zvvkrmHjlx",
-	"zggPtwCw0TeyEanHRJbeg3Br9S6ad5NeOqn1BeSMO2x7FXlMqt9KU5yS2xCgxF1bdATeC+u+tIKSkWZe",
-	"YM2yMe9bBMpdsJZHiFxV0v9ZtfCiHBHq8w3GURSZ/6cTJVBM+XZiOqHvTv7E/57lH06ahvxbM+sdJnHM",
-	"pZ4zjA/3MDBgbQhU9n/ISUZs46C9MEpzR+mO+VEZva3zWsi8RXaMScReRqHpOMdA5KInbBYcq+RgK1Bu",
-	"2XztIJ2WdepPF1e/yRi5/qQByNcRffe50n8f8iPk3+DcXSJ/jCr0omXDB7DIPga64d8zbjCAT+k+gJ48",
-	"uRlzROdiYqv+OVXSILqORHsY+3rn37Rux9YLBSvG57p2bFWsqdA0nn/RWO22MrAgII975c4HckHs/HyL",
-	"sbIfTa3XkoIw1hr7hp2CZ40wsF1Y8CxfePJZeWVa5felL26QcwUUuaoQc87XbFVo/8KvtLkIqnYrBu4g",
-	"+kyXZSz/kyb60zzvEf1z+uKe5nu37YEUGrgTfG7JiRV3ERq0pekek8woB4RbxvMbbt5yygLWhb70fI2S",
-	"KsaOasNWIJaFZaVGKwsmGsK9OrObE5zmOePUid7pLhP4qonU3ckOWq9COiHzlJEl2qsbpFQQYlMyIyX1",
-	"EwvyDH1RezUGI/VWwkK0ofMsg8prIiWG9VUVqNxixqSCoQGx3XsydbHHmc6jYfeeMaWEEQLPvSiyjTEh",
-	"RlJjogVk60x2Wq1wKfUKNQvepYLojCmFtUItpy3em8YyRar7vVFm71DfjnXPFUbXS7LNNLfSY2Rdshv3",
-	"/r0ctIrmTRNngJSfLiQv+KvrLkCJ35SggDZJuATZVBIJTm/MIuNmfczegEP+GGcOLeVCx/5aYd4mlUKE",
-	"WezNj93lxlx1P/dOu1fXruH8qeofbd/9G+mV1cvLOCAirIHjF9S4qvX4Yvm4zgG2BWANMleuL/rqyhkl",
-	"nw74fWzYvIDnkS57oVf3eSW3kFdyU1VVGlaMLkDuMKO4Ka6CHpwQxyFi/MZVxOXdCSS91yURijaM4Jf0",
-	"LnSmprGUQNc0sfMScuzbhkXbhGnT+aZtnblp2zLAf1JTLwyjV/aYnbZsRXLbyZdrjYwh7IxK98QEGkyn",
-	"C/3cCn4JzOoSVuTW1mwOUqvl5uNDgVG3klC3u2HX3Qquu9Wcr5/2TPC6OW7x1vMAYfsPbY8irhQCyPst",
-	"JTsZruR1E24jonrMnX77VPPoxh7rruP+Lmg8P11DwuPfwPVi63Z2KPs3yXPePMwt2Sv2QfI6FHPqI/u9",
-	"VHr/8v07yclvsKzSlAXjAUPYUwuofcTnqjZLOPpdz+3Jn7/r+dn2sLPXfvR/6fleLAyn+2yfyeYoiWvD",
-	"39jv/sf7Yi/XsmgD4Y9p1lY1kwS/SB+xbXFi6zm1w96WnvSLaoa9rm1xTcacdzD3s3cWO+jpTGhV5zRR",
-	"FQp4Y2GPL8Ps9gY3i1U+me2cYtzmdn5zN3R+Lfdj+RdzO+f8EmI7v9QdDYnsklciP7qA9baX4+9+0H/D",
-	"enKNLD2usS3N/u+nr89eMErVZn7PX8SVeG4X6lFuHqBzH6aWMO5ieQELoQQaytDN4bcvJHbACG5dWuMZ",
-	"SSMYAGcLvbJs5SUX4FnB/Aps5VUdwK4pK7bgqGoX3GLreciZrkPtSeEsw3YNfAnMVlKE/o8LXZvOD447",
-	"sNHgxfOc1VX0My+oC7/4A6bMasbD+lgwnjyQXt+fS6FyZisdohWs7kXPSq0x8CZkzaX9Nm8QdDsyq95h",
-	"O0egesJUizgcAouAElgdvwBF3Vi/vDB2D4bn3HGpl/VoGGvWDvhSEi+y2qAyiPhT8eyCMNQjcFlnRcxk",
-	"CVe7geo9KosLHy2NrqvtJR3Ow9i/0dCb8N31ljzEeRfPxcK57pbwe7DfkEs5BNlBJRz693SdLsTeSrfk",
-	"QxxgZSrBuAvKe1fi54z/oWgEH+D/uJlhwDL3LBkxpJDPw5s1QNQ7VDniVkwFePkfWS1iB6KOO4Y+Awx8",
-	"dD0s+J1wxSuMtrJ7cGOUuMs4/B7TPz9MJxVx9NIOY80n8aq3pR300IlQ6Qt2baUP9LE2IJrl5mP477Yo",
-	"c9Mkqw2rbbe27uGhTvi90x8lUEWqPfnTz3a2XcIiG+wt0XA6a5h2ff0CXCDKWzeZ3xXaCEHdt1I29zmF",
-	"2tFdU9BRr/HWlRwXSKxYSGZ/cjWXYE4yvs1Gfo6Dnp9ep438+elzMG6bhfz5KcvAOLHwC8AXZx/vb5+9",
-	"fvkqdRGhe/exLbZXWcFR57jH3bfi4L07eX9kC5CSztWHy5BZJV5tXI+Fj/vl1fwZQyu6zWHt8awdpFmk",
-	"bJJh0F7ZCd0qT7en1+xl+cQa2eF0hxk+A0DuSxjtY/fMsL1jBNqgy9sumyddzvVaO3GNW7JzDvYwzmfD",
-	"kDtv6Lwv3b+/udWA5OtIeUnG363dv8u4Gknx2or477akEgl8FibUr2+ojCod+WPtmVswQTjY3UyTEir9",
-	"2LGuTWzgoo4VVYd1RTsVVoVrCqti281CSxhtAoWSCO51z3KmmPZr3U3UNb0RacUf/iApBYH1heZV4uan",
-	"TOPcXMp1QKdYX7cTR5+sbHBg2+TwCnsIX6uoIRzclj8VsSfBYDxJ3ztPvwjnKV3hgHXvzGE8kBTCa0+k",
-	"8Jl4UD2O3vtNr1nS8ED+aLdpeKNGTVa3hlaPboaT5ljO1d4J0fQjEAYNcD14ddgaCQFeNcH/Ocs/UNrJ",
-	"eB2jM2O8gGrFXK4ZGG4hCKxkZfjKsgyUM1x6GG20We3KnScUQUq1WiujLwWK31hJ1qtl9pi9qZVl3GJ9",
-	"ELtW2ZQZsHXJ5xKTC56xSksZmq2HHuW/6zmu5SEswW96k+9iisNbyujZS8cKwPnEdPLkBjNmYuWoZzEp",
-	"w9w9Bn8I1QSoeewaoHBIWBv1J1Buoz0puRILsG67wZfSNl81Y2/MFhuXPETNaY80gGU6AjM0YqO6C51v",
-	"x+yQr+u5FLYgkFyTctBb45YyZAfwT9AKgayivd73y9qbZhFejDMs54vYNxeKmzXDF0ur3VRb1eR3GsPQ",
-	"a0fPW8bN7gbGDeQNgrbYeTOqbKSafp0WcQmG+qZ7QWF560X870izsJ90w9VDcrd/IX8+P+EmKw4lXVvE",
-	"l8Lp1hgfJMHddGvFUgm13JXrRoh7ToM/Qc5bv7MYpX7Nwh62dxfrjN2rwxht+Xbz4r6o18DrPV4zeJk/",
-	"+eabx3+NeXm2C8gUImG+8smf4cX4sAc27V88NUz6ke6aaxAJyQcXnrY9JMLXYI5CSaxAtbbp7XWPm/ul",
-	"yI+AMKgZuyUWG6KAx3ULHHET6ONXOkSRoL3fa587k9gQUDtw4KSEbUzqFVxn0BrdfKrupDHUhvtulLL6",
-	"5SOCjD03yHrw2rji/ZKy8DI+F08CQuRuehKuYM/HuNWNFNVtdctu9LKvq16ZP8QtabpjnOuXUJvs9jnX",
-	"v7EH7GPYZTA+JCiGpjGXkRhqIydPJyeTD799+L8BAAD//1hQZujMVQEA",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

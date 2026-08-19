@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { api } from '../../lib/api';
 import { RuleCoveragePanel } from './RuleCoveragePanel';
-import { useCatalogueStore } from './state/catalogue-store';
+import { useCatalogueStore } from '../rules/state/catalogue-store';
 import type { components } from '../../types/api';
 
 vi.mock('../../lib/api', () => ({ api: { GET: vi.fn() } }));
@@ -12,12 +12,21 @@ const mockedGet = vi.mocked(api.GET);
 
 type Rule = components['schemas']['Rule'];
 
+/** A rule that has reached the whole estate, which is what most cases here are about. */
+function fullRollout(): Rule['rollout'] {
+  return {
+    enabled: true, rollout_percent: 100, kill: false, stage: 'full',
+    canary_percent: 1, staged_percent: 10, canary_hold_secs: 3600, staged_hold_secs: 21600,
+  };
+}
+
 function rule(over: Partial<Rule> = {}): Rule {
   return {
     id: 'cpu.sustained', version: 3, summary: 'CPU pinned for two minutes',
     metric: 'cpu.busy_pct', comparator: 'gt', threshold: 90, group_by: ['device_id'],
     group_window_secs: 900, evidence: ['series'], coverage_requires: ['cpu.busy_pct'],
-    tunable: {}, rollout: { enabled: true, rollout_percent: 100, kill: false },
+    tunable: {}, rollout: fullRollout(),
+    noise: { recent: 0, baseline_per_hour: 0, level: 'unknown' },
     coverage: { active: 300, throttled: 5, unsupported: 6, unknown: 1 }, ...over,
   };
 }
@@ -101,7 +110,7 @@ describe('RuleCoveragePanel — what a rule is actually watching', () => {
   });
 
   it('marks a rule the stop switch has turned off, so it is not read as watching', async () => {
-    mockedGet.mockResolvedValue(catalogue([rule({ rollout: { enabled: true, rollout_percent: 100, kill: true } })], 312) as never);
+    mockedGet.mockResolvedValue(catalogue([rule({ rollout: { ...fullRollout(), kill: true } })], 312) as never);
     await openPanel();
 
     const row = within(await screen.findByRole('table')).getByRole('row', { name: /cpu\.sustained/ });
@@ -109,7 +118,7 @@ describe('RuleCoveragePanel — what a rule is actually watching', () => {
   });
 
   it('marks a rule that has not been rolled out to the whole estate', async () => {
-    mockedGet.mockResolvedValue(catalogue([rule({ rollout: { enabled: true, rollout_percent: 25, kill: false } })], 312) as never);
+    mockedGet.mockResolvedValue(catalogue([rule({ rollout: { ...fullRollout(), rollout_percent: 25, stage: 'staged' } })], 312) as never);
     await openPanel();
 
     const row = within(await screen.findByRole('table')).getByRole('row', { name: /cpu\.sustained/ });

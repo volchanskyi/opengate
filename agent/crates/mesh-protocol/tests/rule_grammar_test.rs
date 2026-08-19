@@ -108,7 +108,10 @@ fn a_rule_at_the_grammar_bounds_survives_the_wire() {
     r.window_secs = MAX_RULE_WINDOW_SECS;
     r.all = vec![term; MAX_RULE_TERMS];
 
-    let msg = ControlMessage::PushAlertRules { rules: vec![r] };
+    let msg = ControlMessage::PushAlertRules {
+        rules: vec![r],
+        device_hourly_ceiling: 0,
+    };
     assert_eq!(round_trip(&msg), msg);
 }
 
@@ -133,6 +136,7 @@ fn rule_with_every_grammar_field_round_trips() {
                 window_secs: 600,
             }],
         }],
+        device_hourly_ceiling: 25,
     };
     assert_eq!(round_trip(&msg), msg);
 }
@@ -148,7 +152,10 @@ fn every_predicate_kind_round_trips() {
         let mut r = rule("cpu.total");
         r.predicate = predicate;
         r.window_secs = u32::from(predicate != RulePredicate::Instant) * 60;
-        let msg = ControlMessage::PushAlertRules { rules: vec![r] };
+        let msg = ControlMessage::PushAlertRules {
+            rules: vec![r],
+            device_hourly_ceiling: 0,
+        };
         assert_eq!(
             round_trip(&msg),
             msg,
@@ -177,8 +184,15 @@ fn rule_written_before_the_grammar_extension_still_decodes() {
     let buf = rmp_serde::to_vec_named(&legacy).expect("encode legacy rule");
 
     match rmp_serde::from_slice::<ControlMessage>(&buf).expect("decode legacy rule") {
-        ControlMessage::PushAlertRules { rules } => {
+        ControlMessage::PushAlertRules {
+            rules,
+            device_hourly_ceiling,
+        } => {
             assert_eq!(rules.len(), 1);
+            assert_eq!(
+                device_hourly_ceiling, 0,
+                "a push carrying no allowance leaves the machine on the one it has"
+            );
             assert_eq!(rules[0].predicate, RulePredicate::Instant);
             assert_eq!(rules[0].window_secs, 0);
             assert!(rules[0].all.is_empty());

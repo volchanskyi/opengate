@@ -60,6 +60,12 @@ func nonZeroValue(t *testing.T, typ reflect.Type) reflect.Value {
 // the wire-compatibility guard: it fails on any dropped field, wrong key name,
 // wrong field order, or wrong omitempty semantics — for every field, not just
 // the ones a hand-picked fixture happens to cover.
+//
+// It also covers the encoder's grouped dispatch: the field positions are handed
+// to one group of fields each, and a boundary drawn one place out would leave a
+// field written by nobody. That failure is silent on the wire — the map is
+// simply short one key — so it is caught here, per field, rather than by
+// whichever fixture happens to set that one.
 func TestEncodeControlMatchesReflectionPerField(t *testing.T) {
 	c := &Codec{}
 	typ := reflect.TypeOf(ControlMessage{})

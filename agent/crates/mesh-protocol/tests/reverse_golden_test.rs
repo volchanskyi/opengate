@@ -315,10 +315,21 @@ fn reverse_golden_push_alert_rules() {
     // server adds and the agent does not know fails here, and so does one the
     // agent knows and the server never sends.
     let frame = decode_frame("go_control_push_alert_rules.bin");
-    let Frame::Control(ControlMessage::PushAlertRules { rules }) = frame else {
+    let Frame::Control(ControlMessage::PushAlertRules {
+        rules,
+        device_hourly_ceiling,
+    }) = frame
+    else {
         panic!("expected PushAlertRules");
     };
     assert_eq!(rules.len(), RULE_METRICS.len() + RULE_METRIC_ALIASES.len());
+    // The customer's per-machine alert allowance rides the same message. The
+    // fixture's value is deliberately not this crate's default, so an agent that
+    // dropped the field would fail here rather than coincide with it.
+    assert_eq!(
+        device_hourly_ceiling, 37,
+        "the customer's per-machine alert allowance must arrive with the rules"
+    );
 
     let mut resolved: Vec<&str> = Vec::with_capacity(rules.len());
     for rule in &rules {

@@ -188,6 +188,11 @@ type ControlMessage struct {
 	Breaches     []AlertBreach   `msgpack:"breaches,omitempty"`
 	AlertRules   []ThresholdRule `msgpack:"rules,omitempty"`
 	RuleCoverage []RuleCoverage  `msgpack:"rule_coverage,omitempty"`
+	// DeviceHourlyCeiling rides a PushAlertRules: how many alerts the machine
+	// may raise in a rolling hour. The customer sets it, and it travels with the
+	// rules because it is enforced where the alerts are raised — a check at this
+	// end would receive the flood it exists to prevent.
+	DeviceHourlyCeiling uint32 `msgpack:"device_hourly_ceiling,omitempty"`
 
 	// Edge-Sentinel WS-15 reconnect-backfill scheduler + tiered replay.
 	PendingSamples  uint64           `msgpack:"pending_samples,omitempty"`

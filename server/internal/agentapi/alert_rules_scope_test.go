@@ -18,9 +18,9 @@ type recordingProvider struct {
 	seen settings.Scope
 }
 
-func (p *recordingProvider) RulesFor(_ context.Context, scope settings.Scope) ([]protocol.ThresholdRule, error) {
+func (p *recordingProvider) RulesFor(_ context.Context, scope settings.Scope) (RuleSet, error) {
 	p.seen = scope
-	return DefaultAlertRules(), nil
+	return RuleSet{Rules: DefaultAlertRules()}, nil
 }
 
 // fixedReader is a settings.Reader that always answers with one ladder, or one

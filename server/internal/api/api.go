@@ -112,12 +112,52 @@ type IncidentStore interface {
 // which is the whole reason they do not live in the database.
 type RulePack interface {
 	All() []rules.Definition
+	// Lookup resolves one rule id to its definition, which is what a rule's own
+	// page and every write naming a rule need.
+	Lookup(id string) (rules.Definition, bool)
 }
 
 // RuleRolloutReader reads how far each rule has reached across one customer's
 // estate.
 type RuleRolloutReader interface {
 	ListRollouts(ctx context.Context, organizationID uuid.UUID) (map[string]rules.Rollout, error)
+}
+
+// RuleAdmin is everything an operator may change about a rule, plus the labels
+// a rule can be aimed at. It is one port rather than several because every
+// method on it is reached from the same screen, and splitting it would only
+// spread one decision — "who may change detection" — across several places.
+type RuleAdmin interface {
+	ListBindings(ctx context.Context, organizationID uuid.UUID) ([]rules.Binding, error)
+	UpsertBinding(ctx context.Context, pack rules.Pack, b rules.Binding) error
+	DeleteBinding(ctx context.Context, id uuid.UUID) error
+
+	UpsertRollout(ctx context.Context, r rules.Rollout) error
+	StopRule(ctx context.Context, organizationID uuid.UUID, ruleID, updatedBy string) error
+	ResumeRule(ctx context.Context, organizationID uuid.UUID, ruleID, updatedBy string) error
+	StopRuleTenantWide(ctx context.Context, ruleID, updatedBy string) error
+	ResumeRuleTenantWide(ctx context.Context, ruleID, updatedBy string) error
+
+	ReconcileClamps(ctx context.Context, pack rules.Pack, organizationID uuid.UUID) ([]rules.Clamp, error)
+	AcknowledgeClamp(ctx context.Context, id uuid.UUID, acknowledgedBy string) error
+
+	ListLabels(ctx context.Context, organizationID uuid.UUID) ([]rules.Label, error)
+	CreateLabel(ctx context.Context, l rules.Label) error
+	Label(ctx context.Context, id uuid.UUID) (rules.Label, error)
+	DeleteLabel(ctx context.Context, id uuid.UUID) error
+	AssignTag(ctx context.Context, deviceID, labelID uuid.UUID, assignedBy string) error
+	ClearTag(ctx context.Context, deviceID uuid.UUID, key string) error
+	TagsFor(ctx context.Context, deviceID uuid.UUID) (map[string]string, error)
+	ListTagAssignments(ctx context.Context, organizationID uuid.UUID) (map[uuid.UUID]map[string]string, error)
+}
+
+// AlertBudget is a customer's alert ceilings and how noisy each rule has been.
+// Both come from the alert store because both are facts about alerts: the budget
+// is what refuses one, and the noise count is how many got through.
+type AlertBudget interface {
+	Limits(ctx context.Context, organizationID uuid.UUID) (alerts.Limits, error)
+	UpsertLimits(ctx context.Context, l alerts.Limits) error
+	RuleNoise(ctx context.Context, organizationID uuid.UUID) (map[string]alerts.Noise, error)
 }
 
 // RuleCoverageReader reads how much of one customer's estate each rule is
@@ -158,6 +198,8 @@ type ServerConfig struct {
 	RuleCatalogue         RulePack
 	RuleRollouts          RuleRolloutReader
 	RuleCoverage          RuleCoverageReader
+	RuleAdmin             RuleAdmin
+	AlertBudget           AlertBudget
 	Relay                 *relay.Relay
 	Signaling             *signaling.Tracker
 	Notifier              notifications.Notifier
@@ -209,6 +251,8 @@ type Server struct {
 	ruleCatalogue   RulePack
 	ruleRollouts    RuleRolloutReader
 	ruleCoverage    RuleCoverageReader
+	ruleAdmin       RuleAdmin
+	alertBudget     AlertBudget
 	relay           *relay.Relay
 	signaling       *signaling.Tracker
 	notifier        notifications.Notifier
@@ -316,6 +360,8 @@ func NewServer(cfg ServerConfig) *Server {
 		ruleCatalogue:   cfg.RuleCatalogue,
 		ruleRollouts:    cfg.RuleRollouts,
 		ruleCoverage:    cfg.RuleCoverage,
+		ruleAdmin:       cfg.RuleAdmin,
+		alertBudget:     cfg.AlertBudget,
 		relay:           cfg.Relay,
 		signaling:       cfg.Signaling,
 		notifier:        cfg.Notifier,

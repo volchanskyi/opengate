@@ -953,10 +953,16 @@ async fn main() -> Result<()> {
                                 break;
                             }
                         }
-                        Ok(mesh_protocol::ControlMessage::PushAlertRules { rules }) => {
+                        Ok(mesh_protocol::ControlMessage::PushAlertRules { rules, device_hourly_ceiling }) => {
                             // WS-19: hand the tenant ruleset to the sampler's
                             // evaluator via the shared mailbox (next tick installs it).
-                            debug!(count = rules.len(), "edge-sentinel: threshold-alert ruleset received");
+                            debug!(count = rules.len(), ceiling = device_hourly_ceiling, "edge-sentinel: threshold-alert ruleset received");
+                            // The customer's per-machine alert allowance rides
+                            // with the rules and applies here, where alerts are
+                            // raised. Applied on arrival rather than on the next
+                            // restart: somebody changing it is generally looking
+                            // at a machine that is drowning them right now.
+                            alert_sink.set_ceiling(device_hourly_ceiling);
                             if let Ok(mut installed) = installed_rules.lock() {
                                 installed.clone_from(&rules);
                             }

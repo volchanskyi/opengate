@@ -15,8 +15,14 @@ function rule(over: Partial<Rule> = {}): Rule {
     id: 'cpu.sustained', version: 3, summary: 'CPU pinned for two minutes',
     metric: 'cpu.busy_pct', comparator: 'gt', threshold: 90, group_by: ['device_id'],
     group_window_secs: 900, evidence: ['series'], coverage_requires: ['cpu.busy_pct'],
-    tunable: {}, rollout: { enabled: true, rollout_percent: 100, kill: false },
-    coverage: { active: 300, throttled: 5, unsupported: 6, unknown: 1 }, ...over,
+    tunable: {},
+    rollout: {
+      enabled: true, rollout_percent: 100, kill: false, stage: 'full',
+      canary_percent: 1, staged_percent: 10, canary_hold_secs: 3600, staged_hold_secs: 21600,
+    },
+    coverage: { active: 300, throttled: 5, unsupported: 6, unknown: 1 },
+    noise: { recent: 0, baseline_per_hour: 0, level: 'unknown' },
+    ...over,
   };
 }
 

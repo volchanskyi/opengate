@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
@@ -46,12 +47,13 @@ func (s *Server) ListRules(ctx context.Context, request ListRulesRequestObject) 
 	}
 	coverage := s.coverageFor(ctx, organizationID, counts.Total)
 	rollouts := s.rolloutsFor(ctx, organizationID)
+	noise := s.noiseFor(ctx, organizationID)
 
 	definitions := s.ruleCatalogue.All()
 	catalogue := RuleCatalogue{FleetSize: counts.Total, Rules: make([]Rule, 0, len(definitions))}
 	for _, definition := range definitions {
-		catalogue.Rules = append(catalogue.Rules, ruleToAPI(
-			definition, rollouts[definition.ID], coverage[definition.ID], counts.Total))
+		catalogue.Rules = append(catalogue.Rules, ruleToAPI(definition, rollouts[definition.ID],
+			coverage[definition.ID], counts.Total, noise[definition.ID]))
 	}
 	return ListRules200JSONResponse(catalogue), nil
 }
@@ -92,7 +94,7 @@ func (s *Server) rolloutsFor(ctx context.Context, organizationID uuid.UUID) map[
 // one thing this product does not do.
 func ruleToAPI(
 	definition rules.Definition, rollout rules.Rollout,
-	coverage agentapi.RuleCoverageCounts, fleetSize int,
+	coverage agentapi.RuleCoverageCounts, fleetSize int, noise alerts.Noise,
 ) Rule {
 	out := Rule{
 		Id:               definition.ID,
@@ -106,22 +108,32 @@ func ruleToAPI(
 		Evidence:         orEmpty(definition.Evidence),
 		CoverageRequires: orEmpty(definition.CoverageRequires),
 		Tunable:          tunableToAPI(definition),
-		Rollout: RuleRollout{
-			Enabled:        rollout.Enabled,
-			RolloutPercent: rollout.RolloutPercent,
-			Kill:           rollout.Kill,
-		},
-		Coverage: coverageToAPI(coverage, fleetSize),
+		Rollout:          rolloutToAPI(rollout),
+		Coverage:         coverageToAPI(coverage, fleetSize),
+		Noise:            noiseToAPI(noise),
 	}
 	if definition.SustainSecs > 0 {
 		sustain := int(definition.SustainSecs)
 		out.SustainSecs = &sustain
 	}
-	if rollout.CanaryGroup != "" {
-		group := rollout.CanaryGroup
-		out.Rollout.CanaryGroup = &group
-	}
 	return out
+}
+
+// noiseFor reads how noisy each rule has been for this customer. A read that
+// failed leaves every badge neutral rather than failing the list: a badge is a
+// hint about where to look next, and losing it costs nothing that the rest of
+// the page was opened for.
+func (s *Server) noiseFor(ctx context.Context, organizationID uuid.UUID) map[string]alerts.Noise {
+	if s.alertBudget == nil {
+		return nil
+	}
+	noise, err := s.alertBudget.RuleNoise(ctx, organizationID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "read rule noise failed",
+			"organization_id", organizationID, "error", err)
+		return nil
+	}
+	return noise
 }
 
 // tunableToAPI renders the numbers a customer may retune, each beside the value

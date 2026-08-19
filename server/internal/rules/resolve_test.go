@@ -206,3 +206,64 @@ func TestResolveCanonicalizesALegacyMetricName(t *testing.T) {
 	assert.Equal(t, "mem.used_percent", got.Metric,
 		"a rule written against the old name must reach the dimension that exists")
 }
+
+// The screen has to be able to say why a machine is at the number it is at, and
+// name the tuned value that decided it — a rung, the labels it was aimed at, or
+// the pack itself.
+func TestWhatDecidedAMachinesNumber(t *testing.T) {
+	t.Parallel()
+
+	def := diskCritical(t)
+	org, site := uuid.New(), uuid.New()
+	machine := Device{
+		Scope: settings.Scope{DeviceID: uuid.New(), SiteID: site, OrganizationID: org},
+		Tags:  map[string]string{"role": "file-server"},
+	}
+
+	aimed := targeted(orgBinding(org, def.ID, threshold(95)), Selector{"role": "file-server"}, 10)
+
+	level, source := DecidedBy(def, machine, []Binding{aimed}, "threshold")
+	assert.Equal(t, settings.LevelOrganization, level)
+	assert.Equal(t, "set on this machine's customer, for machines labelled role=file-server", source)
+
+	// A rung with nothing aimed at it says so without naming labels.
+	atSite := newBinding(org, def.ID, settings.LevelSite, site, threshold(93))
+	level, source = DecidedBy(def, machine, []Binding{aimed, atSite}, "threshold")
+	assert.Equal(t, settings.LevelSite, level, "the narrower rung decides it")
+	assert.Equal(t, "set on this machine's office", source)
+
+	// A parameter nobody tuned falls to the pack, and so does one the rule does
+	// not offer at all.
+	level, source = DecidedBy(def, machine, []Binding{aimed}, "sustain_secs")
+	assert.Equal(t, settings.LevelShipped, level)
+	assert.Equal(t, "the value the rule ships", source)
+
+	level, _ = DecidedBy(def, machine, []Binding{aimed}, "not_a_parameter")
+	assert.Equal(t, settings.LevelShipped, level)
+}
+
+// Every rung is named the way a person reads it, so a screen never has to
+// translate "organization" into "customer" for itself.
+func TestEachRungIsNamedForAPerson(t *testing.T) {
+	t.Parallel()
+
+	for level, want := range map[settings.Level]string{
+		settings.LevelDevice:       "machine",
+		settings.LevelSite:         "office",
+		settings.LevelOrganization: "customer",
+		settings.LevelTenant:       "platform",
+		settings.LevelShipped:      "shipped default",
+	} {
+		assert.Equal(t, want, levelWord(level))
+	}
+}
+
+// A selector reads back as the labels it names, in a stable order.
+func TestDescribingWhichMachinesAValueIsAimedAt(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, DescribeSelector(nil))
+	assert.Equal(t, "role=file-server", DescribeSelector(Selector{"role": "file-server"}))
+	assert.Equal(t, "env=production, role=file-server",
+		DescribeSelector(Selector{"role": "file-server", "env": "production"}))
+}

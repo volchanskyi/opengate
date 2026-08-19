@@ -21,7 +21,7 @@ func mustRulesFor(t *testing.T, p AlertRuleProvider, scope settings.Scope) []pro
 	t.Helper()
 	got, err := p.RulesFor(context.Background(), scope)
 	require.NoError(t, err)
-	return got
+	return got.Rules
 }
 
 // inTenant is the ladder for a machine whose only known rung is its tenant,

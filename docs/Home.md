@@ -16,6 +16,7 @@ Developer documentation for the OpenGate remote device management platform.
 | [Platform Abstraction](./Platform-Abstraction.md) | OS-specific traits for capture, input, and service lifecycle |
 | [Database](./Database.md) | PostgreSQL schema, driver, migrations, backups |
 | [Data Lifecycle](./Data-Lifecycle.md) | Right-to-be-forgotten erasure — tombstone deny-list, purge state machine, reconciliation sweep |
+| [Rule Administration](./Rule-Administration.md) | The operator surface for curated detection — tuning, labels, rollout pace, the stop switch, and alert budgets |
 | [Testing](./Testing.md) | Test layers, running tests, benchmarks |
 | [Fault Injection](./Fault-Injection.md) | Fault-tolerance harness — Go adapter-substitution suite, on-demand Chaos Mesh drills, ingress edge faults, scenario SLOs |
 | [Shell Quality](./Shell-Quality.md) | Pinned linting, formatting, execution classes, behavioral tests |

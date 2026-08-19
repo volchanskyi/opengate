@@ -92,6 +92,11 @@ func writeReverseGolden(t *testing.T, dir, variant string, encoded []byte) {
 // because a map's iteration order would make the fixture different every run).
 // Predicates cycle so all four reach the wire, windows are pinned per predicate,
 // and the first rule carries a conjunction term.
+// goldenDeviceHourlyCeiling is the per-machine alert allowance the push fixture
+// carries. Deliberately not the shipped default, so an agent that ignored the
+// field and kept its own number would fail rather than coincide.
+const goldenDeviceHourlyCeiling uint32 = 37
+
 func goldenAlertRules() []ThresholdRule {
 	predicates := []RulePredicate{
 		RulePredicateInstant,
@@ -273,9 +278,13 @@ func TestGenerateReverseGoldens(t *testing.T) {
 	// conjunction — so the Rust harness that decodes it can assert that what it
 	// resolved is exactly its own vocabulary. That is what keeps the two lists
 	// from drifting apart without a failing test.
+	// The customer's per-machine alert allowance rides the same message, so the
+	// fixture carries one: a machine that received new rules without the budget
+	// they run under would be tuned by half.
 	writeReverseControlFrame(t, dir, codec, "control_push_alert_rules", &ControlMessage{
-		Type:       MsgPushAlertRules,
-		AlertRules: goldenAlertRules(),
+		Type:                MsgPushAlertRules,
+		AlertRules:          goldenAlertRules(),
+		DeviceHourlyCeiling: goldenDeviceHourlyCeiling,
 	})
 
 	// Maintenance mode server → agent toggle. Enabled is a *bool so the false

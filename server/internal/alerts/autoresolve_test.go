@@ -144,7 +144,7 @@ func TestASweepLeavesARoomItHasNoWindowFor(t *testing.T) {
 func TestTheStormRoomClosesItselfOnceTheHourIsQuiet(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
-	e.seedHourOfAlerts(t, OrganizationHourlyCeiling, e.now.Add(-10*time.Minute))
+	e.seedHourOfAlerts(t, DefaultOrganizationHourlyCeiling, e.now.Add(-10*time.Minute))
 	e.record(t, e.alert(), CeilingSuppressed)
 	storm := e.roomFor(t, Grouping{Scope: ScopeOrganization}, StormRuleID, e.org)
 
