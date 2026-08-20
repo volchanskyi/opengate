@@ -1,10 +1,10 @@
 <h1 align="center">OpenGate</h1>
 
-<h3 align="center">Fleet remote monitoring and management system.</h3>
+<h3 align="center">AI-native monitoring and remote management system.</h3>
 
 <p align="center">
-Monitored machines
-are running the agents that analyse local system anomalies and raise alerts with the evidence.
+All-in-one platform for observing and controlling remote hosts and endpoints. 
+Local agents powered by ML-engines designed for proactive anomaly surfacing, automated root cause analysis, and autonomous AI Ops capabilities that triage incidents and recommend remediation. The agents designed specifically to lower compute costs, have low latency, and provide full data sovereignty while improving streaming protocols and system scalability.
 </p>
 
 <!-- Badges track `dev` because that is the only branch CI runs on: per
@@ -31,7 +31,7 @@ are running the agents that analyse local system anomalies and raise alerts with
 
 ## What it does
 
-OpenGate manages fleets of endpoints from a centralized web-based UI: Asses fleet`s health, take over individual systems and investigate endpoints.
+OpenGate manages fleets of endpoints from a centralized web-based UI: Asses fleet`s health, investigate endpoints and take over individual hosts.
 
 | Capability | Features |
 |---|---|
