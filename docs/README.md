@@ -51,6 +51,14 @@ back and edit this sentence?" If yes, replace the sentence with a link.
 When you must state a number inline (e.g. in a summary table), place it
 adjacent to the link so a reader can one-click verify it.
 
+**Product chapters are the exception, deliberately.** [`product/`](./product/) is
+written for the operator using the console, not for the engineer changing it, so
+those chapters link sibling chapters and the architecture tree rather than source
+files. A number a technician needs in order to act (a grouping window, a
+retention horizon, a state name) may be stated there in prose or a table; the
+source-linked statement of the same fact lives in the architecture or
+infrastructure chapter that owns it.
+
 ### 2. Per-file ADRs are mutable; supersede only for decision *changes*
 
 An Architecture Decision Record documents a decision. Per-file ADRs in
@@ -149,20 +157,20 @@ The docs must carry at least these diagrams; each is pinned by
 so it cannot be dropped silently:
 
 1. **System context** — a C4 context (L1) view —
-   [architecture/Overview.md](architecture/Overview.md) (currently the
+   [architecture/System-Architecture.md](architecture/System-Architecture.md) (currently the
    `flowchart` fallback per the render rule above).
 2. **Container topology** — a C4 container (L2) view —
-   [architecture/Overview.md](architecture/Overview.md) (currently the
+   [architecture/System-Architecture.md](architecture/System-Architecture.md) (currently the
    `flowchart` fallback).
 3. **Each cross-component protocol flow** — a `sequenceDiagram` (agent handshake,
-   relay) — [architecture/Overview.md](architecture/Overview.md) and
+   relay) — [architecture/System-Architecture.md](architecture/System-Architecture.md) and
    [architecture/Wire-Protocol.md](architecture/Wire-Protocol.md).
 4. **Deploy topology** — the OKE cluster shape —
    [infrastructure/Kubernetes.md](infrastructure/Kubernetes.md).
 5. **CI/CD flow** — dev → CI gate → merge-to-main → deploy —
    [infrastructure/Continuous-Deployment.md](infrastructure/Continuous-Deployment.md).
 6. **Session lifecycle** — establish → stream → teardown —
-   [architecture/Overview.md](architecture/Overview.md).
+   [architecture/System-Architecture.md](architecture/System-Architecture.md).
 
 New cross-component behavior of one of these kinds ships with the matching
 diagram (and its pin) updated in the same change.

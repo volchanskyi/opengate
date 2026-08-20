@@ -6,7 +6,7 @@
 # handshake / relay / topology / agentapi code below changes.
 
 # Diagram-bearing docs.
-/docs/architecture/Overview.md         @volchanskyi
+/docs/architecture/System-Architecture.md         @volchanskyi
 /docs/architecture/Wire-Protocol.md    @volchanskyi
 /docs/infrastructure/Monitoring.md     @volchanskyi
 

@@ -282,7 +282,7 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "expected shard set drifted (all='$(mutation_all_shards)')"
   fi
 
-  meaningful_go="go-api-runtime go-api-intake go-api-identity-admin go-api-device-operations go-api-investigations go-api-provisioning-lifecycle go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
+  meaningful_go="go-api-runtime go-api-intake go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-detection go-domain-persistence go-amt go-updates-certificates go-protocol-relay go-observability-harness"
   if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
     pass "Go shard ids describe their owned behavior"
   else
@@ -389,12 +389,12 @@ if [ -f "$SHARDS_LIB" ]; then
         owner="${unit_owner[$unit]}"
       fi
     done
-    [ "$owners" -eq 1 ] && [ "$owner" = "go-protocol-relay-observability" ] \
+    [ "$owners" -eq 1 ] && [ "$owner" = "go-observability-harness" ] \
       || loadtest_bad="$loadtest_bad [$f:owners=$owners:$owner]"
   done
   if [ -z "$loadtest_bad" ] \
     && printf 'tests/loadtest/main.go\n' | grep -qE "$(mutation_go_global_excludes)"; then
-    pass "loadtest helpers mutate once in go-protocol-relay-observability while main.go stays excluded"
+    pass "loadtest helpers mutate once in go-observability-harness while main.go stays excluded"
   else
     fail "loadtest mutation ownership is wrong:$loadtest_bad"
   fi
@@ -475,26 +475,36 @@ if [ -f "$SHARDS_LIB" ]; then
   # caught credit is the only correctness risk. Every other shard inherits the
   # baseline (empty override).
   baseline_coef="$(sed -nE 's/^[[:space:]]*timeout-coefficient:[[:space:]]*([0-9]+).*/\1/p' "$REPO_ROOT/server/.gremlins.yaml")"
-  backfill_coef="$(mutation_go_shard_timeout_coefficient go-agentapi-backfill)"
-  if [[ "$backfill_coef" =~ ^[0-9]+$ ]] \
-    && [ -n "$baseline_coef" ] \
-    && [ "$backfill_coef" -lt "$baseline_coef" ] \
-    && [ "$backfill_coef" -ge 2 ]; then
-    pass "go-agentapi-backfill uses a scoped timeout coefficient below the baseline"
+  scoped_shards=(go-agentapi-backfill)
+  scoped_bad=""
+  for shard in "${scoped_shards[@]}"; do
+    got="$(mutation_go_shard_timeout_coefficient "$shard")"
+    [[ "$got" =~ ^[0-9]+$ ]] \
+      && [ -n "$baseline_coef" ] \
+      && [ "$got" -lt "$baseline_coef" ] \
+      && [ "$got" -ge 2 ] \
+      || scoped_bad="$scoped_bad [$shard='$got']"
+  done
+  if [ -z "$scoped_bad" ]; then
+    pass "the blocking-mutant shards use a scoped timeout coefficient below the baseline"
   else
-    fail "go-agentapi-backfill coefficient must be numeric, >=2 and <baseline($baseline_coef) (got='$backfill_coef')"
+    fail "a scoped coefficient must be numeric, >=2 and <baseline($baseline_coef):$scoped_bad"
   fi
 
   coef_bad=""
   for shard in "${go_shards[@]}"; do
-    [ "$shard" = "go-agentapi-backfill" ] && continue
+    scoped=0
+    for s in "${scoped_shards[@]}"; do
+      [ "$shard" = "$s" ] && scoped=1
+    done
+    [ "$scoped" -eq 1 ] && continue
     got="$(mutation_go_shard_timeout_coefficient "$shard")"
     [ -z "$got" ] || coef_bad="$coef_bad [$shard=$got]"
   done
   if [ -z "$coef_bad" ]; then
-    pass "non-backfill Go shards inherit the baseline timeout coefficient"
+    pass "every other Go shard inherits the baseline timeout coefficient"
   else
-    fail "only go-agentapi-backfill may override the coefficient:$coef_bad"
+    fail "only the blocking-mutant shards may override the coefficient:$coef_bad"
   fi
 
   # Both CI and local runs must derive the per-shard coefficient from the shard
@@ -510,6 +520,28 @@ if [ -f "$SHARDS_LIB" ]; then
     pass "make mutate-go derives --timeout-coefficient from the shard library"
   else
     fail "Makefile mutate-go must derive --timeout-coefficient from the shard library"
+  fi
+
+  # The pre-flight must be able to fail the job it runs in. Its output is teed
+  # into the step summary, and the default shell does not set pipefail, so
+  # without it the step reports tee's success and an OVER shard passes green.
+  budget_step="$(sed -n '/Project every shard against the job cap/,/^$/p' "$WORKFLOW")"
+  if printf '%s' "$budget_step" | grep -q 'mutation-shard-budget.sh' \
+    && printf '%s' "$budget_step" | grep -q 'set -o pipefail'; then
+    pass "the shard-budget step fails when the projection is refused"
+  else
+    fail "the shard-budget step must set pipefail around mutation-shard-budget.sh"
+  fi
+
+  # The pre-flight needs the same Postgres the matrix legs use: the Go count
+  # comes from a coverage run, and an uncovered mutant is a mutant the
+  # projection cannot see.
+  budget_job="$(sed -n '/^  shard-budget:/,/^  mutation:/p' "$WORKFLOW")"
+  if printf '%s' "$budget_job" | grep -q 'POSTGRES_TEST_URL' \
+    && printf '%s' "$budget_job" | grep -q 'gremlins'; then
+    pass "the shard-budget job counts Go mutants against a real Postgres"
+  else
+    fail "the shard-budget job must install gremlins and give it POSTGRES_TEST_URL"
   fi
 
   # Global excludes must stay in sync with server/.gremlins.yaml exclude-files.

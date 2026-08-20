@@ -65,7 +65,7 @@ echo "docs-diagrams:"
 
 # Pin every diagram-bearing doc so a removed diagram reds this step. The
 # README block is the convention example, asserted separately below.
-assert_mermaid_count_at_least "$REPO_ROOT/docs/architecture/Overview.md" 5
+assert_mermaid_count_at_least "$REPO_ROOT/docs/architecture/System-Architecture.md" 5
 assert_mermaid_count_at_least "$REPO_ROOT/docs/architecture/Wire-Protocol.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/infrastructure/Monitoring.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/adr/ADR-025-cd-preflight-digest-check.md" 1

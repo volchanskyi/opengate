@@ -19,6 +19,24 @@ import (
 
 const testHost = "test-host"
 
+// handshakeTestTimeout bounds both ends of every handshake pipe below.
+const handshakeTestTimeout = 5 * time.Second
+
+// newHandshakeConns returns an in-memory pipe whose client end carries its own
+// deadline. net.Pipe is synchronous and unbuffered, so a server that stops
+// reading — or never replies — leaves the test's own Write or ReadFull blocked
+// with nothing to interrupt it. The server side is bounded by the handshake
+// context; this bounds the side the test drives, so a change that breaks the
+// exchange fails in seconds instead of hanging until something outside the test
+// gives up on it.
+func newHandshakeConns(t *testing.T) (net.Conn, net.Conn) {
+	t.Helper()
+	serverConn, clientConn := net.Pipe()
+	require.NoError(t, clientConn.SetDeadline(time.Now().Add(handshakeTestTimeout)))
+	t.Cleanup(func() { serverConn.Close(); clientConn.Close() })
+	return serverConn, clientConn
+}
+
 // newTestAgentCert creates a cert manager and signs an agent cert for it,
 // returning the manager, device ID, and the agent's DER-encoded certificate.
 func newTestAgentCert(t *testing.T) (*cert.Manager, string, []byte) {
@@ -98,9 +116,8 @@ type handshakePipe struct {
 func newHandshakePipe(t *testing.T) *handshakePipe {
 	t.Helper()
 	cm, deviceID, agentCertDER := newTestAgentCert(t)
-	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { serverConn.Close(); clientConn.Close() })
-	ch := runHandshakeAsync(NewHandshaker(cm), serverConn, [][]byte{agentCertDER}, 5*time.Second)
+	serverConn, clientConn := newHandshakeConns(t)
+	ch := runHandshakeAsync(NewHandshaker(cm), serverConn, [][]byte{agentCertDER}, handshakeTestTimeout)
 	return &handshakePipe{cm, deviceID, agentCertDER, clientConn, ch}
 }
 
@@ -160,8 +177,7 @@ func TestHandshaker_Timeout(t *testing.T) {
 	// or writes no handshake bytes must fail by context deadline, not hang forever.
 	cm, _, _ := newTestAgentCert(t)
 
-	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { serverConn.Close(); clientConn.Close() })
+	serverConn, _ := newHandshakeConns(t)
 
 	// Client never writes, so the server's initial type-byte read blocks until
 	// the deadline fires.
@@ -177,10 +193,9 @@ func TestHandshaker_NonceGenerationError(t *testing.T) {
 	// Inject a failing randomness source so ServerHello nonce generation errors.
 	h := &Handshaker{cert: cm, rand: errReader{}}
 
-	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { serverConn.Close(); clientConn.Close() })
+	serverConn, clientConn := newHandshakeConns(t)
 
-	ch := runHandshakeAsync(h, serverConn, [][]byte{agentCertDER}, 5*time.Second)
+	ch := runHandshakeAsync(h, serverConn, [][]byte{agentCertDER}, handshakeTestTimeout)
 	writeAgentHello(t, clientConn, sha512.Sum384(agentCertDER))
 
 	res := <-ch
@@ -192,9 +207,8 @@ func TestHandshaker_NonceGenerationError(t *testing.T) {
 // client side via clientWrite and returns the server-side error.
 func runHandshakeRejectWithCM(t *testing.T, cm *cert.Manager, peerCerts [][]byte, clientWrite func(*testing.T, net.Conn)) error {
 	t.Helper()
-	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { serverConn.Close(); clientConn.Close() })
-	ch := runHandshakeAsync(NewHandshaker(cm), serverConn, peerCerts, 5*time.Second)
+	serverConn, clientConn := newHandshakeConns(t)
+	ch := runHandshakeAsync(NewHandshaker(cm), serverConn, peerCerts, handshakeTestTimeout)
 	clientWrite(t, clientConn)
 	return (<-ch).err
 }

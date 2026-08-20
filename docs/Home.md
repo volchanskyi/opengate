@@ -11,25 +11,29 @@ is how it is built, [`infrastructure/`](./infrastructure/) is how it runs.
 
 ## Product — what the system does
 
+Read in order: **Agent Deployment** gets a machine into the fleet, **Fleet and
+Devices** is the day-to-day console, and the rest go deeper per capability.
+
 | Chapter | Description |
 |---------|-------------|
-| [Fleet and Devices](./product/Fleet-and-Devices.md) | Dashboard, device list and detail, customer picker, sites, hardware inventory, the incident strip, browser notifications |
-| [Remote Sessions](./product/Remote-Sessions.md) | Desktop, terminal, file transfer and chat in the browser; capability-gated tabs, WebRTC upgrade, session lifecycle |
-| [Device Health](./product/Device-Health.md) | The vitals contract, per-mount disk semantics, stall and disk-performance vitals, maintenance mode, the telemetry pane, reconnect backfill |
-| [Alerts and Rules](./product/Alerts-and-Rules.md) | Threshold alerts, system-event rules, rule grammar and catalogue, coverage states, staged rollout, retroactive scan, alert evidence |
-| [Rule Administration](./product/Rule-Administration.md) | The operator surface for curated detection — tuning, labels, rollout pace, the stop switch, and alert budgets |
-| [Investigations](./product/Investigations.md) | Incident grouping, the triage queue, the incident room, the four-status lifecycle, cause codes, auto-resolve |
-| [Endpoint Logs](./product/Endpoint-Logs.md) | The System Logs pane, on-demand host log pulls, the transient broker, redaction, audited reads |
-| [Intel AMT](./product/Intel-AMT.md) | Out-of-band power actions on AMT-capable devices, AMT device tracking |
-| [Agent Updates](./product/Agent-Updates.md) | OTA update system — Ed25519 signing, rollback, GitHub Release sync |
-| [Tenancy and Access](./product/Tenancy-and-Access.md) | Four-level tenancy, customers and sites, security groups and RBAC, user management, settings, audit log |
-| [Data Erasure](./product/Data-Erasure.md) | Right-to-be-forgotten erasure — tombstone deny-list, purge state machine, reconciliation sweep |
+| [Agent Deployment](./product/Agent-Deployment.md) | Getting a machine into the fleet — requirements, enrollment tokens, the install command, what the agent runs as |
+| [Fleet and Devices](./product/Fleet-and-Devices.md) | Dashboard, device list and detail, customer picker, sites, inventory, device actions, browser notifications |
+| [Remote Sessions](./product/Remote-Sessions.md) | Desktop, terminal, files and chat in the browser — starting a session, which tabs appear, how the connection works |
+| [Device Health](./product/Device-Health.md) | What each reading means, when one is unavailable, anomaly state, the telemetry pane, maintenance mode, offline catch-up |
+| [Alerts and Rules](./product/Alerts-and-Rules.md) | Threshold and system-event detection, rule coverage, staged rollout, retroactive scan, what an alert carries |
+| [Rule Administration](./product/Rule-Administration.md) | Tuning a rule, aiming it with labels, pacing its rollout, the stop switch, alert budgets |
+| [Investigations](./product/Investigations.md) | How alerts group into incidents, the triage queue, the incident room, statuses, cause codes, auto-resolve |
+| [Endpoint Logs](./product/Endpoint-Logs.md) | Reading a machine's own log on demand — filters, redaction, audited access |
+| [Intel AMT](./product/Intel-AMT.md) | Out-of-band power actions on AMT-capable hardware, and enabling AMT on a machine |
+| [Agent Updates](./product/Agent-Updates.md) | Signed over-the-air updates — publishing, pushing, verification, rollback, enrollment tokens |
+| [Tenancy and Access](./product/Tenancy-and-Access.md) | Tenants, customers, sites and devices; security groups, settings screens, the audit log |
+| [Data Erasure](./product/Data-Erasure.md) | Irreversible erasure of a device or a tenant — what is erased, purge stages, guarantees |
 
 ## Architecture — how it is built
 
 | Chapter | Description |
 |---------|-------------|
-| [Overview](./architecture/Overview.md) | System context and container views, connection model, relay, session lifecycle, AMT transport |
+| [System Architecture](./architecture/System-Architecture.md) | System context and container views, connection model, relay, session lifecycle, AMT transport |
 | [API Reference](./architecture/API-Reference.md) | REST API endpoints, OpenAPI spec, code generation, authentication |
 | [Wire Protocol](./architecture/Wire-Protocol.md) | MessagePack framing, handshake sequence, golden file testing |
 | [Database](./architecture/Database.md) | PostgreSQL schema, driver, pool, migrations, row-level security, transport security |

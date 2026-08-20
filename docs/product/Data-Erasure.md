@@ -1,114 +1,100 @@
-# Data Lifecycle — Right-to-be-Forgotten Erasure
+# Data Erasure
 
-Deleting a device or purging a whole tenant **irreversibly erases that subject's
-centralized telemetry across every store** and deprovisions its agents. There is
-no soft-delete, grace window, or undo. The orchestrator runs server-side only:
-the VictoriaMetrics delete key and any object-store credentials never reach the
-edge.
+Deleting a device, or purging a whole tenant, **irreversibly erases that
+subject's data across every store** and deprovisions its agents. There is no
+soft-delete, no grace window and no undo.
 
-The engine lives in [`server/internal/lifecycle`](../../server/internal/lifecycle);
-the delete endpoints are in
-[`server/internal/api/handlers_purge.go`](../../server/internal/api/handlers_purge.go)
-and [`handlers_device_actions.go`](../../server/internal/api/handlers_device_actions.go).
+Use it for decommissioning, for offboarding a customer, and for answering a
+right-to-be-forgotten request.
 
-## What is erased
+## What gets erased
 
-| Store | Device delete | Tenant/tenant purge |
-|-------|---------------|------------------|
-| VictoriaMetrics series (numeric host metrics, inline anomaly scores) | scoped delete-series `{tenant_id,device_id}` | `{tenant_id}` |
-| Postgres `device_processes`, `device_inventory` (+ the `devices` row) | FK `ON DELETE CASCADE` | every device in the tenant |
-| Postgres `alerts` and their evidence | FK `ON DELETE CASCADE`, plus the incident repair below | `alerts`, `incidents` and `incident_events` erased by tenant |
-| Cold-tier objects (optional) | device prefix | tenant prefix |
-| Agent local store | deprovision → wiped on next reconnect | every agent in the tenant |
-| Audit events | **retained** — the erasure proof | retained |
+| Store | Deleting one device | Purging a tenant |
+|---|---|---|
+| Time-series metrics | That device's series | Every device's series |
+| Device records, inventory and process history | Erased with the device | Every device in the tenant |
+| Alerts and their evidence | Erased, and affected incidents repaired | Alerts, incidents and their history erased |
+| Cold-tier archives, where configured | That device's data | The tenant's data |
+| The agent's own local store | Wiped when the agent next connects | Every agent in the tenant |
+| **Audit events** | **Retained** — they are the proof the erasure happened | **Retained** |
 
-The tenant row itself is retained for a tenant purge: it anchors the
-retained audit trail and the deny-list, and enforcing referential integrity
-against retained audit events would otherwise block the delete. Nothing cascades
-from a retained row, so a tenant's investigations are erased by name rather than
-left to the foreign key.
+The tenant record itself is retained for a tenant purge: it anchors the retained
+audit trail and the deny-list.
 
-## Repairing what the cascade cannot
+> **Erasure runs entirely on the server.** The keys that authorise deletion in the
+> metric store, and any archive credentials, never reach a device.
 
-An incident's `occurrences` and `device_count` are application state. The foreign
-key erases a machine's alerts; it leaves those two numbers describing a machine
-that no longer exists, so a technician would read "40 machines" on a room whose
-fortieth was decommissioned last week.
+## Deleting one device
 
-[`EraseDeviceAlerts`](../../server/internal/alerts/postgres.go) runs inside the
-Postgres stage, **before** the device row goes — once the cascade has taken the
-alerts there is nothing left to say which incidents the machine was in. It
-restates both counts from the rows that survive rather than subtracting, which
-is what makes a resumed purge safe to run twice, and closes any incident the
-erasure emptied with a `resolution` event saying why. No cause code is set: those
-are a person's answer to why an incident ended, and `false_positive` in
-particular is the channel that decides whether a rule gets retuned.
+From the device page, **Delete device**, behind a confirm step. The agent is
+deregistered, the machine's data is erased, and the machine cannot re-register
+with the same identity.
 
-## Tombstone deny-list
+### Incident counts are repaired, not left wrong
 
-Every purge first records the subject in the `deleted_ids` table (see
-[Database](../architecture/Database.md)). Every write path checks it, so no live stream,
-in-flight backfill, or misbehaving agent can re-create purged data:
+An incident's "how many alerts, across how many machines" counts are application
+state. Erasing a machine's alerts would otherwise leave an incident claiming 40
+machines when its fortieth was decommissioned last week.
 
-- The agent server warms an in-memory deny-list from the table at startup
-  ([`AgentServer.WarmTombstones`](../../server/internal/agentapi/server.go)) and
-  rejects a tombstoned device on connect and on every write-path control message
-  ([`conn.go`](../../server/internal/agentapi/conn.go)).
-- A connected agent is deregistered immediately; an offline one is denied by its
-  own id on the next reconnect (a tenant purge records a per-device tombstone for
-  each device it finds, so the check needs only the device id).
+So the erasure restates both counts from the alerts that survive — restating
+rather than subtracting is what makes a resumed purge safe to run twice — and
+closes any incident the erasure emptied, recording why. **No cause code is set**:
+a cause code is a person's answer, and `false_positive` in particular decides
+whether a rule gets retuned.
 
-A tenant tombstone supersedes its device tombstones, and `deleted_ids` carries ids
-and purge scope only — never telemetry — so it is retained indefinitely.
+## Purging a tenant
 
-## Deletion state machine
+Administrators start and watch a tenant purge from **Data lifecycle**
+(`/settings/data-lifecycle`).
 
-A purge is a persisted, resumable job (`purge_jobs`). Logical completion (ingest
-blocked and the subject no longer queryable) is distinct from physical
-completion — VictoriaMetrics delete-series is
-[asynchronous](https://docs.victoriametrics.com/#how-to-delete-time-series) and
-frees disk only on a later merge:
+A purge is a persisted, resumable job. It reports progress through these stages:
 
-```
-requested
-  → central-logical-complete            (VM delete issued; Postgres rows removed)
-  → central-physical-compaction-pending (verifying VM emptiness)
-  → object-delete-pending               (cold-tier prefixes, when a cold tier exists)
-  → edge-erase-pending                  (agent local wipe, pending reconnect)
-  → complete                            (VM verified empty)
-```
+| Stage | Meaning |
+|---|---|
+| `requested` | The subject is recorded as deleted and further writes are blocked |
+| `central-logical-complete` | Deletion issued in the metric store; database rows removed |
+| `central-physical-compaction-pending` | Waiting for the metric store to confirm it is empty |
+| `object-delete-pending` | Clearing cold-tier archives, where one exists |
+| `edge-erase-pending` | Waiting for agents to reconnect and wipe their local stores |
+| `complete` | Verified empty |
 
-Ordering is strict — tombstone and scope first, then VM delete, cold-tier
-objects, and the Postgres row **last** — so labels and FKs survive while the
-stores drain, and a crash mid-purge leaves the subject marked deleted, not
-half-alive. Each stage is guarded by a persisted per-store flag, so
-[`Orchestrator.Resume`](../../server/internal/lifecycle/orchestrator.go) re-runs an
-interrupted job idempotently at startup. Completion is gated on a
-post-delete emptiness check.
+**Logical completion is not physical completion.** Once ingest is blocked and the
+subject is no longer queryable, the data is gone as far as anything can read it;
+the metric store frees the disk later, on its own schedule.
 
-## Reconciliation sweep
+The ordering is strict — record the deletion first, then metrics, then archives,
+then the database row last — so a crash mid-purge leaves the subject marked
+deleted rather than half-alive. Each stage is guarded, so an interrupted job
+resumes safely from where it stopped.
 
-A periodic [`Reconciler`](../../server/internal/lifecycle/reconcile.go) sweep
-garbage-collects any VictoriaMetrics series whose device no longer exists in
-Postgres — defense in depth against a purge that partially failed, since the
-stores are not one transaction. Device rows are created at handshake before any
-ingest, so a series with no row is genuinely orphaned.
+## Nothing comes back
 
-## API
+Every purge first records the subject in a permanent deny-list. Every write path
+checks it, so no live stream, in-flight catch-up, or misbehaving agent can
+re-create purged data:
 
-- `DELETE /devices/{id}` runs a synchronous device purge (bounded emptiness
-  verify; a slow VM compaction falls through to the sweep).
-- `POST /tenants/{tenantId}/purge` starts an admin-only, tenant-scoped asynchronous
-  purge and returns the job.
-- `GET /purge-jobs/{jobId}` reports progress.
+- A connected agent is deregistered immediately.
+- An offline agent is denied by its own identity the moment it reconnects.
+- A tenant-level entry covers all of its devices.
 
-See [API Reference](../architecture/API-Reference.md). Admins drive a tenant purge and watch its
-progress from the **Data Lifecycle** settings page
-([`web/src/features/admin/DataLifecycle.tsx`](../../web/src/features/admin/DataLifecycle.tsx)).
+The deny-list holds identifiers and the scope of the purge — never telemetry — so
+it is kept indefinitely at negligible cost.
 
-## Backups caveat
+A periodic sweep also removes any metric series whose device no longer exists, as
+a second line of defence: the stores are not one transaction, so a partially
+failed purge is caught rather than left behind.
 
-VictoriaMetrics keeps no backups, so its erasure is immediate. Postgres
-`pg_dump` copies in OCI Object Storage (see [Backups](../architecture/Database.md)) cannot be
-surgically edited: a purged subject is **fully erased only once every backup that
-still contains it ages out** under the bucket's Object Storage lifecycle policy.
+## The one caveat: database backups
+
+The metric store keeps no backups, so its erasure is immediate.
+
+Database backups are copies in object storage and cannot be surgically edited. A
+purged subject is **fully erased only once every backup that still contains it has
+aged out** under the bucket's retention policy. Plan retention accordingly when
+answering a right-to-be-forgotten request.
+
+## Related
+
+- [Tenancy and Access](./Tenancy-and-Access.md) — what deleting a customer cascades
+- [Fleet and Devices](./Fleet-and-Devices.md) — where the delete action lives
+- [API Reference](../architecture/API-Reference.md) — the delete and purge endpoints

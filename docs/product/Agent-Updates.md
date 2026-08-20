@@ -1,161 +1,128 @@
-# Agent Auto-Update
+# Agent Updates
 
-See also: [ADR-005 in Architecture Decision Records](../Architecture-Decision-Records.md)
+Agents update themselves over their existing connection to the server. Every
+build is signed, verified twice on the machine before it is installed, and rolled
+back automatically if it fails to come back up.
 
-## Overview
+## How an update reaches a machine
 
-Agents receive OTA (over-the-air) binary updates pushed from the server via the QUIC control channel. Updates are Ed25519-signed for integrity verification.
+```mermaid
+sequenceDiagram
+  participant Admin as Administrator
+  participant Server
+  participant Agent
 
-## Architecture
-
-```
-Admin UI                    Server                           Agent
-  │                           │                                │
-  │── Publish manifest ──────►│                                │
-  │   (version, URL, hash,    │                                │
-  │    Ed25519 signature)     │                                │
-  │                           │                                │
-  │── Push update ───────────►│── AgentUpdate ────────────────►│
-  │                           │   (version, url, hash, sig)    │
-  │                           │                                │── semver check
-  │                           │                                │── download binary
-  │                           │                                │── SHA-256 verify
-  │                           │                                │── Ed25519 verify
-  │                           │                                │── atomic replace
-  │                           │                                │── write .update-pending
-  │                           │◄── AgentUpdateAck ─────────────│
-  │                           │   (version, success, error)    │
-  │                           │                                │── exit(42)
-  │                           │                                │
-  │                           │              systemd restarts (RestartForceExitStatus=42)
-  │                           │                                │
-  │                           │                                │── startup watchdog
-  │                           │◄── AgentRegister ──────────────│── registration OK
-  │                           │                                │── clear .update-pending
+  Admin->>Server: publish a build (or GitHub Release sync does it)
+  Admin->>Server: push the update to a device
+  Server->>Agent: AgentUpdate (version, URL, hash, signature)
+  Agent->>Agent: newer version? verify hash, verify signature
+  Agent->>Agent: replace binary, keep a backup, mark the update pending
+  Agent-->>Server: AgentUpdateAck
+  Agent->>Agent: restart
+  Agent->>Server: register — update confirmed healthy
 ```
 
-## Components
+## Publishing builds
 
-### Server Side
+The server keeps a list of **manifests**: one per version, operating system and
+architecture, each carrying the download URL, the SHA-256 hash and the signature.
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| **Signing keys** | `server/internal/updater/signing.go` | Ed25519 key generation, loading, signing, verification |
-| **Manifest store** | `server/internal/updater/manifest.go` | Filesystem JSON storage for version manifests |
-| **GitHub sync** | `server/internal/updater/github.go` | Periodic sync from GitHub Releases (hourly) |
-| **REST API** | `server/internal/api/handlers_updates.go` | List/publish/push manifests, query update status |
-| **QUIC handler** | `server/internal/agentapi/conn.go` | Send `AgentUpdate`, handle `AgentUpdateAck` |
-| **DB tracking** | `server/internal/db/postgres.go` | `device_updates` table (pending/success/failed) |
+Manifests reach the server two ways:
 
-### Agent Side
+| Route | How it works |
+|---|---|
+| **GitHub Release sync** | The server syncs from a configured GitHub repository on startup and hourly after that. It downloads release assets, computes their hashes, signs them, and stores the manifests |
+| **Direct publish** | An administrator posts a manifest to the server's update API |
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| **Update engine** | `agent/crates/mesh-agent-core/src/update.rs` | Download, verify, atomic replace, rollback |
-| **Control handler** | `agent/crates/mesh-agent/src/main.rs` | Version comparison, ack, watchdog, signing key management |
+## Pushing an update
 
-## Agent Version Detection
+| From | What it does |
+|---|---|
+| Device detail page | An **upgrade** button appears for one device when a newer manifest matches its operating system and architecture |
+| Device list | **Upgrade all agents** pushes to every outdated device, choosing each machine's newest matching build and reporting per-device success and failure counts |
 
-The agent binary version (`AGENT_VERSION`) is determined at build time via `build.rs` with a priority chain:
+### Matching a build to a machine
 
-1. **`OPENGATE_VERSION` env var** — set by CI from the git tag (e.g. `v0.15.4` → `0.15.4`)
-2. **`git describe --tags --abbrev=0`** — auto-detects from the nearest git tag (local dev builds)
-3. **`CARGO_PKG_VERSION`** — last-resort fallback from `Cargo.toml`
+Agents report their platform the way the host names it (`Ubuntu 22.04.4 LTS`,
+`x86_64`), while manifests use short target names (`linux`, `amd64`). The server
+normalises before matching:
 
-This ensures local builds, CI builds, and release builds all report the correct version without manual bumps.
-
-## Version Comparison
-
-Before applying an update, the agent compares the incoming version against its current version using semver:
-
-- **Incoming > current**: proceed with update
-- **Incoming <= current**: skip, send ack with `success=true, error="already up to date"`
-- **Parse failure**: fail-open (proceed with update)
-
-## Content-Hash Precheck
-
-After the version check passes, `apply_update` ([`agent/crates/mesh-agent-core/src/update.rs`](../../agent/crates/mesh-agent-core/src/update.rs)) hashes the currently-running binary and compares it against the manifest's `sha256` **before** downloading. If they match, the update is a no-op — no download, no swap, no watchdog — and the function returns `Ok(false)` (the caller sends the same `already up to date` ack as the version-skip branch).
-
-This protects against a server publishing a manifest whose `sha256` already matches the running binary — for instance a manifest re-published after a metadata-only edit. The primary defense is upstream, in the release build itself, which skips building at all when the agent sources are unchanged since the previous tag ([CI Pipeline](../infrastructure/CI-Pipeline.md#release-workflows)); the precheck is belt-and-suspenders for the paths that bypass that gate, such as a manual run.
-
-The precheck is bypassed when `sha256` is empty or the current binary path doesn't exist (non-standard install layout).
-
-## Rollback Mechanism
-
-The agent protects against bad updates with a multi-layer rollback system:
-
-1. **Backup**: `apply_update()` saves the current binary as `{path}.prev` before replacing
-2. **Sentinel**: After successful replacement, writes `.update-pending` to the data directory
-3. **Watchdog**: On startup, if `.update-pending` exists, a 60-second watchdog starts:
-   - If the agent successfully registers with the server, the sentinel is cleared (update verified healthy)
-   - If the watchdog fires before registration, the agent calls `rollback()` to restore `.prev` and exits with code 42
-4. **Loop protection**: A rollback counter file tracks attempts. After 2 consecutive rollbacks, the agent stops rolling back and clears the sentinel to prevent infinite loops between two bad binaries
-
-## Signing Key Delivery
-
-The Ed25519 public key is delivered to agents automatically during enrollment:
-
-1. Server includes `update_signing_key` (hex-encoded) in the enrollment response
-2. Agent saves the key to `{data_dir}/update-signing-key.hex`
-3. On startup, if `--update-public-key` CLI flag is not set, the agent loads the key from file
-4. CLI flag takes precedence over the saved file
-
-## GitHub Release Sync
-
-The server periodically syncs agent manifests from GitHub Releases:
-
-- Runs immediately on startup, then every hour via `StartPeriodicSync()`
-- Configured via `OPENGATE_GITHUB_REPO` environment variable
-- Downloads release assets, computes SHA-256 hashes, signs with Ed25519, stores manifests
-
-## Wire Protocol Messages
-
-### AgentUpdate (server → agent)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `version` | string | Target version |
-| `url` | string | Download URL for the binary |
-| `sha256` | string | Expected SHA-256 hash (hex) |
-| `signature` | string | Ed25519 signature (hex) |
-
-The public key is delivered out-of-band during enrollment (see [Signing Key Delivery](#signing-key-delivery) above), not per-update.
-
-### AgentUpdateAck (agent → server)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `version` | string | Version that was processed |
-| `success` | bool | Whether the update was applied |
-| `error` | string | Error message (empty on success) |
-
-## Admin UI
-
-Update actions live next to the devices they act on; the Agent Settings page owns
-enrollment only.
-
-**Agent Settings** ([`AgentUpdates.tsx`](../../web/src/features/admin/AgentUpdates.tsx), route `/updates`) manages enrollment tokens: create a token with a label, use cap and expiry; reveal or mask its value; delete one; and bulk-clean every inactive (expired or exhausted) token behind a confirm step.
-
-**Device Detail** ([`DeviceDetail.tsx`](../../web/src/features/devices/DeviceDetail.tsx)) offers an upgrade button for a single device when a newer manifest matches its OS/arch, resolved from the manifest list the page fetches on mount.
-
-**Device List** ([`DeviceList.tsx`](../../web/src/features/devices/DeviceList.tsx)) offers "Upgrade All Agents" across every outdated device, picking each device's newest matching manifest by numeric version compare and reporting per-device success and failure counts.
-
-Manifests reach the server through [GitHub Release Sync](#github-release-sync) or a direct `POST /api/v1/updates/manifests`; the signing key is delivered to agents during enrollment (see [Signing Key Delivery](#signing-key-delivery)).
-
-## OS/Arch Normalization
-
-Agents report platform information using native identifiers (e.g. `Ubuntu 22.04.4 LTS`, `x86_64`), while update manifests use GOOS-style values (`linux`, `amd64`). The server normalizes agent-reported values before matching:
-
-| Agent reports | Normalized to |
-|--------------|---------------|
-| `Ubuntu 22.04 LTS`, `Debian GNU/Linux 12`, `Fedora Linux 40`, `CentOS Stream 9`, `Alpine Linux`, `Arch Linux`, `Red Hat Enterprise Linux` | `linux` |
+| An agent reports | Matched as |
+|---|---|
+| `Ubuntu …`, `Debian GNU/Linux …`, `Fedora Linux …`, `CentOS Stream …`, `Alpine Linux`, `Arch Linux`, `Red Hat Enterprise Linux` | `linux` |
 | `Windows 11 Pro` | `windows` |
-| any other OS name | the name, lowercased |
+| Any other OS name | The name, lowercased |
 | `x86_64` | `amd64` |
 | `aarch64` | `arm64` |
 
-Per-OS targeting is the extension point for a further platform: a manifest
+Publishing for a further operating system needs no server change: a manifest
 published for an OS the table does not fold matches agents whose reported name
-lowercases to exactly that value, so no server change is needed to ship to one.
+lowercases to exactly that value.
 
-This normalization is applied in `eligibleAgents()` in `handlers_updates.go`.
+## What the agent checks before installing
+
+An update is refused, or skipped as unnecessary, unless every check passes.
+
+| Check | Behaviour |
+|---|---|
+| Version | An incoming version at or below the running one is skipped, acknowledged as *already up to date*. An unparseable version proceeds |
+| Same build | The agent hashes its own running binary first. If it already matches the manifest, nothing is downloaded and nothing is swapped |
+| Integrity | The downloaded binary must match the manifest's SHA-256 hash |
+| Authenticity | The binary must carry a valid signature from the server's signing key |
+
+## Rollback safety
+
+Updating a fleet's agents is the one operation that can take the fleet offline,
+so the agent protects itself in four layers:
+
+1. **Backup** — the running binary is kept alongside the new one before the swap.
+2. **Pending marker** — after a successful swap the agent records that an update
+   is awaiting proof.
+3. **Watchdog** — on the next start, an agent carrying that marker has 60 seconds
+   to register with the server. If it registers, the marker is cleared and the
+   update is confirmed. If it does not, the agent restores the backup and
+   restarts.
+4. **Loop protection** — after two consecutive rollbacks the agent stops rolling
+   back and clears the marker, so two bad binaries cannot bounce a machine
+   forever.
+
+## The signing key
+
+Updates are signed by the server and verified on the machine. The public key is
+delivered to an agent **during enrollment**, so no key management is needed per
+update:
+
+1. The server includes the signing key in the enrollment response.
+2. The agent saves it in its data directory and loads it on every start.
+3. An explicitly configured key on the agent's command line takes precedence over
+   the saved one.
+
+## Enrollment tokens
+
+Enrollment tokens are managed on **Agent Settings** (`/settings/updates`) and on
+the **Add Device** page (`/setup`).
+
+| Action | Detail |
+|---|---|
+| Create | Give the token a label, a use cap and an expiry |
+| Reveal or mask | The token value can be shown for copying, then hidden again |
+| Delete | Remove one token |
+| Clean up | Remove every inactive token — expired or exhausted — behind a confirm step |
+
+A token's badge shows whether it is **Active**, **Expired** or **Exhausted**.
+
+Using a token to install an agent is in
+[Agent Deployment](./Agent-Deployment.md).
+
+## Version numbers
+
+An agent's version comes from the build it was produced by: the release tag when
+a build comes from CI, the nearest git tag for a local build, and the package
+version as a last resort. There is no version to bump by hand, so what a machine
+reports in the console is what it is actually running.
+
+## Related
+
+- [Agent Deployment](./Agent-Deployment.md) — first install and enrollment
+- [Fleet and Devices](./Fleet-and-Devices.md) — where the upgrade buttons live
+- [Wire Protocol](../architecture/Wire-Protocol.md) — the update messages on the wire

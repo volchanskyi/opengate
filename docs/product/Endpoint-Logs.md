@@ -1,46 +1,61 @@
 # Endpoint Logs
 
-A machine's own log is where it explains itself, and OpenGate reads it without
-moving it: raw lines stay on the device and are pulled on demand, redacted, and
-streamed straight back to the administrator who asked, with nothing persisted
-centrally.
+A machine's own log is where it explains itself. OpenGate reads it **without
+moving it**: the lines stay on the device, are pulled on demand, are redacted, and
+are streamed straight back to the administrator who asked for them. Nothing is
+stored centrally.
 
-The curated rules that read the same journal and turn records into alerts are in
-[Alerts and Rules](./Alerts-and-Rules.md).
+## Reading a machine's log
 
-## On-demand host log pulls
+The **System Logs** pane on the device page pulls records from the host on
+request.
 
-Host logs are edge-stored and server-proxied: raw lines stay on the device and
-are read on demand, never centralized. The System Logs pane pulls them through
-the transient broker with `source=host`, filtered by severity/time/search and an
-optional unit; see [ADR-057](../adr/ADR-057-live-host-metric-streaming-and-system-logs.md).
-The pane's output starts collapsed and pulls once, on its first open per device;
-its filters stay live either way, and the caret collapses the returned lines
-alone. The response is cached for the browser session, so returning to a device
-page renders the lines it already has and every later pull is an explicit
-control — a window button, a unit or severity filter, or a search.
-The host log source is read through its first-party CLI (`journalctl -o json`)
-rather than a GPL journal library, per
-[ADR-050](../adr/ADR-050-edge-sentinel-log-reader-sourcing.md).
+1. Open the device page and expand **System Logs**. The first open pulls once.
+2. Narrow the result with the filters: severity, time window, unit, and free-text
+   search.
+3. Each later pull is an explicit action — a window button, a filter change, or a
+   search.
 
-Raw log lines are never centralized — they are brokered on demand, redacted, and
-streamed straight back to an administrator with nothing persisted; see
-[ADR-046](../adr/ADR-046-edge-sentinel-raw-log-broker.md). Reading raw logs is
-admin-elevated and writes a `device.logs.read` audit event on every pull. On top
-of those structural controls, redaction runs as defense-in-depth through two
-independent guards — the agent scrubs each line at the edge, and the server
-scrubs again before the browser — over a shared corpus of secret shapes
-(auth headers, credential assignments, JWTs, cloud keys, credentialed connection
-strings, PEM keys); see
-[ADR-049](../adr/ADR-049-edge-sentinel-raw-log-privacy.md). The broker exposes
-`opengate_device_log_pulls_total` (by outcome; the `ok` series is the audited-read
-count) and `opengate_device_log_pull_duration_seconds`, charted by the
-Edge-Sentinel Logs dashboard.
+> **The machine must be online.** Logs are read from the host at the moment you
+> ask, so there is nothing to return for a device that is not connected. Use the
+> log lines attached to an alert's evidence to see what a machine reported before
+> it went away.
 
-## The logs explorer
+The response is cached for the browser session, so returning to a device page
+renders the lines already fetched instead of hitting the machine again. The caret
+collapses the returned lines without discarding the filters.
 
-Raw logs are read through the on-demand broker in the logs explorer
-([`DeviceLogs`](../../web/src/features/devices/DeviceLogs.tsx)) with level, time-range,
-and full-text filters plus level facets over the returned page, rendering only the
-redacted lines the broker returns. A jump from the metrics panel carries its
-window straight into the explorer.
+Jumping from a metrics chart into the logs carries the chart's time window
+straight into the log view, so you land on the same stretch you were looking at.
+
+## Who can read logs, and what is recorded
+
+| Control | Behaviour |
+|---|---|
+| Access | Reading raw logs is **administrator-elevated** |
+| Audit | Every pull writes a `device.logs.read` audit event |
+| Storage | Raw lines are never persisted centrally — they are brokered on demand and streamed through |
+| Redaction | Applied twice, independently: the agent scrubs each line on the device, and the server scrubs again before the browser sees it |
+
+Redaction covers the shapes secrets take in log output: authorization headers,
+credential assignments, tokens, cloud keys, connection strings carrying
+credentials, and private keys.
+
+> Two independent passes are deliberate. Redaction is the control standing
+> between a customer's log and a technician's screen, and a single implementation
+> mistake in one of them should not be enough to leak a credential.
+
+## The relationship to alerts
+
+The curated system-event rules read the same journal on the device and turn
+records into alerts — see [Alerts and Rules](./Alerts-and-Rules.md).
+
+An alert can therefore carry a bounded sample of log lines as evidence. Those
+lines are redacted on the device **before the alert exists**, because an alert is
+the only path that lifts a log line off a host outside this pane.
+
+## Related
+
+- [Device Health](./Device-Health.md) — the numeric readings beside the log
+- [Investigations](./Investigations.md) — where log evidence is read in context
+- [Remote Sessions](./Remote-Sessions.md) — a full shell, when a log pull is not enough

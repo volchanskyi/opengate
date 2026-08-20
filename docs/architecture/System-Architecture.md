@@ -1,6 +1,6 @@
-# Architecture Overview
+# System Architecture
 
-## System Overview
+## What the system is
 
 OpenGate is a three-component platform for remote device management:
 
@@ -260,6 +260,63 @@ sequenceDiagram
   Relay->>Sessions: OnSessionEnd → delete by token
   Note over Agent,Relay: agent returns to idle
 ```
+
+### Direct Connection Upgrade (WebRTC)
+
+A session runs on the relay from the moment it is established, and may upgrade to
+a direct browser↔agent WebRTC connection for lower latency. The relay carries the
+signaling.
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Relay
+  participant Agent
+
+  Browser->>Relay: SwitchToWebRTC (SDP offer)
+  Relay->>Agent: SwitchToWebRTC (SDP offer)
+  Agent-->>Relay: SwitchToWebRTC (SDP answer)
+  Relay-->>Browser: SwitchToWebRTC (SDP answer)
+  loop trickle ICE
+    Browser->>Agent: IceCandidate (via relay)
+    Agent->>Browser: IceCandidate (via relay)
+  end
+  Agent-->>Browser: SwitchAck (upgrade complete)
+  Note over Browser,Agent: data channels carry frames directly
+```
+
+Three data channels match the frame routing:
+
+| Channel | ID | Ordered | Reliable | Purpose |
+|---------|-----|---------|----------|---------|
+| `control` | 0 | Yes | Yes | Control messages, signaling |
+| `desktop` | 1 | No | No (`maxRetransmits=0`) | Screen frames (latest wins) |
+| `bulk` | 2 | Yes | Yes | Terminal I/O, file transfers |
+
+The signaling state machine (`server/internal/signaling/`) tracks upgrade
+progress: `Relay` → `Offered` → `Answered` → `ICEGathering` → `Connected` (or
+`Failed`). On `Failed` the relay connection carries the session unchanged.
+
+**ICE configuration.** The server returns STUN/TURN server URLs in the
+`CreateSession` response (`ice_servers`), and both the browser and the agent use
+them to find a path. The default configuration points at Google's public STUN
+server.
+
+### Agent Session Handler
+
+When the server assigns a session to an agent, the agent connects to the relay at
+`relay_url?side=agent` and the `SessionHandler` (Rust) drives the session:
+
+- **Desktop capture** — JPEG-encoded screen frames at ~10 FPS (quality 70,
+  falling back to raw on encode failure)
+- **Terminal** — spawns a PTY (`portable-pty`) and bridges stdin/stdout over
+  terminal frames
+- **File operations** — directory listing and chunked download (256 KiB),
+  permission-gated
+- **Input injection** — mouse and keyboard events forwarded to the OS through the
+  platform traits
+- **Chat echo** — a `ChatMessage` from the browser is echoed back with
+  `sender: "agent"`
 
 ## What the web client is for
 
