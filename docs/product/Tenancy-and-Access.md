@@ -3,104 +3,103 @@
 Who a machine belongs to, who may look at it, and what the console records about
 what people did.
 
-## Four levels
-
-Four levels, matching what the rest of the market means by the words:
+## The four levels
 
 | Level | What it is |
 |---|---|
-| Tenant | The MSP. The wall the database enforces. |
-| Organization | One customer inside a tenant. |
-| Site | A location or department inside one customer. |
-| Device | One managed machine, in exactly one customer and at most one of its sites. |
+| **Tenant** | The service provider. This is the wall the database itself enforces |
+| **Customer** | One customer inside a tenant (an organization) |
+| **Site** | A location or department inside one customer |
+| **Device** | One managed machine, in exactly one customer and at most one of its sites |
 
-The isolation boundary is the **tenant** and only the tenant. An organization is
-structural — it decides what a technician is looking at and what a rule or a
-ceiling applies to — so it carries the tenant policy like every other
-tenant-scoped table and adds no second wall of its own. Filtering by customer is
-a query concern: every fleet read accepts an `organization_id` and narrows to it,
-and returns the whole tenant when none is given.
+**The isolation boundary is the tenant, and only the tenant.** A customer is
+structural: it decides what a technician is looking at, and what a rule or a
+ceiling applies to. Filtering by customer is a query concern — every fleet read
+accepts a customer and narrows to it, and returns the whole tenant when none is
+given.
 
-Every tenant has at least one organization and every device names one, so nothing
-is ever orphaned:
-[`011_organizations`](../../server/internal/db/migrations/011_organizations.up.sql)
-gives each existing tenant its own, a row written without a customer takes the
-tenant's oldest, and deleting a tenant's last customer is refused. Deleting any
-other customer cascades its sites, its devices and, through them, their
-telemetry, inventory, hardware and update rows.
-
-A device's site must belong to the device's own customer, and that is a pair
-rather than a value, so
-[`012_sites`](../../server/internal/db/migrations/012_sites.up.sql) enforces it as a
-composite key — `devices (organization_id, site_id)` references
-`sites (organization_id, id)` — and the database refuses the mismatch outright.
-The site stays nullable, since an unfiled machine is normal, and a null
-referencing column leaves the pair unchecked. Two consequences follow from the
-same key: deleting a site clears only `site_id`, so closing an office unfiles its
-machines rather than decommissioning them; and moving a device to another
-customer clears the site in the same statement, so the office it left never
-travels with it. A site name is unique within its customer rather than across the
-tenant, because "Head Office" names a different building for each one.
-
-Filing is a server-side decision. A registering agent's site counts only when it
-belongs to the customer the device lands in, and a reconnect never refiles —
-otherwise a machine moved to another customer would come back naming an office
-that customer does not have, and the pair would refuse the reconnect.
-
-The order these levels resolve in is one shared primitive,
-[`internal/settings`](../../server/internal/settings/settings.go): device, then its
-site, then its customer, then the tenant, then what shipped. Where a configurable
-value is *stored* belongs to whatever feature it configures, so the ordering
-exists in one place and cannot drift between the things that depend on it. One
-class of setting reads the ladder the other way up — a customer-wide stop must
-not be undone by a value set on a single machine — and that exception is named
-rather than implied.
-
-
-The wall the database enforces, and the mechanism that enforces it, are in
+The wall itself, and the mechanism that enforces it, are in
 [Database](../architecture/Database.md#multi-tenancy).
 
-## Security groups and RBAC
+### Rules the structure always obeys
 
-The `security_groups` and `security_group_members` tables implement
-role-based access control. A well-known "Administrators" group (UUID
-`00000000-0000-0000-0000-000000000001`) is seeded on migration and cannot
-be deleted (`is_system = TRUE`). Group membership is a many-to-many join
-via `security_group_members`.
+- **Nothing is orphaned.** Every tenant has at least one customer and every device
+  names one. A device created without a customer takes the tenant's oldest.
+- **A tenant's last customer cannot be deleted.** Deleting any other customer
+  cascades its sites, its devices and everything hanging off them — telemetry,
+  inventory, hardware and update records.
+- **A site belongs to its customer.** A device's site must be one of its own
+  customer's sites; the database refuses the mismatch outright rather than
+  storing it.
+- **An unfiled machine is normal.** Site is optional.
+- **Closing an office unfiles its machines**, it does not decommission them:
+  deleting a site clears the filing and leaves the devices.
+- **Moving a device to another customer clears its site** in the same step.
+- **Site names are unique within a customer**, not across the tenant — "Head
+  Office" names a different building for each one.
+- **Filing is decided by the server.** A registering agent's site counts only if
+  it belongs to the customer the device lands in, and a reconnect never refiles a
+  machine.
 
-Key behaviors:
-- Adding/removing a member of the Administrators group automatically syncs the `users.is_admin` boolean via `syncIsAdmin()` for backward compatibility
-- The last member of the Administrators group cannot be removed (server returns 409 Conflict)
-- The first registered user is auto-added to the Administrators group (bootstrap mechanism)
-- JWT `admin` claims are derived from Administrators group membership at login/register time
+### The settings ladder
 
+Configurable values resolve in one fixed order: **device, then its site, then its
+customer, then the tenant, then what shipped**. Every feature that has tunable
+values reads that same ladder, so the ordering exists in one place and cannot
+drift between features.
 
-The tables behind them are in
+One class of setting reads the ladder the other way up — a customer-wide stop must
+not be undone by a value set on one machine — and that exception is stated
+explicitly rather than left implied.
+
+## Users, groups and permissions
+
+Access is granted through **security groups**. The **Administrators** group is
+created with the system and cannot be deleted.
+
+| Behaviour | Detail |
+|---|---|
+| Bootstrap | The first registered user is added to Administrators automatically |
+| Last administrator | The final member of Administrators cannot be removed — the request is refused |
+| Admin rights | Come from Administrators membership, and are attached to the session at sign-in |
+| Scope | The administrator flag is **per tenant** — there is no administrator scoped to one customer |
+
+The tables behind groups and membership are in
 [Database](../architecture/Database.md#security-groups).
 
-## Settings (Admin)
+## Settings
 
-The web client includes a settings section (`/settings`) protected by `AdminGuard`. Old `/admin/*` routes redirect to `/settings`.
+The settings section is administrator-only. Every user, administrator or not, has
+a `/profile` page for their own display name.
 
-| Route | Component | Description |
-|-------|-----------|-------------|
-| `/settings/customers` | `OrganizationManagement` | Add, rename, retire and delete the tenant's customers |
-| `/settings/users` | `UserManagement` | List, toggle admin, delete users |
-| `/settings/audit` | `AuditLog` | Searchable, paginated audit event viewer |
-| `/settings/updates` | `AgentUpdates` | Agent update manifests, push updates, enrollment tokens, signing key display |
-| `/settings/security/permissions` | `Permissions` | Security groups and membership (RBAC) |
+| Screen | Path | What you can do |
+|---|---|---|
+| Customers | `/settings/customers` | Add, rename, retire and delete the tenant's customers |
+| Users | `/settings/users` | List users, grant or remove admin, delete a user |
+| Audit log | `/settings/audit` | Search and page through recorded actions |
+| Agent settings | `/settings/updates` | Enrollment tokens, update manifests, pushing updates, the signing key |
+| Permissions | `/settings/security/permissions` | Security groups and their membership |
+| Data lifecycle | `/settings/data-lifecycle` | Run and watch a tenant-wide erasure |
 
-The "Settings" link appears in the navbar only for users with `is_admin=true`. State is managed by `admin-store.ts` and `push-store.ts` (Zustand).
-
-Every user has a `/profile` page of their own, outside the admin section, for
-editing their display name.
+The **Settings** link appears in the navigation bar only for administrators.
 
 ## Audit log
 
-Security-relevant actions are recorded to the `audit_events` table via fire-and-forget goroutines:
+Security-relevant actions are recorded with the actor and the moment, and are
+searchable from `/settings/audit`.
 
-- `user.register`, `user.login`, `user.delete`, `user.update`
-- `session.create`, `session.delete`
-- `device.delete` (triggers agent deregistration)
+| Area | Actions |
+|---|---|
+| Users and sessions | `user.register`, `user.login`, `user.update`, `user.delete`, `session.create`, `session.delete` |
+| Security groups | `security_group.create`, `security_group.delete`, `security_group.add_member`, `security_group.remove_member` |
+| Devices | `device.restart`, `device.maintenance.enter`, `device.maintenance.exit`, `device.logs.read`, `device.delete` |
+| Enrollment and updates | `enrollment.create`, `enrollment.delete`, `update.publish`, `update.push` |
+| Rules and labels | `rule.binding.set`, `rule.binding.delete`, `rule.rollout.set`, `rule.clamp.acknowledge`, `alert.limits.set`, `device.tag.assign`, `device.tag.clear`, `device.tag.label.create`, `device.tag.label.delete` |
+| Incidents | `incident.assign`, `incident.status` |
+| Customers and erasure | `organization.delete`, `tenant.purge` |
 
-The audit log is queryable via `GET /api/v1/audit` (admin-only) with optional `user_id`, `action`, `limit`, and `offset` parameters.
+## Related
+
+- [Fleet and Devices](./Fleet-and-Devices.md) — the customer picker and site sidebar
+- [Rule Administration](./Rule-Administration.md) — what tuning resolves down the ladder
+- [Data Erasure](./Data-Erasure.md) — deleting a customer, a device or a tenant

@@ -36,7 +36,7 @@ Native Postgres types throughout — no TEXT/INTEGER shims.
 
 Four levels — tenant, customer, site, device — and the rules for what may belong
 to what are in
-[Tenancy and Access](../product/Tenancy-and-Access.md#four-levels). The isolation
+[Tenancy and Access](../product/Tenancy-and-Access.md#the-four-levels). The isolation
 boundary is the **tenant** and only the tenant; a customer is structural and
 carries the tenant policy like every other tenant-scoped table. Filtering by
 customer is a query concern: every fleet read accepts an `organization_id` and
@@ -377,7 +377,7 @@ into, and what people did about it. The adapter is
   so the engine restates both from the room's own alerts rather than
   incrementing them. Which alerts land in which room, how a room moves through
   its statuses, and when a quiet one closes itself are all
-  [Investigations](../product/Investigations.md#incidents-the-room-an-alert-lands-in).
+  [Investigations](../product/Investigations.md#how-alerts-group-into-incidents).
 - `incident_events` — the append-only history behind the room's current state,
   which is what a handover between two technicians reads.
 

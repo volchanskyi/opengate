@@ -1,25 +1,33 @@
 #!/usr/bin/env bash
-# Pre-flight for the mutation workflow: does every Rust shard still fit the job?
+# Pre-flight for the mutation workflow: does every shard still fit the job?
 #
 # A shard that outgrows the 75-minute cap does not fail with a useful message —
 # the runner is shot mid-run, the artifact set comes back incomplete, and the
-# whole nightly is lost after 75 minutes of compute. That is what happened when
-# ten mesh-agent-core shards grew past their budget together.
+# whole nightly is lost after 75 minutes of compute. That has now happened on
+# both legs: ten mesh-agent-core shards grew past their budget together, and
+# three Go shards followed when a new integration test raised coverage and turned
+# uncovered mutants into runnable ones.
 #
-# Counting mutants needs no build, so the same drift is visible in seconds.
-# `cargo mutants --list` enumerates a shard's mutants from the source; multiplied
-# by the package's measured per-mutant cost it gives the projection this refuses
-# on. Run it before the matrix and a drifted split costs one short job instead of
-# a night.
+# Counting mutants is cheap on both sides, so the same drift is visible in
+# minutes. `cargo mutants --list` enumerates a Rust shard's mutants from the
+# source; `gremlins unleash --dry-run` lists the Go mutants coverage actually
+# reaches. Multiplied by the shard's measured per-mutant cost that gives the
+# projection this refuses on, before the matrix has burned a night.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/mutation-shards.sh
 . "$SCRIPT_DIR/lib/mutation-shards.sh"
 
-# How a shard's mutants are counted. Overridable so the behavior tests can state
-# a count instead of building a workspace.
+# How a Rust shard's mutants are counted. Overridable so the behavior tests can
+# state a count instead of building a workspace.
 COUNTER="${MUTATION_SHARD_COUNTER:-}"
+
+# Where the Go dry-run listing comes from. Overridable for the same reason: the
+# real listing costs a module-wide coverage run.
+GO_DRYRUN_FILE="${MUTATION_GO_DRYRUN_FILE:-}"
+
+over=0
 
 count_shard() {
   local shard="$1"
@@ -32,8 +40,19 @@ count_shard() {
   (cd "$SCRIPT_DIR/../agent" && cargo mutants "${args[@]}" --list 2>/dev/null | wc -l)
 }
 
+require_count() {
+  local shard="$1" count="$2"
+  case "$count" in
+    '' | *[!0-9]*)
+      echo "could not count mutants for $shard (got '$count')" >&2
+      exit 2
+      ;;
+  esac
+}
+
+# --- Rust ---------------------------------------------------------------------
+
 budget="$(mutation_rust_shard_budget_minutes)"
-over=0
 
 printf '%-34s %8s %10s %8s\n' shard mutants projected verdict
 for shard in $(mutation_rust_shards); do
@@ -41,12 +60,7 @@ for shard in $(mutation_rust_shards); do
   cost="$(mutation_rust_package_milliminutes_per_mutant "$pkg")" || exit 2
   count="$(count_shard "$shard")" || exit 2
   count="${count//[[:space:]]/}"
-  case "$count" in
-    '' | *[!0-9]*)
-      echo "could not count mutants for $shard (got '$count')" >&2
-      exit 2
-      ;;
-  esac
+  require_count "$shard" "$count"
   # Thousandths of a minute, rounded up, so a shard is never reported cheaper
   # than it is.
   projected=$(((count * cost + 999) / 1000))
@@ -59,12 +73,68 @@ for shard in $(mutation_rust_shards); do
   printf '%-34s %8s %8smin %8s\n' "$shard" "$count" "$projected" "$verdict"
 done
 
+# --- Go -----------------------------------------------------------------------
+#
+# gremlins reports a mutant as RUNNABLE only where coverage reaches it, so the
+# listing — not the source — is what says how big a shard has become. One
+# module-wide dry-run answers for every shard; the lines it prints carry the file
+# each mutant belongs to, which is what buckets them.
+
+go_dryrun() {
+  if [ -n "$GO_DRYRUN_FILE" ]; then
+    cat "$GO_DRYRUN_FILE"
+    return
+  fi
+  (cd "$SCRIPT_DIR/../server" && GOFLAGS=-count=1 gremlins unleash . --dry-run 2>/dev/null)
+}
+
+# The file each RUNNABLE line names, one per line.
+runnable_paths() {
+  awk '$1 == "RUNNABLE" { split($NF, at, ":"); print at[1] }'
+}
+
+count_go_shard() {
+  local shard="$1" listing="$2" unit total=0 hits
+  for unit in $(mutation_go_shard_units "$shard"); do
+    case "$unit" in
+      dir:*) hits="$(grep -c "^${unit#dir:}/" "$listing")" ;;
+      file:*) hits="$(grep -cx "${unit#file:}" "$listing")" ;;
+      *) return 1 ;;
+    esac
+    total=$((total + hits))
+  done
+  printf '%s\n' "$total"
+}
+
+go_budget="$(mutation_go_shard_budget_minutes)"
+listing="$(mktemp)"
+trap 'rm -f "$listing"' EXIT
+go_dryrun | runnable_paths >"$listing"
+
+echo
+printf '%-34s %8s %10s %8s\n' shard mutants projected verdict
+for shard in $(mutation_go_shards); do
+  cost="$(mutation_go_shard_seconds_per_mutant "$shard")" || exit 2
+  count="$(count_go_shard "$shard" "$listing")" || exit 2
+  require_count "$shard" "$count"
+  # Seconds, rounded up to whole minutes, for the same reason as above.
+  projected=$(((count * cost + 59) / 60))
+  if [ "$projected" -gt "$go_budget" ]; then
+    verdict=OVER
+    over=$((over + 1))
+  else
+    verdict=ok
+  fi
+  printf '%-34s %8s %8smin %8s\n' "$shard" "$count" "$projected" "$verdict"
+done
+
 if [ "$over" -gt 0 ]; then
   echo
-  echo "::error::$over Rust mutation shard(s) project past the ${budget}min budget." \
+  echo "::error::$over mutation shard(s) project past their budget" \
+    "(Rust ${budget}min, Go ${go_budget}min)." \
     "Split the offending scopes in scripts/lib/mutation-shards.sh before the matrix runs."
   exit 1
 fi
 
 echo
-echo "All Rust mutation shards fit the ${budget}min budget."
+echo "All mutation shards fit their budget (Rust ${budget}min, Go ${go_budget}min)."

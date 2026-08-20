@@ -36,19 +36,52 @@ env:
   GREMLINS_VERSION: v0.6.0  # pin Go mutation tool for reproducibility (matches cargo-mutants pinning)
 jobs:
   # -----------------------------------------------------------------------------
-  # Does the Rust split still fit the cap? Counting mutants needs no build, so a
-  # shard that has outgrown its budget is visible in a couple of minutes instead
-  # of after 75 — the shape of failure that costs a whole nightly run.
+  # Does the split still fit the cap? Counting mutants is cheap on both legs, so a
+  # shard that has outgrown its budget is visible in a few minutes instead of
+  # after 75 — the shape of failure that costs a whole nightly run.
+  #
+  # The Go count comes from a gremlins dry-run rather than from the source,
+  # because a Go mutant only runs where coverage reaches it: a new integration
+  # test grows a shard without a line of production code changing, which is
+  # exactly how three Go shards crossed the cap together.
   #
   # It does not gate the matrix: the run still goes ahead and reports whatever it
   # can, and this job is the red that says why the tail will be short.
   # -----------------------------------------------------------------------------
   shard-budget:
-    name: Rust shard budget
+    name: Shard budget
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+      # The Go dry-run gathers module-wide coverage first, and the API and domain
+      # suites need the same Postgres the matrix legs run against.
+      - name: Start Postgres with max_connections=400
+        run: |
+          for attempt in 1 2 3; do
+            if docker pull postgres:17-alpine; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::could not pull postgres:17-alpine after 3 attempts"; exit 1
+            fi
+            echo "::warning::postgres image pull attempt $attempt/3 failed; retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          docker run -d --rm --name pg-ci \
+            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+            -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
+          for i in {1..30}; do
+            if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
+              echo "postgres ready after ${i} attempt(s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -58,8 +91,21 @@ jobs:
           cache-on-failure: true
       - name: Install cargo-mutants
         run: cargo install --locked --version "${CARGO_MUTANTS_VERSION}" cargo-mutants
-      - name: Project every Rust shard against the job cap
-        run: ./scripts/mutation-shard-budget.sh | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: server/go.sum
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@${{ env.GREMLINS_VERSION }}
+      - name: Project every shard against the job cap
+        env:
+          POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+        # pipefail explicitly: the default shell does not set it, so without it
+        # the step's status is tee's and a refused projection reports green —
+        # a pre-flight nobody can fail is a pre-flight that guards nothing.
+        run: |
+          set -o pipefail
+          ./scripts/mutation-shard-budget.sh | tee -a "$GITHUB_STEP_SUMMARY"
 
   # -----------------------------------------------------------------------------
   # Per-language mutation runs in parallel. fail-fast: false so one language
@@ -111,26 +157,40 @@ jobs:
           - { language: rust, shard: rust-agent-loops }
           - { language: rust, shard: rust-protocol-wire }
           - { language: web }
+          # The internal/api legs are sized by what a mutant there costs, not by
+          # file count: each one re-runs the Postgres-backed API suite and the
+          # integration tests that reach it, so a handler shard is spent at
+          # roughly sixty mutants where an agentapi shard is not spent at six
+          # hundred.
           - { language: go, shard: go-api-runtime }
           - { language: go, shard: go-api-intake }
-          - { language: go, shard: go-api-identity-admin }
-          - { language: go, shard: go-api-device-operations }
-          - { language: go, shard: go-api-investigations }
-          - { language: go, shard: go-api-provisioning-lifecycle }
-          # conn_backfill.go and handshaker.go each produce long timeout waves,
-          # so each is isolated from the connection lifecycle and from the other.
+          - { language: go, shard: go-api-converters }
+          - { language: go, shard: go-api-identity }
+          - { language: go, shard: go-api-tenancy-admin }
+          - { language: go, shard: go-api-device-control }
+          - { language: go, shard: go-api-device-reads }
+          - { language: go, shard: go-api-incidents }
+          - { language: go, shard: go-api-rules }
+          - { language: go, shard: go-api-enrollment }
+          - { language: go, shard: go-api-updates-purge }
+          # conn_backfill.go produces a wave of mutants that block under the
+          # Postgres-backed harness, so it is isolated from the connection
+          # lifecycle and scopes its own timeout coefficient.
           - { language: go, shard: go-agentapi-connection }
           - { language: go, shard: go-agentapi-handshake }
           - { language: go, shard: go-agentapi-backfill }
           - { language: go, shard: go-agentapi-edge-telemetry }
+          - { language: go, shard: go-domain-detection }
           - { language: go, shard: go-domain-persistence }
-          - { language: go, shard: go-amt-updates-certificates }
-          - { language: go, shard: go-protocol-relay-observability }
+          - { language: go, shard: go-amt }
+          - { language: go, shard: go-updates-certificates }
+          - { language: go, shard: go-protocol-relay }
+          - { language: go, shard: go-observability-harness }
     runs-on: ubuntu-latest
-    # 75min is a flat safety cap, not a target. File-level API units, isolated
-    # agentapi file groups, and scope-grouped Rust legs are sized against each
-    # package's measured per-mutant cost (scripts/lib/mutation-shards.sh) for at
-    # least 15min of headroom.
+    # 75min is a flat safety cap, not a target. Every shard is sized against its
+    # own measured per-mutant cost (scripts/lib/mutation-shards.sh) for at least
+    # 15min of headroom, and the shard-budget job above refuses a split that has
+    # drifted past it before the matrix spends a night discovering the same thing.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7

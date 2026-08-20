@@ -262,7 +262,7 @@ mutation_web_shards() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-intake go-api-identity-admin go-api-device-operations go-api-investigations go-api-provisioning-lifecycle go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
+  echo "go-api-runtime go-api-intake go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-detection go-domain-persistence go-amt go-updates-certificates go-protocol-relay go-observability-harness"
 }
 
 mutation_all_shards() {
@@ -284,22 +284,37 @@ mutation_go_global_excludes() {
 mutation_go_shard_units() {
   case "$1" in
     go-api-runtime)
-      echo "file:internal/api/api.go file:internal/api/converters.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/ratelimit.go"
+      echo "file:internal/api/api.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/ratelimit.go"
       ;;
     go-api-intake)
       echo "file:internal/api/validate.go file:internal/api/log_redact.go file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/metrics_assemble.go"
       ;;
-    go-api-identity-admin)
-      echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_sites.go file:internal/api/handlers_organizations.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go file:internal/api/handlers_push.go file:internal/api/handlers_device_tags.go file:internal/api/handlers_alert_limits.go"
+    go-api-converters)
+      echo "file:internal/api/converters.go file:internal/api/converters_incidents.go file:internal/api/converters_rules.go"
       ;;
-    go-api-device-operations)
-      echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_summary.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_maintenance.go file:internal/api/handlers_device_history.go file:internal/api/handlers_device_inventory.go file:internal/api/handlers_device_metrics.go file:internal/api/handlers_amt.go file:internal/api/handlers_relay.go file:internal/api/handlers_sessions.go"
+    go-api-identity)
+      echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go"
       ;;
-    go-api-investigations)
-      echo "file:internal/api/handlers_incidents.go file:internal/api/handlers_incident_moves.go file:internal/api/handlers_incident_evidence.go file:internal/api/handlers_rules.go file:internal/api/handlers_rules_admin.go file:internal/api/handlers_rules_read.go file:internal/api/handlers_rules_tuning.go file:internal/api/handlers_rules_rollout.go file:internal/api/converters_incidents.go file:internal/api/converters_rules.go"
+    go-api-tenancy-admin)
+      echo "file:internal/api/handlers_organizations.go file:internal/api/handlers_sites.go file:internal/api/handlers_device_tags.go file:internal/api/handlers_alert_limits.go file:internal/api/handlers_push.go"
       ;;
-    go-api-provisioning-lifecycle)
-      echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
+    go-api-device-control)
+      echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_maintenance.go file:internal/api/handlers_amt.go file:internal/api/handlers_sessions.go file:internal/api/handlers_relay.go"
+      ;;
+    go-api-device-reads)
+      echo "file:internal/api/handlers_device_summary.go file:internal/api/handlers_device_inventory.go file:internal/api/handlers_device_metrics.go file:internal/api/handlers_device_history.go"
+      ;;
+    go-api-incidents)
+      echo "file:internal/api/handlers_incidents.go file:internal/api/handlers_incident_moves.go file:internal/api/handlers_incident_evidence.go"
+      ;;
+    go-api-rules)
+      echo "file:internal/api/handlers_rules.go file:internal/api/handlers_rules_admin.go file:internal/api/handlers_rules_read.go file:internal/api/handlers_rules_tuning.go file:internal/api/handlers_rules_rollout.go"
+      ;;
+    go-api-enrollment)
+      echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go"
+      ;;
+    go-api-updates-purge)
+      echo "file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
     go-agentapi-connection)
       echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/deregister.go"
@@ -313,14 +328,23 @@ mutation_go_shard_units() {
     go-agentapi-edge-telemetry)
       echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_accounting.go file:internal/agentapi/conn_coverage.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go file:internal/agentapi/conn_alerts.go file:internal/agentapi/alert_rules_catalogue.go file:internal/agentapi/vitals.go"
       ;;
+    go-domain-detection)
+      echo "dir:internal/rules dir:internal/alerts"
+      ;;
     go-domain-persistence)
-      echo "dir:internal/alerts dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/rules dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"
+      echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"
       ;;
-    go-amt-updates-certificates)
-      echo "dir:internal/amt dir:internal/updater dir:internal/notifications dir:internal/cert"
+    go-amt)
+      echo "dir:internal/amt"
       ;;
-    go-protocol-relay-observability)
-      echo "dir:internal/protocol dir:internal/telemetry dir:internal/relay dir:internal/metrics dir:internal/signaling dir:internal/testpg dir:internal/testvm dir:internal/osutil dir:internal/clientapi dir:tests/loadtest"
+    go-updates-certificates)
+      echo "dir:internal/updater dir:internal/cert dir:internal/notifications"
+      ;;
+    go-protocol-relay)
+      echo "dir:internal/protocol dir:internal/relay dir:internal/signaling dir:internal/clientapi dir:internal/osutil"
+      ;;
+    go-observability-harness)
+      echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:tests/loadtest"
       ;;
     *)
       echo "unknown mutation shard: $1" >&2
@@ -329,19 +353,65 @@ mutation_go_shard_units() {
   esac
 }
 
+# What one Go mutant costs the shard that owns it, in seconds.
+#
+# gremlins re-runs the test packages that cover the mutated line, so the cost is
+# a property of those tests rather than of the source: an internal/api handler
+# mutant re-pays the Postgres-backed API suite and the integration tests that
+# reach it (~41-51 s), while an internal/agentapi mutant re-runs an in-process
+# harness (~4 s). Ignoring that spread is what makes a shard count meaningless as
+# a size — 95 API mutants and 593 domain mutants are the same 70 minutes.
+#
+# These come from completed nightly shards (elapsed_time / mutants_total in each
+# shard's mutation-report JSON), rounded up so a shard is never projected cheaper
+# than it ran. A shard carved out of another inherits its parent's rate until a
+# nightly measures it on its own. Re-measure from a run rather than lowering a
+# number to make a shard fit.
+mutation_go_shard_seconds_per_mutant() {
+  case "$1" in
+    go-api-runtime | go-api-enrollment | go-api-updates-purge) echo 51 ;;
+    go-api-intake) echo 27 ;;
+    go-api-converters | go-api-incidents | go-api-rules) echo 44 ;;
+    go-api-identity | go-api-tenancy-admin) echo 42 ;;
+    go-api-device-control | go-api-device-reads) echo 41 ;;
+    go-agentapi-connection | go-agentapi-handshake | go-agentapi-edge-telemetry) echo 5 ;;
+    go-agentapi-backfill) echo 3 ;;
+    go-domain-detection | go-domain-persistence) echo 8 ;;
+    go-amt | go-updates-certificates) echo 11 ;;
+    go-protocol-relay | go-observability-harness) echo 10 ;;
+    *)
+      echo "unknown mutation shard: $1" >&2
+      return 1
+      ;;
+  esac
+}
+
+# Minutes of mutant execution a Go shard may spend. The job cap is 75 minutes;
+# a measured Go leg pays about 4.5 of them before the first mutant runs (image
+# pull, Postgres, toolchain, gremlins, and the module-wide coverage run), and the
+# workflow holds 15 minutes of headroom. What is left is the budget.
+mutation_go_shard_budget_minutes() {
+  echo 55
+}
+
 # Per-shard gremlins timeout-coefficient override. Most shards inherit the
-# baseline in server/.gremlins.yaml (empty output => no CLI flag). The isolated
-# go-agentapi-backfill shard is the exception: its runtime is dominated by a
-# handful of conn_backfill.go guard-clause mutants that block under the
-# Postgres-backed harness and TIME OUT. gremlins already counts TIMED_OUT as
-# caught, so those mutants were never going to be reported as survivors — the
-# baseline's multi-minute per-mutant budget only burns wall-clock on them and
-# leaves the shard with no headroom under the 75-minute cap. A coefficient of 5
-# still gives a genuine slow Postgres mutant a comfortable budget (well above
-# the ~40s schema re-setup a real test pays) so no would-be survivor is falsely
-# credited as caught, while cutting the blocking mutants' budget by two-thirds
-# and restoring headroom. The baseline stays high globally because the wide
+# baseline in server/.gremlins.yaml (empty output => no CLI flag).
+#
+# The isolated go-agentapi-backfill shard is the exception: its runtime is
+# dominated by a handful of conn_backfill.go guard-clause mutants that block
+# under the Postgres-backed harness and TIME OUT. gremlins already counts
+# TIMED_OUT as caught, so those mutants were never going to be reported as
+# survivors — the baseline's multi-minute per-mutant budget only burns wall-clock
+# on them and leaves the shard with no headroom under the 75-minute cap. A
+# coefficient of 5 still gives a genuine slow Postgres mutant a comfortable
+# budget (well above the ~40 s schema re-setup a real test pays) so no would-be
+# survivor is falsely credited as caught, while cutting the blocking mutants'
+# budget by two-thirds. The baseline stays high globally because the wide
 # Postgres domain shards need it to avoid false timeouts inflating their score.
+#
+# A coefficient is a bound, not a cure: where a mutant blocks because the test
+# harness has no deadline of its own, the deadline is what to fix — a bounded
+# harness kills the same mutant in seconds instead of minutes.
 mutation_go_shard_timeout_coefficient() {
   case "$1" in
     go-agentapi-backfill) echo "5" ;;

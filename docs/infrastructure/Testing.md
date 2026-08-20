@@ -167,14 +167,30 @@ so shard reports can be merged without duplicate source counts.
 
 Each shard is named for the behavior it mutates, so a red leg says what lost
 coverage rather than which slice of an interleaved list failed. How many mutants
-a shard may hold is a measurement, not a habit: a mutant costs the per-mutant
-rebuild of its cargo package, which differs by an order of magnitude between
-packages, and the same file carries that number in
-`mutation_rust_package_milliminutes_per_mutant`. The projection is checked before
-the matrix runs by
+a shard may hold is a measurement, not a habit, and what one mutant costs differs
+by an order of magnitude on both legs:
+
+| Leg | What a mutant pays for | Recorded in |
+|---|---|---|
+| Rust | The per-mutant rebuild of its cargo package — `mesh-agent-core` relinks twenty-six test binaries, `edge-tsdb` far fewer | `mutation_rust_package_milliminutes_per_mutant` |
+| Go | Re-running the test packages that cover the mutated line — an `internal/api` handler re-pays the Postgres-backed API suite and the integration tests that reach it, an `internal/agentapi` mutant an in-process harness | `mutation_go_shard_seconds_per_mutant` |
+
+Both numbers come from completed nightly shards and are re-measured from a run
+rather than lowered to make a shard fit.
+
+The projection is checked before the matrix runs by
 [`mutation-shard-budget.sh`](../../scripts/mutation-shard-budget.sh) — a shard that
-has outgrown the job cap is reported in a couple of minutes instead of taking the
-whole nightly down with it after 75.
+has outgrown the job cap is reported in a few minutes instead of taking the whole
+nightly down with it after 75. The Go count comes from a `gremlins` dry-run
+rather than from the source, because a Go mutant runs only where coverage reaches
+it: adding an integration test grows a shard without a line of production code
+changing.
+
+A shard whose runtime is dominated by mutants that block rather than by mutants
+that run is sized by its timeout instead, through
+`mutation_go_shard_timeout_coefficient`: gremlins derives each mutant's budget
+from the coverage dry-run, and at the baseline coefficient a blocked mutant burns
+minutes of it, so a thirteen-mutant shard can fill a seventy-five-minute job.
 
 ### Mutation testing trend
 
