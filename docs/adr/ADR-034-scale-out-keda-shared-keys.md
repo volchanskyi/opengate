@@ -43,7 +43,7 @@ Session-aware autoscaling remains the preferred design shape because relay load
 is connection-bound rather than purely CPU-bound. It must be rebuilt only after
 distributed session routing, multi-node L4 exposure, and multi-replica
 availability are proven together. The complete dependency order is kept in
-[`Multiscale-Readiness.md`](../Multiscale-Readiness.md).
+[`Multiscale-Readiness.md`](../../.claude/plans/archive/multiscale-readiness.md).
 
 ## Consequences
 

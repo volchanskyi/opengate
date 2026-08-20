@@ -24,6 +24,22 @@ Backup scripts, retention jobs, alerting routines, and similar operational tooli
 
 ### /docs is the canonical developer documentation
 
-Each implementation phase ends with a [`/docs`](../../docs/) update step. The previous GitHub Wiki is deprecated; do not edit it.
+Each implementation phase ends with a [`/docs`](../../docs/) update step.
+
+`docs/` is three trees, and one test decides which one a paragraph belongs in:
+*does it describe something a technician or a customer can see or do, or does it
+describe how we build, deploy and run it?*
+
+| Tree | Holds |
+|---|---|
+| [`docs/product/`](../../docs/product/) | What the system does — one chapter per capability |
+| [`docs/architecture/`](../../docs/architecture/) | How it is built — components, protocol, API, schema |
+| [`docs/infrastructure/`](../../docs/infrastructure/) | How it runs — cluster, IaC, CI/CD, observability, test tooling |
+
+Enforced by
+[`scripts/tests/docs-seam.test.sh`](../../scripts/tests/docs-seam.test.sh): every
+chapter lives in exactly one tree, appears in exactly one
+[`Home.md`](../../docs/Home.md) row, and no product chapter links a `deploy/`,
+`.github/`, `Makefile` or `scripts/` path.
 
 Read [`/docs/README.md`](../../docs/README.md) before editing any doc — it defines the non-negotiable conventions: (1) **link, don't paraphrase** — do not copy numbers, versions, flags, or paths into prose, link to the source; (2) **all ADRs are mutable** — edit them in place to keep them accurate (including the combined 001–012 log); supersede with a new file only for genuine decision *changes*; (3) **docs and comments describe live state only** — never narrate removed/retired things ([`docs-live-state.md`](docs-live-state.md)).

@@ -126,7 +126,7 @@ surfaces connection count, transaction rate, and cache-hit ratio.
   maintenance window.
 - `sslmode=disable` is acceptable only while server ↔ Postgres traffic stays
   inside the Kubernetes cluster. If Postgres moves outside the cluster boundary,
-  switch to `sslmode=verify-full`; see [`docs/Database.md`](../Database.md).
+  switch to `sslmode=verify-full`; see [`docs/architecture/Database.md`](../architecture/Database.md).
 
 **Mitigated risks.**
 

@@ -5,6 +5,17 @@ workflow comment. Companion to [`editing-and-scope.md`](editing-and-scope.md)
 (`/docs` is canonical) and the [`docs/README.md`](../../docs/README.md)
 conventions.
 
+**Enforced by:**
+[`scripts/tests/docs-live-state.test.sh`](../../scripts/tests/docs-live-state.test.sh)
+(gauntlet shell-tests step). It matches paragraph-joined text, so a phrase that
+straddles an 80-column wrap is still caught, and it carries **no allowlist**. Its
+phrase list is narrower than the prose below — `used to `, `the old ` and
+`the previous ` match ordinary live writing and are deliberately absent — so
+clearing the gate is the floor, not the standard. Scope is `docs/**` minus
+`docs/adr/**` and `docs/Architecture-Decision-Records.md`: an ADR's Context
+section is required to state the problem the decision solved, so past-state is
+structural there.
+
 Documentation and comments describe **only what is currently in place and
 live**. There is no value in documenting something that is no longer part of the
 system.
@@ -35,7 +46,8 @@ matter, and rots the moment the next change lands.
 
 ## Exceptions
 
-- An ADR may record a genuine **decision change** through a `supersedes:` link —
+- Every ADR is out of the gate's scope for the reason above, and an ADR may
+  record a genuine **decision change** through a `supersedes:` link —
   that is a decision record, not descriptive prose. Its *descriptive* body still
   follows this rule. Every ADR is editable to keep it true, including the
   combined historical log

@@ -13,13 +13,13 @@ evidence required before activation.
 
 | Dimension | Current state | Source of truth |
 |---|---|---|
-| Server topology | One server replica containing API, QUIC, MPS, and relay | [`cd.yml`](../.github/workflows/cd.yml), [`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml) |
-| Session registry | Slim `SessionRegistry` port with the in-process adapter | [`registry.go`](../server/internal/relay/registry.go), [`main.go`](../server/cmd/meshserver/main.go) |
-| HTTP edge | ingress-nginx and cert-manager | [ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md) |
-| QUIC and MPS | Direct node `hostPort` exposure | [`values.yaml`](../deploy/helm/opengate/values.yaml) |
-| Database | In-cluster PostgreSQL | [`postgres-statefulset.yaml`](../deploy/helm/opengate/templates/postgres-statefulset.yaml) |
-| Shared keys | Production Secret mounted into `/data` | [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md), [`values-production.yaml`](../deploy/helm/opengate/values-production.yaml) |
-| Storage envelope | Production stays within the OCI free-tier block-volume design | [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) |
+| Server topology | One server replica containing API, QUIC, MPS, and relay | [`cd.yml`](../../../.github/workflows/cd.yml), [`server-deployment.yaml`](../../../deploy/helm/opengate/templates/server-deployment.yaml) |
+| Session registry | Slim `SessionRegistry` port with the in-process adapter | [`registry.go`](../../../server/internal/relay/registry.go), [`main.go`](../../../server/cmd/meshserver/main.go) |
+| HTTP edge | ingress-nginx and cert-manager | [ADR-030](../../../docs/adr/ADR-030-kubernetes-adoption-oke-helm.md) |
+| QUIC and MPS | Direct node `hostPort` exposure | [`values.yaml`](../../../deploy/helm/opengate/values.yaml) |
+| Database | In-cluster PostgreSQL | [`postgres-statefulset.yaml`](../../../deploy/helm/opengate/templates/postgres-statefulset.yaml) |
+| Shared keys | Production Secret mounted into `/data` | [ADR-034](../../../docs/adr/ADR-034-scale-out-keda-shared-keys.md), [`values-production.yaml`](../../../deploy/helm/opengate/values-production.yaml) |
+| Storage envelope | Production stays within the OCI free-tier block-volume design | [ADR-035](../../../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md) |
 
 The current architecture optimizes for operational simplicity and one live
 pairing process. Multi-replica routing is not a dormant switch; it is a rebuild
@@ -52,11 +52,11 @@ admission. Those are Large-tier concerns.
 
 | Constraint | Proof | Impact |
 |---|---|---|
-| The current app is a single full server | `server.replicas: 1`, `server.hostPortL4: true`, and QUIC/MPS `hostPort`s in [`values.yaml`](../deploy/helm/opengate/values.yaml) and [`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml) | Two full replicas on one node cannot both bind the same host ports; two nodes still lack safe session ownership |
-| Relay/session state is local | [ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md) documents the retained seam and removed distributed routing design | A browser and agent landing on different replicas would not be a safe configuration today |
-| Shared keys are necessary but insufficient | [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md) preserves key continuity but removed KEDA/PDB scale-out | Key sharing avoids trust split; it does not add distributed routing |
-| Storage is already at the free-tier design cap | [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) records prod Postgres, VictoriaMetrics, Loki, and node boot volume as the full free block-volume envelope | A second worker boot volume requires deleting, externalizing, or making ephemeral one existing persistent store |
-| The compute cap is enforced at the live free-tier entitlement | [`free_tier.tftest.hcl`](../deploy/terraform/modules/oke/tests/free_tier.tftest.hcl) asserts ≤2 OCPU / ≤12 GB total, matching Oracle's current Always Free A1 entitlement (1,500 OCPU-hrs / 9,000 GB-hrs per month) | A node-count or shape change that exceeds 2 OCPU / 12 GB fails the Terraform test at plan time; growth above the public baseline requires verified tenancy limits recorded in an ADR |
+| The current app is a single full server | `server.replicas: 1`, `server.hostPortL4: true`, and QUIC/MPS `hostPort`s in [`values.yaml`](../../../deploy/helm/opengate/values.yaml) and [`server-deployment.yaml`](../../../deploy/helm/opengate/templates/server-deployment.yaml) | Two full replicas on one node cannot both bind the same host ports; two nodes still lack safe session ownership |
+| Relay/session state is local | [ADR-023](../../../docs/adr/ADR-023-relay-extraction-redis-session-registry.md) documents the retained seam and removed distributed routing design | A browser and agent landing on different replicas would not be a safe configuration today |
+| Shared keys are necessary but insufficient | [ADR-034](../../../docs/adr/ADR-034-scale-out-keda-shared-keys.md) preserves key continuity but removed KEDA/PDB scale-out | Key sharing avoids trust split; it does not add distributed routing |
+| Storage is already at the free-tier design cap | [ADR-035](../../../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md) records prod Postgres, VictoriaMetrics, Loki, and node boot volume as the full free block-volume envelope | A second worker boot volume requires deleting, externalizing, or making ephemeral one existing persistent store |
+| The compute cap is enforced at the live free-tier entitlement | [`free_tier.tftest.hcl`](../../../deploy/terraform/modules/oke/tests/free_tier.tftest.hcl) asserts ≤2 OCPU / ≤12 GB total, matching Oracle's current Always Free A1 entitlement (1,500 OCPU-hrs / 9,000 GB-hrs per month) | A node-count or shape change that exceeds 2 OCPU / 12 GB fails the Terraform test at plan time; growth above the public baseline requires verified tenancy limits recorded in an ADR |
 | OCI networking has a free NLB option | Oracle's Always Free docs include one Network Load Balancer | An NLB can be evaluated for L4 exposure, but it does not solve application-level session ownership |
 
 Empirical checks for every Medium-Free proposal:
@@ -89,10 +89,10 @@ Before Medium-Free can be activated, the implementation must deliver:
    sessions, Edge-Sentinel report cadence, and retention.
 2. A rendered Helm/Terraform evidence bundle showing free-tier compute, storage,
    PVC, and L4 exposure counts.
-3. Load-test evidence from [`load-test.yml`](../.github/workflows/load-test.yml)
+3. Load-test evidence from [`load-test.yml`](../../../.github/workflows/load-test.yml)
    and `make load-test-quic`, including p95/p99 latency, error rate, reconnect
    behavior, and node CPU/memory saturation. The QUIC harness
-   ([`loadtest`](../server/tests/loadtest/main.go)) also drives the full
+   ([`loadtest`](../../../server/tests/loadtest/main.go)) also drives the full
    always-on Edge-Sentinel telemetry path so the same run folds it into the budget:
    `-default-telemetry` emits the default per-agent shape (health summary + host
    metric window + process report), `-tenant` spreads agents across tenant cohorts,
@@ -101,7 +101,7 @@ Before Medium-Free can be activated, the implementation must deliver:
    ingest and broker pulls. A run must show control-plane p99 within ~20% of the
    telemetry-free baseline, VM cardinality and disk growth tracking the model, and
    the reconnect storm draining without starving live traffic — observed on the
-   **Edge-Sentinel Soak** dashboard (see [Monitoring](Monitoring.md)).
+   **Edge-Sentinel Soak** dashboard (see [Monitoring](../../../docs/infrastructure/Monitoring.md)).
 4. A rollback runbook that returns to the current singleton values without data
    loss.
 5. An ADR if the chosen option changes topology, storage durability, L4
@@ -148,14 +148,14 @@ idle control connections, reconnection storms, and routing agent/browser pairs
 that land on different replicas.
 
 A reconnection storm does not become a telemetry-ingest storm. Edge-Sentinel
-reconnect backfill (see [Monitoring](Monitoring.md#reconnect-backfill-and-deep-history-pull))
+reconnect backfill (see [Monitoring](../../../docs/infrastructure/Monitoring.md#reconnect-backfill-and-deep-history-pull))
 is admission-controlled: because each agent's history is durable locally,
 backfill has no urgency, so the server scheduler
-([`backfill_scheduler.go`](../server/internal/agentapi/backfill_scheduler.go))
+([`backfill_scheduler.go`](../../../server/internal/agentapi/backfill_scheduler.go))
 grants a load-adaptive rate or defers agents that then hold their data and retry
 with jittered backoff — a fleet-wide reconnect drains gradually rather than
 stampeding VM. When KEDA scales the server past one replica
-([ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md)), the admission budget
+([ADR-034](../../../docs/adr/ADR-034-scale-out-keda-shared-keys.md)), the admission budget
 must gate on a shared VM-ingest-rate signal rather than per-replica counters.
 
 ## 4. Retained and Removed Capabilities
@@ -172,11 +172,11 @@ must gate on a shared VM-ingest-rate signal rather than per-replica counters.
 
 | Capability | Preserved decision record | Rebuild requirements |
 |---|---|---|
-| Distributed session registry | [ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md) | Atomic ownership, lifecycle events, deterministic adapter tests, backup/restore, monitoring, and failover drills |
-| Cross-server relay proxy | [ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md) | Authenticated peer routing, loop prevention, bounded teardown, network isolation, and foreign-owner end-to-end tests |
-| Session-aware autoscaling | [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md) | Capacity model, relay metric validation, safe replica ownership, and rollout tests |
-| Pod disruption policy | [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md) | Multi-replica availability target and node-drain evidence |
-| Multi-node QUIC/MPS exposure | [ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md) | OCI NLB or ingress-nginx L4 decision, source-IP validation, and failover tests |
+| Distributed session registry | [ADR-023](../../../docs/adr/ADR-023-relay-extraction-redis-session-registry.md) | Atomic ownership, lifecycle events, deterministic adapter tests, backup/restore, monitoring, and failover drills |
+| Cross-server relay proxy | [ADR-023](../../../docs/adr/ADR-023-relay-extraction-redis-session-registry.md) | Authenticated peer routing, loop prevention, bounded teardown, network isolation, and foreign-owner end-to-end tests |
+| Session-aware autoscaling | [ADR-034](../../../docs/adr/ADR-034-scale-out-keda-shared-keys.md) | Capacity model, relay metric validation, safe replica ownership, and rollout tests |
+| Pod disruption policy | [ADR-034](../../../docs/adr/ADR-034-scale-out-keda-shared-keys.md) | Multi-replica availability target and node-drain evidence |
+| Multi-node QUIC/MPS exposure | [ADR-030](../../../docs/adr/ADR-030-kubernetes-adoption-oke-helm.md) | OCI NLB or ingress-nginx L4 decision, source-IP validation, and failover tests |
 
 ## 5. Reconnection-Storm Readiness
 
@@ -184,8 +184,8 @@ A node restart or network interruption can make many agents reconnect
 simultaneously. The current control stream is client-first: the agent opens the
 QUIC stream and sends either `0x11` `AgentHello` for the full handshake or
 `0x14` `SkipAuth` for the reconnect fast path implemented by
-[`main.rs`](../agent/crates/mesh-agent/src/main.rs) and
-[`handshaker.go`](../server/internal/agentapi/handshaker.go).
+[`main.rs`](../../../agent/crates/mesh-agent/src/main.rs) and
+[`handshaker.go`](../../../server/internal/agentapi/handshaker.go).
 
 The fast path skips the ServerHello/AgentHello round-trip when the cached CA
 hash is current; it does **not** remove mTLS certificate verification. ADR-037
@@ -203,9 +203,9 @@ The scale-out design must benchmark and bound:
 - recovery when a gateway or relay replica disappears.
 
 The agent side of "connection-attempt backoff and jitter" has landed:
-[`reconnect_with_backoff`](../agent/crates/mesh-agent-core/src/connection.rs)
+[`reconnect_with_backoff`](../../../agent/crates/mesh-agent-core/src/connection.rs)
 applies full-jitter exponential backoff to connect attempts, and
-[`ReconnectGovernor`](../agent/crates/mesh-agent-core/src/connection.rs) bounds
+[`ReconnectGovernor`](../../../agent/crates/mesh-agent-core/src/connection.rs) bounds
 the reconnect rate when a *registered* session flaps — drops within a stability
 window of registering — so a connection the server accepts then immediately
 closes can no longer respin at the dial rate. What remains for activation is the
@@ -285,17 +285,17 @@ ship without backup, monitoring, and failover evidence.
 
 ## 11. References
 
-- [ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md) — retained
+- [ADR-023](../../../docs/adr/ADR-023-relay-extraction-redis-session-registry.md) — retained
   registry seam and removed distributed-routing design
-- [ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md) — current OKE and L4
+- [ADR-030](../../../docs/adr/ADR-030-kubernetes-adoption-oke-helm.md) — current OKE and L4
   posture
-- [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md) — shared keys and
+- [ADR-034](../../../docs/adr/ADR-034-scale-out-keda-shared-keys.md) — shared keys and
   removed autoscaling design
-- [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) — current
+- [ADR-035](../../../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md) — current
   storage envelope
-- [ADR-037](./adr/ADR-037-client-first-fast-path-reconnect.md) — current
+- [ADR-037](../../../docs/adr/ADR-037-client-first-fast-path-reconnect.md) — current
   client-first reconnect model
 - [Oracle Always Free Resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
   — current OCI free compute, storage, load-balancing, and service-limit guidance
-- [`relay`](../server/internal/relay/) — local pairing and registry seam
-- [`deploy/helm/opengate`](../deploy/helm/opengate/) — current deployment shape
+- [`relay`](../../../server/internal/relay) — local pairing and registry seam
+- [`deploy/helm/opengate`](../../../deploy/helm/opengate) — current deployment shape

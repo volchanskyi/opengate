@@ -27,7 +27,7 @@ Use logical multi-tenancy in the shared PostgreSQL database:
 - Enable and force Postgres Row-Level Security on tenant tables.
 - Thread tenant scope from JWT claim `tenant` through API middleware into request
   context.
-- Execute repository methods inside transactions that set
+- Execute repository methods inside `dbtx.Scoped` transactions that set
   `app.current_tenant` and `app.is_admin` with `SET LOCAL`.
 - Keep explicit `WHERE tenant_id = current_setting('app.current_tenant')::uuid`
   predicates and `tenant_id`-leading indexes on tenant lookup/list paths.

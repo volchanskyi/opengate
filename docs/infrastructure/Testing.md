@@ -4,7 +4,7 @@ The project follows a strict test-first approach. All logic is covered before sh
 
 ### Database Tests
 
-`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table. Integration and handler tests obtain stores through [`server/internal/testutil/testutil.go`](../server/internal/testutil/testutil.go)'s `NewTestStore(t)`, which creates a fresh PostgreSQL schema (`ogt_<uuid>`) per test, runs migrations on it, and drops it on cleanup — so tests may safely call `t.Parallel()`. Each test pool caps at 3 connections and a process-wide semaphore limits concurrent live stores; with the default Postgres `max_connections=100` the working set can saturate when many parallel tests overlap, so the project's Makefile (`make postgres-test-up`) and CI launch Postgres with `-c max_connections=400`. When `POSTGRES_TEST_URL` is unset, [`server/internal/testpg`](../server/internal/testpg/testpg.go) starts a throwaway container with the same setting and fails loudly if it cannot — a database-backed test always runs.
+`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table. Integration and handler tests obtain stores through [`server/internal/testutil/testutil.go`](../../server/internal/testutil/testutil.go)'s `NewTestStore(t)`, which creates a fresh PostgreSQL schema (`ogt_<uuid>`) per test, runs migrations on it, and drops it on cleanup — so tests may safely call `t.Parallel()`. Each test pool caps at 3 connections and a process-wide semaphore limits concurrent live stores; with the default Postgres `max_connections=100` the working set can saturate when many parallel tests overlap, so the project's Makefile (`make postgres-test-up`) and CI launch Postgres with `-c max_connections=400`. When `POSTGRES_TEST_URL` is unset, [`server/internal/testpg`](../../server/internal/testpg/testpg.go) starts a throwaway container with the same setting and fails loudly if it cannot — a database-backed test always runs.
 
 To run the DB tests locally:
 
@@ -21,9 +21,9 @@ POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:5432/opengate_test?ssl
 
 ### Telemetry-store tests
 
-The packages under [`server/tests/`](../server/tests/) that measure the central
+The packages under [`server/tests/`](../../server/tests) that measure the central
 store — cardinality, backfill, and per-series cost — run against a real
-VictoriaMetrics, never a mock. [`server/internal/testvm`](../server/internal/testvm/testvm.go)
+VictoriaMetrics, never a mock. [`server/internal/testvm`](../../server/internal/testvm/testvm.go)
 supplies it: `VICTORIAMETRICS_TEST_URL` when set, otherwise a throwaway
 container, failing loudly rather than skipping.
 
@@ -33,7 +33,7 @@ package starts its own store, and several of them holding a fleet's worth of
 series at once is enough memory pressure for the kernel to kill one mid-run —
 which surfaces as an unrelated package failing on a refused connection.
 `make victoriametrics-test-up` starts the shared instance and prints the export;
-[`scripts/test-go.sh`](../scripts/test-go.sh) (behind `make test-go`) and the
+[`scripts/test-go.sh`](../../scripts/test-go.sh) (behind `make test-go`) and the
 precommit gauntlet both do it automatically.
 
 A measurement that reads the store's *own* memory or disk needs the opposite —
@@ -73,7 +73,7 @@ which ignores the shared URL by design.
 |-------|-------|----------|
 | **Unit (Go)** | `testing` + testify | `server/internal/*/` |
 | **Unit (Rust)** | `#[test]` + proptest | `agent/crates/*/` |
-| **Fuzz (Rust)** | cargo-fuzz / libFuzzer (nightly) + stable corpus replay | [`agent/fuzz/`](../agent/fuzz/), [`decode_corpus_test.rs`](../agent/crates/mesh-protocol/tests/decode_corpus_test.rs) |
+| **Fuzz (Rust)** | cargo-fuzz / libFuzzer (nightly) + stable corpus replay | [`agent/fuzz/`](../../agent/fuzz), [`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs) |
 | **Integration** | `httptest` + real QUIC + live Postgres | `server/tests/integration/` |
 | **Golden** | Rust generates → Go verifies | `testdata/golden/` |
 | **Web Unit** | Vitest + React Testing Library | `web/src/**/*.test.{ts,tsx}` |
@@ -112,7 +112,7 @@ cd web && npx vitest run
 
 ### Coverage enforcement
 
-All three languages enforce a minimum line-coverage threshold both in CI and locally (via `/precommit`). The enforced values live in the coverage steps of [`ci.yml`](../.github/workflows/ci.yml) (search for `THRESHOLD` and `fail-under-lines`) — the commands below mirror them:
+All three languages enforce a minimum line-coverage threshold both in CI and locally (via `/precommit`). The enforced values live in the coverage steps of [`ci.yml`](../../.github/workflows/ci.yml) (search for `THRESHOLD` and `fail-under-lines`) — the commands below mirror them:
 
 ```bash
 # Go — coverage; only test scaffolding and generated code are filtered out
@@ -133,8 +133,8 @@ Every production path counts toward the threshold in all three languages. A
 coverage exclusion is a last resort that needs explicit approval, names the
 reason no in-process test can execute the file, and is deleted as soon as that
 stops being true — see
-[`.claude/rules/coverage-exclusions.md`](../.claude/rules/coverage-exclusions.md).
-[`scripts/sonar-coverage-exclusion-guard.sh`](../scripts/sonar-coverage-exclusion-guard.sh)
+[`.claude/rules/coverage-exclusions.md`](../../.claude/rules/coverage-exclusions.md).
+[`scripts/sonar-coverage-exclusion-guard.sh`](../../scripts/sonar-coverage-exclusion-guard.sh)
 enforces the mechanical half in the gauntlet: every entry justified, no listed
 path missing, the per-language ignore lists identical across CI and the local
 run, and a file split out of an excluded file carrying its exclusion with it.
@@ -147,11 +147,11 @@ gremlins (Go), and stryker (Web).
 
 **Carve-outs** (genuinely unmutateable code, analogous to platform shims). Each
 config carries a per-entry justification next to the exclusion it explains:
-- Rust: [agent/.cargo/mutants.toml](../agent/.cargo/mutants.toml) — platform
+- Rust: [agent/.cargo/mutants.toml](../../agent/.cargo/mutants.toml) — platform
   shims, agent binary entry point, SELinux restorecon match guards.
-- Go:   [server/.gremlins.yaml](../server/.gremlins.yaml) — `openapi_gen.go`,
+- Go:   [server/.gremlins.yaml](../../server/.gremlins.yaml) — `openapi_gen.go`,
   `cmd/meshserver/main.go`, `tests/loadtest/main.go`, `internal/testutil/`.
-- Web:  [web/stryker.config.json](../web/stryker.config.json) — `main.tsx`,
+- Web:  [web/stryker.config.json](../../web/stryker.config.json) — `main.tsx`,
   `router.tsx`, `icons.tsx`, generated `*.d.ts`, and the two hooks whose logic
   only runs against a real DOM (`use-terminal.ts`, `use-remote-desktop.ts`).
 
@@ -160,8 +160,8 @@ tests resolve fixtures inside cargo-mutants' temp tree. The `mutate-rust`
 make target sets this automatically.
 
 CI shard ids and source ownership for both languages live in
-[`mutation-shards.sh`](../scripts/lib/mutation-shards.sh). The behavioral guard in
-[`mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh) requires
+[`mutation-shards.sh`](../../scripts/lib/mutation-shards.sh). The behavioral guard in
+[`mutation-workflow.test.sh`](../../scripts/tests/mutation-workflow.test.sh) requires
 every non-test source to belong to one mutation unit or an explicit carve-out,
 so shard reports can be merged without duplicate source counts.
 
@@ -172,29 +172,29 @@ rebuild of its cargo package, which differs by an order of magnitude between
 packages, and the same file carries that number in
 `mutation_rust_package_milliminutes_per_mutant`. The projection is checked before
 the matrix runs by
-[`mutation-shard-budget.sh`](../scripts/mutation-shard-budget.sh) — a shard that
+[`mutation-shard-budget.sh`](../../scripts/mutation-shard-budget.sh) — a shard that
 has outgrown the job cap is reported in a couple of minutes instead of taking the
 whole nightly down with it after 75.
 
 ### Mutation testing trend
 
 Mutation tests do **not** gate merges or deploys. They run **nightly** via the
-[mutation.yml workflow](../.github/workflows/mutation.yml) and
+[mutation.yml workflow](../../.github/workflows/mutation.yml) and
 emit a row per run to:
 
 - **VictoriaMetrics** — mapped by
-  [`scripts/mutation-vm-push.sh`](../scripts/mutation-vm-push.sh) for complete
+  [`scripts/mutation-vm-push.sh`](../../scripts/mutation-vm-push.sh) for complete
   score rows and
-  [`scripts/mutation-status-vm-push.sh`](../scripts/mutation-status-vm-push.sh)
+  [`scripts/mutation-status-vm-push.sh`](../../scripts/mutation-status-vm-push.sh)
   for run/shard completeness, both sent through the shared
-  [`vm-push.sh`](../scripts/lib/vm-push.sh) transport. Visualised by the provisioned
-  [`mutation-trend.json`](../deploy/grafana/provisioning/dashboards/mutation-trend.json)
+  [`vm-push.sh`](../../scripts/lib/vm-push.sh) transport. Visualised by the provisioned
+  [`mutation-trend.json`](../../deploy/grafana/provisioning/dashboards/mutation-trend.json)
   dashboard. Canonical trend store per
-  [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md).
+  [ADR-038](../adr/ADR-038-victoriametrics-ci-trend-store.md).
 - **Workflow artifacts** — every run uploads `mutation-run-status`; only a complete
   artifact set uploads `mutation-canonical-row`. Validation and the no-partial-row
   contract are implemented by
-  [`mutation-status-build.sh`](../scripts/mutation-status-build.sh) and the strict
+  [`mutation-status-build.sh`](../../scripts/mutation-status-build.sh) and the strict
   language merge scripts beside it.
 
 Numeric mutation-score history lives in VictoriaMetrics + Grafana, the right
@@ -207,7 +207,7 @@ does not emit a canonical language score from whichever shards happened to finis
 condition: its absolute score crosses below the floor, or it drops by more than
 the allowed margin from the previous successful run. Both values are the
 `REGRESSION_FLOOR_PCT` / `REGRESSION_DROP_PP` constants in
-[`mutation-summarize.sh`](../scripts/mutation-summarize.sh).
+[`mutation-summarize.sh`](../../scripts/mutation-summarize.sh).
 
 The `no_coverage` field is reported as `—` for Rust: cargo-mutants does not
 distinguish "missed" from "not covered" — every untested mutant lands in
@@ -226,16 +226,16 @@ blocks `merge-to-main`.
 ### Fuzzing
 
 The wire decoder is the agent's primary untrusted-input surface, so
-[`Frame::decode`](../agent/crates/mesh-protocol/src/codec.rs) has a coverage-guided
-cargo-fuzz / libFuzzer target ([`agent/fuzz/fuzz_targets/decode.rs`](../agent/fuzz/fuzz_targets/decode.rs))
+[`Frame::decode`](../../agent/crates/mesh-protocol/src/codec.rs) has a coverage-guided
+cargo-fuzz / libFuzzer target ([`agent/fuzz/fuzz_targets/decode.rs`](../../agent/fuzz/fuzz_targets/decode.rs))
 that asserts arbitrary bytes never panic. libFuzzer needs a nightly toolchain, so
 the bounded session runs as observability — `make fuzz-rust` locally, and the
-nightly [fuzz.yml workflow](../.github/workflows/fuzz.yml) in CI — never as a
+nightly [fuzz.yml workflow](../../.github/workflows/fuzz.yml) in CI — never as a
 merge gate.
 
 The always-run guard on stable is
-[`decode_corpus_test.rs`](../agent/crates/mesh-protocol/tests/decode_corpus_test.rs):
-it replays every seed in [`agent/fuzz/corpus/decode/`](../agent/fuzz/corpus/decode/)
+[`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs):
+it replays every seed in [`agent/fuzz/corpus/decode/`](../../agent/fuzz/corpus/decode)
 (crafted edge cases per decode branch, a real encoded frame, plus any minimized
 crash) through the decoder under plain `cargo test`. A crash found by the nightly
 fuzzer is minimized and committed back into that corpus, so the stable replay
@@ -264,10 +264,10 @@ cd web && lhci autorun
 
 ## Performance Benchmarks
 
-The standalone [benchmark workflow](../.github/workflows/benchmark.yml) tracks hot-path
+The standalone [benchmark workflow](../../.github/workflows/benchmark.yml) tracks hot-path
 performance trends in VictoriaMetrics. Allocation metrics (`allocs/op`, `B/op`) are
 deterministic and gate against the committed
-[baseline](../benchmarks/baseline.json); wall-clock `ns/op` gates against a
+[baseline](../../benchmarks/baseline.json); wall-clock `ns/op` gates against a
 VictoriaMetrics window baseline plus an absolute ceiling, sized from the live
 series' measured variance because shared GitHub runners are noisy. See
 [CI Pipeline](./CI-Pipeline.md) for the gate semantics.
@@ -290,7 +290,7 @@ cd agent && cargo bench -p mesh-agent-core --bench edge_sentinel_bench
 
 ### Regression model
 
-The committed [`benchmarks/baseline.json`](../benchmarks/baseline.json) is the reviewed
+The committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) is the reviewed
 baseline. Allocation regressions above the baseline tolerance fail the workflow; `ns/op`
 outliers are emitted as advisory lines and graphed on the Grafana **Benchmark Trends**
 dashboard.
@@ -371,7 +371,7 @@ ERROR: error getting credentials - err: fork/exec
 /usr/bin/docker-credential-desktop.exe: exec format error
 ```
 
-[`scripts/docker-credstore-guard.sh`](../scripts/docker-credstore-guard.sh)
+[`scripts/docker-credstore-guard.sh`](../../scripts/docker-credstore-guard.sh)
 handles this automatically: it probes the configured helper and, only if it is
 broken, exports a `DOCKER_CONFIG` whose `config.json` has `credsStore`/
 `credHelpers` stripped (every other key — including `auths` — preserved), so
@@ -396,11 +396,11 @@ The codebase audit added targeted tests for security hardening:
 |-----------|----------|
 | `server/internal/api/ratelimit_test.go` | Under/over limit behavior, per-IP independence, `X-Forwarded-For` parsing |
 | `server/internal/api/middleware_test.go` | `RequestTimeout` middleware, HSTS header assertion in `SecurityHeaders` |
-| [`server/internal/api/auth_handlers_test.go`](../server/internal/api/auth_handlers_test.go) | Email validation (invalid formats rejected, valid formats accepted) |
+| [`server/internal/api/auth_handlers_test.go`](../../server/internal/api/auth_handlers_test.go) | Email validation (invalid formats rejected, valid formats accepted) |
 | `web/src/components/ErrorBoundary.test.tsx` | Error boundary renders fallback UI on child component crash |
 | `server/tests/integration/middleware_ws_test.go` | Full middleware stack preserves `http.Hijacker` for WS upgrades, relay route bypasses 30s `RequestTimeout` |
 
-The Playwright E2E suite in [`web/e2e/`](../web/e2e/) passes with the auth rate limiter active, confirming no regressions from the middleware.
+The Playwright E2E suite in [`web/e2e/`](../../web/e2e) passes with the auth rate limiter active, confirming no regressions from the middleware.
 
 ### Tenancy contracts
 
@@ -409,9 +409,9 @@ endpoint at a time, so a table or an endpoint added later cannot quietly opt out
 
 | Test | What it enforces |
 |---|---|
-| [`TestTenantIsolationCoversEveryTenantTable`](../server/internal/db/tenant_isolation_test.go) | For every tenant table: the caller sees its own row and not the other tenant's, in both directions, and an unscoped read fails closed rather than reading as an empty tenant |
-| [`TestEveryTenantTableIsProbed`](../server/internal/db/tenant_isolation_test.go) | That the contract above covers the whole schema. The probes are hand-written static SQL, so this reads back the tables carrying `tenant_id` and insists the two lists agree — a table added later with no probe fails here instead of going unproven |
-| [`TestFleetReadsOfferTheOrganizationFilter`](../server/internal/api/organization_filter_contract_test.go) | Every operation in [`api/openapi.yaml`](../api/openapi.yaml) whose 200 response is a set of devices, or a rollup over one, declares the `organization_id` query parameter. Derived from the response shape, so a fleet read added without the filter fails rather than showing a technician every customer at once |
+| [`TestTenantIsolationCoversEveryTenantTable`](../../server/internal/db/tenant_isolation_test.go) | For every tenant table: the caller sees its own row and not the other tenant's, in both directions, and an unscoped read fails closed rather than reading as an empty tenant |
+| [`TestEveryTenantTableIsProbed`](../../server/internal/db/tenant_isolation_test.go) | That the contract above covers the whole schema. The probes are hand-written static SQL, so this reads back the tables carrying `tenant_id` and insists the two lists agree — a table added later with no probe fails here instead of going unproven |
+| [`TestFleetReadsOfferTheOrganizationFilter`](../../server/internal/api/organization_filter_contract_test.go) | Every operation in [`api/openapi.yaml`](../../api/openapi.yaml) whose 200 response is a set of devices, or a rollup over one, declares the `organization_id` query parameter. Derived from the response shape, so a fleet read added without the filter fails rather than showing a technician every customer at once |
 
 ## Cross-Component Integration Tests
 
@@ -419,7 +419,7 @@ These tests exercise multi-component interaction paths that unit tests cannot co
 
 ### Agent SessionHandler (Rust)
 
-[`agent/crates/mesh-agent-core/src/session/handler.rs`](../agent/crates/mesh-agent-core/src/session/handler.rs) covers frame dispatch, permission enforcement, and error paths. A representative slice:
+[`agent/crates/mesh-agent-core/src/session/handler.rs`](../../agent/crates/mesh-agent-core/src/session/handler.rs) covers frame dispatch, permission enforcement, and error paths. A representative slice:
 
 | Test | What It Verifies |
 |------|-----------------|
@@ -451,7 +451,7 @@ Sends properly encoded `[type][4-byte BE length][payload]` frames through the fu
 
 ### WebRTC Signaling via Relay (Go)
 
-[`server/tests/integration/signaling_relay_test.go`](../server/tests/integration/signaling_relay_test.go):
+[`server/tests/integration/signaling_relay_test.go`](../../server/tests/integration/signaling_relay_test.go):
 
 | Test | What It Verifies |
 |------|-----------------|
@@ -462,7 +462,7 @@ Uses fake SDP strings — the relay is message-agnostic and just forwards binary
 
 ### OTA Update Pipeline (Go + Rust)
 
-**Go** (the `update*_test.go` files under [`server/tests/integration/`](../server/tests/integration/)):
+**Go** (the `update*_test.go` files under [`server/tests/integration/`](../../server/tests/integration)):
 
 | Test | What It Verifies |
 |------|-----------------|
@@ -470,7 +470,7 @@ Uses fake SDP strings — the relay is message-agnostic and just forwards binary
 | `TestUpdatePushSkipsCurrentVersion` | Agent already on target version → `pushed_count=0` |
 | `TestUpdatePushNoMatchingOS` | Manifest for windows/amd64, agent is linux/amd64 → not pushed |
 
-**Rust** ([`agent/crates/mesh-agent-core/src/update.rs`](../agent/crates/mesh-agent-core/src/update.rs)):
+**Rust** ([`agent/crates/mesh-agent-core/src/update.rs`](../../agent/crates/mesh-agent-core/src/update.rs)):
 
 | Test | What It Verifies |
 |------|-----------------|
@@ -478,7 +478,7 @@ Uses fake SDP strings — the relay is message-agnostic and just forwards binary
 
 ### The triage path, agent to resolution (Go)
 
-[`investigations_test.go`](../server/tests/integration/investigations_test.go)
+[`investigations_test.go`](../../server/tests/integration/investigations_test.go)
 walks one event from the machine that raised it to the technician who closed it:
 a real agent encodes an `AgentAlert` with compressed evidence onto its own QUIC
 control stream, the server admits and files it, the fold opens a room for it, the
@@ -490,9 +490,9 @@ is refused before one that names it closes the room.
 | `TestTriagePathFromAgentAlertToResolution` | QUIC `AgentAlert` + evidence → stored alert → open incident in the queue → evidence decoded from the room → resolution refused without a cause code, then accepted with one |
 
 Each leg has unit coverage of its own — admission in
-[`internal/agentapi`](../server/internal/agentapi/), folding and lifecycle in
-[`internal/alerts`](../server/internal/alerts/), the workspace in
-[`investigations.spec.ts`](../web/e2e/investigations.spec.ts). This is the test
+[`internal/agentapi`](../../server/internal/agentapi), folding and lifecycle in
+[`internal/alerts`](../../server/internal/alerts), the workspace in
+[`investigations.spec.ts`](../../web/e2e/investigations.spec.ts). This is the test
 that the legs join up, and it runs against a real Postgres and a real QUIC
 listener because the seams it is about only exist there. It lives here rather
 than in the Playwright suite because the browser stack runs a server and a
@@ -503,17 +503,17 @@ something is wrong.
 
 ### k6 HTTP/WS Scenarios
 
-Three k6 scenarios in [`load/k6/scenarios/`](../load/k6/scenarios/), each declaring
+Three k6 scenarios in [`load/k6/scenarios/`](../../load/k6/scenarios), each declaring
 its own VU ramp and thresholds in its `options` block:
 
 | Scenario | Exercises |
 |----------|-----------|
-| [`api-baseline.js`](../load/k6/scenarios/api-baseline.js) | Health, current user, sites, and the device list under a steady ramp |
-| [`relay-throughput.js`](../load/k6/scenarios/relay-throughput.js) | Relay latency alongside constant health and site reads |
-| [`concurrent-agents.js`](../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's sites |
+| [`api-baseline.js`](../../load/k6/scenarios/api-baseline.js) | Health, current user, sites, and the device list under a steady ramp |
+| [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | Relay latency alongside constant health and site reads |
+| [`concurrent-agents.js`](../../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's sites |
 
 `setup()` registers a throwaway member of the staging organization through
-[`load/k6/lib/session.js`](../load/k6/lib/session.js) and reads the sites that
+[`load/k6/lib/session.js`](../../load/k6/lib/session.js) and reads the sites that
 member can see. The scenarios drive read paths only: organization is the visibility
 boundary, so a member reads the whole fleet, while creating a site is administrator
 work the server refuses. A scenario that stood up its own fixtures would measure the
@@ -521,20 +521,20 @@ work the server refuses. A scenario that stood up its own fixtures would measure
 names itself rather than turning every request in the run red.
 
 The scenarios spell their URLs by hand, so
-[`scripts/tests/api-endpoint-drift.test.sh`](../scripts/tests/api-endpoint-drift.test.sh)
+[`scripts/tests/api-endpoint-drift.test.sh`](../../scripts/tests/api-endpoint-drift.test.sh)
 checks every path and query parameter they send — and every one
-[`deploy/scripts/smoke-test.sh`](../deploy/scripts/smoke-test.sh) probes — against
-[`api/openapi.yaml`](../api/openapi.yaml), which is what makes a route rename fail
+[`deploy/scripts/smoke-test.sh`](../../deploy/scripts/smoke-test.sh) probes — against
+[`api/openapi.yaml`](../../api/openapi.yaml), which is what makes a route rename fail
 in the gauntlet rather than in the nightly.
 
-[`scripts/loadtest-k6-run.sh`](../scripts/loadtest-k6-run.sh) runs each scenario and
+[`scripts/loadtest-k6-run.sh`](../../scripts/loadtest-k6-run.sh) runs each scenario and
 keeps its summary export only when the run produced a measurement. A failed
 threshold counts; a script exception does not, and its export is discarded so the
 handful of requests `setup()` managed never enters the trend the regression check
 compares against.
 
 Against staging, k6 itself runs in a short-lived cluster pod through
-[`scripts/loadtest-k6-incluster.sh`](../scripts/loadtest-k6-incluster.sh), which
+[`scripts/loadtest-k6-incluster.sh`](../../scripts/loadtest-k6-incluster.sh), which
 executes the same k6 argument list beside the server and copies the summary export
 back to the runner for the decision above. Generating load one hop from the server
 is what keeps the trend a measurement of the server rather than of the path to it.

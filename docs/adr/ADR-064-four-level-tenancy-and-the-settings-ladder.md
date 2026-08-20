@@ -139,7 +139,7 @@ through this ladder rather than defining their own ordering.
 
 ## References
 
-- [`docs/Database.md`](../Database.md) — the schema-level description.
+- [`docs/architecture/Database.md`](../architecture/Database.md) — the schema-level description.
 - [`012_sites`](../../server/internal/db/migrations/012_sites.up.sql) and
   [`011_organizations`](../../server/internal/db/migrations/011_organizations.up.sql).
 - [ADR-062](ADR-062-tenant-scoped-reads-and-fleet-summary.md) — the visibility and

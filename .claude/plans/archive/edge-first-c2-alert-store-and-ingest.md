@@ -43,7 +43,7 @@ convention (D30).
 - **Modify:** [.go-arch-lint.yml](../../../server/.go-arch-lint.yml),
   [scoped_sql_test.go](../../../server/internal/dbtx/scoped_sql_test.go) (tenant-table gate),
   [store_part4_test.go](../../../server/internal/db/store_part4_test.go) (migration rehearsal).
-- **Docs:** [Database.md](../../../docs/Database.md), [Data-Lifecycle.md](../../../docs/Data-Lifecycle.md).
+- **Docs:** [Database.md](../../../docs/architecture/Database.md), [Data-Lifecycle.md](../../../docs/product/Data-Erasure.md).
 
 ## Steps (TDD-first)
 

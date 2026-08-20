@@ -101,7 +101,7 @@ it observable; the measurement is
 `increase(opengate_alerts_created_total[24h])` over the fleet size, and the fleet
 size is read off the coverage gauge whose four states always sum to it. The
 procedure and the decision that follows from each outcome are written into
-[Monitoring.md](../Monitoring.md).
+[Monitoring.md](../infrastructure/Monitoring.md).
 
 **A figure from a synthetic soak is a figure about the harness, and is reported
 as one.** The soak fleet is a single device; five canary machines on a

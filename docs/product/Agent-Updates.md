@@ -1,6 +1,6 @@
 # Agent Auto-Update
 
-See also: [ADR-005 in Architecture Decision Records](Architecture-Decision-Records.md)
+See also: [ADR-005 in Architecture Decision Records](../Architecture-Decision-Records.md)
 
 ## Overview
 
@@ -74,11 +74,11 @@ Before applying an update, the agent compares the incoming version against its c
 
 ## Content-Hash Precheck
 
-After the version check passes, `apply_update` ([`agent/crates/mesh-agent-core/src/update.rs`](../agent/crates/mesh-agent-core/src/update.rs)) hashes the currently-running binary and compares it against the manifest's `sha256` **before** downloading. If they match, the update is a no-op — no download, no swap, no watchdog — and the function returns `Ok(false)` (the caller sends the same `already up to date` ack as the version-skip branch).
+After the version check passes, `apply_update` ([`agent/crates/mesh-agent-core/src/update.rs`](../../agent/crates/mesh-agent-core/src/update.rs)) hashes the currently-running binary and compares it against the manifest's `sha256` **before** downloading. If they match, the update is a no-op — no download, no swap, no watchdog — and the function returns `Ok(false)` (the caller sends the same `already up to date` ack as the version-skip branch).
 
-This protects against a server publishing a manifest whose `sha256` already matches the running binary (e.g. a re-published manifest after a metadata-only edit, or — historically — a workflow that auto-built agent binaries on every `feat:`/`fix:` even when `agent/**` was untouched). The workflow-level gate in [`.github/workflows/release-agent.yml`](../.github/workflows/release-agent.yml) is the primary defense (skips the build entirely when `agent/**` is unchanged since the previous `v*` tag); the precheck is belt-and-suspenders for paths that bypass it (manual `workflow_dispatch`, future auto-publish flows).
+This protects against a server publishing a manifest whose `sha256` already matches the running binary — for instance a manifest re-published after a metadata-only edit. The primary defense is upstream, in the release build itself, which skips building at all when the agent sources are unchanged since the previous tag ([CI Pipeline](../infrastructure/CI-Pipeline.md#release-workflows)); the precheck is belt-and-suspenders for the paths that bypass that gate, such as a manual run.
 
-The precheck is bypassed when `sha256` is empty (legacy manifests) or the current binary path doesn't exist (non-standard install layout).
+The precheck is bypassed when `sha256` is empty or the current binary path doesn't exist (non-standard install layout).
 
 ## Rollback Mechanism
 
@@ -134,11 +134,11 @@ The public key is delivered out-of-band during enrollment (see [Signing Key Deli
 Update actions live next to the devices they act on; the Agent Settings page owns
 enrollment only.
 
-**Agent Settings** ([`AgentUpdates.tsx`](../web/src/features/admin/AgentUpdates.tsx), route `/updates`) manages enrollment tokens: create a token with a label, use cap and expiry; reveal or mask its value; delete one; and bulk-clean every inactive (expired or exhausted) token behind a confirm step.
+**Agent Settings** ([`AgentUpdates.tsx`](../../web/src/features/admin/AgentUpdates.tsx), route `/updates`) manages enrollment tokens: create a token with a label, use cap and expiry; reveal or mask its value; delete one; and bulk-clean every inactive (expired or exhausted) token behind a confirm step.
 
-**Device Detail** ([`DeviceDetail.tsx`](../web/src/features/devices/DeviceDetail.tsx)) offers an upgrade button for a single device when a newer manifest matches its OS/arch, resolved from the manifest list the page fetches on mount.
+**Device Detail** ([`DeviceDetail.tsx`](../../web/src/features/devices/DeviceDetail.tsx)) offers an upgrade button for a single device when a newer manifest matches its OS/arch, resolved from the manifest list the page fetches on mount.
 
-**Device List** ([`DeviceList.tsx`](../web/src/features/devices/DeviceList.tsx)) offers "Upgrade All Agents" across every outdated device, picking each device's newest matching manifest by numeric version compare and reporting per-device success and failure counts.
+**Device List** ([`DeviceList.tsx`](../../web/src/features/devices/DeviceList.tsx)) offers "Upgrade All Agents" across every outdated device, picking each device's newest matching manifest by numeric version compare and reporting per-device success and failure counts.
 
 Manifests reach the server through [GitHub Release Sync](#github-release-sync) or a direct `POST /api/v1/updates/manifests`; the signing key is delivered to agents during enrollment (see [Signing Key Delivery](#signing-key-delivery)).
 

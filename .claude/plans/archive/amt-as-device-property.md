@@ -194,7 +194,7 @@ ADR-042, so no capability gate is needed.
 ### Docs
 
 `docs/adr/ADR-061-amt-as-device-property.md` (new) + [`decisions.md`](../../decisions.md)
-row; [`docs/API-Reference.md`](../../../docs/API-Reference.md) AMT section;
+row; [`docs/API-Reference.md`](../../../docs/architecture/API-Reference.md) AMT section;
 [`phases.md`](../../phases.md) Completed row.
 
 ---

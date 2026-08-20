@@ -153,7 +153,7 @@ terraform-drift:
 # Both targets shell into deploy/scripts/bastion-session.sh, which caches the
 # active session OCID + expiry at ~/.cache/opengate/bastion-session.json so
 # subsequent invocations within the 3 h TTL skip the 5–10 s session create.
-# Prerequisites and IAM setup live in docs/Infrastructure.md → "Operator
+# Prerequisites and IAM setup live in docs/infrastructure/OCI-Terraform.md → "Operator
 # access via OCI Bastion".
 # ----------------------------------------------------------------------------
 

@@ -90,7 +90,7 @@ that now needs a staleness rule to suppress.
 - **Modify:** [.go-arch-lint.yml](../../../server/.go-arch-lint.yml), the scoped-SQL tenant-table gate
   ([scoped_sql_test.go](../../../server/internal/dbtx/scoped_sql_test.go)), and the migration rehearsal
   ([store_part4_test.go](../../../server/internal/db/store_part4_test.go)).
-- **Docs:** [Database.md](../../../docs/Database.md), [Monitoring.md](../../../docs/Monitoring.md).
+- **Docs:** [Database.md](../../../docs/architecture/Database.md), [Monitoring.md](../../../docs/infrastructure/Monitoring.md).
 
 ## Schema (from §7.4)
 

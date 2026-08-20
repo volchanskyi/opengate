@@ -39,7 +39,7 @@ customer machines.
   rules, which is what makes `kill` effective without a deploy.
 - **Modify:** the agent's evaluator budget — per-rule CPU/IO accounting with a **hard** throttle
   (Q6), reported so the server's gate can see a trip.
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md).
 
 ## Steps (TDD-first)
 

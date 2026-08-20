@@ -110,7 +110,7 @@ when maintenance began.
 - There is no measurement-gated default-on flip and no sustained-soak or
   ARM-footprint gate: the collectors ship on, and the load harness plus ingest
   metrics remain as ongoing observability of the telemetry path
-  ([Monitoring](../Monitoring.md)).
+  ([Monitoring](../infrastructure/Monitoring.md)).
 - An administrator can quiet a device for planned work without turning it red,
   paging on-call, or corrupting the anomaly baseline, while keeping full remote
   management.

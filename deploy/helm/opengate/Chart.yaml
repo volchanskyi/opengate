@@ -3,7 +3,7 @@ name: opengate
 description: OpenGate remote device management platform — server + Postgres + ingress (Phase 13b PR-B)
 type: application
 # Chart version tracks the chart; appVersion tracks the server image and is
-# overridden at deploy time via `--set image.tag` (CD) — see docs/Kubernetes.md.
+# overridden at deploy time via `--set image.tag` (CD) — see docs/infrastructure/Kubernetes.md.
 version: 0.1.0
 appVersion: "latest"
 keywords:

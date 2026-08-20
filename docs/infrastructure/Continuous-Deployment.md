@@ -4,10 +4,10 @@
 
 The deployment chain is defined by the repository workflows:
 
-1. [`ci.yml`](../.github/workflows/ci.yml) validates changes.
-2. [`build-image.yml`](../.github/workflows/build-image.yml) publishes the signed
+1. [`ci.yml`](../../.github/workflows/ci.yml) validates changes.
+2. [`build-image.yml`](../../.github/workflows/build-image.yml) publishes the signed
    server image.
-3. [`cd.yml`](../.github/workflows/cd.yml) verifies the image, deploys staging,
+3. [`cd.yml`](../../.github/workflows/cd.yml) verifies the image, deploys staging,
    validates it, and then deploys production after environment approval.
 
 The CD workflow also supports a manual image-tag dispatch. Deployments are
@@ -36,13 +36,13 @@ flowchart TB
 ## Deployment Model
 
 Both environments run on OKE and are managed by the
-[`opengate` Helm chart](../deploy/helm/opengate/):
+[`opengate` Helm chart](../../deploy/helm/opengate):
 
-- Staging uses [`values-staging.yaml`](../deploy/helm/opengate/values-staging.yaml).
+- Staging uses [`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml).
 - Production uses
-  [`values-production.yaml`](../deploy/helm/opengate/values-production.yaml).
+  [`values-production.yaml`](../../deploy/helm/opengate/values-production.yaml).
 - Cluster credentials and kubeconfig setup are owned by
-  [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml).
+  [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml).
 
 The workflow creates an environment Secret only when it is absent. Shared
 enrollment and signing keys are maintained independently so a deploy cannot
@@ -58,7 +58,7 @@ accidentally rotate agent identity material.
 | `notify-failure` | Creates or updates the deployment failure issue. |
 
 The exact job dependencies and environment approvals are canonical in
-[`cd.yml`](../.github/workflows/cd.yml).
+[`cd.yml`](../../.github/workflows/cd.yml).
 
 ## Staging Validation
 
@@ -66,10 +66,10 @@ The staging job:
 
 - waits for the server Deployment rollout;
 - port-forwards the server Service to the runner;
-- executes [`smoke-test.sh`](../deploy/scripts/smoke-test.sh);
+- executes [`smoke-test.sh`](../../deploy/scripts/smoke-test.sh);
 - resets the disposable staging database;
 - runs the staging
-  [Playwright configuration](../web/playwright.staging.config.ts);
+  [Playwright configuration](../../web/playwright.staging.config.ts);
 - records the successful image digest for the next pre-flight comparison.
 
 The port-forward is temporary and does not expose staging publicly.
@@ -82,7 +82,7 @@ runs the same smoke-test script through a temporary Service port-forward.
 
 ## Image Verification
 
-[`resolve-tag`](../.github/workflows/cd.yml) verifies both image existence and
+[`resolve-tag`](../../.github/workflows/cd.yml) verifies both image existence and
 the keyless Cosign signature before either environment can deploy. Image build,
 SBOM, signing, and attestation details live in
 [`Container-Images.md`](./Container-Images.md).
@@ -91,7 +91,7 @@ SBOM, signing, and attestation details live in
 
 Two checks avoid unnecessary work:
 
-- [`build-image-gate.sh`](../scripts/build-image-gate.sh) decides whether a new
+- [`build-image-gate.sh`](../../scripts/build-image-gate.sh) decides whether a new
   image build is required.
 - The `resolve-tag` job compares the target digest and `deploy/` changes against
   the state cached after the last successful staging validation.
@@ -111,7 +111,7 @@ kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server"
 
 ## Load Testing
 
-[`load-test.yml`](../.github/workflows/load-test.yml) validates staging without
+[`load-test.yml`](../../.github/workflows/load-test.yml) validates staging without
 host access:
 
 - k6 runs in a short-lived cluster pod and drives the staging server Service over
@@ -124,11 +124,11 @@ host access:
 
 The workflows reference OCI API credentials, the OKE cluster identifier, and
 environment-specific application secrets directly. Their exact names and
-scope are canonical in [`cd.yml`](../.github/workflows/cd.yml) and
-[`load-test.yml`](../.github/workflows/load-test.yml).
+scope are canonical in [`cd.yml`](../../.github/workflows/cd.yml) and
+[`load-test.yml`](../../.github/workflows/load-test.yml).
 
 ## Failure Notifications
 
 Deployment failures are handled by
-[`notify_failure.py`](../.github/scripts/notify_failure.py), which maintains a
+[`notify_failure.py`](../../.github/scripts/notify_failure.py), which maintains a
 single actionable issue per failing workflow context.

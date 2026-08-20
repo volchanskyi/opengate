@@ -16,7 +16,15 @@ to the file where the fact actually lives). This skill systematically hunts
 for drift and either fixes it or rewrites the passage to use a link, per the
 convention in [`docs/README.md`](../../../docs/README.md).
 
-**Scope.** `docs/**/*.md` and the root `README.md`. **All** ADRs are **mutable**
+**Scope.** `docs/**/*.md` and the root `README.md`. `docs/` is three trees —
+[`product/`](../../../docs/product/) (what the system does),
+[`architecture/`](../../../docs/architecture/) (how it is built),
+[`infrastructure/`](../../../docs/infrastructure/) (how it runs) — so a drift fix
+belongs in the tree that owns the fact, and a fact found stated in two trees is
+itself a finding: replace the copy with a link. The structural half is already
+gated by [`docs-seam.test.sh`](../../../scripts/tests/docs-seam.test.sh) and
+[`docs-live-state.test.sh`](../../../scripts/tests/docs-live-state.test.sh); this
+skill audits what those cannot see. **All** ADRs are **mutable**
 — a stale link, moved path, or fact the code has since reversed is fixed in
 place, like any other doc. This covers both the per-file ADRs in `docs/adr/*.md`
 (013+) and the combined log `docs/Architecture-Decision-Records.md` (001–012).

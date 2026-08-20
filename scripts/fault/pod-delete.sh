@@ -2,7 +2,7 @@
 # Single-pod deletion drill: delete the staging server pod by exact selector and
 # assert the Deployment recovers a Ready replacement within the recovery SLO.
 # Refuses any namespace but opengate-staging, captures evidence, and is
-# idempotent (safe to re-run). Scheduled/manual — see docs/Fault-Injection.md.
+# idempotent (safe to re-run). Scheduled/manual — see docs/infrastructure/Fault-Injection.md.
 set -euo pipefail
 
 ALLOWED_NAMESPACE="opengate-staging"

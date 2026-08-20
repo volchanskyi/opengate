@@ -3,7 +3,7 @@
 # the rollout fails readiness, then `helm rollback` and assert the prior image
 # is healthy. Refuses any namespace but opengate-staging and ALWAYS rolls back
 # (a trap safety net rolls back even on interruption), so staging never lingers
-# on the bad revision. Captures evidence; idempotent. See docs/Fault-Injection.md.
+# on the bad revision. Captures evidence; idempotent. See docs/infrastructure/Fault-Injection.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

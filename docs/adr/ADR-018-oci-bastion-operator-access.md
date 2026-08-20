@@ -86,7 +86,7 @@ invocations within the 3 h TTL reuse the session.
 
 Add the operator's OCI IAM user to the Bastion access group with policies for
 `manage bastion-session` on the compartment and read access to the target node
-metadata. Full runbook: [`docs/Infrastructure.md`](../Infrastructure.md#operator-access-via-oci-bastion).
+metadata. Full runbook: [`docs/infrastructure/OCI-Terraform.md`](../infrastructure/OCI-Terraform.md#operator-access-via-oci-bastion).
 
 ## Out Of Scope
 
@@ -117,6 +117,6 @@ metadata. Full runbook: [`docs/Infrastructure.md`](../Infrastructure.md#operator
 ## References
 
 - Plan: [`.claude/plans/stable-dev-machine-vps-access.md`](../../.claude/plans/archive/stable-dev-machine-vps-access.md)
-- Operator runbook: [`docs/Infrastructure.md`](../Infrastructure.md#operator-access-via-oci-bastion)
+- Operator runbook: [`docs/infrastructure/OCI-Terraform.md`](../infrastructure/OCI-Terraform.md#operator-access-via-oci-bastion)
 - Bastion submodule README: [`deploy/terraform/modules/bastion/README.md`](../../deploy/terraform/modules/bastion/README.md)
 - Bastion wrapper: [`deploy/scripts/bastion-session.sh`](../../deploy/scripts/bastion-session.sh)

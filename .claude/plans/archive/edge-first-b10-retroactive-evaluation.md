@@ -66,7 +66,7 @@ recorder leans on that number, so it gets measured.
 - **Create:** a reach-measurement harness beside
   [gates_test.rs](../../../agent/crates/edge-tsdb/tests/gates_test.rs) — always-running at small caps,
   no skips.
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md).
 
 ## Traps
 

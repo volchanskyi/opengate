@@ -12,7 +12,7 @@ TLS, persistent PostgreSQL, and direct L4 exposure for QUIC and Intel AMT MPS.
 
 The current topology is one worker node and one server replica. Scale-out
 requirements are retained separately in
-[`Multiscale-Readiness.md`](../Multiscale-Readiness.md).
+[`Multiscale-Readiness.md`](../../.claude/plans/archive/multiscale-readiness.md).
 
 ## Decision
 
@@ -54,7 +54,7 @@ requirements are retained separately in
 - Kubernetes, ingress, certificates, storage, and node upgrades are application
   operational concerns.
 - The single-node L4 path cannot scale across workers; the rebuild requirements
-  are specified in [`Multiscale-Readiness.md`](../Multiscale-Readiness.md).
+  are specified in [`Multiscale-Readiness.md`](../../.claude/plans/archive/multiscale-readiness.md).
 - Shared server keys are supplied through the existing Secret as recorded in
   [ADR-034](ADR-034-scale-out-keda-shared-keys.md).
 - Multi-node L4 templates and distributed relay dependencies are not carried in

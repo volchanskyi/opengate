@@ -41,7 +41,7 @@ Relay scale-out is **not** governed here. The multi-server relay design was
 evaluated and **removed** (local-pairing-only today; slim in-process
 `SessionRegistry` seam retained). The single sources of truth for any future
 relay scale-out are [ADR-023](ADR-023-relay-extraction-redis-session-registry.md)
-and [`Multiscale-Readiness.md`](../Multiscale-Readiness.md). See "Relay: status
+and [`Multiscale-Readiness.md`](../../.claude/plans/archive/multiscale-readiness.md). See "Relay: status
 correction" below.
 
 ## Decision
@@ -126,7 +126,7 @@ no longer exist; only the slim `SessionRegistry`
 old roadmap would reintroduce removed dormant distributed infrastructure without
 the operational evidence its removal required. Multi-replica routing is a
 **rebuild with explicit readiness gates**
-([`Multiscale-Readiness.md`](../Multiscale-Readiness.md) §8), not a configuration
+([`Multiscale-Readiness.md`](../../.claude/plans/archive/multiscale-readiness.md) §8), not a configuration
 switch.
 
 ## Future triggers (when to re-score)
@@ -141,7 +141,7 @@ low fan-in / contract strength **and** the per-module contract-readiness is prov
 - **`notifications`** — if web-push fan-out becomes a throughput hotspot, an async
   queue/worker split could be justified. Not now (no scaling pressure).
 - **Any relay scale-out** — gated entirely by
-  [`Multiscale-Readiness.md`](../Multiscale-Readiness.md) and a funded Large-tier
+  [`Multiscale-Readiness.md`](../../.claude/plans/archive/multiscale-readiness.md) and a funded Large-tier
   decision, not by this lens.
 - Any module whose **volatility rises while fan-in stays low** and a
   scale/availability/security driver emerges.

@@ -69,7 +69,7 @@ to survive a restart, it becomes a column set in `013_rules` (EF-B9) — say so 
   reverse golden is named in the
   [completeness guard](../../../server/internal/agentapi/golden_completeness_test.go) under
   `SendPushAlertRules`; regenerate it or the agent's decoder rejects the new rule shape.
-- **Docs:** [Wire-Protocol.md](../../../docs/Wire-Protocol.md), [Monitoring.md](../../../docs/Monitoring.md).
+- **Docs:** [Wire-Protocol.md](../../../docs/architecture/Wire-Protocol.md), [Monitoring.md](../../../docs/infrastructure/Monitoring.md).
 
 ## Steps (TDD-first)
 

@@ -47,7 +47,7 @@ never central series.
 - **Create:** fixture trees — bare-metal, VM guest (`vda`), container (non-root cgroup), wrap/reset,
   and mid-window disappearance.
 - **Regenerate:** [testdata/golden/](../../../testdata/golden/) metric-window fixtures.
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md).
 
 ## Steps (TDD-first)
 

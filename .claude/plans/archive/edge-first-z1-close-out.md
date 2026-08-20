@@ -16,8 +16,8 @@ with method, date and tool version — an archived plan is deletion-bound, so th
 
 | # | From | What must be recorded |
 |---|---|---|
-| Q3 | EF-B3 | Recorded in [Monitoring.md](../../../docs/Monitoring.md) (“What an active series costs the central store”): the fit, the 120 000-series total, method, VM version and date. Still to add there: **which of §9.1's four sizing options the owner chose** |
-| Q11 | EF-B10 | **Done** — recorded in [Monitoring.md](../../../docs/Monitoring.md) ("Has this happened before?") and [ADR-072](../../../docs/adr/ADR-072-retroactive-rule-evaluation.md): ~7 months at the shipped cap, from 2/4/8 MiB steady-state runs whose reach scales with the cap to within 5 %, at 13 series × 1 Hz and ~2.3 B per stored reading. The measurement itself always runs, in [reach_test.rs](../../../agent/crates/mesh-agent-core/tests/reach_test.rs) |
+| Q3 | EF-B3 | Recorded in [Monitoring.md](../../../docs/infrastructure/Monitoring.md) (“What an active series costs the central store”): the fit, the 120 000-series total, method, VM version and date. Still to add there: **which of §9.1's four sizing options the owner chose** |
+| Q11 | EF-B10 | **Done** — recorded in [Monitoring.md](../../../docs/infrastructure/Monitoring.md) ("Has this happened before?") and [ADR-072](../../../docs/adr/ADR-072-retroactive-rule-evaluation.md): ~7 months at the shipped cap, from 2/4/8 MiB steady-state runs whose reach scales with the cap to within 5 %, at 13 series × 1 Hz and ~2.3 B per stored reading. The measurement itself always runs, in [reach_test.rs](../../../agent/crates/mesh-agent-core/tests/reach_test.rs) |
 | Q12 | EF-C4 | Alerts/device/day, the population it was measured on, and the §9.1.2 option taken — or an explicit statement that no real-population measurement exists yet and the pack is held at canary |
 
 Q2 and Q4 (active series and 30 d disk at fleet scale) are recorded in the same section; verify they still match what the harness reports.
@@ -29,11 +29,11 @@ fires → an alert with evidence lands → an incident opens → a tech resolves
 
 ### 3. Docs
 
-Reconcile every page the program touched: [Monitoring.md](../../../docs/Monitoring.md),
-[Architecture.md](../../../docs/Architecture.md), [Wire-Protocol.md](../../../docs/Wire-Protocol.md),
-[Database.md](../../../docs/Database.md), [API-Reference.md](../../../docs/API-Reference.md),
-[Data-Lifecycle.md](../../../docs/Data-Lifecycle.md), [Testing.md](../../../docs/Testing.md),
-[Multiscale-Readiness.md](../../../docs/Multiscale-Readiness.md).
+Reconcile every page the program touched: [Monitoring.md](../../../docs/infrastructure/Monitoring.md),
+[Architecture.md](../../../docs/architecture/Overview.md), [Wire-Protocol.md](../../../docs/architecture/Wire-Protocol.md),
+[Database.md](../../../docs/architecture/Database.md), [API-Reference.md](../../../docs/architecture/API-Reference.md),
+[Data-Lifecycle.md](../../../docs/product/Data-Erasure.md), [Testing.md](../../../docs/infrastructure/Testing.md),
+[Multiscale-Readiness.md](multiscale-readiness.md).
 
 Per [docs-live-state.md](../../rules/docs-live-state.md): describe **only what is now live**. The 10 s
 central stream, `/correlate` and drag-to-correlate are gone — say what the system does, do not

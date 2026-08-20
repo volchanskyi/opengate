@@ -14,7 +14,7 @@ human commits  ──► dev ──► main
 
 - **`dev`** — primary development branch. Human commits land directly; Dependabot opens PRs against it. After all CI checks pass, the `merge-to-main` job forwards `dev` → `main`.
 - **`main`** — stable branch. Receives code from `dev` only, via the automated `merge-to-main` job. Protected: requires 1 PR review for non-admin pushes; force-push and deletion disabled.
-- **Dependabot** — PRs open against `dev` with the same gate any human commit clears. [`dependabot-auto-merge.yml`](../.github/workflows/dependabot-auto-merge.yml) squash-merges patch + minor updates once CI is green; major-version bumps stay open for review.
+- **Dependabot** — PRs open against `dev` with the same gate any human commit clears. [`dependabot-auto-merge.yml`](../../.github/workflows/dependabot-auto-merge.yml) squash-merges patch + minor updates once CI is green; major-version bumps stay open for review.
 
 ## Job Graph
 
@@ -87,14 +87,14 @@ The CI workflow jobs are grouped by concern:
 | **Bundle Size** | `web-bundle-size` | `size-limit` gzip size check (JS ≤250KB, CSS ≤10KB, Total ≤260KB). Runs in parallel with other web jobs. |
 | **API Docs** | `deploy-api-docs` | Deploys OpenAPI spec + Scalar viewer to gh-pages (dev push only) |
 | **Config** | `config-lint` | actionlint, yamllint, `terraform fmt/validate`, tflint, `terraform test` (module invariants), output-sensitivity grep, gitleaks (L2), Hadolint Dockerfile policy (L4), Checkov (L4: terraform + dockerfile + github_actions, baseline at `.checkov.baseline`), Conftest+Rego custom policies (L5: compose images, action SHA-pinning), `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
-| **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](Infrastructure.md#iac-plan--destroy-blocklist-gate). |
+| **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](OCI-Terraform.md#iac-plan--destroy-blocklist-gate). |
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck, cargo audit, npm audit |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
 | **SonarCloud** | `sonarcloud` | Static analysis + coverage aggregation via SonarSource scan action |
 | **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs all prior checks + bundle-size) |
 | **Load** | `load-test` | k6 HTTP/WS and QUIC load test workflow (scheduled/dispatchable; independent of merge gating) |
-| **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after the required upstream jobs in [`ci.yml`](../.github/workflows/ci.yml) pass; updates Go/Rust/Web coverage badges on `dev` pushes |
+| **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after the required upstream jobs in [`ci.yml`](../../.github/workflows/ci.yml) pass; updates Go/Rust/Web coverage badges on `dev` pushes |
 | **Auto-tag** | `auto-tag` | Determines semver bump from conventional commits, generates Keep a Changelog entry, commits CHANGELOG.md, and pushes a git tag (triggers `release-agent.yml`) |
 | **Notify** | `notify-failure` | Auto-creates GitHub Issues when any job fails (push/schedule/dispatch only — not PRs). One issue per failed job per branch, with error log excerpts. |
 
@@ -104,7 +104,7 @@ The **golden verification** job is sequenced after Rust so the Go verifier alway
 
 Pull requests execute every CI job except auto-merge/release automation. Benchmark
 trends run in the separate scheduled/dispatchable
-[`benchmark.yml`](../.github/workflows/benchmark.yml) workflow.
+[`benchmark.yml`](../../.github/workflows/benchmark.yml) workflow.
 
 ### OpenAPI Codegen Sync
 
@@ -112,13 +112,13 @@ The `go-lint` job verifies that generated Go code from the OpenAPI spec is up to
 
 ## Coverage
 
-All three language test jobs enforce a minimum line-coverage threshold — the build fails if coverage of production code drops below it. The enforced values and exclusion patterns are the `THRESHOLD` / `--fail-under-lines` settings in the coverage steps of [`ci.yml`](../.github/workflows/ci.yml); the table below summarizes them (verify against that file):
+All three language test jobs enforce a minimum line-coverage threshold — the build fails if coverage of production code drops below it. The enforced values and exclusion patterns are the `THRESHOLD` / `--fail-under-lines` settings in the coverage steps of [`ci.yml`](../../.github/workflows/ci.yml); the table below summarizes them (verify against that file):
 
 | Language | Tool | Threshold | Exclusions | Output | Artifact |
 |----------|------|-----------|------------|--------|----------|
 | Go | `go test -coverprofile` | 80% line | `testutil/`, `metrics/`, `openapi_gen.go` | `server/coverage.out` | `go-coverage` |
 | Rust | `cargo-llvm-cov` | 80% line | `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/` | `agent/lcov.info` | `rust-coverage` |
-| TypeScript | `@vitest/coverage-v8` | 80% line | `coverage.exclude` in [`vitest.config.ts`](../web/vitest.config.ts) | `web/coverage/lcov.info` | `web-coverage` |
+| TypeScript | `@vitest/coverage-v8` | 80% line | `coverage.exclude` in [`vitest.config.ts`](../../web/vitest.config.ts) | `web/coverage/lcov.info` | `web-coverage` |
 
 ### Coverage Badges
 
@@ -131,28 +131,28 @@ The `merge-to-main` job updates three coverage badges on every successful `dev` 
 | Web Client Coverage | `opengate-web-coverage.json` |
 
 All three shade red → green across the `minColorRange` / `maxColorRange` span set
-on the badge steps in [`ci.yml`](../.github/workflows/ci.yml).
+on the badge steps in [`ci.yml`](../../.github/workflows/ci.yml).
 
 Each CI job posts a native Markdown summary (pass/fail counts, failed test names) to the GitHub Actions job summary tab for quick triage without digging into logs.
 
 ## Docker Hub Pull Resilience
 
 Jobs that start Docker Hub images first invoke the local
-[`docker-hub-mirror` composite action](../.github/actions/docker-hub-mirror/action.yml).
+[`docker-hub-mirror` composite action](../../.github/actions/docker-hub-mirror/action.yml).
 The action owns the daemon mirror configuration and optionally authenticates
 the direct Docker Hub fallback when the repository credentials passed by the
 workflows are available. Pull requests without secret access skip the login
 step and retain the mirror plus anonymous fallback behavior.
 
 The executable
-[`docker-hub-mirror.test.sh`](../scripts/tests/docker-hub-mirror.test.sh)
+[`docker-hub-mirror.test.sh`](../../scripts/tests/docker-hub-mirror.test.sh)
 regression test enforces one canonical mirror definition, verifies the
 composite precedes every covered image pull, and requires every consumer to
 pass the optional credentials.
 
 ## SonarCloud Quality Gate
 
-The [`sonarcloud` job](../.github/workflows/ci.yml) runs after Go unit, Rust
+The [`sonarcloud` job](../../.github/workflows/ci.yml) runs after Go unit, Rust
 test, and Web test jobs complete. It downloads all three coverage artifacts
 and runs the pinned SonarQube scan action against the full codebase. If the
 action download path fails, the job retries the same analysis through the
@@ -174,7 +174,7 @@ Quality gate thresholds (configured in the SonarCloud UI, Clean-as-You-Code mode
 
 The three rating conditions (Reliability / Security / Maintainability = A) implicitly forbid any new bugs, vulnerabilities, or code smells — any such issue flips the corresponding rating from A to worse and fails the gate. Overall project coverage is enforced separately by the per-language unit-test jobs (`Go Unit Tests`, `Rust Tests`, `Web Unit Tests`), each of which fails at < 80%. SonarCloud itself does not gate on overall coverage.
 
-Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action — the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. A failed `sonarcloud` job blocks the auto-merge to `main`. SonarCloud.io itself is the authoritative console for findings; they are not mirrored into the GitHub Code Scanning tab (see [ADR-013](./adr/ADR-013-docs-in-repo-and-immutable-adrs.md) for why the SARIF upload was dropped).
+Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action — the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. A failed `sonarcloud` job blocks the auto-merge to `main`. SonarCloud.io itself is the authoritative console for findings; they are not mirrored into the GitHub Code Scanning tab (see [ADR-013](../adr/ADR-013-docs-in-repo-and-immutable-adrs.md) for why the SARIF upload was dropped).
 
 ### Local SonarCloud Analysis
 
@@ -234,37 +234,51 @@ The job then:
 
 **Concurrency:** Uses `concurrency: { group: auto-tag, cancel-in-progress: false }` to serialize tag operations, preventing race conditions from concurrent merges.
 
+## Release Workflows
+
+A `v*` tag triggers [`release-agent.yml`](../../.github/workflows/release-agent.yml),
+which cross-builds the agent binaries and publishes a GitHub Release. It is
+**path-gated**: [`release-agent-gate.sh`](../../scripts/release-agent-gate.sh)
+diffs the tag against the previous `v*` tag and, when nothing under `agent/`
+changed, skips the build and publishes no Release — so `/releases/latest` keeps
+pointing at the most recent binaries-bearing release, and no agent is offered an
+update to a binary identical to the one it is running. The tag itself still
+exists as a git ref for `build-image.yml` and the changelog. A
+`workflow_dispatch` run names its own tag and takes the same gate. What the agent
+does with the manifest it is offered is in
+[Agent Updates](../product/Agent-Updates.md).
+
 ## Branch Protection
 
-Branch protection uses **repository rulesets** (not legacy branch protection rules).
+Both branches are protected. `dev` is governed by a **repository ruleset**.
 
 | Branch | Mechanism | Rules |
 |--------|-----------|-------|
-| `main` | Legacy branch protection | No force pushes, no deletion. All 19 gate jobs required as status checks — pushes are blocked until every check passes. `merge-to-main` CI job is the only authorized writer. |
+| `main` | Branch protection rule | No force pushes, no deletion. All 19 gate jobs required as status checks — pushes are blocked until every check passes. `merge-to-main` CI job is the only authorized writer. |
 | `dev` | Ruleset: **CI Gate** | All 19 gate jobs as required status checks; no deletion; no force pushes. Repository admins bypass all rules (enables direct pushes for development). |
 
-The **CI Gate** ruleset replaces legacy branch protection on `dev`. Key differences from the legacy approach:
-- **Bypass actors:** Repository admins can push directly without passing status checks (legacy protection had `enforce_admins: false` which achieved the same effect, but rulesets make the bypass explicit).
+Three properties of the **CI Gate** ruleset are worth stating outright:
+- **Bypass actors:** Repository admins can push directly without passing status checks. A ruleset names its bypass actors explicitly, so who may skip the gate is readable from the rule itself.
 - **`merge-to-main`** uses a Fine-grained PAT (`SYNC_TOKEN` secret) instead of `GITHUB_TOKEN`. On a personal repo, `github-actions[bot]` cannot be added as a ruleset bypass actor — only the admin role can bypass. The PAT authenticates as the repo owner, who has the admin bypass.
 - **Code Scanning required tools:** CodeQL only. SonarCloud is not a Code Scanning tool because `SonarSource/sonarqube-scan-action` does not upload SARIF to GitHub Code Scanning for pull_request refs (only for push events to `dev`) — leaving every Dependabot PR `BLOCKED` waiting for SARIF that never arrived. SonarCloud's quality gate is still enforced via the `SonarCloud Analysis` required status check (which posts a regular PR check, not a Code Scanning entry). CodeQL stays as a Code Scanning required tool because it uploads SARIF correctly for both branches and PRs.
 
 ## Benchmark Trend Workflow
 
-[`benchmark.yml`](../.github/workflows/benchmark.yml) runs Go and Rust benchmarks on a
+[`benchmark.yml`](../../.github/workflows/benchmark.yml) runs Go and Rust benchmarks on a
 nightly schedule and by `workflow_dispatch`:
 
 - **Go benchmarks** — `testing.B` + `-benchmem` for protocol codec, cert signing, DB, handshake.
 - **Rust benchmarks** — Criterion for frame/handshake encode/decode.
 
 The workflow publishes canonical rows to VictoriaMetrics through
-[`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh) and hard-gates
+[`scripts/benchmark-vm-push.sh`](../../scripts/benchmark-vm-push.sh) and hard-gates
 regressions in two ways, by metric class:
 
 - **Deterministic allocation metrics** (`allocs/op`, `bytes/op`) are gated against the
-  committed [`benchmarks/baseline.json`](../benchmarks/baseline.json) at ±2% — the same
+  committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) at ±2% — the same
   code yields the same count, so a small fixed tolerance never false-fires.
 - **Machine-dependent `ns/op`** is hard-gated against a noise-robust VictoriaMetrics
-  window baseline read back through [`scripts/lib/vm-query.sh`](../scripts/lib/vm-query.sh):
+  window baseline read back through [`scripts/lib/vm-query.sh`](../../scripts/lib/vm-query.sh):
   a run reds when its `ns/op` exceeds **either** the 14-day window median × a frozen
   relative band **or** an absolute ceiling anchored on the committed baseline (the
   drift-proof boiling-frog backstop). The band and ceiling are calibrated from the live
@@ -276,14 +290,14 @@ All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboa
 
 ## Load-Test Trend Workflow
 
-[`load-test.yml`](../.github/workflows/load-test.yml) runs the staging k6 and
+[`load-test.yml`](../../.github/workflows/load-test.yml) runs the staging k6 and
 QUIC load scenarios on its own schedule and by `workflow_dispatch`; it is not in
 the `merge-to-main` gate graph. The run job uploads the canonical summary rows
 alongside the raw k6 exports, and the publish job reads the VictoriaMetrics
 window baseline through
-[`scripts/loadtest-regression-check.sh`](../scripts/loadtest-regression-check.sh),
+[`scripts/loadtest-regression-check.sh`](../../scripts/loadtest-regression-check.sh),
 pushes the current rows through
-[`scripts/loadtest-vm-push.sh`](../scripts/loadtest-vm-push.sh), and sends
+[`scripts/loadtest-vm-push.sh`](../../scripts/loadtest-vm-push.sh), and sends
 Telegram on regression. A separate `gate` job then fails the workflow red for an
 audit trail.
 
@@ -294,7 +308,7 @@ test regressed. The benchmark and mutation trend workflows are split the same
 way.
 
 The regression semantics are recorded in
-[ADR-045](./adr/ADR-045-load-test-regression-gate.md). In short: latency and rps
+[ADR-045](../adr/ADR-045-load-test-regression-gate.md). In short: latency and rps
 are evaluated per `{source, scenario, phase}` against VM read-back baselines plus
 absolute limits, error rate has hard ceilings, p99 is advisory-only, and missing
 VM history or transport failure does not create a false red.
@@ -342,7 +356,7 @@ Lighthouse and bundle-size evidence stays per-run: Lighthouse uploads the
 PageSpeed Insights is not part of the current CD workflow. Browser performance
 evidence comes from Lighthouse CI in the `e2e` job and the bundle-size gate in
 `web-bundle-size`. If PageSpeed is reintroduced, document the workflow step and
-secret in [`cd.yml`](../.github/workflows/cd.yml) at the same time.
+secret in [`cd.yml`](../../.github/workflows/cd.yml) at the same time.
 
 ## Dependabot Flow
 
@@ -350,9 +364,9 @@ Dependabot PRs target `dev` directly — same target a human contributor would u
 
 1. Dependabot opens a grouped PR against `dev` (one PR per ecosystem)
 2. CI runs on the PR (`pull_request` trigger — same 19 gate jobs as a human PR)
-3. [`dependabot-auto-merge.yml`](../.github/workflows/dependabot-auto-merge.yml) classifies the update via `dependabot/fetch-metadata`:
+3. [`dependabot-auto-merge.yml`](../../.github/workflows/dependabot-auto-merge.yml) classifies the update via `dependabot/fetch-metadata`:
    - **Patch + minor:** calls `gh pr merge --auto --squash`. GitHub auto-merges once required checks pass.
    - **Major:** stays open with a "needs human review" comment.
 4. Once merged into `dev`, the next CI run on the `dev` push fires `merge-to-main`, forwarding the commit to `main` — same as any human commit.
 
-Grouping configuration in [`.github/dependabot.yml`](../.github/dependabot.yml) batches all updates per ecosystem into a single PR. Auto-merge requires the repository setting "Allow auto-merge" (Settings → General).
+Grouping configuration in [`.github/dependabot.yml`](../../.github/dependabot.yml) batches all updates per ecosystem into a single PR. Auto-merge requires the repository setting "Allow auto-merge" (Settings → General).

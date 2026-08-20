@@ -28,6 +28,32 @@ Plans and memory serve different purposes. Never confuse them:
 - **Plans** (`.claude/plans/`) — implementation details, steps, and task breakdowns. Always a `.md` file in this directory.
 - **Memory** (`~/.claude/projects/.../memory/`) — only for cross-session recall: user preferences, project context, references. Never store plans or task details here.
 
+## The state files: index, ledger, register
+
+**Enforced by:**
+[`scripts/tests/state-index-density.test.sh`](../../scripts/tests/state-index-density.test.sh)
+(gauntlet shell-tests step). **No bypass.**
+
+The ADR is the only home of a decision and its why. The three state files are
+pointers with just enough text to let a reader choose a link:
+
+| File | Role | Cap |
+|---|---|---|
+| [`decisions.md`](../decisions.md) | **Index** — number → one line → phase → status → link | 200 characters of prose per row |
+| [`phases.md`](../phases.md) | **Ledger** — what shipped, in what order, linking the plan and the ADRs | 300 characters of prose per row |
+| [`techdebt.md`](../techdebt.md) | **Register** — what is still owed, by severity, and its pay-down trigger | no cap; an entry states the debt, not a decision |
+
+Links, ADR numbers, phase names, dates and table scaffolding do not count against
+a cap — only prose. The gate also checks the index is complete in **both**
+directions: every `docs/adr/ADR-*.md` has exactly one `decisions.md` row, and
+every row resolves to a file.
+
+**Shorten by moving, never by deleting.** Before a row is cut, check its
+distinctive terms against the ADR it points at; anything substantive the ADR does
+not carry is written **into the ADR first**. A row that genuinely cannot say what
+shipped inside its cap is describing a decision, and belongs in an ADR rather
+than in a longer row.
+
 ## ADRs
 
 All ADRs are **mutable** — edit them in place to keep them accurate against current state (fix a rotted link, correct a moved path, strip chronological/past-state noise per [`docs-live-state.md`](docs-live-state.md)). This covers both the per-file ADRs in [`docs/adr/`](../../docs/adr/) (ADR-013 onward) and the combined historical log [`docs/Architecture-Decision-Records.md`](../../docs/Architecture-Decision-Records.md) (ADR-001–012). git history (`git log --follow` per file) is the audit trail.

@@ -13,7 +13,7 @@
     },
     {
       "title": "Monitoring docs",
-      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/Monitoring.md",
+      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/infrastructure/Monitoring.md",
       "targetBlank": true,
       "type": "link"
     }
@@ -63,7 +63,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "Rolling mutation score per language. Score = (killed + timeout) / (killed + survived + timeout + no_coverage). Per-language thresholds and the regression-alert rules are documented in [docs/Testing.md].",
+      "description": "Rolling mutation score per language. Score = (killed + timeout) / (killed + survived + timeout + no_coverage). Per-language thresholds and the regression-alert rules are documented in [docs/infrastructure/Testing.md].",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

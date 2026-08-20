@@ -6,10 +6,10 @@ no soft-delete, grace window, or undo. The orchestrator runs server-side only:
 the VictoriaMetrics delete key and any object-store credentials never reach the
 edge.
 
-The engine lives in [`server/internal/lifecycle`](../server/internal/lifecycle/);
+The engine lives in [`server/internal/lifecycle`](../../server/internal/lifecycle);
 the delete endpoints are in
-[`server/internal/api/handlers_purge.go`](../server/internal/api/handlers_purge.go)
-and [`handlers_device_actions.go`](../server/internal/api/handlers_device_actions.go).
+[`server/internal/api/handlers_purge.go`](../../server/internal/api/handlers_purge.go)
+and [`handlers_device_actions.go`](../../server/internal/api/handlers_device_actions.go).
 
 ## What is erased
 
@@ -35,7 +35,7 @@ key erases a machine's alerts; it leaves those two numbers describing a machine
 that no longer exists, so a technician would read "40 machines" on a room whose
 fortieth was decommissioned last week.
 
-[`EraseDeviceAlerts`](../server/internal/alerts/postgres.go) runs inside the
+[`EraseDeviceAlerts`](../../server/internal/alerts/postgres.go) runs inside the
 Postgres stage, **before** the device row goes — once the cascade has taken the
 alerts there is nothing left to say which incidents the machine was in. It
 restates both counts from the rows that survive rather than subtracting, which
@@ -47,13 +47,13 @@ particular is the channel that decides whether a rule gets retuned.
 ## Tombstone deny-list
 
 Every purge first records the subject in the `deleted_ids` table (see
-[Database](Database.md)). Every write path checks it, so no live stream,
+[Database](../architecture/Database.md)). Every write path checks it, so no live stream,
 in-flight backfill, or misbehaving agent can re-create purged data:
 
 - The agent server warms an in-memory deny-list from the table at startup
-  ([`AgentServer.WarmTombstones`](../server/internal/agentapi/server.go)) and
+  ([`AgentServer.WarmTombstones`](../../server/internal/agentapi/server.go)) and
   rejects a tombstoned device on connect and on every write-path control message
-  ([`conn.go`](../server/internal/agentapi/conn.go)).
+  ([`conn.go`](../../server/internal/agentapi/conn.go)).
 - A connected agent is deregistered immediately; an offline one is denied by its
   own id on the next reconnect (a tenant purge records a per-device tombstone for
   each device it finds, so the check needs only the device id).
@@ -82,13 +82,13 @@ Ordering is strict — tombstone and scope first, then VM delete, cold-tier
 objects, and the Postgres row **last** — so labels and FKs survive while the
 stores drain, and a crash mid-purge leaves the subject marked deleted, not
 half-alive. Each stage is guarded by a persisted per-store flag, so
-[`Orchestrator.Resume`](../server/internal/lifecycle/orchestrator.go) re-runs an
+[`Orchestrator.Resume`](../../server/internal/lifecycle/orchestrator.go) re-runs an
 interrupted job idempotently at startup. Completion is gated on a
 post-delete emptiness check.
 
 ## Reconciliation sweep
 
-A periodic [`Reconciler`](../server/internal/lifecycle/reconcile.go) sweep
+A periodic [`Reconciler`](../../server/internal/lifecycle/reconcile.go) sweep
 garbage-collects any VictoriaMetrics series whose device no longer exists in
 Postgres — defense in depth against a purge that partially failed, since the
 stores are not one transaction. Device rows are created at handshake before any
@@ -102,13 +102,13 @@ ingest, so a series with no row is genuinely orphaned.
   purge and returns the job.
 - `GET /purge-jobs/{jobId}` reports progress.
 
-See [API Reference](API-Reference.md). Admins drive a tenant purge and watch its
+See [API Reference](../architecture/API-Reference.md). Admins drive a tenant purge and watch its
 progress from the **Data Lifecycle** settings page
-([`web/src/features/admin/DataLifecycle.tsx`](../web/src/features/admin/DataLifecycle.tsx)).
+([`web/src/features/admin/DataLifecycle.tsx`](../../web/src/features/admin/DataLifecycle.tsx)).
 
 ## Backups caveat
 
 VictoriaMetrics keeps no backups, so its erasure is immediate. Postgres
-`pg_dump` copies in OCI Object Storage (see [Backups](Database.md)) cannot be
+`pg_dump` copies in OCI Object Storage (see [Backups](../architecture/Database.md)) cannot be
 surgically edited: a purged subject is **fully erased only once every backup that
 still contains it ages out** under the bucket's Object Storage lifecycle policy.

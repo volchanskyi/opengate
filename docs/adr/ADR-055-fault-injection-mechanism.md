@@ -93,4 +93,4 @@ QUIC/UDP agent path, delivered via `NetworkChaos` under the same guardrails.
 
 The full fault catalog, harness action set, Chaos Mesh guardrails, per-scenario
 outcomes, and recovery-SLO budgets are specified in
-[Fault Injection](../Fault-Injection.md).
+[Fault Injection](../infrastructure/Fault-Injection.md).

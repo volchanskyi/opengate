@@ -65,8 +65,8 @@ Windows-native equivalents of the 8 it can name honestly — under their own nam
 - **Modify:** [spike_test.go](../../../server/tests/vmcardinality/spike_test.go) — replace the
   40-series **projection** with the real 24-series contract.
 - **Regenerate:** [testdata/golden/](../../../testdata/golden/) metric-window fixtures.
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md), [Architecture.md](../../../docs/Architecture.md),
-  [API-Reference.md](../../../docs/API-Reference.md).
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md), [Architecture.md](../../../docs/architecture/Overview.md),
+  [API-Reference.md](../../../docs/architecture/API-Reference.md).
 
 ## Steps (TDD-first)
 

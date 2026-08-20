@@ -2,7 +2,7 @@
 
 Canonical developer documentation for the OpenGate remote device management
 platform. All long-form docs live here, in the same git repo as the code they
-describe. The previous GitHub wiki (`volchanskyi/opengate.wiki`) is deprecated.
+describe.
 
 Start at [Home.md](./Home.md) for the chapter index.
 
@@ -10,22 +10,11 @@ Start at [Home.md](./Home.md) for the chapter index.
 
 ## Why docs live in the repo
 
-Historically the wiki was a separate git repository. It drifted from the code
-constantly: coverage thresholds changed in CI but not in the wiki, SARIF export was removed but the wiki still described it weeks
-later,
-ADR-012 kept accumulating in-place edits as the underlying policy shifted.
-
-The root cause was structural: a PR that touched `ci.yml` never touched the
-wiki repo, so there was nothing forcing the wiki change to happen in the same
-review. Moving the docs into the same repo means:
-
-- A PR that changes behaviour can be reviewed alongside the doc update.
-- Code search (`ripgrep`, IDE find-in-files) finds doc references to renamed
-  symbols.
-- `CODEOWNERS` and path-based CI checks can warn when code paths change
-  without docs/ being touched.
-- The docs build/lint can run as part of the normal CI, not as a separate
-  manual push.
+Docs sit beside the code so one review covers both: a PR that changes behaviour
+carries its doc update in the same diff, `CODEOWNERS` and path-based CI checks
+can ask for one when a watched path moves without `docs/` being touched, and code
+search finds every doc reference to a renamed symbol. Doc lint runs as part of
+the normal CI rather than as a separate push.
 
 ---
 
@@ -86,9 +75,9 @@ why — never delete substantive rationale**, and keep the
 
 New ADRs live as individual files using the `ADR-NNN-kebab-title.md` naming
 convention. The combined
-[`Architecture-Decision-Records.md`](./Architecture-Decision-Records.md) is the
-historical log from before the per-file regime; it is **mutable on the same
-terms** — edit it in place to keep it accurate against current state. The compact
+[`Architecture-Decision-Records.md`](./Architecture-Decision-Records.md) holds
+ADR-001 … ADR-012 in one file and is **mutable on the same terms** — edit it in
+place to keep it accurate against current state. The compact
 [`index`](../.claude/decisions.md) is updated for every new ADR. See
 [`adr/ADR-036`](./adr/ADR-036-mutable-adrs-current-state-doctrine.md) for the
 full doctrine.
@@ -159,18 +148,21 @@ The docs must carry at least these diagrams; each is pinned by
 [`scripts/tests/docs-diagrams.test.sh`](../scripts/tests/docs-diagrams.test.sh)
 so it cannot be dropped silently:
 
-1. **System context** — a C4 context (L1) view — [Architecture.md](Architecture.md)
-   (currently the `flowchart` fallback per the render rule above).
-2. **Container topology** — a C4 container (L2) view — [Architecture.md](Architecture.md)
-   (currently the `flowchart` fallback).
+1. **System context** — a C4 context (L1) view —
+   [architecture/Overview.md](architecture/Overview.md) (currently the
+   `flowchart` fallback per the render rule above).
+2. **Container topology** — a C4 container (L2) view —
+   [architecture/Overview.md](architecture/Overview.md) (currently the
+   `flowchart` fallback).
 3. **Each cross-component protocol flow** — a `sequenceDiagram` (agent handshake,
-   relay) — [Architecture.md](Architecture.md) and
-   [Wire-Protocol.md](Wire-Protocol.md).
-4. **Deploy topology** — the OKE cluster shape — [Kubernetes.md](Kubernetes.md).
+   relay) — [architecture/Overview.md](architecture/Overview.md) and
+   [architecture/Wire-Protocol.md](architecture/Wire-Protocol.md).
+4. **Deploy topology** — the OKE cluster shape —
+   [infrastructure/Kubernetes.md](infrastructure/Kubernetes.md).
 5. **CI/CD flow** — dev → CI gate → merge-to-main → deploy —
-   [Continuous-Deployment.md](Continuous-Deployment.md).
+   [infrastructure/Continuous-Deployment.md](infrastructure/Continuous-Deployment.md).
 6. **Session lifecycle** — establish → stream → teardown —
-   [Architecture.md](Architecture.md).
+   [architecture/Overview.md](architecture/Overview.md).
 
 New cross-component behavior of one of these kinds ships with the matching
 diagram (and its pin) updated in the same change.
@@ -179,17 +171,33 @@ diagram (and its pin) updated in the same change.
 
 ## Directory layout
 
+Three trees, one rule: **a fact has one home, and everything else links to it.**
+
 ```
 docs/
 ├── README.md                           This file
 ├── Home.md                             Chapter index — the authoritative list of chapters
-├── *.md                                One chapter per topic, all linked from Home.md
 ├── Architecture-Decision-Records.md    ADR log (ADR-001 … ADR-012)
+├── product/                            What the system does — one chapter per capability
+├── architecture/                       How it is built — components, protocol, API, schema
+├── infrastructure/                     How it runs — cluster, IaC, CI/CD, observability, test tooling
 ├── adr/                                Per-file ADRs (ADR-013+)
 │   └── ADR-NNN-title.md
 └── api/                                Generated Scalar OpenAPI reference
     └── index.html
 ```
+
+One test decides which tree a paragraph belongs in: *does it describe something a
+technician or a customer can see or do, or does it describe how we build, deploy
+and run it?* Semantics on one side, mechanism on the other. "A stall vital is the
+share of the last minute tasks spent waiting on disk" is product; "it is a gauge
+scraped into VictoriaMetrics with stream aggregation producing avg-only rollups"
+is infrastructure.
+
+The trees are enforced by
+[`scripts/tests/docs-seam.test.sh`](../scripts/tests/docs-seam.test.sh): every
+chapter lives in exactly one tree, appears in exactly one `Home.md` row, and no
+product chapter links a deploy, workflow, `Makefile` or `scripts/` path.
 
 [Home.md](./Home.md) enumerates the chapters; adding a chapter means adding its
 row there, not maintaining a second list here.

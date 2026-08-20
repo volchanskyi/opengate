@@ -55,9 +55,9 @@ stays byte-for-byte untouched.
 3. Note completion in [`phases.md`](../../phases.md) (fast-path series: W4 done; W5
    remaining).
 4. **Reconcile the docs to the "no signatures / resumption-is-the-lever" reality:**
-   [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) §4 (its "0x14
+   [`docs/Multiscale-Readiness.md`](multiscale-readiness.md) §4 (its "0x14
    skip-signature storm defense" framing predates the finding) and the master plan
-   §3/§4 notes. (DD-E already aligned [`docs/Wire-Protocol.md`](../../../docs/Wire-Protocol.md)
+   §3/§4 notes. (DD-E already aligned [`docs/Wire-Protocol.md`](../../../docs/architecture/Wire-Protocol.md)
    to the agent-first model — verify consistency, do not duplicate.)
 
 ## Reviewer acceptance

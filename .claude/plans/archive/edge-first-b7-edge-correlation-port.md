@@ -44,8 +44,8 @@ action, no VM query.
   selection, the `correlate` action, the freeze-poll behaviour and the caption at
   [:260](../../../web/src/features/devices/DeviceMetrics.tsx#L260).
 - **Create:** a shared fixture used by **both** the Go reference test and the Rust port.
-- **Docs:** [API-Reference.md](../../../docs/API-Reference.md),
-  [Architecture.md](../../../docs/Architecture.md), [Monitoring.md](../../../docs/Monitoring.md).
+- **Docs:** [API-Reference.md](../../../docs/architecture/API-Reference.md),
+  [Architecture.md](../../../docs/architecture/Overview.md), [Monitoring.md](../../../docs/infrastructure/Monitoring.md).
 
 ## Steps (TDD-first)
 

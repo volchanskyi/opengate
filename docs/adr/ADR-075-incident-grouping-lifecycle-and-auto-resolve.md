@@ -215,4 +215,4 @@ aggregate `/metrics` counters over open rooms.
   reads.
 - [`internal/alerts`](../../server/internal/alerts/),
   [`conn_alerts.go`](../../server/internal/agentapi/conn_alerts.go),
-  [Monitoring](../Monitoring.md).
+  [Monitoring](../infrastructure/Monitoring.md).

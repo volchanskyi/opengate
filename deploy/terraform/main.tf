@@ -1,7 +1,7 @@
 # Remote state lives in an OCI Object Storage bucket accessed via the S3-compatible
 # API. Operator-specific values (the OCI namespace in the endpoint, the credentials
 # file path) are provided via `backend.tfbackend` (gitignored). See
-# docs/Infrastructure.md → "State backend" for the migration runbook.
+# docs/infrastructure/OCI-Terraform.md → "State backend" for the migration runbook.
 #
 # CI runs `terraform init -backend=false` (Makefile lint-deploy + ci.yml config-lint),
 # so the backend stanza is never resolved in CI and no OCI creds are required there.

@@ -5,7 +5,7 @@
 #   - The path to the S3-compatible credentials file for the tf-state-writer user
 #     (Customer Secret Key — distinct from the CD deploy user)
 #
-# See docs/Infrastructure.md → "State backend" for the bucket / IAM setup.
+# See docs/infrastructure/OCI-Terraform.md → "State backend" for the bucket / IAM setup.
 
 endpoints = {
   s3 = "https://<namespace>.compat.objectstorage.us-sanjose-1.oraclecloud.com"

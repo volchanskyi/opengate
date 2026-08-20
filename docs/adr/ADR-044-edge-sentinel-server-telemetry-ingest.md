@@ -70,4 +70,4 @@ Use a split telemetry store:
   so that load stays observable — `opengate_edge_telemetry_ingested_total`,
   `opengate_edge_telemetry_drops_total`, and the `opengate_edge_backfill_*`
   scheduler series on the Edge-Sentinel Soak dashboard (see
-  [Monitoring](../Monitoring.md)).
+  [Monitoring](../infrastructure/Monitoring.md)).

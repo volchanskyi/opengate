@@ -56,7 +56,7 @@ per-service error count evaluated locally.
 - **Modify:** [main.rs](../../../agent/crates/mesh-agent/src/main.rs) — schedule the poll task
   (bounded, `spawn_blocking`, watermarked), wire the sink.
 - **Create:** fixture log corpora for both platforms, including a non-matching near-miss per rule.
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md).
 
 ## Steps (TDD-first)
 

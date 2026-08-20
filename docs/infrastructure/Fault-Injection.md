@@ -4,7 +4,7 @@ This chapter is the single source of truth for OpenGate's fault-injection
 harness. It freezes the contract that the Go fault suite, the ingress fault
 profiles, and the Chaos Mesh scenario runner build against. The mechanism
 decision — no fault code in the shipped binary — is recorded in
-[ADR-055](./adr/ADR-055-fault-injection-mechanism.md).
+[ADR-055](../adr/ADR-055-fault-injection-mechanism.md).
 
 ## Mechanism
 
@@ -13,7 +13,7 @@ Faults come from two disjoint places, never from code inside the server:
 - **In-process app faults** run in the Go test harness (`_test.go` only). A test
   starts the real server in-process and substitutes a **fault-decorating port**
   for one of the consumer interfaces the server already depends on. This is the
-  [`store_failure_test.go`](../server/internal/api/store_failure_test.go)
+  [`store_failure_test.go`](../../server/internal/api/store_failure_test.go)
   port-substitution idiom, extended to the other seams.
 - **Deployed faults** run in [Chaos Mesh](https://chaos-mesh.org/), installed
   **on-demand** for a drill against the `opengate-staging` namespace and
@@ -29,17 +29,17 @@ production and staging run the identical image.
 ### Harness surfaces (in-process, `_test.go`)
 
 Each harness surface is a real seam the server already exposes — a `ServerConfig`
-consumer interface, the [FI0 `AgentControl`](../server/internal/api/api.go) port,
+consumer interface, the [FI0 `AgentControl`](../../server/internal/api/api.go) port,
 the relay registry option, or the chi middleware chain. The harness wraps it with
 a decorator that injects an action and asserts server-side behavior.
 
 | Surface | Seam | Faulting technique |
 |---|---|---|
-| `session.repository` | `ServerConfig.Sessions` ([`session.Repository`](../server/internal/api/api.go)) | Substitute a fault-decorating `session.Repository`. |
-| `device.repository` | `ServerConfig.Devices` ([`device.Repository`](../server/internal/api/api.go)) | Substitute a fault-decorating `device.Repository`. |
-| `api.before-handler` | chi middleware chain — `Recoverer` / `RequestTimeout(30s)` / `RateLimiter` in [`api.go`](../server/internal/api/api.go) and [`middleware.go`](../server/internal/api/middleware.go) | Test-only middleware or a handler-level fault. **Not a port** — do not substitute one. |
-| `agent.control-write` | [`AgentControl`](../server/internal/api/api.go) (four `Send*`, two `Request*Sync`, `Meta()`) | Substitute a fault-decorating `AgentControl`. Connection-close is done by the harness on the concrete conn it owns — there is no `Close()` on the seam. |
-| `relay.registry` | [`relay.SessionRegistry`](../server/internal/relay/relay.go) via [`relay.WithRegistry`](../server/internal/relay/relay.go) | Inject a fault-decorating registry through the constructor option (precedent: `degradedRegistry` in [`handlers_health_test.go`](../server/internal/api/handlers_health_test.go)). `ServerConfig.Relay` is a concrete `*relay.Relay` and cannot be wrapped by an interface decorator — the registry option is the seam. |
+| `session.repository` | `ServerConfig.Sessions` ([`session.Repository`](../../server/internal/api/api.go)) | Substitute a fault-decorating `session.Repository`. |
+| `device.repository` | `ServerConfig.Devices` ([`device.Repository`](../../server/internal/api/api.go)) | Substitute a fault-decorating `device.Repository`. |
+| `api.before-handler` | chi middleware chain — `Recoverer` / `RequestTimeout(30s)` / `RateLimiter` in [`api.go`](../../server/internal/api/api.go) and [`middleware.go`](../../server/internal/api/middleware.go) | Test-only middleware or a handler-level fault. **Not a port** — do not substitute one. |
+| `agent.control-write` | [`AgentControl`](../../server/internal/api/api.go) (four `Send*`, two `Request*Sync`, `Meta()`) | Substitute a fault-decorating `AgentControl`. Connection-close is done by the harness on the concrete conn it owns — there is no `Close()` on the seam. |
+| `relay.registry` | [`relay.SessionRegistry`](../../server/internal/relay/relay.go) via [`relay.WithRegistry`](../../server/internal/relay/relay.go) | Inject a fault-decorating registry through the constructor option (precedent: `degradedRegistry` in [`handlers_health_test.go`](../../server/internal/api/handlers_health_test.go)). `ServerConfig.Relay` is a concrete `*relay.Relay` and cannot be wrapped by an interface decorator — the registry option is the seam. |
 | `notifications.dispatch` / `amt.operator` | `ServerConfig.Notifier` / `ServerConfig.AMT` | **Candidate, non-gating.** No scenario drives them yet; add a harness case only when one does. |
 
 The **gating core** in normal CI is `session.repository`, `device.repository`,
@@ -60,11 +60,11 @@ interface ports; the Edge-Sentinel ports (`TelemetryReader`, `Inventory`,
 Single-pod deletion and bad-rollout are driven by idempotent, staging-only runner
 scripts — a direct `kubectl`/`helm` fault needs no Chaos Mesh controller:
 
-- **Pod deletion (C1)** — [`scripts/fault/pod-delete.sh`](../scripts/fault/pod-delete.sh)
+- **Pod deletion (C1)** — [`scripts/fault/pod-delete.sh`](../../scripts/fault/pod-delete.sh)
   deletes the staging server pod by the exact selector
   `app.kubernetes.io/instance=<release>,app.kubernetes.io/component=server` and
   asserts the Deployment returns a Ready replacement within the pod-recreation SLO.
-- **Bad rollout (C2)** — [`scripts/fault/bad-rollout.sh`](../scripts/fault/bad-rollout.sh)
+- **Bad rollout (C2)** — [`scripts/fault/bad-rollout.sh`](../../scripts/fault/bad-rollout.sh)
   deploys a deliberately-failing revision (a nonexistent `image.tag`), asserts the
   rollout fails readiness, then `helm rollback`s and asserts the prior image is
   healthy within the rollback SLO. A `trap` safety net rolls back even on
@@ -85,12 +85,12 @@ that exceeds the ingress proxy-read timeout. A reviewed-snippet 502 path is
 deferred until the ingress security contract is tightened.
 
 The templates and save/apply/restore tooling live in
-[`deploy/fault/ingress/`](../deploy/fault/ingress/) — driven by
-[`ingress-apply.sh`](../scripts/fault/ingress-apply.sh) and
-[`ingress-restore.sh`](../scripts/fault/ingress-restore.sh), which refuse any
+[`deploy/fault/ingress/`](../../deploy/fault/ingress) — driven by
+[`ingress-apply.sh`](../../scripts/fault/ingress-apply.sh) and
+[`ingress-restore.sh`](../../scripts/fault/ingress-restore.sh), which refuse any
 namespace but `opengate-staging` and restore the Ingress byte-identical (safe to
 re-run from a cleanup `trap`). The chart can never ship a fault annotation:
-[`policy/k8s/fault_injection.rego`](../policy/k8s/fault_injection.rego) denies any
+[`policy/k8s/fault_injection.rego`](../../policy/k8s/fault_injection.rego) denies any
 rendered manifest carrying a `fault.opengate.dev/…` key, checked against the
 production render in `make lint-k8s`.
 
@@ -108,7 +108,7 @@ production render in `make lint-k8s`.
 ## Chaos Mesh experiment surface and guardrails
 
 Because a separate Always-Free cluster is infeasible (the 200 GB block-volume cap
-is already consumed — see [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md)),
+is already consumed — see [ADR-035](../adr/ADR-035-oke-free-tier-block-volume-remediation.md)),
 Chaos Mesh runs on the one shared worker under a **mandatory** safety contract.
 Every item below is a required deliverable of the scenario runner, not a
 convention:
@@ -135,7 +135,7 @@ digest are implemented by the scenario runner.
 
 Executor legend: **H** = Go harness (in-process) · **CM** = Chaos Mesh
 (on-demand, staging) · **IG** = ingress annotations · **RUN** = scenario runner
-script ([`scripts/fault/`](../scripts/fault/)).
+script ([`scripts/fault/`](../../scripts/fault)).
 
 | Scenario | Executor | Expected outcome | Recovery budget |
 |---|---|---|---|
@@ -179,8 +179,8 @@ promotion from its first run.
 
 Tenancy is cross-cutting: every repository call runs in a tenant-scoped
 transaction whose tenant comes from the request context (`dbtx`, JWT `tenant` claim,
-per-tx `SET LOCAL app.current_tenant` — see [Database](./Database.md) and
-[ADR-041](./adr/ADR-041-postgres-rls-multitenancy.md)). Every harness fault
+per-tx `SET LOCAL app.current_tenant` — see [Database](../architecture/Database.md) and
+[ADR-041](../adr/ADR-041-postgres-rls-multitenancy.md)). Every harness fault
 decorator **threads the request `context.Context` through unchanged**, so the
 tenant GUC still propagates and a fault can never drop or cross a tenant
 context. The fault suite proves this with a cross-tenant-leak assertion around a
@@ -193,10 +193,10 @@ Two disjoint CI surfaces gate promotion:
 - The **Go fault suite** runs in normal CI / `make test` as an ordinary
   deterministic job — the in-process app-fault gate, needing no staging cluster.
 - The **deployed drills** run after staging E2E through the reusable
-  [`fault-tolerance.yml`](../.github/workflows/fault-tolerance.yml) workflow,
+  [`fault-tolerance.yml`](../../.github/workflows/fault-tolerance.yml) workflow,
   invoked from the staging deploy job in
-  [`cd.yml`](../.github/workflows/cd.yml). Each drill runs one
-  [`scripts/fault/`](../scripts/fault/) runner against `opengate-staging`,
+  [`cd.yml`](../../.github/workflows/cd.yml). Each drill runs one
+  [`scripts/fault/`](../../scripts/fault) runner against `opengate-staging`,
   uploads its evidence directory as a run artifact, reverts every fault under
   `always()`, and verifies the staging Ingress is left free of any
   `fault.opengate.dev/…` annotation.
@@ -227,14 +227,14 @@ CPU/mem/disk evidence, verify the live node scrape (`up`, node-exporter,
 ### Ownership
 
 - **In-process app faults** — the Go fault suite
-  ([`fault_suite_test.go`](../server/tests/integration/fault_suite_test.go),
-  [`fault_noship_test.go`](../server/tests/integration/fault_noship_test.go))
-  over the [`faulttest`](../server/internal/faulttest/ports.go) decorators. Owned
+  ([`fault_suite_test.go`](../../server/tests/integration/fault_suite_test.go),
+  [`fault_noship_test.go`](../../server/tests/integration/fault_noship_test.go))
+  over the [`faulttest`](../../server/internal/faulttest/ports.go) decorators. Owned
   by the server; changes ride normal TDD and `make test`.
-- **Deployed drills** — the [`scripts/fault/`](../scripts/fault/) runners and the
-  [`fault-tolerance.yml`](../.github/workflows/fault-tolerance.yml) workflow. Each
+- **Deployed drills** — the [`scripts/fault/`](../../scripts/fault) runners and the
+  [`fault-tolerance.yml`](../../.github/workflows/fault-tolerance.yml) workflow. Each
   runner refuses any namespace but `opengate-staging`.
-- **Ingress templates** — [`deploy/fault/ingress/`](../deploy/fault/ingress/).
+- **Ingress templates** — [`deploy/fault/ingress/`](../../deploy/fault/ingress).
 
 ### Cleanup
 
@@ -244,7 +244,7 @@ Every drill is self-cleaning, and cleanup is idempotent (safe to re-run):
 - `bad-rollout` — a shell `trap` always `helm rollback`s to the captured good
   revision, even on interruption, so staging never lingers on the bad revision.
 - `ingress-504` / `ingress-502` —
-  [`ingress-restore.sh`](../scripts/fault/ingress-restore.sh) returns the Ingress
+  [`ingress-restore.sh`](../../scripts/fault/ingress-restore.sh) returns the Ingress
   byte-identical / the Deployment to its saved replica count; with no saved state
   it is a no-op. The workflow runs it under `always()` and then asserts no
   `fault.opengate.dev/…` annotation remains.
