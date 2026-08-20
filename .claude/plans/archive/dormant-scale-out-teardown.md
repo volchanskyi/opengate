@@ -18,7 +18,7 @@ harness contained six files, including `scenario_degraded.go`.
 ## 0. Decision & rationale
 
 Production is a **single free-tier node, one server replica, one connected agent**
-(see [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) §1).
+(see [`docs/Multiscale-Readiness.md`](multiscale-readiness.md) §1).
 The multi-replica/distributed scale-out machinery (Redis registry + Sentinel HA,
 cross-server relay proxy, KEDA autoscaling, PDB, multi-node L4) is **dormant, gated
 off, never run on a live cluster, and a poor fit for the free tier** (4 OCPU / 24 GB,
@@ -104,7 +104,7 @@ workstream is **not done** until:
   the port seam disposition follows §3.
 - **ADR-030** (OKE/Helm): drop the "Redis/cross-server deferred to PR-C" +
   multi-node-L4 references that no longer have a target.
-- [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md): **reframe**
+- [`docs/Multiscale-Readiness.md`](multiscale-readiness.md): **reframe**
   §3 from "dormant capabilities (built)" to "removed — design retained here as the
   rebuild spec"; it remains the SSOT.
 - [`.claude/decisions.md`](../../decisions.md) rows for 023/030/034 (031/033 are now ADR-023 amendments);

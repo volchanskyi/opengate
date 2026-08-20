@@ -38,7 +38,7 @@
 #
 # Prerequisites: oci CLI, jq, terraform (if not pre-setting the OCIDs).
 # IAM: `manage bastion-session` on the compartment + `read instance` on the
-# target. See docs/Infrastructure.md → "Operator access via OCI Bastion".
+# target. See docs/infrastructure/OCI-Terraform.md → "Operator access via OCI Bastion".
 
 set -Eeuo pipefail
 

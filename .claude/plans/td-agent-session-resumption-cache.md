@@ -191,7 +191,7 @@ These deliver real value under **any** decision and do **not** depend on persist
    **not** a faithful signal. Use the **server-observed `DidResume`** (extend
    [`quic_resumption_test.go`](../../server/internal/agentapi/quic_resumption_test.go)'s
    proven check into a per-reconnect metric) to satisfy the
-   [Multiscale-Readiness §4](../../docs/Multiscale-Readiness.md) "observe resumption" ask
+   [Multiscale-Readiness §4](archive/multiscale-readiness.md) "observe resumption" ask
    for **in-process** reconnects (not cross-restart).
 
 > If C is chosen, this subset *is* the deliverable. If A is chosen, it is the foundation

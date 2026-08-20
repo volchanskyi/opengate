@@ -251,7 +251,7 @@ change set ends with a `/docs` update. There is **already an open Medium techdeb
 item** — "Cutover doc drift — Monitoring.md / Continuous-Deployment.md still
 describe the VPS path" (see [`.claude/techdebt.md`](../../techdebt.md)). This
 micro-plan's CD/load-test changes make
-[`docs/Continuous-Deployment.md`](../../../docs/Continuous-Deployment.md) more stale
+[`docs/Continuous-Deployment.md`](../../../docs/infrastructure/Continuous-Deployment.md) more stale
 (it still documents `ssh ubuntu@<VPS>` rollback + `/opt/opengate`). Either:
 
 - fold the CD-doc repointing into this PR (kubectl/helm deploy jobs, no SSH), and

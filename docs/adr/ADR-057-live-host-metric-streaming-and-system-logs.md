@@ -51,6 +51,20 @@ and the frontend family charts unchanged.
 - The partial (still-open) window is **discarded across maintenance** and is
   never emitted on its own; backfill fills any window that never closed.
 
+**Host system logs are served on demand over the same control path**, through
+`RequestDeviceLogs` with the host source rather than the agent's own files. The
+severity, time-range and unit filters are **pushed down to the reader** so the
+tool bounds the read rather than the agent discarding records it already paid to
+parse, and the response carries the **enumerated units** the host actually emits
+under (`available_units`, sorted and capped) so the pane can offer a unit filter
+without a second round trip. An exact unit outside that capped set is still
+accepted, so the cap bounds the dropdown and never the query. A source this host
+has no reader for is refused **by name** and the refusal is counted, rather than
+answered with an empty page that reads as "this host is quiet". Nothing is
+persisted centrally; the reader sourcing is
+[ADR-050](ADR-050-edge-sentinel-log-reader-sourcing.md), the privacy guards are
+[ADR-049](ADR-049-edge-sentinel-raw-log-privacy.md).
+
 ## Consequences
 
 - The Telemetry pane charts live cpu/mem/disk/net within ~1 min of a device
@@ -64,3 +78,6 @@ and the frontend family charts unchanged.
 - The numeric channel now carries host resource metrics directly, keeping the
   endpoint-log model ([ADR-048](ADR-048-edge-sentinel-endpoint-log-model.md))
   purely raw-log and edge-first.
+- The System Logs pane reads a host's own journal with the filters it offers
+  already applied at the source, and its unit dropdown is populated from the
+  same answer, so opening the pane costs one call.

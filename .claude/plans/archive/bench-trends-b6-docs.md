@@ -16,7 +16,7 @@ the project's source-of-truth files.
 | [`.claude/decisions.md`](../../decisions.md) | Add the index row for the new ADR. |
 | [`.claude/phases.md`](../../phases.md) | Add completed rows for B1–B5. |
 | [`.claude/techdebt.md`](../../techdebt.md) | **Pay down** the "Performance benchmarks — no CI regression detection" entry. |
-| [`docs/Monitoring.md`](../../../docs/Monitoring.md) | Document the metric convention (cross-check with B1) + that VM now holds CI trends; Loki = logs. Follow [docs/README.md](../../../docs/README.md) — link, don't paraphrase numbers/paths. |
+| [`docs/Monitoring.md`](../../../docs/infrastructure/Monitoring.md) | Document the metric convention (cross-check with B1) + that VM now holds CI trends; Loki = logs. Follow [docs/README.md](../../../docs/README.md) — link, don't paraphrase numbers/paths. |
 
 ## 3. Approach
 

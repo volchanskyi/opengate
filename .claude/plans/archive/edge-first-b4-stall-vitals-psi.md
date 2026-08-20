@@ -42,7 +42,7 @@ agent measures its own pressure, not the host's.
 - **Create:** fixture tree under the crate's test data — synthetic `/proc/pressure/*` and cgroup
   files.
 - **Regenerate:** [testdata/golden/](../../../testdata/golden/) metric-window fixtures.
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md) — the vitals table and the platform gap.
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md) — the vitals table and the platform gap.
 
 ## Steps (TDD-first)
 

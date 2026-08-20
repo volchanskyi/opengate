@@ -14,7 +14,7 @@
 >
 > **Superseded by:** [`fast-path-reconnect-fix.md`](../fast-path-reconnect-fix.md)
 > (the real fix — client-first handshake + the `0x14` fast path) and
-> [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) (the
+> [`docs/Multiscale-Readiness.md`](multiscale-readiness.md) (the
 > scaling context). The one salvageable idea — a **bounded context** around the
 > stream open/accept — survives as W5 of the master plan (defensive, not a
 > quic-go workaround).

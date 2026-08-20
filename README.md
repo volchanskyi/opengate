@@ -1,9 +1,9 @@
 <h1 align="center">OpenGate</h1>
 
-<h3 align="center">Secure RMM with edge-first health intelligence.</h3>
+<h3 align="center">Remote management for machines that tell you what went wrong.</h3>
 
 <p align="center">
-OpenGate is a browser-based remote management and infrastructure monitoring platform. Monitor, detect, and take secure remote control across your entire infrastructure.
+OpenGate is a browser-based platform for managing a fleet of customer machines: see them, take one over, and get told when something breaks — with the evidence already attached.
 </p>
 
 <!-- Badges track `dev` because that is the only branch CI runs on: per
@@ -18,164 +18,75 @@ OpenGate is a browser-based remote management and infrastructure monitoring plat
 </p>
 
 <p align="center">
-  <a href="#what-it-is">What It Is</a> |
-  <a href="#core-advantages">Core Advantages</a> |
-  <a href="#key-features">Key Features</a> |
-  <a href="#architecture">Architecture</a> |
-  <a href="#observe-control">Observe &amp; Control</a> |
-  <a href="#how-it-works">How It Works</a> |
-  <a href="#agent-capabilities">Agent Capabilities</a> |
+  <a href="#the-problem-it-solves">The Problem It Solves</a> |
+  <a href="#what-you-can-do">What You Can Do</a> |
+  <a href="#why-it-is-built-this-way">Why It Is Built This Way</a> |
   <a href="#documentation">Documentation</a>
 </p>
 
 ---
 
-## What It Is
+## The Problem It Solves
 
-OpenGate provides secure remote access and Intel AMT out-of-band
-endpoint management via remote agents. Agent`s edge-first health inteligence provides
-telemetry, host anomaly detection, and a ranking of what broke alongside every
-alert the device raises.
+At 02:41 a driver rollout goes wrong across forty of Contoso's machines. By
+morning the technician on call has 312 alerts sitting in an inbox, each naming
+one machine and one threshold, none of them saying that they are all the same
+event. Nobody reads 312 alerts. So nobody reads any of them, and the one alert
+that mattered — the file server whose disk has been slowing down for a fortnight
+— is somewhere in the middle of the pile.
 
-The three-part architecture is built around these main components: a Zero-Configuration ML-Powered agent, a centralized server for configuration, user and data management, central alerts, and a web client for remote fleet operations, data visualisations, and dashboards.
+OpenGate answers that with one room saying *forty machines, since 02:41*, sitting
+in a queue a person can actually work. The alert that opened the room already
+carries what the machine saw when it fired: which of its readings broke pattern,
+the seconds around the event, what was running, and the log lines that go with
+it. Nobody has to go back and ask a machine what happened an hour ago — which is
+just as well, because by then it no longer knows.
 
-## Core Advantages
+## What You Can Do
 
-- **Outbound-first fleet access** - agents connect to the server over QUIC with
-  mTLS, so managed devices do not need inbound administrative exposure.
-- **Secure enrollment and updates** - first boot uses CSR-based enrollment, and
-  agent updates are signed before being applied.
-- **Browser-native operations** - operators manage devices, terminal sessions,
-  files, logs, updates, and out-of-band actions from the web UI.
-- **Edge health intelligence** - Edge Sentinel samples host health locally, 
-  detects anomalies on the device, and sends summarized telemetry 
-  avoiding raw high-volume streams by default.
-- **Investigation first** - anomaly panels, timelines, and the ranked
-  contributors that travel inside an alert are designed as operator aids before
-  automatic alerting.
+- **See the fleet.** Every customer's machines, which are up, what each one is
+  made of and what it is running, filtered to one customer or across the whole
+  tenant.
+- **Take a machine over in the browser.** Its screen, a shell, its filesystem and
+  a chat window back to whoever is sitting in front of it — no VPN, no inbound
+  firewall rule, no client to install on your side.
+- **Get told what broke, and why.** A machine watches itself against curated
+  detection rules and raises an alert carrying its own evidence.
+- **Work a queue instead of an inbox.** Related alerts fold into one incident
+  with a status, an owner, a history and a cause code when it is closed.
+- **Tune detection per customer.** Retune the thresholds a rule declares
+  adjustable, aim them with labels that cut across sites, pace how far a new rule
+  reaches, and stop one outright without waiting for a release.
+- **Quiet a machine during host work.** Maintenance mode stops the noise a
+  planned reboot would otherwise generate, without making the machine look dead.
+- **Run several customers from one console.** Customers, sites, security groups
+  and an audit trail, with each tenant's data walled off in the database itself.
+- **Erase a device's data on request.** A deletion is a real erasure across every
+  store, not a hidden flag.
+- **Reach a machine that will not boot.** On hardware that supports Intel AMT,
+  power it on, cycle it or reset it below the operating system.
 
-## Key Features
+## Why It Is Built This Way
 
-| Area | Capability |
-|---|---|
-| Fleet inventory | Devices, groups, online/offline state, hardware inventory, and on-demand device logs |
-| Remote sessions | Browser-to-agent sessions over relay with terminal, file, desktop protocol frames, permissions, and teardown cleanup |
-| Terminal | PTY-backed terminal frames between web and agent |
-| File manager | Directory browsing plus file download/upload protocol support |
-| Intel AMT / MPS | CIRA/APF management presence server with AMT device tracking and power actions |
-| Agent lifecycle | CSR enrollment, QUIC mTLS registration, heartbeat, deregistration, restart, and signed OTA updates |
-| Web Push | Browser subscriptions for device and session lifecycle notifications |
-| Edge Sentinel telemetry | CPU, memory, disk, network, process, and service telemetry summarized at the edge |
-| Edge correlation | On a device alert, the agent ranks which of its own dimensions broke pattern over the event window — KS distribution shift, anomaly rate and shift magnitude — and ships the ranking inside the alert |
-| Dense timelines | uPlot-based device timelines, anomaly badges, fleet overview, and drill-down UI |
-
-## Architecture
-
-| Component | Stack | Responsibilities |
-|---|---|---|
-| **Agent** | Rust workspace | CSR enrollment, QUIC mTLS control, registration, session handling, terminal/file/log/hardware paths, signed updates, local Edge Sentinel sampling, cmdline redaction, anomaly detection, and telemetry windows |
-| **Server** | Go module | REST API, QUIC agent API, WebSocket relay, auth, certificates, PostgreSQL persistence, Intel AMT MPS, Web Push, update manifests, tenant context/RLS, telemetry ingest, and cold-tier access |
-| **Web** | React / TypeScript | Dashboard, device list/detail, session UI, terminal, file manager, update settings, admin views, anomaly badges, telemetry timelines, and fleet overview |
-
-<a id="observe-control"></a>
-
-## Observe & Control
-
-| Surface | OpenGate view |
-|---|---|
-| Fleet state | Devices, groups, status, capabilities, and audit trail |
-| Remote operations | Browser sessions, terminal I/O, file operations|
-| Host inventory | CPU, memory, disk, network interfaces, hardware snapshots, and on-demand refresh |
-| Logs | Agent-collected device logs with filtering |
-| Edge telemetry | CPU, memory, disk, network, process, and service families sampled locally by the agent |
-| Process visibility | Top-N process/service metrics by rank with process names and command lines |
-| Anomaly state | Node anomaly rate, per-family rates, recent bitmask, model/sampler version, and device health badge |
-| Investigation | Device timelines, downsampled metric windows, and the ranked likely contributors an alert carries |
-| AMT | Intel AMT device inventory, CIRA connectivity, WSMAN device info, and power actions |
-| Security | JWT auth, bcrypt passwords, security groups, mTLS, CSR validation, RLS, secret redaction, and no standing edge storage credentials |
-
-## How It Works
-
-```mermaid
-flowchart LR
-  operator["Operator<br/>browser"]
-  web["Web UI<br/>React / TypeScript"]
-
-  subgraph server["OpenGate Server<br/>Go"]
-    rest["REST API<br/>auth + device ops"]
-    relay["WebSocket Relay<br/>session frames"]
-    agentapi["Agent API<br/>QUIC mTLS"]
-    mps["MPS<br/>AMT CIRA"]
-    ingest["Telemetry Ingest<br/>tenant scoped"]
-  end
-
-  subgraph agent["Managed Device<br/>Rust agent"]
-    sessions["Remote ops<br/>terminal + files + logs"]
-    sampler["Edge Sentinel<br/>sample + redact"]
-    detector["Local detector<br/>k=2 ensemble"]
-    correlate["Correlation<br/>ranks local dimensions"]
-  end
-
-  postgres[("PostgreSQL<br/>core data + RLS")]
-  timescale[("TimescaleDB<br/>hot telemetry")]
-  cold[("Parquet / Object Storage<br/>cold history")]
-  duckdb["DuckDB<br/>historical queries"]
-  amt["Intel AMT device<br/>CIRA / APF"]
-  push["Web Push service"]
-
-  operator --> web
-  web --> rest
-  web --> relay
-  rest --> agentapi
-  agentapi --> sessions
-  sessions --> relay
-  sampler --> detector
-  detector --> correlate
-  correlate --> agentapi
-  detector --> agentapi
-  agentapi --> ingest
-  rest --> postgres
-  relay --> postgres
-  ingest --> timescale
-  ingest --> postgres
-  timescale --> cold
-  cold --> duckdb
-  amt --> mps
-  mps --> postgres
-  rest --> push
-```
-
-The remote-management path and the telemetry path share the same authenticated
-control plane. Edge Sentinel failures are designed to degrade silently so remote
-management remains the priority path.
-
-## Agent Capabilities
-
-| Capability | What it does |
-|---|---|
-| First-boot enrollment | Generates identity material, submits a CSR, receives the CA-signed certificate, and stores the server CA for future QUIC mTLS connections |
-| Control connection | Opens the QUIC control stream, performs the binary handshake, registers hostname/OS/architecture/version/capabilities, and maintains heartbeats |
-| Session handling | Accepts session requests and connects to the relay for terminal, file, desktop/control, and WebRTC upgrade flows |
-| Terminal | Spawns a PTY and bridges stdin/stdout with terminal frames |
-| File manager | Lists directories and transfers file chunks through the relay protocol |
-| Hardware and logs | Collects hardware inventory and log entries on demand through control messages |
-| Signed updates | Downloads update binaries, verifies SHA-256 and Ed25519 signatures, atomically replaces the agent, and signals service-manager restart |
-| Local sampling | Samples CPU, memory, disk, network, process, and service families with bounded memory/disk use |
-| Secret redaction | Redacts known secret patterns from process command lines at the source, with a server-side guard for defense in depth |
-| Anomaly detection | Runs clean-room local k-means ensemble detection and reports anomaly rates and recent anomaly bitmasks |
-| Telemetry windows | Sends summarized health, metric windows, and process reports over existing control frames with payload and interval bounds |
-
+- **Machines dial out, so nothing has to be exposed inbound.** A managed device
+  opens the connection to the server and keeps it; there is no listening port for
+  anyone to find, and no firewall change to ask a customer for.
+- **The device does its own analysis, so the network carries summaries.** A
+  machine keeps its own high-resolution history locally and sends a small fixed
+  set of readings — so the cost of watching a fleet is bounded by how many
+  machines there are, not by how closely each one is watched.
+- **An alert arrives already carrying its evidence.** Whatever explains a finding
+  is attached at the moment it fires. There is no follow-up question to a machine
+  that has since rebooted, and no gap between what was seen and what was recorded.
 
 ## Documentation
 
-| Topic | Where to start |
+Start at the [documentation index](./docs/Home.md). It is three trees:
+
+| Tree | What is in it |
 |---|---|
-| Docs index | [docs/Home.md](./docs/Home.md) |
-| Architecture | [docs/Architecture.md](./docs/Architecture.md) |
-| API and OpenAPI | [docs/API-Reference.md](./docs/API-Reference.md), [Scalar API Reference](https://volchanskyi.github.io/opengate/docs/api/) |
-| Wire protocol | [docs/Wire-Protocol.md](./docs/Wire-Protocol.md) |
-| Agent updates | [docs/Agent-Updates.md](./docs/Agent-Updates.md) |
-| Security and dependencies | [docs/Security-and-Dependencies.md](./docs/Security-and-Dependencies.md) |
-| Testing and quality | [docs/Testing.md](./docs/Testing.md), [docs/CI-Pipeline.md](./docs/CI-Pipeline.md) |
-| Deployment | [docs/Continuous-Deployment.md](./docs/Continuous-Deployment.md), [docs/Kubernetes.md](./docs/Kubernetes.md), [docs/Infrastructure.md](./docs/Infrastructure.md) |
-| Monitoring | [docs/Monitoring.md](./docs/Monitoring.md) |
+| [Product](./docs/product/) | What the system does — the fleet, remote sessions, device health, alerts and rules, investigations, tenancy, erasure |
+| [Architecture](./docs/architecture/) | How it is built — components, connection model, wire protocol, REST API, database schema |
+| [Infrastructure](./docs/infrastructure/) | How it runs — the Kubernetes cluster, Terraform, CI/CD, observability, testing |
+
+The REST API is also published as a [browsable reference](https://volchanskyi.github.io/opengate/docs/api/).

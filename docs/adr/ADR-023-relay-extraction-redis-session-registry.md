@@ -46,7 +46,7 @@ monitoring requirements were disproportionate to a single-replica free-tier
 deployment. Carrying an unproved path also made the live local-pairing behavior
 harder to reason about.
 
-[`Multiscale-Readiness.md`](../Multiscale-Readiness.md) retains the functional
+[`Multiscale-Readiness.md`](../../.claude/plans/archive/multiscale-readiness.md) retains the functional
 and non-functional requirements for rebuilding distributed routing when demand
 justifies it.
 
@@ -85,6 +85,6 @@ under [ADR-036](ADR-036-mutable-adrs-current-state-doctrine.md).
   modular-monolith rules
 - [`registry.go`](../../server/internal/relay/registry.go) — current port
 - [`relay.go`](../../server/internal/relay/relay.go) — current pairing behavior
-- [`Multiscale-Readiness.md`](../Multiscale-Readiness.md) — scale-out rebuild
+- [`Multiscale-Readiness.md`](../../.claude/plans/archive/multiscale-readiness.md) — scale-out rebuild
   specification
 - [Teardown record](../../.claude/plans/archive/dormant-scale-out-teardown.md)

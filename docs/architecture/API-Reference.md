@@ -77,7 +77,7 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/devices/summary` | GET | JWT | Fixed-size fleet rollup for the dashboard (status tiles + edge-health bands) |
 | `/api/v1/devices/{id}` | GET | JWT | Get a device (includes `capabilities` array) |
 | `/api/v1/devices/{id}` | PATCH | JWT (admin) | Update device (file into a `site_id` in its own customer; the all-zeros UUID unfiles it) |
-| `/api/v1/devices/{id}` | DELETE | JWT (admin) | Delete a device and purge all its telemetry ([Data Lifecycle](Data-Lifecycle.md)) |
+| `/api/v1/devices/{id}` | DELETE | JWT (admin) | Delete a device and purge all its telemetry ([Data Lifecycle](../product/Data-Erasure.md)) |
 | `/api/v1/devices/{id}/restart` | POST | JWT | Restart agent on device (optional `reason` field) |
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |
 | `/api/v1/devices/{id}/logs` | GET | JWT (admin) | Get device log entries (on-demand via agent) |
@@ -111,13 +111,13 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/organizations/{id}` | PATCH | JWT (admin) | Rename, retire or restore a customer |
 | `/api/v1/organizations/{id}` | DELETE | JWT (admin) | Delete a customer and its devices (refused for a tenant's last one) |
 | `/api/v1/devices/{id}/organization` | PUT | JWT (admin) | Move a device to another customer in the same tenant |
-| `/api/v1/tenants/{tenantId}/purge` | POST | JWT (admin) | Purge a whole tenant's telemetry (async, tenant-scoped; [Data Lifecycle](Data-Lifecycle.md)) |
+| `/api/v1/tenants/{tenantId}/purge` | POST | JWT (admin) | Purge a whole tenant's telemetry (async, tenant-scoped; [Data Lifecycle](../product/Data-Erasure.md)) |
 | `/api/v1/purge-jobs/{jobId}` | GET | JWT | Get purge job status |
 | `/ws/relay/{token}` | GET | Token | WebSocket relay (bidirectional agent↔browser pipe) |
 
 ### Device Logs
 
-`GET /api/v1/devices/{id}/logs` brokers raw logs from the agent on demand via the QUIC control path. The request **blocks** until the agent returns a bounded response, which is redacted and streamed straight back; nothing is persisted centrally (see [ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md)). Reading raw logs is an elevated action restricted to administrators, and every pull writes a `device.logs.read` audit event.
+`GET /api/v1/devices/{id}/logs` brokers raw logs from the agent on demand via the QUIC control path. The request **blocks** until the agent returns a bounded response, which is redacted and streamed straight back; nothing is persisted centrally (see [ADR-046](../adr/ADR-046-edge-sentinel-raw-log-broker.md)). Reading raw logs is an elevated action restricted to administrators, and every pull writes a `device.logs.read` audit event.
 
 **Query Parameters**
 
@@ -162,12 +162,12 @@ const { data, error } = await api.GET('/api/v1/sites');
 
 `GET /api/v1/devices/{id}/metrics` returns column-oriented numeric telemetry for
 a device window, read tenant-scoped from VictoriaMetrics
-([`handlers_device_metrics.go`](../server/internal/api/handlers_device_metrics.go)).
+([`handlers_device_metrics.go`](../../server/internal/api/handlers_device_metrics.go)).
 
 The time axis is derived from the request, not from what the store happens to
 hold. `chooseStep` picks the smallest whole-second bucket that keeps the point
 count within `max_points`, and
-[`buildMetricGrid`](../server/internal/api/metrics_assemble.go) lays out exactly
+[`buildMetricGrid`](../../server/internal/api/metrics_assemble.go) lays out exactly
 `(to - from) / bucket_s` evenly spaced buckets from it. So the window selector
 means something: a seven-day request over a device with twenty minutes of
 telemetry returns seven days of buckets with one short run of values and `null`
@@ -183,7 +183,7 @@ no-op; a sample that still arrives off the grid is counted on
 `opengate_metrics_grid_misalignment_total` and logged, never dropped in silence.
 
 The narrowest bucket is 60 s, the cadence a device writes its vitals on
-([ADR-065](adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md)); a
+([ADR-065](../adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md)); a
 finer one would ask the store for detail it does not hold. The optional `band`
 computes min/max alongside the avg line, and the response labels its provenance:
 `avg_of_60s` is min/max across the 60 s averages in the bucket, never host
@@ -193,7 +193,7 @@ average, plus a `.max` for the four where a within-minute spike is the signal.
 Clients must render `null` as a gap and never interpolate across one — a
 straight line over a device-offline window is a reading nobody took. The uPlot
 adapter does this with `spanGaps: false` on every drawn series
-([`aligned-data.ts`](../web/src/features/devices/charts/aligned-data.ts)).
+([`aligned-data.ts`](../../web/src/features/devices/charts/aligned-data.ts)).
 
 **Response Codes**
 
@@ -232,8 +232,9 @@ administrators.
 `POST /api/v1/devices/{id}/maintenance` toggles a device's maintenance state —
 the server-authoritative desired state that quiets the agent's telemetry and
 alerting during disruptive host work (see
-[ADR-056](adr/ADR-056-device-maintenance-mode.md) and
-[Monitoring](Monitoring.md#maintenance-mode)). The body carries the desired
+[ADR-056](../adr/ADR-056-device-maintenance-mode.md) and
+[Device Health](../product/Device-Health.md#maintenance-mode)). The body carries
+the desired
 `enabled` flag and an optional operator `reason`. It is a desired state, not a
 live command, so it succeeds even when the agent is offline (no agent-connected
 check), and every enter/exit is written to the audit log. Entry stamps
@@ -245,7 +246,7 @@ tenant. The count of devices currently in maintenance is one field of the
 fleet summary below. The four maintenance fields
 (`maintenance_on`/`_since`/`_by`/`_reason`) are present on the device DTO only
 while a device is in maintenance. The canonical request/response shapes are in
-[`api/openapi.yaml`](../api/openapi.yaml).
+[`api/openapi.yaml`](../../api/openapi.yaml).
 
 ### Customers and the Fleet Filter
 
@@ -290,11 +291,12 @@ still returned and every device lands in `unknown`; the endpoint does not fail.
 
 ### Investigations
 
-An incident is the room a customer's alerts are investigated in, and an incident
-in `new` **is** the triage queue — there is no separate promotion state. Reading
+An incident is the room a customer's alerts are investigated in; grouping, the
+queue and the lifecycle are in
+[Investigations](../product/Investigations.md). Reading
 the queue, moving an incident, assigning it and commenting on it are operational
 work on the tenant's own resources, so **tenant membership is the whole gate**,
-the same rule device commands follow ([ADR-062](adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md)).
+the same rule device commands follow ([ADR-062](../adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md)).
 `organization_id` narrows to the customer on screen; an incident outside it
 answers exactly as one that does not exist, so neither the tenant wall nor the
 customer narrowing is discoverable by probing ids. Rule bindings and rollout are
@@ -315,7 +317,7 @@ costs, and
 structure. The stored blob is DEFLATE around MessagePack under a codec named on
 the row, so a build that cannot read one answers `422` rather than handing back
 bytes. Log lines inside it were redacted on the machine before they were sent
-([ADR-049](adr/ADR-049-edge-sentinel-raw-log-privacy.md)); this path returns the
+([ADR-049](../adr/ADR-049-edge-sentinel-raw-log-privacy.md)); this path returns the
 stored structure unchanged.
 
 The device page's strip, `GET /api/v1/devices/{id}/incidents`, is the same queue
@@ -326,9 +328,10 @@ the customer-wide ones where it is one of forty machines.
 
 `GET /api/v1/rules` answers with the curated pack this build ships beside, per
 rule, how far it has rolled out and how much of the estate it is watching. The
-four coverage states — `active`, `throttled`, `unsupported`, `unknown` — always
-add up to `fleet_size`, so a rule with a standing blind spot says so instead of
-reading as healthy.
+response carries the four coverage states — `active`, `throttled`, `unsupported`,
+`unknown` — which always add up to `fleet_size`, so a rule with a standing blind
+spot says so instead of reading as healthy. What each state means is in
+[Alerts and Rules](../product/Alerts-and-Rules.md#threshold-alerts).
 
 It is a read and only a read. Rule definitions are compiled into the server and
 cost-bounded in CI before they can reach a machine, so the response carries what
@@ -349,7 +352,7 @@ device — and which tenant — a CIRA connection belongs to, and never
 returns it in any response. AMT hardware attributes (`amt_available`,
 `amt_version`, `amt_model`, `amt_firmware`) live on the
 `GET /api/v1/devices/{id}/hardware` payload. See
-[ADR-061](adr/ADR-061-amt-as-device-property.md).
+[ADR-061](../adr/ADR-061-amt-as-device-property.md).
 
 ## Rate Limiting
 

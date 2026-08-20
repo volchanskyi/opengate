@@ -100,4 +100,4 @@ pipeline emits them. They are not a second trend database.
 
 - [B5 legacy-retirement plan](../../.claude/plans/archive/bench-trends-b5-retire-legacy.md)
 - [B6 documentation plan](../../.claude/plans/archive/bench-trends-b6-docs.md)
-- [Monitoring and observability](../Monitoring.md)
+- [Monitoring and observability](../infrastructure/Monitoring.md)

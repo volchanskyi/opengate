@@ -48,8 +48,8 @@ sequenceDiagram
 The handshake type bytes are `0x10` (`ServerHello`), `0x11`
 (`AgentHello`), `0x14` (`SkipAuth`), and `0x15` (`ExpectHash`). Both decoders
 reject `0x12` and `0x13`. The canonical constants live in
-[`server/internal/protocol/types.go`](../server/internal/protocol/types.go) and
-[`agent/crates/mesh-protocol/src/types/handshake.rs`](../agent/crates/mesh-protocol/src/types/handshake.rs).
+[`server/internal/protocol/types.go`](../../server/internal/protocol/types.go) and
+[`agent/crates/mesh-protocol/src/types/handshake.rs`](../../agent/crates/mesh-protocol/src/types/handshake.rs).
 
 ## Control Messages
 
@@ -123,14 +123,14 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 
 The Edge Sentinel telemetry variants are ingested by the server when received.
 The agent sampler runs on every device
-([ADR-056](./adr/ADR-056-device-maintenance-mode.md)); it pauses only while the
+([ADR-056](../adr/ADR-056-device-maintenance-mode.md)); it pauses only while the
 device is in maintenance mode. Server ingest ignores payload `tenant_id` for
 authorization, resolves the device's authoritative tenant after handshake,
 applies a telemetry payload cap and interval floor, and drops/counts telemetry
 when the bounded persistence path is saturated. The source-of-truth payload definitions are the Rust
-[`ControlMessage`](../agent/crates/mesh-protocol/src/control.rs) enum and Go
-[`ControlMessage`](../server/internal/protocol/control.go) flat struct; the
-store decision is [ADR-044](./adr/ADR-044-edge-sentinel-server-telemetry-ingest.md).
+[`ControlMessage`](../../agent/crates/mesh-protocol/src/control.rs) enum and Go
+[`ControlMessage`](../../server/internal/protocol/control.go) flat struct; the
+store decision is [ADR-044](../adr/ADR-044-edge-sentinel-server-telemetry-ingest.md).
 
 Live host metrics reuse `AgentMetricWindow`: the sampler folds its 1 s samples
 into a 60 s window and emits one window per minute over a bounded channel that
@@ -147,7 +147,7 @@ bytes/second (rounded to whole bytes so they stay on the lossless integer path).
 The server writes only these eighteen names — a dim outside the vocabulary is
 dropped and counted, so central cardinality is a property of the contract rather
 than of what an agent sends. The two disk capacity dims are a per-mount
-reduction ([`sampler.rs`](../agent/crates/mesh-agent-core/src/ml/sampler.rs)):
+reduction ([`sampler.rs`](../../agent/crates/mesh-agent-core/src/ml/sampler.rs)):
 **`disk.used_percent` is the fullest mount**, not a pooled average over every
 mount's bytes, and `disk.mounts_critical` counts the mounts at or above the
 critical-usage threshold (`MOUNT_CRITICAL_PERCENT` in the same file). Every mount
@@ -157,14 +157,14 @@ measurable mount ships neither dim rather than a zero, because a dim a sample
 could not read is absent from the window rather than substituted. The five
 `stall.*` dims are the share of the last 60 s that tasks spent stalled on CPU,
 memory and I/O, read from the kernel's own pressure accounting
-([`pressure.rs`](../agent/crates/mesh-agent-core/src/ml/pressure.rs)); a host
+([`pressure.rs`](../../agent/crates/mesh-agent-core/src/ml/pressure.rs)); a host
 whose kernel publishes no such accounting ships none of them, for the same
 reason. Because the kernel has already averaged each of those readings over
 60 s, a stall dim carries the window's latest reading where the other dims carry
 their mean. `disk.await_ms` and `disk.queue_depth` answer how *slow* the disks
 are rather than how full — average service time per I/O and average outstanding
 I/Os, each from the worst device chosen independently, derived from the kernel's
-per-device counters ([`diskperf.rs`](../agent/crates/mesh-agent-core/src/ml/diskperf.rs)).
+per-device counters ([`diskperf.rs`](../../agent/crates/mesh-agent-core/src/ml/diskperf.rs)).
 A containerized agent ships neither, because those counters are host-wide and
 would report its neighbours' I/O as its own, and a device that completed no I/O
 in the interval ships no service time rather than a zero that would read as
@@ -200,7 +200,7 @@ against the machine's place in the tenancy ladder so a rule tuned for one
 customer or one office reaches the machines it was tuned for. **A rule is data in
 a closed grammar, never code** — an agent executing server-supplied code would be
 a supply-chain weapon aimed at every customer estate — so everything a rule can
-say is expressible in [`ThresholdRule`](../agent/crates/mesh-protocol/src/control.rs)
+say is expressible in [`ThresholdRule`](../../agent/crates/mesh-protocol/src/control.rs)
 and analysable from its declared fields alone.
 
 Each rule names a metric, a comparator, a fire threshold, a hysteresis `clear`
@@ -214,17 +214,18 @@ fires. Beyond that it declares:
 | `all` | Extra conditions that must hold at the same instant, at most `MAX_RULE_TERMS` of them, each with its own metric, comparator, boundaries, predicate and window |
 
 The bounds are what make a rule's cost computable before it reaches an endpoint:
-[`rule_cost`](../agent/crates/mesh-agent-core/src/alerts/evaluator/mod.rs) answers how
+[`rule_cost`](../../agent/crates/mesh-agent-core/src/alerts/evaluator/mod.rs) answers how
 many readings a rule retains and may touch, from its declared fields alone. A
 shape outside the grammar — a window past the bound, a windowed predicate with no
 window, an instant one carrying a window it would ignore, more extra conditions
 than allowed — is refused by name rather than attempted.
 
-A rule may watch any of the vitals dimensions, under the canonical name or under
-one of the legacy names `mem.used` and `disk.used`, which resolve to
-`mem.used_percent` and `disk.used_percent`. The vocabulary and its aliases live
-in one place per side ([Rust](../agent/crates/mesh-protocol/src/control.rs),
-[Go](../server/internal/protocol/rules.go)) and are pinned together by the
+A rule may watch any of the vitals dimensions, under its canonical name or under
+an alias; what each dimension means and which aliases resolve to which name are
+in [Device Health](../product/Device-Health.md#the-vitals-contract). The
+vocabulary and its aliases live in one place per side
+([Rust](../../agent/crates/mesh-protocol/src/control.rs),
+[Go](../../server/internal/protocol/rules.go)) and are pinned together by the
 `go_control_push_alert_rules.bin` fixture, which the server generates from its own
 vocabulary and the agent decodes asserting the resolved set is exactly its own. A
 metric outside that vocabulary never fires.
@@ -234,20 +235,12 @@ built, each naming the **canonical** metric whatever the rule was written in, so
 one reading is only ever recorded under one name.
 
 `AgentHealthSummary.rule_coverage` carries what every installed rule is *doing* on
-that device — `Active` (evaluating), `Unsupported` (the rule is producing no
-answer here: its metric is outside the vocabulary, its predicate outside the
-grammar's bounds, or the reading is not arriving), or `Throttled` (the rule cost
-this device more than the allowance in
-[`evaluator`](../agent/crates/mesh-agent-core/src/alerts/evaluator/mod.rs), so the
-device stopped running it). A device that reports none of them
-is `unknown`, which only the server can determine because only the server knows
-the fleet. The field is omitted when there is nothing to
-say, which is also the shape an agent that predates coverage sends; the server
-reads both as this device having reported nothing.
-
-`Throttled` is deliberately not `Unsupported`: one says a rule was written
-wrong, the other says a host is short of a reading. A staged rollout watches for
-the first and reverts on it, while the second belongs on a remediation list.
+that device — `Active`, `Unsupported` or `Throttled`. What each state means, and
+why a device reporting none of them is `unknown` to the server rather than to
+itself, is in
+[Alerts and Rules](../product/Alerts-and-Rules.md#threshold-alerts). The field is
+omitted when there is nothing to say; the server reads an absent field as this
+device having reported nothing.
 
 ### Alerts and their evidence
 
@@ -266,8 +259,8 @@ next reconnect, and so is one carrying a `severity` outside
 `Info | Warning | Critical`, naming a rule this build does not ship, stamped
 outside the clock window its kind is allowed, or carrying evidence that does not
 decode. Each refusal is counted under its own reason
-([`conn_alerts.go`](../server/internal/agentapi/conn_alerts.go)); see
-[Monitoring](Monitoring.md). `severity` and `backfilled` are always present on the
+([`conn_alerts.go`](../../server/internal/agentapi/conn_alerts.go)); see
+[Monitoring](../infrastructure/Monitoring.md). `severity` and `backfilled` are always present on the
 wire, so "nothing said" and "not serious" never look alike.
 
 An alert's timestamps are refused rather than clamped, unlike a telemetry
@@ -276,7 +269,7 @@ bound would land the same alert on a different row every reconnect. `backfilled`
 widens the backward bound to the reconnect-backfill retention, because a
 retroactive finding over local history is legitimately months old.
 
-`evidence` is [`AlertEvidence`](../agent/crates/mesh-protocol/src/control.rs)
+`evidence` is [`AlertEvidence`](../../agent/crates/mesh-protocol/src/control.rs)
 encoded as msgpack and compressed under the codec `evidence_codec` names. The
 codec rides the message rather than being assumed, so a later one is additive and
 a reader that does not know one says so instead of decoding nonsense. Today it is
@@ -296,7 +289,7 @@ are only comparable if they were assembled the same way.
 
 Size is decided after encoding, because how large evidence compresses to is not
 knowable before. Evidence over the cap in
-[`compose_evidence` / `encode_evidence`](../agent/crates/mesh-agent-core/src/alerts/evidence.rs)
+[`compose_evidence` / `encode_evidence`](../../agent/crates/mesh-agent-core/src/alerts/evidence.rs)
 gives up its least valuable parts in a fixed order — log samples, processes,
 series readings, whole series, and the ranking last and never entirely — and sets
 `truncated`. Going over the cap costs the alert its tail; it never costs the
@@ -306,7 +299,7 @@ envelope allowance, so an alert holding the largest legal evidence is admitted
 rather than refused by a bound borrowed from the telemetry path.
 
 Every free-text field is redacted on the device
-([ADR-049](adr/ADR-049-edge-sentinel-raw-log-privacy.md)) — log lines, process
+([ADR-049](../adr/ADR-049-edge-sentinel-raw-log-privacy.md)) — log lines, process
 basenames, and dimension labels alike. The server's own guard is defence in
 depth, not the guarantee.
 
@@ -318,7 +311,7 @@ and echoes `MaintenanceApplied { enabled }` as its applied-state report. Both
 carry an explicit boolean, so a `false` (resume) is distinct from an absent field.
 `SetMaintenanceMode` is universal control and is not capability-gated; the agent
 resets to Active on every registration and suppresses only when the server pushes
-`true`. See [ADR-056](./adr/ADR-056-device-maintenance-mode.md).
+`true`. See [ADR-056](../adr/ADR-056-device-maintenance-mode.md).
 
 ### Capabilities
 
@@ -354,7 +347,7 @@ The `DeviceLogsResponse` message carries an array of `LogEntry` structs:
 | `target` | string | Rust tracing target (module path) |
 | `message` | string | Log message body |
 
-The agent parses daily-rotated log files written by `tracing-subscriber` and returns matching entries. The server redacts known secrets from the bounded response and streams it straight back to the requesting administrator; nothing is persisted centrally (see [ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md)).
+The agent parses daily-rotated log files written by `tracing-subscriber` and returns matching entries. The server redacts known secrets from the bounded response and streams it straight back to the requesting administrator; nothing is persisted centrally (see [ADR-046](../adr/ADR-046-edge-sentinel-raw-log-broker.md)).
 
 ### Data Frame Types
 

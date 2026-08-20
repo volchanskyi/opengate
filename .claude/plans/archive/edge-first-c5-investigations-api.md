@@ -37,7 +37,7 @@ handler code, and use the named-guard idiom the ADR-027 pen-test rules recognise
   (`oapi-codegen`) and TS (`npm run generate:api`) in the same commit.
 - **Create:** `server/internal/api/handlers_incidents.go` (+ tests).
 - **Modify:** [api.go](../../../server/internal/api/api.go) — wire the store/engine ports.
-- **Docs:** [API-Reference.md](../../../docs/API-Reference.md).
+- **Docs:** [API-Reference.md](../../../docs/architecture/API-Reference.md).
 
 ## Steps (TDD-first)
 

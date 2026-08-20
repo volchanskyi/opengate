@@ -109,7 +109,7 @@ connections.
 - OpenGate is one combined API, QUIC, Intel management, and relay server. Relay
   ownership is process-local; turning on multiple full server replicas is not a
   correct scalability experiment. The accepted boundary is documented in
-  [`Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md).
+  [`Multiscale-Readiness.md`](archive/multiscale-readiness.md).
 - The application database pool's defaults are in
   [`postgres.go`](../../server/internal/db/postgres.go), but pool open/active/idle/
   waiting values are not exported as application metrics.
@@ -467,7 +467,7 @@ For the current architecture:
 - report whether added resources increase capacity or move the bottleneck.
 
 Horizontal scalability is deferred until the dependencies in
-[`Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md) are implemented.
+[`Multiscale-Readiness.md`](archive/multiscale-readiness.md) are implemented.
 Testing two full replicas now would test a known-invalid topology.
 
 ## 11. Security, performance, and maintainability constraints

@@ -87,4 +87,4 @@ contract** — empty output + exit 0 on any transport/parse failure — must be 
 `make shell-test` (`vm-query.test.sh` + `pmat-vm-query.test.sh`); confirm
 [`pmat-trend.yml`](../../../.github/workflows/pmat-trend.yml)'s two `pmat-vm-query.sh`
 call sites still resolve. `/docs`: none (internal refactor) — a one-line
-[`Monitoring.md`](../../../docs/Monitoring.md) note only if the shared lib is documented.
+[`Monitoring.md`](../../../docs/infrastructure/Monitoring.md) note only if the shared lib is documented.

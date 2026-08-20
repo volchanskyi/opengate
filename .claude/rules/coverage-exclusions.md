@@ -43,7 +43,7 @@ never be removed. Each entry in
 [`sonar-project.properties`](../../sonar-project.properties) carries a comment
 naming **which** of the admissible reasons applies to **that** file — the same
 convention the mutation carve-outs already follow
-([`docs/Testing.md`](../../docs/Testing.md), `agent/.cargo/mutants.toml`).
+([`docs/infrastructure/Testing.md`](../../docs/infrastructure/Testing.md), `agent/.cargo/mutants.toml`).
 
 The guard fails the gauntlet on any entry without one.
 

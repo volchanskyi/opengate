@@ -30,7 +30,7 @@ drift caught by the boundary linters already enforced — within the
 | Target | Action |
 |---|---|
 | `docs/Architecture.md` (or `docs/Home.md`) | Add 1–3 high-level Mermaid diagrams (system topology, request/relay flow). Replace any prose-only architecture description that a diagram clarifies. |
-| Existing Mermaid (e.g. [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) §7) | Confirm it renders; adopt as the house style. |
+| Existing Mermaid (e.g. [`docs/Multiscale-Readiness.md`](multiscale-readiness.md) §7) | Confirm it renders; adopt as the house style. |
 | Boundary linters | Confirm `go-arch-lint` / `dependency-cruiser` / `cargo-modules` are wired (or wire them) so structural drift fails CI rather than rotting a diagram silently. |
 
 ## Steps

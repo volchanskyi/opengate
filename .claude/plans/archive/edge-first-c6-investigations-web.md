@@ -43,7 +43,7 @@ separate promotion step, no "create investigation" button, and nothing to conver
 - **Modify:** the device detail page — the incidents strip.
 - **Modify:** [DeviceMetrics.tsx](../../../web/src/features/devices/DeviceMetrics.tsx) — render the
   vitals set at 60 s (the drag-to-correlate UX is retired by EF-B7, not here).
-- **Docs:** [Architecture.md](../../../docs/Architecture.md) (web client features).
+- **Docs:** [Architecture.md](../../../docs/architecture/Overview.md) (web client features).
 
 ## Steps (TDD-first)
 

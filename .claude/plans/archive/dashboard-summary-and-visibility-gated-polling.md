@@ -238,7 +238,7 @@ contained.
 ### Docs
 
 `docs/adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md` (**new**) +
-[`decisions.md`](../../decisions.md) row · [`API-Reference.md`](../../../docs/API-Reference.md#L213)
+[`decisions.md`](../../decisions.md) row · [`API-Reference.md`](../../../docs/architecture/API-Reference.md#L213)
 · [`ADR-056`](../../../docs/adr/ADR-056-device-maintenance-mode.md#L90) (mutable —
 retarget the D9 fleet-count sentence) · [`phases.md`](../../phases.md#L17).
 Archived plans naming `maintenance-summary` are left alone: outside the

@@ -19,7 +19,7 @@ the affected records directly under the current-state documentation doctrine.
 | `docs/adr/ADR-034-scale-out-keda-shared-keys.md` | **Split:** KEDA/PDB reverted; **shared keys stays** (live in prod). | exists |
 | `docs/adr/ADR-023-relay-extraction-redis-session-registry.md` | Annotate: Redis adapter + cross-server proxy removed; port slimmed per TD1 §3. | exists |
 | `docs/adr/ADR-030-kubernetes-adoption-oke-helm.md` | Drop the "Redis/cross-server deferred to PR-C" + multi-node-L4 references with no remaining target. | exists |
-| [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) | **Reframe** §3 from "dormant (built)" to "removed — design retained here as the rebuild spec"; remains the SSOT. | exists |
+| [`docs/Multiscale-Readiness.md`](multiscale-readiness.md) | **Reframe** §3 from "dormant (built)" to "removed — design retained here as the rebuild spec"; remains the SSOT. | exists |
 | [`.claude/decisions.md`](../../decisions.md) | Update rows for ADR-023/030/031/033/034. | sweep |
 | [`.claude/phases.md`](../../phases.md) | Update Phase 13b PR-C/PR-E rows. | sweep |
 | `docs/Architecture.md`, `docs/Kubernetes.md`, `docs/Testing.md`, `README.md` | Remove cross-server / Redis / multiserver prose. | sweep hits |

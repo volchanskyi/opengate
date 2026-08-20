@@ -24,10 +24,10 @@ the **actual** state is **8 Mermaid fences across 6 docs**:
 
 | Doc | Mermaid blocks |
 |---|---|
-| [`docs/Architecture.md`](../../../docs/Architecture.md) | 3 (`flowchart` topology + 2 `sequenceDiagram`) |
-| [`docs/Wire-Protocol.md`](../../../docs/Wire-Protocol.md) | 1 `sequenceDiagram` |
-| [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) | 1 `flowchart` |
-| [`docs/Monitoring.md`](../../../docs/Monitoring.md) | 1 `flowchart` *(missed by the draft)* |
+| [`docs/Architecture.md`](../../../docs/architecture/Overview.md) | 3 (`flowchart` topology + 2 `sequenceDiagram`) |
+| [`docs/Wire-Protocol.md`](../../../docs/architecture/Wire-Protocol.md) | 1 `sequenceDiagram` |
+| [`docs/Multiscale-Readiness.md`](multiscale-readiness.md) | 1 `flowchart` |
+| [`docs/Monitoring.md`](../../../docs/infrastructure/Monitoring.md) | 1 `flowchart` *(missed by the draft)* |
 | [`docs/adr/ADR-025-cd-preflight-digest-check.md`](../../../docs/adr/ADR-025-cd-preflight-digest-check.md) | 1 *(missed by the draft)* |
 | [`docs/README.md`](../../../docs/README.md) | 1 (convention example) |
 

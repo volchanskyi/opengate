@@ -44,7 +44,7 @@ the chart is simply wrong, and nothing catches it.
 - **Modify:** [DeviceMetrics.tsx](../../../web/src/features/devices/DeviceMetrics.tsx) /
   [TimeSeriesChart.tsx](../../../web/src/features/devices/charts/TimeSeriesChart.tsx) — grid-length
   tolerance and no interpolation across nulls.
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md), [API-Reference.md](../../../docs/API-Reference.md).
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md), [API-Reference.md](../../../docs/architecture/API-Reference.md).
 
 ## Steps (TDD-first)
 

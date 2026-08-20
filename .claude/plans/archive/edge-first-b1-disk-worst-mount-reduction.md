@@ -45,7 +45,7 @@ and must be called out in the ADR and the docs (EF-Z1 owns the ADR; this plan ow
   must roll identically, or live and backfilled points land in different series.
 - **Regenerate:** [testdata/golden/](../../../testdata/golden/) `control_agent_metric_window*` fixtures
   (both directions).
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md), [Wire-Protocol.md](../../../docs/Wire-Protocol.md).
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md), [Wire-Protocol.md](../../../docs/architecture/Wire-Protocol.md).
 
 ## Steps (TDD-first)
 

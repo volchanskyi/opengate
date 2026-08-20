@@ -144,4 +144,4 @@ customer needs to self-serve.
   rollout whose populations and holds become settings here.
 - [ADR-074](ADR-074-alert-store-accounted-ingest-and-the-erasure-cascade.md) —
   the accounted ingest whose ceiling becomes a per-customer budget.
-- [Rule Administration](../Rule-Administration.md) — how the screen is used.
+- [Rule Administration](../product/Rule-Administration.md) — how the screen is used.

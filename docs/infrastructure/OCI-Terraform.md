@@ -24,13 +24,13 @@ deploy/
 The Terraform configuration currently provisions the OKE substrate, networking,
 the human operator access plane, and the off-cluster backup substrate. The
 resource inventory is the Terraform root module plus `networking`, `oke`,
-`bastion`, and `backups` modules in [`deploy/terraform`](../deploy/terraform/):
+`bastion`, and `backups` modules in [`deploy/terraform`](../../deploy/terraform):
 
 - VCN, internet gateway, route table, and the OKE subnets, NSGs, and load-balancer security list.
 - OKE Basic cluster and node pool.
 - OCI Bastion targeting the OKE worker-node subnet.
 - Postgres backup bucket, its retention lifecycle rule, and the
-  least-privilege lifecycle IAM policy ([`modules/backups`](../deploy/terraform/modules/backups/)).
+  least-privilege lifecycle IAM policy ([`modules/backups`](../../deploy/terraform/modules/backups)).
 - Remote state in OCI Object Storage through Terraform's S3-compatible backend.
 
 The former compute VM is intentionally not instantiated by the root module. The
@@ -39,7 +39,7 @@ The former compute VM is intentionally not instantiated by the root module. The
 The backup bucket, lifecycle rule, and lifecycle IAM policy were originally
 created imperatively with the `oci` CLI and are reconciled into Terraform by
 **importing** the live resources, never recreating them — see
-[`modules/backups/README.md`](../deploy/terraform/modules/backups/README.md). The
+[`modules/backups/README.md`](../../deploy/terraform/modules/backups/README.md). The
 write-only pre-authenticated request (PAR) the server uses to push dumps stays a
 runtime credential in the Kubernetes Secret (`BACKUP_PAR_URL`), out of git and
 Terraform state.
@@ -76,7 +76,7 @@ State lives in an OCI Object Storage bucket (`opengate-tfstate`) accessed throug
 
 #### Operator backend config
 
-Copy [`backend.tfbackend.example`](../deploy/terraform/backend.tfbackend.example) to `backend.tfbackend` (gitignored) and substitute the OCI namespace (find it with `oci os ns get --query data --raw-output`). The endpoint becomes `https://<namespace>.compat.objectstorage.us-sanjose-1.oraclecloud.com`.
+Copy [`backend.tfbackend.example`](../../deploy/terraform/backend.tfbackend.example) to `backend.tfbackend` (gitignored) and substitute the OCI namespace (find it with `oci os ns get --query data --raw-output`). The endpoint becomes `https://<namespace>.compat.objectstorage.us-sanjose-1.oraclecloud.com`.
 
 Then run `terraform init -backend-config=backend.tfbackend` once — Terraform writes the resolved backend config into `.terraform/terraform.tfstate` (gitignored).
 
@@ -88,7 +88,7 @@ The AWS SDK v2 that backs Terraform's `s3` backend defaults to a flexible-checks
 export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
 ```
 
-`backend "s3" { skip_s3_checksum = true }` in [`deploy/terraform/main.tf`](../deploy/terraform/main.tf) handles response-side checksum verification; this env var handles the request side. Both are needed. The `terraform-drift` workflow ([`.github/workflows/terraform-drift.yml`](../.github/workflows/terraform-drift.yml)) sets this env var on its `init` and `plan` steps automatically.
+`backend "s3" { skip_s3_checksum = true }` in [`deploy/terraform/main.tf`](../../deploy/terraform/main.tf) handles response-side checksum verification; this env var handles the request side. Both are needed. The `terraform-drift` workflow ([`.github/workflows/terraform-drift.yml`](../../.github/workflows/terraform-drift.yml)) sets this env var on its `init` and `plan` steps automatically.
 
 #### Migrating an existing local state (one-time)
 
@@ -135,7 +135,7 @@ Generate a new Customer Secret Key for `tf-state-writer`, update `~/.oci/terrafo
 
 ### Custom IaC policies
 
-Project-specific invariants (Always-Free shape, required tags, image pinning, action SHA-pinning) live in [`policy/`](../policy/) and are enforced via [Conftest](https://www.conftest.dev/) (OPA Rego). Run with `make iac-policy-custom`; full per-policy listing in the directory READMEs. The shape and tag rules ALSO run inside `terraform test` ([`modules/networking/tests/`](../deploy/terraform/modules/networking/tests/), [`modules/oke/tests/`](../deploy/terraform/modules/oke/tests/)) — overlap is deliberate per [ADR-015](adr/ADR-015-iac-defense-in-depth.md).
+Project-specific invariants (Always-Free shape, required tags, image pinning, action SHA-pinning) live in [`policy/`](../../policy) and are enforced via [Conftest](https://www.conftest.dev/) (OPA Rego). Run with `make iac-policy-custom`; full per-policy listing in the directory READMEs. The shape and tag rules ALSO run inside `terraform test` ([`modules/networking/tests/`](../../deploy/terraform/modules/networking/tests), [`modules/oke/tests/`](../../deploy/terraform/modules/oke/tests)) — overlap is deliberate per [ADR-015](../adr/ADR-015-iac-defense-in-depth.md).
 
 The terraform Rego check requires a plan-file because conftest's HCL2 parser leaves `${var.X}` references unresolved. Operator runs:
 
@@ -149,7 +149,7 @@ The compose and workflow Rego checks need no plan-file and run unconditionally i
 
 ### IaC plan + destroy-blocklist gate
 
-The `iac-gate` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `terraform plan` against the remote backend on every commit or PR that touches `deploy/terraform/**` (path-filtered inside the job; non-terraform commits skip the terraform steps and complete in ~10 s). It posts a markdown summary — sticky PR comment on PRs, GitHub Job Summary on direct pushes — and **blocks merge** if the plan destroys a protected resource type:
+The `iac-gate` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs `terraform plan` against the remote backend on every commit or PR that touches `deploy/terraform/**` (path-filtered inside the job; non-terraform commits skip the terraform steps and complete in ~10 s). It posts a markdown summary — sticky PR comment on PRs, GitHub Job Summary on direct pushes — and **blocks merge** if the plan destroys a protected resource type:
 
 | Protected types (current set) |
 |---|
@@ -168,11 +168,11 @@ The job is wired into `merge-to-main.needs:` so the auto-merge to `main` cannot 
 
 Authentication: reuses the read-only `tf-drift-reader` IAM user provisioned for nightly drift detection (same `OCI_DRIFT_*` + `TFSTATE_S3_*` + `OCI_TFSTATE_NAMESPACE` secrets). No new IAM principal is created for the gate — the permissions are identical (inspect + state read). `terraform init` retries 3× with backoff to absorb the same transient OCI S3-compat DNS flake that drift detection handles.
 
-The parser script [`deploy/scripts/parse-tfplan.sh`](../deploy/scripts/parse-tfplan.sh) is testable in isolation via `make test-parse-tfplan` (three canned fixtures cover the gate-decision matrix).
+The parser script [`deploy/scripts/parse-tfplan.sh`](../../deploy/scripts/parse-tfplan.sh) is testable in isolation via `make test-parse-tfplan` (three canned fixtures cover the gate-decision matrix).
 
 ### Drift detection
 
-Out-of-band changes — operator clicks in the OCI Console, `cd.yml`'s runtime NSG mutations, manual security-list edits — silently desync the tfstate from reality. [`.github/workflows/terraform-drift.yml`](../.github/workflows/terraform-drift.yml) runs on a nightly cron, executes `terraform plan -refresh-only -detailed-exitcode` against the remote backend, and alerts on any diff. Same audit pattern as [`.github/workflows/mutation.yml`](../.github/workflows/mutation.yml).
+Out-of-band changes — operator clicks in the OCI Console, `cd.yml`'s runtime NSG mutations, manual security-list edits — silently desync the tfstate from reality. [`.github/workflows/terraform-drift.yml`](../../.github/workflows/terraform-drift.yml) runs on a nightly cron, executes `terraform plan -refresh-only -detailed-exitcode` against the remote backend, and alerts on any diff. Same audit pattern as [`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml).
 
 Local mirror: `make terraform-drift` (uses the operator's local OCI creds).
 
@@ -180,10 +180,10 @@ Local mirror: `make terraform-drift` (uses the operator's local OCI creds).
 
 When `plan -refresh-only` returns exit code 2, the workflow:
 
-1. Generates a canonical drift summary via [`scripts/terraform-drift-summarize.sh`](../scripts/terraform-drift-summarize.sh) (`drift_count`, per-resource `address`/`actions`/`type`).
+1. Generates a canonical drift summary via [`scripts/terraform-drift-summarize.sh`](../../scripts/terraform-drift-summarize.sh) (`drift_count`, per-resource `address`/`actions`/`type`).
 2. Uploads `drift.txt` (raw plan output) + `drift.json` + `drift-summary.json` as a 30-day workflow artifact.
 3. Posts the truncated plan output to Telegram via the existing `DEPLOY_TELEGRAM_BOT_TOKEN`/`DEPLOY_TELEGRAM_CHAT_ID` secrets.
-4. Pushes the summary record to VictoriaMetrics via [`scripts/terraform-drift-vm-push.sh`](../scripts/terraform-drift-vm-push.sh), which uses the shared kubectl transport in [`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh).
+4. Pushes the summary record to VictoriaMetrics via [`scripts/terraform-drift-vm-push.sh`](../../scripts/terraform-drift-vm-push.sh), which uses the shared kubectl transport in [`scripts/lib/vm-push.sh`](../../scripts/lib/vm-push.sh).
 5. Exits red for audit-trail visibility.
 
 There is **no auto-remediation**. Drift is investigated by the operator. If the legitimate cause was an operator-side action (e.g. a console click that should become Terraform code), the resolution is to update the config and `apply`; if it was an injection by `cd.yml`, see "Known interactions" below.
@@ -204,20 +204,20 @@ The workflow authenticates as a separate read-only IAM user `tf-drift-reader` �
    - `OCI_TFSTATE_NAMESPACE` — the OCI Object Storage namespace used to construct the S3 endpoint
    - `TFSTATE_S3_ACCESS_KEY` / `TFSTATE_S3_SECRET_KEY` — the S3-compat key pair for the `tf-state-writer` user from the State Backend section (the drift workflow only needs read, but reuses the existing pair)
 
-`OCI_TENANCY_OCID`, `OCI_REGION`, `OCI_USER_OCID`, `OCI_PRIVATE_KEY`, and `OCI_FINGERPRINT` are reused from the OKE-backed CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan`; the trend push reaches the cluster through [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml) rather than opening an SSH path.
+`OCI_TENANCY_OCID`, `OCI_REGION`, `OCI_USER_OCID`, `OCI_PRIVATE_KEY`, and `OCI_FINGERPRINT` are reused from the OKE-backed CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan`; the trend push reaches the cluster through [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) rather than opening an SSH path.
 
 Quarterly: audit that the `tf-drift-readers` policy document has not been broadened.
 
 #### Known interactions
 
-CD uses [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml) and the
+CD uses [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) and the
 OKE API, so a refresh-only Terraform drift represents real OCI drift rather than
 deploy-time churn.
 
 #### Grafana
 
 The Prometheus series feeds the provisioned
-[`terraform-drift-trend.json`](../deploy/grafana/provisioning/dashboards/terraform-drift-trend.json)
+[`terraform-drift-trend.json`](../../deploy/grafana/provisioning/dashboards/terraform-drift-trend.json)
 dashboard through VictoriaMetrics. Loki remains available for investigating the
 application and cluster logs around a drift event.
 
@@ -225,9 +225,9 @@ application and cluster logs around a drift event.
 
 Operator SSH access to the **OKE worker node** goes through the OCI Bastion service, not the static `ssh_allowed_cidr` rule. The dev machine sits on a dynamic ISP-issued IP and updating the CIDR after every ISP rebind was the original pain point — bastion sessions are gated by OCI IAM instead of L4 CIDR, so the dev-machine IP is irrelevant.
 
-Grafana is a ClusterIP service, reached with `kubectl port-forward` (`make tunnel`), not an SSH tunnel. Uptime monitoring is an external SaaS — no in-cluster status UI to tunnel to (see [ADR-035](adr/ADR-035-oke-free-tier-block-volume-remediation.md)).
+Grafana is a ClusterIP service, reached with `kubectl port-forward` (`make tunnel`), not an SSH tunnel. Uptime monitoring is an external SaaS — no in-cluster status UI to tunnel to (see [ADR-035](../adr/ADR-035-oke-free-tier-block-volume-remediation.md)).
 
-CI reaches the cluster through [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml) and Kubernetes APIs. The bastion is for **human** node access only. See [ADR-018](adr/ADR-018-oci-bastion-operator-access.md) for the original access-plane rationale and the current OKE update.
+CI reaches the cluster through [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) and Kubernetes APIs. The bastion is for **human** node access only. See [ADR-018](../adr/ADR-018-oci-bastion-operator-access.md) for the original access-plane rationale and the current OKE update.
 
 #### Daily flow
 
@@ -262,10 +262,10 @@ Per-user — repeat once per new team member.
 
 | File | Purpose |
 |---|---|
-| [`deploy/terraform/modules/bastion/`](../deploy/terraform/modules/bastion/) | Provisions `oci_bastion_bastion.opengate` targeting the **OKE worker-node subnet** (`module.networking.oke_node_subnet_id`). STANDARD type, `client_cidr_block_allow_list = ["0.0.0.0/0"]`, `max_session_ttl_in_seconds = 10800`. |
-| [`deploy/terraform/modules/networking/oke.tf`](../deploy/terraform/modules/networking/oke.tf) | The worker-node NSG rule `node_ingress_ssh` allows TCP 22 from `var.ssh_allowed_cidr` (operator break-glass — set to `127.0.0.1/32` in `terraform.tfvars` to disable). The bastion's /28 service endpoint reaches the node intra-subnet. |
+| [`deploy/terraform/modules/bastion/`](../../deploy/terraform/modules/bastion) | Provisions `oci_bastion_bastion.opengate` targeting the **OKE worker-node subnet** (`module.networking.oke_node_subnet_id`). STANDARD type, `client_cidr_block_allow_list = ["0.0.0.0/0"]`, `max_session_ttl_in_seconds = 10800`. |
+| [`deploy/terraform/modules/networking/oke.tf`](../../deploy/terraform/modules/networking/oke.tf) | The worker-node NSG rule `node_ingress_ssh` allows TCP 22 from `var.ssh_allowed_cidr` (operator break-glass — set to `127.0.0.1/32` in `terraform.tfvars` to disable). The bastion's /28 service endpoint reaches the node intra-subnet. |
 | OCI Cloud Agent **Bastion plugin** (on the node) | Managed SSH rides the node agent's outbound tunnel, so the plugin must be `RUNNING`. On OKE managed nodes it is not enabled by default — see the node-SSH prerequisite above. |
-| [`deploy/scripts/bastion-session.sh`](../deploy/scripts/bastion-session.sh) | Pure-bash + OCI CLI wrapper (`ssh` / `diagnose` / `purge`). Resolves the node from the node pool; caches the active session at `~/.cache/opengate/bastion-session.json` with a 5-min headroom over the 3 h TTL. |
+| [`deploy/scripts/bastion-session.sh`](../../deploy/scripts/bastion-session.sh) | Pure-bash + OCI CLI wrapper (`ssh` / `diagnose` / `purge`). Resolves the node from the node pool; caches the active session at `~/.cache/opengate/bastion-session.json` with a 5-min headroom over the 3 h TTL. |
 | `Makefile` `ssh` target | Shells into the wrapper. `make tunnel` is separate — `kubectl port-forward` of the in-cluster monitoring services. |
 
 #### Verification (after `terraform apply`)
@@ -315,12 +315,12 @@ The current runtime is Kubernetes on OKE:
 
 | Layer | Source of truth |
 |---|---|
-| Application chart | [`deploy/helm/opengate`](../deploy/helm/opengate/) |
-| Staging overlay | [`values-staging.yaml`](../deploy/helm/opengate/values-staging.yaml) |
-| Production overlay | [`values-production.yaml`](../deploy/helm/opengate/values-production.yaml) |
-| Monitoring chart | [`deploy/helm/monitoring`](../deploy/helm/monitoring/) |
-| CD workflow | [`.github/workflows/cd.yml`](../.github/workflows/cd.yml) |
-| Load-test workflow | [`.github/workflows/load-test.yml`](../.github/workflows/load-test.yml) |
+| Application chart | [`deploy/helm/opengate`](../../deploy/helm/opengate) |
+| Staging overlay | [`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml) |
+| Production overlay | [`values-production.yaml`](../../deploy/helm/opengate/values-production.yaml) |
+| Monitoring chart | [`deploy/helm/monitoring`](../../deploy/helm/monitoring) |
+| CD workflow | [`.github/workflows/cd.yml`](../../.github/workflows/cd.yml) |
+| Load-test workflow | [`.github/workflows/load-test.yml`](../../.github/workflows/load-test.yml) |
 
 Live reconciliation on 2026-06-18 matched the intended OKE model: Helm releases
 `opengate`, `opengate-staging`, and `monitoring` were deployed; app and
@@ -343,7 +343,7 @@ and only the intended three block-backed PVCs existed.
 ### Network Exposure
 
 Exact port numbers and source ranges live in
-[`deploy/terraform/modules/networking/oke.tf`](../deploy/terraform/modules/networking/oke.tf)
+[`deploy/terraform/modules/networking/oke.tf`](../../deploy/terraform/modules/networking/oke.tf)
 and the Helm values files. The high-level model is:
 
 - HTTP(S) reaches ingress-nginx through the OCI load balancer subnet.
@@ -369,13 +369,13 @@ surfaces:
 
 1. **Kubernetes Secrets** referenced by the Helm charts. The app chart expects
    the existing Secret described in
-   [`secrets.example.yaml`](../deploy/helm/opengate/secrets.example.yaml); the
+   [`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml); the
    monitoring chart expects the Secret described in its
-   [`values.yaml`](../deploy/helm/monitoring/values.yaml) and
-   [`NOTES.txt`](../deploy/helm/monitoring/templates/NOTES.txt).
-2. **GitHub Actions secrets** consumed by [`cd.yml`](../.github/workflows/cd.yml),
-   [`terraform-drift.yml`](../.github/workflows/terraform-drift.yml),
-   [`load-test.yml`](../.github/workflows/load-test.yml), and the nightly trend
+   [`values.yaml`](../../deploy/helm/monitoring/values.yaml) and
+   [`NOTES.txt`](../../deploy/helm/monitoring/templates/NOTES.txt).
+2. **GitHub Actions secrets** consumed by [`cd.yml`](../../.github/workflows/cd.yml),
+   [`terraform-drift.yml`](../../.github/workflows/terraform-drift.yml),
+   [`load-test.yml`](../../.github/workflows/load-test.yml), and the nightly trend
    workflows.
 3. **Local operator files** such as `terraform.tfvars`, `backend.tfbackend`, and
    OCI CLI credentials. These stay gitignored.

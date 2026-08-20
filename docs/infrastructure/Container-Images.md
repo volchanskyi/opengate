@@ -58,7 +58,7 @@ meshserver -listen :8080 -quic-listen :9090 -mps-listen :4433 -data-dir /data -w
 ```
 
 **Volumes:**
-- `/data` — persistent storage for the self-signed CA (`ca.crt`, `ca.key`) and VAPID Web Push keys (`vapid.json`). Auto-created on first startup. The database itself lives in the separate `postgres-data` volume owned by the `postgres` service (see [Database](Database.md)).
+- `/data` — persistent storage for the self-signed CA (`ca.crt`, `ca.key`) and VAPID Web Push keys (`vapid.json`). Auto-created on first startup. The database itself lives in the separate `postgres-data` volume owned by the `postgres` service (see [Database](../architecture/Database.md)).
 
 ### Running locally
 
@@ -120,7 +120,7 @@ cosign verify-attestation \
 
 ### Trivy Vulnerability Scan
 
-After signing, the workflow runs a Trivy container image scan targeting CRITICAL and HIGH severity vulnerabilities. The scan blocks the workflow on any findings. The pinned action and its severity list are the `aquasecurity/trivy-action` step in [`build-image.yml`](../.github/workflows/build-image.yml).
+After signing, the workflow runs a Trivy container image scan targeting CRITICAL and HIGH severity vulnerabilities. The scan blocks the workflow on any findings. The pinned action and its severity list are the `aquasecurity/trivy-action` step in [`build-image.yml`](../../.github/workflows/build-image.yml).
 
 ### Caching
 

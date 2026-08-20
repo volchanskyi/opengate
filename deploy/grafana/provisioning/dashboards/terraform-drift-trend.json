@@ -13,7 +13,7 @@
     },
     {
       "title": "Monitoring docs",
-      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/Monitoring.md",
+      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/infrastructure/Monitoring.md",
       "targetBlank": true,
       "type": "link"
     }

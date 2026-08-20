@@ -59,6 +59,6 @@ out under the bucket's Object Storage lifecycle policy — a documented SLA, not
 gap. When numeric telemetry (VictoriaMetrics) is disabled, device deletion falls
 back to the plain Postgres delete.
 
-See [Data Lifecycle](../Data-Lifecycle.md), the engine in
+See [Data Lifecycle](../product/Data-Erasure.md), the engine in
 [`server/internal/lifecycle`](../../server/internal/lifecycle/), and migration
 [`006_data_lifecycle`](../../server/internal/db/migrations/006_data_lifecycle.up.sql).

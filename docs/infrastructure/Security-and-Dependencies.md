@@ -24,7 +24,7 @@ Three layers of automated security analysis run on every CI trigger:
 
 ### CodeQL
 
-Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries. The current [`ci.yml`](../.github/workflows/ci.yml) trigger set runs CodeQL on pushes, pull requests, and manual dispatch; it does not define a separate CodeQL schedule.
+Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries. The current [`ci.yml`](../../.github/workflows/ci.yml) trigger set runs CodeQL on pushes, pull requests, and manual dispatch; it does not define a separate CodeQL schedule.
 
 ### Vulnerability Scanners
 
@@ -34,52 +34,52 @@ Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries
 
 ### Secrets scanning
 
-[gitleaks](https://github.com/gitleaks/gitleaks) runs against the **full git history** on every CI trigger via the `config-lint` job. Config lives in [`.gitleaks.toml`](../.gitleaks.toml); allowlists are categorical (paths/regexes), never per-fingerprint, so the gate stays meaningful as new commits land.
+[gitleaks](https://github.com/gitleaks/gitleaks) runs against the **full git history** on every CI trigger via the `config-lint` job. Config lives in [`.gitleaks.toml`](../../.gitleaks.toml); allowlists are categorical (paths/regexes), never per-fingerprint, so the gate stays meaningful as new commits land.
 
 Local invocations:
 
 | Where | Command | What |
 |---|---|---|
 | Full repo scan | `make secrets-scan` | History + working tree (mirrors CI exactly) |
-| Pre-commit guard | `gitleaks protect --staged --config .gitleaks.toml` | Scans only staged hunks — the trip wire in the [`/precommit` skill](../.claude/skills/precommit/SKILL.md) step 6.1 |
+| Pre-commit guard | `gitleaks protect --staged --config .gitleaks.toml` | Scans only staged hunks — the trip wire in the [`/precommit` skill](../../.claude/skills/precommit/SKILL.md) step 6.1 |
 
-Test fixtures with deliberate fake credentials (e.g. [`deploy/tests/fixtures/leaked-secret.txt`](../deploy/tests/fixtures/leaked-secret.txt)) prove the scanner's wiring without leaking real values: if the canary stops triggering, the scanner has regressed.
+Test fixtures with deliberate fake credentials (e.g. [`deploy/tests/fixtures/leaked-secret.txt`](../../deploy/tests/fixtures/leaked-secret.txt)) prove the scanner's wiring without leaking real values: if the canary stops triggering, the scanner has regressed.
 
 ### Dependabot
 
-[Dependabot](../.github/dependabot.yml) checks all four ecosystems (Go, Cargo, npm, GitHub Actions) daily. PRs target `dev` directly — same target a human contributor would use.
+[Dependabot](../../.github/dependabot.yml) checks all four ecosystems (Go, Cargo, npm, GitHub Actions) daily. PRs target `dev` directly — same target a human contributor would use.
 
 Updates are **grouped per ecosystem** — one PR per ecosystem rather than one per package — reducing noise.
 
-The [auto-merge workflow](../.github/workflows/dependabot-auto-merge.yml) classifies each PR via `dependabot/fetch-metadata` and squash-merges patch + minor updates as soon as CI is green; major-version bumps stay open with a comment requesting human review. The full propagation path is:
+The [auto-merge workflow](../../.github/workflows/dependabot-auto-merge.yml) classifies each PR via `dependabot/fetch-metadata` and squash-merges patch + minor updates as soon as CI is green; major-version bumps stay open with a comment requesting human review. The full propagation path is:
 
 ```
 dependabot/* PR → dev → (CI) → main
 ```
 
-The existing `merge-to-main` job in [`ci.yml`](../.github/workflows/ci.yml) forwards `dev` → `main` after the same gate any human commit clears. No separate integration branch; no nightly sync workflow.
+The existing `merge-to-main` job in [`ci.yml`](../../.github/workflows/ci.yml) forwards `dev` → `main` after the same gate any human commit clears. No separate integration branch; no nightly sync workflow.
 
 ## Adversarial Pen-Test Gate
 
-[ADR-027](adr/ADR-027-adversarial-pentest-precommit-gate.md) adds a fail-closed
+[ADR-027](../adr/ADR-027-adversarial-pentest-precommit-gate.md) adds a fail-closed
 adversarial gate that runs custom [Semgrep](https://semgrep.dev) rules plus an
 OpenAPI spec-drift check over the diff. It is enforced in three places sharing
-one runner ([`scripts/pentest-review.sh`](../scripts/pentest-review.sh)): the
-commit hook ([`pretooluse-pentest-gate.sh`](../.claude/hooks/pretooluse-pentest-gate.sh)),
+one runner ([`scripts/pentest-review.sh`](../../scripts/pentest-review.sh)): the
+commit hook ([`pretooluse-pentest-gate.sh`](../../.claude/hooks/pretooluse-pentest-gate.sh)),
 the precommit gauntlet, and a blocking `pentest-review` job in
-[`ci.yml`](../.github/workflows/ci.yml) (a required `merge-to-main` check — the
+[`ci.yml`](../../.github/workflows/ci.yml) (a required `merge-to-main` check — the
 only gate covering Dependabot PRs and machines without the local hooks).
 
-Rules live in [`policy/semgrep/`](../policy/semgrep/): missing authorization on
+Rules live in [`policy/semgrep/`](../../policy/semgrep): missing authorization on
 mutating handlers, unchecked path traversal, secret-in-log, plaintext secret
 columns, IDOR (advisory), and OpenAPI mutating ops shipped without a `security:`
 block. HIGH findings block; MEDIUM are advisory. Diff-only scanning
 (`--baseline-commit`) grandfathers pre-existing findings — only new ones block.
-Semgrep is provisioned by [`scripts/install-semgrep.sh`](../scripts/install-semgrep.sh)
+Semgrep is provisioned by [`scripts/install-semgrep.sh`](../../scripts/install-semgrep.sh)
 (pinned, idempotent). False positives are handled via per-rule `paths.exclude:`
-or [`policy/semgrep/.semgrepignore`](../policy/semgrep/.semgrepignore), never
-inline suppressions (banned per [`.claude/rules/sonarcloud.md`](../.claude/rules/sonarcloud.md)).
-The [`/pentest-review`](../.claude/skills/pentest-review/SKILL.md) skill runs the
+or [`policy/semgrep/.semgrepignore`](../../policy/semgrep/.semgrepignore), never
+inline suppressions (banned per [`.claude/rules/sonarcloud.md`](../../.claude/rules/sonarcloud.md)).
+The [`/pentest-review`](../../.claude/skills/pentest-review/SKILL.md) skill runs the
 same check on demand.
 
 ## Supply Chain Security
@@ -91,7 +91,7 @@ Container images are signed and attested to ensure artifact integrity from build
 | Image signing | Cosign (keyless, Sigstore OIDC) | Proves the image was built by the GitHub Actions workflow, not tampered with in the registry |
 | SLSA provenance | `docker/build-push-action` (`provenance: true`) | SLSA Build Level 2 attestation — links image to source commit, build instructions, and builder identity |
 | SBOM | `anchore/sbom-action` (SPDX JSON) + `cosign attest` | Software Bill of Materials attached as a signed attestation — enables dependency tracking and vulnerability correlation |
-| Deploy-time verification | `cosign verify` in [`cd.yml`](../.github/workflows/cd.yml) | Blocks deployment before the Helm rollout starts |
+| Deploy-time verification | `cosign verify` in [`cd.yml`](../../.github/workflows/cd.yml) | Blocks deployment before the Helm rollout starts |
 
 See [[Container-Images#supply-chain-security]] for verification commands.
 
@@ -102,7 +102,7 @@ See [[Container-Images#supply-chain-security]] for verification commands.
 **Tenant is the visibility boundary. `is_admin` is the mutation
 boundary.** Every member of a tenant sees the same fleet and may act on
 any device in it; only configuration and secret-bearing reads are gated on
-admin. See [ADR-062](adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md).
+admin. See [ADR-062](../adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md).
 
 | Class | Authorization rule | Endpoints |
 |---|---|---|
@@ -135,8 +135,8 @@ context, and repository methods execute inside transactions that set
 `app.current_tenant` and `app.is_admin` with `SET LOCAL`. Policies permit only rows
 for the current tenant, with an admin policy bypass controlled by `app.is_admin`.
 The Helm runtime role is created by
-[`zz-app-role.sh`](../deploy/helm/opengate/files/zz-app-role.sh) and checked by
-[`cd.yml`](../.github/workflows/cd.yml) as non-superuser and non-`BYPASSRLS`, so
+[`zz-app-role.sh`](../../deploy/helm/opengate/files/zz-app-role.sh) and checked by
+[`cd.yml`](../../.github/workflows/cd.yml) as non-superuser and non-`BYPASSRLS`, so
 missing tenant context fails closed instead of leaking rows across tenants.
 
 ### Rate Limiting
@@ -179,8 +179,8 @@ The API server adds defense-in-depth headers via `SecurityHeaders` middleware:
 At the edge, the app Helm chart applies the same headers (plus CSP and
 Permissions-Policy) controller-side through the ingress-nginx `add-headers`
 ConfigMap rendered by
-[`custom-headers-configmap.yaml`](../deploy/helm/opengate/templates/custom-headers-configmap.yaml)
-from the values in [`values.yaml`](../deploy/helm/opengate/values.yaml). This
+[`custom-headers-configmap.yaml`](../../deploy/helm/opengate/templates/custom-headers-configmap.yaml)
+from the values in [`values.yaml`](../../deploy/helm/opengate/values.yaml). This
 replaces the former per-ingress `configuration-snippet` annotation, so the
 controller runs with snippet annotations disabled.
 
@@ -192,7 +192,7 @@ Session tokens are sensitive routing credentials. All log and audit entries reda
 - Relay handler logs (`api/handlers_relay.go`) — registration and peer wait errors
 - Audit logs (`api/handlers_sessions.go`) — session deletion events
 
-Kubernetes deploys create or reuse Secrets via [`cd.yml`](../.github/workflows/cd.yml).
+Kubernetes deploys create or reuse Secrets via [`cd.yml`](../../.github/workflows/cd.yml).
 
 ## Certificate Hierarchy
 

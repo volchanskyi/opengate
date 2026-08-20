@@ -1,4 +1,4 @@
-# Architecture
+# Architecture Overview
 
 ## System Overview
 
@@ -14,7 +14,7 @@ OpenGate is a three-component platform for remote device management:
 
 The L1 view places OpenGate among the people and external systems it interacts
 with. It is drawn as a `flowchart` arranged along the C4 context level — the
-documented fallback (see [docs/README.md](README.md)) because native Mermaid C4
+documented fallback (see [docs/README.md](../README.md)) because native Mermaid C4
 overlaps its relationship labels on GitHub's renderer. The C4 roles are carried
 in the node labels.
 
@@ -72,10 +72,10 @@ flowchart TB
 
 The diagrams are hand-curated Mermaid blocks. Structural drift is caught by the
 existing boundary gates rather than generated diagrams: the
-[precommit gauntlet](../scripts/precommit-gauntlet.sh) and
-[CI workflow](../.github/workflows/ci.yml) run the Go, Rust, and web boundary
-checks recorded in [ADR-020](adr/ADR-020-modular-monolith-full-hexagonal.md).
-[`scripts/tests/docs-diagrams.test.sh`](../scripts/tests/docs-diagrams.test.sh)
+[precommit gauntlet](../../scripts/precommit-gauntlet.sh) and
+[CI workflow](../../.github/workflows/ci.yml) run the Go, Rust, and web boundary
+checks recorded in [ADR-020](../adr/ADR-020-modular-monolith-full-hexagonal.md).
+[`scripts/tests/docs-diagrams.test.sh`](../../scripts/tests/docs-diagrams.test.sh)
 keeps docs diagrams on the Mermaid-only, no-rendered-blob path.
 
 ## Connection Model
@@ -116,7 +116,7 @@ The enrollment response also includes the server's Ed25519 update signing key (i
 
 The agent opens the control stream and speaks first; the server branches on the
 first handshake byte in
-[`handshaker.go`](../server/internal/agentapi/handshaker.go). The cold path
+[`handshaker.go`](../../server/internal/agentapi/handshaker.go). The cold path
 binds `AgentHello` to the mTLS peer certificate, while reconnects may use
 `SkipAuth` with the cached CA hash before framed MessagePack control messages
 begin. Message layout details live in [Wire Protocol](Wire-Protocol.md).
@@ -131,10 +131,10 @@ The `mesh-agent` binary (`agent/crates/mesh-agent/src/main.rs`) is the entry poi
 - **Registration**: Sends `AgentRegister` with hostname, OS, architecture, version, and capabilities. Linux reports Terminal, FileManager, HardwareInventory, and DeviceLogs; desktop capture/input capabilities are platform-specific.
 - **Control loop**: Dispatches `SessionRequest` (spawns session handler), capability-gated hardware/log requests, `AgentUpdate` (semver check, apply, ack, exit code 42 for systemd restart), and pings
 - **Edge Sentinel sampler**: A background sampler on every agent reads bounded local host/process metrics, trains a pure-Rust k=2 anomaly ensemble on a warm-up window, and scores each sample, with local allocation/RSS guards and a Criterion footprint bench.
-- **Edge Sentinel local store**: On every agent, the local store persists each sampled dimension with its inline anomaly bit into the agent-local multi-tier TSDB (`edge-tsdb::store::LocalTsdb`) under the data dir — the sovereign copy of min/max/last + 1 s raw that central `avg`-only VictoriaMetrics does not keep, read back on demand by later backfill. It is built on `redb`: T0 1 s raw + T1 60 s + T2 3600 s rollups in three tables written per commit as one atomic transaction, a fixed-point-per-metric compact codec, a coarsest-first disk cap that never fills the host disk, format-version migration, MVCC snapshot reads, optional cold-tier DEFLATE (pure-Rust, no `zstd`), and a deprovision purge. See [ADR-052](adr/ADR-052-edge-sentinel-local-tsdb-build.md).
-- **Edge Sentinel correlation**: When something fires on a device, the agent ranks which of its own dimensions broke pattern over the event window against the stretch before it (`mesh-agent-core::correlate`), blending a two-sample Kolmogorov–Smirnov distribution shift, the share of readings outside the baseline's band, and how far the mean moved against the baseline's own scale. It reads the local store through an MVCC snapshot, so the sampler keeps writing underneath, and every run is bounded in dimensions, readings and wall-clock. The ranking travels with the alert, so an investigator opens it already knowing what else moved — and it ranks the 1 s detail only the device holds. See [ADR-069](adr/ADR-069-edge-correlation-ranking.md).
+- **Edge Sentinel local store**: On every agent, the local store persists each sampled dimension with its inline anomaly bit into the agent-local multi-tier TSDB (`edge-tsdb::store::LocalTsdb`) under the data dir — the sovereign copy of min/max/last + 1 s raw that central `avg`-only VictoriaMetrics does not keep, read back on demand by later backfill. It is built on `redb`: T0 1 s raw + T1 60 s + T2 3600 s rollups in three tables written per commit as one atomic transaction, a fixed-point-per-metric compact codec, a coarsest-first disk cap that never fills the host disk, format-version migration, MVCC snapshot reads, optional cold-tier DEFLATE (pure-Rust, no `zstd`), and a deprovision purge. See [ADR-052](../adr/ADR-052-edge-sentinel-local-tsdb-build.md).
+- **Edge Sentinel correlation**: When something fires on a device, the agent ranks which of its own dimensions broke pattern over the event window against the stretch before it (`mesh-agent-core::correlate`), blending a two-sample Kolmogorov–Smirnov distribution shift, the share of readings outside the baseline's band, and how far the mean moved against the baseline's own scale. It reads the local store through an MVCC snapshot, so the sampler keeps writing underneath, and every run is bounded in dimensions, readings and wall-clock. The ranking travels with the alert, so an investigator opens it already knowing what else moved — and it ranks the 1 s detail only the device holds. See [ADR-069](../adr/ADR-069-edge-correlation-ranking.md).
 - **Edge Sentinel auto-discovery**: A background task on every agent profiles the host non-intrusively — listening ports (`/proc/net`, with the owning process basename), systemd services, database engines inferred from listening ports, containers via a read-only docker/podman CLI, and installed packages (dpkg/rpm) — into a bounded, secret-free `DiscoveryReport` (`mesh-agent-core::discovery`). No network scanning; each category is capped, and the task profiles on a long interval and ships a report over a bounded channel **only when the profile changed**. Advertises the `Discovery` capability.
-- **Auto-update**: Downloads binary, verifies SHA-256 + Ed25519 signature, atomic replace with `.prev` backup, rollback watchdog on restart. See [Agent Updates](Agent-Updates.md)
+- **Auto-update**: Downloads binary, verifies SHA-256 + Ed25519 signature, atomic replace with `.prev` backup, rollback watchdog on restart. See [Agent Updates](../product/Agent-Updates.md)
 - **Deregistration**: On receiving `AgentDeregistered`, removes local identity files (certs, keys, device ID) and exits cleanly. The server maintains an in-memory tombstone set to reject reconnection attempts from deleted devices
 - **Reconnection**: Exponential backoff (1s→30s cap, 10 max attempts) via `reconnect_with_backoff`
 - **Graceful shutdown**: `tokio::select!` on SIGINT/SIGTERM with systemd `sd_notify` lifecycle notifications
@@ -158,7 +158,7 @@ Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed 
 
 - **AgentAPI** handles QUIC connections: handshake, registration, heartbeat, disconnect
 - **REST API** serves device/site/customer/user management and authentication endpoints
-- **PostgreSQL 17** (via `pgx/v5` stdlib adapter) is the shared persistence layer — see [Database](Database.md) and [ADR-014](adr/ADR-014-postgres-migration.md)
+- **PostgreSQL 17** (via `pgx/v5` stdlib adapter) is the shared persistence layer — see [Database](Database.md) and [ADR-014](../adr/ADR-014-postgres-migration.md)
 ## WebSocket Relay
 
 The server includes a message-oriented WebSocket relay (`server/internal/relay/`) for browser↔agent sessions:
@@ -196,7 +196,7 @@ sequenceDiagram
 - **Background row deletion**: `OnSessionEnd` deletes by globally unique token through the relay-scoped repository path, so cleanup is not tied to a disconnected request's tenant context. Relay bookkeeping and row cleanup run before a potentially blocking graceful WebSocket close
 - **Stale-session sweep**: A periodic sweep deletes session rows the relay no longer holds once they pass a grace period, which collects tokens that were issued but never connected and rows left behind by a process restart. Live sessions are named by the relay's active-token set and are never swept, however long they run
 
-See [ADR-059](adr/ADR-059-agent-session-row-lifecycle.md) for the cleanup invariants and failure recovery design.
+See [ADR-059](../adr/ADR-059-agent-session-row-lifecycle.md) for the cleanup invariants and failure recovery design.
 
 ### Relay Observability
 
@@ -261,131 +261,33 @@ sequenceDiagram
   Note over Agent,Relay: agent returns to idle
 ```
 
-## Web Client Features
+## What the web client is for
 
-The React web client (`web/`) provides management and session features:
+The React client (`web/`) is the console: the fleet views, the session tabs, the
+triage queue and the settings section. All of it uses the binary frame protocol
+([`web/src/lib/protocol/`](../../web/src/lib/protocol)) and shares a single
+WebSocket connection managed by a Zustand store
+([`connection-store.ts`](../../web/src/features/session/state/connection-store.ts)).
 
-| Feature | Path | Description |
-|---------|------|-------------|
-| **Dashboard** | `/` | Landing page — overview of the fleet for the selected customer |
-| **Device List** | `/devices` | Device listing with search/filter, site sidebar, per-card discovered-footprint hint (service/container counts) |
-| **Device Detail** | `/devices/:id` | Device info, a strip of the open incidents the machine is caught up in, AMT power actions, filing into a site, move to another customer, hardware inventory, discovered footprint (sortable ports/services/DB engines/containers/packages), on-demand device logs, agent restart |
-| **Investigations** | `/investigations` | The triage queue — open incidents with severity, status, rule, how many alerts across how many machines, filtered by status, severity, rule and device, paged by cursor. Carries the per-rule coverage split |
-| **Investigation Room** | `/investigations/:id` | One incident: its history, the alerts it folded, and each alert's frozen evidence; status moves, assignment and notes |
-| **Session View** | `/sessions/:token` | Tab container with toolbar and connection status |
-| **Remote Desktop** | Desktop tab | Canvas-based screen viewer with mouse/keyboard input forwarding |
-| **Terminal** | Terminal tab | xterm.js terminal connected to relay |
-| **File Manager** | Files tab | Directory browsing, file download/upload with progress, in-browser file viewer |
-| **Messenger** | Chat tab | Real-time chat over relay control messages |
-| **Profile** | `/profile` | Self-service display name editing |
-
-All features use the binary frame protocol ([`web/src/lib/protocol/`](../web/src/lib/protocol/)) and share a single WebSocket connection managed by a Zustand store ([`connection-store.ts`](../web/src/features/session/state/connection-store.ts)).
-
-**The investigation room reads a snapshot, never a machine.** Everything it shows
-comes from the incident read: the alerts, and the evidence each one carried when
-it was written. Nothing on the page can be fetched from the device afterwards, so
-the room states an absence — no evidence recorded, a size cap that cost the blob
-something, no alerts left in the room — rather than leaving a gap a reader would
-take for a pending load. The lifecycle
-([`incident-lifecycle.ts`](../web/src/features/investigations/incident-lifecycle.ts))
-mirrors the moves the server permits, so a transition the server would refuse is
-never offered, and resolving asks for its cause code before it is sent.
-
-**Capability-based tab visibility**: The Session View dynamically shows/hides tabs based on the device's reported capabilities. Linux agents report Terminal + FileManager only; an agent whose platform crate provides desktop capture and input injection additionally reports RemoteDesktop. The web client receives capabilities via the Device API and passes them to Session View via React Router state. Devices without the `RemoteDesktop` capability will only show Terminal and Files tabs; Desktop and Chat tabs require it.
-
-### UI Infrastructure
-
-- **ErrorBoundary**: Top-level `<ErrorBoundary>` wraps the app for crash resilience — catches render errors and displays a recovery UI instead of a blank screen
-- **Lazy loading**: All feature pages use `React.lazy` + `<Suspense>` for code-splitting, producing 16+ chunks that load on demand
-- **Breadcrumbs**: Context-aware breadcrumb navigation rendered on every page via `<Breadcrumbs />`
-- **Toast notifications**: Global toast system (`useToast` hook + `<ToastContainer />`) for success/error feedback. Toast IDs use `crypto.randomUUID()` for uniqueness. The toast container has `aria-live` for screen reader accessibility
-- **Device search/filter**: Inline search on the device list page to filter devices by hostname
-- **Customer picker**: A navbar control that narrows every fleet view to one customer, or to the whole tenant. It publishes the choice and nothing else — the dashboard tiles and the device list re-read on a change, so the two never describe different sets — and remembers it across a reload, since a technician works one customer at a time for stretches. A customer that is deleted or retired away stops being the selection rather than leaving the fleet looking empty
-
-## Agent Session Handler
-
-When the server assigns a session to an agent, the agent connects to the relay and streams data:
-
-```
-Server                         Agent
-  │                              │
-  │──── SessionRequest ────────►│  (token, relay_url, permissions)
-  │◄─── SessionAccept ──────────│  (confirms intent)
-  │                              │
-  │   Agent connects to relay    │
-  │   at relay_url?side=agent    │
-  │                              │
-  │◄── Desktop/Terminal/File ────│  (binary frames via relay)
-  │──── Input/Control ──────────►│  (mouse, keyboard, file ops)
-```
-
-The `SessionHandler` (Rust) manages the full lifecycle:
-
-- **Desktop capture**: Streams JPEG-encoded screen frames at ~10 FPS via the relay (quality 70, falls back to raw on encode failure)
-- **Terminal**: Spawns a PTY (`portable-pty`) and bridges stdin/stdout over terminal frames
-- **File operations**: Directory listing, chunked download (256 KiB), permission-gated access
-- **Input injection**: Mouse/keyboard events forwarded to the OS via platform traits
-- **Chat echo**: `ChatMessage` from the browser is echoed back with `sender: "agent"`, enabling basic chat between the browser user and the agent
-
-## WebRTC Upgrade (Optional P2P)
-
-Sessions start on the relay (always works) and can optionally upgrade to a direct WebRTC connection for lower latency:
-
-```
-Browser                    Relay                      Agent
-  │                          │                          │
-  │── SwitchToWebRTC ───────►│──── SwitchToWebRTC ─────►│
-  │   (SDP offer)            │    (SDP offer)           │
-  │                          │                          │
-  │◄─ SwitchToWebRTC ────────│◄─── SwitchToWebRTC ─────│
-  │   (SDP answer)           │    (SDP answer)          │
-  │                          │                          │
-  │◄─► IceCandidate ────────►│◄──► IceCandidate ───────►│
-  │   (trickle ICE)          │    (trickle ICE)         │
-  │                          │                          │
-  │◄─ SwitchAck ─────────────│◄─── SwitchAck ──────────│
-  │   (upgrade complete)     │                          │
-  │                          │                          │
-  │◄═══════ Data Channels ══════════════════════════════│
-  │   control (ordered)      │                          │
-  │   desktop (unordered)    │                          │
-  │   bulk (ordered)         │                          │
-```
-
-Three data channels match the frame routing:
-
-| Channel | ID | Ordered | Reliable | Purpose |
-|---------|-----|---------|----------|---------|
-| `control` | 0 | Yes | Yes | Control messages, signaling |
-| `desktop` | 1 | No | No (maxRetransmits=0) | Screen frames (latest wins) |
-| `bulk` | 2 | Yes | Yes | Terminal I/O, file transfers |
-
-The signaling state machine (`server/internal/signaling/`) tracks upgrade progress: `Relay` → `Offered` → `Answered` → `ICEGathering` → `Connected` (or `Failed`). On failure, the relay connection remains active as fallback.
-
-### ICE Configuration
-
-The server provides STUN/TURN server URLs in the `CreateSession` response (`ice_servers` field). The browser and agent both use these to establish connectivity. Default configuration uses Google's public STUN server.
+What each screen gives a technician is in the product tree —
+[Fleet and Devices](../product/Fleet-and-Devices.md),
+[Remote Sessions](../product/Remote-Sessions.md),
+[Investigations](../product/Investigations.md),
+[Tenancy and Access](../product/Tenancy-and-Access.md) — together with the agent's
+side of a session and the peer-connection upgrade.
 
 ## Notifications
 
-The server supports Web Push notifications (`server/internal/notifications/`) for device and session lifecycle events:
+The server delivers Web Push notifications
+(`server/internal/notifications/`) for device and session lifecycle events; the
+event set and what a technician sees are in
+[Fleet and Devices](../product/Fleet-and-Devices.md#browser-notifications).
 
 - **VAPID keys**: ECDSA P-256, auto-generated on first startup, stored in `{data-dir}/vapid.json`
 - **Notifier interface**: Decouples notification logic from handlers (like `AgentGetter` pattern)
 - **PushNotifier**: Sends Web Push via `webpush-go`; auto-deletes stale subscriptions on 410 Gone
 - **NoopNotifier**: Used in tests and when push is disabled
-- **Events**: `device_online`, `device_offline`, `session_started`, `session_ended`
 - **Service Worker**: `web/public/sw.js` handles push events, offline caching, and notification click navigation
-
-## Audit Log
-
-Security-relevant actions are recorded to the `audit_events` table via fire-and-forget goroutines:
-
-- `user.register`, `user.login`, `user.delete`, `user.update`
-- `session.create`, `session.delete`
-- `device.delete` (triggers agent deregistration)
-
-The audit log is queryable via `GET /api/v1/audit` (admin-only) with optional `user_id`, `action`, `limit`, and `offset` parameters.
 
 ## Intel AMT Management Presence Server (MPS)
 
@@ -427,16 +329,5 @@ Intel AMT Device              MPS Server
 |------|---------|-------------|
 | `-mps-listen` | `:4433` | MPS TLS address for Intel AMT CIRA connections |
 
-## Settings (Admin)
-
-The web client includes a settings section (`/settings`) protected by `AdminGuard`. Old `/admin/*` routes redirect to `/settings`.
-
-| Route | Component | Description |
-|-------|-----------|-------------|
-| `/settings/customers` | `OrganizationManagement` | Add, rename, retire and delete the tenant's customers |
-| `/settings/users` | `UserManagement` | List, toggle admin, delete users |
-| `/settings/audit` | `AuditLog` | Searchable, paginated audit event viewer |
-| `/settings/updates` | `AgentUpdates` | Agent update manifests, push updates, enrollment tokens, signing key display |
-| `/settings/security/permissions` | `Permissions` | Security groups and membership (RBAC) |
-
-The "Settings" link appears in the navbar only for users with `is_admin=true`. State is managed by `admin-store.ts` and `push-store.ts` (Zustand).
+The capability an administrator gets from an AMT-managed machine is in
+[Intel AMT](../product/Intel-AMT.md).

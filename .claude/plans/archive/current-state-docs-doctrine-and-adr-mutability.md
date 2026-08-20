@@ -159,9 +159,9 @@ batches / worked examples, **not** the limit.
   (resolve real paths via `find`), drop `(PR 9)` from the heading, replace
   "at 03:00 UTC" with the [`mutation.yml`](../../../.github/workflows/mutation.yml) link.
 - **Negative-state purge**: remove the "no SARIF export…" sentence in
-  [`CI-Pipeline.md`](../../../docs/CI-Pipeline.md):158. (The analogous sentence in the
+  [`CI-Pipeline.md`](../../../docs/infrastructure/CI-Pipeline.md):158. (The analogous sentence in the
   frozen `Architecture-Decision-Records.md` is **left as-is** — that file is frozen.)
-- **Schedule purge**: [`Infrastructure.md`](../../../docs/Infrastructure.md):168
+- **Schedule purge**: [`Infrastructure.md`](../../../docs/infrastructure/OCI-Terraform.md):168
   "nightly at 03:00 UTC" → link `terraform-drift.yml`, drop the time.
 - **decisions.md / phases.md**: strip chronological prose + PR/phase logistics from
   free-text cells; keep the structural table + the decision substance. Add

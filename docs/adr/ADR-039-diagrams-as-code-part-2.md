@@ -39,7 +39,7 @@ the boundary linters' job, not auto-extracted graphs.
 ### 1. Adopt the C4 model, gated by a GitHub render check
 
 Architecture-level structure follows the C4 model — a context (L1) and a
-container (L2) view in [`docs/Architecture.md`](../Architecture.md). Native
+container (L2) view in [`docs/architecture/Overview.md`](../architecture/Overview.md). Native
 Mermaid `C4Context`/`C4Container` is the preferred notation (one engine, plain
 Markdown), with `C4Component`/`C4Dynamic` available but used sparingly.
 
@@ -88,9 +88,9 @@ graphs from source.
 system context (C4Context), container topology (C4Container), each cross-component
 protocol flow (`sequenceDiagram`), deploy topology, CI/CD flow, and session
 lifecycle — each pinned by the drift guard. Part 2 added the three missing
-diagrams: the OKE serving topology in [`docs/Kubernetes.md`](../Kubernetes.md), the
-CI/CD flow in [`docs/Continuous-Deployment.md`](../Continuous-Deployment.md), and
-the end-to-end session lifecycle in [`docs/Architecture.md`](../Architecture.md).
+diagrams: the OKE serving topology in [`docs/infrastructure/Kubernetes.md`](../infrastructure/Kubernetes.md), the
+CI/CD flow in [`docs/infrastructure/Continuous-Deployment.md`](../infrastructure/Continuous-Deployment.md), and
+the end-to-end session lifecycle in [`docs/architecture/Overview.md`](../architecture/Overview.md).
 
 ## Consequences
 

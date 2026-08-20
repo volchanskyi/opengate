@@ -22,14 +22,14 @@ func TestCheckLinkPlanPolicy(t *testing.T) {
 	}{
 		{
 			name:        "non-ADR doc to archived plan is refused",
-			source:      "docs/Testing.md",
-			destination: "../.claude/plans/archive/foo.md",
+			source:      "docs/infrastructure/Testing.md",
+			destination: "../../.claude/plans/archive/foo.md",
 			wantSubstr:  "documentation under docs/",
 		},
 		{
 			name:        "non-ADR doc to active plan is refused",
-			source:      "docs/Testing.md",
-			destination: "../.claude/plans/foo.md",
+			source:      "docs/infrastructure/Testing.md",
+			destination: "../../.claude/plans/foo.md",
 			wantSubstr:  "documentation under docs/",
 		},
 		{

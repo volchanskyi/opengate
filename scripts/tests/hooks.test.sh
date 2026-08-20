@@ -735,7 +735,7 @@ run_hook pretooluse-test-skip-guard.sh "$envelope"
 assert_exit "Rust #[test] without ignore: allow" 0
 
 # Non-test file types containing the words: allow (docs/markdown).
-envelope="$(build_envelope Write '{"file_path":"docs/Testing.md","content":"do not use t.Skip() or it.skip or #[ignore]"}')"
+envelope="$(build_envelope Write '{"file_path":"docs/infrastructure/Testing.md","content":"do not use t.Skip() or it.skip or #[ignore]"}')"
 run_hook pretooluse-test-skip-guard.sh "$envelope"
 assert_exit "Markdown mentioning skip words: allow" 0
 

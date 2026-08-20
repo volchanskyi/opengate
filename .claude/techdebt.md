@@ -201,7 +201,7 @@ On-demand network drills stay deferred: packet loss/corrupt/partition on the QUI
 path (a privileged CRI-O daemon for one pod) is disproportionate today and is
 never wired into the gating path. Build the network-drill tooling only when a
 storm/lossy-network scenario needs it (see
-[Fault-Injection](../docs/Fault-Injection.md)).
+[Fault-Injection](../docs/infrastructure/Fault-Injection.md)).
 
 **Pay-down trigger:** the network-drill item closes only if/when a lossy-network
 scenario is actually needed.
@@ -276,20 +276,13 @@ being one.
 
 ### `reopen_window` has no per-rule override
 
-[ADR-075](../docs/adr/ADR-075-incident-grouping-lifecycle-and-auto-resolve.md)
-implements D27's default — an incident's auto-resolve hold is its rule's own
-grouping window — and deliberately does not implement the per-rule override D27
-also allowed. Every override breaks one half of the pair the default exists to
-hold together: a hold *longer* than the grouping window leaves a room open that
-an arriving alert is no longer allowed to join, and the one-open-room-per-key
-index then has nowhere to put that alert; a hold *shorter* than it closes a room
-whose next occurrence is still due, which is how a recurrence fragments into a
-queue of one-offs. So the engine takes the window once, from the rule, and reads
-it live rather than freezing a copy onto the incident row.
-
-The cost is that a rule wanting to gather firings over one span while holding its
-room for a different one cannot say so. No shipped rule wants that, and none of
-the three curated shapes — fleet event, slow burn, recurrence — needs it.
+An incident's auto-resolve hold is its rule's own grouping window, and there is
+no per-rule override
+([ADR-075](../docs/adr/ADR-075-incident-grouping-lifecycle-and-auto-resolve.md)
+carries why). The cost is that a rule wanting to gather firings over one span
+while holding its room for a different one cannot say so. No shipped rule wants
+that, and none of the three curated shapes — fleet event, slow burn, recurrence —
+needs it.
 
 **Pay-down trigger:** a concrete rule that needs a hold differing from its
 grouping window. That is a change to the relationship between the two grouping
@@ -347,17 +340,14 @@ equivalent with the reason written next to it.
 
 ### Alert state stays out of VictoriaMetrics
 
-Three per-device edge series are detail by the rule that keeps central
-cardinality O(1) — `opengate_edge_alert_breach{rule,metric}` and
-`opengate_edge_process_{cpu,mem}_percent{rank}` — and they are left exactly as
-they are. Four shapes were considered and none is satisfying yet: keeping them
-breaches the cardinality rule and charts a line whose meaning shifts under it; an
-agent-reported count creates two answers that can disagree; a server-derived
-projection cannot cross-check its own source; and removing them takes away the
-only external way to watch a bad rollout. The per-device cap is enforced over the
-vitals set, and the aggregate rule metrics
+Three per-device edge series — `opengate_edge_alert_breach{rule,metric}` and
+`opengate_edge_process_{cpu,mem}_percent{rank}` — sit outside the rule that keeps
+central cardinality O(1), and are left as they are: of the four alternative
+shapes considered, none is satisfying yet. Nothing is blocked by the deferral —
+the per-device cap is enforced over the vitals set, and the aggregate rule
+metrics
 ([ADR-076](../docs/adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md))
-carry no device label, so nothing here is blocked by the deferral.
+carry no device label.
 
 **Pay-down trigger:** both of two facts, neither of which exists yet — the query
 shape a real fleet board wants, once a technician has worked the incident API for

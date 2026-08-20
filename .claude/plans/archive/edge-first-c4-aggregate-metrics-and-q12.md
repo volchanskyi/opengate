@@ -50,7 +50,7 @@ rate.
 - **Modify:** [deploy/grafana/provisioning/dashboards/](../../../deploy/grafana/provisioning/dashboards/)
   — a bad-rollout panel/alert over the new series. **Do not touch the Edge-Sentinel soak dashboard**
   (§14.2's scope of non-action).
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md).
 
 ## Steps (TDD-first)
 

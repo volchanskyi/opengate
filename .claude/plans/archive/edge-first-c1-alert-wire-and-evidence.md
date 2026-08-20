@@ -66,7 +66,7 @@ different paths with different risk.
   travels. The `go_control_*` reverse set and its
   [completeness guard](../../../server/internal/agentapi/golden_completeness_test.go) cover
   server→agent `Send*` writes and are **not** where `AgentAlert` belongs.
-- **Docs:** [Wire-Protocol.md](../../../docs/Wire-Protocol.md).
+- **Docs:** [Wire-Protocol.md](../../../docs/architecture/Wire-Protocol.md).
 
 ## Steps (TDD-first)
 

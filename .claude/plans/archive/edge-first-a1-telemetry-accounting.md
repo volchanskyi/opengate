@@ -55,7 +55,7 @@ agent's clock completely — M10 measured a **+7 h** host-clock jump on the refe
   clamping (see the trap below); no change to the ingest/drop counters.
 - **Create:** `server/internal/agentapi/conn_accounting_test.go` — the I1 structural test.
 - **Modify:** existing `conn_part*_test.go` where a handler's behaviour changes.
-- **Docs:** [Monitoring.md](../../../docs/Monitoring.md) — the new drop reasons and the clamp counter.
+- **Docs:** [Monitoring.md](../../../docs/infrastructure/Monitoring.md) — the new drop reasons and the clamp counter.
 
 ## Steps (TDD-first)
 
@@ -86,7 +86,7 @@ agent's clock completely — M10 measured a **+7 h** host-clock jump on the refe
 4. **Test first:** the clamp counter increments with a `direction` label (`future` / `past`) and the
    message is **still persisted** → then add
    `opengate_edge_telemetry_clock_clamped_total{direction}` to `metrics.go`.
-5. Docs: [Monitoring.md](../../../docs/Monitoring.md) gains the new reasons and the clamp counter.
+5. Docs: [Monitoring.md](../../../docs/infrastructure/Monitoring.md) gains the new reasons and the clamp counter.
 
 ## Traps
 
