@@ -338,28 +338,6 @@ possible.
 complete. Kill what a test can kill, and carve out what the run proves
 equivalent with the reason written next to it.
 
-### In-memory test pipes elsewhere still have no deadline of their own
-
-`go-agentapi-handshake` owns thirteen mutants and needed seventy-five minutes to
-not finish them. The cause was in the harness, not the shard: `net.Pipe` is
-synchronous and unbuffered, and while the handshake goroutine was bounded by its
-context, the client end the test drives carried no deadline — so a mutant that
-stops the server replying left the test's own `ReadFull` blocked with nothing to
-interrupt it, and each one burned its whole per-mutant budget.
-[`handshaker_test.go`](../server/internal/agentapi/handshaker_test.go) now bounds
-both ends.
-
-The same shape is still present in the AMT transport tests
-([`mps_test.go`](../server/internal/amt/transport/mps_test.go),
-[`mps_conn_test.go`](../server/internal/amt/transport/mps_conn_test.go),
-[`client_wire_test.go`](../server/internal/amt/transport/wsman/client_wire_test.go))
-and in [`bench_test.go`](../server/internal/agentapi/bench_test.go), where no
-mutant has yet blocked long enough to be noticed.
-
-**Pay-down trigger:** a shard owning one of those files reports `TIMED_OUT`
-mutants, or its projection drifts without its mutant count moving. Give every
-in-memory pipe a deadline at construction rather than one file at a time.
-
 ### The Go shard costs the new splits inherit are not their own
 
 `mutation_go_shard_seconds_per_mutant` carries a measured rate per shard, and the

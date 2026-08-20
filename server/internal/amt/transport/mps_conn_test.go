@@ -16,8 +16,7 @@ import (
 // the client-side channel-open path. The returned peer is the AMT-device end.
 func newTestConn(t *testing.T) (*Conn, net.Conn) {
 	t.Helper()
-	client, peer := net.Pipe()
-	t.Cleanup(func() { _ = client.Close(); _ = peer.Close() })
+	client, peer := newDeadlinePipe(t)
 	c := &Conn{
 		netConn:  client,
 		channels: make(map[uint32]*Channel),

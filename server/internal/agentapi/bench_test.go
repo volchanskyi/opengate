@@ -5,6 +5,7 @@ import (
 	"crypto/sha512"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/cert"
@@ -30,6 +31,13 @@ func BenchmarkHandshaker_PerformHandshake(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		serverConn, clientConn := net.Pipe()
+		// net.Pipe is synchronous and unbuffered: a handshake that stops
+		// replying would leave the client goroutine's Read blocked with
+		// nothing to interrupt it, hanging the benchmark. The server side is
+		// bounded by the handshake context; this bounds the side driven here.
+		if err := clientConn.SetDeadline(time.Now().Add(handshakeTestTimeout)); err != nil {
+			b.Fatal(err)
+		}
 
 		// Run client side in goroutine. The agent opens + writes first, so
 		// send AgentHello before reading the server's reply.
