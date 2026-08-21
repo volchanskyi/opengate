@@ -338,19 +338,6 @@ possible.
 complete. Kill what a test can kill, and carve out what the run proves
 equivalent with the reason written next to it.
 
-### The Go shard costs the new splits inherit are not their own
-
-`mutation_go_shard_seconds_per_mutant` carries a measured rate per shard, and the
-eight shards carved out of the four that crossed the cap inherit their parent's
-number rather than one measured on themselves. That is the right default —
-mutants in one package's handlers pay the same test suite — but a child whose
-files are reached by a cheaper set of covering tests is projected dearer than it
-runs, and the reverse is what would let a shard drift back over the cap.
-
-**Pay-down trigger:** the first nightly run in which every Go shard completes.
-Re-derive each rate from `elapsed_time / mutants_total` in that run's shard
-reports and commit the numbers that moved.
-
 ### Alert state stays out of VictoriaMetrics
 
 Three per-device edge series — `opengate_edge_alert_breach{rule,metric}` and

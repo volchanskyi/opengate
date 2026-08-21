@@ -112,6 +112,23 @@ if [ -d "$HOME/go/src/net" ] || [ -f "$HOME/go/VERSION" ]; then
   exit 2
 fi
 
+# Toolchain parity gate. Every CI toolchain pin in this repo floats — the Rust
+# jobs ask for `stable` (fuzz.yml for `nightly`) and the web jobs for node major
+# `24`, each resolved to the newest release at the moment the job runs, while a
+# workstation resolves them once. A workstation left behind runs this whole
+# gauntlet blind to the lints and behaviour CI will see, which is a green gate
+# and a red pipeline with nothing in the diff to explain it. Implementation
+# lives in scripts/lib/toolchain-parity.sh so its parsers can be unit-tested by
+# scripts/tests/toolchain-parity.test.sh.
+# shellcheck source=lib/toolchain-parity.sh
+. "$PROJECT_ROOT/scripts/lib/toolchain-parity.sh"
+if ! toolchain_parity_check "$PROJECT_ROOT"; then
+  color "1;31"
+  echo "✗ Local toolchains are not the ones CI resolves — run the commands above and re-run." >&2
+  color "0"
+  exit 2
+fi
+
 if [ -z "${POSTGRES_TEST_URL:-}" ]; then
   color "1;31"
   echo "✗ POSTGRES_TEST_URL is unset — Postgres-dependent tests would skip silently." >&2

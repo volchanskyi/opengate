@@ -6,22 +6,26 @@
 
 use std::sync::Arc;
 
+use bytes::BytesMut;
 use mesh_protocol::{ControlMessage, Frame};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, info, warn};
-use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::MediaEngine;
-use webrtc::api::APIBuilder;
-use webrtc::data_channel::data_channel_message::DataChannelMessage;
-use webrtc::data_channel::RTCDataChannel;
-use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::peer_connection::configuration::RTCConfiguration;
-use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
-use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::data_channel::{DataChannel, DataChannelEvent};
+use webrtc::peer_connection::{
+    PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
+    RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
+    RTCSessionDescription,
+};
 
 use crate::session_error::SessionError;
+
+/// Local address the peer connection binds for ICE. Port 0 lets the OS pick,
+/// and the gathered host candidates are trickled to the browser from there.
+const UDP_BIND_ADDR: &str = "0.0.0.0:0";
+
+/// One of the three labelled data channels the browser opens, held from the
+/// moment `on_data_channel` fires until the connection closes.
+type ChannelSlot = Arc<Mutex<Option<Arc<dyn DataChannel>>>>;
 
 /// ICE server configuration received from the server.
 #[derive(Debug, Clone)]
@@ -36,25 +40,80 @@ pub struct IceServerConfig {
 
 /// Agent-side WebRTC peer connection wrapper.
 ///
-/// Manages the RTCPeerConnection lifecycle as the answerer:
+/// Manages the peer connection lifecycle as the answerer:
 /// receives browser's offer, creates answer, exchanges ICE candidates,
 /// and routes data channel messages as protocol frames.
 pub struct AgentPeerConnection {
-    pc: Arc<RTCPeerConnection>,
-    /// Channel for outbound ICE candidates to forward via relay.
-    ice_candidate_tx: mpsc::Sender<(String, String)>,
+    pc: Arc<dyn PeerConnection>,
     /// Receiver for outbound ICE candidates (consumed by session handler).
     ice_candidate_rx: Mutex<mpsc::Receiver<(String, String)>>,
+    /// Data channels (populated when browser's channels arrive via on_data_channel).
+    control_channel: ChannelSlot,
+    desktop_channel: ChannelSlot,
+    bulk_channel: ChannelSlot,
+    /// Tracks whether remote description has been set.
+    remote_desc_set: Mutex<bool>,
+    /// Buffered ICE candidates received before remote description is set.
+    pending_candidates: Mutex<Vec<RTCIceCandidateInit>>,
+}
+
+/// Peer-connection event sink. The driver task owns the connection and calls
+/// these as ICE candidates are gathered, the connection state moves, and the
+/// browser's data channels arrive.
+struct AgentEventHandler {
+    /// Channel for outbound ICE candidates to forward via relay.
+    ice_candidate_tx: mpsc::Sender<(String, String)>,
     /// Channel for frames received on data channels.
     inbound_frame_tx: mpsc::Sender<Frame>,
-    /// Data channels (populated when browser's channels arrive via on_data_channel).
-    control_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-    desktop_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-    bulk_channel: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-    /// Tracks whether remote description has been set.
-    remote_desc_set: Arc<Mutex<bool>>,
-    /// Buffered ICE candidates received before remote description is set.
-    pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
+    control_channel: ChannelSlot,
+    desktop_channel: ChannelSlot,
+    bulk_channel: ChannelSlot,
+}
+
+#[async_trait::async_trait]
+impl PeerConnectionEventHandler for AgentEventHandler {
+    async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+        let json = match event.candidate.to_json() {
+            Ok(j) => j,
+            Err(e) => {
+                warn!("failed to serialize ICE candidate: {e}");
+                return;
+            }
+        };
+        let mid = json.sdp_mid.unwrap_or_default();
+        if let Err(e) = self.ice_candidate_tx.send((json.candidate, mid)).await {
+            debug!("ICE candidate channel closed: {e}");
+        }
+    }
+
+    async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+        info!("WebRTC peer connection state: {state}");
+    }
+
+    async fn on_data_channel(&self, data_channel: Arc<dyn DataChannel>) {
+        let label = match data_channel.label().await {
+            Ok(l) => l,
+            Err(e) => {
+                warn!("failed to read data channel label: {e}");
+                return;
+            }
+        };
+
+        debug!(label, "received data channel from browser");
+
+        if !AgentPeerConnection::store_channel_by_label(
+            &label,
+            &data_channel,
+            &self.control_channel,
+            &self.desktop_channel,
+            &self.bulk_channel,
+        )
+        .await
+        {
+            return;
+        }
+        AgentPeerConnection::pump_data_channel(data_channel, self.inbound_frame_tx.clone());
+    }
 }
 
 impl AgentPeerConnection {
@@ -65,129 +124,57 @@ impl AgentPeerConnection {
         ice_servers: Vec<IceServerConfig>,
         inbound_frame_tx: mpsc::Sender<Frame>,
     ) -> Result<Self, SessionError> {
-        let mut m = MediaEngine::default();
-        m.register_default_codecs()
-            .map_err(|e| SessionError::WebSocket(format!("media engine setup: {e}")))?;
-
-        let mut registry = webrtc::interceptor::registry::Registry::new();
-        registry = register_default_interceptors(registry, &mut m)
-            .map_err(|e| SessionError::WebSocket(format!("interceptor setup: {e}")))?;
-
-        let api = APIBuilder::new()
-            .with_media_engine(m)
-            .with_interceptor_registry(registry)
+        let config = RTCConfigurationBuilder::new()
+            .with_ice_servers(
+                ice_servers
+                    .into_iter()
+                    .map(|s| RTCIceServer {
+                        urls: s.urls,
+                        username: s.username,
+                        credential: s.credential,
+                    })
+                    .collect(),
+            )
             .build();
 
-        let config = RTCConfiguration {
-            ice_servers: ice_servers
-                .into_iter()
-                .map(|s| RTCIceServer {
-                    urls: s.urls,
-                    username: s.username,
-                    credential: s.credential,
-                })
-                .collect(),
-            ..Default::default()
-        };
-
-        let pc = Arc::new(
-            api.new_peer_connection(config)
-                .await
-                .map_err(|e| SessionError::WebSocket(format!("peer connection create: {e}")))?,
-        );
-
         let (ice_tx, ice_rx) = mpsc::channel(32);
-        let control_channel = Arc::new(Mutex::new(None));
-        let desktop_channel = Arc::new(Mutex::new(None));
-        let bulk_channel = Arc::new(Mutex::new(None));
-        let remote_desc_set = Arc::new(Mutex::new(false));
-        let pending_candidates = Arc::new(Mutex::new(Vec::new()));
+        let control_channel: ChannelSlot = Arc::new(Mutex::new(None));
+        let desktop_channel: ChannelSlot = Arc::new(Mutex::new(None));
+        let bulk_channel: ChannelSlot = Arc::new(Mutex::new(None));
 
-        let conn = Self {
-            pc: pc.clone(),
+        let handler = Arc::new(AgentEventHandler {
             ice_candidate_tx: ice_tx,
-            ice_candidate_rx: Mutex::new(ice_rx),
             inbound_frame_tx,
             control_channel: control_channel.clone(),
             desktop_channel: desktop_channel.clone(),
             bulk_channel: bulk_channel.clone(),
-            remote_desc_set,
-            pending_candidates,
-        };
+        });
 
-        Self::wire_ice_callback(&pc, conn.ice_candidate_tx.clone());
-        Self::wire_state_callback(&pc);
-        Self::wire_data_channel_handler(
-            &pc,
-            conn.inbound_frame_tx.clone(),
+        let pc = PeerConnectionBuilder::new()
+            .with_configuration(config)
+            .with_handler(handler)
+            .with_udp_addrs(vec![UDP_BIND_ADDR.to_string()])
+            .build()
+            .await
+            .map_err(|e| SessionError::WebSocket(format!("peer connection create: {e}")))?;
+
+        Ok(Self {
+            pc: Arc::new(pc),
+            ice_candidate_rx: Mutex::new(ice_rx),
             control_channel,
             desktop_channel,
             bulk_channel,
-        );
-
-        Ok(conn)
-    }
-
-    fn wire_ice_callback(pc: &Arc<RTCPeerConnection>, ice_tx: mpsc::Sender<(String, String)>) {
-        pc.on_ice_candidate(Box::new(move |candidate| {
-            let tx = ice_tx.clone();
-            Box::pin(async move {
-                let Some(c) = candidate else {
-                    return;
-                };
-                let json = match c.to_json() {
-                    Ok(j) => j,
-                    Err(e) => {
-                        warn!("failed to serialize ICE candidate: {e}");
-                        return;
-                    }
-                };
-                let mid = json.sdp_mid.unwrap_or_default();
-                if let Err(e) = tx.send((json.candidate, mid)).await {
-                    debug!("ICE candidate channel closed: {e}");
-                }
-            })
-        }));
-    }
-
-    fn wire_state_callback(pc: &Arc<RTCPeerConnection>) {
-        pc.on_peer_connection_state_change(Box::new(move |state: RTCPeerConnectionState| {
-            info!("WebRTC peer connection state: {state}");
-            Box::pin(async {})
-        }));
-    }
-
-    fn wire_data_channel_handler(
-        pc: &Arc<RTCPeerConnection>,
-        frame_tx: mpsc::Sender<Frame>,
-        cc: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-        dc: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-        bc: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-    ) {
-        pc.on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
-            let label = d.label().to_owned();
-            let frame_tx = frame_tx.clone();
-            let cc = cc.clone();
-            let dc = dc.clone();
-            let bc = bc.clone();
-
-            debug!(label, "received data channel from browser");
-
-            Box::pin(async move {
-                if !Self::store_channel_by_label(&label, &d, &cc, &dc, &bc).await {
-                    return;
-                }
-                Self::wire_data_channel_messages(&d, frame_tx);
-            })
-        }));
+            remote_desc_set: Mutex::new(false),
+            pending_candidates: Mutex::new(Vec::new()),
+        })
     }
 
     pub(crate) async fn store_channel_by_label(
         label: &str,
-        d: &Arc<RTCDataChannel>,
-        cc: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-        dc: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-        bc: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
+        d: &Arc<dyn DataChannel>,
+        cc: &ChannelSlot,
+        dc: &ChannelSlot,
+        bc: &ChannelSlot,
     ) -> bool {
         match label {
             "control" => {
@@ -209,22 +196,28 @@ impl AgentPeerConnection {
         }
     }
 
-    fn wire_data_channel_messages(d: &Arc<RTCDataChannel>, frame_tx: mpsc::Sender<Frame>) {
-        d.on_message(Box::new(move |msg: DataChannelMessage| {
-            let ftx = frame_tx.clone();
-            Box::pin(async move {
-                match Frame::decode(&msg.data) {
-                    Ok((frame, _)) => {
-                        if let Err(e) = ftx.send(frame).await {
-                            debug!("WebRTC inbound frame channel closed: {e}");
+    /// Drain one data channel's events for the life of the channel, decoding
+    /// every binary message into a protocol frame for the session handler.
+    fn pump_data_channel(d: Arc<dyn DataChannel>, frame_tx: mpsc::Sender<Frame>) {
+        tokio::spawn(async move {
+            while let Some(event) = d.poll().await {
+                match event {
+                    DataChannelEvent::OnMessage(msg) => match Frame::decode(&msg.data) {
+                        Ok((frame, _)) => {
+                            if let Err(e) = frame_tx.send(frame).await {
+                                debug!("WebRTC inbound frame channel closed: {e}");
+                                return;
+                            }
                         }
-                    }
-                    Err(e) => {
-                        warn!("data channel frame decode error: {e}");
-                    }
+                        Err(e) => {
+                            warn!("data channel frame decode error: {e}");
+                        }
+                    },
+                    DataChannelEvent::OnClose => return,
+                    _ => {}
                 }
-            })
-        }));
+            }
+        });
     }
 
     /// Handle an SDP offer from the browser. Returns the SDP answer string.
@@ -318,7 +311,7 @@ impl AgentPeerConnection {
             .as_ref()
             .ok_or_else(|| SessionError::WebSocket("data channel not open".to_string()))?;
 
-        ch.send(&bytes::Bytes::from(encoded))
+        ch.send(BytesMut::from(&encoded[..]))
             .await
             .map_err(|e| SessionError::WebSocket(format!("data channel send: {e}")))?;
 
@@ -352,6 +345,13 @@ pub fn ice_servers_from_strings(urls: Vec<Vec<String>>) -> Vec<IceServerConfig> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Event sink for the throwaway peer connection the channel-routing test
+    /// builds; every event it receives is irrelevant to that test.
+    struct NoopEventHandler;
+
+    #[async_trait::async_trait]
+    impl PeerConnectionEventHandler for NoopEventHandler {}
 
     #[test]
     fn test_ice_server_config_creation() {
@@ -389,21 +389,20 @@ mod tests {
     /// (or the bool return) breaks WebRTC channel routing.
     #[tokio::test]
     async fn store_channel_by_label_routes_each_label_to_correct_slot() {
-        // Build a real RTCDataChannel via a throwaway PeerConnection. We only
-        // need an Arc<RTCDataChannel> to put into the slots; the channel itself
-        // is never opened.
-        let api = APIBuilder::new()
-            .with_media_engine(MediaEngine::default())
-            .build();
-        let pc = api
-            .new_peer_connection(RTCConfiguration::default())
+        // Build a real data channel via a throwaway PeerConnection. We only
+        // need an Arc<dyn DataChannel> to put into the slots; the channel
+        // itself is never opened.
+        let pc = PeerConnectionBuilder::new()
+            .with_handler(Arc::new(NoopEventHandler))
+            .with_udp_addrs(vec![UDP_BIND_ADDR.to_string()])
+            .build()
             .await
             .unwrap();
         let dc = pc.create_data_channel("placeholder", None).await.unwrap();
 
-        let cc: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
-        let dch: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
-        let bc: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
+        let cc: ChannelSlot = Arc::new(Mutex::new(None));
+        let dch: ChannelSlot = Arc::new(Mutex::new(None));
+        let bc: ChannelSlot = Arc::new(Mutex::new(None));
 
         // "control" routes to cc.
         assert!(AgentPeerConnection::store_channel_by_label("control", &dc, &cc, &dch, &bc).await);
@@ -421,9 +420,9 @@ mod tests {
         assert!(bc.lock().await.is_some());
 
         // Unknown label returns false; previously-set slots remain.
-        let cc2: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
-        let dch2: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
-        let bc2: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
+        let cc2: ChannelSlot = Arc::new(Mutex::new(None));
+        let dch2: ChannelSlot = Arc::new(Mutex::new(None));
+        let bc2: ChannelSlot = Arc::new(Mutex::new(None));
         assert!(
             !AgentPeerConnection::store_channel_by_label("unknown-label", &dc, &cc2, &dch2, &bc2)
                 .await

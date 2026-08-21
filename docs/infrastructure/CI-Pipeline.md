@@ -106,6 +106,28 @@ Pull requests execute every CI job except auto-merge/release automation. Benchma
 trends run in the separate scheduled/dispatchable
 [`benchmark.yml`](../../.github/workflows/benchmark.yml) workflow.
 
+### Toolchain Parity
+
+Every language-toolchain pin in the workflows floats. The Rust jobs ask
+[`dtolnay/rust-toolchain`](../../.github/workflows/ci.yml) for `stable` — with
+[`fuzz.yml`](../../.github/workflows/fuzz.yml) asking for `nightly` — and the
+web jobs ask `actions/setup-node` for major `24`; each resolves to the newest
+release at the moment the job runs. A workstation resolves the same pins once,
+at install time, so it drifts behind CI by exactly as much as it has gone
+without an update, and the gauntlet then measures a compiler that CI is not
+running.
+
+The gauntlet's prerequisite phase closes that gap before any check runs:
+[`toolchain-parity.sh`](../../scripts/lib/toolchain-parity.sh) compares the
+local Rust stable and nightly against `rustup check`, the Go toolchain in
+`server/` against the `toolchain` directive in
+[`go.mod`](../../server/go.mod), and the local Node against the newest release
+of the major the workflows pin. Any mismatch stops the run and prints the
+command that closes it. Go is the one pin that does not float —
+[`ci-govulncheck-go-version.test.sh`](../../scripts/tests/ci-govulncheck-go-version.test.sh)
+holds every exact `go-version` in the workflows equal to `go.mod`, and
+`GOTOOLCHAIN=auto` makes a local `go` re-exec into that same version.
+
 ### OpenAPI Codegen Sync
 
 The `go-lint` job verifies that generated Go code from the OpenAPI spec is up to date. It runs `go generate ./internal/api/` and then `git diff --exit-code` — if the generated output differs from what is committed, the job fails. This can also be checked locally via `make verify-codegen`.

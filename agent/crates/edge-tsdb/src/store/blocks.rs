@@ -186,7 +186,7 @@ pub(super) fn write_all(
         let series = *series;
         let scale = scales.get(&series).copied().or(default_scale);
         write_t0_blocks(&mut t0, series, os, scale, &mut logical)?;
-        let new: Vec<Sample> = os.unrolled.drain(..).collect();
+        let new: Vec<Sample> = std::mem::take(&mut os.unrolled);
         if !new.is_empty() {
             merge_tier_writes(
                 &mut t1,

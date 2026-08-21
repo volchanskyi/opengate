@@ -4,7 +4,7 @@ use mesh_protocol::{
     codec::{self, FRAME_CONTROL},
     ControlMessage, Frame,
 };
-use rand::Rng;
+use rand::{Rng, RngExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, info, warn};
 

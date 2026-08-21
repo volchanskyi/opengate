@@ -114,10 +114,10 @@ fn encode_jpeg(frame: &crate::platform::RawFrame, quality: u8) -> Result<Vec<u8>
     // JPEG doesn't support alpha — convert RGBA → RGB by dropping every 4th byte.
     let pixel_count = (frame.width * frame.height) as usize;
     let mut rgb = Vec::with_capacity(pixel_count * 3);
-    for chunk in frame.data.chunks_exact(4) {
-        rgb.push(chunk[0]); // R
-        rgb.push(chunk[1]); // G
-        rgb.push(chunk[2]); // B
+    for px in frame.data.as_chunks::<4>().0 {
+        rgb.push(px[0]); // R
+        rgb.push(px[1]); // G
+        rgb.push(px[2]); // B
     }
 
     // Conservative pre-allocation: JPEG output is typically ~2-5% of raw RGB size.
@@ -169,23 +169,36 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// Pins both halves of the RGBA -> RGB conversion: the channel order, and
+    /// the alpha byte being dropped rather than shifting the stream by one.
+    /// A solid colour survives JPEG quantisation, so the re-decoded pixels are
+    /// the colour that went in — an off-by-one read would decode as a different
+    /// hue, and a channel swap as its mirror.
     #[test]
     fn test_encode_jpeg_valid_rgba() {
         let frame = crate::platform::RawFrame {
-            width: 2,
-            height: 2,
-            data: vec![
-                255, 0, 0, 255, // red
-                0, 255, 0, 255, // green
-                0, 0, 255, 255, // blue
-                255, 255, 255, 255, // white
-            ],
+            width: 8,
+            height: 8,
+            // Fully transparent, so a retained alpha byte cannot pass as colour.
+            data: [10u8, 200, 30, 0].repeat(8 * 8),
         };
-        let jpeg = encode_jpeg(&frame, 70).expect("encode should succeed");
+        let jpeg = encode_jpeg(&frame, 90).expect("encode should succeed");
+
         // JPEG files start with SOI marker: 0xFF 0xD8
         assert!(jpeg.len() >= 2);
         assert_eq!(jpeg[0], 0xFF);
         assert_eq!(jpeg[1], 0xD8);
+
+        let decoded = image::load_from_memory(&jpeg)
+            .expect("re-decode the encoded JPEG")
+            .to_rgb8();
+        assert_eq!(decoded.dimensions(), (8, 8));
+        for px in decoded.pixels() {
+            let [r, g, b] = px.0;
+            assert!((i16::from(r) - 10).abs() <= 12, "red decoded as {r}");
+            assert!((i16::from(g) - 200).abs() <= 12, "green decoded as {g}");
+            assert!((i16::from(b) - 30).abs() <= 12, "blue decoded as {b}");
+        }
     }
 
     /// Pin capture_loop's consecutive-error counting AND the
