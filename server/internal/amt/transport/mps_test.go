@@ -29,6 +29,25 @@ import (
 // device.PostgresHardware from an external test package (importing amt from
 // package transport would be a build cycle).
 
+// pipeTestTimeout bounds both ends of every in-memory pipe in this package.
+const pipeTestTimeout = 5 * time.Second
+
+// newDeadlinePipe returns a net.Pipe whose both ends carry a deadline and are
+// closed with the test. net.Pipe is synchronous and unbuffered, so a peer that
+// stops reading — or never replies — leaves the other side's Write or Read
+// blocked with nothing to interrupt it. Both ends are driven by the test here,
+// so both are bounded: a change that breaks the exchange fails in seconds
+// instead of hanging until something outside the test gives up on it.
+func newDeadlinePipe(t *testing.T) (net.Conn, net.Conn) {
+	t.Helper()
+	a, b := net.Pipe()
+	deadline := time.Now().Add(pipeTestTimeout)
+	require.NoError(t, a.SetDeadline(deadline))
+	require.NoError(t, b.SetDeadline(deadline))
+	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+	return a, b
+}
+
 // memAMTState records connection-state writes in memory.
 type memAMTState struct {
 	mu       sync.Mutex
@@ -511,11 +530,7 @@ func toIntelGUID(u uuid.UUID) [16]byte {
 }
 
 func TestConnNetConn(t *testing.T) {
-	client, server := net.Pipe()
-	t.Cleanup(func() {
-		_ = client.Close()
-		_ = server.Close()
-	})
+	_, server := newDeadlinePipe(t)
 
 	c := &Conn{netConn: server}
 	assert.Same(t, server, c.NetConn())

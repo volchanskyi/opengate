@@ -132,11 +132,28 @@ func readOneHTTPRequest(c net.Conn) (*http.Request, error) {
 	}
 }
 
+// pipeTestTimeout bounds both ends of every in-memory pipe in this file.
+const pipeTestTimeout = 5 * time.Second
+
+// newDeadlinePipe returns a net.Pipe whose both ends carry a deadline. net.Pipe
+// is synchronous and unbuffered, so a simulator that stops replying leaves the
+// client's own Read blocked with nothing to interrupt it. Bounding both ends at
+// construction makes a broken exchange fail in seconds instead of hanging until
+// something outside the test gives up on it.
+func newDeadlinePipe(t *testing.T) (net.Conn, net.Conn) {
+	t.Helper()
+	a, b := net.Pipe()
+	deadline := time.Now().Add(pipeTestTimeout)
+	require.NoError(t, a.SetDeadline(deadline))
+	require.NoError(t, b.SetDeadline(deadline))
+	return a, b
+}
+
 // newWireFixture sets up the fake MPSConn, fake Channel, and AMT simulator.
 // handler is invoked once per HTTP request the client sends.
 func newWireFixture(t *testing.T, handler func(req *http.Request) []byte) (*Client, *fakeMPSConn, func()) {
 	t.Helper()
-	clientSide, amtSide := net.Pipe()
+	clientSide, amtSide := newDeadlinePipe(t)
 	ch := &transport.Channel{LocalID: 1, RemoteID: 42, Type: "direct-tcpip"}
 
 	fconn := &fakeMPSConn{netConn: clientSide, ch: ch}
@@ -260,7 +277,7 @@ func TestClientDo_MalformedHTTPResponseFails(t *testing.T) {
 }
 
 func TestClientDo_OpenChannelFailurePropagates(t *testing.T) {
-	clientSide, amtSide := net.Pipe()
+	clientSide, amtSide := newDeadlinePipe(t)
 	defer clientSide.Close()
 	defer amtSide.Close()
 

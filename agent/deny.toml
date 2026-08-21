@@ -79,9 +79,11 @@ deny = [
 # API bindings cohort. Reviewer hook: any time a skip clears upstream, drop
 # the entry — drift this list down, not up.
 skip = [
+  { crate = "base64@0.22.1",                   reason = "base64 0.22/0.23 stagger — the reqwest/hyper stack and rcgen's pem 3 hold 0.22, the agent's direct pem 4 carries 0.23" },
   { crate = "bitflags@1.3.2",                  reason = "bitflags 1→2 ecosystem stagger; 1.3.2 via older webrtc-rs deps, 2.x via newer rustls/nix" },
   { crate = "block-buffer@0.10.4",             reason = "RustCrypto 0.10→0.11 stagger; 0.10 via reqwest stack, 0.11 via newer sha2/digest" },
   { crate = "cfg_aliases@0.1.1",               reason = "0.1→0.2 patch stagger via nix vs newer transitives" },
+  { crate = "chacha20@0.9.1",                  reason = "chacha20 0.9/0.10 stagger — chacha20poly1305 under the DTLS stack pins 0.9, rand 0.10's generator carries 0.10" },
   { crate = "const-oid@0.9.6",                 reason = "RustCrypto 0.9→0.10 stagger via x509/rcgen versions" },
   { crate = "cpufeatures@0.2.17",              reason = "RustCrypto 0.2→0.3 stagger paired with sha2/digest split" },
   { crate = "crypto-common@0.1.7",             reason = "RustCrypto 0.1→0.2 stagger paired with digest split" },
@@ -89,18 +91,20 @@ skip = [
   { crate = "getrandom@0.2.17",                reason = "getrandom 0.2/0.3/0.4 ecosystem stagger — three majors coexist via rand, ring, rustls, webrtc-rs" },
   { crate = "getrandom@0.3.4",                 reason = "getrandom 0.2/0.3/0.4 ecosystem stagger — three majors coexist via rand, ring, rustls, webrtc-rs" },
   { crate = "hashbrown@0.16.1",                reason = "hashbrown 0.16/0.17 stagger via std internal vs hashbrown 0.17 in newer indexmap" },
-  { crate = "nix@0.26.4",                      reason = "nix 0.26/0.28 stagger via webrtc-rs vs platform-linux's newer transitives" },
+  { crate = "nix@0.28.0",                      reason = "nix 0.28/0.31 stagger — portable-pty pins 0.28, the webrtc-rs socket layer carries 0.31" },
   { crate = "nom@7.1.3",                       reason = "nom 7→8 stagger via cookie/x509 parsers" },
+  { crate = "pem@3.0.6",                       reason = "pem 3/4 stagger — rcgen pins 3, the agent's enrollment certificate decode uses 4" },
+  { crate = "quinn-udp@0.5.14",                reason = "quinn-udp 0.5/0.6 stagger — quinn 0.11 pins 0.5, the webrtc-rs UDP transport carries 0.6" },
   { crate = "r-efi@5.3.0",                     reason = "UEFI bindings 5/6 stagger via getrandom 0.2 vs 0.3" },
+  { crate = "rand@0.9.5",                      reason = "rand 0.9/0.10 stagger — quinn-proto, proptest and image's rav1e hold 0.9; the agent and the webrtc-rs stack are on 0.10" },
   { crate = "rand_core@0.6.4",                 reason = "rand_core 0.6/0.9 stagger pairs with rand version stagger across crypto stack" },
-  { crate = "rcgen@0.13.2",                    reason = "rcgen 0.13/0.14 stagger — webrtc-rs/dtls pins 0.13, our direct mTLS uses 0.14" },
+  { crate = "rand_core@0.9.5",                 reason = "paired with the rand 0.9/0.10 stagger, must move with it" },
+  { crate = "sha1@0.10.6",                     reason = "sha1 0.10/0.11 stagger — the DTLS/SRTP stack pins 0.10, tungstenite's handshake carries 0.11" },
   { crate = "sha2@0.10.9",                     reason = "RustCrypto 0.10→0.11 stagger paired with digest split" },
-  { crate = "socket2@0.5.10",                  reason = "socket2 0.5/0.6 stagger via tokio vs reqwest transport" },
   { crate = "syn@2.0.117",                     reason = "syn 2→3 ecosystem stagger; 3.x via the dtolnay proc-macro cohort (serde_derive, thiserror-impl, async-trait, clap_derive), 2.x via arg_enum_proc_macro under image/rav1e and asn1-rs-derive under the webrtc-rs x509 stack. Build-time only — no syn in the shipped binary. Clears when image and webrtc-rs move their macro deps to syn 3." },
   { crate = "thiserror@1.0.69",                reason = "thiserror 1→2 ecosystem stagger; pre-existing slack, candidate to resolve by bumping direct deps to v2" },
   { crate = "thiserror-impl@1.0.69",           reason = "proc-macro half of thiserror, must move in lockstep with thiserror skip above" },
   { crate = "webpki-roots@0.26.11",            reason = "TLS roots 0.26/1.0 stagger via reqwest stack vs rustls transitives" },
-  { crate = "yasna@0.5.2",                     reason = "ASN.1 parser 0.5/0.6 stagger pinned by rcgen 0.13/0.14 split" },
   # Windows API binding cohort stagger — older 0.42.x/0.45.x targets remain
   # pulled in by parking_lot and a couple of older rustls transitives;
   # 0.52.x/0.61.x are carried by socket2, getrandom, mio. All move together.

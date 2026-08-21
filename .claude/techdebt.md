@@ -338,41 +338,6 @@ possible.
 complete. Kill what a test can kill, and carve out what the run proves
 equivalent with the reason written next to it.
 
-### In-memory test pipes elsewhere still have no deadline of their own
-
-`go-agentapi-handshake` owns thirteen mutants and needed seventy-five minutes to
-not finish them. The cause was in the harness, not the shard: `net.Pipe` is
-synchronous and unbuffered, and while the handshake goroutine was bounded by its
-context, the client end the test drives carried no deadline — so a mutant that
-stops the server replying left the test's own `ReadFull` blocked with nothing to
-interrupt it, and each one burned its whole per-mutant budget.
-[`handshaker_test.go`](../server/internal/agentapi/handshaker_test.go) now bounds
-both ends.
-
-The same shape is still present in the AMT transport tests
-([`mps_test.go`](../server/internal/amt/transport/mps_test.go),
-[`mps_conn_test.go`](../server/internal/amt/transport/mps_conn_test.go),
-[`client_wire_test.go`](../server/internal/amt/transport/wsman/client_wire_test.go))
-and in [`bench_test.go`](../server/internal/agentapi/bench_test.go), where no
-mutant has yet blocked long enough to be noticed.
-
-**Pay-down trigger:** a shard owning one of those files reports `TIMED_OUT`
-mutants, or its projection drifts without its mutant count moving. Give every
-in-memory pipe a deadline at construction rather than one file at a time.
-
-### The Go shard costs the new splits inherit are not their own
-
-`mutation_go_shard_seconds_per_mutant` carries a measured rate per shard, and the
-eight shards carved out of the four that crossed the cap inherit their parent's
-number rather than one measured on themselves. That is the right default —
-mutants in one package's handlers pay the same test suite — but a child whose
-files are reached by a cheaper set of covering tests is projected dearer than it
-runs, and the reverse is what would let a shard drift back over the cap.
-
-**Pay-down trigger:** the first nightly run in which every Go shard completes.
-Re-derive each rate from `elapsed_time / mutants_total` in that run's shard
-reports and commit the numbers that moved.
-
 ### Alert state stays out of VictoriaMetrics
 
 Three per-device edge series — `opengate_edge_alert_breach{rule,metric}` and
