@@ -1,4 +1,4 @@
-package integration
+package faulttest_test
 
 import (
 	"os/exec"

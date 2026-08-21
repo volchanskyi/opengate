@@ -48,13 +48,16 @@ which ignores the shared URL by design.
 │  k6 HTTP/WS scenarios + Go QUIC harness (staging, on-demand)        │
 ├─────────────────────────────────────────────────────────────────────┤
 │                         E2E (Playwright)                            │
-│  Auth flows, device list, settings panel, navigation — via docker      │
+│  The browser against a stack carrying two real enrolled machines    │
+├─────────────────────────────────────────────────────────────────────┤
+│                          Acceptance                                 │
+│  One outcome per product capability, through the two doors only     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                        Golden (cross-language)                      │
 │  Rust generates binary fixtures  →  Go verifies bit-identical       │
 ├─────────────────────────────────────────────────────────────────────┤
 │                        Integration                                  │
-│  HTTP round-trips + real QUIC + live Postgres (in-process server)   │
+│  What needs a transport: real QUIC, real sockets, WebSockets        │
 ├────────────────────────────────┬────────────────────────────────────┤
 │         Unit (Go)              │           Unit (Rust)              │
 │  auth, DB, cert, API,          │  protocol codec, platform traits,  │
@@ -73,8 +76,11 @@ which ignores the shared URL by design.
 |-------|-------|----------|
 | **Unit (Go)** | `testing` + testify | `server/internal/*/` |
 | **Unit (Rust)** | `#[test]` + proptest | `agent/crates/*/` |
+| **Property** | proptest (Rust), rapid (Go), fast-check (Web) | `*property*` test files in all three trees |
 | **Fuzz (Rust)** | cargo-fuzz / libFuzzer (nightly) + stable corpus replay | [`agent/fuzz/`](../../agent/fuzz), [`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs) |
-| **Integration** | `httptest` + real QUIC + live Postgres | `server/tests/integration/` |
+| **Fuzz (Go)** | native `go test -fuzz`, seeded from the goldens | [`codec_fuzz_test.go`](../../server/internal/protocol/codec_fuzz_test.go) |
+| **Acceptance** | the whole product over [`internal/app`](../../server/internal/app), live Postgres, two actors | `server/tests/acceptance/` |
+| **Integration** | real QUIC + real sockets + live Postgres | `server/tests/integration/` |
 | **Golden** | Rust generates → Go verifies | `testdata/golden/` |
 | **Web Unit** | Vitest + React Testing Library | `web/src/**/*.test.{ts,tsx}` |
 | **Web Integration** | Vitest + React Testing Library | `web/tests/integration/**/*.test.tsx` |
@@ -82,17 +88,82 @@ which ignores the shared URL by design.
 | **Load (HTTP)** | k6 | `load/k6/scenarios/` |
 | **Load (QUIC)** | Go harness | `server/tests/loadtest/` |
 
+### Where a test belongs
+
+Three Go tiers, and one question decides which a test goes in: *what does it
+need in order to run at all?*
+
+| Tier | Holds | Address |
+|---|---|---|
+| **Unit** | one package's behaviour, including its HTTP surface | `server/internal/<pkg>/` |
+| **Integration** | what needs a transport — a real QUIC peer, a real socket, a WebSocket, two servers | [`server/tests/integration/`](../../server/tests/integration) |
+| **Acceptance** | one outcome per product capability, in the words a customer would use | [`server/tests/acceptance/`](../../server/tests/acceptance) |
+
+The rule is enforced rather than remembered:
+[`test-tier-placement.test.sh`](../../scripts/tests/test-tier-placement.test.sh)
+refuses a test in the integration tier that reaches no transport, refuses an
+acceptance test that imports a repository package outside the harness's
+arrangement helpers, and holds every acceptance test to `t.Parallel()`.
+
+### The acceptance tier
+
+An acceptance test stands the whole product up — the composition root in
+[`internal/app`](../../server/internal/app), a real database, an HTTP listener
+and a QUIC listener — and then speaks through exactly two doors, because a real
+installation has exactly two:
+
+| Actor | Door |
+|---|---|
+| **Technician** | the HTTP API, issuing the requests the browser issues |
+| **Machine** | the QUIC control stream, speaking the wire the golden fixtures prove the Rust agent identical to |
+
+Everything is real except the three edges that sit outside the product: Intel
+management hardware, which answers on its own network path; browser push
+delivery; and the GitHub release feed. Where the product offers an operator no
+door to create a precondition, the harness seeds it, and the helper is named
+`arrange…` so the exception is visible in the test's own text.
+
+Every chapter of [`docs/product/`](../product) is bound to the outcomes that
+prove it, and the binding is checked in both directions out of the package's own
+syntax tree: a capability with no outcome fails the suite naming the chapter, and
+an outcome naming no capability fails it the other way. Adding a chapter turns
+the suite red until somebody states what a customer gets from it, which is the
+intent.
+
+### The browser stack carries real machines
+
+[`docker-compose.test.yml`](../../deploy/docker-compose.test.yml) runs a
+database, a server listening for machines, and two agents with pinned hostnames.
+`agent-a` is what the device pages are read against; `agent-b` is the expendable
+one, for a spec that wants to disturb a machine.
+
+The machines install the way a real one does.
+[`e2e-stack-up.sh`](../../deploy/scripts/e2e-stack-up.sh) starts the database and
+the server, signs in as the bootstrap operator, mints an enrolment token through
+the public endpoint, and starts both agents with it; each generates its own key,
+asks to be signed, and connects. No private key is copied and no test-only
+affordance exists in the shipped server. `make e2e` and Playwright's `webServer`
+both call that script, so the two paths cannot stand up different stacks.
+
+Values differ per runner — the processor, the memory, the addresses — so specs
+assert on shape and presence, reading what the machine reported out of the
+response and checking the page carries it.
+[`e2e-stack-machines.test.sh`](../../scripts/tests/e2e-stack-machines.test.sh)
+holds the arrangement together and refuses a spec that goes back to inventing a
+machine.
+
 ## Running Tests Locally
 
 ```bash
 make test               # All tests — Rust + Go + Web
 make test-go            # Go server (unit + integration) with race detector
 make test-integration   # Integration suite only
+make agent-binary       # The static agent binary the browser stack's machines run
 make test-rust          # Rust workspace
 make test-web           # React / TypeScript
 make test-coverage      # Go coverage report printed to stdout
 make golden             # Regenerate golden fixtures and verify cross-language compat
-make e2e                # Playwright E2E via docker-compose.test.yml
+make e2e                # Playwright E2E against a stack carrying two real machines
 make load-test          # k6 HTTP/WS load tests against localhost:8080
 make load-test-quic     # Go QUIC load harness (100 concurrent agents)
 ```
@@ -239,6 +310,57 @@ Mutation testing runs as a **non-blocking observability signal**, not a merge
 gate: a survived-mutant regression turns the workflow red and alerts, but never
 blocks `merge-to-main`.
 
+### Property-based tests
+
+A table-driven test samples an invariant; a property test states it and lets a
+generator attack it. Each language uses the idiomatic generator library for its
+stack — [`proptest`](../../agent/Cargo.toml) for Rust,
+[`pgregory.net/rapid`](../../server/go.mod) for Go, and
+[`fast-check`](../../web/package.json) for TypeScript — and all of them run
+inside the ordinary unit-test commands above. There is no separate target and no
+nightly job: a shrunk counterexample fails the gauntlet like any other assertion,
+and the shrinker reports the minimal input rather than the random one that
+tripped it.
+
+The wire protocol carries most of the weight, in two shapes:
+
+- **Round-trip identity** — `decode(encode(x)) == x` over generated messages.
+  [`property_test.rs`](../../agent/crates/mesh-protocol/tests/property_test.rs)
+  builds `arb_control_message()` by composing strategies for session tokens,
+  capabilities and permissions;
+  [`codec_property_test.go`](../../server/internal/protocol/codec_property_test.go)
+  covers frames, ping/pong, server-hello and handshake types; and
+  [`codec.property.test.ts`](../../web/src/lib/protocol/codec.property.test.ts)
+  adds two properties a fixture rarely reaches — the decoder consumes exactly the
+  bytes the encoder produced, and it reads correctly from a non-zero byte offset
+  inside a larger buffer.
+- **Controlled failure on arbitrary bytes** — every decoder returns an error for
+  any input a hostile peer can put on the wire. This is the same contract the
+  fuzz targets below explore with coverage guidance; the property test is its
+  always-on floor.
+
+Away from the codec, the properties state domain rules directly:
+
+- [`gorilla.rs`](../../agent/crates/edge-tsdb/src/gorilla.rs) round-trips
+  arbitrary timestamp/value series through a compression block, comparing floats
+  by bit pattern so NaN payloads are asserted rather than silently excused.
+- [`apf_property_test.go`](../../server/internal/amt/transport/apf_property_test.go)
+  round-trips the AMT/APF message types and asserts `ReorderIntelGUID` returns a
+  permutation of its input.
+- [`converters_property_test.go`](../../server/internal/api/converters_property_test.go)
+  pins order, length, pointer identity and pagination across the API converters.
+- [`token-status.property.test.ts`](../../web/src/lib/token-status.property.test.ts)
+  states the token rules as algebra: an unparseable expiry counts as expired
+  (fail-safe), and a token is active exactly when it is neither expired nor
+  exhausted.
+- [`file-store.property.test.ts`](../../web/src/features/file-manager/state/file-store.property.test.ts)
+  is model-based — it drives arbitrary sequences of store actions against a
+  reference model and asserts the two stay in agreement.
+
+Property tests pair naturally with the mutation runs above: when a mutant
+survives inside a codec or a converter, a sharper property usually kills it more
+durably than another example row.
+
 ### Fuzzing
 
 The wire decoder is the agent's primary untrusted-input surface, so
@@ -256,6 +378,16 @@ it replays every seed in [`agent/fuzz/corpus/decode/`](../../agent/fuzz/corpus/d
 crash) through the decoder under plain `cargo test`. A crash found by the nightly
 fuzzer is minimized and committed back into that corpus, so the stable replay
 re-runs it forever.
+
+The server side of the same surface uses Go's native fuzzing in
+[`codec_fuzz_test.go`](../../server/internal/protocol/codec_fuzz_test.go):
+`FuzzReadFrame` holds the envelope parser to "no panic, and no allocation past
+`MaxFrameSize`", and `FuzzDecodeControl` holds the msgpack decoder to "decode or
+error, never panic". Both seed from the committed goldens — `FuzzDecodeControl`
+peels the envelope first so the fuzzer starts on msgpack-shaped input — plus
+hand-written edge cases for empty, truncated and unknown-type frames. Under
+plain `go test` the seed corpus runs as a normal test; each doc comment carries
+the `-fuzz` invocation for an extended local session.
 
 ## Frontend Performance
 
@@ -494,16 +626,17 @@ Uses fake SDP strings — the relay is message-agnostic and just forwards binary
 
 ### The triage path, agent to resolution (Go)
 
-[`investigations_test.go`](../../server/tests/integration/investigations_test.go)
+[`investigations_test.go`](../../server/tests/acceptance/investigations_test.go)
 walks one event from the machine that raised it to the technician who closed it:
-a real agent encodes an `AgentAlert` with compressed evidence onto its own QUIC
-control stream, the server admits and files it, the fold opens a room for it, the
-evidence is read back out of that room, and a resolution that names no cause code
-is refused before one that names it closes the room.
+a machine encodes an `AgentAlert` with compressed evidence onto its own QUIC
+control stream, the server admits and files it, the fold opens a room for it, and
+the technician's whole half goes through the API the browser uses — reading the
+room, reading the evidence out of it, taking it, being refused a resolution that
+names no cause code, and closing it with one.
 
 | Test | What It Verifies |
 |------|-----------------|
-| `TestTriagePathFromAgentAlertToResolution` | QUIC `AgentAlert` + evidence → stored alert → open incident in the queue → evidence decoded from the room → resolution refused without a cause code, then accepted with one |
+| `TestAnAlertBecomesAnIncidentATechnicianClosesWithACause` | QUIC `AgentAlert` + evidence → stored alert → the room the triage queue hands a technician → evidence decoded from the room → resolution refused over HTTP without a cause code, then accepted with one |
 
 Each leg has unit coverage of its own — admission in
 [`internal/agentapi`](../../server/internal/agentapi), folding and lifecycle in

@@ -328,7 +328,7 @@ run_check "shell tests" -- bash -c '
 run_check "go unit + coverage" -- bash -c '
   cd server && go test -race -count=1 -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
 '
-run_check "go integration" -- bash -c 'cd server && go test -race -count=1 -timeout 5m ./tests/...'
+run_check "go integration" -- bash -c 'cd server && go test -race -count=1 -timeout 10m ./tests/...'
 run_check "rust tests" -- bash -c 'cd agent && cargo test --workspace'
 run_check "web vitest+cov" -- bash -c 'cd web && npx vitest run --coverage'
 

@@ -11,7 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
-	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/session"
@@ -199,18 +198,6 @@ const dbSizeRefreshInterval = 60 * time.Second
 // every question the gauges are asked.
 const investigationsRefreshInterval = time.Minute
 
-// ruleIDs is the label vocabulary the investigation series are bounded by: the
-// ids of the rules this build actually ships, and nothing an endpoint can add
-// to.
-func ruleIDs(catalogue *rules.Catalogue) []string {
-	shipped := catalogue.All()
-	ids := make([]string, 0, len(shipped))
-	for _, def := range shipped {
-		ids = append(ids, def.ID)
-	}
-	return ids
-}
-
 // groupWindows is how long each shipped rule's room stays open with nothing
 // further arriving. It is the rule's own grouping window and never a figure of
 // its own: a room must stay open for exactly as long as a new alert could still
@@ -233,12 +220,6 @@ const sessionGracePeriod = 5 * time.Minute
 
 // sessionSweepInterval is how often the stale-session sweep runs.
 const sessionSweepInterval = time.Minute
-
-func cleanupRelaySession(repo session.Repository, token protocol.SessionToken) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return repo.DeleteRelaySession(ctx, string(token))
-}
 
 // liveRelayTokens adapts the relay's live token set to the plain strings the
 // session store keys on.

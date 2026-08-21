@@ -87,6 +87,37 @@ resuming (`DidResume`).
 
 ## Severity: Low
 
+### The periodic workers cannot be driven from an acceptance test
+
+The janitors and gauge loops live in
+[`background.go`](../server/cmd/meshserver/background.go), which is `package main`
+and therefore importable by nothing. `internal/app` assembles the product; starting
+the loops belongs to whoever built it, and that is the binary.
+
+The consequence is visible in one outcome. A technician whose machine drops off
+mid-session leaves a session row behind, and what reclaims it is the stale-session
+sweep after its grace period. No acceptance test can wait for that, so
+`TestASessionOnAMachineThatDisappearsStopsBeingUsable` states what the two doors
+can observe instead — nothing further is asked of the machine, a fresh session is
+refused with a reason, and the technician can clear the dead one — and the row's
+reclamation is asserted by the sweep's own unit tests and by nothing joined.
+
+**Pay-down trigger:** the next change to a sweep's schedule or its keep-list.
+Move the loops behind an `Assembly` method that takes a context, leave the
+intervals and the signal handling in `cmd/meshserver`, and state the reclamation
+as an outcome.
+
+### The Chat tab is unreachable from any machine the browser stack can run
+
+The tab is shown only for a machine reporting `RemoteDesktop`, and a Linux agent
+reports the null capture implementation there — in production as much as in a
+container. The browser stack runs Linux containers, so
+[`chat.spec.ts`](../web/e2e/chat.spec.ts) is the one spec that describes its
+machine rather than enrolling one, and says so in its own header.
+
+**Pay-down trigger:** a Windows or macOS machine in the browser stack, for any
+reason. Point the spec at it and delete the description.
+
 ### Device delete without VictoriaMetrics skips the erasure guarantees
 
 [`purgeDeletedDevice`](../server/internal/api/handlers_device_actions.go) falls back

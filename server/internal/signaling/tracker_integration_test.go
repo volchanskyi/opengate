@@ -1,4 +1,4 @@
-package integration
+package signaling_test
 
 import (
 	"testing"

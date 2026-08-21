@@ -31,8 +31,12 @@ export default defineConfig({
     serviceWorkers: "block",
   },
   webServer: {
+    // The same bring-up `make e2e` runs, so the two paths cannot stand up
+    // different stacks. It starts the database and the server, mints an
+    // enrolment token through the public endpoint, installs two machines with
+    // it, and returns once both are online.
     command:
-      "cd ../deploy && docker compose -f docker-compose.test.yml down -v 2>/dev/null; docker compose -f docker-compose.test.yml up --build --wait",
+      "cd ../deploy && docker compose -f docker-compose.test.yml down -v 2>/dev/null; bash scripts/e2e-stack-up.sh",
     url: "http://localhost:8080/api/v1/health",
     reuseExistingServer: true,
     timeout: 180_000,

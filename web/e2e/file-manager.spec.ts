@@ -1,7 +1,8 @@
 /// <reference types="node" />
 import { test, expect } from "./fixtures";
-import type { Route, WebSocketRoute } from "@playwright/test";
+import type { WebSocketRoute } from "@playwright/test";
 import { decode, encode } from "@msgpack/msgpack";
+import { enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
 
 // Phase B / B2: File Manager E2E.
 //
@@ -14,16 +15,17 @@ import { decode, encode } from "@msgpack/msgpack";
 // FileManagerView render) runs against real bytes — there is no
 // component-level shortcut.
 //
+// The machine and the session are real — the stack carries two enrolled
+// agents — so the session this opens is one the server minted against a
+// machine that is actually connected. What is supplied is the far side of the
+// relay: a directory tree the test can name, so the assertions can be about
+// what the browser renders rather than about whatever happens to be on the
+// runner's filesystem.
+//
 // FileManagerView component behavior (entry rendering, button states,
 // breadcrumb, viewer) is also covered by the unit suite at
-// web/src/features/file-manager/FileManagerView.test.tsx. This spec
-// covers the route-level integration the unit test cannot reach: opening
-// a session, switching to the Files tab, and exercising the wire path.
+// web/src/features/file-manager/FileManagerView.test.tsx.
 
-const DEVICE_ID = "11111111-1111-4111-8111-cccccccccccc";
-const GROUP_ID = "33333333-3333-4333-8333-333333333333";
-const SESSION_TOKEN = "e2e-fm-token-00000000000000000000000000000000";
-const RELAY_URL = "wss://relay.invalid/relay";
 
 // Mirrors web/src/lib/protocol/types.ts
 const FRAME_CONTROL = 0x01;
@@ -53,53 +55,7 @@ function decodeControlFrame(data: Buffer): { type: string; [key: string]: unknow
   return decode(payload) as { type: string; [key: string]: unknown };
 }
 
-function ok(route: Route, body: unknown) {
-  return route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  });
-}
-
-function fakeDevice() {
-  const now = new Date().toISOString();
-  return {
-    id: DEVICE_ID,
-    site_id: GROUP_ID,
-    hostname: "e2e-fm-host",
-    os: "linux",
-    os_display: "Linux",
-    agent_version: "0.1.0",
-    capabilities: ["Terminal", "FileManager"],
-    status: "online",
-    last_seen: now,
-    created_at: now,
-    updated_at: now,
-  };
-}
-
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
-
-async function stubCommonRoutes(page: AuthedPage) {
-  await page.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
-  await page.route("**/api/v1/sites", (route: Route) =>
-    ok(route, [
-      { id: GROUP_ID, name: "default", created_at: "", updated_at: "" },
-    ]),
-  );
-  await page.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) =>
-    ok(route, []),
-  );
-  await page.route("**/api/v1/amt/devices", (route: Route) => ok(route, []));
-  await page.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
-  await page.route(`**/api/v1/devices/${DEVICE_ID}/hardware`, (route: Route) =>
-    route.fulfill({ status: 404, body: "" }),
-  );
-  await page.route("**/api/v1/sessions", (route: Route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    return ok(route, { token: SESSION_TOKEN, relay_url: RELAY_URL });
-  });
-}
 
 /**
  * Install a relay handler that responds to FileListRequest frames with
@@ -114,7 +70,7 @@ async function mockRelay(
   const requestedPaths: string[] = [];
 
   await page.routeWebSocket(
-    (url: URL) => url.href.startsWith(RELAY_URL),
+    (url: URL) => url.pathname.includes("/relay"),
     (ws: WebSocketRoute) => {
       ws.onMessage((raw) => {
         if (typeof raw === "string") return; // Wire frames are binary.
@@ -138,18 +94,19 @@ async function mockRelay(
   return { requestedPaths };
 }
 
-async function openFilesTab(page: AuthedPage) {
-  await page.goto(`/devices/${DEVICE_ID}`);
+async function openFilesTab(page: AuthedPage, deviceID: string) {
+  await page.goto(`/devices/${deviceID}`);
   await page.getByRole("button", { name: /start session/i }).click();
-  await expect(page).toHaveURL(new RegExp(`/sessions/${SESSION_TOKEN}$`));
+  await expect(page).toHaveURL(/\/sessions\/[^/]+$/);
   await page.getByRole("tab", { name: "Files" }).click();
 }
 
 test.describe("File Manager flow", () => {
   test("Files tab renders the directory listing from a FileListResponse", async ({
     authedPage,
+    request,
   }) => {
-    await stubCommonRoutes(authedPage);
+    const machine = await enrolledMachine(request, MACHINE_A);
     const tracker = await mockRelay(authedPage, {
       "/": [
         { name: "docs", is_dir: true, size: 0, modified: 1_700_000_000 },
@@ -157,7 +114,7 @@ test.describe("File Manager flow", () => {
       ],
     });
 
-    await openFilesTab(authedPage);
+    await openFilesTab(authedPage, machine.id);
 
     await expect(authedPage.getByText("docs")).toBeVisible();
     await expect(authedPage.getByText("README.md")).toBeVisible();
@@ -166,8 +123,9 @@ test.describe("File Manager flow", () => {
 
   test("clicking a directory navigates and loads the new listing", async ({
     authedPage,
+    request,
   }) => {
-    await stubCommonRoutes(authedPage);
+    const machine = await enrolledMachine(request, MACHINE_A);
     const tracker = await mockRelay(authedPage, {
       "/": [{ name: "docs", is_dir: true, size: 0, modified: 1_700_000_000 }],
       "/docs": [
@@ -175,7 +133,7 @@ test.describe("File Manager flow", () => {
       ],
     });
 
-    await openFilesTab(authedPage);
+    await openFilesTab(authedPage, machine.id);
 
     await expect(authedPage.getByRole("button", { name: "docs" })).toBeVisible();
     await authedPage.getByRole("button", { name: "docs" }).click();
@@ -190,15 +148,15 @@ test.describe("File Manager flow", () => {
     expect(tracker.requestedPaths).toEqual(["/", "/docs", "/"]);
   });
 
-  test("permission-denied path renders an error banner", async ({ authedPage }) => {
-    await stubCommonRoutes(authedPage);
+  test("permission-denied path renders an error banner", async ({ authedPage, request }) => {
+    const machine = await enrolledMachine(request, MACHINE_A);
     await mockRelay(
       authedPage,
       { "/": [{ name: "secret", is_dir: true, size: 0, modified: 1_700_000_000 }] },
       { "/secret": "permission denied" },
     );
 
-    await openFilesTab(authedPage);
+    await openFilesTab(authedPage, machine.id);
     await authedPage.getByRole("button", { name: "secret" }).click();
 
     await expect(authedPage.getByText(/permission denied/i)).toBeVisible();

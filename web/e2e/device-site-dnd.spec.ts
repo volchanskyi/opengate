@@ -1,93 +1,74 @@
 import { test, expect } from "./fixtures";
-import type { Route } from "@playwright/test";
+import { createSite } from "./helpers/api-helper";
+import { adminToken, enrolledMachine, MACHINE_B } from "./helpers/enrolled-machine";
 
-// Dragging a device card onto a site in the sidebar re-sites it. Devices only
-// exist after an agent enrolls, and there is no public API to seed one, so the
-// device list and the PATCH that moves it are stubbed with Playwright and the
-// assertions target the request the UI actually issues.
+// Dragging a machine's card onto a site in the sidebar files it there.
+//
+// The stack carries two enrolled agents, so the card being dragged belongs to
+// a machine that is actually connected and the move is a real one: the browser
+// issues the request, the server writes it, and the fleet page reads it back.
+// agent-b is the one moved about, because filing a machine changes what every
+// later spec's fleet page shows.
+//
+// Both sites are created and deleted by the spec. A site is visible to the
+// whole customer, so one left behind changes what an unrelated later spec
+// renders — which is what global-teardown.ts refuses a run for.
 
-const DEVICE_ID = "33333333-3333-4333-8333-333333333333";
-const GROUP_A = "44444444-4444-4444-8444-444444444444";
-const GROUP_B = "55555555-5555-4555-8555-555555555555";
-const UNGROUPED = "00000000-0000-0000-0000-000000000000";
-
-function ok(route: Route, body: unknown) {
-  return route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  });
-}
-
-function fakeDevice(siteId: string) {
-  const now = new Date().toISOString();
-  return {
-    id: DEVICE_ID,
-    site_id: siteId,
-    hostname: "e2e-dnd-host",
-    os: "linux",
-    os_display: "Linux",
-    agent_version: "0.1.0",
-    capabilities: [],
-    status: "online",
-    last_seen: now,
-    created_at: now,
-    updated_at: now,
-  };
-}
-
-/** Stub the device list, sites and the PATCH; returns the captured move bodies. */
-async function stubList(page: import("@playwright/test").Page) {
-  const moves: { id: string; site_id: string }[] = [];
-  let currentGroup = GROUP_A;
-
-  await page.route("**/api/v1/sites", (route: Route) =>
-    ok(route, [
-      { id: GROUP_A, name: "Site A", created_at: "", updated_at: "" },
-      { id: GROUP_B, name: "Site B", created_at: "", updated_at: "" },
-    ]),
-  );
-  await page.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
-  await page.route(`**/api/v1/devices/${DEVICE_ID}/inventory*`, (route: Route) => ok(route, []));
-  await page.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => {
-    if (route.request().method() === "PATCH") {
-      const body = route.request().postDataJSON() as { site_id: string };
-      moves.push({ id: DEVICE_ID, site_id: body.site_id });
-      currentGroup = body.site_id;
-      return ok(route, fakeDevice(currentGroup));
-    }
-    return ok(route, fakeDevice(currentGroup));
-  });
-  await page.route("**/api/v1/devices?**", (route: Route) => ok(route, [fakeDevice(currentGroup)]));
-  await page.route("**/api/v1/devices", (route: Route) => ok(route, [fakeDevice(currentGroup)]));
-
-  return moves;
-}
+const UNFILED = "00000000-0000-0000-0000-000000000000";
 
 test.describe("Device site drag and drop", () => {
-  test("dropping a device card on a site moves it there", async ({ adminPage }) => {
-    const moves = await stubList(adminPage);
+  let siteA = "";
+  let siteB = "";
+  let machineID = "";
+  let machineName = "";
+
+  test.beforeEach(async ({ request }) => {
+    const token = adminToken();
+    siteA = (await createSite(request, token, "Site A")).id;
+    siteB = (await createSite(request, token, "Site B")).id;
+
+    const machine = await enrolledMachine(request, MACHINE_B);
+    machineID = machine.id;
+    machineName = machine.hostname;
+  });
+
+  test.afterEach(async ({ request }) => {
+    const headers = { Authorization: `Bearer ${adminToken()}` };
+    // Put the machine back where the rest of the suite expects it, then take
+    // the sites away.
+    await request.patch(`/api/v1/devices/${machineID}`, {
+      data: { site_id: UNFILED },
+      headers,
+    });
+    for (const site of [siteA, siteB]) {
+      if (site) await request.delete(`/api/v1/sites/${site}`, { headers });
+    }
+  });
+
+  test("dropping a machine's card on a site files it there", async ({ adminPage }) => {
     await adminPage.goto("/devices");
 
-    const card = adminPage.getByRole("button", { name: /e2e-dnd-host/ });
+    const card = adminPage.getByRole("button", { name: new RegExp(machineName) });
     await expect(card).toBeVisible();
 
     await card.dragTo(adminPage.getByRole("listitem", { name: "Site B" }));
 
-    await expect(adminPage.getByText(/Moved e2e-dnd-host to Site B/)).toBeVisible();
-    expect(moves).toEqual([{ id: DEVICE_ID, site_id: GROUP_B }]);
+    await expect(adminPage.getByText(new RegExp(`Moved ${machineName} to Site B`))).toBeVisible();
   });
 
-  test("dropping a device on the Unfiled zone clears its site", async ({ adminPage }) => {
-    const moves = await stubList(adminPage);
+  test("dropping a machine on the Unfiled zone clears its site", async ({ adminPage, request }) => {
+    await request.patch(`/api/v1/devices/${machineID}`, {
+      data: { site_id: siteA },
+      headers: { Authorization: `Bearer ${adminToken()}` },
+    });
+
     await adminPage.goto("/devices");
 
-    const card = adminPage.getByRole("button", { name: /e2e-dnd-host/ });
+    const card = adminPage.getByRole("button", { name: new RegExp(machineName) });
     await expect(card).toBeVisible();
 
     await card.dragTo(adminPage.getByRole("listitem", { name: "Unfiled" }));
 
-    await expect(adminPage.getByText(/Moved e2e-dnd-host to Unfiled/)).toBeVisible();
-    expect(moves).toEqual([{ id: DEVICE_ID, site_id: UNGROUPED }]);
+    await expect(adminPage.getByText(new RegExp(`Moved ${machineName} to Unfiled`))).toBeVisible();
   });
 });

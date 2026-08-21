@@ -1,0 +1,7 @@
+# The enrolment token the browser test stack's machines install with. It is
+# minted per bring-up by scripts/e2e-stack-up.sh and is a credential.
+.e2e-agent.env
+
+# The agent binary the test stack's machines run, staged out of the cargo
+# target tree by `make agent-binary`. A build artifact, never committed.
+agent-bin/

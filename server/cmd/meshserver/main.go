@@ -1,9 +1,10 @@
+// Command meshserver reads the world — flags, environment, listeners, signals
+// — and hands the resolved values to the composition root in internal/app,
+// which assembles the product. Nothing is wired here.
 package main
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -12,31 +13,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/volchanskyi/opengate/server/internal/agentapi"
-	"github.com/volchanskyi/opengate/server/internal/alerts"
-	"github.com/volchanskyi/opengate/server/internal/amt"
-	"github.com/volchanskyi/opengate/server/internal/amt/transport"
-	"github.com/volchanskyi/opengate/server/internal/api"
-	"github.com/volchanskyi/opengate/server/internal/audit"
-	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/app"
 	"github.com/volchanskyi/opengate/server/internal/db"
-	"github.com/volchanskyi/opengate/server/internal/dbtx"
-	"github.com/volchanskyi/opengate/server/internal/device"
-	"github.com/volchanskyi/opengate/server/internal/inventory"
-	"github.com/volchanskyi/opengate/server/internal/lifecycle"
-	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
-	"github.com/volchanskyi/opengate/server/internal/notifications"
-	"github.com/volchanskyi/opengate/server/internal/organization"
-	"github.com/volchanskyi/opengate/server/internal/protocol"
-	"github.com/volchanskyi/opengate/server/internal/relay"
-	"github.com/volchanskyi/opengate/server/internal/rules"
-	"github.com/volchanskyi/opengate/server/internal/session"
-	"github.com/volchanskyi/opengate/server/internal/settings"
-	"github.com/volchanskyi/opengate/server/internal/signaling"
-	"github.com/volchanskyi/opengate/server/internal/telemetry"
-	"github.com/volchanskyi/opengate/server/internal/updater"
 )
+
+// databaseOpenBudget bounds the initial connection to Postgres.
+const databaseOpenBudget = 30 * time.Second
+
+// shutdownBudget bounds the graceful drain of in-flight HTTP requests.
+const shutdownBudget = 10 * time.Second
 
 func main() {
 	listen := flag.String("listen", ":8080", "HTTP listen address")
@@ -58,35 +43,20 @@ func main() {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 
-	secret := *jwtSecret
-	if secret == "" {
-		secret = os.Getenv("JWT_SECRET")
-	}
+	secret := firstNonEmpty(*jwtSecret, os.Getenv("JWT_SECRET"))
 	if secret == "" {
 		logger.Error("jwt secret is required: set --jwt-secret or JWT_SECRET")
 		os.Exit(1)
 	}
-	if len(secret) < 32 {
-		logger.Error("jwt secret must be at least 32 characters")
-		os.Exit(1)
-	}
-
-	if err := os.MkdirAll(*dataDir, 0750); err != nil {
-		logger.Error("create data dir", "error", err)
-		os.Exit(1)
-	}
 
 	// PostgreSQL is required — read from flag or DATABASE_URL env.
-	pgURL := *databaseURL
-	if pgURL == "" {
-		pgURL = os.Getenv("DATABASE_URL")
-	}
+	pgURL := firstNonEmpty(*databaseURL, os.Getenv("DATABASE_URL"))
 	if pgURL == "" {
 		logger.Error("database URL is required: set --database-url or DATABASE_URL")
 		os.Exit(1)
 	}
 
-	pgCtx, pgCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	pgCtx, pgCancel := context.WithTimeout(context.Background(), databaseOpenBudget)
 	store, err := db.NewPostgresStore(pgCtx, pgURL)
 	pgCancel()
 	if err != nil {
@@ -96,263 +66,51 @@ func main() {
 	defer store.Close()
 	logger.Info("database opened", "backend", "postgres")
 
-	// Prometheus metrics
-	metricsRegistry := appmetrics.NewRegistry()
-	appMetrics := appmetrics.NewMetrics(metricsRegistry)
+	// Use a cancellable context for graceful shutdown of all servers.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// The audit module owns its outbound persistence port. It is wired against the
-	// same connection pool as the main store; instrumented so audit calls
-	// land on the same db_query_* metrics as before the extraction.
-	auditRepo := audit.NewInstrumented(audit.NewPostgres(store.DB()), appMetrics)
-
-	// The update module owns the DeviceUpdate and EnrollmentToken aggregates.
-	// Same pattern as audit: leaf module, Postgres adapter against the shared
-	// pool, Instrumented decorator preserves db_query_* metric continuity.
-	deviceUpdatesRepo := updater.NewInstrumentedDeviceUpdates(updater.NewPostgresDeviceUpdates(store.DB()), appMetrics)
-	enrollmentRepo := updater.NewInstrumentedEnrollment(updater.NewPostgresEnrollment(store.DB()), appMetrics)
-	securityGroupsRepo := auth.NewInstrumentedSecurityGroups(auth.NewPostgresSecurityGroups(store.DB()), appMetrics)
-	devicesRepo := device.NewInstrumentedDevices(device.NewPostgresDevices(store.DB()), appMetrics)
-	groupsRepo := device.NewInstrumentedSites(device.NewPostgresSites(store.DB()), appMetrics)
-	organizationsRepo := organization.NewInstrumented(organization.NewPostgresOrganizations(store.DB()), appMetrics)
-	hardwareRepo := device.NewInstrumentedHardware(device.NewPostgresHardware(store.DB()), appMetrics)
-	webPushRepo := notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(store.DB()), appMetrics)
-	amtRepo := amt.NewInstrumented(amt.NewPostgresAMTDevices(store.DB()), appMetrics)
-	sessionsRepo := session.NewInstrumented(session.NewPostgresSessions(store.DB()), appMetrics)
-	usersRepo := auth.NewInstrumentedUsers(auth.NewPostgresUsers(store.DB()), appMetrics)
-	processesRepo := telemetry.NewPostgresProcessRepository(store.DB())
-	inventoryRepo := inventory.NewPostgresInventoryRepository(store.DB())
-
-	vmURL := *victoriaMetricsURL
-	if vmURL == "" {
-		vmURL = os.Getenv("OPENGATE_VICTORIAMETRICS_URL")
-	}
-	// Data-lifecycle stores back right-to-be-forgotten purges. They live on
-	// non-tenant tables, so they exist regardless of whether numeric telemetry
-	// (VictoriaMetrics) is enabled; the agent server warms its in-memory deny-list
-	// from the tombstone store so a purged device stays rejected across restarts.
-	tombstoneStore := lifecycle.NewTombstoneStore(store.DB())
-	jobStore := lifecycle.NewJobStore(store.DB())
-
-	var telemetryWriter telemetry.NumericWriter
-	var metricsReader api.MetricsReader
-	var seriesPurger lifecycle.SeriesPurger
-	var seriesInventory lifecycle.SubjectLister
-	if vmURL != "" {
-		vmClient := telemetry.NewVMClient(vmURL, nil)
-		if key := os.Getenv("OPENGATE_VM_DELETE_AUTH_KEY"); key != "" {
-			vmClient = vmClient.WithDeleteAuthKey(key)
-		}
-		telemetryWriter = vmClient
-		metricsReader = vmClient
-		seriesPurger = vmClient
-		seriesInventory = vmClient
-		logger.Info("edge sentinel telemetry writer enabled", "victoriametrics_url", vmURL)
-	} else {
-		logger.Warn("edge sentinel numeric telemetry disabled: set --victoriametrics-url or OPENGATE_VICTORIAMETRICS_URL")
-	}
-
-	// Reset stale online statuses from a prior run via the device repository.
-	if err := devicesRepo.ResetAllStatuses(dbtx.WithDefaultTenant(context.Background(), false)); err != nil {
-		logger.Error("reset device statuses on startup", "error", err)
-		os.Exit(1)
-	}
-
-	certMgr, err := cert.NewManager(*dataDir)
-	if err != nil {
-		logger.Error("init cert manager", "error", err)
-		os.Exit(1)
-	}
-
-	jwtCfg := &auth.JWTConfig{
-		Secret:   secret,
-		Issuer:   "opengate",
-		Duration: 24 * time.Hour,
-	}
-
-	// Initialize VAPID keys and push notifier
-	vapidPriv, vapidPub, err := notifications.LoadOrGenerateVAPID(*dataDir)
-	if err != nil {
-		logger.Error("init VAPID keys", "error", err)
-		os.Exit(1)
-	}
-	notifier := notifications.NewPushNotifier(webPushRepo, vapidPriv, vapidPub, *vapidContact, logger)
-
-	// Environment overrides
-	githubRepo := os.Getenv("OPENGATE_GITHUB_REPO")
-	baseURL := os.Getenv("OPENGATE_BASE_URL")
-	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
-
-	// Create relay and agent server. The relay records session lifecycle through
-	// its SessionRegistry port; the default in-process adapter keeps that metadata
-	// local while both connection sides pair in this process.
-	agentRelay := relay.NewRelay(logger)
-	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
-		// A row the stale-session sweep already collected is the expected race,
-		// not a failure — the session is gone either way.
-		if err := cleanupRelaySession(sessionsRepo, token); err != nil && !errors.Is(err, session.ErrSessionNotFound) {
-			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
-		}
-	}
-	// The rule catalogue is compiled in, so a failure here means the binary
-	// itself is malformed — its contents are validated and cost-bounded in CI,
-	// which is the whole reason definitions do not live in the database.
-	ruleCatalogue, err := rules.Embedded()
-	if err != nil {
-		logger.Error("load rule catalogue", "error", err)
-		os.Exit(1)
-	}
-	ruleStore := rules.NewStore(store.DB())
-	alertStore := alerts.NewStore(store.DB())
-
-	// The shipped rule ids are the whole label vocabulary of the investigation
-	// series, and the bound on it: rule ids travel to the agent and come back on
-	// alerts and coverage reports, so without this the endpoint would decide
-	// this server's cardinality. Seeding also exports every rule at zero, so a
-	// rule that has raised nothing is distinguishable from a scrape that found
-	// nothing.
-	appMetrics.SeedRuleVocabulary(ruleIDs(ruleCatalogue))
-
-	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
-		Cert:          certMgr,
-		Devices:       devicesRepo,
-		Hardware:      hardwareRepo,
-		DeviceUpdates: deviceUpdatesRepo,
-		Telemetry:     telemetryWriter,
-		Processes:     processesRepo,
-		Inventory:     inventoryRepo,
-		Relay:         agentRelay,
-		Notifier:      notifier,
-		Metrics:       appMetrics,
-		QuicHost:      quicHost,
-		Tombstones:    tombstoneStore,
-		Settings:      settings.NewPostgresReader(store.DB()),
-		// Each machine gets the curated pack as its customer has retuned it,
-		// narrowed by the labels the machine carries, and the customer's
-		// per-machine alert allowance travels down with it.
-		AlertRules: agentapi.NewCatalogueAlertRuleProvider(
-			ruleCatalogue, ruleStore, ruleStore, devicesRepo, alertStore, logger),
-		RuleCoverage: ruleStore,
-		// The same store answers the fleet-wide fold the platform's own coverage
-		// gauge is refreshed from.
-		FleetCoverage: ruleStore,
-		// An alert names a rule and carries a customer, so the store that files
-		// it and the catalogue that says the rule exists are both wired here.
-		AlertStore:    alertStore,
-		RuleCatalogue: ruleCatalogue,
-		Logger:        logger,
+	assembly, err := app.Build(ctx, app.Config{
+		Store:              store,
+		DataDir:            *dataDir,
+		JWTSecret:          secret,
+		Logger:             logger,
+		VictoriaMetricsURL: firstNonEmpty(*victoriaMetricsURL, os.Getenv("OPENGATE_VICTORIAMETRICS_URL")),
+		VMDeleteAuthKey:    os.Getenv("OPENGATE_VM_DELETE_AUTH_KEY"),
+		AMTUser:            *amtUser,
+		AMTPass:            *amtPass,
+		VAPIDContact:       *vapidContact,
+		GitHubRepo:         os.Getenv("OPENGATE_GITHUB_REPO"),
+		BaseURL:            os.Getenv("OPENGATE_BASE_URL"),
+		QuicHost:           os.Getenv("OPENGATE_QUIC_HOST"),
+		WebDir:             *webDir,
 	})
-
-	// Wire the right-to-be-forgotten purge orchestrator. It needs VictoriaMetrics
-	// to delete numeric series, so it is enabled only alongside numeric telemetry;
-	// without it, device deletion falls back to the plain Postgres delete. A
-	// periodic reconciliation sweep garbage-collects any orphaned series.
-	purger, purgeJobs, reconciler := buildPurgeOrchestrator(purgeDeps{
-		agentSrv:        agentSrv,
-		db:              store.DB(),
-		tombstones:      tombstoneStore,
-		jobs:            jobStore,
-		seriesPurger:    seriesPurger,
-		seriesInventory: seriesInventory,
-		investigations:  alertStore,
-		logger:          logger,
-	})
-
-	// Initialize update signing keys and manifest store
-	signingKeys, err := updater.LoadOrGenerateSigningKeys(*dataDir)
 	if err != nil {
-		logger.Error("init update signing keys", "error", err)
+		logger.Error("assemble server", "error", err)
 		os.Exit(1)
 	}
-	manifestStore := updater.NewManifestStore(*dataDir)
-
-	mpsSrv := transport.NewServer(certMgr, amtRepo, hardwareRepo, logger)
-	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
-	// Wired after construction: the service holds the MPS server, so the WSMAN
-	// detail reader can only be handed back once both exist.
-	mpsSrv.SetDetailProber(amtSvc)
-
-	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
-	auditHandlers := audit.NewHandlers(auditRepo)
-	amtHandlers := amt.NewHandlers(amtSvc)
-	notifHandlers := notifications.NewHandlers(webPushRepo, notifier)
-
-	srv := api.NewServer(api.ServerConfig{
-		Store:                 store,
-		Audit:                 auditRepo,
-		AuditHandlers:         auditHandlers,
-		DeviceUpdates:         deviceUpdatesRepo,
-		Enrollment:            enrollmentRepo,
-		SecurityGroups:        securityGroupsRepo,
-		Devices:               devicesRepo,
-		Sites:                 groupsRepo,
-		Organizations:         organizationsRepo,
-		Hardware:              hardwareRepo,
-		Inventory:             inventoryRepo,
-		WebPush:               webPushRepo,
-		NotificationsHandlers: notifHandlers,
-		AMTHandlers:           amtHandlers,
-		Sessions:              sessionsRepo,
-		Users:                 usersRepo,
-		JWT:                   jwtCfg,
-		Agents:                agentControlGetter{srv: agentSrv},
-		AMT:                   amtSvc,
-		Cert:                  certMgr,
-		TelemetryReader:       metricsReader,
-		Purger:                purger,
-		PurgeJobs:             purgeJobs,
-		Relay:                 agentRelay,
-		Signaling:             sigTracker,
-		Notifier:              notifier,
-		Signing:               signingKeys,
-		Manifests:             manifestStore,
-		GitHubRepo:            githubRepo,
-		BaseURL:               baseURL,
-		QuicHost:              quicHost,
-		Logger:                logger,
-		WebDir:                *webDir,
-		MetricsRegistry:       metricsRegistry,
-		Metrics:               appMetrics,
-		// The triage queue reads the same store the ingest path writes, and the
-		// rules view is the compiled pack beside how far each rule has reached
-		// and how much of an estate it is watching — the last read comes from the
-		// connection server, which is the only thing that knows what is live.
-		Investigations: alertStore,
-		RuleCatalogue:  ruleCatalogue,
-		RuleRollouts:   ruleStore,
-		RuleCoverage:   agentSrv,
-		// The same store holds everything an operator may change about a rule —
-		// the tuned values, the pace it spreads at, the stop switch, and the
-		// labels a rule is aimed at. The alert store holds the budget those
-		// alerts are counted against, and the counts themselves.
-		RuleAdmin:   ruleStore,
-		AlertBudget: alertStore,
-	})
 
 	httpSrv := &http.Server{
 		Addr:              *listen,
-		Handler:           srv,
+		Handler:           assembly.API,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// Use a cancellable context for graceful shutdown of all servers
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	startBackgroundLoops(ctx, backgroundLoops{
-		metrics:     appMetrics,
+		metrics:     assembly.Metrics,
 		store:       store,
-		relay:       agentRelay,
-		agents:      agentSrv,
-		amt:         amtSvc,
-		signaling:   sigTracker,
-		alerts:      alertStore,
-		sessions:    sessionsRepo,
-		reconciler:  reconciler,
-		catalogue:   ruleCatalogue,
-		signingKeys: signingKeys,
-		manifests:   manifestStore,
-		githubRepo:  githubRepo,
+		relay:       assembly.Relay,
+		agents:      assembly.Agents,
+		amt:         assembly.AMT,
+		signaling:   assembly.Signaling,
+		alerts:      assembly.Alerts,
+		sessions:    assembly.Sessions,
+		reconciler:  assembly.Reconciler,
+		catalogue:   assembly.Rules,
+		signingKeys: assembly.SigningKeys,
+		manifests:   assembly.Manifests,
+		githubRepo:  os.Getenv("OPENGATE_GITHUB_REPO"),
 		logger:      logger,
 	})
 
@@ -363,14 +121,14 @@ func main() {
 
 	go func() {
 		logger.Info("agent QUIC server starting", "addr", *quicListen)
-		if err := agentSrv.ListenAndServe(ctx, *quicListen); err != nil {
+		if err := assembly.Agents.ListenAndServe(ctx, *quicListen); err != nil {
 			logger.Error("agent server error", "error", err)
 		}
 	}()
 
 	go func() {
 		logger.Info("MPS server starting", "addr", *mpsListen)
-		if err := mpsSrv.ListenAndServe(ctx, *mpsListen); err != nil {
+		if err := assembly.MPS.ListenAndServe(ctx, *mpsListen); err != nil {
 			logger.Error("MPS server error", "error", err)
 		}
 	}()
@@ -380,7 +138,7 @@ func main() {
 
 	cancel() // Stop the agent QUIC server
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownBudget)
 	defer shutdownCancel()
 
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
@@ -390,81 +148,16 @@ func main() {
 	logger.Info("server stopped")
 }
 
-// agentControlGetter adapts *agentapi.AgentServer to api.AgentGetter. The server's
-// getters return the concrete *agentapi.AgentConn while the api port speaks the
-// api.AgentControl interface; Go has no covariant return types and agentapi cannot
-// import api (that would cycle), so the composition root bridges the two here. A
-// missing agent's typed-nil *AgentConn is converted to an interface nil so the
-// handlers' `ac == nil` checks still fire.
-type agentControlGetter struct {
-	srv *agentapi.AgentServer
-}
-
-func (g agentControlGetter) GetAgent(deviceID db.DeviceID) api.AgentControl {
-	ac := g.srv.GetAgent(deviceID)
-	if ac == nil {
-		return nil // typed-nil *AgentConn → interface nil
+// firstNonEmpty returns the first of its arguments that carries a value. Every
+// setting this process reads comes from a flag or an environment variable, in
+// that order, so the choice is made once here rather than at each site.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
 	}
-	return ac
-}
-
-func (g agentControlGetter) ListConnectedAgents() []api.AgentControl {
-	conns := g.srv.ListConnectedAgents()
-	out := make([]api.AgentControl, 0, len(conns))
-	for _, ac := range conns {
-		out = append(out, ac)
-	}
-	return out
-}
-
-func (g agentControlGetter) DeregisterAgent(ctx context.Context, deviceID db.DeviceID) {
-	g.srv.DeregisterAgent(ctx, deviceID)
-}
-
-// purgeDeps gathers the dependencies buildPurgeOrchestrator wires, keeping the
-// call site in main readable.
-type purgeDeps struct {
-	agentSrv        *agentapi.AgentServer
-	db              *sql.DB
-	tombstones      *lifecycle.TombstoneStore
-	jobs            *lifecycle.JobStore
-	seriesPurger    lifecycle.SeriesPurger
-	seriesInventory lifecycle.SubjectLister
-	// investigations repairs the incident bookkeeping a device erasure leaves
-	// behind, which the foreign-key cascade cannot reach.
-	investigations lifecycle.InvestigationPurger
-	logger         *slog.Logger
-}
-
-// buildPurgeOrchestrator wires the right-to-be-forgotten purge orchestrator plus
-// its reconciliation sweep. It needs VictoriaMetrics to delete numeric series, so
-// it returns nils when numeric telemetry is disabled and device deletion falls
-// back to the plain Postgres delete. On success it warms the agent deny-list and
-// resumes any purge a prior crash interrupted before the server starts serving.
-func buildPurgeOrchestrator(d purgeDeps) (api.DevicePurger, api.PurgeJobReader, *lifecycle.Reconciler) {
-	if d.seriesPurger == nil {
-		return nil, nil, nil
-	}
-	orchestrator := lifecycle.NewOrchestrator(lifecycle.OrchestratorConfig{
-		Tombstones: d.tombstones,
-		Jobs:       d.jobs,
-		Series:     d.seriesPurger,
-		PG:         lifecycle.NewPostgresPurger(d.db, d.investigations),
-		Edge:       d.agentSrv,
-		Logger:     d.logger,
-	})
-	reconciler := lifecycle.NewReconciler(d.seriesInventory, d.seriesPurger,
-		lifecycle.NewPostgresPurger(d.db, d.investigations), d.logger)
-
-	startupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	if err := d.agentSrv.WarmTombstones(startupCtx); err != nil {
-		d.logger.Error("warm tombstone deny-list", "error", err)
-	}
-	if err := orchestrator.Resume(startupCtx); err != nil {
-		d.logger.Error("resume interrupted purges", "error", err)
-	}
-	return orchestrator, d.jobs, reconciler
+	return ""
 }
 
 // serveBackground starts srv.ListenAndServe in a goroutine, logging startup and

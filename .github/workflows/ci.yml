@@ -262,14 +262,55 @@ jobs:
   go-integration:
     name: Go Integration Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: read
     defaults:
       run:
         working-directory: server
+    # The scope is the whole server/tests/ tree, so both shared services are
+    # provisioned here rather than left to testcontainers. testpg and testvm
+    # memoize per test BINARY and `go test ./tests/...` builds one binary per
+    # package: with the URLs unset, every package starts its own Postgres and
+    # its own metrics store, and several stores holding a fleet's worth of
+    # series at once is enough memory pressure for the runner to kill one
+    # mid-run — which surfaces as an unrelated package failing on a refused
+    # connection. Postgres carries the same connection and lock headroom the
+    # unit job explains, for the same reason.
+    env:
+      POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+      VICTORIAMETRICS_TEST_URL: http://127.0.0.1:8428
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Start Postgres with max_connections=400
+        working-directory: .
+        run: |
+          docker run -d --rm --name pg-integration-ci \
+            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+            -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
+          for i in {1..30}; do
+            if docker exec pg-integration-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
+              echo "postgres ready after ${i} attempt(s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::postgres never became ready"; docker logs pg-integration-ci; exit 1
+      - name: Start VictoriaMetrics
+        working-directory: .
+        run: |
+          docker run -d --rm --name vm-integration-ci \
+            -p 8428:8428 victoriametrics/victoria-metrics:v1.114.0
+          for i in {1..30}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:8428/health >/dev/null 2>&1; then
+              echo "victoriametrics ready after ${i} attempt(s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::victoriametrics never became ready"; docker logs vm-integration-ci; exit 1
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
@@ -277,7 +318,7 @@ jobs:
       - name: Integration tests
         run: |
           set +e
-          go test -json -race -timeout 5m ./tests/integration/ > integration-results.json 2>integration-stderr.log
+          go test -json -race -timeout 10m ./tests/... > integration-results.json 2>integration-stderr.log
           cat integration-stderr.log >&2
           EXIT_CODE=$?
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
@@ -518,6 +559,41 @@ jobs:
           path: web/size-report.json
           retention-days: 20
 
+  agent-binary:
+    name: Agent Binary (browser stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    # The browser stack runs two real machines, so the e2e job needs the agent
+    # as a static binary. Building it here once — inside the job that already
+    # carries the Rust cache — and handing it over as an artifact keeps that
+    # compile off the e2e job's critical path.
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: agent
+      - name: Install musl tools
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build the agent
+        run: cargo build --release --target x86_64-unknown-linux-musl -p mesh-agent
+      - name: Upload the agent binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: mesh-agent-e2e
+          path: agent/target/x86_64-unknown-linux-musl/release/mesh-agent
+          retention-days: 1
+
   e2e:
     name: E2E Tests
     # No `needs:` — E2E builds its own docker-compose test stack and shares
@@ -525,12 +601,20 @@ jobs:
     # parallel from the start of the workflow. Failures here surface
     # alongside the unit failures instead of after them, cutting the
     # critical path roughly in half on PRs that touch web code.
+    needs: [agent-binary]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v7
+      - name: Download the agent binary
+        uses: actions/download-artifact@v8
+        with:
+          name: mesh-agent-e2e
+          path: deploy/agent-bin
+      - name: Make the agent executable
+        run: chmod +x deploy/agent-bin/mesh-agent
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -546,21 +630,22 @@ jobs:
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Start test server
+      - name: Start the test stack
         run: |
-          cd deploy
           # Primary defense against Docker Hub flakes is the pull-through mirror above;
           # the retry below is a secondary net for transient build (non-registry)
-          # failures, with a clean slate between attempts.
+          # failures, with a clean slate between attempts. The bring-up is the
+          # same script `make e2e` runs: database, server, an enrolment token
+          # minted through the public endpoint, and two machines installed with it.
           for attempt in 1 2 3; do
-            if docker compose -f docker-compose.test.yml up -d --build --wait; then
+            if bash deploy/scripts/e2e-stack-up.sh; then
               exit 0
             fi
-            echo "::warning::test server bring-up attempt $attempt/3 failed; cleaning up, retrying in $((attempt * 20))s"
-            docker compose -f docker-compose.test.yml down -v || true
+            echo "::warning::test stack bring-up attempt $attempt/3 failed; cleaning up, retrying in $((attempt * 20))s"
+            (cd deploy && docker compose -f docker-compose.test.yml down -v) || true
             sleep $((attempt * 20))
           done
-          echo "::error::test server failed to start after 3 attempts"
+          echo "::error::test stack failed to start after 3 attempts"
           exit 1
       - name: Wait for server
         run: bash deploy/scripts/wait-for-server.sh http://localhost:8080 60

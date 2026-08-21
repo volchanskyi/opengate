@@ -1,4 +1,4 @@
-package integration
+package api_test
 
 import (
 	"bytes"
@@ -24,6 +24,16 @@ import (
 	"testing"
 	"time"
 )
+
+// noAgentsConnected is the machine-facing port with nothing on the other side
+// of it. It is wired deliberately rather than left out: an absent port makes a
+// route answer 500 through chi's recoverer, and a test written against that
+// pins a crash instead of a refusal.
+type noAgentsConnected struct{}
+
+func (noAgentsConnected) GetAgent(uuid.UUID) api.AgentControl        { return nil }
+func (noAgentsConnected) ListConnectedAgents() []api.AgentControl    { return nil }
+func (noAgentsConnected) DeregisterAgent(context.Context, uuid.UUID) {}
 
 // stubAMT is a test double for amt.Operator that always returns "not connected".
 type stubAMT struct{}
@@ -86,6 +96,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Users:          testutil.NewTestUsers(t, store),
 		JWT:            jwtCfg,
 		AMT:            &stubAMT{},
+		Agents:         noAgentsConnected{},
 		Relay:          relay.NewRelay(slog.Default()),
 		Notifier:       &notifications.NoopNotifier{},
 		Logger:         logger,
