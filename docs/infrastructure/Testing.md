@@ -445,17 +445,12 @@ dashboard.
 
 ## End-to-End Tests (Playwright)
 
-E2E tests run Playwright against a real server instance via `deploy/docker-compose.test.yml`. The test environment uses a server container (built from source) plus a Postgres 17 container — both back their state with tmpfs, so teardown is instant.
+E2E tests run Playwright against a real server instance via [`docker-compose.test.yml`](../../deploy/docker-compose.test.yml): a Postgres container, a server container built from source, and the two machines described above. The database and the server back their state with tmpfs, so teardown is instant.
 
 ### Test suites
 
-| Suite | Tests | Description |
-|-------|-------|-------------|
-| `auth.spec.ts` | 5 | Register, login (valid/invalid), logout, expired token |
-| `device-list.spec.ts` | 3 | Empty state, group creation, device listing |
-| `admin.spec.ts` | 4 | Non-admin blocked from /settings, user list, audit log, sidebar sections |
-| `navigation.spec.ts` | 4 | Unauthenticated redirects, SPA routing |
-| `security-permissions.spec.ts` | 6 | Security groups, permissions, access control |
+One spec per capability, in [`web/e2e/`](../../web/e2e/). Each names in its own
+header what a technician does in it, so the directory listing is the index.
 
 ### Fixtures
 
@@ -493,13 +488,16 @@ depends on is gone for every later run against that database.
 ### Running locally
 
 ```bash
-# Bring up test server, run Playwright, tear down
+# Build the agent binary, bring the stack up, run Playwright, tear down
 make e2e
 
-# Or manually:
-cd deploy && docker compose -f docker-compose.test.yml up -d --build --wait
-cd web && npx playwright test
-cd deploy && docker compose -f docker-compose.test.yml down -v
+# Or step by step. The bring-up is a script rather than a `compose up` because
+# a machine needs an enrolment token and a token can only be minted once the
+# server answers, so the stack comes up in two halves with a mint between them.
+make agent-binary
+cd deploy && bash scripts/e2e-stack-up.sh
+cd ../web && npx playwright test
+cd ../deploy && docker compose -f docker-compose.test.yml down -v
 ```
 
 ### Running Docker locally (credential-helper guardrail)

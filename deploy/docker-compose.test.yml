@@ -61,7 +61,14 @@ services:
     container_name: opengate-test-agent-a
     hostname: agent-a
     env_file:
-      - .e2e-agent.env
+      # The token is minted per bring-up and is a credential, so it is in no
+      # checkout. Declaring it optional keeps `docker compose config` — which
+      # the config lint and `make lint-deploy` both run — a check of the
+      # stack's shape rather than of what the last bring-up left on disk. The
+      # bring-up writes it before it starts the machines, and waits for both
+      # to come online, so a stack that really is missing it still fails loudly.
+      - path: .e2e-agent.env
+        required: false
     environment:
       - OPENGATE_SERVER_ADDR=server:9090
       - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
@@ -81,7 +88,8 @@ services:
     container_name: opengate-test-agent-b
     hostname: agent-b
     env_file:
-      - .e2e-agent.env
+      - path: .e2e-agent.env
+        required: false
     environment:
       - OPENGATE_SERVER_ADDR=server:9090
       - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem

@@ -72,11 +72,68 @@ for machine in agent-a agent-b; do
   fi
 done
 
-# Both paths into the suite bring up the same stack.
-if grep -q 'e2e-stack-up.sh' "$PLAYWRIGHT_CONFIG" && grep -q 'e2e-stack-up.sh' "$ROOT/Makefile"; then
-  pass "make e2e and playwright's webServer run the same bring-up"
+# Every entry point into the suite brings up the same stack. There are four of
+# them and they are easy to add to, so they are named here rather than assumed:
+# a stack stood up any other way stages no agent binary and mints no enrolment
+# token, and its machines never arrive.
+ENTRY_POINTS=(
+  "$ROOT/Makefile"
+  "$PLAYWRIGHT_CONFIG"
+  "$ROOT/.github/workflows/ci.yml"
+  "$ROOT/.github/workflows/e2e-cross-browser.yml"
+)
+
+missing_bringup=""
+for entry in "${ENTRY_POINTS[@]}"; do
+  if [ ! -f "$entry" ]; then
+    fail "missing entry point: $entry"
+    continue
+  fi
+  grep -q 'e2e-stack-up.sh' "$entry" || missing_bringup="$missing_bringup $(basename "$entry")"
+done
+
+if [ -z "$missing_bringup" ]; then
+  pass "every entry point into the suite runs the same bring-up"
 else
-  fail "the two entry points into the suite bring up different stacks"
+  fail "these entry points stand up a different stack:$missing_bringup"
+fi
+
+# ...and neither they nor the page that tells a reader how to run the suite by
+# hand stands the stack up on its own. A bare `compose up` skips the mint
+# between the two halves of the bring-up, so the machines start with no token
+# to install with and the server never sees them.
+own_bringup=""
+for entry in "${ENTRY_POINTS[@]}" "$ROOT/docs/infrastructure/Testing.md"; do
+  [ -f "$entry" ] || continue
+  if grep -qE 'docker compose.*docker-compose\.test\.yml.*[[:space:]]up([[:space:]]|$)' "$entry"; then
+    own_bringup="$own_bringup $(basename "$entry")"
+  fi
+done
+
+if [ -z "$own_bringup" ]; then
+  pass "no entry point brings the stack up behind the bring-up's back"
+else
+  fail "these entry points run their own compose up, so no token is minted:$own_bringup"
+fi
+
+# The stack's shape validates on a clean checkout. The token the machines
+# install with is minted per bring-up and is a credential, so it is in no
+# checkout — and `docker compose config`, which CI's config lint and
+# `make lint-deploy` both run, reads every env_file it is pointed at.
+if ! command -v docker >/dev/null 2>&1; then
+  fail "docker is not on PATH, so the stack's shape cannot be validated"
+else
+  # An empty project directory stands in for a clean checkout, so a token an
+  # earlier bring-up left in deploy/ cannot make this pass locally and fail in
+  # CI — which is exactly how it got through the first time.
+  clean_dir="$(mktemp -d)"
+  cp "$COMPOSE" "$clean_dir/docker-compose.test.yml"
+  if docker compose -f "$clean_dir/docker-compose.test.yml" config --quiet >/dev/null 2>&1; then
+    pass "the stack's shape validates without the bring-up's credential"
+  else
+    fail "the stack's shape needs a file no checkout carries, so config lint fails"
+  fi
+  rm -rf "$clean_dir"
 fi
 
 # The machines install through the public enrolment endpoint, with a token
