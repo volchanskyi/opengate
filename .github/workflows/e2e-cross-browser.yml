@@ -17,7 +17,7 @@ jobs:
   e2e:
     name: E2E (Firefox + WebKit + Chromium)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
     defaults:
@@ -39,13 +39,34 @@ jobs:
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+      # The stack runs two real machines, so it needs the agent as a static
+      # binary staged where the image build can reach it. This workflow stands
+      # alone on a cron, so it builds its own rather than taking an artifact
+      # from a job beside it.
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: agent
+      - name: Install musl tools
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build the agent
+        working-directory: .
+        run: make agent-binary
       - name: Run Playwright across all browsers
         id: pw
         run: |
           set -e
           cd ../deploy
           docker compose -f docker-compose.test.yml down -v 2>/dev/null || true
-          docker compose -f docker-compose.test.yml up --build --wait
+          # The same bring-up `make e2e` and the Chromium job run: database,
+          # server, an enrolment token minted through the public endpoint, and
+          # two machines installed with it.
+          bash scripts/e2e-stack-up.sh
           cd ../web
           # Tee Playwright's stdout/stderr so the next step can extract the
           # flaky-test list. The retry policy (retries: 1 when

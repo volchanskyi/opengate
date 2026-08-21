@@ -1,16 +1,19 @@
 import { test, expect } from "./fixtures";
 import type { Request, Route } from "@playwright/test";
+import { enrolledMachine, MACHINE_B } from "./helpers/enrolled-machine";
 
-// Restart Agent flow on the DeviceDetail page.
+// Restart Agent flow on the DeviceDetail page, against a machine that is
+// actually running. agent-b is the target, because restarting a machine is the
+// one action here that disturbs it.
+//
+// The page is the real machine's; only the restart endpoint's answer is
+// supplied, and only so the two paths a technician cannot produce on demand —
+// the confirm guard with a session in flight, and a refusal — are reachable.
+// Actually restarting the machine would leave it re-enrolling as a second row
+// under a fresh identity, since its data directory is a tmpfs.
 //
 // The unit suite (device-store.test.ts, DeviceDetail.test.tsx) covers the store
-// action and the button's label states in isolation. This spec exercises the
-// route-level integration the unit tests cannot reach: a real click driving
-// POST /api/v1/devices/:id/restart and the resulting toast, including the
-// two-step confirm guard when sessions are active and the failure path.
-
-const DEVICE_ID = "11111111-1111-4111-8111-aaaaaaaaaaaa";
-const GROUP_ID = "33333333-3333-4333-8333-333333333333";
+// action and the button's label states in isolation.
 
 function ok(route: Route, body: unknown) {
   return route.fulfill({
@@ -20,24 +23,7 @@ function ok(route: Route, body: unknown) {
   });
 }
 
-function fakeDevice() {
-  const now = new Date().toISOString();
-  return {
-    id: DEVICE_ID,
-    site_id: GROUP_ID,
-    hostname: "e2e-restart-host",
-    os: "linux",
-    os_display: "Linux",
-    agent_version: "0.1.0",
-    capabilities: ["Terminal"],
-    status: "online",
-    last_seen: now,
-    created_at: now,
-    updated_at: now,
-  };
-}
-
-function fakeSession() {
+function fakeSession(DEVICE_ID: string) {
   const now = new Date().toISOString();
   return {
     token: "e2e-restart-session-0000000000000000000000000000",
@@ -51,29 +37,20 @@ function fakeSession() {
 
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 
-// stubDetailRoutes wires every endpoint DeviceDetail calls on mount, plus the
-// restart endpoint with a caller-supplied status. sessions controls whether the
-// device shows active sessions (which arms the two-step restart confirm).
-async function stubDetailRoutes(
+// answerRestartWith supplies the restart endpoint's reply, and optionally the
+// session list, so the confirm guard and the refusal are reachable. Everything
+// else on the page comes from the real machine.
+async function answerRestartWith(
   page: AuthedPage,
+  DEVICE_ID: string,
   opts: { sessions?: unknown[]; restartStatus?: number } = {},
 ) {
-  const { sessions = [], restartStatus = 200 } = opts;
-  await page.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
-  await page.route("**/api/v1/sites", (route: Route) =>
-    ok(route, [{ id: GROUP_ID, name: "default", created_at: "", updated_at: "" }]),
-  );
-  await page.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) =>
-    ok(route, sessions),
-  );
-  await page.route("**/api/v1/amt/devices", (route: Route) => ok(route, []));
-  await page.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
-  await page.route(`**/api/v1/devices/${DEVICE_ID}/hardware`, (route: Route) =>
-    route.fulfill({ status: 404, body: "" }),
-  );
-  await page.route(`**/api/v1/devices/${DEVICE_ID}/logs*`, (route: Route) =>
-    ok(route, { entries: [], total: 0, has_more: false }),
-  );
+  const { sessions, restartStatus = 200 } = opts;
+  if (sessions) {
+    await page.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) =>
+      ok(route, sessions),
+    );
+  }
   await page.route(`**/api/v1/devices/${DEVICE_ID}/restart`, (route: Route) => {
     if (route.request().method() !== "POST") return route.fallback();
     if (restartStatus >= 400) {
@@ -92,8 +69,10 @@ async function stubDetailRoutes(
 test.describe("Restart Agent flow", () => {
   test("restart with no active sessions sends immediately and toasts success", async ({
     authedPage,
+    request,
   }) => {
-    await stubDetailRoutes(authedPage);
+    const DEVICE_ID = (await enrolledMachine(request, MACHINE_B)).id;
+    await answerRestartWith(authedPage, DEVICE_ID);
     await authedPage.goto(`/devices/${DEVICE_ID}`);
 
     const sent = authedPage.waitForRequest(
@@ -107,8 +86,10 @@ test.describe("Restart Agent flow", () => {
 
   test("active sessions require a second confirm click before sending", async ({
     authedPage,
+    request,
   }) => {
-    await stubDetailRoutes(authedPage, { sessions: [fakeSession()] });
+    const DEVICE_ID = (await enrolledMachine(request, MACHINE_B)).id;
+    await answerRestartWith(authedPage, DEVICE_ID, { sessions: [fakeSession(DEVICE_ID)] });
     await authedPage.goto(`/devices/${DEVICE_ID}`);
 
     let restartPosts = 0;
@@ -128,8 +109,9 @@ test.describe("Restart Agent flow", () => {
     expect(restartPosts).toBe(1);
   });
 
-  test("a failed restart surfaces an error toast", async ({ authedPage }) => {
-    await stubDetailRoutes(authedPage, { restartStatus: 409 });
+  test("a failed restart surfaces an error toast", async ({ authedPage, request }) => {
+    const DEVICE_ID = (await enrolledMachine(request, MACHINE_B)).id;
+    await answerRestartWith(authedPage, DEVICE_ID, { restartStatus: 409 });
     await authedPage.goto(`/devices/${DEVICE_ID}`);
 
     await authedPage.getByRole("button", { name: "Restart Agent" }).click();

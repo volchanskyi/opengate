@@ -227,8 +227,8 @@ CPU/mem/disk evidence, verify the live node scrape (`up`, node-exporter,
 ### Ownership
 
 - **In-process app faults** — the Go fault suite
-  ([`fault_suite_test.go`](../../server/tests/integration/fault_suite_test.go),
-  [`fault_noship_test.go`](../../server/tests/integration/fault_noship_test.go))
+  ([`integration_fault_suite_test.go`](../../server/internal/api/integration_fault_suite_test.go),
+  [`noship_test.go`](../../server/internal/faulttest/noship_test.go))
   over the [`faulttest`](../../server/internal/faulttest/ports.go) decorators. Owned
   by the server; changes ride normal TDD and `make test`.
 - **Deployed drills** — the [`scripts/fault/`](../../scripts/fault) runners and the

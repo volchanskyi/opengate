@@ -22,11 +22,18 @@ services:
     container_name: opengate-test-server
     environment:
       - JWT_SECRET=e2e-test-secret-minimum-32-bytes!
-      - OPENGATE_TEST_MODE=true
       - DATABASE_URL=postgres://opengate:e2e-test-password@postgres:5432/opengate?sslmode=disable
-    command: ["-listen", ":8080", "-data-dir", "/data", "-web-dir", "/srv/web"]
+      # The name the machines reach this container by. It becomes a subject
+      # name on the machine-facing certificate and the address an enrolling
+      # machine is told to dial, so both halves agree on one hostname.
+      - OPENGATE_QUIC_HOST=server
+    # The machine-facing listener is published as well as the browser-facing
+    # one: the specs open pages against real enrolled machines, and a machine
+    # reaches the server over QUIC.
+    command: ["-listen", ":8080", "-quic-listen", ":9090", "-data-dir", "/data", "-web-dir", "/srv/web"]
     ports:
       - "8080:8080"
+      - "9090:9090/udp"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]
       interval: 5s
@@ -37,4 +44,60 @@ services:
       - /data:mode=1777
     depends_on:
       postgres:
+        condition: service_healthy
+
+  # Two machines, so a spec may take one off the network without breaking every
+  # other spec. agent-b is the expendable one; agent-a is what the device pages
+  # are read against.
+  #
+  # The hostname is pinned because it is the name a technician sees in the
+  # device list, and a spec that has to guess a container id cannot assert on
+  # it. The enrolment token comes from the bring-up script, which mints it
+  # through the same public endpoint an installer uses.
+  agent-a:
+    build:
+      context: ..
+      dockerfile: deploy/agent.Dockerfile
+    container_name: opengate-test-agent-a
+    hostname: agent-a
+    env_file:
+      # The token is minted per bring-up and is a credential, so it is in no
+      # checkout. Declaring it optional keeps `docker compose config` — which
+      # the config lint and `make lint-deploy` both run — a check of the
+      # stack's shape rather than of what the last bring-up left on disk. The
+      # bring-up writes it before it starts the machines, and waits for both
+      # to come online, so a stack that really is missing it still fails loudly.
+      - path: .e2e-agent.env
+        required: false
+    environment:
+      - OPENGATE_SERVER_ADDR=server:9090
+      - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
+      - OPENGATE_ENROLL_URL=http://server:8080
+      - RUST_LOG=info
+    tmpfs:
+      - /var/lib/mesh-agent:mode=1777,uid=100,gid=101
+      - /var/log/mesh-agent:mode=1777,uid=100,gid=101
+    depends_on:
+      server:
+        condition: service_healthy
+
+  agent-b:
+    build:
+      context: ..
+      dockerfile: deploy/agent.Dockerfile
+    container_name: opengate-test-agent-b
+    hostname: agent-b
+    env_file:
+      - path: .e2e-agent.env
+        required: false
+    environment:
+      - OPENGATE_SERVER_ADDR=server:9090
+      - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
+      - OPENGATE_ENROLL_URL=http://server:8080
+      - RUST_LOG=info
+    tmpfs:
+      - /var/lib/mesh-agent:mode=1777,uid=100,gid=101
+      - /var/log/mesh-agent:mode=1777,uid=100,gid=101
+    depends_on:
+      server:
         condition: service_healthy

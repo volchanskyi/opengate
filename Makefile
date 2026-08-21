@@ -4,7 +4,7 @@
 # /bin/sh being a Bash.
 SHELL := /bin/bash
 
-.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick \
+.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e agent-binary load-test load-test-quic sonar sonar-coverage sonar-quick \
 	mutate mutate-rust mutate-go mutate-web fuzz-rust taint-go taint-web pentest-review dead-code \
 	terraform-test terraform-drift \
 	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile lint-k8s \
@@ -289,8 +289,17 @@ ci: lint test build
 # setup asserts that its own bootstrap account got that promotion. A smoke run
 # that went first would take the slot and fail every E2E run. Both share one
 # compose lifecycle, and either failing fails the target.
-e2e:
-	cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml up -d --build --wait
+# The agent as the browser test stack runs it: one static binary, staged where
+# the Docker build context can reach it. The cargo target tree itself is
+# excluded from the context (it is tens of gigabytes), so the binary is copied
+# out rather than referenced in place.
+agent-binary:
+	cd agent && cargo build --release --target x86_64-unknown-linux-musl -p mesh-agent
+	mkdir -p deploy/agent-bin
+	cp agent/target/x86_64-unknown-linux-musl/release/mesh-agent deploy/agent-bin/mesh-agent
+
+e2e: agent-binary
+	bash deploy/scripts/e2e-stack-up.sh
 	@(cd web && npx playwright test); rc=$$?; \
 		bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 8080 --mode local --scheme http || rc=1; \
 		cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v; \

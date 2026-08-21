@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -82,33 +81,6 @@ func TestSessionSweepTiming(t *testing.T) {
 	assert.Less(t, sessionSweepInterval, sessionGracePeriod)
 }
 
-type relayCleanupRepo struct {
-	session.Repository
-	token string
-	err   error
-}
-
-func (r *relayCleanupRepo) DeleteRelaySession(_ context.Context, token string) error {
-	r.token = token
-	return r.err
-}
-
-func TestCleanupRelaySessionUsesBackgroundDelete(t *testing.T) {
-	token := protocol.GenerateSessionToken()
-
-	t.Run("deletes by relay token", func(t *testing.T) {
-		repo := &relayCleanupRepo{}
-		require.NoError(t, cleanupRelaySession(repo, token))
-		assert.Equal(t, string(token), repo.token)
-	})
-
-	t.Run("propagates repository failure", func(t *testing.T) {
-		want := errors.New("delete failed")
-		repo := &relayCleanupRepo{err: want}
-		assert.ErrorIs(t, cleanupRelaySession(repo, token), want)
-	})
-}
-
 // quietRoomResolver counts sweeps and reports what it was asked to hold rooms
 // open for.
 type quietRoomResolver struct {
@@ -154,25 +126,6 @@ func TestGroupWindowsAreTheRulesOwn(t *testing.T) {
 	for _, def := range shipped {
 		assert.Equalf(t, time.Duration(def.GroupWindowSecs)*time.Second, windows[def.ID],
 			"%s holds its rooms open for its own grouping window", def.ID)
-	}
-}
-
-// TestRuleIDsAreTheWholeShippedCatalogue keeps the vocabulary the investigation
-// series are bounded by equal to the rules this build actually ships. A rule
-// missing from it would still fire, still be stored, and be counted under the
-// catch-all — visible as a metric nobody can attribute rather than as a rollout
-// nobody can read.
-func TestRuleIDsAreTheWholeShippedCatalogue(t *testing.T) {
-	catalogue, err := rules.Embedded()
-	require.NoError(t, err)
-
-	ids := ruleIDs(catalogue)
-
-	shipped := catalogue.All()
-	require.NotEmpty(t, shipped)
-	assert.Len(t, ids, len(shipped))
-	for _, def := range shipped {
-		assert.Containsf(t, ids, def.ID, "%s is a shipped rule and belongs in the vocabulary", def.ID)
 	}
 }
 

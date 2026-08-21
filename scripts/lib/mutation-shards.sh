@@ -262,7 +262,7 @@ mutation_web_shards() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-intake go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-detection go-domain-persistence go-amt go-updates-certificates go-protocol-relay go-observability-harness"
+  echo "go-api-runtime go-api-intake go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-detection go-domain-persistence go-amt go-updates-certificates go-protocol-relay go-observability-harness go-composition-root"
 }
 
 mutation_all_shards() {
@@ -346,6 +346,16 @@ mutation_go_shard_units() {
     go-observability-harness)
       echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:tests/loadtest"
       ;;
+    # The composition root. It is mutated rather than carved out: a dry run
+    # measured 23 mutants there, and what they land on is behavior a test can
+    # state — the refusals that name a missing dependency, the all-or-nothing
+    # wiring of the metrics store's four faces, and the fallback that leaves
+    # device deletion as a plain Postgres delete when there are no series to
+    # purge. The acceptance suite stands the assembly up, so a mutant that
+    # unwires a port has somewhere to be killed.
+    go-composition-root)
+      echo "dir:internal/app"
+      ;;
     *)
       echo "unknown mutation shard: $1" >&2
       return 1
@@ -379,6 +389,9 @@ mutation_go_shard_seconds_per_mutant() {
     go-domain-detection | go-domain-persistence) echo 8 ;;
     go-amt | go-updates-certificates) echo 11 ;;
     go-protocol-relay | go-observability-harness) echo 10 ;;
+    # Postgres-backed like the API shards: every mutant re-pays a schema
+    # migration and a full assembly. Rated with them until a nightly measures it.
+    go-composition-root) echo 51 ;;
     *)
       echo "unknown mutation shard: $1" >&2
       return 1

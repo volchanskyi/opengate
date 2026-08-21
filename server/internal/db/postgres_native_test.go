@@ -1,4 +1,4 @@
-package integration
+package db_test
 
 import (
 	"context"
@@ -63,7 +63,7 @@ func seedDeviceRow(t *testing.T, ctx context.Context, sqlDB *sql.DB, id uuid.UUI
 func TestPostgresTIMESTAMPTZNormalizesNonUTCOffsetToUTC(t *testing.T) {
 	t.Parallel()
 	_, sqlDB := pgStore(t)
-	ctx := defaultTenantContext()
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
 	// IST is UTC+05:30 — chosen for a non-whole-hour offset so a stripped
 	// offset would be detectable both in the hour and minute fields.
@@ -95,7 +95,7 @@ func TestPostgresTIMESTAMPTZNormalizesNonUTCOffsetToUTC(t *testing.T) {
 func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 	t.Parallel()
 	store, _ := pgStore(t)
-	ctx := defaultTenantContext()
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
 	site := testutil.SeedSite(t, ctx, store)
 	dev := testutil.SeedDevice(t, ctx, store, site.ID)
@@ -173,7 +173,7 @@ func TestPostgresUUIDRejectsMalformedAtBoundary(t *testing.T) {
 func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 	t.Parallel()
 	_, sqlDB := pgStore(t)
-	ctx := defaultTenantContext()
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
 	canonical := "550e8400-e29b-41d4-a716-446655440000"
 	tests := []struct {
@@ -208,7 +208,7 @@ func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 	t.Parallel()
 	store, _ := pgStore(t)
-	ctx := defaultTenantContext()
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
 	site := testutil.SeedSite(t, ctx, store)
 
@@ -255,7 +255,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 	t.Parallel()
 	store, _ := pgStore(t)
-	ctx := defaultTenantContext()
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
 	site := testutil.SeedSite(t, ctx, store)
 

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Guards the hand-written API callers against spec drift.
 #
-# Two callers spell OpenGate API URLs as string literals rather than through a
+# Three callers spell OpenGate API URLs as string literals rather than through a
 # generated client: deploy/scripts/smoke-test.sh (cd.yml, after a merge to main,
-# against staging and production) and the k6 scenarios under load/ (the nightly
-# load-test workflow). Nothing before those runs reads the URL strings — not the
+# against staging and production), deploy/scripts/e2e-stack-up.sh (the browser
+# stack's bring-up, which signs in and mints an enrolment token so the machines
+# can install), and the k6 scenarios under load/ (the nightly load-test
+# workflow). Nothing before those runs reads the URL strings — not the
 # OpenAPI spec-drift check (it scans the spec for unguarded mutating ops), not
 # check-doc-links (Markdown links under docs/ and .claude/), not the Go or web
 # suites. So renaming a route in api/openapi.yaml leaves both probing a path
@@ -53,7 +55,7 @@ summarize() {
 echo "api-endpoint-drift:"
 
 # Callers that spell API URLs by hand, relative to the repo root.
-CALLERS=(deploy/scripts/smoke-test.sh)
+CALLERS=(deploy/scripts/smoke-test.sh deploy/scripts/e2e-stack-up.sh)
 while IFS= read -r js; do
   CALLERS+=("$js")
 done < <(cd "$ROOT" && find load -type f -name '*.js' | sort)

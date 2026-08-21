@@ -12,6 +12,13 @@ import { decode, encode } from "@msgpack/msgpack";
 // decode → store → render path runs against real msgpack bytes. The component's
 // rendering details are unit-tested in MessengerView.test.tsx; this covers the
 // route-level integration the unit test cannot reach.
+//
+// This is the one device page the stack's own machines cannot stand in for.
+// The Chat tab is shown only for a machine reporting RemoteDesktop, and a Linux
+// agent does not: desktop capture there is the null implementation, in
+// production as much as in a container. So the machine is described here rather
+// than enrolled — the alternative is a Windows or macOS machine in the browser
+// stack, which is a much larger thing than this spec is worth.
 
 const DEVICE_ID = "11111111-1111-4111-8111-dddddddddddd";
 const GROUP_ID = "33333333-3333-4333-8333-333333333333";

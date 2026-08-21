@@ -1,103 +1,50 @@
 import { test, expect } from "./fixtures";
-import type { Route, WebSocketRoute } from "@playwright/test";
+import type { Route } from "@playwright/test";
+import { enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
 
-// Phase B / B1: Session + terminal E2E.
+// Session + terminal flow in the browser, against a machine that is actually
+// running.
 //
-// The docker-compose.test.yml stack has no real agent — actual terminal byte
-// flow (msgpack-framed over the relay WebSocket) is covered by:
-//   - web/src/features/terminal/TerminalView.test.tsx (unit, xterm wiring)
-//   - testdata/golden (Rust↔Go wire-protocol fidelity)
+// The stack carries two enrolled agents, so "a technician opens a terminal on
+// the customer's machine" is a real session: the server mints a real token
+// against a real online machine and tells the browser a real relay address, and
+// the browser connects to it. What is asserted is the flow a technician sees —
+// the workspace opens, Terminal is the tab it opens on, the relay connection is
+// made as the browser side of that session, and disconnecting comes back to the
+// fleet.
 //
-// This spec exercises the core *session-flow* loop in the browser:
-//   1. Start Session on an online device → SessionView opens
-//   2. Terminal tab is the default and the container renders
-//   3. The relay WebSocket is opened with the issued token
-//   4. Disconnect navigates back to /devices
-//   5. Offline device leaves the Start Session button disabled
-//   6. Session creation failure surfaces an error toast
-//
-// API responses are stubbed via page.route(); the relay WebSocket is
-// intercepted via page.routeWebSocket() so the spec is hermetic.
-
-const DEVICE_ID_ONLINE = "11111111-1111-4111-8111-aaaaaaaaaaaa";
-const DEVICE_ID_OFFLINE = "11111111-1111-4111-8111-bbbbbbbbbbbb";
-const GROUP_ID = "33333333-3333-4333-8333-333333333333";
-const SESSION_TOKEN = "e2e-session-token-00000000000000000000000000";
-const RELAY_URL = "wss://relay.invalid/relay";
-
-function fakeDevice(id: string, status: "online" | "offline") {
-  const now = new Date().toISOString();
-  return {
-    id,
-    site_id: GROUP_ID,
-    hostname: `e2e-session-${status}`,
-    os: "linux",
-    os_display: "Linux",
-    agent_version: "0.1.0",
-    capabilities: ["Terminal", "FileManager"],
-    status,
-    last_seen: now,
-    created_at: now,
-    updated_at: now,
-  };
-}
-
-function ok(route: Route, body: unknown) {
-  return route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  });
-}
+// The bytes that then travel are covered by
+// web/src/features/terminal/TerminalView.test.tsx and by the cross-language
+// golden fixtures, which can pin them because they supply them.
 
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 
-async function stubCommonRoutes(page: AuthedPage, id: string, status: "online" | "offline") {
-  await page.route(`**/api/v1/devices/${id}`, (route: Route) =>
-    ok(route, fakeDevice(id, status)),
-  );
-  await page.route("**/api/v1/sites", (route: Route) =>
-    ok(route, [
-      { id: GROUP_ID, name: "default", created_at: "", updated_at: "" },
-    ]),
-  );
-  await page.route(`**/api/v1/sessions?device_id=${id}*`, (route: Route) =>
-    ok(route, []),
-  );
-  await page.route("**/api/v1/amt/devices", (route: Route) => ok(route, []));
-  await page.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
-  await page.route(`**/api/v1/devices/${id}/hardware`, (route: Route) =>
-    route.fulfill({ status: 404, body: "" }),
-  );
+// isRelay matches the relay socket the browser opens for a session, whatever
+// address the server handed out.
+function isRelay(url: URL): boolean {
+  return url.pathname.includes("/relay");
 }
 
-async function stubSessionCreate(page: AuthedPage) {
-  await page.route("**/api/v1/sessions", (route: Route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    return ok(route, { token: SESSION_TOKEN, relay_url: RELAY_URL });
-  });
+// startSession opens a session on the given machine and returns once the
+// workspace is showing.
+async function startSession(page: AuthedPage, deviceID: string) {
+  await page.goto(`/devices/${deviceID}`);
+  await page.getByRole("button", { name: /start session/i }).click();
+  await expect(page).toHaveURL(/\/sessions\/[^/]+$/);
 }
 
 test.describe("Session terminal flow", () => {
-  test("Start Session on online device opens SessionView with Terminal active", async ({
+  test("Start Session on an online machine opens the workspace with Terminal active", async ({
     authedPage,
+    request,
   }) => {
-    await stubCommonRoutes(authedPage, DEVICE_ID_ONLINE, "online");
-    await stubSessionCreate(authedPage);
-    // Swallow the relay WebSocket — never deliver frames; the connection
-    // overlay will remain visible because the transport never reaches
-    // 'connected'. That's fine: this test asserts the *flow*, not state.
-    await authedPage.routeWebSocket(RELAY_URL, () => {
-      /* no-op: leave the socket open but silent */
-    });
+    const machine = await enrolledMachine(request, MACHINE_A);
+    await startSession(authedPage, machine.id);
 
-    await authedPage.goto(`/devices/${DEVICE_ID_ONLINE}`);
-    await authedPage.getByRole("button", { name: /start session/i }).click();
-
-    await expect(authedPage).toHaveURL(new RegExp(`/sessions/${SESSION_TOKEN}$`));
     await expect(authedPage.getByRole("tablist")).toBeVisible();
 
-    // Terminal is the default active tab when capabilities omit RemoteDesktop.
+    // Terminal is the default active tab when capabilities omit RemoteDesktop,
+    // which is what a Linux machine reports.
     const terminalTab = authedPage.getByRole("tab", { name: "Terminal" });
     await expect(terminalTab).toBeVisible();
     await expect(terminalTab).toHaveAttribute("aria-selected", "true");
@@ -105,23 +52,18 @@ test.describe("Session terminal flow", () => {
     await expect(authedPage.locator('[data-testid="terminal-container"]')).toBeVisible();
   });
 
-  test("relay WebSocket is opened with side=browser and an auth token", async ({
+  test("the relay connection is made as the browser side of the session", async ({
     authedPage,
+    request,
   }) => {
-    await stubCommonRoutes(authedPage, DEVICE_ID_ONLINE, "online");
-    await stubSessionCreate(authedPage);
+    const machine = await enrolledMachine(request, MACHINE_A);
 
     let observedUrl: string | null = null;
-    await authedPage.routeWebSocket(
-      (url: URL) => url.href.startsWith(RELAY_URL),
-      (ws: WebSocketRoute) => {
-        observedUrl = ws.url();
-      },
-    );
+    authedPage.on("websocket", (ws) => {
+      if (isRelay(new URL(ws.url()))) observedUrl = ws.url();
+    });
 
-    await authedPage.goto(`/devices/${DEVICE_ID_ONLINE}`);
-    await authedPage.getByRole("button", { name: /start session/i }).click();
-    await expect(authedPage).toHaveURL(new RegExp(`/sessions/${SESSION_TOKEN}$`));
+    await startSession(authedPage, machine.id);
 
     // WSTransport appends side=browser and a non-empty auth JWT query param.
     await expect.poll(() => observedUrl).not.toBeNull();
@@ -129,42 +71,36 @@ test.describe("Session terminal flow", () => {
     expect(observedUrl).toMatch(/\bauth=[^&]+/);
   });
 
-  test("Disconnect button returns to /devices", async ({ authedPage }) => {
-    await stubCommonRoutes(authedPage, DEVICE_ID_ONLINE, "online");
-    await stubSessionCreate(authedPage);
-    await authedPage.routeWebSocket(RELAY_URL, () => {
-      /* no-op */
-    });
-
-    await authedPage.goto(`/devices/${DEVICE_ID_ONLINE}`);
-    await authedPage.getByRole("button", { name: /start session/i }).click();
-    await expect(authedPage).toHaveURL(new RegExp(`/sessions/${SESSION_TOKEN}$`));
+  test("Disconnect returns to the fleet", async ({ authedPage, request }) => {
+    const machine = await enrolledMachine(request, MACHINE_A);
+    await startSession(authedPage, machine.id);
 
     await authedPage.getByRole("button", { name: /disconnect/i }).click();
     await expect(authedPage).toHaveURL(/\/devices$/);
   });
 
-  test("offline device shows error toast and stays on device page", async ({
+  test("a session the server refuses surfaces an error toast", async ({
     authedPage,
+    request,
   }) => {
-    await stubCommonRoutes(authedPage, DEVICE_ID_OFFLINE, "offline");
-    // Start Session is not client-side-gated on device.status; the server
-    // returns an error when the agent isn't reachable.
+    const machine = await enrolledMachine(request, MACHINE_A);
+    // The refusal a technician meets when the machine drops off between the
+    // page loading and the click. Producing it on demand would mean taking a
+    // machine off the network mid-run, so the answer is supplied; the machine
+    // and the page are real.
     await authedPage.route("**/api/v1/sessions", (route: Route) => {
       if (route.request().method() !== "POST") return route.fallback();
       return route.fulfill({
-        status: 502,
+        status: 409,
         contentType: "application/json",
-        body: JSON.stringify({ error: "agent unreachable" }),
+        body: JSON.stringify({ error: "agent not connected" }),
       });
     });
 
-    await authedPage.goto(`/devices/${DEVICE_ID_OFFLINE}`);
+    await authedPage.goto(`/devices/${machine.id}`);
     await authedPage.getByRole("button", { name: /start session/i }).click();
 
-    await expect(
-      authedPage.getByText(/failed to start session/i),
-    ).toBeVisible();
-    await expect(authedPage).toHaveURL(new RegExp(`/devices/${DEVICE_ID_OFFLINE}$`));
+    await expect(authedPage.getByText(/failed to start session/i)).toBeVisible();
+    await expect(authedPage).toHaveURL(new RegExp(`/devices/${machine.id}$`));
   });
 });

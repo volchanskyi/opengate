@@ -29,6 +29,10 @@ docs/
 
 # Terraform / deploy
 deploy/
+# …except the agent binary the browser test stack's machines run. It is staged
+# here by `make agent-binary` precisely because agent/target is excluded above,
+# and deploy/agent.Dockerfile copies it out of the context.
+!deploy/agent-bin/mesh-agent
 
 # Misc
 sonar-project.properties

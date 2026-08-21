@@ -28,6 +28,17 @@ const (
 	URLEnv = "POSTGRES_TEST_URL"
 	// PostgresImage is the pinned test database image and client-binary source.
 	PostgresImage = "postgres:17-alpine"
+
+	// ryukTimeoutEnv and ryukTimeout widen the wait for the container reaper
+	// testcontainers starts once per test process. Its own default is 60s,
+	// which a workstation running the gauntlet — a Rust build, a Go suite, a
+	// browser stack and several databases at once — has been observed to
+	// exceed. The reaper then never reports ready, every container start in
+	// that process fails, and a package that has nothing to do with the
+	// contention goes red. Waiting longer costs nothing when the machine is
+	// idle and removes a whole class of false failures when it is not.
+	ryukTimeoutEnv = "TESTCONTAINERS_RYUK_CONNECTION_TIMEOUT"
+	ryukTimeout    = "180s"
 )
 
 var (
@@ -90,6 +101,21 @@ func initBaseURL() {
 // max_locks_per_transaction × max_connections, and a migration builds an entire
 // schema in one transaction, so enough of them at once exhaust the default 64
 // and fail with "out of shared memory" rather than anything about the schema.
+// init widens the reaper wait before anything can create it. It cannot wait
+// for startContainer: when POSTGRES_TEST_URL is set this package provisions
+// nothing, and the first container of the process is then started by somebody
+// else — the migration rehearsal in internal/db, which needs a database of its
+// own — whose reaper would take the default.
+func init() { widenReaperWait() }
+
+// widenReaperWait gives the container reaper room to come up on a busy
+// machine. An operator who has set the variable themselves keeps their value.
+func widenReaperWait() {
+	if os.Getenv(ryukTimeoutEnv) == "" {
+		_ = os.Setenv(ryukTimeoutEnv, ryukTimeout)
+	}
+}
+
 func startContainer() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

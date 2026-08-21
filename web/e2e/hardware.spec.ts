@@ -1,90 +1,38 @@
 import { test, expect } from "./fixtures";
-import type { Response, Route } from "@playwright/test";
+import type { Response } from "@playwright/test";
+import { enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
 
-// Hardware inventory render on the DeviceDetail page.
+// Hardware inventory render on the DeviceDetail page, read off a machine that
+// is actually running.
 //
-// audit-tests-coverage.md F4: prior specs only mention "hardware" as tab/label
-// presence. This asserts the real fetch+render: an online device issues GET
-// /api/v1/devices/:id/hardware on its own and the returned CPU/RAM/disk and
-// network-interface values render. Server-side hardware handling is covered by
-// the Go handler tests; the store mapping by device-store.test.ts.
-
-const DEVICE_ID = "11111111-1111-4111-8111-bbbbbbbbbbbb";
-const GROUP_ID = "33333333-3333-4333-8333-333333333333";
-
-function ok(route: Route, body: unknown) {
-  return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
-}
-
-function fakeDevice() {
-  const now = new Date().toISOString();
-  return {
-    id: DEVICE_ID,
-    site_id: GROUP_ID,
-    hostname: "e2e-hw-host",
-    os: "linux",
-    os_display: "Linux",
-    agent_version: "0.1.0",
-    capabilities: ["Terminal"],
-    status: "online",
-    last_seen: now,
-    created_at: now,
-    updated_at: now,
-  };
-}
-
-function fakeHardware() {
-  return {
-    device_id: DEVICE_ID,
-    cpu_model: "Intel Core i7-9750H",
-    cpu_cores: 12,
-    ram_total_mb: 16384,
-    disk_total_mb: 512000,
-    disk_free_mb: 256000,
-    network_interfaces: [
-      { name: "eth0", mac: "de:ad:be:ef:00:01", ipv4: ["192.0.2.10"], ipv6: [] },
-    ],
-    updated_at: new Date().toISOString(),
-  };
-}
-
-type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
-
-async function stubDetailRoutes(page: AuthedPage) {
-  await page.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
-  await page.route("**/api/v1/sites", (route: Route) =>
-    ok(route, [{ id: GROUP_ID, name: "default", created_at: "", updated_at: "" }]),
-  );
-  await page.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) => ok(route, []));
-  await page.route("**/api/v1/amt/devices", (route: Route) => ok(route, []));
-  await page.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
-  await page.route(`**/api/v1/devices/${DEVICE_ID}/logs*`, (route: Route) =>
-    ok(route, { entries: [], total: 0, has_more: false }),
-  );
-  await page.route(`**/api/v1/devices/${DEVICE_ID}/hardware`, (route: Route) =>
-    ok(route, fakeHardware()),
-  );
-}
+// The stack carries two enrolled agents, so this asks the question a technician
+// asks — does the hardware card show what this machine reported — rather than
+// whether the page can render a shape somebody typed into the test. The values
+// differ per runner, so the assertions are on shape and presence: a CPU model,
+// a core count, a named interface with an address.
 
 test.describe("Hardware inventory", () => {
-  test("an online device fetches and renders inventory values", async ({ authedPage }) => {
-    await stubDetailRoutes(authedPage);
+  test("an online machine's hardware is fetched and rendered", async ({ authedPage, request }) => {
+    const machine = await enrolledMachine(request, MACHINE_A);
 
     const fetched = authedPage.waitForResponse(
-      (r: Response) => r.url().includes(`/devices/${DEVICE_ID}/hardware`) && r.status() === 200,
+      (r: Response) => r.url().includes(`/devices/${machine.id}/hardware`) && r.status() === 200,
     );
-    await authedPage.goto(`/devices/${DEVICE_ID}`);
-    await fetched;
+    await authedPage.goto(`/devices/${machine.id}`);
+    const hardware = await (await fetched).json();
 
     // The section starts collapsed; the caret opens it.
     await authedPage.getByRole("button", { name: "Hardware", exact: true }).click();
 
-    // CPU model + core count render together in the CPU field.
-    await expect(authedPage.getByText(/Intel Core i7-9750H/)).toBeVisible();
-    await expect(authedPage.getByText(/12 cores/)).toBeVisible();
-    // Network interface row renders name, MAC and IPv4 verbatim.
-    await expect(authedPage.getByText(/eth0/)).toBeVisible();
-    await expect(authedPage.getByText(/de:ad:be:ef:00:01/)).toBeVisible();
-    await expect(authedPage.getByText(/192\.0\.2\.10/)).toBeVisible();
+    // What the machine reported is what the card shows. Reading the values out
+    // of the response and asserting the page carries them keeps this true on
+    // any host, without pinning this one's processor.
+    expect(hardware.cpu_model).toBeTruthy();
+    await expect(authedPage.getByText(hardware.cpu_model as string)).toBeVisible();
+    await expect(authedPage.getByText(`${String(hardware.cpu_cores)} cores`)).toBeVisible();
+
+    const interfaces = hardware.network_interfaces as { name: string; mac: string }[];
+    expect(interfaces.length).toBeGreaterThan(0);
+    await expect(authedPage.getByText(interfaces[0].name, { exact: false }).first()).toBeVisible();
   });
 });

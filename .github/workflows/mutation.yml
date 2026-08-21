@@ -186,6 +186,7 @@ jobs:
           - { language: go, shard: go-updates-certificates }
           - { language: go, shard: go-protocol-relay }
           - { language: go, shard: go-observability-harness }
+          - { language: go, shard: go-composition-root }
     runs-on: ubuntu-latest
     # 75min is a flat safety cap, not a target. Every shard is sized against its
     # own measured per-mutant cost (scripts/lib/mutation-shards.sh) for at least
