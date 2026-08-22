@@ -3,7 +3,11 @@
 # endpoints such as node-exporter and postgres-exporter.
 
 global:
-  scrape_interval: 30s
+  # The scrape is half of how far behind an observer runs; the exporter's own
+  # gauge refresh is the other half. A load run finishes in a minute or two, so
+  # a slow scrape is not a cheaper reading of the same event — it is no reading
+  # of it at all.
+  scrape_interval: 15s
   external_labels:
     cluster: opengate
 

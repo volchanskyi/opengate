@@ -35,25 +35,22 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/k6"
 
+# The primary fixtures carry the shape the *pinned* k6 writes: v1.x
+# --summary-export puts each metric's statistics flat on the metric object,
+# rate metrics expose the ratio as "value", and there is no "values" nesting.
+# Extraction is exercised against the schema CI actually feeds it; the v0.x
+# shape is kept as a second case below so the summarizer stays tolerant of both.
 cat >"$WORK/k6/api-baseline.json" <<'JSON'
 {
   "metrics": {
     "http_req_duration": {
-      "type": "trend",
-      "contains": "time",
-      "values": { "med": 50.5, "p(95)": 123.4, "p(99)": 222.2 }
+      "avg": 60.1, "min": 12.0, "med": 50.5,
+      "p(50)": 50.5, "p(95)": 123.4, "p(99)": 222.2, "max": 300.0
     },
-    "http_reqs": {
-      "type": "counter",
-      "contains": "default",
-      "values": { "count": 420, "rate": 42.5 }
-    },
-    "http_req_failed": {
-      "type": "rate",
-      "contains": "default",
-      "values": { "rate": 0.005 }
-    }
-  }
+    "http_reqs": { "count": 420, "rate": 42.5 },
+    "http_req_failed": { "passes": 418, "fails": 2, "value": 0.005 }
+  },
+  "root_group": { "name": "", "path": "", "groups": {}, "checks": {} }
 }
 JSON
 
@@ -61,31 +58,18 @@ cat >"$WORK/k6/relay-throughput.json" <<'JSON'
 {
   "metrics": {
     "http_req_duration": {
-      "type": "trend",
-      "contains": "time",
-      "values": { "med": 63.0, "p(95)": 140.0, "p(99)": 180.0 }
+      "avg": 70.0, "min": 20.0, "med": 63.0,
+      "p(50)": 63.0, "p(95)": 140.0, "p(99)": 180.0, "max": 210.0
     },
-    "http_reqs": {
-      "type": "counter",
-      "contains": "default",
-      "values": { "count": 75, "rate": 1.25 }
-    },
-    "http_req_failed": {
-      "type": "rate",
-      "contains": "default",
-      "values": { "rate": 0 }
-    },
+    "http_reqs": { "count": 75, "rate": 1.25 },
+    "http_req_failed": { "passes": 75, "fails": 0, "value": 0 },
     "relay_msg_latency_ms": {
-      "type": "trend",
-      "contains": "default",
-      "values": { "med": 44.4, "p(95)": 88.8, "p(99)": 99.9 }
+      "avg": 50.0, "min": 20.0, "med": 44.4,
+      "p(50)": 44.4, "p(95)": 88.8, "p(99)": 99.9, "max": 120.0
     },
-    "relay_msg_count": {
-      "type": "counter",
-      "contains": "default",
-      "values": { "count": 60, "rate": 1.0 }
-    }
-  }
+    "relay_msg_count": { "count": 60, "rate": 1.0 }
+  },
+  "root_group": { "name": "", "path": "", "groups": {}, "checks": {} }
 }
 JSON
 
@@ -116,48 +100,72 @@ assert_eq "expected row count" "7" "$(jq 'length' <<<"$OUT")"
 assert_num_eq "k6 p95 parsed" "123.4" "$(jq -r '.[] | select(.source=="k6" and .scenario=="api-baseline" and .phase=="http") | .latency_p95_ms' <<<"$OUT")"
 assert_num_eq "k6 rps parsed" "42.5" "$(jq -r '.[] | select(.source=="k6" and .scenario=="api-baseline" and .phase=="http") | .rps' <<<"$OUT")"
 assert_num_eq "k6 error rate parsed" "0.005" "$(jq -r '.[] | select(.source=="k6" and .scenario=="api-baseline" and .phase=="http") | .error_rate' <<<"$OUT")"
-assert_num_eq "custom relay latency parsed" "88.8" "$(jq -r '.[] | select(.source=="k6" and .scenario=="relay-throughput" and .phase=="relay") | .latency_p95_ms' <<<"$OUT")"
+
+# The relay row is the one the gate has three ceilings on. Under the pinned k6
+# it must appear from a flat metric object, with every statistic the ceilings
+# read — not only when a v0.x "values" nesting happens to be present.
+RELAY_ROW="$(jq -r '.[] | select(.source=="k6" and .scenario=="relay-throughput" and .phase=="relay")' <<<"$OUT")"
+assert_eq "relay row present under pinned k6 shape" "relay" "$(jq -r '.phase // "MISSING"' <<<"$RELAY_ROW")"
+assert_num_eq "relay p50 parsed" "44.4" "$(jq -r '.latency_p50_ms' <<<"$RELAY_ROW")"
+assert_num_eq "relay p95 parsed" "88.8" "$(jq -r '.latency_p95_ms' <<<"$RELAY_ROW")"
+assert_num_eq "relay p99 parsed" "99.9" "$(jq -r '.latency_p99_ms' <<<"$RELAY_ROW")"
+assert_num_eq "relay rps parsed" "1" "$(jq -r '.rps' <<<"$RELAY_ROW")"
+
 assert_num_eq "QUIC p99 duration converted" "1500" "$(jq -r '.[] | select(.source=="quic" and .phase=="connect") | .latency_p99_ms' <<<"$OUT")"
 assert_num_eq "QUIC rps computed" "20" "$(jq -r '.[] | select(.source=="quic" and .phase=="aggregate") | .rps' <<<"$OUT")"
 assert_num_eq "QUIC error rate computed" "0.02" "$(jq -r '.[] | select(.source=="quic" and .phase=="aggregate") | .error_rate' <<<"$OUT")"
 assert_eq "commit tagged" "deadbeef" "$(jq -r '.[0].commit' <<<"$OUT")"
 
-# k6 v1.x --summary-export writes each metric's statistics flat on the metric
-# object; the v0.x nesting under a "values" key is gone, and rate metrics expose
-# the ratio as "value" rather than "rate". The fixture below is the verbatim
-# shape emitted by the pinned K6_VERSION, so the summarizer is exercised against
-# the schema CI actually feeds it.
-mkdir -p "$WORK/k6v1"
-cat >"$WORK/k6v1/api-baseline.json" <<'JSON'
+# A k6 row that carries no metrics at all is indistinguishable from a scenario
+# that never ran, and silently empties the gate. Every metric key must survive.
+assert_eq "k6 row carries every metric key" \
+  "error_rate latency_p50_ms latency_p95_ms latency_p99_ms rps" \
+  "$(jq -r '.[] | select(.scenario=="api-baseline") | keys - ["source","scenario","phase","commit","env","timestamp"] | join(" ")' <<<"$OUT")"
+
+# k6 v0.x nested each metric's statistics under a "values" key and exposed a
+# rate metric's ratio as "rate". The summarizer accepts that shape too, so the
+# extraction does not depend on the exporter generation.
+mkdir -p "$WORK/k6v0"
+cat >"$WORK/k6v0/relay-throughput.json" <<'JSON'
 {
   "metrics": {
     "http_req_duration": {
-      "avg": 0.598, "min": 0.408, "med": 0.689,
-      "p(50)": 0.689, "p(95)": 0.696, "p(99)": 0.697, "max": 0.697
+      "type": "trend",
+      "contains": "time",
+      "values": { "med": 63.0, "p(95)": 140.0, "p(99)": 180.0 }
     },
-    "http_reqs": { "count": 3, "rate": 599.5 },
-    "http_req_failed": { "passes": 0, "fails": 3, "value": 0.25 }
-  },
-  "root_group": { "name": "", "path": "", "groups": {}, "checks": {} }
+    "http_reqs": {
+      "type": "counter",
+      "contains": "default",
+      "values": { "count": 75, "rate": 1.25 }
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": { "rate": 0.005 }
+    },
+    "relay_msg_latency_ms": {
+      "type": "trend",
+      "contains": "default",
+      "values": { "med": 44.4, "p(95)": 88.8, "p(99)": 99.9 }
+    },
+    "relay_msg_count": {
+      "type": "counter",
+      "contains": "default",
+      "values": { "count": 60, "rate": 1.0 }
+    }
+  }
 }
 JSON
 
-V1OUT="$(
-  K6_SUMMARY_DIR="$WORK/k6v1" QUIC_OUTPUT_FILE="$WORK/missing-quic.txt" GITHUB_SHA="deadbeef" \
+V0OUT="$(
+  K6_SUMMARY_DIR="$WORK/k6v0" QUIC_OUTPUT_FILE="$WORK/missing-quic.txt" GITHUB_SHA="deadbeef" \
     "$SUMMARIZE"
 )"
-V1ROW="$(jq -r '.[] | select(.source=="k6" and .scenario=="api-baseline" and .phase=="http")' <<<"$V1OUT")"
-assert_num_eq "k6 v1 p50 parsed" "0.689" "$(jq -r '.latency_p50_ms' <<<"$V1ROW")"
-assert_num_eq "k6 v1 p95 parsed" "0.696" "$(jq -r '.latency_p95_ms' <<<"$V1ROW")"
-assert_num_eq "k6 v1 p99 parsed" "0.697" "$(jq -r '.latency_p99_ms' <<<"$V1ROW")"
-assert_num_eq "k6 v1 rps parsed" "599.5" "$(jq -r '.rps' <<<"$V1ROW")"
-assert_num_eq "k6 v1 error rate parsed" "0.25" "$(jq -r '.error_rate' <<<"$V1ROW")"
-
-# A k6 row that carries no metrics at all is indistinguishable from a scenario
-# that never ran, and silently empties the gate. Every metric key must survive.
-assert_eq "k6 v1 row carries every metric key" \
-  "error_rate latency_p50_ms latency_p95_ms latency_p99_ms rps" \
-  "$(jq -r 'keys - ["source","scenario","phase","commit","env","timestamp"] | join(" ")' <<<"$V1ROW")"
+V0RELAY="$(jq -r '.[] | select(.phase=="relay")' <<<"$V0OUT")"
+assert_num_eq "k6 v0 relay p95 parsed" "88.8" "$(jq -r '.latency_p95_ms' <<<"$V0RELAY")"
+assert_num_eq "k6 v0 error rate parsed" "0.005" "$(jq -r '.[] | select(.phase=="http") | .error_rate' <<<"$V0OUT")"
+assert_num_eq "k6 v0 p50 falls back to med" "63" "$(jq -r '.[] | select(.phase=="http") | .latency_p50_ms' <<<"$V0OUT")"
 
 # shellcheck source=../loadtest-summarize.sh
 source "$SUMMARIZE"

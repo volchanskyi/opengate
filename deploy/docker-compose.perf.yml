@@ -1,0 +1,124 @@
+# The performance stack: a disposable system under test on a CI runner.
+#
+# It exists because two of the six load families cannot honestly run on the
+# shared cluster. The volume family varies how much data is already there, and
+# staging's database writes into the same node root production depends on. The
+# scaling family varies how many processors the server has, and the cluster
+# offers one figure.
+#
+# A runner brings its own disk and its own processors, is thrown away at the end
+# of the job, and is the only place where the generator and the target can be
+# given genuinely separate resource boundaries — which is the whole reason the
+# API mark could not be tightened before.
+#
+# One caveat, stated rather than buried: a runner is x86_64 and production is
+# ARM64, so what this stack produces is a *comparison* — between fixture sizes,
+# or between processor counts — and never an absolute capacity claim about
+# production hardware. That is exactly what these two families need.
+#
+# Every service below declares explicit processor and memory bounds. Without
+# them, "the server ran out of processor" and "the database did" are the same
+# observation, and a scaling sweep has nothing to vary.
+
+x-perf-limits: &perf-restart
+  restart: "no"
+
+services:
+  postgres:
+    <<: *perf-restart
+    image: postgres:17-alpine
+    container_name: opengate-perf-postgres
+    environment:
+      - POSTGRES_USER=opengate
+      - POSTGRES_PASSWORD=perf-test-password
+      - POSTGRES_DB=opengate
+      # A fixture is thousands of writes and none of them need to survive a
+      # power cut, so the database is told it may lose the last transaction.
+      # This is a load-shaping decision, not a performance trick: leaving it on
+      # would make the run a measurement of the runner's disk.
+      - POSTGRES_INITDB_ARGS=--data-checksums
+    command:
+      - postgres
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - max_connections=100
+    # A named volume rather than tmpfs: the volume family's whole finding is how
+    # much disk a fixture occupies, and a fixture held in memory has no size.
+    volumes:
+      - perf-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opengate -d opengate"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "${PERF_DB_CPUS:-1.0}"
+          memory: "${PERF_DB_MEMORY:-1g}"
+
+  server:
+    <<: *perf-restart
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: opengate-perf-server
+    environment:
+      - JWT_SECRET=perf-test-secret-minimum-32-bytes!
+      - DATABASE_URL=postgres://opengate:perf-test-password@postgres:5432/opengate?sslmode=disable
+      - OPENGATE_QUIC_HOST=server
+      - OPENGATE_VICTORIAMETRICS_URL=http://metrics:8428
+    # The machine-facing listener is published as well as the browser-facing
+    # one: this stack is driven by simulated machines, and a machine reaches the
+    # server over QUIC.
+    command: ["-listen", ":8080", "-quic-listen", ":9090", "-data-dir", "/data", "-web-dir", "/srv/web"]
+    ports:
+      - "8080:8080"
+      - "9090:9090/udp"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    tmpfs:
+      - /data:mode=1777
+    # The processor count is the one thing the scaling sweep varies. It is a
+    # variable rather than a literal so a sweep is the same stack run at several
+    # points, not several stacks that also differ in ways nobody recorded.
+    deploy:
+      resources:
+        limits:
+          cpus: "${PERF_SERVER_CPUS:-1.0}"
+          memory: "${PERF_SERVER_MEMORY:-1g}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      metrics:
+        condition: service_started
+
+  # The stack observes itself. Without a metrics store the run can report
+  # latency and nothing about why: which resource ran out, whether the
+  # connection pool queued, how many series the fixture occupies.
+  metrics:
+    <<: *perf-restart
+    image: docker.io/victoriametrics/victoria-metrics:v1.114.0
+    container_name: opengate-perf-metrics
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=1d
+      - -memory.allowedPercent=40
+    ports:
+      - "8428:8428"
+    deploy:
+      resources:
+        limits:
+          cpus: "${PERF_METRICS_CPUS:-0.5}"
+          memory: "${PERF_METRICS_MEMORY:-512m}"
+
+volumes:
+  perf-postgres:

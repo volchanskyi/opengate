@@ -15,7 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
-	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
@@ -522,66 +521,6 @@ func (a *AgentConn) DroppedTelemetryCount() uint64 {
 // capability required for a server-to-agent control variant.
 func IsCapabilityError(err error) bool {
 	return errors.Is(err, ErrCapabilityNotAdvertised)
-}
-
-func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {
-	osName := osutil.NormalizeOS(msg.OS)
-	arch := osutil.NormalizeArch(msg.Arch)
-	a.setMeta(osName, arch, msg.Version, msg.Capabilities)
-
-	caps := make([]string, len(msg.Capabilities))
-	for i, c := range msg.Capabilities {
-		caps[i] = string(c)
-	}
-
-	d := &device.Device{
-		ID:           a.DeviceID,
-		SiteID:       a.SiteID,
-		Hostname:     msg.Hostname,
-		OS:           osName,
-		OsDisplay:    msg.OS,
-		AgentVersion: msg.Version,
-		Capabilities: caps,
-		Status:       device.StatusOnline,
-	}
-
-	if err := a.devices.Upsert(ctx, d); err != nil {
-		return fmt.Errorf("upsert device: %w", err)
-	}
-
-	if err := a.devices.SetStatus(ctx, a.DeviceID, device.StatusOnline); err != nil {
-		return fmt.Errorf("set device online: %w", err)
-	}
-
-	a.logger.Info("agent registered",
-		"device_id", a.DeviceID,
-		"hostname", msg.Hostname,
-		"os", msg.OS,
-		"capabilities", msg.Capabilities,
-	)
-
-	// Deliver the agent's tenant-scoped threshold-alert ruleset (WS-19). A
-	// capability error just means the agent did not opt in; only a real send
-	// failure is worth logging, and neither fails registration.
-	if err := a.pushAlertRules(ctx); err != nil && !IsCapabilityError(err) {
-		a.logger.Warn("push alert rules failed", "device_id", a.DeviceID, "error", err)
-	}
-
-	// Reconcile a suppressed device: agents default to Active on every fresh
-	// registration, so only a device currently in maintenance needs a push to
-	// re-suppress a reconnecting agent. Exiting maintenance is delivered by the
-	// toggle handler's unconditional push, not here.
-	a.pushMaintenanceState(ctx)
-
-	// Refresh the stored inventory: a device that reconnects may have rebooted
-	// with different RAM, disks or interfaces, so coming back online is what
-	// keeps the hardware card current. A capability error just means the agent
-	// does not collect an inventory; neither case fails registration.
-	if err := a.SendRequestHardwareReport(ctx); err != nil && !IsCapabilityError(err) {
-		a.logger.Warn("request hardware report on register failed", "device_id", a.DeviceID, "error", err)
-	}
-
-	return nil
 }
 
 func (a *AgentConn) handleHeartbeat(ctx context.Context, msg *protocol.ControlMessage) error {

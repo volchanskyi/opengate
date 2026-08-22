@@ -73,12 +73,13 @@ func TestDefaultTelemetryFrames(t *testing.T) {
 	assert.EqualValues(t, 1, frames[2].TopN[0].Rank)
 }
 
-// TestBuildTenantAgents deterministically partitions N tenants × M agents so a
-// soak run is reproducible: every agent has a stable tenant index and a
+// TestPlanAgents deterministically partitions N tenants × M agents so a soak
+// run is reproducible: every agent has a stable tenant index and a
 // tenant-tagged hostname, and the tenant indices cover exactly [0, tenants).
-func TestBuildTenantAgents(t *testing.T) {
+// This is the layout the harness actually runs, so it is the one under test.
+func TestPlanAgents(t *testing.T) {
 	const tenants, perTenant = 5, 100
-	agents := buildTenantAgents(tenants, perTenant)
+	agents := planAgents(tenants*perTenant, tenants)
 	require.Len(t, agents, tenants*perTenant)
 
 	seenTenant := map[int]int{}
@@ -98,7 +99,7 @@ func TestBuildTenantAgents(t *testing.T) {
 	}
 
 	// The partition is deterministic: a second call is identical.
-	assert.Equal(t, agents, buildTenantAgents(tenants, perTenant))
+	assert.Equal(t, agents, planAgents(tenants*perTenant, tenants))
 }
 
 // TestBuildBackfillBatch builds a tiered reconnect-backfill batch with the

@@ -9,6 +9,41 @@ _None currently._
 
 ## Severity: Medium
 
+### Load-test identities live in the default tenant
+
+Every account a load run creates is made through the open registration endpoint,
+which places it in the default tenant — the same tenant a technician's own
+account is in. The run's identities are therefore mixed with people's, and the
+only thing separating them is the marker in the address that
+[`loadtest-cleanup.sh`](../scripts/loadtest-cleanup.sh) selects on.
+
+A dedicated tenant is what this should be, and there is no way to ask for one:
+the API creates customers, sites and users, and tenants exist only as rows a
+migration seeded. So the run marks what it makes and removes it, which keeps the
+environment clean without keeping the two populations apart while a run is in
+flight.
+
+**Pay-down trigger:** a tenant-creation API, for any reason. Give the load run
+its own tenant, create its users and machines inside it, and reduce cleanup to
+removing the tenant.
+
+### The Always-Free processor grant is asserted by two gates and confirmed by none
+
+[`compute.rego`](../policy/terraform/compute.rego) and the Terraform guards in
+the `oke` and `compute` modules now both refuse above 2 processors / 12 GB, which
+is the stricter of the two figures that were in the repository. Whether Oracle's
+current grant is that or 4 / 24 is not settled: the OCI limits API exposes only
+the paid service limit, so nothing queryable can answer it.
+
+Holding both gates at the stricter figure is safe in the direction that matters —
+a plan sized to it passes either gate — but it may be refusing capacity the
+tenancy is entitled to, and nothing in the repository records which.
+
+**Pay-down trigger:** the next time a second node or a larger shape is wanted.
+Read the grant from the OCI console, set both gates to it, and record the figure
+in an ADR. The block-storage grant is exactly full independently of this, so no
+instance can be added until 50 GB is released whichever way it goes.
+
 ### The QUIC accept path has no in-process test harness
 
 [`server.go`](../server/internal/agentapi/server.go) and
@@ -86,6 +121,23 @@ quinn caches and presents tickets and a reconnecting production agent is observe
 resuming (`DidResume`).
 
 ## Severity: Low
+
+### The per-family anomaly label is unbounded on the wire
+
+A health summary carries one anomaly rate per metric family, and the family name
+arrives as a string from the machine. The server stores it without checking it
+against a vocabulary, so how many central series a device's summary occupies is
+a property of what agents send rather than of what the fleet agreed to send —
+the same shape the vitals dimension list exists to prevent
+([ADR-065](../docs/adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md)).
+
+The exposure is small today because the only writer is the agent's own sampler,
+which emits five fixed names. It is the second writer that turns this into
+unbounded cardinality across a whole tenant.
+
+**Pay-down trigger:** a second producer of health summaries, or any change to
+the family set. Fix the vocabulary in the server the way `vitalDims` is fixed,
+drop and count a name outside it, and pin the pair with a golden fixture.
 
 ### The periodic workers cannot be driven from an acceptance test
 

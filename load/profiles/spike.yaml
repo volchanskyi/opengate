@@ -1,0 +1,42 @@
+# A step change with no ramp: a site whose link came back, or a rollout that
+# restarted a fleet at once. What is being measured is the recovery, not the
+# spike — the numbers that matter are how long the system took to answer
+# normally again after the step ended.
+schema_version: 1
+name: spike
+family: spike
+environment: staging
+fixture: small
+
+phases:
+  - name: baseline
+    duration: 2m
+    operator_arrivals_per_second: 5
+    connected_agents: 500
+    sessions: 5
+  # No ramp on purpose. A gradual arrival is a different event and the system
+  # absorbs it differently.
+  - name: spike
+    duration: 30s
+    operator_arrivals_per_second: 40
+    connected_agents: 2000
+    sessions: 20
+  # Back to the baseline load, held long enough to see the queue drain.
+  - name: recovery
+    duration: 3m
+    operator_arrivals_per_second: 5
+    connected_agents: 500
+    sessions: 5
+
+safety:
+  max_node_cpu_percent: 90
+  max_node_memory_percent: 90
+  max_error_rate: 0.05
+
+gates:
+  # The recovery phase is what the gate reads. The spike phase is expected to
+  # degrade; a spike that did not is a spike that was not big enough.
+  - series: k6/api-baseline/http
+    metric: error_rate
+    max: 0.01
+    blocking: true

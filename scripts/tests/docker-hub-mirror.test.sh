@@ -9,6 +9,11 @@ ACTION="$REPO_ROOT/.github/actions/docker-hub-mirror/action.yml"
 SCRIPT="$REPO_ROOT/.github/actions/docker-hub-mirror/docker-hub-mirror.sh"
 WORKFLOWS="$REPO_ROOT/.github/workflows"
 
+# Every job that pulls a Docker Hub image goes through the mirror, so this is a
+# census rather than a sample: the count is stated here and each job is checked
+# against it, which is what catches a new pulling job that nobody wired up.
+EXPECTED_PULL_JOBS=10
+
 PASS=0
 FAIL=0
 FAILURES=()
@@ -117,10 +122,10 @@ mapfile -t PULL_JOBS < <(
   done
 )
 
-if [ "${#PULL_JOBS[@]}" -eq 8 ]; then
-  pass "expected eight Docker Hub pull-capable jobs"
+if [ "${#PULL_JOBS[@]}" -eq "$EXPECTED_PULL_JOBS" ]; then
+  pass "expected $EXPECTED_PULL_JOBS Docker Hub pull-capable jobs"
 else
-  fail "expected eight Docker Hub pull-capable jobs, found ${#PULL_JOBS[@]}"
+  fail "expected $EXPECTED_PULL_JOBS Docker Hub pull-capable jobs, found ${#PULL_JOBS[@]}"
 fi
 
 UNPROTECTED_JOBS=()
@@ -181,10 +186,10 @@ read -r COMPOSITE_USES BAD_CREDENTIAL_BLOCKS < <(
   ' "$WORKFLOWS"/*.yml
 )
 
-if [ "$COMPOSITE_USES" -eq 8 ]; then
-  pass "all eight pull jobs use the composite"
+if [ "$COMPOSITE_USES" -eq "$EXPECTED_PULL_JOBS" ]; then
+  pass "all $EXPECTED_PULL_JOBS pull jobs use the composite"
 else
-  fail "expected eight composite uses, found $COMPOSITE_USES"
+  fail "expected $EXPECTED_PULL_JOBS composite uses, found $COMPOSITE_USES"
 fi
 
 if [ "$BAD_CREDENTIAL_BLOCKS" -eq 0 ]; then

@@ -1,0 +1,187 @@
+name: Performance Stack (volume + scaling)
+
+# The two families that cannot honestly run on the shared cluster.
+#
+# The volume family varies how much data is already there, and staging's
+# database writes into the same node root production depends on. The scaling
+# family varies how many processors the server has, and the cluster offers one
+# figure. A runner brings its own disk and its own processors, is thrown away at
+# the end of the job, and is the only place the generator and the target hold
+# genuinely separate boundaries.
+#
+# A runner is x86_64 and production is ARM64, so what this produces is a
+# comparison — between fixture sizes, or between processor counts — and never an
+# absolute capacity claim about production hardware.
+
+on:
+  schedule:
+    # Weekly rather than nightly: these families answer questions that change
+    # when the schema or the read paths change, not questions that change
+    # overnight, and a runner-hour spent re-answering an unchanged question is
+    # one nobody reads.
+    - cron: '0 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: "Machines to hold connected while the profile runs"
+        required: false
+        default: "500"
+
+concurrency:
+  group: perf-stack
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  COMPOSE_FILE: deploy/docker-compose.perf.yml
+  PERF_BUNDLE_DIR: perf-bundles
+
+jobs:
+  # The sweep's points are stated rather than assumed: a comparison between
+  # processor counts is only a comparison if the counts are recorded beside the
+  # numbers they produced.
+  scaling:
+    name: Scaling sweep (${{ matrix.cpus }} processors)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        cpus: ["0.5", "1", "2", "4"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+
+      # Docker Hub's anonymous pull rate is shared across a runner's whole
+      # network, so a pull here goes through the mirror the rest of the
+      # pipelines use.
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Record what this runner actually is
+        run: |
+          set -euo pipefail
+          # Step 8's own finding: the runner's shape was never measured, so it
+          # is measured here and travels in the bundle rather than being assumed.
+          {
+            echo "PERF_RUNNER_CPUS=$(nproc)"
+            echo "PERF_RUNNER_MEMORY_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+            echo "PERF_RUNNER_DISK_KB=$(df -k --output=size / | tail -n1 | tr -d ' ')"
+          } >>"$GITHUB_ENV"
+
+      - name: Bring the performance stack up
+        env:
+          PERF_SERVER_CPUS: ${{ matrix.cpus }}
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+
+      - name: Run the scaling profile
+        run: |
+          set -euo pipefail
+          mkdir -p "$PERF_BUNDLE_DIR"
+          go build -trimpath -o /tmp/loadtest ./tests/loadtest/
+          scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
+            /tmp/loadtest \
+              -agents="${{ inputs.agents || '500' }}" \
+              -addr=127.0.0.1:9090 \
+              -default-telemetry \
+              -hold=3m \
+              -profile=load/profiles/scaling.yaml \
+              -bundle="$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}"
+        working-directory: server
+
+      - name: Tear the stack down
+        if: always()
+        run: |
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" down -v
+
+      - name: Upload the scaling bundle
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-scaling-${{ matrix.cpus }}
+          path: server/${{ env.PERF_BUNDLE_DIR }}
+          if-no-files-found: warn
+          retention-days: 90
+
+  # Nobody has weighed a fixture. Production's database holds 66 MB after seven
+  # weeks with four real machines, and the cluster node has around nine gigabytes
+  # of margin before the kubelet starts evicting — so whether a two-thousand
+  # machine fixture fits inside that margin is a fact one measurement settles.
+  # Until it exists, no storage decision is made either way.
+  volume:
+    name: Volume family (weigh the fixture, then load it)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+
+      # Docker Hub's anonymous pull rate is shared across a runner's whole
+      # network, so a pull here goes through the mirror the rest of the
+      # pipelines use.
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Bring the performance stack up
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+
+      - name: Weigh the fixture at each size
+        run: |
+          set -euo pipefail
+          mkdir -p "$PERF_BUNDLE_DIR"
+          bash scripts/perf-weigh-fixture.sh "$PERF_BUNDLE_DIR/fixture-weight.json"
+          cat "$PERF_BUNDLE_DIR/fixture-weight.json"
+
+      - name: Run the volume profile
+        run: |
+          set -euo pipefail
+          go build -trimpath -o /tmp/loadtest ./tests/loadtest/
+          scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
+            /tmp/loadtest \
+              -agents="${{ inputs.agents || '500' }}" \
+              -addr=127.0.0.1:9090 \
+              -default-telemetry \
+              -hold=3m \
+              -profile=load/profiles/volume.yaml \
+              -bundle="../$PERF_BUNDLE_DIR/volume"
+        working-directory: server
+
+      - name: Tear the stack down
+        if: always()
+        run: |
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" down -v
+
+      - name: Upload the volume bundle
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-volume
+          path: ${{ env.PERF_BUNDLE_DIR }}
+          if-no-files-found: warn
+          retention-days: 90

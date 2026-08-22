@@ -164,8 +164,8 @@ make test-web           # React / TypeScript
 make test-coverage      # Go coverage report printed to stdout
 make golden             # Regenerate golden fixtures and verify cross-language compat
 make e2e                # Playwright E2E against a stack carrying two real machines
-make load-test          # k6 HTTP/WS load tests against localhost:8080
-make load-test-quic     # Go QUIC load harness (100 concurrent agents)
+make load-test          # All three k6 scenarios against localhost:8080
+make load-test-quic     # Go QUIC load harness (100 concurrent machines)
 ```
 
 ### Individual commands
@@ -648,6 +648,58 @@ something is wrong.
 
 ## Load Tests
 
+A run is valid, failed, or **invalid**. Valid and failed are both measurements —
+one of a system that held, one of a system that did not — and both belong in the
+trend. Invalid is the third: the run did not measure the system, because a
+scenario produced no rows, the generator ran out of room, or a safety ceiling
+stopped it. An invalid run never enters the trend, because a partial night
+absorbed as data lowers the window median and the next genuinely slow night then
+compares favourably against it and passes.
+[ADR-082](../adr/ADR-082-load-runs-measure-the-system-or-say-they-did-not.md) is
+the decision behind that and everything below it.
+
+### What a run is configured by, and what it produces
+
+A run reads one profile and writes one evidence bundle.
+
+**Profiles** live in [`load/profiles/`](../../load/profiles) and are versioned.
+Each declares its family, the environment class it runs in, the fixture it needs,
+an ordered phase list, the safety limits that stop it, and the gates its results
+are read against. The environment vocabulary has no production member, which is
+what makes "production is never a target" a property of the schema rather than of
+a reviewer's attention.
+
+**Bundles** are versioned JSON, one per run, uploaded as a workflow artifact. A
+bundle carries what produced the numbers, on what hardware, against how much
+data, what load was offered, what load arrived, what the run observed, and what
+state it left the system in. The metrics store retains 30 days, so the bundle is
+authoritative and the dashboard is a view of it; a bundle missing a mandatory
+section fails the run rather than entering the trend as a thinner version of a
+real one.
+
+Both schemas, their validation and the verdict rules live in
+[`server/tests/loadtest/`](../../server/tests/loadtest) and are exercised by that
+package's tests.
+
+### The six families, and where each runs
+
+| Family | Venue | Why there |
+|---|---|---|
+| Normal / peak | Staging at night | the server is capped, and the node has real headroom |
+| Spike | Staging at night | same envelope, one short burst |
+| Soak | Staging overnight | the node is billed by existing, not by working |
+| Breakpoint | Staging, under guardrails | saturating the node throttles production's probes, so its safety ceilings are the lowest of any profile |
+| Volume | GitHub-hosted runner | staging's database shares the node root with production; a runner brings its own disk |
+| Scaling | GitHub-hosted runner | the sweep needs four or five processor points and the cluster offers one |
+
+A runner is x86_64 and production is ARM64, so the last two families produce
+comparisons — between fixture sizes, or between processor counts — and never an
+absolute capacity claim about production hardware. Their stack is
+[`deploy/docker-compose.perf.yml`](../../deploy/docker-compose.perf.yml), driven
+by [`perf-stack.yml`](../../.github/workflows/perf-stack.yml), which also weighs
+the fixture it built with
+[`scripts/perf-weigh-fixture.sh`](../../scripts/perf-weigh-fixture.sh).
+
 ### k6 HTTP/WS Scenarios
 
 Three k6 scenarios in [`load/k6/scenarios/`](../../load/k6/scenarios), each declaring
@@ -656,7 +708,7 @@ its own VU ramp and thresholds in its `options` block:
 | Scenario | Exercises |
 |----------|-----------|
 | [`api-baseline.js`](../../load/k6/scenarios/api-baseline.js) | Health, current user, sites, and the device list under a steady ramp |
-| [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | Relay latency alongside constant health and site reads |
+| [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | A real remote session: the operator's side of the relay, timing its own frame coming back from the machine |
 | [`concurrent-agents.js`](../../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's sites |
 
 `setup()` registers a throwaway member of the staging organization through
@@ -667,6 +719,16 @@ work the server refuses. A scenario that stood up its own fixtures would measure
 403 path instead. `setup()` throws on an unexpected status, so a broken precondition
 names itself rather than turning every request in the run red.
 
+Every identity a run creates carries a marker in its address, and every scenario
+prints what it created. [`scripts/loadtest-cleanup.sh`](../../scripts/loadtest-cleanup.sh)
+removes what matches and counts what is left, and that count travels in the
+bundle — a run that says it left nothing has to have looked.
+
+The relay scenario needs a machine on the other end of every session it opens, so
+the QUIC harness holds its fleet connected for the whole k6 window rather than
+running after it. What the metric records is the operator's own frame going out
+through the server, through the machine, and back.
+
 The scenarios spell their URLs by hand, so
 [`scripts/tests/api-endpoint-drift.test.sh`](../../scripts/tests/api-endpoint-drift.test.sh)
 checks every path and query parameter they send — and every one
@@ -676,27 +738,62 @@ in the gauntlet rather than in the nightly.
 
 [`scripts/loadtest-k6-run.sh`](../../scripts/loadtest-k6-run.sh) runs each scenario and
 keeps its summary export only when the run produced a measurement. A failed
-threshold counts; a script exception does not, and its export is discarded so the
-handful of requests `setup()` managed never enters the trend the regression check
-compares against.
+threshold counts as one; a script exception does not, and its export is discarded so
+the handful of requests `setup()` managed never enters the trend the regression
+check compares against. A breached threshold is recorded beside the export rather
+than failing the scenario, because whether a mark is blocking is the profile's
+decision — a mark set tighter than the measurement's own spread would otherwise
+fail every night from the day it was tightened.
 
 Against staging, k6 itself runs in a short-lived cluster pod through
 [`scripts/loadtest-k6-incluster.sh`](../../scripts/loadtest-k6-incluster.sh), which
 executes the same k6 argument list beside the server and copies the summary export
 back to the runner for the decision above. Generating load one hop from the server
 is what keeps the trend a measurement of the server rather than of the path to it.
+The generator pod holds its own processor and memory allocation, separate from the
+server's: sharing them is why the API mark had to be set wider than any regression
+worth finding.
 
 ### Go QUIC Load Harness
 
-`server/tests/loadtest/main.go` spawns N concurrent goroutines, each performing the full mTLS QUIC handshake and agent registration. Reports p50/p95/p99 latency for connect, handshake, and register phases.
+[`server/tests/loadtest/`](../../server/tests/loadtest) connects N machines, each
+performing the full mTLS QUIC handshake and registration, then holds them
+connected and behaving — heartbeats and telemetry on a jittered cadence,
+reconnects with a backlog to drain, duplicate connections, and the machine side
+of any relay session the server hands it. It reports p50/p95/p99 for connect,
+handshake and register, and writes an evidence bundle.
 
 ```bash
-# Default: 100 agents against localhost
+# Default: 100 machines against a local stack that owns its own authority
 cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 
-# Custom agent count and address
-cd server && go run ./tests/loadtest/ -agents=500 -addr=staging.example.com:9090
+# Against staging: enrol the way an installer does, hold the fleet connected,
+# and answer session requests so a generator can measure the relay
+cd server && go run ./tests/loadtest/ \
+  -agents=500 -addr=10.0.0.42:9090 \
+  -enroll-url=http://opengate-staging-server:8080 -enroll-token="$TOKEN" \
+  -relay-sessions -hold=8m \
+  -profile=../load/profiles/normal.yaml -bundle=/tmp/loadtest-bundle
 ```
+
+The certificate authority's private key never leaves the cluster. Against
+anything shared the harness keeps its own private keys and sends signing
+requests, spending a token minted for the run and deleted after it; only a local
+stack, whose authority is as disposable as the stack around it, is signed for
+directly.
+
+Every address the harness dials goes through one allowlist — the configured
+target and the relay URL that arrives inside a session request alike — so a field
+on the wire cannot send a generator somewhere the run is forbidden to go.
+
+[`scripts/loadtest-quic-run.sh`](../../scripts/loadtest-quic-run.sh) applies the
+same keep-or-discard rule the k6 half has: a fleet that half connected is a
+measurement and its error rate is the finding, while a harness that could not
+start describes its own failure and its output is discarded.
+
+[`scripts/loadtest-run-completeness.sh`](../../scripts/loadtest-run-completeness.sh)
+then names which scenarios produced rows and which did not, and returns the
+verdict that decides whether the night enters the trend at all.
 
 ### CI integration
 

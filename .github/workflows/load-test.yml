@@ -19,6 +19,10 @@ env:
   K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max
   LOADTEST_K6_SUMMARY_DIR: /tmp/loadtest-k6
   LOADTEST_QUIC_OUTPUT: /tmp/loadtest-quic.txt
+  # How long the QUIC fleet stays connected. It has to outlast the three k6
+  # scenarios beside it, because the relay scenario needs a machine on the other
+  # end of every session it opens.
+  LOADTEST_HOLD: 8m
   NAMESPACE: opengate-staging
   RELEASE: opengate-staging
 
@@ -84,12 +88,18 @@ jobs:
             echo "LOADTEST_BASE_URL=http://${RELEASE}-server:8080"
           } >>"$GITHUB_ENV"
 
-      # --- Phase 1: k6 HTTP/WebSocket load tests ------------------------------
+      # --- Both generators run beside the server -----------------------------
       #
-      # k6 runs beside the server, addressing the staging service by its
-      # in-cluster name, so the load reaches the system under test over one
-      # network hop and the trend records the server's latency rather than the
-      # generator's path to it. Phase 2 stages its QUIC harness the same way.
+      # k6 and the QUIC harness both run inside the cluster, addressing the
+      # staging service by its in-cluster name, so the load reaches the system
+      # under test over one network hop and the trend records the server's
+      # latency rather than the generator's path to it.
+      #
+      # They also overlap. The relay scenario opens the operator's side of a
+      # real session, which needs a machine on the other side of it, so the QUIC
+      # harness holds a fleet connected while k6 runs rather than running after
+      # it. A relay figure measured with no machine connected is a figure about
+      # something else.
 
       - name: Install k6
         run: |
@@ -108,9 +118,14 @@ jobs:
           LOADTEST_K6_POD="k6-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "LOADTEST_K6_POD=$LOADTEST_K6_POD" >>"$GITHUB_ENV"
 
+          # The generator holds its own processor and memory, distinct from the
+          # server's. Sharing them is why the API mark had to be set wider than
+          # any regression worth finding: the measurement's own spread was
+          # larger than the thing being measured.
           kubectl -n "$NAMESPACE" run "$LOADTEST_K6_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
+            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"200m","memory":"192Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep 1800
           kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_K6_POD" --timeout=120s
           kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
@@ -118,6 +133,87 @@ jobs:
           kubectl -n "$NAMESPACE" cp load/. "$LOADTEST_K6_POD:/tmp/load"
           kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- chmod 0755 /tmp/k6
           kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- /tmp/k6 version
+
+      # The QUIC harness is staged and started before k6, and it holds its fleet
+      # connected for the whole k6 window. The relay scenario opens the
+      # operator's side of a real session, and a session needs a machine on the
+      # other end of it.
+      - name: Build QUIC load test harness
+        working-directory: server
+        run: CGO_ENABLED=0 GOOS=linux GOARCH="$LOADTEST_GOARCH" go build -trimpath -o /tmp/loadtest ./tests/loadtest/
+
+      # The harness enrols the way an installer does: it keeps its own private
+      # keys and sends signing requests, and what comes back is a certificate.
+      # Nothing here copies the certificate authority's key out of the cluster —
+      # that key mints a trusted machine for the whole fleet, no rotation story
+      # covers it, and a shared CI runner is the last place it should exist.
+      #
+      # The token it spends is minted in staging's own database, expires in an
+      # hour, and is spent by this run alone. It is a short-lived, single-purpose
+      # credential rather than a standing one, so it is safe in a way the
+      # authority key can never be.
+      - name: Mint a short-lived enrollment token
+        run: |
+          set -euo pipefail
+          POSTGRES_POD="$(kubectl -n "$NAMESPACE" get pods \
+            -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
+            -o jsonpath='{.items[0].metadata.name}')"
+          test -n "$POSTGRES_POD"
+
+          TOKEN="loadtest-$(openssl rand -hex 16)"
+          echo "::add-mask::$TOKEN"
+
+          kubectl -n "$NAMESPACE" exec -i "$POSTGRES_POD" -- \
+            psql -U opengate -d opengate -v ON_ERROR_STOP=1 -q \
+              -v token="$TOKEN" -v label="loadtest-${GITHUB_RUN_ID}" <<'SQL'
+          INSERT INTO enrollment_tokens (id, token, label, created_by, tenant_id, max_uses, expires_at)
+          SELECT gen_random_uuid(), :'token', :'label', u.id, u.tenant_id, 0, NOW() + INTERVAL '1 hour'
+          FROM users u
+          WHERE u.is_admin
+          ORDER BY u.created_at
+          LIMIT 1;
+          SQL
+
+          echo "LOADTEST_ENROLL_TOKEN=$TOKEN" >>"$GITHUB_ENV"
+
+      - name: Stage QUIC harness in cluster
+        run: |
+          set -euo pipefail
+          LOADTEST_POD="quic-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "LOADTEST_POD=$LOADTEST_POD" >>"$GITHUB_ENV"
+
+          # The QUIC generator holds its own allocation too, so the two
+          # generators cannot take each other's processor either.
+          kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
+            --image=docker.io/library/alpine:3.21.3 \
+            --restart=Never \
+            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"200m","memory":"192Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --command -- sleep 1800
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_POD" --timeout=120s
+          kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
+          kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
+
+      - name: Start the QUIC fleet and hold it connected
+        run: |
+          set -euo pipefail
+          AGENTS="${{ inputs.agents || '100' }}"
+          # Backgrounded on purpose: the fleet stays connected while the k6
+          # scenarios run beside it, and the runner collects its output after.
+          nohup scripts/loadtest-quic-run.sh "$LOADTEST_QUIC_OUTPUT" -- \
+            kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- \
+              /tmp/loadtest \
+                -agents="$AGENTS" \
+                -addr="${SERVER_POD_IP}:9090" \
+                -enroll-url="$LOADTEST_BASE_URL" \
+                -enroll-token="$LOADTEST_ENROLL_TOKEN" \
+                -relay-sessions \
+                -hold="$LOADTEST_HOLD" \
+                -bundle=/tmp/loadtest-bundle \
+            >/tmp/loadtest-quic-runner.log 2>&1 &
+
+          # k6's relay scenario reads the fleet and fails loudly if nothing is
+          # online, so the fleet is given time to connect before k6 starts.
+          sleep 45
 
       - name: Run k6 API baseline
         run: |
@@ -141,51 +237,84 @@ jobs:
             kubectl -n "$NAMESPACE" delete pod "$LOADTEST_K6_POD" --ignore-not-found --wait=false
           fi
 
-      # --- Phase 2: Go QUIC agent load test ----------------------------------
-
-      - name: Build QUIC load test harness
-        working-directory: server
-        run: CGO_ENABLED=0 GOOS=linux GOARCH="$LOADTEST_GOARCH" go build -trimpath -o /tmp/loadtest ./tests/loadtest/
-
-      - name: Stage QUIC harness in cluster
+      # The fleet was started from a shell that has since exited, so its exit
+      # code has nowhere to be returned to; the runner writes its verdict down
+      # and this waits for that.
+      - name: Wait for the QUIC fleet to finish
         run: |
           set -euo pipefail
-          LOADTEST_POD="quic-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          echo "LOADTEST_POD=$LOADTEST_POD" >>"$GITHUB_ENV"
+          STATUS_FILE="${LOADTEST_QUIC_OUTPUT}.status"
+          for _ in $(seq 1 120); do
+            [[ -f "$STATUS_FILE" ]] && break
+            sleep 10
+          done
+          cat /tmp/loadtest-quic-runner.log
+          if [[ ! -f "$STATUS_FILE" ]]; then
+            echo "::error::the QUIC fleet never reported a verdict; the run is short a scenario."
+            exit 1
+          fi
+          exit "$(cat "$STATUS_FILE")"
 
-          install -d -m 0700 /tmp/loadtest-data
-          kubectl -n "$NAMESPACE" exec "$SERVER_POD" -- cat /data/ca.crt > /tmp/loadtest-data/ca.crt
-          kubectl -n "$NAMESPACE" exec "$SERVER_POD" -- cat /data/ca.key > /tmp/loadtest-data/ca.key
-          chmod 0600 /tmp/loadtest-data/ca.key
-
-          kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
-            --image=docker.io/library/alpine:3.21.3 \
-            --restart=Never \
-            --command -- sleep 900
-          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_POD" --timeout=120s
-          kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- mkdir -p /tmp/loadtest-data
-          kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
-          kubectl -n "$NAMESPACE" cp /tmp/loadtest-data/. "$LOADTEST_POD:/tmp/loadtest-data"
-          kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
-
-      - name: Run QUIC load test in cluster
+      - name: Collect the QUIC evidence bundle
+        if: always()
         run: |
-          set -o pipefail
-          AGENTS="${{ inputs.agents || '100' }}"
-          kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- \
-            /tmp/loadtest \
-              -agents="$AGENTS" \
-              -addr="${SERVER_POD_IP}:9090" \
-              -data-dir=/tmp/loadtest-data \
-            | tee "$LOADTEST_QUIC_OUTPUT"
+          set -euo pipefail
+          mkdir -p loadtest-bundle
+          kubectl -n "$NAMESPACE" cp "$LOADTEST_POD:/tmp/loadtest-bundle/bundle.json" \
+            loadtest-bundle/quic-agents.json 2>/dev/null \
+            || echo "::warning::the QUIC harness wrote no evidence bundle"
 
-      - name: Cleanup QUIC load test pod
+      # A run leaves nothing behind: the pod, the local build, and the token it
+      # was given all go, whatever the run's verdict was.
+      - name: Cleanup QUIC load test pod and spent credential
         if: always()
         run: |
           if [[ -n "${LOADTEST_POD:-}" ]]; then
             kubectl -n "$NAMESPACE" delete pod "$LOADTEST_POD" --ignore-not-found --wait=false
           fi
-          rm -rf /tmp/loadtest /tmp/loadtest-data /tmp/k6 /tmp/k6-"${K6_VERSION}"-linux-amd64
+          if [[ -n "${LOADTEST_ENROLL_TOKEN:-}" ]]; then
+            POSTGRES_POD="$(kubectl -n "$NAMESPACE" get pods \
+              -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+            if [[ -n "$POSTGRES_POD" ]]; then
+              kubectl -n "$NAMESPACE" exec -i "$POSTGRES_POD" -- \
+                psql -U opengate -d opengate -q \
+                  -v token="$LOADTEST_ENROLL_TOKEN" \
+                  -c "DELETE FROM enrollment_tokens WHERE token = :'token'" || true
+            fi
+          fi
+          rm -rf /tmp/loadtest /tmp/k6 /tmp/k6-"${K6_VERSION}"-linux-amd64
+
+      # A run leaves nothing behind, and says so. Every account in this database
+      # was once load-test residue — eighty-one of them — because no run had
+      # ever removed what it made and nothing counted. The proof this writes is
+      # what the evidence bundle carries: a run that claims it left nothing has
+      # to have looked.
+      - name: Remove what the run created, and prove it
+        if: always()
+        run: |
+          set -euo pipefail
+          POSTGRES_POD="$(kubectl -n "$NAMESPACE" get pods \
+            -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
+            -o jsonpath='{.items[0].metadata.name}')"
+          test -n "$POSTGRES_POD"
+          LOADTEST_PSQL="kubectl -n $NAMESPACE exec -i $POSTGRES_POD -- psql -U opengate -d opengate" \
+            scripts/loadtest-cleanup.sh loadtest-cleanup.json
+
+      - name: Record run completeness
+        if: always()
+        run: |
+          set -euo pipefail
+          set +e
+          LOADTEST_K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
+            scripts/loadtest-run-completeness.sh loadtest-summary.json loadtest-completeness.json
+          COMPLETENESS_STATUS=$?
+          set -e
+          # A run that measured nothing is invalid, and an invalid run does not
+          # enter the trend: absorbed as data it pulls the window median down,
+          # and the next genuinely slow night then compares favourably and
+          # passes. Exit 3 is that verdict; the job goes red on it.
+          exit "$COMPLETENESS_STATUS"
 
       - name: Build canonical load-test summary
         if: always()
@@ -197,6 +326,7 @@ jobs:
           # workspace-relative layout and the publish job's download path holds.
           mkdir -p loadtest-k6-raw
           cp "$LOADTEST_K6_SUMMARY_DIR"/*.json loadtest-k6-raw/ 2>/dev/null || true
+          cp "$LOADTEST_K6_SUMMARY_DIR"/*.thresholds loadtest-k6-raw/ 2>/dev/null || true
 
       # The raw k6 exports ship alongside the canonical summary. Without them a
       # summary row that silently lost its metrics is indistinguishable from a
@@ -209,7 +339,10 @@ jobs:
           name: loadtest-summary
           path: |
             loadtest-summary.json
+            loadtest-completeness.json
+            loadtest-cleanup.json
             loadtest-k6-raw
+            loadtest-bundle
           if-no-files-found: error
           retention-days: 90
 

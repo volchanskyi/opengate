@@ -29,19 +29,31 @@ test_wrong_shape_denied {
 test_too_many_ocpus_denied {
 	deny[msg] with input as {"resource": {"oci_core_instance": {"opengate": {
 		"shape": "VM.Standard.A1.Flex",
-		"shape_config": {"ocpus": 5, "memory_in_gbs": 24},
+		"shape_config": {"ocpus": 3, "memory_in_gbs": 12},
 		"source_details": {"boot_volume_size_in_gbs": 50},
 	}}}}
-	contains(msg, "exceeds Always Free A1.Flex cap of 4")
+	contains(msg, "exceeds Always Free A1.Flex cap of 2")
 }
 
 test_too_much_memory_denied {
 	deny[msg] with input as {"resource": {"oci_core_instance": {"opengate": {
 		"shape": "VM.Standard.A1.Flex",
-		"shape_config": {"ocpus": 4, "memory_in_gbs": 25},
+		"shape_config": {"ocpus": 2, "memory_in_gbs": 13},
 		"source_details": {"boot_volume_size_in_gbs": 50},
 	}}}}
-	contains(msg, "exceeds Always Free A1.Flex cap of 24 GB")
+	contains(msg, "exceeds Always Free A1.Flex cap of 12 GB")
+}
+
+# The two gates on this grant must agree. A plan sized to the looser figure the
+# other gate refuses is exactly the shape that passes one pipeline and fails the
+# next, so the wider pair is denied here as well.
+test_wider_grant_figures_are_denied_here_too {
+	deny[msg] with input as {"resource": {"oci_core_instance": {"opengate": {
+		"shape": "VM.Standard.A1.Flex",
+		"shape_config": {"ocpus": 4, "memory_in_gbs": 24},
+		"source_details": {"boot_volume_size_in_gbs": 50},
+	}}}}
+	contains(msg, "exceeds Always Free A1.Flex cap of")
 }
 
 test_boot_volume_too_large_denied {

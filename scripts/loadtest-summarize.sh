@@ -78,7 +78,11 @@ emit_k6_rows() {
         # Rate metrics carry the ratio as "value"; "rate" is the counter shape.
         error_rate: (values("http_req_failed").value // values("http_req_failed").rate // null)
       } | compact),
-      (if (.metrics.relay_msg_latency_ms.values? != null) then
+      # Present the relay row whenever the scenario recorded the metric at all.
+      # Keying this on the v0.x "values" nesting made the row unreachable under
+      # the pinned exporter while three ceilings still named it, so the guard
+      # reads the same shape-tolerant helper the statistics below do.
+      (if ((values("relay_msg_latency_ms") | length) > 0) then
         (base("relay") + {
           latency_p50_ms: (values("relay_msg_latency_ms")["p(50)"] // values("relay_msg_latency_ms").med // null),
           latency_p95_ms: (values("relay_msg_latency_ms")["p(95)"] // null),

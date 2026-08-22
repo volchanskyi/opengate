@@ -1,0 +1,39 @@
+# The busiest ordinary hour rather than an exceptional one: a morning where a
+# whole estate boots at once and every technician is looking at a device page.
+schema_version: 1
+name: peak
+family: peak
+environment: staging
+fixture: lopsided
+
+phases:
+  - name: ramp
+    duration: 1m
+    operator_arrivals_per_second: 5
+    connected_agents: 500
+    sessions: 2
+  - name: peak
+    duration: 5m
+    operator_arrivals_per_second: 15
+    connected_agents: 2000
+    sessions: 20
+  - name: drain
+    duration: 1m
+    operator_arrivals_per_second: 0
+    connected_agents: 0
+    sessions: 0
+
+safety:
+  max_node_cpu_percent: 85
+  max_node_memory_percent: 90
+  max_error_rate: 0.02
+
+gates:
+  - series: k6/api-baseline/http
+    metric: latency_p95_ms
+    max: 400
+    blocking: false
+  - series: k6/api-baseline/http
+    metric: error_rate
+    max: 0.02
+    blocking: true

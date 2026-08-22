@@ -20,11 +20,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
-	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
+
+// agentDeadline bounds connecting, handshaking and registering. Whatever hold
+// the run asked for is added to it.
+const agentDeadline = 30 * time.Second
 
 type agentResult struct {
 	connectDur   time.Duration
@@ -44,7 +46,28 @@ func main() {
 	answerLogPulls := flag.Bool("answer-log-pulls", false, "answer one on-demand raw-log pull per agent")
 	backfillBatches := flag.Int("backfill-batches", 0, "reconnect-storm backfill batches each agent drains after register")
 	backfillSamples := flag.Int("backfill-samples", 100, "pre-rolled samples per backfill batch")
+	holdFor := flag.Duration("hold", 0, "keep every agent connected for this long after its traffic, so a generator on the other side has machines to open sessions against")
+	relaySessions := flag.Bool("relay-sessions", false, "answer SessionRequest by joining the machine side of the relay and echoing, so the browser side can time a real round trip")
+	profilePath := flag.String("profile", "", "load/profiles/<name>.yaml declaring the phases, safety limits and gates")
+	bundleDir := flag.String("bundle", "", "directory to write this run's evidence bundle into")
+	enrollURL := flag.String("enroll-url", "", "server base URL to enroll each agent through, so no certificate authority key leaves the cluster")
+	enrollToken := flag.String("enroll-token", "", "enrollment token to spend, minted through the admin API before the run")
 	flag.Parse()
+
+	// Production is never a target, and the way a generator ends up pointed at
+	// one is an address in an environment variable set in a hurry. The refusal
+	// is here, before anything dials, rather than in a reviewer's attention.
+	if err := CheckQUICAddress(*addr); err != nil {
+		log.Fatalf("refusing to run: %v", err)
+	}
+
+	var profile *Profile
+	if *profilePath != "" {
+		var err error
+		if profile, err = LoadProfile(*profilePath); err != nil {
+			log.Fatalf("profile: %v", err)
+		}
+	}
 
 	opts := loadOptions{
 		defaultTelemetry:        *defaultTelemetry,
@@ -53,13 +76,15 @@ func main() {
 		answerLogPulls:          *answerLogPulls,
 		backfillBatches:         *backfillBatches,
 		backfillSamplesPerBatch: *backfillSamples,
+		holdFor:                 *holdFor,
+		relaySessions:           *relaySessions,
 	}
 
 	tenants := max(*tenantFlag, 1)
 	agentPlan := planAgents(*agents, tenants)
 
 	dir := *dataDir
-	if dir == "" {
+	if dir == "" && *enrollURL == "" {
 		var err error
 		dir, err = os.MkdirTemp("", "loadtest-certs-*")
 		if err != nil {
@@ -68,9 +93,9 @@ func main() {
 		defer os.RemoveAll(dir)
 	}
 
-	cm, err := cert.NewManager(dir)
+	credentials, err := newAgentCredentials(dir, *enrollURL, *enrollToken)
 	if err != nil {
-		log.Fatalf("cert manager: %v", err)
+		log.Fatalf("agent credentials: %v", err)
 	}
 
 	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)
@@ -83,14 +108,22 @@ func main() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			results[idx] = runAgent(cm, *addr, agentPlan[idx], opts)
+			results[idx] = runAgent(credentials, *addr, agentPlan[idx], opts)
 		}(i)
 	}
 
 	wg.Wait()
 	totalDur := time.Since(start)
 
-	if reportResults(results, totalDur, *agents) > 0 {
+	failures := reportResults(results, totalDur, *agents)
+
+	if *bundleDir != "" {
+		if err := writeRunBundle(*bundleDir, profile, results, start, totalDur, *agents, *addr); err != nil {
+			log.Fatalf("bundle: %v", err)
+		}
+	}
+
+	if failures > 0 {
 		os.Exit(1)
 	}
 }
@@ -171,20 +204,21 @@ func planAgents(n, tenants int) []tenantAgent {
 	return plan
 }
 
-func runAgent(cm *cert.Manager, addr string, plan tenantAgent, opts loadOptions) agentResult {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts loadOptions) agentResult {
+	// The deadline covers connecting and registering, plus however long this
+	// machine was asked to stay. A fixed budget would cut a held-open fleet
+	// short and report the run's own timeout as the server dropping machines.
+	ctx, cancel := context.WithTimeout(context.Background(), agentDeadline+opts.holdFor)
 	defer cancel()
 
-	deviceID := uuid.New()
-
-	tlsCert, err := cm.SignAgent(deviceID.String(), "loadtest")
+	tlsConfig, err := credentials.forAgent(ctx, plan)
 	if err != nil {
-		return agentResult{err: fmt.Errorf("sign cert: %w", err)}
+		return agentResult{err: err}
 	}
 
 	// Connect.
 	t0 := time.Now()
-	conn, err := quic.DialAddr(ctx, addr, cm.AgentTLSConfig(tlsCert), &quic.Config{
+	conn, err := quic.DialAddr(ctx, addr, tlsConfig, &quic.Config{
 		MaxIdleTimeout: 30 * time.Second,
 	})
 	if err != nil {
@@ -202,7 +236,7 @@ func runAgent(cm *cert.Manager, addr string, plan tenantAgent, opts loadOptions)
 	}
 
 	t1 := time.Now()
-	if err := handshake(stream, tlsCert.Certificate[0]); err != nil {
+	if err := handshake(stream, tlsConfig.Certificates[0].Certificate[0]); err != nil {
 		res.err = err
 		return res
 	}
