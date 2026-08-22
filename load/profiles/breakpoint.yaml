@@ -1,0 +1,57 @@
+# Raise the load until something gives, and report what gave. The answer is
+# three things — the last load that passed, the first that failed, and which
+# resource ran out — so the phases step rather than ramp: a step that failed is
+# attributable, a continuous ramp is not.
+#
+# It runs on staging under guardrails, because saturating two processors
+# throttles production's health probes on the same node. The safety ceilings
+# below are lower than any other profile's for that reason, and they stop the
+# run rather than fail it.
+schema_version: 1
+name: breakpoint
+family: breakpoint
+environment: staging
+fixture: small
+
+phases:
+  - name: step-500
+    duration: 2m
+    operator_arrivals_per_second: 5
+    connected_agents: 500
+    sessions: 5
+  - name: step-1000
+    duration: 2m
+    operator_arrivals_per_second: 10
+    connected_agents: 1000
+    sessions: 10
+  - name: step-2000
+    duration: 2m
+    operator_arrivals_per_second: 20
+    connected_agents: 2000
+    sessions: 20
+  - name: step-4000
+    duration: 2m
+    operator_arrivals_per_second: 40
+    connected_agents: 4000
+    sessions: 40
+  # Held at the load the run started from, so the report can say whether the
+  # system came back on its own or stayed broken.
+  - name: recovery
+    duration: 3m
+    operator_arrivals_per_second: 5
+    connected_agents: 500
+    sessions: 5
+
+safety:
+  max_node_cpu_percent: 70
+  max_node_memory_percent: 80
+  max_error_rate: 0.25
+
+gates:
+  # The recovery phase carries the only blocking gate. Failing under overload is
+  # the finding this family exists to produce; not recovering afterwards is the
+  # defect.
+  - series: k6/api-baseline/http
+    metric: error_rate
+    max: 0.01
+    blocking: true

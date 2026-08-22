@@ -1,6 +1,12 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
-import { authHeaders, registerMember, visibleSiteIds, devicesUrl } from "../lib/session.js";
+import {
+  authHeaders,
+  devicesUrl,
+  printCleanupManifest,
+  registerMember,
+  visibleSiteIds,
+} from "../lib/session.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -18,8 +24,12 @@ export const options = {
 
 export function setup() {
   // One shared member for every VU, reading the sites the organization has.
-  const token = registerMember(BASE_URL, "agent-load");
-  return { token, siteIds: visibleSiteIds(BASE_URL, token) };
+  const member = registerMember(BASE_URL, "agent-load");
+  return {
+    token: member.token,
+    email: member.email,
+    siteIds: visibleSiteIds(BASE_URL, member.token),
+  };
 }
 
 export default function (data) {
@@ -42,4 +52,8 @@ export default function (data) {
   check(sessions, { "sessions ok": (r) => r.status === 200 });
 
   sleep(1);
+}
+
+export function teardown(data) {
+  printCleanupManifest([data.email]);
 }

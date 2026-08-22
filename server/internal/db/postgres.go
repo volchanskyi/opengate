@@ -147,6 +147,17 @@ func (s *PostgresStore) DB() *sql.DB {
 	return s.db
 }
 
+// PoolStats reports the connection pool's current occupancy and its running
+// account of callers that had to queue for a connection.
+//
+// The pool is a resource a load run can exhaust before anything else gives way,
+// and latency alone cannot say so: a request that waited 200 ms for a
+// connection and one that spent 200 ms executing look identical from outside.
+// The wait totals are what separate them.
+func (s *PostgresStore) PoolStats() sql.DBStats {
+	return s.db.Stats()
+}
+
 // Size returns the current Postgres database size in bytes via pg_database_size().
 func (s *PostgresStore) Size(ctx context.Context) (int64, error) {
 	var size int64

@@ -1,0 +1,58 @@
+# The load the system is expected to carry on an ordinary day, run to prove it
+# still carries it. Everything else in this directory is a departure from this
+# one, so this is the profile a trend is read against.
+schema_version: 1
+name: normal
+family: normal
+environment: staging
+fixture: small
+
+phases:
+  # A ramp rather than a step, so the steady phase measures a warm system: the
+  # first connection of a run pays for a cold connection pool and an empty
+  # statement cache, and folding that into the number being trended makes every
+  # run's first minute look like a regression.
+  - name: ramp
+    duration: 1m
+    operator_arrivals_per_second: 2
+    connected_agents: 250
+    sessions: 0
+  - name: steady
+    duration: 5m
+    operator_arrivals_per_second: 5
+    connected_agents: 500
+    sessions: 5
+  # A declared wind-down, so a connection torn down by the run ending is not
+  # counted as one the server dropped.
+  - name: drain
+    duration: 30s
+    operator_arrivals_per_second: 0
+    connected_agents: 0
+    sessions: 0
+
+safety:
+  max_node_cpu_percent: 85
+  max_node_memory_percent: 90
+  max_error_rate: 0.01
+
+gates:
+  # The single API mark, tightened from 200 ms. It stays advisory until fresh
+  # runs show the spread has narrowed now that the generator and the target hold
+  # separate allocations — a number that fires on the measurement's own noise
+  # teaches everyone to ignore it.
+  - series: k6/api-baseline/http
+    metric: latency_p95_ms
+    max: 100
+    blocking: false
+  - series: k6/api-baseline/http
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/quic-agents/aggregate
+    metric: error_rate
+    max: 0
+    blocking: true

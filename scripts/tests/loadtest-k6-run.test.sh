@@ -74,13 +74,25 @@ else
 fi
 
 # A threshold failure is a measurement — a slow fleet is exactly what the trend
-# exists to record — so the row survives and the step still goes red.
+# exists to record — so the row survives. Whether the breach fails the run is a
+# decision the profile's gates make against the stored rows, not one k6's exit
+# code makes on its own, so the scenario reports success and says what breached.
 run_case 99
-assert_eq "threshold failure exits 99" "99" "$STATUS"
+assert_eq "threshold failure is reported as a measurement" "0" "$STATUS"
 if [ -f "$WORK/summaries/api-baseline.json" ]; then
   pass "threshold failure keeps the summary export"
 else
   fail "threshold failure keeps the summary export"
+fi
+if grep -q "threshold" "$WORK/out.txt"; then
+  pass "threshold failure is announced rather than swallowed"
+else
+  fail "threshold failure is announced rather than swallowed"
+fi
+if [ -f "$WORK/summaries/api-baseline.thresholds" ]; then
+  pass "threshold failure is recorded for the gate to read"
+else
+  fail "threshold failure is recorded for the gate to read"
 fi
 
 # A script exception aborts before the workload runs. Its export holds the two
@@ -97,6 +109,15 @@ if grep -q "api-baseline" "$WORK/out.txt"; then
   pass "aborted run names the scenario it discarded"
 else
   fail "aborted run names the scenario it discarded"
+fi
+
+# A clean run records no threshold breach, so the gate can tell a scenario that
+# cleared its marks from one that was never asked.
+run_case 0
+if [ -f "$WORK/summaries/api-baseline.thresholds" ]; then
+  fail "a clean run records no threshold breach"
+else
+  pass "a clean run records no threshold breach"
 fi
 
 # An export that never appeared after a clean run means the runner and the

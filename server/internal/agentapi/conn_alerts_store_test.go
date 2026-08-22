@@ -129,12 +129,23 @@ func TestStoreOutcomesAreEachCountedAsWhatTheyAre(t *testing.T) {
 			f.ingest(t, wellFormed(t))
 			f.dropped(t, tc.reason)
 
-			want := float64(0)
-			if tc.alsoSuppresed {
-				want = 1
+			// The drop and the suppression are two counters written one after
+			// the other on the persist-slot goroutine, and `dropped` waits on
+			// the first of them. Reading the second immediately is a race the
+			// test loses under load, so each case waits for its own answer:
+			// suppression must arrive, or must never arrive.
+			suppressed := func() float64 {
+				return promtestutil.ToFloat64(
+					f.metrics.AlertsSuppressedTotal.WithLabelValues(string(alerts.CeilingSuppressed)))
 			}
-			assert.InDelta(t, want, promtestutil.ToFloat64(
-				f.metrics.AlertsSuppressedTotal.WithLabelValues(string(alerts.CeilingSuppressed))), 0,
+			if tc.alsoSuppresed {
+				require.Eventuallyf(t, func() bool { return suppressed() == 1 },
+					2*time.Second, 5*time.Millisecond,
+					"a refused alert must be counted as suppression")
+				return
+			}
+			assert.Never(t, func() bool { return suppressed() != 0 },
+				200*time.Millisecond, 10*time.Millisecond,
 				"only a refused alert is suppression")
 		})
 	}

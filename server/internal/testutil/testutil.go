@@ -79,6 +79,20 @@ func openAdminSQL(ctx context.Context, url string) (*sql.DB, error) {
 // always runs — it never skips on a missing database.
 func NewTestStore(t testing.TB) *db.PostgresStore {
 	t.Helper()
+	return newTestStore(t, testMaxOpenConns)
+}
+
+// NewTestStoreWithPool is NewTestStore with the connection ceiling named
+// explicitly. A test that has to make the pool itself the constraint — proving
+// a caller queues rather than executes — cannot do it against a pool wide
+// enough to serve everyone at once.
+func NewTestStoreWithPool(t testing.TB, maxOpenConns int) *db.PostgresStore {
+	t.Helper()
+	return newTestStore(t, maxOpenConns)
+}
+
+func newTestStore(t testing.TB, maxOpenConns int) *db.PostgresStore {
+	t.Helper()
 
 	pgBaseURL := testpg.BaseURL(t)
 
@@ -140,8 +154,8 @@ func NewTestStore(t testing.TB) *db.PostgresStore {
 	}
 	testURL := pgBaseURL + sep + "search_path=" + schemaName
 	store, err = db.NewPostgresStoreWithOptions(ctx, testURL, db.PostgresOptions{
-		MaxOpenConns: testMaxOpenConns,
-		MaxIdleConns: testMaxIdleConns,
+		MaxOpenConns: maxOpenConns,
+		MaxIdleConns: min(testMaxIdleConns, maxOpenConns),
 	})
 	require.NoErrorf(t, err, "open test store for schema %s", schemaName)
 

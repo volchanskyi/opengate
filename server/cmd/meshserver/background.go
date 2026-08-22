@@ -150,6 +150,7 @@ func startBackgroundLoops(ctx context.Context, d backgroundLoops) {
 		SignalingFailures:   d.signaling.FailureCount,
 	}, gaugeRefreshInterval)
 	go appmetrics.StartDBSizeUpdater(ctx, d.metrics, d.store, d.logger, dbSizeRefreshInterval)
+	go appmetrics.StartDBPoolUpdater(ctx, d.metrics, appmetrics.SQLPoolStatter(d.store.PoolStats), gaugeRefreshInterval)
 
 	// Platform meta-monitoring of the rule pack and the queue it feeds. Both
 	// gauges are counts over tables that only grow, so they are refreshed here
@@ -182,9 +183,16 @@ func startBackgroundLoops(ctx context.Context, d backgroundLoops) {
 }
 
 // gaugeRefreshInterval is how often the runtime gauges — sessions, connected
-// agents, connected AMT devices, signaling — are read from the components that
-// hold them. They are in-memory counts, so this is cheap and close to the scrape.
-const gaugeRefreshInterval = 15 * time.Second
+// agents, connected AMT devices, signaling, connection-pool occupancy — are
+// read from the components that hold them.
+//
+// It is short because a load run is short. The lag an observer adds is its own
+// refresh plus the scrape behind it, and a burst that starts and finishes
+// inside that window leaves every gauge reading the number it held before the
+// burst began — so a run that connected a thousand agents can be recorded as a
+// server that saw none. These are in-memory counts, so reading them this often
+// costs nothing worth saving.
+const gaugeRefreshInterval = 5 * time.Second
 
 // dbSizeRefreshInterval is how often the database's on-disk size is measured. It
 // moves slowly and the query is not free, so it is read far less often than it

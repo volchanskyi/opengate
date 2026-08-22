@@ -34,6 +34,12 @@ type Metrics struct {
 	// Agents
 	AgentsConnected prometheus.Gauge
 
+	// Agent registration, measured server-side where the device row lands.
+	// See registration_pool.go for why the outcome and the duration travel
+	// together.
+	AgentRegistrationsTotal   *prometheus.CounterVec
+	AgentRegistrationDuration *prometheus.HistogramVec
+
 	// MPS
 	MPSConnectedDevices prometheus.Gauge
 
@@ -44,6 +50,12 @@ type Metrics struct {
 	DBQueryDuration *prometheus.HistogramVec
 	DBQueriesTotal  *prometheus.CounterVec
 	DBSizeBytes     prometheus.Gauge
+	// Connection-pool occupancy, plus the running account of callers that had
+	// to queue for a connection — see registration_pool.go for why the waits
+	// are counters rather than a live queue length.
+	DBPoolConnections      *prometheus.GaugeVec
+	DBPoolWaitsTotal       prometheus.Counter
+	DBPoolWaitSecondsTotal prometheus.Counter
 
 	// Edge Sentinel raw-log broker
 	DeviceLogPullsTotal   *prometheus.CounterVec
@@ -237,6 +249,8 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.RuleCoverage,
 		m.MetricsGridMisalignedTotal,
 	)
+	reg.MustRegister(newRegistrationAndPoolMetrics(m)...)
+	seedRegistrationAndPoolMetrics(m)
 
 	// The open-work gauges carry a closed vocabulary, so every status is
 	// exported from the start. A missing series reads as "no data", which is not

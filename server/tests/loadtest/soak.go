@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,21 +24,47 @@ type loadOptions struct {
 	answerLogPulls          bool
 	backfillBatches         int
 	backfillSamplesPerBatch int
+
+	// holdFor keeps each agent connected after its traffic. A machine that
+	// connects and leaves exercises the accept path and nothing that happens
+	// afterwards, and a generator on the other side needs machines that are
+	// still there to open sessions against.
+	holdFor time.Duration
+
+	// relaySessions answers a SessionRequest by joining the machine side of the
+	// relay and echoing. The browser side then times its own frame coming back,
+	// which is what makes a relay latency figure a measurement of the relay.
+	relaySessions bool
 }
 
-// defaultMetricDimNames are the host metric dimensions the sampler emits by
-// default (mirrors the agent's store_sink series set). Central VM keeps avg
-// only; min/max/last + 1 s raw stay agent-local.
+// defaultMetricDimNames is every host metric dimension a machine writes, in the
+// order a window carries them: each gauge's average, then its window maximum
+// where a within-minute spike is the signal, then the stall vitals and the
+// disk-performance vitals.
+//
+// It is the whole stored vocabulary rather than a sample of it, because the
+// cost a load run is measuring is per-series: a window carrying part of the set
+// writes fewer series, occupies less of the per-device budget and finishes
+// sooner than the one production actually receives, so the run would report a
+// server absorbing a load nobody sends.
+//
+// telemetry_shape_test.go holds this equal to the cross-language golden the
+// agent and the server already agree through.
 var defaultMetricDimNames = []string{
-	"cpu.total", "mem.used_percent", "disk.used_percent", "net.rx_bps", "net.tx_bps",
+	"cpu.total", "cpu.total.max",
+	"mem.used_percent", "mem.used_percent.max",
+	"disk.used_percent",
+	"net.rx_bps", "net.rx_bps.max",
+	"net.tx_bps", "net.tx_bps.max",
 	"disk.mounts_critical",
 	"stall.cpu.some", "stall.mem.some", "stall.mem.full", "stall.io.some", "stall.io.full",
-	"disk.await_ms", "disk.queue_depth",
+	"disk.await_ms", "disk.await_ms.max", "disk.queue_depth",
 }
 
 // defaultFamilies are the per-family anomaly-rate buckets a health summary
-// reports beside the node-level rate.
-var defaultFamilies = []string{"cpu", "memory", "disk", "network"}
+// reports beside the node-level rate. These are the names the server accounts
+// for, so a summary carrying them lands in the series a dashboard reads.
+var defaultFamilies = []string{"cpu", "mem", "disk", "net", "proc"}
 
 // maxSoakLogLines bounds a soak DeviceLogsResponse so the agent side never
 // answers a raw pull with an unbounded payload.
@@ -116,8 +143,9 @@ func readControlFrame(codec *protocol.Codec, r io.Reader) (*protocol.ControlMess
 
 // runSoakTraffic drives the Edge-Sentinel soak load for one agent: it emits the
 // default telemetry shape and extra host-metric windows (ingest), runs a
-// reconnect-storm backfill drain, and optionally answers one on-demand raw-log
-// pull (the agent side of the broker round-trip).
+// reconnect-storm backfill drain, optionally answers one on-demand raw-log pull
+// (the agent side of the broker round-trip), and then holds the connection open
+// for as long as the run asked, answering whatever the server sends.
 func runSoakTraffic(codec *protocol.Codec, stream soakStream, opts loadOptions) error {
 	if err := emitDefaultTelemetry(codec, stream, opts); err != nil {
 		return err
@@ -128,19 +156,108 @@ func runSoakTraffic(codec *protocol.Codec, stream soakStream, opts loadOptions) 
 	if err := emitMetricWindows(codec, stream, opts.metricWindows); err != nil {
 		return err
 	}
-	if !opts.answerLogPulls {
+	if opts.answerLogPulls {
+		if err := stream.SetReadDeadline(time.Now().Add(answerPullDeadline)); err != nil {
+			return fmt.Errorf("set read deadline: %w", err)
+		}
+		// A missing pull within the deadline is expected in a bare run, so a
+		// read timeout is not an error; only a mid-frame failure is.
+		if _, err := answerLogPull(codec, stream, stream); err != nil && !isTimeout(err) {
+			return fmt.Errorf("answer log pull: %w", err)
+		}
+	}
+	return holdOpen(codec, stream, opts)
+}
+
+// holdOpen keeps this machine in the run for opts.holdFor, answering what the
+// server sends. A fleet's steady-state cost is connections that stay up, not
+// connections that open; a harness that disconnects immediately never applies
+// it.
+//
+// A read that times out is the ordinary case — a quiet server has nothing to
+// say — so the loop simply reads again until the hold is over.
+func holdOpen(codec *protocol.Codec, stream soakStream, opts loadOptions) error {
+	if opts.holdFor <= 0 {
 		return nil
 	}
-	if err := stream.SetReadDeadline(time.Now().Add(answerPullDeadline)); err != nil {
-		return fmt.Errorf("set read deadline: %w", err)
-	}
-	// A missing pull within the deadline is expected in a bare run, so a read
-	// timeout is not an error; only a mid-frame failure is.
-	if _, err := answerLogPull(codec, stream, stream); err != nil && !isTimeout(err) {
-		return fmt.Errorf("answer log pull: %w", err)
+
+	deadline := time.Now().Add(opts.holdFor)
+	for time.Now().Before(deadline) {
+		wait := min(holdReadSlice, time.Until(deadline))
+		if err := stream.SetReadDeadline(time.Now().Add(wait)); err != nil {
+			return fmt.Errorf("set read deadline: %w", err)
+		}
+		msg, err := readControlFrame(codec, stream)
+		if err != nil {
+			if isTimeout(err) {
+				continue
+			}
+			return fmt.Errorf("hold open: %w", err)
+		}
+		if err := answerHeldFrame(codec, stream, msg, opts); err != nil {
+			return err
+		}
 	}
 	return nil
 }
+
+// holdReadSlice bounds one read while a machine is held open, so the hold ends
+// close to when it was asked to rather than at the next frame the server
+// happens to send.
+const holdReadSlice = 2 * time.Second
+
+// answerHeldFrame replies to what the server sends a held-open machine. Only
+// the frames a load run needs to keep moving are answered; anything else is
+// read and discarded, which is what an agent that does not support a capability
+// does.
+func answerHeldFrame(codec *protocol.Codec, w io.Writer, msg *protocol.ControlMessage, opts loadOptions) error {
+	switch msg.Type {
+	case protocol.MsgRequestDeviceLogs:
+		payload, err := codec.EncodeControl(buildDeviceLogsResponse(int(msg.LogLimit)))
+		if err != nil {
+			return fmt.Errorf("encode device logs response: %w", err)
+		}
+		if err := codec.WriteFrame(w, protocol.FrameControl, payload); err != nil {
+			return fmt.Errorf("write device logs response: %w", err)
+		}
+	case protocol.MsgSessionRequest:
+		if !opts.relaySessions {
+			return nil
+		}
+		return joinRequestedSession(msg)
+	}
+	return nil
+}
+
+// joinRequestedSession opens the machine side of the session the server just
+// handed this connection and echoes on it until the operator's side goes away.
+//
+// It runs on its own goroutine because the relay is a separate connection: the
+// control stream must stay readable, or the machine stops answering everything
+// else for as long as somebody has a session open.
+func joinRequestedSession(msg *protocol.ControlMessage) error {
+	req, err := RelayRequestFrom(msg)
+	if err != nil {
+		return fmt.Errorf("session request: %w", err)
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), relaySessionLifetime)
+		defer cancel()
+
+		joined, err := JoinRelay(ctx, req)
+		if err != nil {
+			return
+		}
+		defer func() { _ = joined.Close() }()
+		_ = joined.Echo(ctx)
+	}()
+	return nil
+}
+
+// relaySessionLifetime bounds one simulated session, so a run cannot leave a
+// goroutine echoing into a pipe nobody is reading.
+const relaySessionLifetime = 5 * time.Minute
 
 // emitMetricWindows writes n host-metric windows, driving the ingest path.
 func emitMetricWindows(codec *protocol.Codec, w io.Writer, n int) error {

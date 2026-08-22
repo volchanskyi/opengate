@@ -1,0 +1,36 @@
+# Hold the load and the data constant and vary the resources, so the answer is a
+# shape rather than a single point: whether the second processor bought as much
+# as the first, and where the curve stops rising.
+#
+# The cluster offers two processors and this needs four or five points, so it
+# runs on a disposable runner stack. A runner is a different architecture from
+# production, which is exactly why this family compares processor counts against
+# each other and never states an absolute capacity.
+schema_version: 1
+name: scaling
+family: scaling
+environment: runner
+fixture: small
+
+phases:
+  - name: ramp
+    duration: 30s
+    operator_arrivals_per_second: 2
+    connected_agents: 100
+    sessions: 0
+  - name: steady
+    duration: 3m
+    operator_arrivals_per_second: 10
+    connected_agents: 500
+    sessions: 5
+
+safety:
+  max_node_cpu_percent: 95
+  max_node_memory_percent: 90
+  max_error_rate: 0.01
+
+gates:
+  - series: k6/api-baseline/http
+    metric: error_rate
+    max: 0.01
+    blocking: true

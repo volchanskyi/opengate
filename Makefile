@@ -305,8 +305,12 @@ e2e: agent-binary
 		cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v; \
 		exit $$rc
 
+# Every scenario CI runs, so a local pass and a nightly pass mean the same
+# thing. A target that omits one leaves that scenario's thresholds discovered
+# only by the nightly.
 load-test:
 	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/api-baseline.js
+	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/concurrent-agents.js
 	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/relay-throughput.js
 
 load-test-quic:

@@ -1,0 +1,43 @@
+# A steady, unremarkable load held long enough for what leaks to show. Nothing
+# here is meant to be hard; the finding is a trend line that does not flatten —
+# memory, goroutines, open files, pool occupancy, dead rows, series count.
+#
+# It runs overnight on staging, which costs nothing: the node is billed by
+# existing rather than by working.
+schema_version: 1
+name: soak
+family: soak
+environment: staging
+fixture: small
+
+phases:
+  - name: ramp
+    duration: 2m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 0
+  - name: soak
+    duration: 6h
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: drain
+    duration: 2m
+    operator_arrivals_per_second: 0
+    connected_agents: 0
+    sessions: 0
+
+safety:
+  max_node_cpu_percent: 75
+  max_node_memory_percent: 85
+  max_error_rate: 0.01
+
+gates:
+  - series: k6/api-baseline/http
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: quic/quic-agents/aggregate
+    metric: error_rate
+    max: 0
+    blocking: true

@@ -16,26 +16,6 @@ type tenantAgent struct {
 	hostname    string
 }
 
-// buildTenantAgents partitions tenants × perTenant agents deterministically so a
-// soak run is reproducible. Agents are laid out tenant-major (all of tenant 0,
-// then tenant 1, …); each hostname carries its tenant and agent index so cohorts
-// are distinguishable in server logs and audit events. Server-side the tenant is
-// assigned from the enrolled device, so a live multi-tenant run seeds one
-// enrollment identity per tenant; the harness models the fan-out and load.
-func buildTenantAgents(tenants, perTenant int) []tenantAgent {
-	agents := make([]tenantAgent, 0, tenants*perTenant)
-	for tenant := 0; tenant < tenants; tenant++ {
-		for a := 0; a < perTenant; a++ {
-			agents = append(agents, tenantAgent{
-				tenantIndex: tenant,
-				agentIndex:  a,
-				hostname:    fmt.Sprintf("soak-t%d-a%d", tenant, a),
-			})
-		}
-	}
-	return agents
-}
-
 // buildHealthSummary builds the node + per-family anomaly-rate summary an agent
 // emits by default. The values are deterministic placeholders; the soak proves
 // the ingest path and cardinality, not the anomaly math.

@@ -1,0 +1,36 @@
+# Hold the load constant and vary how much data is already there. Running it any
+# other way conflates the two: a slower run against a bigger fleet says nothing
+# about which of the two caused it.
+#
+# It runs on a disposable runner stack rather than on staging, because staging's
+# database writes into the same node root production depends on, and because a
+# comparison between fixture sizes needs no production-shaped hardware — only
+# the same hardware for each size.
+schema_version: 1
+name: volume
+family: volume
+environment: runner
+fixture: lopsided
+
+phases:
+  - name: ramp
+    duration: 30s
+    operator_arrivals_per_second: 2
+    connected_agents: 100
+    sessions: 0
+  - name: steady
+    duration: 3m
+    operator_arrivals_per_second: 5
+    connected_agents: 500
+    sessions: 5
+
+safety:
+  max_node_cpu_percent: 90
+  max_node_memory_percent: 90
+  max_error_rate: 0.01
+
+gates:
+  - series: k6/api-baseline/http
+    metric: error_rate
+    max: 0.01
+    blocking: true
