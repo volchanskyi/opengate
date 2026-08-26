@@ -30,14 +30,19 @@ func BenchmarkHandshaker_PerformHandshake(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		serverConn, clientConn := net.Pipe()
-		// net.Pipe is synchronous and unbuffered: a handshake that stops
+		// The clock is paused while this iteration's plumbing is built. A
+		// net.Pipe is synchronous and unbuffered, so a handshake that stops
 		// replying would leave the client goroutine's Read blocked with
-		// nothing to interrupt it, hanging the benchmark. The server side is
-		// bounded by the handshake context; this bounds the side driven here.
+		// nothing to interrupt it; the deadline below is what bounds that.
+		// Both the pipe and its deadline allocate, and this benchmark's
+		// figures are read as a statement about the handshake, so what the
+		// harness spends is kept out of them.
+		b.StopTimer()
+		serverConn, clientConn := net.Pipe()
 		if err := clientConn.SetDeadline(time.Now().Add(handshakeTestTimeout)); err != nil {
 			b.Fatal(err)
 		}
+		b.StartTimer()
 
 		// Run client side in goroutine. The agent opens + writes first, so
 		// send AgentHello before reading the server's reply.

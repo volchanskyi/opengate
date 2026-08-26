@@ -252,7 +252,7 @@ rather than lowered to make a shard fit.
 The projection is checked before the matrix runs by
 [`mutation-shard-budget.sh`](../../scripts/mutation-shard-budget.sh) — a shard that
 has outgrown the job cap is reported in a few minutes instead of taking the whole
-nightly down with it after 75. The Go count comes from a `gremlins` dry-run
+nightly down with it after ninety. The Go count comes from a `gremlins` dry-run
 rather than from the source, because a Go mutant runs only where coverage reaches
 it: adding an integration test grows a shard without a line of production code
 changing.
@@ -261,7 +261,7 @@ A shard whose runtime is dominated by mutants that block rather than by mutants
 that run is sized by its timeout instead, through
 `mutation_go_shard_timeout_coefficient`: gremlins derives each mutant's budget
 from the coverage dry-run, and at the baseline coefficient a blocked mutant burns
-minutes of it, so a thirteen-mutant shard can fill a seventy-five-minute job.
+minutes of it, so a thirteen-mutant shard can fill a ninety-minute job.
 
 ### Mutation testing trend
 
@@ -763,18 +763,39 @@ reconnects with a backlog to drain, duplicate connections, and the machine side
 of any relay session the server hands it. It reports p50/p95/p99 for connect,
 handshake and register, and writes an evidence bundle.
 
+Registration is the one figure it does not time itself. The harness's own clock
+would stop when the frame reaches a local send buffer, and the device row is
+written later and elsewhere — so `-metrics-url` points it at the server's own
+account of how long registration took, published where that row lands, with the
+connection pool beside it. A registration queued behind a connection and one
+executing slowly are the same latency until the pool says which.
+
 ```bash
 # Default: 100 machines against a local stack that owns its own authority
 cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 
-# Against staging: enrol the way an installer does, hold the fleet connected,
-# and answer session requests so a generator can measure the relay
+# Against staging: build the fleet through the API as the seeded service
+# account, enrol the way an installer does, hold the fleet connected, and answer
+# session requests so a generator can measure the relay
 cd server && go run ./tests/loadtest/ \
   -agents=500 -addr=10.0.0.42:9090 \
-  -enroll-url=http://opengate-staging-server:8080 -enroll-token="$TOKEN" \
+  -enroll-url=http://opengate-staging-server:8080 \
+  -metrics-url=http://opengate-staging-server:8080 \
+  -fixture-account="$SERVICE_ACCOUNT" -fixture-password="$SERVICE_PASSWORD" \
   -relay-sessions -hold=8m \
   -profile=../load/profiles/normal.yaml -bundle=/tmp/loadtest-bundle
 ```
+
+A run given a profile walks its phases — climbing to each declared level, holding
+there, and winding down at the end — rather than offering the whole fleet at once
+and waiting. The machine it shares is read between phases against the profile's
+own limits, and a run that has pushed it past them stops there.
+
+The fleet itself is built through the same interface a technician uses:
+customers, sites and operator accounts are ordinary requests, and the machines
+arrive by enrolling with a credential the run mints and spends. `-fixture-size`
+picks which of the three committed fleets to build and `-fixture-seed` decides
+it, so the same seed reproduces the same fleet exactly.
 
 The certificate authority's private key never leaves the cluster. Against
 anything shared the harness keeps its own private keys and sends signing
@@ -799,7 +820,10 @@ verdict that decides whether the night enters the trend at all.
 
 - **E2E** runs on every push and gates `merge-to-main` (includes Lighthouse CI audits)
 - **Bundle size** runs on every push and gates `merge-to-main` (size-limit gzip check)
-- **Load tests** run on `workflow_dispatch` and weekly schedule only (not on every push)
+- **Load tests** run nightly at 05:00 UTC and on `workflow_dispatch` (not on every push)
+- **The performance stack** — the volume and scaling families, on a throwaway
+  runner — runs nightly at 07:00 UTC, clear of the twenty-job pool the mutation
+  matrix holds from 03:00
 - **Browser performance evidence** comes from Lighthouse CI artifacts/summaries
   and the bundle-size gate; PageSpeed Insights is not part of the current CD
   workflow.

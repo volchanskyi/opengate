@@ -89,7 +89,20 @@ emit_k6_rows() {
           latency_p99_ms: (values("relay_msg_latency_ms")["p(99)"] // null),
           rps: (values("relay_msg_count").rate // null)
         } | compact)
-      else empty end)
+      else empty end),
+      # One row per operator journey, present only where the scenario timed it.
+      # A single interface-wide figure could not say whether a slow night was a
+      # slow fleet list or a slow machine page, and those are different pieces of
+      # work with different marks.
+      (["device_list", "device_detail", "command_accept"][] as $journey
+        | ("journey_" + $journey + "_ms") as $metric
+        | if ((values($metric) | length) > 0) then
+            (base($journey) + {
+              latency_p50_ms: (values($metric)["p(50)"] // values($metric).med // null),
+              latency_p95_ms: (values($metric)["p(95)"] // null),
+              latency_p99_ms: (values($metric)["p(99)"] // null)
+            } | compact)
+          else empty end)
     ' "$file"
 }
 

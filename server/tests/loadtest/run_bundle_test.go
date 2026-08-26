@@ -71,19 +71,104 @@ func TestTheBundleRecordsWhatWasOfferedAndWhatArrived(t *testing.T) {
 	assert.InDelta(t, 1.0/3.0, phase.ErrorRate, 0.001)
 }
 
-// Each phase's tail travels separately. Folding them into one aggregate hides
-// which of the three a slow run was slow in, and they are three different
-// pieces of work.
-func TestTheBundleCarriesThePerPhaseLatencies(t *testing.T) {
+// Each stage's tail travels separately. Folding them into one aggregate hides
+// which of them a slow run was slow in, and they are different pieces of work.
+func TestTheBundleCarriesThePerStageLatencies(t *testing.T) {
 	bundle := bundleFrom(t, harnessResults(), true)
 
+	series := observedSeries(bundle)
+	for _, want := range []string{"connect_p95_ms", "handshake_p95_ms"} {
+		assert.True(t, series[want], "bundle must observe %s", want)
+	}
+}
+
+// Registration is the server's figure or it is nothing. The harness's own clock
+// stops when the frame reaches a local send buffer, and the row is written later
+// somewhere else — so a number from here cannot move however slow that write
+// becomes, and two ceilings sat on exactly that.
+func TestABundleWithoutAServerReadingPublishesNoRegistrationFigure(t *testing.T) {
+	bundle := bundleFrom(t, harnessResults(), true)
+
+	assert.False(t, observedSeries(bundle)["register_p95_ms"],
+		"a figure the harness cannot stand behind is worse than an absent one")
+}
+
+func TestABundleCarriesTheServersOwnRegistrationFigure(t *testing.T) {
+	in := runBundleInputs{
+		Results:    harnessResults(),
+		StartedAt:  time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC),
+		Total:      3 * time.Second,
+		AgentCount: 3,
+		Target:     "opengate-staging-server:9090",
+	}
+	reading, err := ParseServerRegistration(sampleMetricsPage)
+	require.NoError(t, err)
+	in.Registration = &reading
+
+	bundle := buildRunBundle(in)
+	series := observedSeries(bundle)
+	assert.True(t, series["register_p95_ms"])
+	// The pool travels beside it: a registration queued behind a connection and
+	// one executing slowly are the same latency until the pool says which.
+	assert.True(t, series["db_pool_in_use"])
+	assert.True(t, series["register_rejected"])
+}
+
+// The phases a run walked are the phases it reports.
+func TestABundleReportsTheProfilesOwnPhases(t *testing.T) {
+	in := runBundleInputs{
+		Results:    harnessResults(),
+		StartedAt:  time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC),
+		Total:      3 * time.Second,
+		AgentCount: 3,
+		Target:     "opengate-staging-server:9090",
+		Phases: []PhaseResult{
+			{Name: "ramp", StartedAt: time.Now(), FinishedAt: time.Now().Add(time.Minute), AchievedConnectedAgents: 250},
+			{Name: "steady", StartedAt: time.Now(), FinishedAt: time.Now().Add(time.Minute), AchievedConnectedAgents: 500},
+		},
+	}
+	bundle := buildRunBundle(in)
+
+	require.Len(t, bundle.Phases, 2)
+	assert.Equal(t, "ramp", bundle.Phases[0].Name)
+	assert.Equal(t, "steady", bundle.Phases[1].Name)
+}
+
+// A run that built its own fleet says what is in it, rather than inferring the
+// shape from how many machines it happened to dial.
+func TestABundleCountsTheFixtureTheRunBuilt(t *testing.T) {
+	plan, err := PlanFixture(FixtureLarge, 3)
+	require.NoError(t, err)
+	built := BuiltFixture{
+		Size:           plan.Size,
+		Customers:      []BuiltCustomer{{ID: "a"}, {ID: "b"}},
+		Users:          []string{"one@x.invalid", "two@x.invalid"},
+		Sites:          9,
+		PlannedDevices: plan.Devices,
+	}
+
+	bundle := buildRunBundle(runBundleInputs{
+		Results:    harnessResults(),
+		StartedAt:  time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC),
+		Total:      time.Second,
+		AgentCount: 3,
+		Target:     "opengate-staging-server:9090",
+		Fixture:    &built,
+	})
+
+	assert.Equal(t, FixtureLarge, bundle.Fixture.Size)
+	assert.Equal(t, 2, bundle.Fixture.Customers)
+	assert.Equal(t, 9, bundle.Fixture.Sites)
+	assert.Equal(t, plan.Devices, bundle.Fixture.Devices)
+}
+
+// observedSeries is the set of series a bundle carries.
+func observedSeries(bundle *Bundle) map[string]bool {
 	series := map[string]bool{}
 	for _, observation := range bundle.Observations {
 		series[observation.Series] = true
 	}
-	for _, want := range []string{"connect_p95_ms", "handshake_p95_ms", "register_p95_ms"} {
-		assert.True(t, series[want], "bundle must observe %s", want)
-	}
+	return series
 }
 
 // A run where every machine failed is invalid, not merely bad: nothing about
@@ -105,8 +190,14 @@ func TestWriteRunBundlePutsTheEvidenceOnDisk(t *testing.T) {
 	p, err := ParseProfile([]byte(minimalProfile))
 	require.NoError(t, err)
 
-	require.NoError(t, writeRunBundle(dir, p, harnessResults(),
-		time.Now(), time.Second, 3, "opengate-staging-server:9090"))
+	require.NoError(t, writeRunBundle(runBundleInputs{
+		Profile:    p,
+		Results:    harnessResults(),
+		StartedAt:  time.Now(),
+		Total:      time.Second,
+		AgentCount: 3,
+		Target:     "opengate-staging-server:9090",
+	}, dir))
 
 	read, err := LoadBundle(filepath.Join(dir, "bundle.json"))
 	require.NoError(t, err)

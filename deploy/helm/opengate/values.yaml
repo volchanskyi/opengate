@@ -140,3 +140,20 @@ certManager:
   issuerName: letsencrypt-prod
   email: admin@opengate.example.com   # ACME registration contact; override per environment
   server: https://acme-v02.api.letsencrypt.org/directory
+
+# The account a nightly load run mints its enrollment token against.
+#
+# Off by default. Only an environment that a load run is allowed to fill and
+# empty turns it on, and production is not one of them. See the job template for
+# why the account exists and why it holds no usable password.
+loadTest:
+  serviceAccount:
+    enabled: false
+    email: opengate-service@service.invalid
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 200m
+        memory: 64Mi

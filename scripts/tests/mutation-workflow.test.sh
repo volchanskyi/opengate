@@ -53,13 +53,15 @@ fi
 
 # --- Static workflow contract -------------------------------------------------
 
-# The job timeout is a flat 75 minutes. Every leg fits under it: both the Go and
+# The job timeout is a flat 90 minutes. Every leg fits under it: both the Go and
 # the Rust leg are sharded by scope, so each shard mutates one package's named
-# behavior and rebuilds inside one crate.
-if grep -qE "^[[:space:]]*timeout-minutes:[[:space:]]*75[[:space:]]*$" "$WORKFLOW"; then
-  pass "mutation job timeout is a flat 75 minutes (every sharded leg fits under it)"
+# behavior and rebuilds inside one crate. The ceiling sits above the widest
+# measured shard rather than on top of it, because a shard shot at the ceiling
+# reports nothing at all — the whole night is lost to discover one shard grew.
+if grep -qE "^[[:space:]]*timeout-minutes:[[:space:]]*90[[:space:]]*$" "$WORKFLOW"; then
+  pass "mutation job timeout is a flat 90 minutes (every sharded leg fits under it)"
 else
-  fail "mutation job must set timeout-minutes: 75"
+  fail "mutation job must set timeout-minutes: 90"
 fi
 
 if grep -qE 'mutation_rust_shard_args' "$WORKFLOW"; then
@@ -282,7 +284,7 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "expected shard set drifted (all='$(mutation_all_shards)')"
   fi
 
-  meaningful_go="go-api-runtime go-api-intake go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-detection go-domain-persistence go-amt go-updates-certificates go-protocol-relay go-observability-harness go-composition-root"
+  meaningful_go="go-api-runtime go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
   if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
     pass "Go shard ids describe their owned behavior"
   else
@@ -470,7 +472,7 @@ if [ -f "$SHARDS_LIB" ]; then
   # (already counted as caught). The baseline coefficient in
   # server/.gremlins.yaml grants each a multi-minute budget, so those timeout
   # waves burn the whole shard. A tighter backfill-scoped coefficient keeps them
-  # caught while restoring headroom under the 75-minute cap; it must stay well
+  # caught while restoring headroom under the 90-minute cap; it must stay well
   # above 1 so a genuinely-killable slow Postgres mutant is not cut off — false
   # caught credit is the only correctness risk. Every other shard inherits the
   # baseline (empty override).

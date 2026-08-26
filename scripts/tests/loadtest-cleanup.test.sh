@@ -39,7 +39,7 @@ make_fake_psql() {
   printf '%s' "$devices" >"$WORK/devices"
   cat >"$WORK/psql" <<EOF
 #!/usr/bin/env bash
-mode=""
+mode=stdin
 query=""
 while [ "\$#" -gt 0 ]; do
   case "\$1" in
@@ -59,6 +59,33 @@ case "\$mode" in
     if [ "$delete_works" = "yes" ]; then
       case "\$query" in
         *"DELETE FROM users"*) printf '0' >"$WORK/users" ;;
+        *"DELETE FROM devices"*) printf '0' >"$WORK/devices" ;;
+      esac
+    fi
+    ;;
+  stdin)
+    body="\$(cat)"
+    printf '%s' "\$body" >"$WORK/psql-last-body.txt"
+    if [ "$delete_works" = "yes" ]; then
+      # Three tables point at users with no cascade. Postgres refuses to remove
+      # an account while any of them still names it, so a removal that has not
+      # cleared them first is refused here too — that refusal is the whole
+      # reason every account in staging survived every cleanup.
+      case "\$body" in
+        *"DELETE FROM users"*)
+          for dependent in enrollment_tokens agent_sessions sites; do
+            case "\$body" in
+              *"DELETE FROM \$dependent"*) ;;
+              *)
+                echo "ERROR:  update or delete on table \\"users\\" violates foreign key constraint on table \\"\$dependent\\"" >&2
+                exit 1
+                ;;
+            esac
+          done
+          printf '0' >"$WORK/users"
+          ;;
+      esac
+      case "\$body" in
         *"DELETE FROM devices"*) printf '0' >"$WORK/devices" ;;
       esac
     fi
@@ -120,6 +147,26 @@ if grep -q '@test.local' "$CLEANUP"; then
   pass "the historic address pattern is cleaned as well as the marker"
 else
   fail "the historic address pattern is cleaned as well as the marker"
+fi
+
+# The one account cleanup must not touch. It is the administrator a run mints
+# its enrollment token against, and a run that removes it leaves the next night
+# with nobody to mint against.
+if grep -q 'LOADTEST_SERVICE_ACCOUNT' "$CLEANUP"; then
+  pass "the service account is exempt from the purge"
+else
+  fail "the service account must be exempt from the purge"
+fi
+
+make_fake_psql 3 0 yes
+STATUS=0
+LOADTEST_PSQL="$WORK/psql" LOADTEST_SERVICE_ACCOUNT="opengate-service@service.invalid" \
+  "$CLEANUP" "$WORK/proof.json" >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
+assert_eq "a purge that spares the service account still exits 0" "0" "$STATUS"
+if grep -q 'opengate-service@service.invalid' "$WORK/psql-last-body.txt" 2>/dev/null; then
+  pass "the purge names the account it is sparing"
+else
+  fail "the purge must name the spared account in its statement"
 fi
 
 # Cleanup runs on every path, or a failed run is the one that leaves residue.

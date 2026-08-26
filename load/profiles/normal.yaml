@@ -56,3 +56,31 @@ gates:
     metric: error_rate
     max: 0
     blocking: true
+  # One number for the whole interface distinguished nothing: a technician
+  # waits differently for a glance at a fleet, for one machine's page, and for
+  # an instruction they have deliberately sent. Each is now timed on its own and
+  # carries the mark that suits it.
+  - series: k6/api-baseline/device_list
+    metric: latency_p95_ms
+    max: 300
+    blocking: true
+  # One machine's page fans out to its inventory, its history and its readings.
+  - series: k6/api-baseline/device_detail
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  # The mark is the server accepting the instruction, not the machine carrying
+  # it out.
+  - series: k6/api-baseline/command_accept
+    metric: latency_p95_ms
+    max: 1000
+    blocking: true
+  # A keystroke coming back. Past this a session stops feeling like a
+  # conversation. It is advisory until fresh nights show the relay path holds
+  # it: the measured figure the k6 threshold uses is 400ms across three hops and
+  # two upgrades, and a mark that fires every night teaches everyone to ignore
+  # it.
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 150
+    blocking: false

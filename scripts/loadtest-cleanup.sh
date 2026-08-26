@@ -15,15 +15,41 @@
 # load run holds no administrator credential — and giving one a standing
 # administrator would be a far larger thing than the residue it cleans.
 #
+# An account cannot simply be deleted. Three tables name a user and none of them
+# cascades — the token a run minted, the sessions a technician opened, and the
+# sites somebody owns — so a plain removal is refused by the database, the script
+# stops on the refusal, and nothing is cleaned at all. That is what happened
+# every night for four nights: the run that could not remove its own account
+# then found the address taken and failed at registration. The removal below
+# clears what points at an account before removing the account, in one
+# transaction, so a failure part-way leaves the database as it was.
+#
 # Environment:
-#   LOADTEST_PSQL   the command that runs psql against the target database.
-#                   Defaults to a local psql; CI passes a kubectl exec prefix.
-#   LOADTEST_MARKER the marker every load-test identity carries.
+#   LOADTEST_PSQL            the command that runs psql against the target
+#                            database. Defaults to a local psql; CI passes a
+#                            kubectl exec prefix.
+#   LOADTEST_MARKER          the marker every load-test identity carries.
+#   LOADTEST_SERVICE_ACCOUNT the one account this must never remove: the
+#                            administrator a run mints its enrollment token
+#                            against, seeded by the deployment rather than by a
+#                            run. Removing it leaves the next night with nobody
+#                            to mint against.
 #
 # Usage: loadtest-cleanup.sh [cleanup-proof.json]
 set -euo pipefail
 
 MARKER="${LOADTEST_MARKER:-opengate-loadtest}"
+SERVICE_ACCOUNT="${LOADTEST_SERVICE_ACCOUNT:-opengate-service@service.invalid}"
+
+# residue_predicate selects the accounts that belong to a load run rather than
+# to a person, and spares the one account the deployment seeds. The historic
+# residue predates the marker, so the address pattern the scenarios have always
+# used is selected too — otherwise the accounts already there would survive
+# every cleanup that came after them.
+residue_predicate() {
+  printf "(email LIKE '%%%s%%' OR email LIKE '%%@test.local') AND email <> '%s'" \
+    "$MARKER" "$SERVICE_ACCOUNT"
+}
 
 # psql_scalar runs one query and returns the single value it produced.
 psql_scalar() {
@@ -31,18 +57,17 @@ psql_scalar() {
   ${LOADTEST_PSQL:-psql} -tAc "$1" | tr -d '[:space:]'
 }
 
-# psql_exec runs one statement for its effect.
-psql_exec() {
+# psql_script runs a statement block over standard input. It is standard input
+# rather than -c because psql expands neither variables nor multiple statements
+# inside -c, and because one transaction is what makes a part-way failure leave
+# the database exactly as it was.
+psql_script() {
   # shellcheck disable=SC2086 # LOADTEST_PSQL is a command prefix, so it must split.
-  ${LOADTEST_PSQL:-psql} -q -c "$1" >/dev/null
+  ${LOADTEST_PSQL:-psql} -q -v ON_ERROR_STOP=1 >/dev/null
 }
 
-# residue_users counts the accounts that belong to a load run rather than to a
-# person. The historic residue predates the marker, so the address pattern the
-# scenarios have always used is counted too — otherwise the eighty-one accounts
-# already there would survive every cleanup that came after them.
 residue_users() {
-  psql_scalar "SELECT COUNT(*) FROM users WHERE email LIKE '%${MARKER}%' OR email LIKE '%@test.local'"
+  psql_scalar "SELECT COUNT(*) FROM users WHERE $(residue_predicate)"
 }
 
 residue_devices() {
@@ -56,8 +81,40 @@ main() {
   before_users="$(residue_users)"
   before_devices="$(residue_devices)"
 
-  psql_exec "DELETE FROM users WHERE email LIKE '%${MARKER}%' OR email LIKE '%@test.local'"
-  psql_exec "DELETE FROM devices WHERE hostname LIKE '${MARKER}%' OR hostname LIKE 'soak-t%'"
+  # Order matters and is the whole repair. Each statement clears something that
+  # names a doomed account, and the account goes last:
+  #
+  #   the tokens it minted → the sessions it opened → the machines it enrolled →
+  #   the sites it owns → the account itself
+  #
+  # Removing a site unfiles its machines rather than taking them along, so the
+  # machines go first and nothing is orphaned either way.
+  psql_script <<SQL
+BEGIN;
+
+CREATE TEMPORARY TABLE loadtest_residue_users ON COMMIT DROP AS
+  SELECT id FROM users WHERE $(residue_predicate);
+
+DELETE FROM enrollment_tokens
+ WHERE created_by IN (SELECT id FROM loadtest_residue_users);
+
+DELETE FROM agent_sessions
+ WHERE user_id IN (SELECT id FROM loadtest_residue_users);
+
+DELETE FROM devices
+ WHERE hostname LIKE '${MARKER}%'
+    OR hostname LIKE 'soak-t%'
+    OR site_id IN (SELECT id FROM sites
+                    WHERE owner_id IN (SELECT id FROM loadtest_residue_users));
+
+DELETE FROM sites
+ WHERE owner_id IN (SELECT id FROM loadtest_residue_users);
+
+DELETE FROM users
+ WHERE id IN (SELECT id FROM loadtest_residue_users);
+
+COMMIT;
+SQL
 
   local after_users after_devices
   after_users="$(residue_users)"

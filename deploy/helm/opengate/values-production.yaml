@@ -4,6 +4,23 @@
 domain: opengate.cloudisland.net
 
 server:
+  # Requests equal limits, which is what puts this pod last in the kubelet's
+  # eviction order. Production shares one node with staging and with whatever a
+  # load run brings, and nothing else on that node holds the same standing.
+  #
+  # The numbers are measured, not chosen for symmetry: seven days of readings put
+  # this process's busiest five minutes at 105 millicores and its largest resident
+  # size at 30 MB, so 250m and 384Mi are roughly twice and twelve times what it
+  # has ever needed. They are also as large as the node can give — 1180m of its
+  # 1830m was already spoken for, and a run's two generator pods need 400m of
+  # what is left.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      cpu: 250m
+      memory: 384Mi
   # Multi-replica-correct key sharing is REQUIRED in production: the enrollment
   # CA / VAPID / update-signing keys come from the (out-of-band) existingSecret,
   # so every replica — and every redeploy — serves the same material and existing
@@ -25,6 +42,18 @@ certManager:
   server: https://acme-v02.api.letsencrypt.org/directory
 
 postgres:
+  # Last in the eviction order for the same reason as the server above, and the
+  # more important half of the pair: a server that is evicted comes back, and a
+  # database that is evicted comes back to whatever the disk still held. Its
+  # largest recorded resident size is 99 MB, so 384Mi is close to four times what
+  # it has used.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      cpu: 250m
+      memory: 384Mi
   backup:
     enabled: true
     keepDays: 7

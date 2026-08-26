@@ -4,6 +4,12 @@
 #
 # It runs overnight on staging, which costs nothing: the node is billed by
 # existing rather than by working.
+#
+# Eight hours, which is long enough for a slow leak to become a line rather than
+# a wobble and short enough to sit inside the life of the session it signs in
+# with. A full day would outlive that session, so the second half of the run
+# would be measuring the error path — and renewing it mid-run is a piece of work
+# in its own right, not a flag.
 schema_version: 1
 name: soak
 family: soak
@@ -17,7 +23,7 @@ phases:
     connected_agents: 250
     sessions: 0
   - name: soak
-    duration: 6h
+    duration: 8h
     operator_arrivals_per_second: 3
     connected_agents: 500
     sessions: 3

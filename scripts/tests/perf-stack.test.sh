@@ -141,6 +141,75 @@ else
   fail "the workflow weighs the fixture it built"
 fi
 
+# Every path a step names must exist from where that step runs. A step that
+# changes directory into server/ and then names a repository-root script does
+# not fail on a missing flag or a bad argument — it fails with "No such file or
+# directory" after the stack is already up, which is how all four legs of the
+# sweep died on the one night this workflow has ever run.
+missing_paths="$(
+  python3 - "$WORKFLOW" "$REPO_ROOT" <<'PY'
+import os
+import re
+import sys
+
+import yaml
+
+workflow, root = sys.argv[1], sys.argv[2]
+with open(workflow, encoding="utf-8") as handle:
+    document = yaml.safe_load(handle)
+
+# Anything that looks like a repository path the step hands to a program.
+candidate = re.compile(r"(?<![\w/.-])((?:scripts|load|deploy|policy|benchmarks)/[\w./-]+)")
+missing = []
+for job in document.get("jobs", {}).values():
+    job_dir = (job.get("defaults", {}).get("run", {}) or {}).get("working-directory", "")
+    for step in job.get("steps", []) or []:
+        script = step.get("run")
+        if not script:
+            continue
+        step_dir = step.get("working-directory", job_dir) or ""
+        for path in set(candidate.findall(script)):
+            if path.endswith((".", "/")):
+                continue
+            resolved = os.path.normpath(os.path.join(root, step_dir, path))
+            if not os.path.exists(resolved):
+                missing.append(f"{step.get('name', '?')}: {path} (from {step_dir or '.'})")
+for row in sorted(missing):
+    print(row)
+PY
+)"
+if [ -z "$missing_paths" ]; then
+  pass "every path a step names exists from where that step runs"
+else
+  fail "paths named from the wrong directory: $missing_paths"
+fi
+
+# The weighing counts rows in tables the schema actually has. Numeric readings
+# live in the metrics store, not in Postgres, so a count of a readings table is
+# a query that can only ever fail.
+weighed_tables="$(grep -oE 'table_rows [a-z_]+' "$REPO_ROOT/scripts/perf-weigh-fixture.sh" | awk '{ print $2 }' | sort -u)"
+unknown_tables=""
+for table in $weighed_tables; do
+  if ! grep -rqE "CREATE TABLE IF NOT EXISTS $table |ALTER TABLE [a-z_]+ RENAME TO $table;" \
+    "$REPO_ROOT/server/internal/db/migrations/"; then
+    unknown_tables="$unknown_tables $table"
+  fi
+done
+if [ -z "$unknown_tables" ]; then
+  pass "the weighing counts only tables the schema creates"
+else
+  fail "the weighing counts tables that do not exist:$unknown_tables"
+fi
+
+# Weekly answered a question that changes when the schema or the read paths do.
+# It now runs nightly, in a slot where the twenty-job pool is clear: the mutation
+# matrix holds it from 03:00 to about 05:30 and the load test follows at 05:00.
+if grep -qE "cron: '0 7 \* \* \*'" "$WORKFLOW"; then
+  pass "the stack runs nightly, after the crowded slots have drained"
+else
+  fail "the stack must run nightly at 07:00 UTC"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

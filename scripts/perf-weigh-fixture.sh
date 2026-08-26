@@ -10,16 +10,20 @@
 # so "give staging its own disk" costs another volume, and the only candidate is
 # the one holding every log the fleet has.
 #
-# So: build each fixture size against a throwaway stack, read the database's own
-# size after each one, and report the numbers. Nothing here decides anything; it
-# produces the figure the decision needs.
+# So: read the database's own size before a fleet is built and again after, and
+# report the difference. Nothing here decides anything; it produces the figure
+# the decision needs.
+#
+# It is two commands rather than one because the two readings have to straddle
+# the build. Taken back to back they always differ by nothing, which is a
+# measurement that cannot fail and cannot inform.
+#
+#   perf-weigh-fixture.sh baseline                 → prints the empty size
+#   perf-weigh-fixture.sh weigh <baseline> <out>   → measures against it
 #
 # Environment:
 #   PERF_DB_CONTAINER  the database container (default opengate-perf-postgres)
-#   PERF_BASE_URL      the server, for fixture creation (default localhost:8080)
 #   PERF_EVICTION_MARGIN_BYTES  the margin the result is compared against
-#
-# Usage: perf-weigh-fixture.sh [output.json]
 set -euo pipefail
 
 DB_CONTAINER="${PERF_DB_CONTAINER:-opengate-perf-postgres}"
@@ -45,25 +49,52 @@ table_rows() {
   psql_scalar "SELECT COALESCE((SELECT COUNT(*) FROM $1), 0)"
 }
 
-main() {
-  local out="${1:-fixture-weight.json}"
-  local margin="${PERF_EVICTION_MARGIN_BYTES:-$DEFAULT_EVICTION_MARGIN_BYTES}"
+usage() {
+  echo "usage: $0 baseline | $0 weigh <baseline-bytes> [output.json]" >&2
+}
 
+require_stack() {
   if ! docker exec "$DB_CONTAINER" true >/dev/null 2>&1; then
     echo "::error::database container $DB_CONTAINER is not running; bring the performance stack up first" >&2
     return 2
   fi
+}
 
-  # An empty database is not zero — the schema, the indexes and the shipped rows
-  # all weigh something — so the fixture's own weight is the difference.
-  local baseline
-  baseline="$(database_bytes)"
+main() {
+  case "${1:-}" in
+    baseline)
+      require_stack || return 2
+      # An empty database is not zero — the schema, the indexes and the rows the
+      # migrations ship all weigh something — so this is what the fixture's own
+      # weight is measured against.
+      database_bytes
+      return 0
+      ;;
+    weigh) ;;
+    *)
+      usage
+      return 2
+      ;;
+  esac
+
+  local baseline="${2:-}"
+  local out="${3:-fixture-weight.json}"
+  local margin="${PERF_EVICTION_MARGIN_BYTES:-$DEFAULT_EVICTION_MARGIN_BYTES}"
+
+  case "$baseline" in
+    '' | *[!0-9]*)
+      echo "::error::weigh needs the baseline byte count the empty stack reported" >&2
+      return 2
+      ;;
+  esac
+
+  require_stack || return 2
 
   local devices sites users telemetry_series
   devices="$(table_rows devices)"
   sites="$(table_rows sites)"
   users="$(table_rows users)"
-  telemetry_series="$(table_rows device_metric_samples)"
+  telemetry_series="$(table_rows device_processes)"
 
   local total fixture_bytes fits
   total="$(database_bytes)"

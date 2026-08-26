@@ -28,6 +28,18 @@ type runBundleInputs struct {
 	// field falls back to a stated unknown rather than to an empty string that
 	// would fail the bundle for the wrong reason.
 	Commit string
+
+	// Phases are the profile's own segments as they actually ran. Empty means
+	// the run offered everything at once, which is a shape in its own right and
+	// is reported as one phase named for what it was.
+	Phases []PhaseResult
+
+	// Registration is how long the server took to write the device row, read
+	// from the server itself. Nil means nobody asked it.
+	Registration *ServerRegistration
+
+	// Fixture is the fleet this run built, when it built one.
+	Fixture *BuiltFixture
 }
 
 // buildRunBundle turns a finished run into its evidence.
@@ -51,8 +63,8 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		},
 		Generator:    generatorFingerprint(),
 		Fixture:      fixtureCounts(in),
-		Phases:       []PhaseResult{connectPhase(in, finished, succeeded, register, errorRate)},
-		Observations: latencyObservations(finished, connect, handshake, register),
+		Phases:       phaseResults(in, finished, succeeded, register, errorRate),
+		Observations: latencyObservations(finished, connect, handshake, in),
 		// The harness holds no long-lived identities of its own: the certificates
 		// it signs live in a directory it removes, so a run that reached this
 		// point left nothing behind to find.
@@ -123,6 +135,12 @@ func generatorFingerprint() Fingerprint {
 // certificates rather than building a fleet through the API, so the device
 // count is the fleet and the rest is stated as the one tenant it ran in.
 func fixtureCounts(in runBundleInputs) FixtureCounts {
+	// A run that built its own fleet knows exactly what is there, so it says so
+	// rather than inferring the shape from how many machines it dialled.
+	if in.Fixture != nil {
+		return in.Fixture.Counts()
+	}
+
 	size := FixtureSmall
 	if in.Profile != nil {
 		size = in.Profile.Fixture
@@ -132,6 +150,18 @@ func fixtureCounts(in runBundleInputs) FixtureCounts {
 		devices = 1
 	}
 	return FixtureCounts{Size: size, Tenants: 1, Customers: 1, Sites: 1, Users: 0, Devices: devices}
+}
+
+// phaseResults is the run's phases. A run driven by a profile reports the
+// profile's own segments; one without a profile offered everything at once, and
+// that is reported as the single phase it was rather than dressed up as more.
+func phaseResults(in runBundleInputs, finished time.Time, succeeded int,
+	register []time.Duration, errorRate float64,
+) []PhaseResult {
+	if len(in.Phases) > 0 {
+		return in.Phases
+	}
+	return []PhaseResult{connectPhase(in, finished, succeeded, register, errorRate)}
 }
 
 func connectPhase(in runBundleInputs, finished time.Time, succeeded int, register []time.Duration, errorRate float64) PhaseResult {
@@ -153,12 +183,25 @@ func connectPhase(in runBundleInputs, finished time.Time, succeeded int, registe
 // latencyObservations records each phase's tail separately. Folding them into
 // one aggregate hides which of the three a slow run was slow in, and they are
 // three different pieces of work.
-func latencyObservations(at time.Time, connect, handshake, register []time.Duration) []Observation {
-	return []Observation{
+func latencyObservations(at time.Time, connect, handshake []time.Duration, in runBundleInputs) []Observation {
+	observations := []Observation{
 		{At: at, Series: "connect_p95_ms", Value: millis(percentile(connect, 95))},
 		{At: at, Series: "handshake_p95_ms", Value: millis(percentile(handshake, 95))},
-		{At: at, Series: "register_p95_ms", Value: millis(percentile(register, 95))},
 	}
+
+	// Registration is reported only when the server was asked. Its own clock
+	// stops at a local send buffer, and a number that cannot move is worse than
+	// an absent one: two ceilings sat on it for months.
+	if in.Registration != nil && in.Registration.Measured() {
+		observations = append(observations,
+			Observation{At: at, Series: "register_p95_ms", Value: in.Registration.QuantileMs(0.95)},
+			Observation{At: at, Series: "register_mean_ms", Value: in.Registration.MeanMs()},
+			Observation{At: at, Series: "register_rejected", Value: float64(in.Registration.Rejected)},
+			Observation{At: at, Series: "db_pool_in_use", Value: in.Registration.PoolInUse},
+			Observation{At: at, Series: "db_pool_open", Value: in.Registration.PoolOpen},
+		)
+	}
+	return observations
 }
 
 // producedScenarios reports whether this half of the night measured anything. A
@@ -191,17 +234,8 @@ func millis(d time.Duration) float64 {
 }
 
 // writeRunBundle is the thin wrapper the harness's main calls.
-func writeRunBundle(dir string, profile *Profile, results []agentResult,
-	startedAt time.Time, total time.Duration, agents int, target string,
-) error {
-	bundle := buildRunBundle(runBundleInputs{
-		Profile:    profile,
-		Results:    results,
-		StartedAt:  startedAt,
-		Total:      total,
-		AgentCount: agents,
-		Target:     target,
-	})
+func writeRunBundle(in runBundleInputs, dir string) error {
+	bundle := buildRunBundle(in)
 	path, err := bundle.WriteTo(dir)
 	if err != nil {
 		return err

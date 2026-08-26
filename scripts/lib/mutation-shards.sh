@@ -27,7 +27,7 @@
 # magnitude between packages: from completed runs, a mesh-agent-core mutant costs
 # ~0.59 min (114 mutants in 70 min) against ~0.05 for edge-tsdb and ~0.12 for
 # mesh-agent, because every mesh-agent-core mutant relinks the crate's 26 test
-# binaries. Against the 75-minute cap, minus ~3 min of toolchain install and
+# binaries. Against the 90-minute cap, minus ~3 min of toolchain install and
 # baseline build and 15 min of headroom, that puts a mesh-agent-core shard's
 # ceiling near 120 mutants — which is why its ~1480 are split twenty ways
 # while edge-tsdb's ~900 need three and mesh-agent and mesh-protocol one each.
@@ -226,12 +226,12 @@ mutation_rust_shard_args() {
   done
 }
 
-# What one shard is allowed to project to, in minutes. The job cap is 75; a run
+# What one shard is allowed to project to, in minutes. The job cap is 90; a run
 # pays about 3 of those for the toolchain install and the unmutated baseline, and
-# 15 are held back as headroom, because a shard sized to finish at 74 minutes is
+# 15 are held back as headroom, because a shard sized to finish at 89 minutes is
 # a shard that fails the first time a runner is slow.
 mutation_rust_shard_budget_minutes() {
-  echo 57
+  echo 72
 }
 
 # The measured cost of one mutant, in thousandths of a minute, by package.
@@ -262,7 +262,7 @@ mutation_web_shards() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-intake go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-detection go-domain-persistence go-amt go-updates-certificates go-protocol-relay go-observability-harness go-composition-root"
+  echo "go-api-runtime go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
 }
 
 mutation_all_shards() {
@@ -286,8 +286,15 @@ mutation_go_shard_units() {
     go-api-runtime)
       echo "file:internal/api/api.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/ratelimit.go"
       ;;
+    # What the server accepts from a caller, and what it refuses to write into
+    # a log once it has.
     go-api-intake)
-      echo "file:internal/api/validate.go file:internal/api/log_redact.go file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/metrics_assemble.go"
+      echo "file:internal/api/validate.go file:internal/api/log_redact.go"
+      ;;
+    # What the server says about itself: the browser's error reports, the
+    # liveness answer, and the readings assembled for the metrics page.
+    go-api-status)
+      echo "file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/metrics_assemble.go"
       ;;
     go-api-converters)
       echo "file:internal/api/converters.go file:internal/api/converters_incidents.go file:internal/api/converters_rules.go"
@@ -298,8 +305,17 @@ mutation_go_shard_units() {
     go-api-tenancy-admin)
       echo "file:internal/api/handlers_organizations.go file:internal/api/handlers_sites.go file:internal/api/handlers_device_tags.go file:internal/api/handlers_alert_limits.go file:internal/api/handlers_push.go"
       ;;
+    # Acting on a machine: listing it, ordering it about, and taking it out of
+    # service. Every mutant here re-pays the Postgres-backed API suite, which is
+    # what makes these the most expensive mutants in the module and why the
+    # sessions half sits in its own shard.
     go-api-device-control)
-      echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_maintenance.go file:internal/api/handlers_amt.go file:internal/api/handlers_sessions.go file:internal/api/handlers_relay.go"
+      echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_maintenance.go"
+      ;;
+    # Reaching a machine: the out-of-band power path, the session a technician
+    # opens, and the relay that carries it.
+    go-api-device-sessions)
+      echo "file:internal/api/handlers_amt.go file:internal/api/handlers_sessions.go file:internal/api/handlers_relay.go"
       ;;
     go-api-device-reads)
       echo "file:internal/api/handlers_device_summary.go file:internal/api/handlers_device_inventory.go file:internal/api/handlers_device_metrics.go file:internal/api/handlers_device_history.go"
@@ -328,8 +344,15 @@ mutation_go_shard_units() {
     go-agentapi-edge-telemetry)
       echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_accounting.go file:internal/agentapi/conn_coverage.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go file:internal/agentapi/conn_alerts.go file:internal/agentapi/alert_rules_catalogue.go file:internal/agentapi/vitals.go"
       ;;
-    go-domain-detection)
-      echo "dir:internal/rules dir:internal/alerts"
+    # What a rule says, and what happens when one fires. They were one shard
+    # until the pair grew past a single job; they are two questions anyway —
+    # whether a rule resolves to what its author meant, and whether a breach
+    # becomes the right alert.
+    go-domain-rules)
+      echo "dir:internal/rules"
+      ;;
+    go-domain-alerts)
+      echo "dir:internal/alerts"
       ;;
     go-domain-persistence)
       echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"
@@ -340,8 +363,14 @@ mutation_go_shard_units() {
     go-updates-certificates)
       echo "dir:internal/updater dir:internal/cert dir:internal/notifications"
       ;;
-    go-protocol-relay)
-      echo "dir:internal/protocol dir:internal/relay dir:internal/signaling dir:internal/clientapi dir:internal/osutil"
+    # The bytes on the wire, and the host details that go into them.
+    go-protocol-wire)
+      echo "dir:internal/protocol dir:internal/osutil"
+      ;;
+    # Carrying a live session between a browser and a machine: the relay itself,
+    # the negotiation that sets it up, and the browser-facing surface.
+    go-relay-signaling)
+      echo "dir:internal/relay dir:internal/signaling dir:internal/clientapi"
       ;;
     go-observability-harness)
       echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:tests/loadtest"
@@ -379,19 +408,37 @@ mutation_go_shard_units() {
 # number to make a shard fit.
 mutation_go_shard_seconds_per_mutant() {
   case "$1" in
-    go-api-runtime | go-api-enrollment | go-api-updates-purge) echo 51 ;;
-    go-api-intake) echo 27 ;;
-    go-api-converters | go-api-incidents | go-api-rules) echo 44 ;;
-    go-api-identity | go-api-tenancy-admin) echo 42 ;;
-    go-api-device-control | go-api-device-reads) echo 41 ;;
-    go-agentapi-connection | go-agentapi-handshake | go-agentapi-edge-telemetry) echo 5 ;;
-    go-agentapi-backfill) echo 3 ;;
-    go-domain-detection | go-domain-persistence) echo 8 ;;
-    go-amt | go-updates-certificates) echo 11 ;;
-    go-protocol-relay | go-observability-harness) echo 10 ;;
+    go-api-runtime) echo 59 ;;
+    # Measured together as one intake shard; the status half carries that rate
+    # until a night measures it on its own.
+    go-api-intake | go-api-status) echo 44 ;;
+    go-api-converters) echo 54 ;;
+    go-api-incidents) echo 72 ;;
+    go-api-rules) echo 73 ;;
+    go-api-identity) echo 59 ;;
+    go-api-tenancy-admin) echo 69 ;;
+    go-api-enrollment) echo 50 ;;
+    go-api-updates-purge) echo 63 ;;
+    # Measured on the control half; the sessions and reads halves carved out of
+    # it inherit that rate until a night measures each on its own.
+    go-api-device-control | go-api-device-sessions | go-api-device-reads) echo 72 ;;
+    go-agentapi-connection) echo 6 ;;
+    go-agentapi-handshake) echo 9 ;;
+    go-agentapi-edge-telemetry) echo 5 ;;
+    go-agentapi-backfill) echo 2 ;;
+    # The detection pair was shot at the job cap before it could write a report,
+    # so its rate is the floor that fact implies — the cap less setup, over the
+    # mutants it was carrying — rather than a figure read off a finished run.
+    # The two halves carry it until each measures its own.
+    go-domain-rules | go-domain-alerts) echo 13 ;;
+    go-domain-persistence) echo 5 ;;
+    go-amt) echo 13 ;;
+    go-updates-certificates) echo 21 ;;
+    go-protocol-wire | go-relay-signaling) echo 22 ;;
+    go-observability-harness) echo 1 ;;
     # Postgres-backed like the API shards: every mutant re-pays a schema
-    # migration and a full assembly. Rated with them until a nightly measures it.
-    go-composition-root) echo 51 ;;
+    # migration and a full assembly.
+    go-composition-root) echo 5 ;;
     *)
       echo "unknown mutation shard: $1" >&2
       return 1
@@ -399,12 +446,12 @@ mutation_go_shard_seconds_per_mutant() {
   esac
 }
 
-# Minutes of mutant execution a Go shard may spend. The job cap is 75 minutes;
+# Minutes of mutant execution a Go shard may spend. The job cap is 90 minutes;
 # a measured Go leg pays about 4.5 of them before the first mutant runs (image
 # pull, Postgres, toolchain, gremlins, and the module-wide coverage run), and the
 # workflow holds 15 minutes of headroom. What is left is the budget.
 mutation_go_shard_budget_minutes() {
-  echo 55
+  echo 70
 }
 
 # Per-shard gremlins timeout-coefficient override. Most shards inherit the
@@ -415,7 +462,7 @@ mutation_go_shard_budget_minutes() {
 # under the Postgres-backed harness and TIME OUT. gremlins already counts
 # TIMED_OUT as caught, so those mutants were never going to be reported as
 # survivors — the baseline's multi-minute per-mutant budget only burns wall-clock
-# on them and leaves the shard with no headroom under the 75-minute cap. A
+# on them and leaves the shard with no headroom under the 90-minute cap. A
 # coefficient of 5 still gives a genuine slow Postgres mutant a comfortable
 # budget (well above the ~40 s schema re-setup a real test pays) so no would-be
 # survivor is falsely credited as caught, while cutting the blocking mutants'
