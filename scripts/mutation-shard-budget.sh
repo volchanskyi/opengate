@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Pre-flight for the mutation workflow: does every shard still fit the job?
 #
-# A shard that outgrows the 75-minute cap does not fail with a useful message —
+# A shard that outgrows the 90-minute cap does not fail with a useful message —
 # the runner is shot mid-run, the artifact set comes back incomplete, and the
-# whole nightly is lost after 75 minutes of compute. That has now happened on
+# whole nightly is lost after 90 minutes of compute. That has now happened on
 # both legs: ten mesh-agent-core shards grew past their budget together, and
 # three Go shards followed when a new integration test raised coverage and turned
 # uncovered mutants into runnable ones.

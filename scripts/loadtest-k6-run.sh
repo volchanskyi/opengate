@@ -24,6 +24,12 @@
 # beside the export as `<scenario>.thresholds`, so the gate reads it rather than
 # inferring it from an exit code that has already been consumed.
 #
+# Every identity the scenario creates is named after the run id, and k6 is handed
+# that id explicitly. k6 runs in a pod on the cluster, which inherits nothing
+# from the machine that started it, so an id left to be inherited never arrives:
+# the generator falls back to a fixed word, every night asks the server for the
+# same addresses, and the second night is refused as a duplicate.
+#
 # Usage: loadtest-k6-run.sh <scenario-name> <script-path>
 set -euo pipefail
 
@@ -50,6 +56,7 @@ main() {
     --summary-export "$export_path" \
     --summary-trend-stats "${K6_SUMMARY_TREND_STATS:-avg,min,med,p(50),p(95),p(99),max}" \
     --env "BASE_URL=${LOADTEST_BASE_URL:?LOADTEST_BASE_URL must be set}" \
+    --env "LOADTEST_RUN_ID=${LOADTEST_RUN_ID:?LOADTEST_RUN_ID must be set}" \
     "$script" || status=$?
 
   if [ "$status" -ne 0 ] && [ "$status" -ne "$K6_THRESHOLDS_FAILED" ]; then

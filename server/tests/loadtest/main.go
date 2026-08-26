@@ -8,20 +8,12 @@
 package main
 
 import (
-	"context"
-	"crypto/rand"
-	"crypto/sha512"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"sort"
-	"sync"
 	"time"
-
-	"github.com/quic-go/quic-go"
-	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
 // agentDeadline bounds connecting, handshaking and registering. Whatever hold
@@ -52,6 +44,12 @@ func main() {
 	bundleDir := flag.String("bundle", "", "directory to write this run's evidence bundle into")
 	enrollURL := flag.String("enroll-url", "", "server base URL to enroll each agent through, so no certificate authority key leaves the cluster")
 	enrollToken := flag.String("enroll-token", "", "enrollment token to spend, minted through the admin API before the run")
+	metricsURL := flag.String("metrics-url", "", "server base URL to read registration timing from, so the figure is the one the server measured where the device row landed rather than this process's own send buffer")
+	fixtureAccount := flag.String("fixture-account", "", "administrator to build the fixture as; empty builds no fixture")
+	fixturePasswordFlag := flag.String("fixture-password", "", "that administrator's password")
+	fixtureSize := flag.String("fixture-size", "", "fleet to build before the run: small, large or lopsided; empty takes the profile's own")
+	fixtureSeed := flag.Uint64("fixture-seed", 1, "the seed the fleet is derived from, so the same seed reproduces the same fleet")
+	fixtureBootstrap := flag.Bool("fixture-bootstrap", false, "the environment starts empty, so register the administrator instead of signing in as one")
 	flag.Parse()
 
 	// Production is never a target, and the way a generator ends up pointed at
@@ -93,6 +91,21 @@ func main() {
 		defer os.RemoveAll(dir)
 	}
 
+	// A fleet is built before the clock starts. It is thousands of writes and
+	// would be the largest thing in any phase it shared.
+	fixture, spentToken := buildFixtureIfAsked(fixtureRequest{
+		baseURL:   *enrollURL,
+		account:   *fixtureAccount,
+		password:  *fixturePasswordFlag,
+		size:      *fixtureSize,
+		seed:      *fixtureSeed,
+		profile:   profile,
+		bootstrap: *fixtureBootstrap,
+	})
+	if spentToken != "" {
+		*enrollToken = spentToken
+	}
+
 	credentials, err := newAgentCredentials(dir, *enrollURL, *enrollToken)
 	if err != nil {
 		log.Fatalf("agent credentials: %v", err)
@@ -101,24 +114,29 @@ func main() {
 	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)
 	start := time.Now()
 
-	results := make([]agentResult, *agents)
-	var wg sync.WaitGroup
-
-	for i := 0; i < *agents; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			results[idx] = runAgent(credentials, *addr, agentPlan[idx], opts)
-		}(i)
-	}
-
-	wg.Wait()
+	results, phases := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts)
 	totalDur := time.Since(start)
 
 	failures := reportResults(results, totalDur, *agents)
 
+	// Registration as the server measured it, where the device row lands. The
+	// harness's own clock stops at a local send buffer, which cannot move
+	// however slow the write becomes.
+	registration := readServerRegistration(*metricsURL)
+
 	if *bundleDir != "" {
-		if err := writeRunBundle(*bundleDir, profile, results, start, totalDur, *agents, *addr); err != nil {
+		err := writeRunBundle(runBundleInputs{
+			Profile:      profile,
+			Results:      results,
+			StartedAt:    start,
+			Total:        totalDur,
+			AgentCount:   *agents,
+			Target:       *addr,
+			Phases:       phases,
+			Registration: registration,
+			Fixture:      fixture,
+		}, *bundleDir)
+		if err != nil {
 			log.Fatalf("bundle: %v", err)
 		}
 	}
@@ -202,105 +220,6 @@ func planAgents(n, tenants int) []tenantAgent {
 		}
 	}
 	return plan
-}
-
-func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts loadOptions) agentResult {
-	// The deadline covers connecting and registering, plus however long this
-	// machine was asked to stay. A fixed budget would cut a held-open fleet
-	// short and report the run's own timeout as the server dropping machines.
-	ctx, cancel := context.WithTimeout(context.Background(), agentDeadline+opts.holdFor)
-	defer cancel()
-
-	tlsConfig, err := credentials.forAgent(ctx, plan)
-	if err != nil {
-		return agentResult{err: err}
-	}
-
-	// Connect.
-	t0 := time.Now()
-	conn, err := quic.DialAddr(ctx, addr, tlsConfig, &quic.Config{
-		MaxIdleTimeout: 30 * time.Second,
-	})
-	if err != nil {
-		return agentResult{err: fmt.Errorf("dial: %w", err)}
-	}
-	res := agentResult{connectDur: time.Since(t0)}
-	defer conn.CloseWithError(0, "loadtest done")
-
-	// Open control stream (agent-initiated): the agent opens and writes first,
-	// per RFC 9000 stream-discovery.
-	stream, err := conn.OpenStreamSync(ctx)
-	if err != nil {
-		res.err = fmt.Errorf("open stream: %w", err)
-		return res
-	}
-
-	t1 := time.Now()
-	if err := handshake(stream, tlsConfig.Certificates[0].Certificate[0]); err != nil {
-		res.err = err
-		return res
-	}
-	res.handshakeDur = time.Since(t1)
-
-	codec := &protocol.Codec{}
-	t2 := time.Now()
-	if err := register(codec, stream, plan.hostname, agentCapabilities(opts)); err != nil {
-		res.err = err
-		return res
-	}
-	res.registerDur = time.Since(t2)
-
-	if err := runSoakTraffic(codec, stream, opts); err != nil {
-		res.err = err
-	}
-	return res
-}
-
-// handshake performs the agent-first mTLS control handshake: it sends AgentHello
-// (nonce + cert hash) and reads the fixed-size ServerHello reply.
-func handshake(stream io.ReadWriter, certDER []byte) error {
-	certHash := sha512.Sum384(certDER)
-	var nonce [32]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return fmt.Errorf("generate nonce: %w", err)
-	}
-	if _, err := stream.Write(protocol.EncodeAgentHello(nonce, certHash)); err != nil {
-		return fmt.Errorf("write agent hello: %w", err)
-	}
-	if _, err := io.ReadFull(stream, make([]byte, 81)); err != nil {
-		return fmt.Errorf("read server hello: %w", err)
-	}
-	return nil
-}
-
-// agentCapabilities advertises the capabilities the soak exercises: Terminal
-// always, plus Backfill when the reconnect-storm scenario is enabled (the
-// server gates backfill admission on the advertised capability).
-func agentCapabilities(opts loadOptions) []protocol.AgentCapability {
-	caps := []protocol.AgentCapability{protocol.CapTerminal}
-	if opts.backfillBatches > 0 {
-		caps = append(caps, protocol.CapBackfill)
-	}
-	return caps
-}
-
-// register sends the AgentRegister control frame that completes enrollment.
-func register(codec *protocol.Codec, w io.Writer, hostname string, caps []protocol.AgentCapability) error {
-	payload, err := codec.EncodeControl(&protocol.ControlMessage{
-		Type:         protocol.MsgAgentRegister,
-		Capabilities: caps,
-		Hostname:     hostname,
-		OS:           "linux",
-		Arch:         "amd64",
-		Version:      "0.1.0",
-	})
-	if err != nil {
-		return fmt.Errorf("encode register: %w", err)
-	}
-	if err := codec.WriteFrame(w, protocol.FrameControl, payload); err != nil {
-		return fmt.Errorf("write register: %w", err)
-	}
-	return nil
 }
 
 func percentile(durations []time.Duration, pct int) time.Duration {

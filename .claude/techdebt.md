@@ -1,13 +1,40 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-08-17; the investigations workspace left the web bundle within 10 KB of its budget. -->
+<!-- Last reviewed: 2026-08-26; the four scheduled performance workflows were repaired at the fault. -->
 
 ## Severity: High
 
 _None currently._
 
 ## Severity: Medium
+
+### The two larger fleets have not been built on staging
+
+The three committed fleet sizes are all buildable in either venue, and the
+nightly builds the smallest of them. The two larger ones are a deliberate
+`workflow_dispatch` choice rather than a schedule, because staging's database
+writes into the same node root production's does and nobody has yet measured what
+a fleet four times the reference weighs. The performance stack weighs one on a
+throwaway runner every night, which is the measurement that decision is waiting
+on.
+
+**Pay-down trigger:** a weighed fleet that fits inside the node's eviction
+margin with room to spare. Schedule the larger sizes on staging then, or record
+the number that says they cannot be.
+
+### A shared integration test fails intermittently under mutation load
+
+`TestRelayRouteBypassesRequestTimeout` in `server/tests/integration` timed out
+during the module-wide coverage pass of one mutation shard on 2026-08-26, which
+made that shard produce no report at all and the whole night's score incomplete.
+Every Go shard gathers the same coverage, so any test that is timing-sensitive
+under a loaded runner can cost a night for reasons unrelated to the shard that
+happened to draw it.
+
+**Pay-down trigger:** the next time a shard comes back missing with a coverage
+failure. Bound that test on its own clock rather than on the runner's spare
+capacity, the way the in-memory pipes were.
 
 ### Load-test identities live in the default tenant
 

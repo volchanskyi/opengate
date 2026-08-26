@@ -38,7 +38,7 @@ jobs:
   # -----------------------------------------------------------------------------
   # Does the split still fit the cap? Counting mutants is cheap on both legs, so a
   # shard that has outgrown its budget is visible in a few minutes instead of
-  # after 75 — the shape of failure that costs a whole nightly run.
+  # after 90 — the shape of failure that costs a whole nightly run.
   #
   # The Go count comes from a gremlins dry-run rather than from the source,
   # because a Go mutant only runs where coverage reaches it: a new integration
@@ -164,10 +164,12 @@ jobs:
           # hundred.
           - { language: go, shard: go-api-runtime }
           - { language: go, shard: go-api-intake }
+          - { language: go, shard: go-api-status }
           - { language: go, shard: go-api-converters }
           - { language: go, shard: go-api-identity }
           - { language: go, shard: go-api-tenancy-admin }
           - { language: go, shard: go-api-device-control }
+          - { language: go, shard: go-api-device-sessions }
           - { language: go, shard: go-api-device-reads }
           - { language: go, shard: go-api-incidents }
           - { language: go, shard: go-api-rules }
@@ -180,19 +182,26 @@ jobs:
           - { language: go, shard: go-agentapi-handshake }
           - { language: go, shard: go-agentapi-backfill }
           - { language: go, shard: go-agentapi-edge-telemetry }
-          - { language: go, shard: go-domain-detection }
+          - { language: go, shard: go-domain-rules }
+          - { language: go, shard: go-domain-alerts }
           - { language: go, shard: go-domain-persistence }
           - { language: go, shard: go-amt }
           - { language: go, shard: go-updates-certificates }
-          - { language: go, shard: go-protocol-relay }
+          - { language: go, shard: go-protocol-wire }
+          - { language: go, shard: go-relay-signaling }
           - { language: go, shard: go-observability-harness }
           - { language: go, shard: go-composition-root }
     runs-on: ubuntu-latest
-    # 75min is a flat safety cap, not a target. Every shard is sized against its
+    # 90min is a flat safety cap, not a target. Every shard is sized against its
     # own measured per-mutant cost (scripts/lib/mutation-shards.sh) for at least
     # 15min of headroom, and the shard-budget job above refuses a split that has
     # drifted past it before the matrix spends a night discovering the same thing.
-    timeout-minutes: 75
+    #
+    # The cap sits above the widest measured shard rather than on top of it. A
+    # shard shot at the cap writes no report, the artifact set comes back short,
+    # and the whole night's score is lost — so the cost of a cap set too low is
+    # paid by every other shard, not by the one that grew.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       # Only the Go legs pull an image, so only they need the registry mirror.

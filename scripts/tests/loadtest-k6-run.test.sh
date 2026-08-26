@@ -38,6 +38,7 @@ make_fake_k6() {
   local exit_code="$1"
   cat >"$WORK/k6" <<EOF
 #!/usr/bin/env bash
+printf '%s\n' "\$@" >"$WORK/k6-args.txt"
 for arg in "\$@"; do
   case "\$prev" in
     --summary-export) printf '{"metrics":{}}' >"\$arg" ;;
@@ -58,11 +59,24 @@ run_case() {
   K6_BIN="$WORK/k6" \
     LOADTEST_K6_SUMMARY_DIR="$WORK/summaries" \
     LOADTEST_BASE_URL="http://127.0.0.1:18080" \
+    LOADTEST_RUN_ID="${LOADTEST_RUN_ID:-99-1}" \
     K6_SUMMARY_TREND_STATS="avg,p(95)" \
     "$RUNNER" api-baseline load/k6/scenarios/api-baseline.js >"$WORK/out.txt" 2>&1 || STATUS=$?
 }
 
 echo "loadtest-k6-run:"
+
+# The generator builds every identity it creates from the run id, and it reads
+# that id from its own environment rather than the runner's — k6 runs in a pod
+# on the cluster, which inherits nothing from the machine that started it. An id
+# that does not reach k6 leaves it on its fallback, every night asks for the
+# same addresses, and the second night is refused as a duplicate.
+run_case 0
+if grep -q 'LOADTEST_RUN_ID=99-1' "$WORK/k6-args.txt"; then
+  pass "the run id is handed to k6 rather than assumed to be inherited"
+else
+  fail "the runner must pass LOADTEST_RUN_ID through to k6"
+fi
 
 # A clean run measured the fleet: keep the export, succeed.
 run_case 0

@@ -308,10 +308,15 @@ e2e: agent-binary
 # Every scenario CI runs, so a local pass and a nightly pass mean the same
 # thing. A target that omits one leaves that scenario's thresholds discovered
 # only by the nightly.
+# LOADTEST_RUN_ID names every identity a run creates, so a local run is
+# removable by the same cleanup the nightly uses. It defaults to the clock here
+# because a workstation has no run number of its own.
 load-test:
-	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/api-baseline.js
-	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/concurrent-agents.js
-	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/relay-throughput.js
+	LOADTEST_BASE_URL=http://localhost:8080 \
+	LOADTEST_RUN_ID=$${LOADTEST_RUN_ID:-local-$$(date -u +%Y%m%d%H%M%S)} \
+	  sh -c 'for s in api-baseline concurrent-agents relay-throughput; do \
+	    scripts/loadtest-k6-run.sh $$s load/k6/scenarios/$$s.js || exit $$?; \
+	  done'
 
 load-test-quic:
 	cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090

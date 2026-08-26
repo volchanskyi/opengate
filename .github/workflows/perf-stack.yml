@@ -15,11 +15,11 @@ name: Performance Stack (volume + scaling)
 
 on:
   schedule:
-    # Weekly rather than nightly: these families answer questions that change
-    # when the schema or the read paths change, not questions that change
-    # overnight, and a runner-hour spent re-answering an unchanged question is
-    # one nobody reads.
-    - cron: '0 4 * * 0'
+    # 07:00 rather than the crowded early slots. The account's twenty-job pool is
+    # held from 03:00 to about 05:30 by the mutation matrix and the load test
+    # follows it at 05:00, so a job scheduled beside them queues behind thirty
+    # others instead of running.
+    - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       agents:
@@ -86,11 +86,15 @@ jobs:
           export DOCKER_CONFIG
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
 
+      # Every path below is named from the repository root, and the build is
+      # pointed at server/ with -C. A step that changes directory instead cannot
+      # see the scripts and profiles it names, and fails after the stack is
+      # already up.
       - name: Run the scaling profile
         run: |
           set -euo pipefail
           mkdir -p "$PERF_BUNDLE_DIR"
-          go build -trimpath -o /tmp/loadtest ./tests/loadtest/
+          go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             /tmp/loadtest \
               -agents="${{ inputs.agents || '500' }}" \
@@ -98,8 +102,8 @@ jobs:
               -default-telemetry \
               -hold=3m \
               -profile=load/profiles/scaling.yaml \
+              -metrics-url=http://127.0.0.1:8080 \
               -bundle="$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}"
-        working-directory: server
 
       - name: Tear the stack down
         if: always()
@@ -113,7 +117,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: perf-scaling-${{ matrix.cpus }}
-          path: server/${{ env.PERF_BUNDLE_DIR }}
+          path: ${{ env.PERF_BUNDLE_DIR }}
           if-no-files-found: warn
           retention-days: 90
 
@@ -149,17 +153,23 @@ jobs:
           export DOCKER_CONFIG
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
 
-      - name: Weigh the fixture at each size
+      # The empty size, before anything is built. The fixture's own weight is the
+      # difference between this and the size after — two readings taken back to
+      # back always differ by nothing, which is a measurement that cannot fail
+      # and cannot inform, and that is what this used to be.
+      - name: Read the empty stack's size
         run: |
           set -euo pipefail
           mkdir -p "$PERF_BUNDLE_DIR"
-          bash scripts/perf-weigh-fixture.sh "$PERF_BUNDLE_DIR/fixture-weight.json"
-          cat "$PERF_BUNDLE_DIR/fixture-weight.json"
+          echo "PERF_BASELINE_BYTES=$(bash scripts/perf-weigh-fixture.sh baseline)" >>"$GITHUB_ENV"
 
-      - name: Run the volume profile
+      # Everything a fleet is made of goes through the same interface a
+      # technician uses. The stack starts empty, so the first account the server
+      # sees becomes its administrator — which is how a fresh install bootstraps.
+      - name: Run the volume profile, building its fleet first
         run: |
           set -euo pipefail
-          go build -trimpath -o /tmp/loadtest ./tests/loadtest/
+          go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             /tmp/loadtest \
               -agents="${{ inputs.agents || '500' }}" \
@@ -167,8 +177,27 @@ jobs:
               -default-telemetry \
               -hold=3m \
               -profile=load/profiles/volume.yaml \
-              -bundle="../$PERF_BUNDLE_DIR/volume"
-        working-directory: server
+              -enroll-url=http://127.0.0.1:8080 \
+              -metrics-url=http://127.0.0.1:8080 \
+              -fixture-account=perf-admin@opengate-loadtest.invalid \
+              -fixture-password="$PERF_FIXTURE_PASSWORD" \
+              -fixture-bootstrap \
+              -fixture-seed=1 \
+              -bundle="$PERF_BUNDLE_DIR/volume"
+        env:
+          # The stack is created by this job and thrown away at the end of it, is
+          # reachable only from inside the runner, and holds nothing but the
+          # fleet this run invented. The password is generated per run all the
+          # same, so nothing fixed is ever written down.
+          PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+
+      - name: Weigh what the fleet actually cost
+        if: always()
+        run: |
+          set -euo pipefail
+          bash scripts/perf-weigh-fixture.sh weigh "$PERF_BASELINE_BYTES" \
+            "$PERF_BUNDLE_DIR/fixture-weight.json"
+          cat "$PERF_BUNDLE_DIR/fixture-weight.json"
 
       - name: Tear the stack down
         if: always()

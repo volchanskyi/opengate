@@ -41,3 +41,11 @@ postgres:
   backup:
     # Staging is ephemeral E2E state; no scheduled backups needed.
     enabled: false
+
+# Staging is the environment a nightly load run fills and empties, so it is the
+# one that needs an administrator outside that cycle. The database here rides an
+# emptyDir and starts empty on every pod restart, so the account is re-seeded on
+# every deployment rather than created once.
+loadTest:
+  serviceAccount:
+    enabled: true

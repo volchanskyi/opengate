@@ -52,7 +52,7 @@ else
 fi
 
 # A shard map's own numbers must clear the budget, or the split has drifted and
-# the next nightly burns 75 minutes to discover it.
+# the next nightly burns 90 minutes to discover it.
 counter="$(stub_counter 1)"
 if MUTATION_SHARD_COUNTER="$counter" "$GUARD" >/dev/null 2>&1; then
   pass "a one-mutant shard set is inside the budget"
@@ -157,8 +157,8 @@ else
   fail "a one-mutant Go listing must pass"
 fi
 
-# go-api-runtime costs 51s a mutant, so 200 mutants project to 170 minutes —
-# past any budget a 75-minute job can carry.
+# go-api-runtime costs 59s a mutant, so 200 mutants project to 197 minutes —
+# past any budget a 90-minute job can carry.
 dryrun="$(stub_dryrun go-api-runtime 200)"
 out="$(MUTATION_GO_DRYRUN_FILE="$dryrun" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
 status=$?
@@ -175,7 +175,7 @@ fi
 
 # A shard the listing never mentions projects to zero rather than vanishing from
 # the table: a leg reported as absent reads as a leg nobody measured.
-if printf '%s' "$out" | grep -q 'go-domain-detection'; then
+if printf '%s' "$out" | grep -q 'go-domain-alerts'; then
   pass "every Go shard is reported, including the ones the listing does not reach"
 else
   fail "the Go table must report every shard (got: $out)"

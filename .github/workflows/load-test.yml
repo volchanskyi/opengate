@@ -9,6 +9,16 @@ on:
         description: "Number of QUIC agents to simulate"
         required: false
         default: "100"
+      fixture:
+        description: >-
+          Fleet to build before the run. The nightly builds the reference fleet;
+          the two larger ones exist for a deliberate run, because staging's
+          database shares the node root production sits on and a fleet four times
+          the size has not yet been weighed there.
+        required: false
+        default: small
+        type: choice
+        options: [small, large, lopsided]
 
 concurrency:
   group: load-test
@@ -25,6 +35,14 @@ env:
   LOADTEST_HOLD: 8m
   NAMESPACE: opengate-staging
   RELEASE: opengate-staging
+  # Every identity a run creates is built from this. Left unset it falls back to
+  # a fixed word, every night asks for the same three addresses, and the second
+  # night is refused as a duplicate — which is what happened.
+  LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+  # The administrator the enrollment token is minted against. The deployment
+  # seeds it and no cleanup removes it, so it is still there on the night after
+  # a cleanup that finally worked.
+  LOADTEST_SERVICE_ACCOUNT: opengate-service@service.invalid
 
 permissions:
   contents: read
@@ -125,7 +143,7 @@ jobs:
           kubectl -n "$NAMESPACE" run "$LOADTEST_K6_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
-            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"200m","memory":"192Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep 1800
           kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_K6_POD" --timeout=120s
           kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
@@ -148,33 +166,18 @@ jobs:
       # that key mints a trusted machine for the whole fleet, no rotation story
       # covers it, and a shared CI runner is the last place it should exist.
       #
-      # The token it spends is minted in staging's own database, expires in an
-      # hour, and is spent by this run alone. It is a short-lived, single-purpose
-      # credential rather than a standing one, so it is safe in a way the
-      # authority key can never be.
-      - name: Mint a short-lived enrollment token
+      # The credential the fleet spends is minted by the harness itself, through
+      # the same interface a technician uses, as the account the deployment
+      # seeds. It expires within the hour and this run is the only thing that
+      # spends it.
+      - name: Read the load-test service account's password
         run: |
           set -euo pipefail
-          POSTGRES_POD="$(kubectl -n "$NAMESPACE" get pods \
-            -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
-            -o jsonpath='{.items[0].metadata.name}')"
-          test -n "$POSTGRES_POD"
-
-          TOKEN="loadtest-$(openssl rand -hex 16)"
-          echo "::add-mask::$TOKEN"
-
-          kubectl -n "$NAMESPACE" exec -i "$POSTGRES_POD" -- \
-            psql -U opengate -d opengate -v ON_ERROR_STOP=1 -q \
-              -v token="$TOKEN" -v label="loadtest-${GITHUB_RUN_ID}" <<'SQL'
-          INSERT INTO enrollment_tokens (id, token, label, created_by, tenant_id, max_uses, expires_at)
-          SELECT gen_random_uuid(), :'token', :'label', u.id, u.tenant_id, 0, NOW() + INTERVAL '1 hour'
-          FROM users u
-          WHERE u.is_admin
-          ORDER BY u.created_at
-          LIMIT 1;
-          SQL
-
-          echo "LOADTEST_ENROLL_TOKEN=$TOKEN" >>"$GITHUB_ENV"
+          PASSWORD="$(kubectl -n "$NAMESPACE" get secret \
+            "${RELEASE}-loadtest-account" -o jsonpath='{.data.password}' | base64 -d)"
+          test -n "$PASSWORD"
+          echo "::add-mask::$PASSWORD"
+          echo "LOADTEST_SERVICE_PASSWORD=$PASSWORD" >>"$GITHUB_ENV"
 
       - name: Stage QUIC harness in cluster
         run: |
@@ -187,7 +190,7 @@ jobs:
           kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
-            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"200m","memory":"192Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep 1800
           kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_POD" --timeout=120s
           kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
@@ -205,7 +208,11 @@ jobs:
                 -agents="$AGENTS" \
                 -addr="${SERVER_POD_IP}:9090" \
                 -enroll-url="$LOADTEST_BASE_URL" \
-                -enroll-token="$LOADTEST_ENROLL_TOKEN" \
+                -metrics-url="$LOADTEST_BASE_URL" \
+                -fixture-account="$LOADTEST_SERVICE_ACCOUNT" \
+                -fixture-password="$LOADTEST_SERVICE_PASSWORD" \
+                -fixture-size="${{ inputs.fixture || 'small' }}" \
+                -fixture-seed="$GITHUB_RUN_ID" \
                 -relay-sessions \
                 -hold="$LOADTEST_HOLD" \
                 -bundle=/tmp/loadtest-bundle \
@@ -272,16 +279,19 @@ jobs:
           if [[ -n "${LOADTEST_POD:-}" ]]; then
             kubectl -n "$NAMESPACE" delete pod "$LOADTEST_POD" --ignore-not-found --wait=false
           fi
-          if [[ -n "${LOADTEST_ENROLL_TOKEN:-}" ]]; then
-            POSTGRES_POD="$(kubectl -n "$NAMESPACE" get pods \
-              -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
-              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-            if [[ -n "$POSTGRES_POD" ]]; then
-              kubectl -n "$NAMESPACE" exec -i "$POSTGRES_POD" -- \
-                psql -U opengate -d opengate -q \
-                  -v token="$LOADTEST_ENROLL_TOKEN" \
-                  -c "DELETE FROM enrollment_tokens WHERE token = :'token'" || true
-            fi
+          POSTGRES_POD="$(kubectl -n "$NAMESPACE" get pods \
+            -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          if [[ -n "$POSTGRES_POD" ]]; then
+            # Over standard input, not -c: psql expands a -v variable in a file
+            # and on standard input and never inside -c, so written the other way
+            # the server receives the colon literally, answers with a syntax
+            # error, and the spent credential outlives the run.
+            kubectl -n "$NAMESPACE" exec -i "$POSTGRES_POD" -- \
+              psql -U opengate -d opengate -q \
+                -v marker="opengate-loadtest" <<'SQL' || true
+            DELETE FROM enrollment_tokens WHERE label LIKE '%' || :'marker' || '%';
+          SQL
           fi
           rm -rf /tmp/loadtest /tmp/k6 /tmp/k6-"${K6_VERSION}"-linux-amd64
 
@@ -301,6 +311,19 @@ jobs:
           LOADTEST_PSQL="kubectl -n $NAMESPACE exec -i $POSTGRES_POD -- psql -U opengate -d opengate" \
             scripts/loadtest-cleanup.sh loadtest-cleanup.json
 
+      - name: Build canonical load-test summary
+        if: always()
+        run: |
+          K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
+            QUIC_OUTPUT_FILE="$LOADTEST_QUIC_OUTPUT" \
+            scripts/loadtest-summarize.sh > loadtest-summary.json
+          # Stage the raw exports inside the workspace so the artifact keeps a
+          # workspace-relative layout and the publish job's download path holds.
+          mkdir -p loadtest-k6-raw
+          cp "$LOADTEST_K6_SUMMARY_DIR"/*.json loadtest-k6-raw/ 2>/dev/null || true
+          cp "$LOADTEST_K6_SUMMARY_DIR"/*.thresholds loadtest-k6-raw/ 2>/dev/null || true
+
+      # Reads the canonical rows the step above produced, so it runs after it.
       - name: Record run completeness
         if: always()
         run: |
@@ -315,18 +338,6 @@ jobs:
           # and the next genuinely slow night then compares favourably and
           # passes. Exit 3 is that verdict; the job goes red on it.
           exit "$COMPLETENESS_STATUS"
-
-      - name: Build canonical load-test summary
-        if: always()
-        run: |
-          K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
-            QUIC_OUTPUT_FILE="$LOADTEST_QUIC_OUTPUT" \
-            scripts/loadtest-summarize.sh > loadtest-summary.json
-          # Stage the raw exports inside the workspace so the artifact keeps a
-          # workspace-relative layout and the publish job's download path holds.
-          mkdir -p loadtest-k6-raw
-          cp "$LOADTEST_K6_SUMMARY_DIR"/*.json loadtest-k6-raw/ 2>/dev/null || true
-          cp "$LOADTEST_K6_SUMMARY_DIR"/*.thresholds loadtest-k6-raw/ 2>/dev/null || true
 
       # The raw k6 exports ship alongside the canonical summary. Without them a
       # summary row that silently lost its metrics is indistinguishable from a
