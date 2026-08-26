@@ -147,6 +147,28 @@ production saving is not realized. It is a backward-compatible client-side chang
 quinn caches and presents tickets and a reconnecting production agent is observed
 resuming (`DidResume`).
 
+### A CD failure issue carries no log excerpt
+
+Every issue [`notify_failure.py`](../.github/scripts/notify_failure.py) has filed
+for a `Deploy staging` failure records `No log output available.` in place of the
+excerpt, so the one artifact that outlives a run's log retention holds nothing
+about why the run failed. Two staging failures reached the point where their
+logs had expired and neither could be diagnosed afterwards from the issue, the
+run, or an artifact.
+
+The excerpt is empty because `fetch_job_log` returned nothing.
+`repos/{repo}/actions/jobs/{id}/logs` serves the log fine on its own, and the
+workflow grants the `actions: read` the endpoint needs, so neither is the cause.
+The untested claim is the one in the function's own docstring — that the
+endpoint serves a completed job while the run around it is still in progress,
+which is the only condition this job ever runs under.
+
+**Pay-down trigger:** the next CD failure worth diagnosing. Settle the docstring's
+claim against a run in flight; if it does not hold, take the excerpt from the
+step's own output rather than from the API. Either way the fix is a test that
+fails when the excerpt is empty, since every issue to date would have passed one
+that only checks an issue was filed.
+
 ## Severity: Low
 
 ### The per-family anomaly label is unbounded on the wire
