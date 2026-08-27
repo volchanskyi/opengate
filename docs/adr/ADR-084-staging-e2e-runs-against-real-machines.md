@@ -62,15 +62,18 @@ instead. The packets themselves are addressed to the server pod through a host
 entry on the machine's pod, because the Service carries the HTTP port only —
 that is the path the load run already carries a hundred agents over nightly.
 
-**The bootstrap operator registers first, and the load-test administrator goes
-back last.** The database reset leaves the table empty; the deploy job then
-registers the operator the suite signs in as, which is what makes it an
-administrator, and mints the machines' enrolment token as that account through
-the public endpoint. No authority key leaves the cluster. The administrator the
-nightly load run mints against — destroyed by that same reset, which is why the
-load run had been red on every night following a deploy — is seeded again once
-the suite has finished, where it cannot take the first row away from the
-operator.
+**The bootstrap operator registers first, and nothing else takes that row.** The
+database reset leaves the table empty; the deploy job then registers the operator
+the suite signs in as, which is what makes it an administrator — an account is
+promoted only while it is the sole row — and mints the machines' enrolment token
+as that account through the public endpoint. No authority key leaves the cluster.
+
+The administrator the nightly load run mints against goes down with that same
+reset, and the run seeds it again itself, immediately before it spends it. The
+deploy does not put it back: one seeder for an account only the load run reads
+is one place those statements are issued from, and one place they can drift.
+[ADR-085](./ADR-085-one-holder-at-a-time-over-staging.md) covers what keeps the
+two runs off each other in the first place.
 
 **One copy of the seeding statements.** They move to a file the chart's
 post-upgrade hook and the deploy job both read, with the address and the password

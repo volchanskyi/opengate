@@ -103,6 +103,28 @@ else
   pass "the mint step does not pick an arbitrary administrator"
 fi
 
+# --- The run provides the account it spends ------------------------------------
+
+# The staging deploy's database reset takes this account away, and whether it is
+# there when a run starts would otherwise depend on what a deploy did hours
+# earlier. The run seeds it before it spends it, from the file the chart's
+# post-upgrade hook reads, so there is one copy of the statements rather than a
+# second one here to drift from it.
+if grep -qF 'deploy/scripts/loadtest-account-sql.sh' "$WORKFLOW"; then
+  pass "the run seeds its administrator from the same emitter the chart hook reads"
+else
+  fail "the run depends on somebody else having seeded its administrator, or restates the SQL"
+fi
+
+# A command line is readable by every process sharing the Postgres pod and is
+# recorded verbatim in the API server's audit entry for the exec subresource, so
+# the password reaches psql over standard input.
+if grep -qE -- '(--set=|-v[[:space:]]+)account_password' "$WORKFLOW"; then
+  fail "the account password never rides the psql command line"
+else
+  pass "the account password never rides the psql command line"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

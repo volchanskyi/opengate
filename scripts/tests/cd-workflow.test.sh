@@ -5,11 +5,10 @@
 # truncates security_groups and then reseeds Administrators; omitting tenant_id
 # makes post-migration CD fail before Playwright E2E starts.
 #
-# The same truncation also destroys the load-test administrator the post-upgrade
-# hook seeded four steps earlier, which is why the nightly load run had nobody to
-# mint an enrolment token against on every night after a deploy. It is put back
-# once the browser suite is done, where it cannot take the first row of the users
-# table away from the bootstrap operator the suite promotes.
+# The same truncation also takes the load-test administrator the post-upgrade
+# hook seeded four steps earlier. Putting it back is not this job's work: the
+# nightly load run seeds that account itself, immediately before it spends it,
+# so it stands on nothing a deploy did hours earlier.
 #
 # And the two machines the suite reads its device pages against are created for
 # the run and removed after it, whatever the verdict — a machine left behind is
@@ -156,31 +155,14 @@ else
 fi
 
 assert_step_always "Remove the staging machines"
-assert_step_always "Restore the load-test administrator"
-
-# The administrator is put back after the suite, not before it: ahead of the
-# suite it owns the first row of the users table, the bootstrap operator is
-# never promoted, and global-setup.ts throws before a single spec runs.
-RESTORE_LINE="$(step_line "Restore the load-test administrator")"
-if [ -n "$RESTORE_LINE" ] && [ -n "$E2E_LINE" ] && [ "$E2E_LINE" -lt "$RESTORE_LINE" ]; then
-  pass "the load-test administrator is restored after the suite has run"
+# The account the nightly load run mints against goes down with the reset above
+# and is not put back here. The run seeds its own before it spends it, so a copy
+# issued from this job as well would be a second place the same statements are
+# written and a second place they can drift.
+if grep -qF 'loadtest-account-sql.sh' "$WORKFLOW"; then
+  fail "the deploy seeds the load-test administrator, which the run that needs it does for itself"
 else
-  fail "the load-test administrator is restored before the suite, so the bootstrap operator is never promoted"
-fi
-
-if grep -qF 'deploy/scripts/loadtest-account-sql.sh' "$WORKFLOW"; then
-  pass "the administrator is seeded from the same emitter the chart hook reads"
-else
-  fail "the administrator's SQL is restated in the workflow, so it drifts from the chart's copy"
-fi
-
-# Same rule as the app-role password: a command line is readable by every
-# process in the Postgres pod and is recorded verbatim in the API server's exec
-# audit entry.
-if grep -qE -- '(--set=|-v[[:space:]]+)account_password' "$WORKFLOW"; then
-  fail "the account password never rides the psql command line"
-else
-  pass "the account password never rides the psql command line"
+  pass "the deploy leaves the load-test administrator to the run that needs it"
 fi
 
 echo

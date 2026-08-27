@@ -42,7 +42,12 @@ MARKER="${LOADTEST_MARKER:-opengate-loadtest}"
 SERVICE_ACCOUNT="${LOADTEST_SERVICE_ACCOUNT:-opengate-service@service.invalid}"
 
 # residue_predicate selects the accounts that belong to a load run rather than
-# to a person, and spares the one account the deployment seeds. The historic
+# to a person, and spares the administrator a run mints against. That account is
+# the chart's: a fixed id in the chart's own SQL, a password in a chart-managed
+# Secret, seeded by the post-upgrade hook. A run seeds it too, so that it never
+# has to assume a deploy left one behind, but seeding it is converging on
+# declared state rather than creating an identity — the identities a run creates
+# are the ones built from its run id, and those are what this removes. The historic
 # residue predates the marker, so the address pattern the scenarios have always
 # used is selected too — otherwise the accounts already there would survive
 # every cleanup that came after them.
