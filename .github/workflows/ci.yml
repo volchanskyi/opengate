@@ -70,11 +70,11 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
+      - uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2
         with:
           tool: cargo-nextest
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov
       # The instrumented run is the canonical execution of the workspace suite:
