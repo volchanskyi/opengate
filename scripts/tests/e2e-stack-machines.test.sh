@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keeps the browser test stack carrying real machines.
+# Keeps every stack that runs the browser suite carrying real machines.
 #
 # The stack ran a server and a database and no agent, so nine of twenty-one
 # specs reached for page.route and six of them fabricated a whole machine —
@@ -9,6 +9,13 @@
 # Three things have to hold together for that to stay fixed, and each is easy
 # to undo alone: the server has to listen for machines, the machines have to be
 # in the stack, and no spec may go back to inventing one.
+#
+# The suite runs against two stacks, not one. The staging config derives from
+# the local config and deletes only the webServer block — which is also the
+# thing that installed the machines — so fourteen specs asked a fleet of
+# nothing for a machine by name and every deploy since went red. The machines
+# a spec may name are pinned in one file, and both stacks are checked against
+# that file rather than against a list written here.
 #
 # Run: ./scripts/tests/e2e-stack-machines.test.sh
 
@@ -20,6 +27,10 @@ COMPOSE="$ROOT/deploy/docker-compose.test.yml"
 BRINGUP="$ROOT/deploy/scripts/e2e-stack-up.sh"
 SPECS="$ROOT/web/e2e"
 PLAYWRIGHT_CONFIG="$ROOT/web/playwright.config.ts"
+HELPER="$SPECS/helpers/enrolled-machine.ts"
+CD="$ROOT/.github/workflows/cd.yml"
+SERVER_DEPLOYMENT="$ROOT/deploy/helm/opengate/templates/server-deployment.yaml"
+MACHINE_POD="$ROOT/deploy/scripts/e2e-machine-pod.sh"
 
 PASS=0
 FAIL=0
@@ -36,7 +47,7 @@ fail() {
 
 echo "e2e-stack-machines:"
 
-for f in "$COMPOSE" "$BRINGUP" "$PLAYWRIGHT_CONFIG"; do
+for f in "$COMPOSE" "$BRINGUP" "$PLAYWRIGHT_CONFIG" "$HELPER" "$CD" "$SERVER_DEPLOYMENT" "$MACHINE_POD"; do
   if [ ! -f "$f" ]; then
     fail "missing file: $f"
     printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
@@ -63,12 +74,50 @@ else
   fail "OPENGATE_QUIC_HOST is unset, so the certificate names localhost and every handshake fails"
 fi
 
-# Two machines, so a spec may disturb one without breaking the rest.
-for machine in agent-a agent-b; do
+# Two machines, so a spec may disturb one without breaking the rest. The names
+# come from the file the specs read them from, so a third machine added there
+# is checked here without this list being edited.
+mapfile -t PINNED < <(sed -n 's/^export const MACHINE_[A-Z0-9]* = "\([^"]*\)";$/\1/p' "$HELPER")
+
+# The bodies of the two staging steps that own the machines' lifetime. Reading
+# them rather than the whole file keeps "brought up" from being satisfied by a
+# passing mention in a comment.
+cd_step_body() {
+  awk -v want="      - name: $1" '
+    $0 == want { in_step = 1; next }
+    in_step && /^      - / { exit }
+    in_step { print }
+  ' "$CD"
+}
+CD_ENROL="$(cd_step_body "Enrol two machines against staging")"
+CD_REMOVE="$(cd_step_body "Remove the staging machines")"
+
+if [ "${#PINNED[@]}" -ge 2 ]; then
+  pass "the specs pin ${#PINNED[@]} machines by name"
+else
+  fail "fewer than two machines are pinned — a spec cannot disturb one without breaking the rest"
+fi
+
+for machine in "${PINNED[@]}"; do
   if grep -q "hostname: $machine" "$COMPOSE"; then
-    pass "$machine is in the stack with a pinned hostname"
+    pass "$machine is in the local stack with a pinned hostname"
   else
-    fail "$machine is missing, or its hostname is not pinned — a spec cannot name a container id"
+    fail "$machine is missing from the local stack, or its hostname is not pinned — a spec cannot name a container id"
+  fi
+
+  # A pod's hostname is its name, so the deploy has to create it under exactly
+  # the name the spec asks for — and take it away again afterwards, or the next
+  # run inherits its device row.
+  if grep -qE "(^|[[:space:]])$machine([[:space:]]|$)" <<<"$CD_ENROL"; then
+    pass "$machine is brought up by the staging deploy"
+  else
+    fail "$machine is brought up by no staging deploy step — every spec that names it times out"
+  fi
+
+  if grep -qE "(^|[[:space:]])$machine([[:space:]]|$)" <<<"$CD_REMOVE"; then
+    pass "$machine is removed when the staging run ends"
+  else
+    fail "$machine outlives the staging run, so the next run reads a machine nobody brought up"
   fi
 done
 
@@ -181,6 +230,77 @@ if grep -q 'RemoteDesktop' "$SPECS/chat.spec.ts"; then
   pass "chat.spec.ts states why its machine is described rather than enrolled"
 else
   fail "chat.spec.ts fabricates a machine without saying why"
+fi
+
+# The staging machines dial the server by name, and the agent takes its TLS
+# name from the host half of that address with no way to be told another. So
+# the name a machine is given has to be the name the chart puts on the
+# certificate, or every handshake is refused for a name the certificate does
+# not carry. Both halves are read here, from the two files that decide them.
+POD_MANIFEST="$(
+  MACHINE=agent-a \
+    RELEASE=rel \
+    NODE_ARCH=arm64 \
+    SERVER_POD_IP=203.0.113.1 \
+    ENROLMENT_SECRET=secret-name \
+    "$MACHINE_POD" 2>/dev/null || true
+)"
+
+if [ -z "$POD_MANIFEST" ]; then
+  fail "the staging machine manifest could not be rendered"
+else
+  pass "the staging machine manifest renders"
+
+  if grep -qF 'value: rel-server:9090' <<<"$POD_MANIFEST"; then
+    pass "a staging machine dials the server by its in-cluster name"
+  else
+    fail "a staging machine dials something other than the server's in-cluster name — the certificate names no such host"
+  fi
+
+  # ...and the packets go to the server pod, because the Service carries the
+  # HTTP port only and there is nothing listening on UDP behind its address.
+  if grep -qF '203.0.113.1' <<<"$POD_MANIFEST" && grep -qF -- '- rel-server' <<<"$POD_MANIFEST"; then
+    pass "the name resolves to the server pod the QUIC listener is in"
+  else
+    fail "the name is not pointed at the server pod, so the QUIC packets reach nothing"
+  fi
+
+  # The pod's name is its hostname, which is what the specs look a machine up by.
+  if grep -qE '^  name: agent-a$' <<<"$POD_MANIFEST"; then
+    pass "a staging machine's pod is named for the machine the specs ask for"
+  else
+    fail "the pod is not named for the machine, so its hostname reaches the API as something else"
+  fi
+
+  # The token is a credential minted per run; it reaches the machine through a
+  # Secret rather than sitting in a manifest anyone can read back.
+  token_env="$(grep -A3 'name: OPENGATE_ENROLL_TOKEN' <<<"$POD_MANIFEST")"
+  if grep -qF 'secretKeyRef' <<<"$token_env" && ! grep -qF 'value:' <<<"$token_env"; then
+    pass "the enrolment token reaches the machine through a Secret"
+  else
+    fail "the enrolment token is written into the pod manifest in the clear"
+  fi
+fi
+
+if grep -qF 'printf "%s-server" (include "opengate.fullname" .)' "$SERVER_DEPLOYMENT"; then
+  pass "the certificate carries the in-cluster name by default"
+else
+  fail "the chart puts the in-cluster server name on the certificate nowhere, so an in-cluster machine cannot verify it"
+fi
+
+# The helper polls until a deadline and then throws a message naming the fleet
+# it actually saw. Given the same deadline as the per-test timeout it never
+# reaches the throw: the test dies first, and fourteen runs reported a bare
+# timeout instead of "the fleet holds: an empty fleet".
+helper_deadline="$(sed -n 's/.*Date\.now() + \([0-9_]*\).*/\1/p' "$HELPER" | tr -d '_' | head -n 1)"
+test_timeout="$(sed -n 's/^[[:space:]]*timeout: \([0-9_]*\),.*/\1/p' "$PLAYWRIGHT_CONFIG" | tr -d '_' | head -n 1)"
+
+if [ -z "$helper_deadline" ] || [ -z "$test_timeout" ]; then
+  fail "could not read the helper's deadline or the per-test timeout"
+elif [ "$helper_deadline" -lt "$test_timeout" ]; then
+  pass "the helper gives up before the test does, so its message is printed"
+else
+  fail "the helper's deadline (${helper_deadline}ms) is not below the per-test timeout (${test_timeout}ms) — the test dies before the helper can say what the fleet held"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"

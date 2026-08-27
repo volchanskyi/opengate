@@ -88,13 +88,19 @@ spec:
             - name: OPENGATE_GITHUB_REPO
               value: {{ .Values.server.githubRepo | quote }}
             {{- end }}
-            {{- if .Values.server.quicHost }}
             # Added to the server TLS cert SAN so agents reaching the QUIC listener
-            # at this public host pass the handshake. Unset → localhost-only cert →
-            # "certificate not valid for name <host>".
+            # at this host pass the handshake. Without it the cert names localhost
+            # alone → "certificate not valid for name <host>".
+            #
+            # The default is the server Service's own name, which is how a pod in
+            # this namespace reaches the server — the address the machines the
+            # staging browser suite reads its device pages against dial, and the
+            # name they verify the certificate for, since an agent takes its TLS
+            # name from the host half of the address it was given. A deployment
+            # whose agents come from outside the cluster sets its public host here
+            # instead.
             - name: OPENGATE_QUIC_HOST
-              value: {{ .Values.server.quicHost | quote }}
-            {{- end }}
+              value: {{ .Values.server.quicHost | default (printf "%s-server" (include "opengate.fullname" .)) | quote }}
             {{- if .Values.server.baseURL }}
             # SERVER_URL baked into the served install.sh for manifest fetches.
             - name: OPENGATE_BASE_URL

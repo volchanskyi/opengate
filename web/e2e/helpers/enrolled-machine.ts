@@ -1,12 +1,14 @@
 import type { APIRequestContext } from "@playwright/test";
 
 /**
- * The machines the test stack actually runs.
+ * The machines the stacks under test actually run.
  *
- * deploy/docker-compose.test.yml starts two agents and pins their hostnames,
- * so a spec can name the machine it is about. agent-a is what the device pages
- * are read against; agent-b is the expendable one, for a spec that wants to
- * disturb a machine without breaking every other spec.
+ * Two of them, so a spec can disturb one without breaking every other spec:
+ * agent-a is what the device pages are read against, agent-b is the expendable
+ * one. Both stacks that run this suite bring them up under these names —
+ * deploy/docker-compose.test.yml pins them as container hostnames, and the
+ * staging deploy creates two pods so named, a pod's hostname being its name.
+ * scripts/tests/e2e-stack-machines.test.sh holds all three files together.
  */
 export const MACHINE_A = "agent-a";
 export const MACHINE_B = "agent-b";
@@ -49,15 +51,22 @@ export async function enrolledMachine(
   hostname: string,
 ): Promise<EnrolledMachine> {
   const headers = { Authorization: `Bearer ${adminToken()}` };
-  const deadline = Date.now() + 30_000;
+  // Below the 30s per-test timeout in playwright.config.ts, so the throw below
+  // is reached and says what the fleet held. Given the same 30s, fourteen
+  // staging runs died on a bare timeout instead.
+  const deadline = Date.now() + 20_000;
 
   let lastSeen = "nothing";
   while (Date.now() < deadline) {
     const resp = await request.get("/api/v1/devices", { headers });
     if (resp.ok()) {
       const machines: EnrolledMachine[] = await resp.json();
-      lastSeen = machines.map((m) => `${m.hostname}=${m.status}`).join(", ") || "an empty fleet";
-      const found = machines.find((m) => m.hostname === hostname && m.status === "online");
+      lastSeen =
+        machines.map((m) => `${m.hostname}=${m.status}`).join(", ") ||
+        "an empty fleet";
+      const found = machines.find(
+        (m) => m.hostname === hostname && m.status === "online",
+      );
       if (found) return found;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -65,7 +74,8 @@ export async function enrolledMachine(
 
   throw new Error(
     `the machine ${hostname} never came online. The fleet holds: ${lastSeen}. ` +
-      "deploy/scripts/e2e-stack-up.sh installs both machines and waits for them, " +
-      "so this means one of them dropped off during the run.",
+      "Both stacks install the machines and wait for them before the suite starts — " +
+      "deploy/scripts/e2e-stack-up.sh locally, the staging deploy job in " +
+      ".github/workflows/cd.yml — so this means one of them dropped off during the run.",
   );
 }
