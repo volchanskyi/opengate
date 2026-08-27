@@ -39,6 +39,12 @@ struct Args {
     #[arg(long, default_value = "/var/lib/mesh-agent", env = "OPENGATE_DATA_DIR")]
     data_dir: PathBuf,
 
+    /// Directory for the agent's own rotated log files, and the directory the
+    /// server reads them back from. A host that cannot write here logs to
+    /// stdout alone.
+    #[arg(long, default_value = LOG_DIR, env = "OPENGATE_LOG_DIR")]
+    log_dir: PathBuf,
+
     /// Ed25519 public key hex for verifying update signatures (optional).
     #[arg(long, env = "OPENGATE_UPDATE_PUBLIC_KEY")]
     update_public_key: Option<String>,
@@ -288,40 +294,67 @@ const HOST_METRIC_TELEMETRY_CAP: usize = 16;
 /// coarse fleet-wide safety limit rather than a per-host tuning knob.
 const EDGE_STORE_CAP_MB: u64 = 512;
 
-/// Set up tracing with both stdout and rolling file appender.
-/// Returns the guard that must be held for the lifetime of the program.
-fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
+/// Set up tracing on stdout, and on a daily-rotated file beside it when the log
+/// directory can carry one. Returns the guard that must be held for the
+/// lifetime of the program, or `None` when logging is stdout-only.
+///
+/// A file sink is a diagnostic, not a precondition for running a machine. A
+/// directory the agent cannot create or write — a read-only mount, an image
+/// that does not pre-create it, a container user with no write access under
+/// `/var/log` — costs it the file and nothing else, because stdout still
+/// carries every line, which is what `kubectl logs` and `journalctl` read.
+fn setup_logging(log_dir: &Path) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
 
-    // Rolling file appender: daily rotation, 7 files retained.
-    let log_dir = PathBuf::from(LOG_DIR);
-    if let Err(e) = std::fs::create_dir_all(&log_dir) {
-        // Runs before the tracing subscriber is installed (`.init()` below), so
-        // stderr is the only working sink — a `tracing` macro here would be dropped.
-        eprintln!(
-            "warning: failed to create log dir {}: {e}",
-            log_dir.display()
-        );
+    // `agent.log` is the prefix the device-log collector discovers files by, and
+    // daily rotation names them `agent.log.YYYY-MM-DD`. Built through the
+    // builder rather than the `rolling::daily` shorthand because the builder
+    // reports a directory it cannot use and the shorthand panics on one — and
+    // both halves can fail independently, a directory that cannot be created
+    // and a directory that exists but takes no file.
+    let appender = std::fs::create_dir_all(log_dir)
+        .map_err(|e| format!("create it: {e}"))
+        .and_then(|()| {
+            tracing_appender::rolling::RollingFileAppender::builder()
+                .rotation(tracing_appender::rolling::Rotation::DAILY)
+                .filename_prefix("agent.log")
+                .build(log_dir)
+                .map_err(|e| format!("open a log file in it: {e}"))
+        });
+
+    match appender {
+        Ok(file_appender) => {
+            let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(stdout_layer)
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(false)
+                        .with_writer(non_blocking),
+                )
+                .init();
+            Some(guard)
+        }
+        Err(why) => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(stdout_layer)
+                .init();
+            // Installed by the line above, so this reaches stdout as an ordinary
+            // event and names the directory a technician would go looking in.
+            warn!(
+                log_dir = %log_dir.display(),
+                "logging to stdout only: could not {why}"
+            );
+            None
+        }
     }
-
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "agent.log");
-    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout))
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_ansi(false)
-                .with_writer(non_blocking),
-        )
-        .init();
-
-    guard
 }
 
 #[tokio::main]
@@ -331,7 +364,7 @@ async fn main() -> Result<()> {
     // appender thread.
     let args = Args::parse();
 
-    let _log_guard = setup_logging();
+    let _log_guard = setup_logging(&args.log_dir);
 
     info!(
         version = env!("AGENT_VERSION"),
@@ -877,7 +910,7 @@ async fn main() -> Result<()> {
                             // enumeration and is refused by name where this host
                             // has no reader for it.
                             let outcome = if source.is_empty() || source == "self" {
-                                logs::LogCollector::new(PathBuf::from(LOG_DIR))
+                                logs::LogCollector::new(args.log_dir.clone())
                                     .collect(&filter)
                                     .map(|result| (result, Vec::new()))
                                     .map_err(anyhow::Error::from)

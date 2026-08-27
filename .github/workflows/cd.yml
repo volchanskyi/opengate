@@ -151,11 +151,17 @@ jobs:
     if: needs.resolve-tag.outputs.should_skip_staging != 'true'
     runs-on: ubuntu-latest
     environment: staging
+    # Bounded below the lease it holds, so the job cannot outlive its own claim
+    # and have it taken over while it is still writing to the namespace.
+    timeout-minutes: 60
     env:
       IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
       TARGET_DIGEST: ${{ needs.resolve-tag.outputs.target_digest }}
       NAMESPACE: opengate-staging
       RELEASE: opengate-staging
+      # Named once: the release step matches on this identity, and a claim
+      # released under a different one is left to time out instead.
+      STAGING_LEASE_HOLDER: cd-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
 
@@ -178,6 +184,16 @@ jobs:
           oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      # The nightly load run drives this same release — it reads the server this
+      # job rolls, mints against the account the reset truncates, and asks the
+      # one node for room beside the machines created here. The two are
+      # scheduled independently and sit in different concurrency groups, so each
+      # takes the namespace before touching it and gives it back after.
+      - name: Take the staging namespace
+        env:
+          STAGING_LEASE_TTL_SECONDS: "3600"
+        run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
 
       # The two machines the browser suite reads its device pages against run as
       # pods in this namespace: an agent speaks QUIC over UDP and the port-forward
@@ -437,45 +453,13 @@ jobs:
           kubectl -n "$NAMESPACE" delete secret opengate-e2e-enrolment \
             --ignore-not-found || true
 
-      # The reset above truncates users, which destroys the administrator the
-      # post-upgrade hook seeded earlier in this job — the one account a load run
-      # does not create and its cleanup does not remove. Without it the nightly
-      # load run has nobody to mint an enrolment token against, which is what left
-      # it red on every night following a deploy.
-      #
-      # It goes back now rather than then: ahead of the suite it would hold the
-      # first row of the users table, the bootstrap operator would never be
-      # promoted, and global-setup.ts would throw before a spec ran.
-      - name: Restore the load-test administrator
-        if: always()
-        env:
-          ACCOUNT_EMAIL: opengate-service@service.invalid
-        run: |
-          set -euo pipefail
-          if ! kubectl -n "$NAMESPACE" get secret "${RELEASE}-loadtest-account" >/dev/null 2>&1; then
-            echo "::notice::no load-test account secret yet; the chart seeds it on the next upgrade"
-            exit 0
-          fi
-          if ! kubectl -n "$NAMESPACE" get statefulset "${RELEASE}-postgres" >/dev/null 2>&1; then
-            echo "::notice::no Postgres StatefulSet yet; nothing to seed into"
-            exit 0
-          fi
-          ACCOUNT_PASSWORD="$(kubectl -n "$NAMESPACE" get secret \
-            "${RELEASE}-loadtest-account" -o jsonpath='{.data.password}' | base64 -d)"
-          test -n "$ACCOUNT_PASSWORD"
-          echo "::add-mask::$ACCOUNT_PASSWORD"
-          # Over standard input, for the reason the app-role password is: a psql
-          # argv is readable by every process in the Postgres pod and is recorded
-          # verbatim in the API server's exec audit entry.
-          ACCOUNT_EMAIL="$ACCOUNT_EMAIL" ACCOUNT_PASSWORD="$ACCOUNT_PASSWORD" \
-            deploy/scripts/loadtest-account-sql.sh \
-            | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
-                psql -U opengate -d opengate -v ON_ERROR_STOP=1 -q
-          echo "load-test administrator present: $ACCOUNT_EMAIL"
-
       - name: Stop port-forward
         if: always()
         run: kill "$(cat /tmp/pf.pid)" 2>/dev/null || true
+
+      - name: Release the staging namespace
+        if: always()
+        run: scripts/staging-lease.sh release "$STAGING_LEASE_HOLDER"
 
       - name: Remove OCI credentials
         if: always()

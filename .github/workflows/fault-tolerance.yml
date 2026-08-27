@@ -57,6 +57,9 @@ jobs:
       NAMESPACE: opengate-staging
       RELEASE: opengate-staging
       SCENARIO: ${{ inputs.scenario }}
+      # Named once: the release step matches on this identity, and a claim
+      # released under a different one is left to time out instead.
+      STAGING_LEASE_HOLDER: fault-drill-${{ github.run_id }}-${{ github.run_attempt }}
       EVIDENCE_DIR: ${{ github.workspace }}/fault-evidence
     steps:
       - uses: actions/checkout@v7
@@ -85,6 +88,11 @@ jobs:
           oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      # The drill deletes pods in this namespace on purpose, which a load run
+      # reading the same server would report as its own failure.
+      - name: Take the staging namespace
+        run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
 
       - name: Run fault scenario
         run: |
@@ -124,6 +132,10 @@ jobs:
           path: ${{ env.EVIDENCE_DIR }}
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Release the staging namespace
+        if: always()
+        run: scripts/staging-lease.sh release "$STAGING_LEASE_HOLDER"
 
       - name: Remove OCI credentials
         if: always()

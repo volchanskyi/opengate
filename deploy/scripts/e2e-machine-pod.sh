@@ -79,6 +79,12 @@ spec:
           value: http://${SERVER_NAME}:8080
         - name: OPENGATE_DATA_DIR
           value: /tmp/agent
+        # The image is stock Alpine and the container is not root, so the
+        # default under /var/log is not writable here. The agent would log to
+        # stdout alone without this; it is set so the rotated files the server
+        # reads a machine's logs back from exist on staging too.
+        - name: OPENGATE_LOG_DIR
+          value: /tmp/agent-logs
         - name: OPENGATE_SERVER_CA
           value: /tmp/agent/ca.pem
         - name: RUST_LOG

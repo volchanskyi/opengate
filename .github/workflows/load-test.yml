@@ -39,6 +39,9 @@ env:
   # a fixed word, every night asks for the same three addresses, and the second
   # night is refused as a duplicate — which is what happened.
   LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+  # Named once: the release step matches on this identity, and a claim released
+  # under a different one is left to time out instead.
+  STAGING_LEASE_HOLDER: load-test-${{ github.run_id }}-${{ github.run_attempt }}
   # The administrator the enrollment token is minted against. The deployment
   # seeds it and no cleanup removes it, so it is still there on the night after
   # a cleanup that finally worked.
@@ -53,7 +56,9 @@ jobs:
     runs-on: ubuntu-latest
     # The in-cluster k6 and QUIC runs finish in well under 15 minutes; this
     # bounds a staging pod that never goes Ready or a scenario that wedges.
-    timeout-minutes: 30
+    # Room for the wait on the namespace lease as well as the run itself: a
+    # run that queues behind a staging deploy still needs its own half hour.
+    timeout-minutes: 45
     # Deliberately avoid `environment: staging`: its required reviewers would
     # block the scheduled run. This read-only workload uses repository-level OCI
     # credentials and creates only short-lived test pods.
@@ -75,12 +80,25 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
+      # The staging deploy drives this same release — it rolls the server this
+      # run reads, truncates the account this run mints against, and puts its
+      # own machines on the one node. The two are scheduled independently and
+      # sit in different concurrency groups, so each takes the namespace before
+      # touching it and gives it back after.
+      - name: Take the staging namespace
+        env:
+          STAGING_LEASE_WAIT_SECONDS: "900"
+        run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
+
       # Both phases run their generator inside the cluster, so both need the
       # server pod and the architecture its node runs.
       - name: Resolve staging target
         run: |
           set -euo pipefail
-          kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=120s
+          # As patient as the deploy's own wait. Given half of it, a run that
+          # started while a staging upgrade was still rolling gave up first and
+          # reported the deploy's rollout as a load-test failure.
+          kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
           SERVER_POD="$(kubectl -n "$NAMESPACE" get pods \
             -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=server" \
             -o jsonpath='{.items[0].metadata.name}')"
@@ -170,7 +188,7 @@ jobs:
       # the same interface a technician uses, as the account the deployment
       # seeds. It expires within the hour and this run is the only thing that
       # spends it.
-      - name: Read the load-test service account's password
+      - name: Read the load-test service account's password, and seed the account
         run: |
           set -euo pipefail
           PASSWORD="$(kubectl -n "$NAMESPACE" get secret \
@@ -178,6 +196,20 @@ jobs:
           test -n "$PASSWORD"
           echo "::add-mask::$PASSWORD"
           echo "LOADTEST_SERVICE_PASSWORD=$PASSWORD" >>"$GITHUB_ENV"
+          # The chart seeds this account and the staging deploy's database reset
+          # truncates it away again, so whether it is there when a run starts
+          # depends on what a deploy did hours earlier. The run seeds it itself,
+          # from the file the chart hook and the deploy job both read, and the
+          # statements are idempotent — an account already present is left
+          # holding the password this run is about to spend. Over standard input
+          # for the reason the deploy uses it: a psql argv is readable by every
+          # process in the Postgres pod and is recorded verbatim in the API
+          # server's exec audit entry.
+          ACCOUNT_EMAIL="$LOADTEST_SERVICE_ACCOUNT" ACCOUNT_PASSWORD="$PASSWORD" \
+            deploy/scripts/loadtest-account-sql.sh \
+            | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
+                psql -U opengate -d opengate -v ON_ERROR_STOP=1 -q
+          echo "load-test administrator present: $LOADTEST_SERVICE_ACCOUNT"
 
       - name: Stage QUIC harness in cluster
         run: |
@@ -356,6 +388,10 @@ jobs:
             loadtest-bundle
           if-no-files-found: error
           retention-days: 90
+
+      - name: Release the staging namespace
+        if: always()
+        run: scripts/staging-lease.sh release "$STAGING_LEASE_HOLDER"
 
       - name: Remove OCI credentials
         if: always()

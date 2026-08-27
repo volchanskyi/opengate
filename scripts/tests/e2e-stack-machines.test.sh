@@ -272,6 +272,25 @@ else
     fail "the pod is not named for the machine, so its hostname reaches the API as something else"
   fi
 
+  # The image is stock Alpine and the container is not root, so every directory
+  # the agent writes has to be one that user can create. The log directory
+  # defaults to a path under /var/log, which it cannot: both machines started,
+  # died on their first line, and the fleet the suite waits for stayed empty.
+  for dir_var in OPENGATE_DATA_DIR OPENGATE_LOG_DIR; do
+    dir_value="$(grep -A1 "name: $dir_var" <<<"$POD_MANIFEST" | sed -n 's/^ *value: //p')"
+    case "$dir_value" in
+      /tmp/*)
+        pass "$dir_var is a directory the machine's user can write"
+        ;;
+      "")
+        fail "$dir_var is unset, so the agent takes a default its non-root user cannot write"
+        ;;
+      *)
+        fail "$dir_var is $dir_value, which the machine's non-root user cannot write"
+        ;;
+    esac
+  done
+
   # The token is a credential minted per run; it reaches the machine through a
   # Secret rather than sitting in a manifest anyone can read back.
   token_env="$(grep -A3 'name: OPENGATE_ENROLL_TOKEN' <<<"$POD_MANIFEST")"
