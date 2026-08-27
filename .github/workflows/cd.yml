@@ -179,6 +179,58 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
+      # The two machines the browser suite reads its device pages against run as
+      # pods in this namespace: an agent speaks QUIC over UDP and the port-forward
+      # the suite reaches staging through carries TCP only. That is the conclusion
+      # the nightly load run reached for its own fleet, for the same reason.
+      #
+      # Their binary is built here, from the commit being deployed, rather than
+      # pulled from an image with a release cycle of its own — so a run can never
+      # pair one commit's server with another commit's machines.
+      - name: Resolve the staging node's architecture
+        run: |
+          set -euo pipefail
+          NODE_ARCH="$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')"
+          case "$NODE_ARCH" in
+            arm64) AGENT_TARGET=aarch64-unknown-linux-musl ;;
+            amd64) AGENT_TARGET=x86_64-unknown-linux-musl ;;
+            *) echo "::error::Unsupported OKE node architecture: $NODE_ARCH"; exit 1 ;;
+          esac
+          {
+            echo "NODE_ARCH=$NODE_ARCH"
+            echo "AGENT_TARGET=$AGENT_TARGET"
+          } >>"$GITHUB_ENV"
+          echo "Building the staging machines for $NODE_ARCH ($AGENT_TARGET)"
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: ${{ env.AGENT_TARGET }}
+
+      - name: Install musl tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install cross tools
+        if: env.AGENT_TARGET == 'aarch64-unknown-linux-musl'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: agent
+          key: ${{ env.AGENT_TARGET }}
+
+      - name: Build the agent for the staging node
+        working-directory: agent
+        run: |
+          set -euo pipefail
+          if [ "$AGENT_TARGET" = "aarch64-unknown-linux-musl" ]; then
+            cross build --release --target "$AGENT_TARGET" -p mesh-agent
+          else
+            cargo build --release --target "$AGENT_TARGET" -p mesh-agent
+          fi
+          install -m 0755 "target/$AGENT_TARGET/release/mesh-agent" /tmp/mesh-agent
+
       - name: Sync namespace + secret
         env:
           JWT_SECRET: ${{ secrets.DEPLOY_STAGING_JWT_SECRET }}
@@ -257,6 +309,102 @@ jobs:
             VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)
             ON CONFLICT (id) DO NOTHING;"
 
+      # After the reset, which truncates devices, and before the suite, which
+      # reads them.
+      - name: Enrol two machines against staging
+        env:
+          # The bootstrap operator web/e2e/global-setup.ts signs in as. The first
+          # account registered is promoted to administrator and the reset above
+          # just emptied the table, so registering it here — before anything else
+          # creates an account — is what makes it one. global-setup then finds it
+          # already present and takes its login path.
+          BOOTSTRAP_EMAIL: bootstrap-admin@test.local
+          BOOTSTRAP_PASSWORD: BootstrapPass123!
+          ENROLMENT_SECRET: opengate-e2e-enrolment
+        run: |
+          set -euo pipefail
+          BASE=http://127.0.0.1:18080
+
+          bearer() {
+            curl -sS -X POST "$1" -H 'Content-Type: application/json' \
+              -d "{\"email\":\"$BOOTSTRAP_EMAIL\",\"password\":\"$BOOTSTRAP_PASSWORD\"}" \
+              | jq -r '.token // empty'
+          }
+
+          TOKEN="$(bearer "$BASE/api/v1/auth/register" || true)"
+          if [ -z "$TOKEN" ]; then
+            TOKEN="$(bearer "$BASE/api/v1/auth/login" || true)"
+          fi
+          if [ -z "$TOKEN" ]; then
+            echo "::error::could not sign in as the bootstrap operator"
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+
+          # Through the same public endpoint an installer uses. Nothing copies the
+          # certificate authority's key out of the cluster: that key mints a
+          # trusted machine for the whole fleet, and a shared runner is the last
+          # place it should exist.
+          ENROLMENT="$(curl -sS -X POST "$BASE/api/v1/enrollment-tokens" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $TOKEN" \
+            -d '{"label":"staging browser suite","max_uses":0,"expires_in_hours":1}' \
+            | jq -r '.token // empty')"
+          if [ -z "$ENROLMENT" ]; then
+            echo "::error::could not mint an enrolment token"
+            exit 1
+          fi
+          echo "::add-mask::$ENROLMENT"
+
+          kubectl -n "$NAMESPACE" create secret generic "$ENROLMENT_SECRET" \
+            --from-literal=token="$ENROLMENT" \
+            --dry-run=client -o yaml | kubectl -n "$NAMESPACE" apply -f -
+
+          SERVER_POD_IP="$(kubectl -n "$NAMESPACE" get pods \
+            -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=server" \
+            -o jsonpath='{.items[0].status.podIP}')"
+          test -n "$SERVER_POD_IP"
+
+          for machine in agent-a agent-b; do
+            kubectl -n "$NAMESPACE" delete pod "$machine" --ignore-not-found --wait=true
+            MACHINE="$machine" \
+              RELEASE="$RELEASE" \
+              NODE_ARCH="$NODE_ARCH" \
+              SERVER_POD_IP="$SERVER_POD_IP" \
+              ENROLMENT_SECRET="$ENROLMENT_SECRET" \
+              deploy/scripts/e2e-machine-pod.sh \
+              | kubectl -n "$NAMESPACE" apply -f -
+          done
+
+          for machine in agent-a agent-b; do
+            kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$machine" --timeout=120s
+            kubectl -n "$NAMESPACE" exec "$machine" -- mkdir -p /tmp/agent
+            kubectl -n "$NAMESPACE" cp /tmp/mesh-agent "$machine:/tmp/mesh-agent"
+            kubectl -n "$NAMESPACE" exec "$machine" -- chmod 0755 /tmp/mesh-agent
+            # The container waits on this rather than on the binary, so a
+            # half-copied file is never executed.
+            kubectl -n "$NAMESPACE" exec "$machine" -- touch /tmp/ready
+          done
+
+          # The suite's own helper waits too, but it waits inside a test with a
+          # timeout it cannot outlive. Waiting here means a machine that never
+          # arrives is reported as a machine that never arrived.
+          for _ in $(seq 1 60); do
+            ONLINE="$(curl -sS "$BASE/api/v1/devices" -H "Authorization: Bearer $TOKEN" \
+              | jq -r '[.[] | select(.status == "online") | .hostname] | sort | join(",")' \
+              || true)"
+            if [ "$ONLINE" = "agent-a,agent-b" ]; then
+              echo "both machines are online"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::the machines never came online. The fleet holds: ${ONLINE:-nothing}"
+          kubectl -n "$NAMESPACE" logs agent-a --tail=50 || true
+          kubectl -n "$NAMESPACE" logs agent-b --tail=50 || true
+          exit 1
+
       - name: Run Playwright E2E against staging
         working-directory: web
         run: npx playwright test --config=playwright.staging.config.ts
@@ -277,6 +425,53 @@ jobs:
         with:
           path: staging-deploy-state.json
           key: cd-deploy-state-staging-v1-${{ github.run_id }}
+
+      # A machine left behind is a device row the next run's fleet assertions
+      # inherit. The Secret goes with them; the token itself was minted to expire
+      # within the hour, and the next run's reset truncates the table it is in.
+      - name: Remove the staging machines
+        if: always()
+        run: |
+          kubectl -n "$NAMESPACE" delete pod agent-a agent-b \
+            --ignore-not-found --wait=false || true
+          kubectl -n "$NAMESPACE" delete secret opengate-e2e-enrolment \
+            --ignore-not-found || true
+
+      # The reset above truncates users, which destroys the administrator the
+      # post-upgrade hook seeded earlier in this job — the one account a load run
+      # does not create and its cleanup does not remove. Without it the nightly
+      # load run has nobody to mint an enrolment token against, which is what left
+      # it red on every night following a deploy.
+      #
+      # It goes back now rather than then: ahead of the suite it would hold the
+      # first row of the users table, the bootstrap operator would never be
+      # promoted, and global-setup.ts would throw before a spec ran.
+      - name: Restore the load-test administrator
+        if: always()
+        env:
+          ACCOUNT_EMAIL: opengate-service@service.invalid
+        run: |
+          set -euo pipefail
+          if ! kubectl -n "$NAMESPACE" get secret "${RELEASE}-loadtest-account" >/dev/null 2>&1; then
+            echo "::notice::no load-test account secret yet; the chart seeds it on the next upgrade"
+            exit 0
+          fi
+          if ! kubectl -n "$NAMESPACE" get statefulset "${RELEASE}-postgres" >/dev/null 2>&1; then
+            echo "::notice::no Postgres StatefulSet yet; nothing to seed into"
+            exit 0
+          fi
+          ACCOUNT_PASSWORD="$(kubectl -n "$NAMESPACE" get secret \
+            "${RELEASE}-loadtest-account" -o jsonpath='{.data.password}' | base64 -d)"
+          test -n "$ACCOUNT_PASSWORD"
+          echo "::add-mask::$ACCOUNT_PASSWORD"
+          # Over standard input, for the reason the app-role password is: a psql
+          # argv is readable by every process in the Postgres pod and is recorded
+          # verbatim in the API server's exec audit entry.
+          ACCOUNT_EMAIL="$ACCOUNT_EMAIL" ACCOUNT_PASSWORD="$ACCOUNT_PASSWORD" \
+            deploy/scripts/loadtest-account-sql.sh \
+            | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
+                psql -U opengate -d opengate -v ON_ERROR_STOP=1 -q
+          echo "load-test administrator present: $ACCOUNT_EMAIL"
 
       - name: Stop port-forward
         if: always()

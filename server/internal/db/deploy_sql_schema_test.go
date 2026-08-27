@@ -19,10 +19,12 @@ import (
 const deploySQLSchema = "opengate_test"
 
 // The directories whose files embed SQL written against the application
-// schema: the chart's hooks and the deploy workflows. Every regular file in
-// them is read, so SQL that moves into a helper template is still covered.
+// schema: the chart's hooks, the statement files they read, and the deploy
+// workflows. Every regular file in them is read, so SQL that moves into a
+// helper template or out into a file two callers share is still covered.
 var deploySQLSources = []string{
 	filepath.Join("..", "..", "..", "deploy", "helm", "opengate", "templates"),
+	filepath.Join("..", "..", "..", "deploy", "helm", "opengate", "files"),
 	filepath.Join("..", "..", "..", ".github", "workflows"),
 }
 

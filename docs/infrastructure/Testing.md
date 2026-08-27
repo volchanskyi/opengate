@@ -130,12 +130,17 @@ an outcome naming no capability fails it the other way. Adding a chapter turns
 the suite red until somebody states what a customer gets from it, which is the
 intent.
 
-### The browser stack carries real machines
+### Both browser stacks carry real machines
 
-[`docker-compose.test.yml`](../../deploy/docker-compose.test.yml) runs a
-database, a server listening for machines, and two agents with pinned hostnames.
-`agent-a` is what the device pages are read against; `agent-b` is the expendable
-one, for a spec that wants to disturb a machine.
+The suite runs against two stacks — the local one and the deployed staging
+release — and both bring up the machines the specs name.
+[`enrolled-machine.ts`](../../web/e2e/helpers/enrolled-machine.ts) pins those
+names in one place: `agent-a` is what the device pages are read against,
+`agent-b` is the expendable one, for a spec that wants to disturb a machine.
+
+[`docker-compose.test.yml`](../../deploy/docker-compose.test.yml) runs the local
+stack — a database, a server listening for machines, and two agents with pinned
+hostnames.
 
 The machines install the way a real one does.
 [`e2e-stack-up.sh`](../../deploy/scripts/e2e-stack-up.sh) starts the database and
@@ -145,12 +150,25 @@ asks to be signed, and connects. No private key is copied and no test-only
 affordance exists in the shipped server. `make e2e` and Playwright's `webServer`
 both call that script, so the two paths cannot stand up different stacks.
 
+On staging the same two machines are pods, created by the deploy job in
+[`cd.yml`](../../.github/workflows/cd.yml) from
+[`e2e-machine-pod.sh`](../../deploy/scripts/e2e-machine-pod.sh) — a pod's
+hostname is its name, which is what the specs look a machine up by. They run in
+the namespace rather than on the runner because an agent speaks QUIC over UDP
+and `kubectl port-forward` carries TCP only, the conclusion the load run reached
+for its own fleet. Their binary is cross-built in that job for the node's
+architecture, from the commit being deployed, so the machines and the server
+they enrol into are always the same version of the product. They enrol through
+the same public endpoint, with a token minted for the run against the bootstrap
+operator, and both they and the token are removed whatever the suite's verdict.
+
 Values differ per runner — the processor, the memory, the addresses — so specs
 assert on shape and presence, reading what the machine reported out of the
 response and checking the page carries it.
 [`e2e-stack-machines.test.sh`](../../scripts/tests/e2e-stack-machines.test.sh)
-holds the arrangement together and refuses a spec that goes back to inventing a
-machine.
+holds both stacks to the names that one file pins, checks that the name a
+staging machine dials is the name the chart puts on the machine-facing
+certificate, and refuses a spec that goes back to inventing a machine.
 
 ## Running Tests Locally
 
@@ -483,7 +501,9 @@ depends on is gone for every later run against that database.
 - **CI**: `web/playwright.config.ts` — targets `http://localhost:8080` (docker-compose)
 - **Staging**: `web/playwright.staging.config.ts` — derives from the CI config and
   overrides only the target and retry policy, so the two cannot drift in how the
-  suite executes; `scripts/tests/playwright-config-parity.test.sh` enforces it
+  suite executes; `scripts/tests/playwright-config-parity.test.sh` enforces it.
+  What it does not inherit is the stack: the deploy job stands staging's
+  machines up, which is why they are checked against the same pinned names
 
 ### Running locally
 
