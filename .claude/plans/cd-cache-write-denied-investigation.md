@@ -49,9 +49,18 @@ Each verified against primary sources — the Actions API, downloaded run logs,
 | "The skip may fire too rarely to be worth keeping" | **False.** F10 — 45.8%. |
 | "A static YAML scan can guard cache writes" | **False.** Three of build-image's four cache writes happen inside `trivy-action` and `setup-qemu-action`, which declare nothing. |
 | The 2026-06-26 changelog explains CD's denial | **It does not.** It scopes the change to `pull_request_target`, `issue_comment` and *fork-pull-request* `workflow_run` cascades, conditioned on *"someone other than a repository collaborator can trigger the event"*. By its own wording CD should be unaffected. The cited heroku issue concerns `pull_request`, mentions neither `workflow_run` nor `actions: write`. |
+| "CD's upstream running on the default branch is what denies it" | **False.** PR 1's probe — a `workflow_run` job one level behind a `push` on `main` — wrote `cache-scope-probe-33199859504` and read the key back through the cache API, twice, on two independent runs. An upstream on `main` writes. |
 
-**Still open:** whether CD is caught by cascade depth or by its upstream running
-on the default branch. Both coincide here. Settled by §4 PR 1.
+**Settled by PR 1.** The upstream branch is not the discriminator. What remains
+is the pair the probe could not separate, because CD is on the far side of both
+at once: **cascade depth** (the probe writes at depth 1, CD is denied at depth 2)
+and the **upstream event** (the probe's upstream is a `push`, CD's is itself a
+`workflow_run`). Every writer measured — build-image, release-agent, the probe —
+is one level behind a `push`. A root-level fix therefore stays on the table:
+give CD a trusted first-level trigger, a `repository_dispatch` or a `push`,
+instead of a second `workflow_run`. It is not taken here — §3 removes CD's
+dependence on writing at all, which holds whichever of the two it turns out to
+be.
 
 ## 3. Locked decisions
 
