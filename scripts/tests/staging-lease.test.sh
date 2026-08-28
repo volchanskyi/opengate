@@ -61,6 +61,42 @@ done
 # unquoted afterwards.
 field() { sed -n "s/^ *$1: \(.*\)$/\1/p" "$2" | head -1 | sed 's/^"//; s/"$//'; }
 
+# The API server decodes acquireTime and renewTime as MicroTime — RFC3339 with
+# exactly six digits of fractional seconds — and refuses the whole object when
+# either is shaped any other way, before it considers who holds what. The
+# stand-in holds the same line, so a manifest that could not be written to a
+# real cluster cannot pass here either.
+check_stamps() {
+  local src="$1" name value
+  for name in acquireTime renewTime; do
+    value="$(field "$name" "$src")"
+    if ! printf '%s' "$value" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$'; then
+      echo "Error from server (BadRequest): Lease in version \"v1\" cannot be handled as a Lease: parsing time \"$value\" as \"2006-01-02T15:04:05.000000Z07:00\"" >&2
+      exit 1
+    fi
+  done
+}
+
+# Stands in for every refusal that is not a lost race — a credential without the
+# rights, a webhook, a namespace being torn down.
+refuse_write() {
+  if [ -n "${FAKE_REFUSE_WRITE:-}" ]; then
+    echo 'Error from server (Forbidden): leases.coordination.k8s.io is forbidden' >&2
+    exit 1
+  fi
+}
+
+# A namespace that is not there answers NotFound to every verb, so a `get` that
+# reads as "no lease yet" is followed by a `create` that says NotFound too. That
+# wording is a lost race on a replace and never on a create, and the difference
+# is the whole of whether a run waits on a holder that cannot exist.
+missing_namespace() {
+  if [ -n "${FAKE_NO_NAMESPACE:-}" ]; then
+    echo "Error from server (NotFound): namespaces \"opengate-staging\" not found" >&2
+    exit 1
+  fi
+}
+
 write_state() {
   local src="$1" rv="$2" holder renew dur
   holder="$(field holderIdentity "$src")"
@@ -72,8 +108,13 @@ write_state() {
 
 case "$verb" in
   get)
+    missing_namespace
     if [ -f "$STATE" ]; then
       cat "$STATE"
+      # The holder releases while a waiter is mid-loop, so the next read finds
+      # the namespace empty and the waiter is left holding only a name that has
+      # since left.
+      [ -n "${FAKE_VANISH_AFTER:-}" ] && rm -f "$STATE"
       exit 0
     fi
     echo 'Error from server (NotFound): leases.coordination.k8s.io "guard" not found' >&2
@@ -81,7 +122,13 @@ case "$verb" in
     ;;
   create)
     cat >"$WORKDIR_IN"
-    if [ -f "$STATE" ]; then
+    check_stamps "$WORKDIR_IN"
+    missing_namespace
+    refuse_write
+    # The race itself: two runs both read an empty namespace and both create, so
+    # the loser is told the object already exists while `get` still answers
+    # NotFound, leaving it only the create's own answer to go on.
+    if [ -n "${FAKE_CREATE_TAKEN:-}" ] || [ -f "$STATE" ]; then
       echo 'Error from server (AlreadyExists): leases.coordination.k8s.io "guard" already exists' >&2
       exit 1
     fi
@@ -90,6 +137,8 @@ case "$verb" in
     ;;
   replace)
     cat >"$WORKDIR_IN"
+    check_stamps "$WORKDIR_IN"
+    refuse_write
     [ -f "$STATE" ] || {
       echo 'Error from server (NotFound)' >&2
       exit 1
@@ -130,7 +179,8 @@ run_lease() {
 holder_now() { sed -n 's/.*"holderIdentity":"\([^"]*\)".*/\1/p' "$STATE"; }
 
 # Writes a claim directly, bypassing the script, so a test can set up a lease
-# that somebody else is holding.
+# that somebody else is holding. Callers pass the renew stamp in the MicroTime
+# the API stores, so the expiry read meets the shape it meets on a real cluster.
 seed_lease() {
   local holder="$1" renew="$2" dur="$3"
   printf '{"metadata":{"resourceVersion":"7"},"spec":{"holderIdentity":"%s","renewTime":"%s","leaseDurationSeconds":%s}}\n' \
@@ -147,6 +197,16 @@ else
   fail "an unheld namespace is acquired"
 fi
 
+# The stamp is the whole object's admission ticket: a Lease whose times are not
+# MicroTime is refused at decode, so nothing about holders is ever reached.
+stamp_written="$(sed -n 's/^ *renewTime: "\(.*\)"$/\1/p' "$WORKDIR_IN" | head -1)"
+if printf '%s' "$stamp_written" \
+  | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$'; then
+  pass "the claim it writes carries a timestamp the API accepts"
+else
+  fail "the claim it writes carries a timestamp the API accepts (got=[$stamp_written])"
+fi
+
 # Asking twice is not an error — a job that retries a step must not deadlock
 # against the claim it already owns.
 if run_lease acquire cd-1 >/dev/null 2>&1; then
@@ -156,7 +216,7 @@ else
 fi
 
 # Somebody else's live claim is waited on and then refused, rather than stolen.
-seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%SZ)" 2700
+seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 if run_lease acquire cd-2 >/dev/null 2>&1; then
   fail "a live claim held by another run is refused"
 else
@@ -166,7 +226,7 @@ assert_eq "the live holder is left in place" "other-run" "$(holder_now)"
 
 # A holder that died without releasing must not wedge the namespace until
 # somebody notices: the claim ages out and the next run takes it.
-seed_lease dead-run "$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)" 60
+seed_lease dead-run "$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%S.000000Z)" 60
 if run_lease acquire cd-3 >/dev/null 2>&1; then
   assert_eq "an expired claim is taken over" "cd-3" "$(holder_now)"
 else
@@ -187,7 +247,7 @@ fi
 # Releasing a claim that has already been taken over must not drop the live
 # holder's lock — the cleanup step runs `always()`, including after the job
 # overran its own lease.
-seed_lease someone-else "$(date -u +%Y-%m-%dT%H:%M:%SZ)" 2700
+seed_lease someone-else "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 run_lease release cd-3 >/dev/null 2>&1 || true
 assert_eq "releasing somebody else's claim leaves it alone" "someone-else" "$(holder_now)"
 
@@ -206,6 +266,116 @@ if FAKE_HARD_ERROR=1 run_lease acquire cd-4 >/dev/null 2>&1; then
   fail "an unreadable cluster fails rather than reading as unheld"
 else
   pass "an unreadable cluster fails rather than reading as unheld"
+fi
+
+# Losing the create race must be waited out, not exited on. The refusal arrives
+# as a non-zero kubectl inside a script that runs under `set -e`, so the arm
+# handling it is one edit away from ending the run instead of looping.
+rm -f "$STATE"
+if out="$(FAKE_CREATE_TAKEN=1 timeout 20 env \
+  NAMESPACE=opengate-staging \
+  STAGING_LEASE_NAME=guard \
+  STAGING_LEASE_KUBECTL="$FAKE" \
+  STAGING_LEASE_WAIT_SECONDS=2 \
+  STAGING_LEASE_POLL_SECONDS=1 \
+  "$LEASE" acquire cd-7 2>&1)"; then
+  fail "losing the create race waits rather than ending the run"
+elif printf '%s' "$out" | grep -q 'waiting' \
+  && printf '%s' "$out" | grep -q 'did not free within'; then
+  pass "losing the create race waits rather than ending the run"
+else
+  fail "losing the create race waits rather than ending the run (got=[$out])"
+fi
+
+# Losing the race is the one refusal this lock is built on. Every other refusal
+# is a fault of ours — a manifest the API will not decode, a credential without
+# the rights — and spending the wait on it reports a holder that does not exist
+# for as long as the deadline allows, which is the shape a stuck deploy takes.
+rm -f "$STATE"
+started="$(date -u +%s)"
+if out="$(FAKE_REFUSE_WRITE=1 timeout 10 env \
+  NAMESPACE=opengate-staging \
+  STAGING_LEASE_NAME=guard \
+  STAGING_LEASE_KUBECTL="$FAKE" \
+  STAGING_LEASE_WAIT_SECONDS=60 \
+  STAGING_LEASE_POLL_SECONDS=1 \
+  "$LEASE" acquire cd-5 2>&1)"; then
+  fail "a create refused for anything but a lost race stops rather than waiting"
+elif [ "$(($(date -u +%s) - started))" -ge 10 ]; then
+  fail "a create refused for anything but a lost race stops rather than waiting (it waited)"
+else
+  pass "a create refused for anything but a lost race stops rather than waiting"
+fi
+if printf '%s' "$out" | grep -qi 'forbidden'; then
+  pass "the server's reason for refusing the create is reported"
+else
+  fail "the server's reason for refusing the create is reported (got=[$out])"
+fi
+
+# The same for the takeover write: an expired claim that cannot be replaced for
+# a reason of ours is not somebody else holding the namespace.
+seed_lease dead-run "$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%S.000000Z)" 60
+started="$(date -u +%s)"
+if out="$(FAKE_REFUSE_WRITE=1 timeout 10 env \
+  NAMESPACE=opengate-staging \
+  STAGING_LEASE_NAME=guard \
+  STAGING_LEASE_KUBECTL="$FAKE" \
+  STAGING_LEASE_WAIT_SECONDS=60 \
+  STAGING_LEASE_POLL_SECONDS=1 \
+  "$LEASE" acquire cd-6 2>&1)"; then
+  fail "a takeover refused for anything but a lost race stops rather than waiting"
+elif [ "$(($(date -u +%s) - started))" -ge 10 ]; then
+  fail "a takeover refused for anything but a lost race stops rather than waiting (it waited)"
+else
+  pass "a takeover refused for anything but a lost race stops rather than waiting"
+fi
+
+# NotFound is a lost race on a replace and never on a create: nothing that
+# already exists can answer "not found", so a create told that is refused for a
+# reason of ours — a namespace missing or being torn down — and no amount of
+# waiting produces the holder the message names. This is the shape the stuck
+# deploy took: an empty namespace, a refusal nobody read, and a run that spent
+# its whole window reporting a holder that was never there.
+rm -f "$STATE"
+started="$(date -u +%s)"
+if out="$(FAKE_NO_NAMESPACE=1 timeout 10 env \
+  NAMESPACE=opengate-staging \
+  STAGING_LEASE_NAME=guard \
+  STAGING_LEASE_KUBECTL="$FAKE" \
+  STAGING_LEASE_WAIT_SECONDS=60 \
+  STAGING_LEASE_POLL_SECONDS=1 \
+  "$LEASE" acquire cd-8 2>&1)"; then
+  fail "a create refused NotFound stops rather than waiting on a phantom holder"
+elif [ "$(($(date -u +%s) - started))" -ge 10 ]; then
+  fail "a create refused NotFound stops rather than waiting on a phantom holder (it waited)"
+else
+  pass "a create refused NotFound stops rather than waiting on a phantom holder"
+fi
+if printf '%s' "$out" | grep -qi 'namespaces' && ! printf '%s' "$out" | grep -q 'held by another run'; then
+  pass "the missing namespace is named rather than reported as contention"
+else
+  fail "the missing namespace is named rather than reported as contention (got=[$out])"
+fi
+
+# A run that waits on a live holder and then finds the claim gone must not carry
+# the old holder's name into whatever happens next. Losing the create race that
+# follows is reported as the race it is, not as the run that has already left.
+rm -f "$STATE"
+seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
+if out="$(FAKE_CREATE_TAKEN=1 timeout 20 env \
+  NAMESPACE=opengate-staging \
+  STAGING_LEASE_NAME=guard \
+  STAGING_LEASE_KUBECTL="$FAKE" \
+  STAGING_LEASE_WAIT_SECONDS=3 \
+  STAGING_LEASE_POLL_SECONDS=1 \
+  FAKE_VANISH_AFTER=1 \
+  "$LEASE" acquire cd-9 2>&1)"; then
+  fail "a holder that has gone is not still named once the claim is gone"
+elif printf '%s' "$out" | grep -q 'held by other-run; waiting' \
+  && ! printf '%s' "$out" | tail -2 | grep -q 'other-run'; then
+  pass "a holder that has gone is not still named once the claim is gone"
+else
+  fail "a holder that has gone is not still named once the claim is gone (got=[$out])"
 fi
 
 # A missing holder identity is a usage error, not a lease held by the empty

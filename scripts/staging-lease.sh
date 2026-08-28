@@ -38,7 +38,12 @@ KUBECTL="${STAGING_LEASE_KUBECTL:-kubectl}"
 : "${NAMESPACE:?NAMESPACE is required}"
 
 now_epoch() { date -u +%s; }
-now_rfc3339() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# The Lease API decodes acquireTime and renewTime as MicroTime — RFC3339 with
+# exactly six digits of fractional seconds — and refuses the whole object at
+# decode when either is shaped any other way, before it reads a holder at all.
+# The microseconds carry nothing this lock uses; the duration is whole seconds.
+now_micro() { date -u +%Y-%m-%dT%H:%M:%S.000000Z; }
 
 # Prints the lease as JSON, or nothing when it does not exist. A missing lease
 # and a broken cluster are different answers, so only "not found" is swallowed.
@@ -70,8 +75,8 @@ metadata:
   namespace: $NAMESPACE$version_line
 spec:
   holderIdentity: "$holder"
-  acquireTime: "${stamp}.000000Z"
-  renewTime: "${stamp}.000000Z"
+  acquireTime: "$stamp"
+  renewTime: "$stamp"
   leaseDurationSeconds: $TTL_SECONDS
 MANIFEST
 }
@@ -90,19 +95,44 @@ lease_is_expired() {
   [ "$(now_epoch)" -gt "$((renew_epoch + duration))" ]
 }
 
+# The lock rests on the API refusing a second writer, and each of the two writes
+# has its own single refusal meaning somebody got there first. They are not
+# interchangeable: NotFound is a lost race on a `replace`, where the claim went
+# away underneath the version just read, and is never one on a `create`, where
+# nothing that already exists could answer it — a namespace missing or being
+# torn down does. Reading the two as one wording is how a run comes to wait out
+# its whole deadline on a holder that cannot exist.
+#
+# Every other refusal — a manifest the API will not decode, a credential without
+# the rights — is this run's own fault and ends it with the server's own words.
+create_lost_race() {
+  printf '%s' "$1" | grep -qiE 'alreadyexists|already exists'
+}
+
+replace_lost_race() {
+  printf '%s' "$1" | grep -qiE 'conflict|notfound|not found'
+}
+
 acquire() {
-  local holder="$1" deadline json current
+  local holder="$1" deadline json current out
   deadline=$(($(now_epoch) + WAIT_SECONDS))
 
   while :; do
+    # Whoever was named on an earlier pass may have released since; carrying the
+    # name forward reports contention with a run that has already gone.
+    current=""
     json="$(read_lease)"
 
     if [ -z "$json" ]; then
       # `create` is refused if another holder got there first, which is what
       # makes this safe without a read-then-write window.
-      if lease_manifest "$holder" "$(now_rfc3339)" | $KUBECTL create -f - >/dev/null 2>&1; then
+      if out="$(lease_manifest "$holder" "$(now_micro)" | $KUBECTL create -f - 2>&1)"; then
         echo "staging-lease: held by $holder"
         return 0
+      fi
+      if ! create_lost_race "$out"; then
+        echo "::error::staging-lease: creating ${LEASE_NAME} in ${NAMESPACE} was refused: $out" >&2
+        return 1
       fi
     else
       current="$(printf '%s' "$json" | jq -r '.spec.holderIdentity // empty')"
@@ -117,10 +147,14 @@ acquire() {
         resource_version="$(printf '%s' "$json" | jq -r '.metadata.resourceVersion // empty')"
         # Carrying the version we read makes this a compare-and-set: if another
         # waiter took the same expired lease first, the replace is refused.
-        if lease_manifest "$holder" "$(now_rfc3339)" "$resource_version" \
-          | $KUBECTL replace -f - >/dev/null 2>&1; then
+        if out="$(lease_manifest "$holder" "$(now_micro)" "$resource_version" \
+          | $KUBECTL replace -f - 2>&1)"; then
           echo "staging-lease: took over an expired claim from ${current:-nobody}, held by $holder"
           return 0
+        fi
+        if ! replace_lost_race "$out"; then
+          echo "::error::staging-lease: taking over ${LEASE_NAME} in ${NAMESPACE} was refused: $out" >&2
+          return 1
         fi
       fi
     fi

@@ -72,6 +72,24 @@ which the API server refuses if another holder got there first.
 counts as free; any other failure stops the run. Reading an outage as an empty
 namespace would hand the lock to every waiter at once.
 
+**A refusal that is not a lost race is not contention.** The same line is held on
+the way in, and each of the two writes has its own single refusal that means
+somebody got there first: AlreadyExists for `create`, Conflict or NotFound for
+`replace`. They are not interchangeable. NotFound answers a `replace` whose claim
+went away underneath the version just read, and cannot answer a `create` at all
+— nothing that already exists says "not found" — so on the way in it means the
+namespace is missing or being torn down. Every other refusal, including a
+manifest the API will not decode or a credential without the rights, ends the run
+with the server's own words, because a wait spent on one reports a holder that
+does not exist for as long as the deadline allows.
+
+**The timestamps are the object's admission ticket.** `acquireTime` and
+`renewTime` decode as MicroTime — RFC3339 carrying exactly six digits of
+fractional seconds — and the API refuses the whole Lease at decode when either is
+shaped any other way, before it reads a holder. A refused write that nobody reads
+is indistinguishable from a namespace somebody else is holding, so both halves
+are load-bearing: the stamp the API accepts, and the refusal the run repeats back.
+
 **The lock is not the only thing standing between the load run and a red
 night.** The run seeds the administrator it mints against from the same file the
 chart's post-upgrade hook reads, rather than trusting a deploy hours earlier to
