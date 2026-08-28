@@ -1,7 +1,7 @@
 # ADR-025: CD pre-flight digest check to short-circuit no-op staging deploys
 
 Date: 2026-05-20
-Status: Accepted
+Status: Superseded by [ADR-086](./ADR-086-the-cluster-is-the-source-of-truth-for-what-is-deployed.md)
 
 ## Context
 

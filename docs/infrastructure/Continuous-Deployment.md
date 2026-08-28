@@ -72,8 +72,7 @@ The staging job:
   [`build-image.yml`](../../.github/workflows/build-image.yml) built from the
   same commit;
 - runs the staging
-  [Playwright configuration](../../web/playwright.staging.config.ts);
-- records the successful image digest for the next pre-flight comparison.
+  [Playwright configuration](../../web/playwright.staging.config.ts).
 
 The port-forward is temporary and does not expose staging publicly.
 
@@ -96,8 +95,10 @@ Two checks avoid unnecessary work:
 
 - [`build-image-gate.sh`](../../scripts/build-image-gate.sh) decides whether a new
   image build is required.
-- The `resolve-tag` job compares the target digest and `deploy/` changes against
-  the state cached after the last successful staging validation.
+- The `resolve-tag` job reads the image the staging Deployment is running and
+  compares the target digest and `deploy/` changes against it. It deploys
+  whenever the answer is anything it cannot read — see
+  [ADR-086](../adr/ADR-086-the-cluster-is-the-source-of-truth-for-what-is-deployed.md).
 
 Manual dispatch always performs the deployment.
 

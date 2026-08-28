@@ -5,7 +5,7 @@
 — every job green, two cache writes silently denied.
 
 CD's two cache writes are refused and reported as `success`. The deploy-state
-cache backing [ADR-025](../../docs/adr/ADR-025-cd-preflight-digest-check.md) has
+cache backing [ADR-025](../../../docs/adr/ADR-025-cd-preflight-digest-check.md) has
 been dead since 2026-06-30; the rust cache has never once written. The remedy is
 to stop asking a workflow that cannot write to keep state at all — read the live
 cluster for deploy state, and move the agent build to the workflow that already
@@ -33,8 +33,8 @@ Each verified against primary sources — the Actions API, downloaded run logs,
 | F11 | The rust cache was added **2026-08-27** (`93630d4c`), two months after the restriction — it has never written. The June staging job (`83972031107`) has no rust-cache step and no agent build at all; it ran 2m26s. | `git log -S`; jobs API |
 | F12 | Cold cost in the baseline run: `Install cross tools` 38s, `Build the agent…` 3m13s, rust-cache restore 0s (`No cache found.`). `Deploy staging` 7m33s; whole run ~14m. | Job `98781727209` steps |
 | F13 | Artifacts are unaffected — `Artifact fault-evidence-pod-delete has been successfully uploaded!` in the same run. | Run log |
-| F14 | **Cross-run artifact download is supported and documented**: `actions/download-artifact@v8` with `run-id` + `github-token`, requiring `actions: read`. CD already holds `actions: read` at [`cd.yml:26`](../../.github/workflows/cd.yml#L26); the repo pins v8 in five workflows. | actions/download-artifact docs; repo grep |
-| F15 | A failing build-image already stops CD entirely — `resolve-tag` requires `github.event.workflow_run.conclusion == 'success'` ([`cd.yml:34-36`](../../.github/workflows/cd.yml#L34-L36)). | Workflow source; the 22 upstream-gated June runs |
+| F14 | **Cross-run artifact download is supported and documented**: `actions/download-artifact@v8` with `run-id` + `github-token`, requiring `actions: read`. CD already holds `actions: read` at [`cd.yml:26`](../../../.github/workflows/cd.yml#L26); the repo pins v8 in five workflows. | actions/download-artifact docs; repo grep |
+| F15 | A failing build-image already stops CD entirely — `resolve-tag` requires `github.event.workflow_run.conclusion == 'success'` ([`cd.yml:34-36`](../../../.github/workflows/cd.yml#L34-L36)). | Workflow source; the 22 upstream-gated June runs |
 | F16 | Production carries `required_reviewers`, so ADR-025's stated reason for treating it differently is real. | `GET …/environments/production` |
 | F17 | The last 8 CD runs are 6 failure / 1 cancelled / 1 success, failing in `Release the staging namespace`, `Enrol two machines`, `Playwright E2E` (×3) and `Helm upgrade`. **None** failed in the agent build; cold cache contributed to none of them. | Jobs API |
 
@@ -66,20 +66,20 @@ be.
 
 | # | Decision |
 |---|---|
-| D1 | **Agent binary moves to [`build-image.yml`](../../.github/workflows/build-image.yml)** — a matrix job builds both musl targets with `rust-cache` and uploads them as artifacts. It is the only trusted upstream workflow that checks out the commit CD deploys (F8), and its cache token writes (F6). |
+| D1 | **Agent binary moves to [`build-image.yml`](../../../.github/workflows/build-image.yml)** — a matrix job builds both musl targets with `rust-cache` and uploads them as artifacts. It is the only trusted upstream workflow that checks out the commit CD deploys (F8), and its cache token writes (F6). |
 | D2 | **Artifact retention: 20 days**, matching the SBOM and release-agent convention. |
 | D3 | **On `workflow_dispatch`, CD resolves the build-image run whose `head_sha` matches the dispatched tag's 7 characters** and downloads its artifact. If that artifact has aged out, CD **fails loudly**, naming the tag and the run. No second build path anywhere in the repo. |
 | D4 | **Deploy state comes from the live cluster.** `resolve-tag` runs `oci-kube-setup` (~36s, measured) and reads the running image tag off the staging Deployment; the `sha-<7>` tag yields both digest and commit for the `deploy/**` diff. The Actions cache leaves the pre-flight entirely, and with it ADR-025's stale-cache edge case. |
 | D5 | **The production skip stays.** It has run 33 times and is defensible on an identical digest with unchanged `deploy/**`. ADR-025 is corrected to describe the over-determined gate actually implemented. |
 | D6 | **Run the one-arm probe** to settle cascade depth vs upstream branch. |
 | D7 | **Guard: in-run read-back.** After a cache write, assert via the cache-list API that the key exists; fail the job if not. No dependence on warning text, and it uses `actions: read`, which CD already holds. |
-| D8 | **Rule: a new [`.claude/rules/ci-cd-determinism.md`](../rules/ci-cd-determinism.md)**, indexed in [`CLAUDE.md`](../../CLAUDE.md). |
+| D8 | **Rule: a new [`.claude/rules/ci-cd-determinism.md`](../../rules/ci-cd-determinism.md)**, indexed in [`CLAUDE.md`](../../../CLAUDE.md). |
 
 ### Why the production skip is over-determined
 
 ADR-025 says `deploy-production-k8s` "does not use the staging skip" and lists
 production pre-flight Out Of Scope. Both are wrong. Production is gated twice:
-`should_skip_staging != 'true'` at [`cd.yml:492`](../../.github/workflows/cd.yml#L492)
+`should_skip_staging != 'true'` at [`cd.yml:492`](../../../.github/workflows/cd.yml#L492)
 **and** `needs.deploy-staging-k8s.result == 'success'` — and a skipped job returns
 `skipped`. Deleting the first clause would change nothing. The ADR describes a
 design the workflow has never implemented.
@@ -129,7 +129,7 @@ Nothing probe-shaped survives on `dev`.
    Absent artifact fails the job with the tag and run id named.
 3. **`ADR-084`** — amend in place; the decision (two real machines built from the
    deployed commit) is unchanged, only where the build happens.
-4. **Tests** — extend [`cd-workflow.test.sh`](../../scripts/tests/cd-workflow.test.sh):
+4. **Tests** — extend [`cd-workflow.test.sh`](../../../scripts/tests/cd-workflow.test.sh):
    `cd.yml` contains no rust toolchain/cache step, and the download names both
    a `run-id` and a failure path. New build-image assertions for the matrix,
    retention and absent `image_changed` gate.
@@ -152,13 +152,13 @@ credentials on disk and the namespace lease taken. Earlier, and before cluster c
    **Test first**, per the TDD gate.
 3. **Rule (D8)** — `.claude/rules/ci-cd-determinism.md`: a CI/CD step that warns
    and exits 0 is a false green, the same defect class as
-   [`tests-determinism.md`](../rules/tests-determinism.md). Row added to
+   [`tests-determinism.md`](../../rules/tests-determinism.md). Row added to
    `CLAUDE.md`'s table. Enforced by `scripts/tests/ci-cd-determinism.test.sh`
    (new, must be `chmod +x`).
 4. **`ADR-086`** — new, superseding ADR-025: the cluster is the source of truth
    for what is deployed, not a cached hint. ADR-025's `status:` updated; row added
-   to [`decisions.md`](../decisions.md).
-5. **Close-out** — [`phases.md`](../phases.md) Completed row, this plan `git mv`'d
+   to [`decisions.md`](../../decisions.md).
+5. **Close-out** — [`phases.md`](../../phases.md) Completed row, this plan `git mv`'d
    to `plans/archive/` with links bumped one `../` deeper, references repointed —
    **all in this commit**.
 
@@ -168,18 +168,18 @@ credentials on disk and the namespace lease taken. Earlier, and before cluster c
 
 | File | Change |
 |---|---|
-| [`.github/workflows/build-image.yml`](../../.github/workflows/build-image.yml) | new `build-agent` matrix job (PR 3) |
-| [`.github/workflows/cd.yml`](../../.github/workflows/cd.yml) | agent build → artifact download; pre-flight reads the cluster; both cache steps deleted (PR 3, 4) |
+| [`.github/workflows/build-image.yml`](../../../.github/workflows/build-image.yml) | new `build-agent` matrix job (PR 3) |
+| [`.github/workflows/cd.yml`](../../../.github/workflows/cd.yml) | agent build → artifact download; pre-flight reads the cluster; both cache steps deleted (PR 3, 4) |
 | `.github/workflows/probe-upstream.yml`, `probe-cache.yml` | added PR 1, deleted PR 2 |
 | `scripts/assert-cache-written.sh` | new — the read-back guard (PR 4) |
-| [`scripts/tests/cd-workflow.test.sh`](../../scripts/tests/cd-workflow.test.sh) | extended (PR 3) |
+| [`scripts/tests/cd-workflow.test.sh`](../../../scripts/tests/cd-workflow.test.sh) | extended (PR 3) |
 | `scripts/tests/ci-cd-determinism.test.sh` | new, `chmod +x` (PR 4) |
-| [`.claude/rules/ci-cd-determinism.md`](../rules/ci-cd-determinism.md) | new (PR 4) |
-| [`CLAUDE.md`](../../CLAUDE.md) | rule index row (PR 4) |
-| [`docs/adr/ADR-025-cd-preflight-digest-check.md`](../../docs/adr/ADR-025-cd-preflight-digest-check.md) | `status:` superseded (PR 4) |
+| [`.claude/rules/ci-cd-determinism.md`](../../rules/ci-cd-determinism.md) | new (PR 4) |
+| [`CLAUDE.md`](../../../CLAUDE.md) | rule index row (PR 4) |
+| [`docs/adr/ADR-025-cd-preflight-digest-check.md`](../../../docs/adr/ADR-025-cd-preflight-digest-check.md) | `status:` superseded (PR 4) |
 | `docs/adr/ADR-084-staging-e2e-runs-against-real-machines.md` | amended in place (PR 3) |
 | `docs/adr/ADR-086-*.md` | new (PR 4) |
-| [`.claude/decisions.md`](../decisions.md), [`.claude/phases.md`](../phases.md) | index + ledger rows (PR 4) |
+| [`.claude/decisions.md`](../../decisions.md), [`.claude/phases.md`](../../phases.md) | index + ledger rows (PR 4) |
 
 ## 6. Reviewer checklist
 

@@ -37,6 +37,7 @@ After completing significant work, update [`phases.md`](.claude/phases.md), [`te
 | [`rules/coverage-exclusions.md`](.claude/rules/coverage-exclusions.md) | exclusions/suppressions are a last resort; per-entry justification, no directory globs | `sonar-coverage-exclusion-guard.sh` |
 | [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, ADR mutability + archived-plan-link rule | `pretooluse-write-guard.sh` |
 | [`rules/cache-hygiene.md`](.claude/rules/cache-hygiene.md) | reclaim local build caches after every push | `post-push-clean-caches.sh`, `posttooluse-cache-clean.sh` |
+| [`rules/ci-cd-determinism.md`](.claude/rules/ci-cd-determinism.md) | a CI/CD step whose work was refused must not report success | `ci-cd-determinism.test.sh`, `assert-cache-written.sh` |
 | [`rules/docs-live-state.md`](.claude/rules/docs-live-state.md) | docs and comments describe live state only; the three-tree seam | `docs-live-state.test.sh`, `docs-seam.test.sh` |
 
 ## Code and Process Conventions

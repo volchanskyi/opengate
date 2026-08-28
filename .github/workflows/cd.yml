@@ -82,14 +82,24 @@ jobs:
 
       - uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
-      - name: Restore prior staging deploy state
-        id: restore-state
-        uses: actions/cache/restore@v6
+      # What staging is running is a property of staging, so it is read off
+      # staging. The tag on the running container carries both halves the
+      # pre-flight needs — the digest it resolves to, and the commit it was
+      # built from — and it cannot disagree with the cluster the way a note
+      # written by an earlier run can.
+      #
+      # A dispatch deploys whatever it was pointed at, so it asks the cluster
+      # nothing and the credentials never reach the runner.
+      - name: OCI + kubeconfig setup
+        if: github.event_name != 'workflow_dispatch'
+        uses: ./.github/actions/oci-kube-setup
         with:
-          path: staging-deploy-state.json
-          key: cd-deploy-state-staging-v1-${{ github.run_id }}
-          restore-keys: |
-            cd-deploy-state-staging-v1-
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
       - name: Pre-flight digest check
         id: preflight
@@ -98,6 +108,8 @@ jobs:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           GIT_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          STAGING_NAMESPACE: opengate-staging
+          STAGING_DEPLOYMENT: deploy/opengate-staging-server
         run: |
           set -euo pipefail
 
@@ -117,16 +129,25 @@ jobs:
             exit 0
           fi
 
-          if [[ ! -f staging-deploy-state.json ]]; then
+          # The image reference the staging server is running right now. An
+          # unreachable cluster, an absent release and a reference in any other
+          # shape all leave this empty, and an empty answer deploys.
+          RUNNING_REF="$(kubectl -n "$STAGING_NAMESPACE" get "$STAGING_DEPLOYMENT" \
+            -o jsonpath='{.spec.template.spec.containers[?(@.name=="server")].image}' \
+            2>/dev/null || true)"
+          echo "Running reference: ${RUNNING_REF:-<none>}"
+
+          PRIOR_TAG="${RUNNING_REF##*:}"
+          if [[ -z "$RUNNING_REF" ]] || [[ "$PRIOR_TAG" != sha-* ]]; then
             echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
-            echo "Pre-flight: no prior state cached → full deploy"
+            echo "Pre-flight: staging is running nothing this can read → full deploy"
             exit 0
           fi
 
-          PRIOR_DIGEST="$(jq -r '.image_digest // ""' staging-deploy-state.json)"
-          PRIOR_SHA="$(jq -r '.git_sha // ""' staging-deploy-state.json)"
-          echo "Prior digest: ${PRIOR_DIGEST:-<empty>}"
-          echo "Prior sha:    ${PRIOR_SHA:-<empty>}"
+          PRIOR_DIGEST="$(crane digest "${IMAGE}:${PRIOR_TAG}" 2>/dev/null || true)"
+          PRIOR_SHA="${PRIOR_TAG#sha-}"
+          echo "Prior digest: ${PRIOR_DIGEST:-<unresolved>}"
+          echo "Prior sha:    ${PRIOR_SHA}"
 
           if [[ -z "$PRIOR_DIGEST" ]] || [[ "$TARGET_DIGEST" != "$PRIOR_DIGEST" ]]; then
             echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
@@ -134,8 +155,7 @@ jobs:
             exit 0
           fi
 
-          if [[ -z "$PRIOR_SHA" ]] \
-             || ! git cat-file -e "${PRIOR_SHA}^{commit}" 2>/dev/null \
+          if ! git cat-file -e "${PRIOR_SHA}^{commit}" 2>/dev/null \
              || ! git diff --quiet "$PRIOR_SHA" "$GIT_SHA" -- deploy/; then
             echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
             echo "Pre-flight: deploy/** changed since prior deploy → full deploy"
@@ -144,6 +164,10 @@ jobs:
 
           echo "should_skip_staging=true" >> "$GITHUB_OUTPUT"
           echo "::notice::Pre-flight: digest and deploy configuration unchanged → skip staging"
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
 
   deploy-staging-k8s:
     name: Deploy staging
@@ -165,11 +189,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # No cache half: this workflow's token carries read scope only, so the
+      # save that follows a restore is refused while its step reports success.
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
 
       - name: Install Playwright dependencies
         working-directory: web
@@ -456,23 +480,6 @@ jobs:
       - name: Run Playwright E2E against staging
         working-directory: web
         run: npx playwright test --config=playwright.staging.config.ts
-
-      - name: Write staging deploy state
-        env:
-          GIT_SHA: ${{ github.sha }}
-        run: |
-          jq -n \
-            --arg sha "$GIT_SHA" \
-            --arg digest "$TARGET_DIGEST" \
-            --arg tag "$IMAGE_TAG" \
-            '{ git_sha: $sha, image_digest: $digest, image_tag: $tag }' \
-            > staging-deploy-state.json
-
-      - name: Cache staging deploy state
-        uses: actions/cache/save@v6
-        with:
-          path: staging-deploy-state.json
-          key: cd-deploy-state-staging-v1-${{ github.run_id }}
 
       # A machine left behind is a device row the next run's fleet assertions
       # inherit. The Secret goes with them; the token itself was minted to expire
