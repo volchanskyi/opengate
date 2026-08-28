@@ -91,6 +91,16 @@ dev push → CI (19 gates) → merge-to-main → pushes to main
     → Trivy vulnerability scan
 ```
 
+### Agent binaries for the staging deploy
+
+The same workflow cross-builds `mesh-agent` for both musl targets and keeps each
+as an artifact. The staging deploy takes the one matching its node's architecture
+out of that run and copies it into the two machines its browser suite reads —
+so the machines and the server it deploys come from one commit. The retention
+window and the matrix are the `build-agent` job in
+[`build-image.yml`](../../.github/workflows/build-image.yml); the reasoning is
+[ADR-084](../adr/ADR-084-staging-e2e-runs-against-real-machines.md).
+
 ### Supply Chain Security
 
 Every pushed image is signed and attested using [Sigstore](https://sigstore.dev/) keyless signing:

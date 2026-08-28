@@ -43,16 +43,27 @@ a terminal, listing files, reading hardware inventory and restarting an agent
 are the flows most likely to break on real infrastructure rather than in
 compose, which is what a deploy gate is for.
 
-**The deploy job builds their binary rather than pulling an image.** It reads
-the node's architecture, cross-builds `mesh-agent` for it with the toolchain and
-cache the agent release already uses, and copies the result into a stock Alpine
-pod — the shape the load run uses for its own harness. The rejected alternative,
-publishing an `opengate-agent` image beside the server image, needs a change-gate
-of its own (`agent/**` is deliberately not an input to the server image's gate),
-a tag-forward path, signing and scanning, and a way for the cluster to pull a
-package that is private on creation. Worse, its gate would fire independently of
-the server's, so a deploy could pair one commit's server with another commit's
-machines. Building in the deploy job makes that impossible rather than guarded.
+**Their binary is built from the commit being deployed rather than pulled from
+an image.** [`build-image.yml`](../../.github/workflows/build-image.yml) builds
+`mesh-agent` for both musl targets as a matrix job and keeps each as an artifact
+for twenty days, with the toolchain and cache the agent release already uses.
+The deploy reads the node's architecture, takes the artifact for it out of that
+same run, and copies the result into a stock Alpine pod — the shape the load run
+uses for its own harness. The image workflow and the deploy check out the same
+commit, so a run cannot pair one commit's server with another commit's machines.
+Two properties put the build there rather than in the deploy job: the image
+workflow's cache token writes, while the deploy's carries read scope only and
+would leave a toolchain cache cold on every run; and a build that fails stops
+the image workflow, which the deploy waits on, so a machine that will not compile
+is reported before the deploy takes the namespace or touches the cluster.
+
+The rejected alternative, publishing an `opengate-agent` image beside the server
+image, needs a change-gate of its own (`agent/**` is deliberately not an input to
+the server image's gate), a tag-forward path, signing and scanning, and a way for
+the cluster to pull a package that is private on creation. Worse, its gate would
+fire independently of the server's, so a deploy could pair one commit's server
+with another commit's machines. Building beside the image makes that impossible
+rather than guarded.
 
 **The name a machine dials is the name on the certificate.** The chart now
 defaults the machine-facing certificate's name to the server Service's own name,
@@ -84,8 +95,12 @@ second copy would have been broken with nothing to say so.
 
 ## Consequences
 
-The deploy job pays a cross-build — measured at two and a half to six minutes on
-the agent release's warm cache — on every run that deploys staging.
+The image workflow pays a cross-build — measured at two and a half to six minutes
+on a warm cache — on every run, beside the image build rather than after it, and
+whether or not the deploy that follows needs the binary. The deploy pays a
+download. A dispatched tag resolves the image-build run that checked its commit
+out; if that run's artifact has aged out the deploy fails, naming the tag and the
+run, and never rebuilds behind the operator's back.
 
 A machine left behind would be a device row the next run's fleet assertions
 inherit, so both pods and the spent credential are removed whatever the suite's

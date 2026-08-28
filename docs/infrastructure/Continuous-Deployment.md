@@ -68,6 +68,9 @@ The staging job:
 - port-forwards the server Service to the runner;
 - executes [`smoke-test.sh`](../../deploy/scripts/smoke-test.sh);
 - resets the disposable staging database;
+- brings up two machines running the agent binary
+  [`build-image.yml`](../../.github/workflows/build-image.yml) built from the
+  same commit;
 - runs the staging
   [Playwright configuration](../../web/playwright.staging.config.ts);
 - records the successful image digest for the next pre-flight comparison.
