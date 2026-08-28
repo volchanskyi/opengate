@@ -116,6 +116,38 @@ jobs:
           path: agent/target/${{ matrix.target }}/release/mesh-agent
           retention-days: 20
 
+  # A cache save that is refused prints a warning and exits zero, so the only
+  # evidence the agent build's cache is still warm is the key coming back out of
+  # the cache API. Without this, a workflow that quietly lost its write scope —
+  # which is exactly what happened to the deploy — pays a cold cross-build on
+  # every run and reports nothing.
+  assert-agent-cache:
+    name: The agent cache write landed for ${{ matrix.target }}
+    needs: build-agent
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          sparse-checkout: scripts/assert-cache-written.sh
+          sparse-checkout-cone-mode: false
+
+      # rust-cache computes the rest of the key itself; this is the part the
+      # job chose, and it is enough to say whether something warmed this target.
+      - name: Read the agent cache entry back
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: scripts/assert-cache-written.sh "${{ matrix.target }}-build-agent"
+
   build-and-push:
     name: Build & Push
     needs: check-image-changed
