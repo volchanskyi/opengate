@@ -47,18 +47,30 @@ now_micro() { date -u +%Y-%m-%dT%H:%M:%S.000000Z; }
 
 # Prints the lease as JSON, or nothing when it does not exist. A missing lease
 # and a broken cluster are different answers, so only "not found" is swallowed.
+#
+# The two streams are kept apart. The credential plugin the cluster is reached
+# through writes a warning to stderr on every call, whatever the verb and
+# whatever the outcome, so a read that folds stderr into stdout hands its caller
+# a line of prose in front of the object and every `jq` over it fails on a lease
+# that is perfectly well formed. Only the failing arm reads stderr, where the
+# server's reason for refusing is the whole of what there is to go on.
 read_lease() {
-  local out
+  local out err err_file status=0
+  err_file="$(mktemp)"
   # The assignment is the condition, so a non-zero kubectl does not end the
   # script the way a bare call under `set -e` would.
-  if out="$($KUBECTL -n "$NAMESPACE" get lease "$LEASE_NAME" -o json 2>&1)"; then
+  out="$($KUBECTL -n "$NAMESPACE" get lease "$LEASE_NAME" -o json 2>"$err_file")" || status=$?
+  err="$(cat "$err_file")"
+  rm -f "$err_file"
+
+  if [ "$status" -eq 0 ]; then
     printf '%s' "$out"
     return 0
   fi
-  if printf '%s' "$out" | grep -qi 'not found'; then
+  if printf '%s' "$err" | grep -qi 'not found'; then
     return 0
   fi
-  echo "staging-lease: reading the lease failed: $out" >&2
+  echo "staging-lease: reading the lease failed: $err" >&2
   return 1
 }
 
