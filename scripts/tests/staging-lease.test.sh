@@ -42,6 +42,14 @@ cat >"$FAKE" <<'FAKE_KUBECTL'
 set -uo pipefail
 STATE="$FAKE_STATE"
 
+# The credential plugin the real cluster is reached through writes a warning to
+# stderr on every single call, whatever the verb and whatever the outcome. A
+# caller that folds the two streams together reads that line as the first line
+# of the JSON.
+if [ -n "${FAKE_NOISY_STDERR:-}" ]; then
+  echo "Warning: To increase security of your API key located at /home/runner/.oci/key.pem, append an extra line with 'OCI_API_KEY' at the end." >&2
+fi
+
 if [ -n "${FAKE_HARD_ERROR:-}" ]; then
   echo "Error from server (InternalError): the server is having trouble" >&2
   exit 1
@@ -376,6 +384,35 @@ elif printf '%s' "$out" | grep -q 'held by other-run; waiting' \
   pass "a holder that has gone is not still named once the claim is gone"
 else
   fail "a holder that has gone is not still named once the claim is gone (got=[$out])"
+fi
+
+# --- the read is JSON, and only JSON -------------------------------------------
+#
+# Every call to the cluster goes through a credential plugin that writes a
+# warning to stderr, so a read that folds stderr into stdout hands its caller a
+# line of prose followed by the object. Nothing about the lease is wrong at that
+# point; the parse of it is, and the step dies holding a claim it was there to
+# release.
+
+# Reading a claim somebody else holds still reports contention.
+rm -f "$STATE"
+seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
+if out="$(FAKE_NOISY_STDERR=1 run_lease acquire cd-10 2>&1)"; then
+  fail "a warning on stderr does not become the first line of the lease"
+elif printf '%s' "$out" | grep -q 'held by other-run' \
+  && ! printf '%s' "$out" | grep -qi 'parse error'; then
+  pass "a warning on stderr does not become the first line of the lease"
+else
+  fail "a warning on stderr does not become the first line of the lease (got=[$out])"
+fi
+
+# And the release the noise actually broke: the claim comes off the namespace.
+rm -f "$STATE"
+seed_lease cd-11 "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
+if out="$(FAKE_NOISY_STDERR=1 run_lease release cd-11 2>&1)" && [ ! -f "$STATE" ]; then
+  pass "a noisy credential plugin does not wedge the namespace at release"
+else
+  fail "a noisy credential plugin does not wedge the namespace at release (got=[$out])"
 fi
 
 # A missing holder identity is a usage error, not a lease held by the empty
