@@ -165,6 +165,74 @@ else
   pass "the deploy leaves the load-test administrator to the run that needs it"
 fi
 
+# --- the agent binary arrives as an artifact, not as a build ------------------
+#
+# CD's cache token carries read scope only: every save it attempts is refused
+# and the step still reports success, so a toolchain cache here is never warm
+# and nothing says so. The binary is built by the image workflow, which checks
+# out the same commit and whose token does write, and CD downloads it.
+
+for forbidden in \
+  'Swatinem/rust-cache' \
+  'dtolnay/rust-toolchain' \
+  'cargo install cross' \
+  'cross build' \
+  'cargo build'; do
+  if grep -qF -- "$forbidden" "$WORKFLOW"; then
+    fail "cd.yml still carries '$forbidden' — a workflow whose cache token cannot write must not keep state or build from cold"
+  else
+    pass "cd.yml carries no '$forbidden'"
+  fi
+done
+
+DOWNLOAD_STEP="Download the agent built for the staging node"
+if [ -n "$(step_line "$DOWNLOAD_STEP")" ]; then
+  pass "'$DOWNLOAD_STEP' step exists"
+else
+  fail "'$DOWNLOAD_STEP' step exists"
+fi
+
+DOWNLOAD_BODY="$(step_body "$DOWNLOAD_STEP")"
+if grep -qF 'actions/download-artifact@' <<<"$DOWNLOAD_BODY"; then
+  pass "the agent binary comes from an artifact"
+else
+  fail "the agent binary comes from an artifact"
+fi
+
+# A cross-run download resolves nothing without the run it is reaching into.
+if grep -qE '^[[:space:]]+run-id:' <<<"$DOWNLOAD_BODY"; then
+  pass "the download names the run it takes the artifact from"
+else
+  fail "the download names no run-id, so it can only see this run's own artifacts"
+fi
+
+LOCATE_STEP="Locate the run that built the agent"
+LOCATE_BODY="$(step_body "$LOCATE_STEP")"
+if [ -n "$LOCATE_BODY" ]; then
+  pass "'$LOCATE_STEP' step exists"
+else
+  fail "'$LOCATE_STEP' step exists"
+fi
+
+# An aged-out artifact is a deploy that cannot happen, and the message has to
+# say which tag and which run, or the operator has nothing to act on.
+if grep -qF '::error::' <<<"$LOCATE_BODY" \
+  && grep -qF 'IMAGE_TAG' <<<"$LOCATE_BODY" \
+  && grep -qF 'RUN_ID' <<<"$LOCATE_BODY"; then
+  pass "a missing artifact fails the job naming the tag and the run"
+else
+  fail "a missing artifact does not fail loudly with the tag and the run named"
+fi
+
+# The dispatch path resolves its own run rather than falling back to a second
+# build: one place the machines' binary comes from, or the deploy can pair one
+# commit's server with another commit's machines.
+if grep -qF 'workflow_dispatch' <<<"$LOCATE_BODY"; then
+  pass "a dispatched tag resolves the run that built its agent"
+else
+  fail "a dispatched tag has no way to reach the run that built its agent"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

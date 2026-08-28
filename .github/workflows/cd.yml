@@ -200,9 +200,12 @@ jobs:
       # the suite reaches staging through carries TCP only. That is the conclusion
       # the nightly load run reached for its own fleet, for the same reason.
       #
-      # Their binary is built here, from the commit being deployed, rather than
-      # pulled from an image with a release cycle of its own — so a run can never
-      # pair one commit's server with another commit's machines.
+      # Their binary is built by the image workflow, which checks out the commit
+      # this job deploys — so a run can never pair one commit's server with
+      # another commit's machines — and is taken from that run as an artifact.
+      # It is not built here: this job's cache token carries read scope only, so
+      # every save it attempts is refused while the step reports success, and a
+      # toolchain cache here would be cold on every single run.
       - name: Resolve the staging node's architecture
         run: |
           set -euo pipefail
@@ -218,34 +221,63 @@ jobs:
           } >>"$GITHUB_ENV"
           echo "Building the staging machines for $NODE_ARCH ($AGENT_TARGET)"
 
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          targets: ${{ env.AGENT_TARGET }}
-
-      - name: Install musl tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-      - name: Install cross tools
-        if: env.AGENT_TARGET == 'aarch64-unknown-linux-musl'
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          workspaces: agent
-          key: ${{ env.AGENT_TARGET }}
-
-      - name: Build the agent for the staging node
-        working-directory: agent
+      - name: Locate the run that built the agent
+        id: agent-build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
-          if [ "$AGENT_TARGET" = "aarch64-unknown-linux-musl" ]; then
-            cross build --release --target "$AGENT_TARGET" -p mesh-agent
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # A dispatched tag names its own commit, so the run that built the
+            # agent for it is the image build that checked that commit out.
+            SHORT_SHA="${IMAGE_TAG#sha-}"
+            # Bounded by the artifact retention window: a run older than that
+            # has nothing left to download anyway, and the search stays small.
+            SINCE="$(date -u -d '21 days ago' +%Y-%m-%d)"
+            # Read to the end before narrowing: a pipe closed early takes gh
+            # down with it, and pipefail would read that as "no such run".
+            MATCHES="$(gh api --paginate \
+              "/repos/$REPO/actions/workflows/build-image.yml/runs" \
+              -f "created=>=$SINCE" -F per_page=100 \
+              --jq "[.workflow_runs[] | select(.head_sha | startswith(\"$SHORT_SHA\")) | .id] | first // empty")"
+            RUN_ID="$(printf '%s\n' "$MATCHES" | head -n 1)"
+            if [ -z "$RUN_ID" ]; then
+              echo "::error::no image-build run checked out ${IMAGE_TAG}, so nothing built the agent for it"
+              exit 1
+            fi
           else
-            cargo build --release --target "$AGENT_TARGET" -p mesh-agent
+            RUN_ID="$UPSTREAM_RUN_ID"
           fi
-          install -m 0755 "target/$AGENT_TARGET/release/mesh-agent" /tmp/mesh-agent
+
+          # Downloading an absent artifact fails on a name; failing here fails on
+          # the tag and the run, which is what an operator has to act on. There
+          # is no second build path: a deploy without its binary stops.
+          ARTIFACT="mesh-agent-${AGENT_TARGET}"
+          PRESENT="$(gh api --paginate "/repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.expired == false) | .name')"
+          if ! printf '%s\n' "$PRESENT" | grep -qFx "$ARTIFACT"; then
+            echo "::error::${ARTIFACT} is absent from image-build run ${RUN_ID}," \
+              "the run that produced ${IMAGE_TAG}. It aged out or never built;" \
+              "re-run that build before deploying this tag."
+            exit 1
+          fi
+
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Taking $ARTIFACT from image-build run $RUN_ID"
+
+      - name: Download the agent built for the staging node
+        uses: actions/download-artifact@v8
+        with:
+          name: mesh-agent-${{ env.AGENT_TARGET }}
+          path: /tmp/agent-artifact
+          run-id: ${{ steps.agent-build.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Make the agent binary executable
+        run: install -m 0755 /tmp/agent-artifact/mesh-agent /tmp/mesh-agent
 
       - name: Sync namespace + secret
         env:

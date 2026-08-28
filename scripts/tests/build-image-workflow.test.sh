@@ -63,6 +63,59 @@ else
   fi
 fi
 
+# --- the agent the staging deploy runs its machines on -----------------------
+#
+# The deploy's cache token carries read scope only, so a toolchain cache there
+# is never warm and every save is refused while the step reports success. This
+# workflow checks out the same commit the deploy rolls out and its token does
+# write, so the binary is built here and the deploy downloads it.
+
+# The body of a top-level job, from its key to the next job key.
+job_body() {
+  awk -v want="  $1:" '
+    $0 == want { in_job = 1; next }
+    in_job && /^  [a-z]/ { exit }
+    in_job { print }
+  ' "$WORKFLOW"
+}
+
+AGENT_JOB="$(job_body build-agent)"
+if [ -n "$AGENT_JOB" ]; then
+  pass "build-agent job exists"
+else
+  fail "build-agent job exists"
+fi
+
+for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+  if grep -qF "$target" <<<"$AGENT_JOB"; then
+    pass "build-agent builds $target"
+  else
+    fail "build-agent does not build $target — the staging node may be either architecture"
+  fi
+done
+
+# The deploy needs the binary on every run, including the ~80% that change no
+# image input and take the tag-forward path. Gating this on image_changed would
+# leave those runs with nothing to download.
+if grep -qF 'image_changed' <<<"$AGENT_JOB"; then
+  fail "build-agent is gated on image_changed, so the tag-forward path leaves the deploy with no binary"
+else
+  pass "build-agent is not gated on image_changed"
+fi
+
+# A deploy reaching back into this run has to find the artifact still there.
+if grep -qE '^[[:space:]]+retention-days:[[:space:]]*20[[:space:]]*$' <<<"$AGENT_JOB"; then
+  pass "the agent artifact is kept for 20 days"
+else
+  fail "the agent artifact does not carry the 20-day retention the SBOM and the agent release use"
+fi
+
+if grep -qF 'actions/upload-artifact@' <<<"$AGENT_JOB"; then
+  pass "build-agent uploads the binary as an artifact"
+else
+  fail "build-agent uploads the binary as an artifact"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
