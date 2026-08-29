@@ -422,30 +422,6 @@ than a nightly benchmark surprise.
 profile taken under fleet load, or the union crosses another size class without
 a message type to justify the fields that pushed it.
 
-### Thirteen surviving mutants in the reconnect-backfill drain
-
-The `rust-core-ml-backfill` shard never finished a nightly run before its split,
-so its survivors were only ever seen partially. The run that reported furthest
-([32212640976](https://github.com/volchanskyi/opengate/actions/runs/32212640976))
-named thirteen, all in the tier walk now in
-[`drain.rs`](../agent/crates/mesh-agent-core/src/ml/backfill/drain.rs): the
-production `TierReader` rollup read, both per-tier cursor arms in
-`BackfillCursors::get`, four band-arithmetic operators, and the phase-advance and
-read-window comparisons in `next_batch`.
-
-They are not one job. Some are ordinary test gaps — a resume test exists for the
-1-minute tier and not for the other two, and a T1/T2 read through a real store
-snapshot is never asserted. Others look equivalent on inspection: `emit_ok`'s
-future-clock guard cannot be reached, because the phase band already bounds every
-timestamp the reader is asked for, and the batch-window `+` behaves the same as
-`*` under `.min(band_hi)` for any realistic clock. Separating the two needs the
-shard to run to completion, which is what the split and the budget guard make
-possible.
-
-**Pay-down trigger:** the first nightly run in which both backfill shards
-complete. Kill what a test can kill, and carve out what the run proves
-equivalent with the reason written next to it.
-
 ### Alert state stays out of VictoriaMetrics
 
 Three per-device edge series — `opengate_edge_alert_breach{rule,metric}` and

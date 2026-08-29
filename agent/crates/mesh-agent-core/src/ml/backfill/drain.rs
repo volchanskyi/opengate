@@ -134,24 +134,27 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
                 self.now - self.cfg.mid_secs,
                 HOUR_STEP,
             ),
-            Phase::Done => (0, -1, RECENT_STEP),
+            // An empty interval: nothing can be at once above the largest
+            // timestamp and below the smallest, which is what a finished walk
+            // has left to cover.
+            Phase::Done => (i64::MAX, i64::MIN, RECENT_STEP),
         }
     }
 
-    /// Whether a bucket `[ts, ts+step)` may ship in the current phase. A rollup
-    /// bucket ships only if it lies **entirely** inside its tier's time range, so
-    /// a coarse bucket that straddles into a finer tier's range is dropped rather
-    /// than double-counting the same wall-clock time at two resolutions. The
-    /// recent tier has no upper straddle to guard, only the recent floor. Bucket
-    /// timestamps beyond `now + skew` are wild clocks and never
-    /// ship; the retention floor is the Old band's own lower bound.
+    /// Whether a bucket `[ts, ts+step)` may ship in the current phase. Each
+    /// phase is bounded by its own band and by nothing else: the recent band's
+    /// ceiling is the clock-skew allowance, which is what keeps a wild future
+    /// reading out, and the older bands end well inside the past.
+    ///
+    /// A rollup bucket ships only if it lies **entirely** inside its tier's time
+    /// range, so a coarse bucket that straddles into a finer tier's range is
+    /// dropped rather than double-counting the same wall-clock time at two
+    /// resolutions. The recent tier has no such straddle to guard — its buckets
+    /// are the finest resolution shipped — so its own ceiling bounds it.
     fn emit_ok(&self, ts: i64, step: i64) -> bool {
-        if ts > self.now + self.cfg.future_skew_secs {
-            return false;
-        }
         let (lo, hi, _) = self.band(self.phase);
         match self.phase {
-            Phase::Recent => ts >= lo,
+            Phase::Recent => ts >= lo && ts <= hi,
             Phase::Mid | Phase::Old => ts >= lo && ts + step <= hi,
             Phase::Done => false,
         }
@@ -281,11 +284,12 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
                 }
             }
         }
-        // Cap to buckets_per_batch distinct bucket timestamps (ascending).
+        // Cap to buckets_per_batch distinct bucket timestamps (ascending). The
+        // first bucket past the cap is where the map is cut, so an uncapped read
+        // walks no further than one key past what it keeps.
         let cap = self.buckets_per_batch() as usize;
-        if acc.len() > cap {
-            let keep: Vec<i64> = acc.keys().take(cap).copied().collect();
-            acc.retain(|k, _| keep.contains(k));
+        if let Some(&first_dropped) = acc.keys().nth(cap) {
+            acc.split_off(&first_dropped);
         }
         Ok(acc)
     }
