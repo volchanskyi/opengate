@@ -25,7 +25,7 @@ const RuleList = lazy(() => import('./features/rules').then((m) => ({ default: m
 const RuleDetail = lazy(() => import('./features/rules').then((m) => ({ default: m.RuleDetail })));
 const AlertLimits = lazy(() => import('./features/rules').then((m) => ({ default: m.AlertLimits })));
 const DeviceLabels = lazy(() => import('./features/rules').then((m) => ({ default: m.DeviceLabels })));
-const OrganizationManagement = lazy(() => import('./features/organizations').then((m) => ({ default: m.OrganizationManagement })));
+const OrganizationManagement = lazy(() => import('./features/organizations/OrganizationManagement').then((m) => ({ default: m.OrganizationManagement })));
 
 function withSuspense(Component: React.LazyExoticComponent<React.ComponentType>) {
   return (

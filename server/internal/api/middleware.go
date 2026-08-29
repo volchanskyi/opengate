@@ -133,6 +133,11 @@ const msgUpdateNotConfigured = "update system not configured"
 const msgForbidden = "forbidden"
 const msgSecurityGroupNotFound = "security group not found"
 const msgDeviceNotFound = "device not found"
+
+// msgPurgeNotConfigured is the answer on every endpoint whose work is an
+// erasure: without the orchestrator there is no tombstone, no purge job and no
+// alert erasure, so the request is refused rather than half-served.
+const msgPurgeNotConfigured = "purge not configured"
 const msgSessionNotFound = "session not found"
 
 // denyIfNotAdmin returns the forbidden response and true when the caller lacks admin access.

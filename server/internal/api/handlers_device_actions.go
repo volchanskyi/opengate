@@ -106,12 +106,19 @@ func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestOb
 	if resp, denied := denyIfNotAdmin(ctx, DeleteDevice403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
 	}
-
 	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return DeleteDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
+	}
+	// Deleting the device and erasing what it reported are one act. Without the
+	// orchestrator the erasure cannot happen, so the delete does not either.
+	// Scope is settled first, so somebody else's machine is still absent rather
+	// than refused — an outsider learns nothing here, this server's wiring
+	// included.
+	if s.purger == nil {
+		return DeleteDevice403JSONResponse{Error: msgPurgeNotConfigured}, nil
 	}
 
 	if err := s.purgeDeletedDevice(ctx, request.Id); err != nil {
@@ -124,16 +131,9 @@ func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestOb
 // purgeDeletedDevice erases a deleted device's centralized telemetry across
 // every store via the lifecycle orchestrator: it tombstones the device
 // (blocking further ingest), deprovisions the agent, deletes its VictoriaMetrics
-// series and Postgres rows, and verifies emptiness. Without a wired purger it
-// falls back to the plain Postgres delete plus agent deregistration.
+// series and Postgres rows, and verifies emptiness. Its caller refuses the
+// delete outright when no orchestrator is wired, so the purger is present here.
 func (s *Server) purgeDeletedDevice(ctx context.Context, deviceID uuid.UUID) error {
-	if s.purger == nil {
-		if err := s.devices.Delete(ctx, deviceID); err != nil {
-			return err
-		}
-		s.agents.DeregisterAgent(ctx, deviceID)
-		return nil
-	}
 	claims := ContextClaims(ctx)
 	if claims == nil {
 		return errors.New("missing tenant claims")

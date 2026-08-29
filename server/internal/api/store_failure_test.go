@@ -45,11 +45,12 @@ func TestHandlerStoreFailures(t *testing.T) {
 	token, err := cfg.GenerateToken(userID, email, true, user.TenantID)
 	require.NoError(t, err)
 
+	devices := testutil.NewTestDevices(t, store)
 	srv := NewServer(ServerConfig{
 		Store:          store,
 		Audit:          audit.NewPostgres(store.DB()),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
-		Devices:        testutil.NewTestDevices(t, store),
+		Devices:        devices,
 		Sites:          testutil.NewTestSites(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
@@ -58,6 +59,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 		JWT:            cfg,
 		Agents:         &stubAgentGetter{},
 		AMT:            &stubAMTOperator{},
+		Purger:         &testPurger{devices: devices},
 		Relay:          relay.NewRelay(slog.Default()),
 		Notifier:       &notifications.NoopNotifier{},
 		Logger:         logger,

@@ -184,5 +184,4 @@ func TestAgentControlGetterConvertsAMissingAgentToANilInterface(t *testing.T) {
 
 	assert.Nil(t, assembly.AgentControl.GetAgent(uuid.New()))
 	assert.Empty(t, assembly.AgentControl.ListConnectedAgents())
-	assembly.AgentControl.DeregisterAgent(context.Background(), uuid.New())
 }

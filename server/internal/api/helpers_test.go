@@ -17,6 +17,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
+	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -40,8 +42,6 @@ func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) AgentControl {
 	}
 	return ac
 }
-
-func (s *stubAgentGetter) DeregisterAgent(_ context.Context, _ protocol.DeviceID) {}
 
 func (s *stubAgentGetter) ListConnectedAgents() []AgentControl {
 	if s == nil || s.agents == nil {
@@ -83,18 +83,50 @@ func testTenantContext(t *testing.T) context.Context {
 }
 
 // newTestServer creates a Server backed by a Postgres test store and a test JWTConfig.
+// testPurger stands in for the lifecycle orchestrator so the shared API test
+// servers carry the shape every deployed server has. What the API layer owns is
+// that a device delete routes through a purger at all; what the orchestrator
+// then does with the job — the tombstone, the VictoriaMetrics erasure, the
+// emptiness verify — is covered in internal/lifecycle. Running a device job
+// removes the row here, so a handler test sees the fleet a real purge leaves.
+type testPurger struct{ devices device.Repository }
+
+func (p *testPurger) PurgeDevice(_ context.Context, tenantID, deviceID uuid.UUID, _ *uuid.UUID) (*lifecycle.PurgeJob, error) {
+	return &lifecycle.PurgeJob{
+		ID: uuid.New(), TenantID: tenantID, DeviceID: &deviceID,
+		Scope: lifecycle.ScopeDevice, State: lifecycle.StateRequested,
+	}, nil
+}
+
+func (p *testPurger) PurgeTenant(_ context.Context, tenantID uuid.UUID, _ *uuid.UUID) (*lifecycle.PurgeJob, error) {
+	return &lifecycle.PurgeJob{
+		ID: uuid.New(), TenantID: tenantID,
+		Scope: lifecycle.ScopeTenant, State: lifecycle.StateRequested,
+	}, nil
+}
+
+func (p *testPurger) Run(ctx context.Context, job *lifecycle.PurgeJob) error {
+	if job.DeviceID == nil {
+		return nil
+	}
+	return p.devices.Delete(ctx, *job.DeviceID)
+}
+
+func (p *testPurger) RunInBackground(*lifecycle.PurgeJob) {}
+
 func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	devices := testutil.NewTestDevices(t, store)
 	srv := NewServer(ServerConfig{
 		Store:          store,
 		Audit:          testutil.NewTestAudit(t, store),
 		DeviceUpdates:  testutil.NewTestDeviceUpdates(t, store),
 		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
-		Devices:        testutil.NewTestDevices(t, store),
+		Devices:        devices,
 		Sites:          testutil.NewTestSites(t, store),
 		Organizations:  testutil.NewTestOrganizations(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
@@ -104,6 +136,7 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 		JWT:            cfg,
 		Agents:         &stubAgentGetter{},
 		AMT:            &stubAMTOperator{},
+		Purger:         &testPurger{devices: devices},
 		Relay:          relay.NewRelay(slog.Default()),
 		Notifier:       &notifications.NoopNotifier{},
 		Logger:         logger,
@@ -118,13 +151,14 @@ func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agen
 	t.Helper()
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	devices := testutil.NewTestDevices(t, store)
 	srv := NewServer(ServerConfig{
 		Store:          store,
 		Audit:          testutil.NewTestAudit(t, store),
 		DeviceUpdates:  testutil.NewTestDeviceUpdates(t, store),
 		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
-		Devices:        testutil.NewTestDevices(t, store),
+		Devices:        devices,
 		Sites:          testutil.NewTestSites(t, store),
 		Organizations:  testutil.NewTestOrganizations(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
@@ -134,6 +168,7 @@ func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agen
 		JWT:            cfg,
 		Agents:         agents,
 		AMT:            &stubAMTOperator{},
+		Purger:         &testPurger{devices: devices},
 		Relay:          r,
 		Notifier:       &notifications.NoopNotifier{},
 		Logger:         logger,

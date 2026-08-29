@@ -42,10 +42,6 @@ func (g serverAgentGetter) ListConnectedAgents() []api.AgentControl {
 	return out
 }
 
-func (g serverAgentGetter) DeregisterAgent(ctx context.Context, deviceID uuid.UUID) {
-	g.srv.DeregisterAgent(ctx, deviceID)
-}
-
 func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	t.Helper()
 	return newSessionTestEnvWithAPITimeout(t, 0)

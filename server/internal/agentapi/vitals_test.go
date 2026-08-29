@@ -64,3 +64,42 @@ func TestKnownVitalDimsFiltersUnlistedNames(t *testing.T) {
 	assert.False(t, isVitalDim(""), "an empty dim name is not a dim")
 	assert.False(t, isVitalDim("attacker.dim.0"))
 }
+
+// The family vocabulary bounds the second half of a device's central series the
+// same way the dim vocabulary bounds the first. It is pinned in full here
+// because the count feeds anomalySeriesPerDevice, which feeds the cap.
+func TestAnomalyFamiliesAreTheAgreedVocabulary(t *testing.T) {
+	assert.Equal(t, []string{
+		"cpu",
+		"mem",
+		"disk",
+		"net",
+		"proc",
+	}, anomalyFamilies, "the health-summary family vocabulary")
+
+	require.Len(t, anomalyFamilySet, len(anomalyFamilies), "no family is listed twice")
+	for _, family := range anomalyFamilies {
+		assert.True(t, anomalyFamilySet[family], "%s is in the set the ingest path checks", family)
+	}
+}
+
+// The per-device series budget counts one rate per listed family, so the two
+// must move together: a family added to the vocabulary spends a series.
+func TestAnomalySeriesCountsTheFamilyVocabulary(t *testing.T) {
+	assert.Equal(t, 1+len(anomalyFamilies), anomalySeriesPerDevice,
+		"one node-wide rate plus one per family")
+}
+
+// An unlisted family name is dropped rather than written. Without this the
+// family label would be agent-controlled, and one misbehaving agent could
+// multiply a whole tenant's central series count.
+func TestIsAnomalyFamilyFiltersUnlistedNames(t *testing.T) {
+	assert.True(t, isAnomalyFamily("cpu"))
+	assert.True(t, isAnomalyFamily("proc"))
+	assert.True(t, isAnomalyFamily("net"))
+	assert.False(t, isAnomalyFamily("process"), "the vocabulary spells the process family proc")
+	assert.False(t, isAnomalyFamily("CPU"), "the vocabulary is case-sensitive")
+	assert.False(t, isAnomalyFamily("gpu"), "a plausible-looking family is still unlisted")
+	assert.False(t, isAnomalyFamily(""), "an empty family name is not a family")
+	assert.False(t, isAnomalyFamily("attacker.family.0"))
+}

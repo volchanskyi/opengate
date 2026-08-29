@@ -84,7 +84,7 @@ The CI workflow jobs are grouped by concern:
 | **Rust** | `rust-lint`, `rust-test` | `cargo fmt` + clippy, nextest + golden file generation + llvm-cov coverage |
 | **Go** | `go-lint`, `go-unit`, `go-integration` | `go vet` + OpenAPI codegen sync check, unit tests with coverage, QUIC integration tests |
 | **Web** | `web-lint`, `web-unit`, `web-integration` | ESLint; unit/component tests (with v8 coverage) + Vite build; integration tests |
-| **Bundle Size** | `web-bundle-size` | `size-limit` gzip size check (JS ≤250KB, CSS ≤10KB, Total ≤260KB). Runs in parallel with other web jobs. |
+| **Bundle Size** | `web-bundle-size` | `size-limit` gzip budgets for first-paint JS, total JS, the charts chunk and CSS ([`web/.size-limit.json`](../../web/.size-limit.json)). Runs in parallel with other web jobs. |
 | **API Docs** | `deploy-api-docs` | Deploys OpenAPI spec + Scalar viewer to gh-pages (dev push only) |
 | **Config** | `config-lint` | actionlint, yamllint, `terraform fmt/validate`, tflint, `terraform test` (module invariants), output-sensitivity grep, gitleaks (L2), Hadolint Dockerfile policy (L4), Checkov (L4: terraform + dockerfile + github_actions, baseline at `.checkov.baseline`), Conftest+Rego custom policies (L5: compose images, action SHA-pinning), `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
 | **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](OCI-Terraform.md#iac-plan--destroy-blocklist-gate). |
@@ -341,13 +341,21 @@ Four tools monitor frontend performance at different layers:
 
 ### Bundle Size (CI Gate)
 
-The `web-bundle-size` job uses [size-limit](https://github.com/ai/size-limit) with the `@size-limit/file` plugin to enforce gzip size limits. Configuration: `web/.size-limit.json`.
+The `web-bundle-size` job uses [size-limit](https://github.com/ai/size-limit) with the `@size-limit/file` plugin to enforce gzip size limits. The budgets and their current numbers live in [`web/.size-limit.json`](../../web/.size-limit.json).
 
-| Target | Limit | Typical |
-|--------|-------|---------|
-| JS bundle | 250 KB gzip | ~202 KB |
-| CSS bundle | 10 KB gzip | ~5 KB |
-| Total | 260 KB gzip | ~207 KB |
+Four budgets are measured, and they answer different questions:
+
+| Budget | What it bounds |
+|--------|----------------|
+| Initial JS | The entry chunk — what a browser downloads before first paint |
+| All app JS | Every chunk except charts — the whole weight the app can ever ask for |
+| Charts chunk | The lazy uPlot chunk, so the chart engine's cost is an explicit line |
+| CSS bundle | The stylesheet |
+
+The two JS budgets move in opposite directions when a route is split out of the
+entry chunk: first paint falls, and the total rises slightly on the new chunk's
+overhead. That is the trade working as intended — splitting is rewarded by the
+budget that measures what a user waits for.
 
 This is a **gate job** — a size regression blocks merge-to-main. A size report table is written to the GitHub Actions step summary.
 

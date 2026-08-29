@@ -30,7 +30,7 @@ func (s *Server) PurgeTenant(ctx context.Context, request PurgeTenantRequestObje
 		return resp, nil
 	}
 	if s.purger == nil {
-		return PurgeTenant403JSONResponse{Error: "purge not configured"}, nil
+		return PurgeTenant403JSONResponse{Error: msgPurgeNotConfigured}, nil
 	}
 	// An admin may only purge within their own tenant.
 	claims := ContextClaims(ctx)

@@ -1,13 +1,34 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-08-26; the four scheduled performance workflows were repaired at the fault. -->
+<!-- Last reviewed: 2026-08-28. -->
 
 ## Severity: High
 
 _None currently._
 
 ## Severity: Medium
+
+### The nightly mutation score is below its baseline in all three languages
+
+The last complete run scored rust 87.4, go 85.5 and web 82.4 against a baseline
+of 88.5 / 88.2 / 85.7, so the gate fails on two counts at once: go dropped more
+than the 2pp the check allows, and web sits under its 85% floor. The run that
+measured it was complete, so these are scores rather than an artefact of a
+shard that went missing.
+
+What moved is the denominator. Forty-seven commits landed the rules, alerts and
+investigations programme between the baseline and that run — 434 files, roughly
+66k lines — and the go figure carries 325 mutants in code no test reaches at
+all, against 94 that a test reaches and fails to kill. The shape says new
+surface arriving under-tested rather than existing tests weakening, which is
+also why the drop is spread across all three languages instead of one.
+
+**Pay-down trigger:** this is measured per shard, so it pays down per shard
+rather than in one pass. Take the shards covering the new rules and alerts code,
+kill what a test can kill, and carve out what the run proves equivalent with the
+reason written next to it. The floor is the gate going green on its own rather
+than the baseline being moved to meet it.
 
 ### The two larger fleets have not been built on staging
 
@@ -22,19 +43,6 @@ on.
 **Pay-down trigger:** a weighed fleet that fits inside the node's eviction
 margin with room to spare. Schedule the larger sizes on staging then, or record
 the number that says they cannot be.
-
-### A shared integration test fails intermittently under mutation load
-
-`TestRelayRouteBypassesRequestTimeout` in `server/tests/integration` timed out
-during the module-wide coverage pass of one mutation shard on 2026-08-26, which
-made that shard produce no report at all and the whole night's score incomplete.
-Every Go shard gathers the same coverage, so any test that is timing-sensitive
-under a loaded runner can cost a night for reasons unrelated to the shard that
-happened to draw it.
-
-**Pay-down trigger:** the next time a shard comes back missing with a coverage
-failure. Bound that test on its own clock rather than on the runner's spare
-capacity, the way the in-memory pipes were.
 
 ### Load-test identities live in the default tenant
 
@@ -171,23 +179,6 @@ that only checks an issue was filed.
 
 ## Severity: Low
 
-### The per-family anomaly label is unbounded on the wire
-
-A health summary carries one anomaly rate per metric family, and the family name
-arrives as a string from the machine. The server stores it without checking it
-against a vocabulary, so how many central series a device's summary occupies is
-a property of what agents send rather than of what the fleet agreed to send —
-the same shape the vitals dimension list exists to prevent
-([ADR-065](../docs/adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md)).
-
-The exposure is small today because the only writer is the agent's own sampler,
-which emits five fixed names. It is the second writer that turns this into
-unbounded cardinality across a whole tenant.
-
-**Pay-down trigger:** a second producer of health summaries, or any change to
-the family set. Fix the vocabulary in the server the way `vitalDims` is fixed,
-drop and count a name outside it, and pin the pair with a golden fixture.
-
 ### The periodic workers cannot be driven from an acceptance test
 
 The janitors and gauge loops live in
@@ -218,21 +209,6 @@ machine rather than enrolling one, and says so in its own header.
 
 **Pay-down trigger:** a Windows or macOS machine in the browser stack, for any
 reason. Point the spec at it and delete the description.
-
-### Device delete without VictoriaMetrics skips the erasure guarantees
-
-[`purgeDeletedDevice`](../server/internal/api/handlers_device_actions.go) falls back
-to a plain `devices.Delete` when no purge orchestrator is wired, which is what
-happens when `--victoriametrics-url` is unset. That path records no tombstone and
-no purge job, and it does not run
-[`EraseDeviceAlerts`](../server/internal/alerts/postgres.go), so the incident
-counts a foreign key cannot repair are left describing a machine that is gone —
-an operator reads "40 machines" on a room whose fortieth was deleted. Alerts and
-incidents work in that configuration (they need Postgres, not VictoriaMetrics), so
-the gap is reachable rather than theoretical; every deployed environment wires
-VictoriaMetrics, which is why this is Low. **Pay-down trigger:** the fallback is
-either given the same erasure path as the orchestrator, or removed so a delete
-without a purger is refused outright.
 
 ### OpenAPI request constraints are documentation, not runtime validation
 
@@ -388,23 +364,23 @@ TypeScript 6.x.
 TypeScript 6.x (`npm view openapi-typescript versions` / its peerDependencies
 range), then bump both together.
 
-### The initial JS bundle sits within 10 KB of its budget
+### The whole-app JS budget is within 3 KB of its cap
 
-[`.size-limit.json`](../web/.size-limit.json) caps the initial JS at 250 KB
-gzipped excluding the lazy charts chunk. The investigations workspace took it to
-roughly 240 KB — about one more feature of headroom before the gate refuses a
-commit that is otherwise correct, and the person who hits it will be whoever
-happens to add the next route rather than whoever spent the budget.
+[`.size-limit.json`](../web/.size-limit.json) measures first paint and the
+whole app separately, and the whole-app number sits just under its cap. Most of
+that weight is one lazy route: the session view carries the terminal engine, and
+it is the largest single chunk the app can ask for. It never loads on first
+paint, which is why the first-paint budget has room while the total does not.
 
-The workspace itself is already lazy and drew its evidence series as inline SVG
-precisely to avoid a second charting dependency, so the remaining spend is in the
-shared entry chunk, not in any one feature. Nothing has measured where.
+The remaining spend is therefore not in the entry chunk and not in any one
+feature — it is the sum of every route the app can reach. Nothing has measured
+which of them share code they need not share.
 
-**Pay-down trigger:** the next feature that lands within 5 KB of the cap, or the
-first CI failure on the gate. Read the chunk breakdown `npm run build` prints,
-split what the entry chunk is carrying that only one route needs, and move the
-budget only after that has been done — raising the number is how a budget stops
-being one.
+**Pay-down trigger:** the first CI failure on the whole-app budget, or a feature
+that lands within 2 KB of it. Read the chunk breakdown `npm run build` prints,
+find what two routes are each carrying a private copy of, and give it a shared
+chunk — then move the budget only after that has been done, since raising the
+number is how a budget stops being one.
 
 ### `reopen_window` has no per-rule override
 
