@@ -115,12 +115,27 @@ store and the quinn config is built once and cloned per reconnect
 attempt, so resumption is available across in-process reconnects. The
 server counts each connection's outcome on
 `opengate_agent_tls_handshakes_total{resumed}`
-([Monitoring](../infrastructure/Monitoring.md)) — the only faithful
+([Metrics Reference](../architecture/Metrics-Reference.md#agent-connections)) —
+the only faithful
 observation point, since a client cannot report whether its own session
-resumed and may present a ticket that is then declined. Two things remain
-owed and are tracked in [`techdebt.md`](../../.claude/techdebt.md): that
-series has not yet been read against production, and the in-memory store
-does not survive a process restart.
+resumed and may present a ticket that is then declined.
+
+**Measured in production, 2026-08-29.** A reconnect driven by interrupting
+the agent's path to the server — with neither process restarted — resumed:
+the server recorded `resumed="true"`, and the agent took the `0x14` fast
+path on the same reconnect (`fast_path=true`). Both halves of this
+decision are observed rather than argued.
+
+**A server restart is always a full handshake.** Nothing pins the server's
+TLS session-ticket keys, so Go generates a fresh random key per process and
+a restarted server cannot decrypt a ticket its predecessor issued. The
+saving is therefore earned on connection drops — a network interruption, a
+path change — and never on a deploy. Pinning those keys from a Secret would
+extend it to deploys; that is a separate decision and is not taken here.
+
+One thing remains owed and is tracked in
+[`techdebt.md`](../../.claude/techdebt.md): the in-memory store does not
+survive a process restart.
 
 The empirical record is the archived
 [W3 plan](../../.claude/plans/archive/fast-path-w3-0rtt-eval.md) and

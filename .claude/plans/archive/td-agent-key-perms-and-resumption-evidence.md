@@ -3,7 +3,7 @@
 **Status:** **READY TO IMPLEMENT.** Every fact below is verified against the
 working tree at the pinned toolchain, and every decision is locked. **Branch:**
 `dev`. **Owner:** agent (Rust) + server (Go) + installer (Bash).
-**Register entries paid:** [`techdebt.md`](../techdebt.md) — "The agent's
+**Register entries paid:** [`techdebt.md`](../../techdebt.md) — "The agent's
 private key and data directory are world-readable" (High) and "Nothing says
 whether a reconnecting agent resumed its TLS session" (Medium).
 **Sibling:** the `td-agent-cross-restart-tls-resumption` micro-plan carries the
@@ -32,39 +32,39 @@ Each verified against the working tree at the pinned toolchain, or measured.
 
 | # | Fact | Evidence |
 |---|---|---|
-| F1 | `agent.key` is written by a bare `std::fs::write` with **no mode**, on **both** identity paths: `AgentIdentity::generate` and `PendingIdentity::generate`. | [`identity.rs:103`](../../agent/crates/mesh-agent-core/src/identity.rs#L103), [`identity.rs:148`](../../agent/crates/mesh-agent-core/src/identity.rs#L148) |
-| F2 | The data directory is created with **no mode at three sites** — not one. | [`identity.rs:89`](../../agent/crates/mesh-agent-core/src/identity.rs#L89), [`identity.rs:135`](../../agent/crates/mesh-agent-core/src/identity.rs#L135), [`main.rs:377`](../../agent/crates/mesh-agent/src/main.rs#L377) |
-| F3 | The production installer creates it first, also with no mode: `mkdir -p "$DATA_DIR"`. | [`install.sh:189`](../../server/internal/api/install.sh#L189) |
+| F1 | `agent.key` is written by a bare `std::fs::write` with **no mode**, on **both** identity paths: `AgentIdentity::generate` and `PendingIdentity::generate`. | [`identity.rs:103`](../../../agent/crates/mesh-agent-core/src/identity.rs#L103), [`identity.rs:148`](../../../agent/crates/mesh-agent-core/src/identity.rs#L148) |
+| F2 | The data directory is created with **no mode at three sites** — not one. | [`identity.rs:89`](../../../agent/crates/mesh-agent-core/src/identity.rs#L89), [`identity.rs:135`](../../../agent/crates/mesh-agent-core/src/identity.rs#L135), [`main.rs:377`](../../../agent/crates/mesh-agent/src/main.rs#L377) |
+| F3 | The production installer creates it first, also with no mode: `mkdir -p "$DATA_DIR"`. | [`install.sh:189`](../../../server/internal/api/install.sh#L189) |
 | F4 | **Measured** under the default `umask 022`: directory `0755`, key file `0644`. `create_dir_all` opens `0777 & ~umask`; `fs::write` opens `0666 & ~umask`. | Reproduced locally with the same syscall semantics |
-| F5 | The service runs as **root** (`User=root`), so the key is a root-owned file that every local account on the endpoint can read. | [`install.sh:212`](../../server/internal/api/install.sh#L212) |
+| F5 | The service runs as **root** (`User=root`), so the key is a root-owned file that every local account on the endpoint can read. | [`install.sh:212`](../../../server/internal/api/install.sh#L212) |
 | F6 | `create_dir_all` on an **existing** directory returns `Ok` and **leaves its mode alone**. F3 means the directory usually exists before the agent runs, so a mode passed at creation time would never apply. | `std::fs` semantics; F3 |
-| F7 | The in-repo precedent to copy is a `#[cfg(unix)]` block using `PermissionsExt`. | [`update.rs:123`](../../agent/crates/mesh-agent-core/src/update.rs#L123) |
-| F8 | The agent ships **Linux only** (`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`) and no `cfg(windows)` exists anywhere in `agent/crates`. `#[cfg(unix)]` therefore covers everything shipped. | [`release-agent.yml:52-55`](../../.github/workflows/release-agent.yml#L52-L55); repo grep |
-| F9 | The test-skip guard bans `#[ignore]` only, so a `#[cfg(unix)]`-gated test is permitted and always runs on CI. | [`pretooluse-test-skip-guard.sh:49`](../hooks/pretooluse-test-skip-guard.sh#L49) |
-| F10 | `identity.rs` already carries 8 unit tests using `tempfile::tempdir()`. | [`identity.rs`](../../agent/crates/mesh-agent-core/src/identity.rs) |
-| F21 | `AgentIdentity::generate` runs whenever **any one** of the three identity files is missing — `load_or_create` requires all three — so it can reach a data directory that still holds a stale `agent.key`. A partial uninstall (`remove_identity_files`) or an interrupted enrollment leaves exactly that state. | [`identity.rs:50`](../../agent/crates/mesh-agent-core/src/identity.rs#L50), [`main.rs:1178`](../../agent/crates/mesh-agent/src/main.rs#L1178) |
-| F22 | The installer writes the systemd unit with a bare `cat >` — `0644` under the default umask — and its `ExecStart` carries `--enroll-token`. Enrollment tokens are **multi-use with an expiry**: the server refuses one only once exhausted or expired. So a live credential for enrolling machines is readable by every local account on the endpoint. | [`install.sh:198`](../../server/internal/api/install.sh#L198), [`handlers_enrollment.go:164`](../../server/internal/api/handlers_enrollment.go#L164) |
-| F23 | A shell test already asserts the installer's content, and is the place a mode assertion goes. | [`install-sh.test.sh`](../../scripts/tests/install-sh.test.sh) |
-| F28 | `update-signing-key.hex`, the other file the agent writes into the data directory, is the server's **verifying** key — public by nature. The `0700` directory is all it needs; it gets no `0600`. | [`main.rs:141`](../../agent/crates/mesh-agent/src/main.rs#L141), [`update.rs`](../../agent/crates/mesh-agent-core/src/update.rs) |
-| F29 | Rust mutation shards are **explicit file lists**, `identity.rs` is already in one, and nothing enforces Rust partition completeness the way the Go table is enforced. A new Rust module file would silently fall outside mutation coverage. | [`mutation-shards.sh:153`](../../scripts/lib/mutation-shards.sh#L153), [`mutation-shard-budget.test.sh`](../../scripts/tests/mutation-shard-budget.test.sh) |
+| F7 | The in-repo precedent to copy is a `#[cfg(unix)]` block using `PermissionsExt`. | [`update.rs:123`](../../../agent/crates/mesh-agent-core/src/update.rs#L123) |
+| F8 | The agent ships **Linux only** (`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`) and no `cfg(windows)` exists anywhere in `agent/crates`. `#[cfg(unix)]` therefore covers everything shipped. | [`release-agent.yml:52-55`](../../../.github/workflows/release-agent.yml#L52-L55); repo grep |
+| F9 | The test-skip guard bans `#[ignore]` only, so a `#[cfg(unix)]`-gated test is permitted and always runs on CI. | [`pretooluse-test-skip-guard.sh:49`](../../hooks/pretooluse-test-skip-guard.sh#L49) |
+| F10 | `identity.rs` already carries 8 unit tests using `tempfile::tempdir()`. | [`identity.rs`](../../../agent/crates/mesh-agent-core/src/identity.rs) |
+| F21 | `AgentIdentity::generate` runs whenever **any one** of the three identity files is missing — `load_or_create` requires all three — so it can reach a data directory that still holds a stale `agent.key`. A partial uninstall (`remove_identity_files`) or an interrupted enrollment leaves exactly that state. | [`identity.rs:50`](../../../agent/crates/mesh-agent-core/src/identity.rs#L50), [`main.rs:1178`](../../../agent/crates/mesh-agent/src/main.rs#L1178) |
+| F22 | The installer writes the systemd unit with a bare `cat >` — `0644` under the default umask — and its `ExecStart` carries `--enroll-token`. Enrollment tokens are **multi-use with an expiry**: the server refuses one only once exhausted or expired. So a live credential for enrolling machines is readable by every local account on the endpoint. | [`install.sh:198`](../../../server/internal/api/install.sh#L198), [`handlers_enrollment.go:164`](../../../server/internal/api/handlers_enrollment.go#L164) |
+| F23 | A shell test already asserts the installer's content, and is the place a mode assertion goes. | [`install-sh.test.sh`](../../../scripts/tests/install-sh.test.sh) |
+| F28 | `update-signing-key.hex`, the other file the agent writes into the data directory, is the server's **verifying** key — public by nature. The `0700` directory is all it needs; it gets no `0600`. | [`main.rs:141`](../../../agent/crates/mesh-agent/src/main.rs#L141), [`update.rs`](../../../agent/crates/mesh-agent-core/src/update.rs) |
+| F29 | Rust mutation shards are **explicit file lists**, `identity.rs` is already in one, and nothing enforces Rust partition completeness the way the Go table is enforced. A new Rust module file would silently fall outside mutation coverage. | [`mutation-shards.sh:153`](../../../scripts/lib/mutation-shards.sh#L153), [`mutation-shard-budget.test.sh`](../../../scripts/tests/mutation-shard-budget.test.sh) |
 
 ### Resumption evidence
 
 | # | Fact | Evidence |
 |---|---|---|
-| F11 | `AgentServer` **already holds** `metrics *appmetrics.Metrics`, and `AgentServerConfig` already carries the field. No plumbing needed. | [`server.go:46`](../../server/internal/agentapi/server.go#L46), [`server.go:70`](../../server/internal/agentapi/server.go#L70) |
-| F12 | `performHandshake` **already reads** `conn.ConnectionState().TLS`. `DidResume` is one field access away. | [`server_connection.go:199`](../../server/internal/agentapi/server_connection.go#L199) |
-| F13 | `accept` calls `performHandshake` **unconditionally**, and the `0x14` fast path branches *inside* the handshaker — so a counter placed there sees the fast path as well as full `AgentHello` handshakes. | [`server_connection.go:38`](../../server/internal/agentapi/server_connection.go#L38), [`handshaker.go:70`](../../server/internal/agentapi/handshaker.go#L70) |
-| F27 | `performHandshake` runs **after** `acceptControlStream`, so the counter's population is *connections that reached the application handshake* — a connection lost before its control stream opens is not counted. | [`server_connection.go:33-41`](../../server/internal/agentapi/server_connection.go#L33) |
-| F14 | A real loopback QUIC listener with the product's own mTLS config is available in-process — but `newAcceptEnv` builds `NewAgentServer` with **no `Metrics`**, and `acceptEnv.dial` builds its client config internally with **no `ClientSessionCache`** and signs a **fresh certificate per call**. Neither the counter nor a shared ticket is reachable without extending the harness. | [`server_accept_test.go:55`](../../server/internal/agentapi/server_accept_test.go#L55), [`server_accept_test.go:88`](../../server/internal/agentapi/server_accept_test.go#L88) |
-| F15 | A cold-then-resumed dial pair that demonstrably flips `DidResume` exists, but is bound to its own listener: `agentResumeTLSConfig` sets `NextProtos: resumeTestALPN`, while the real listener speaks `opengate`. Its `newSignalingCache` and `waitForTicket` are in the same package and **are** reusable. | [`quic_resumption_test.go:155-166`](../../server/internal/agentapi/quic_resumption_test.go#L155), [`cert.go:159`](../../server/internal/cert/cert.go#L159) |
-| F26 | Resumption today spans **in-process reconnects only** — a process restart comes back cold (the sibling plan's gap). A production observation of `resumed="true"` must therefore be driven by an in-process redial: bouncing the **server**, not the agent. | [`techdebt.md`](../techdebt.md), "Cross-restart TLS resumption is blocked on a rustls release" |
-| F16 | The metric-assertion pattern is established: `appmetrics.NewMetrics(prometheus.NewRegistry())` plus `prometheus/testutil`. | [`conn_register_metrics_test.go`](../../server/internal/agentapi/conn_register_metrics_test.go) |
+| F11 | `AgentServer` **already holds** `metrics *appmetrics.Metrics`, and `AgentServerConfig` already carries the field. No plumbing needed. | [`server.go:46`](../../../server/internal/agentapi/server.go#L46), [`server.go:70`](../../../server/internal/agentapi/server.go#L70) |
+| F12 | `performHandshake` **already reads** `conn.ConnectionState().TLS`. `DidResume` is one field access away. | [`server_connection.go:199`](../../../server/internal/agentapi/server_connection.go#L199) |
+| F13 | `accept` calls `performHandshake` **unconditionally**, and the `0x14` fast path branches *inside* the handshaker — so a counter placed there sees the fast path as well as full `AgentHello` handshakes. | [`server_connection.go:38`](../../../server/internal/agentapi/server_connection.go#L38), [`handshaker.go:70`](../../../server/internal/agentapi/handshaker.go#L70) |
+| F27 | `performHandshake` runs **after** `acceptControlStream`, so the counter's population is *connections that reached the application handshake* — a connection lost before its control stream opens is not counted. | [`server_connection.go:33-41`](../../../server/internal/agentapi/server_connection.go#L33) |
+| F14 | A real loopback QUIC listener with the product's own mTLS config is available in-process — but `newAcceptEnv` builds `NewAgentServer` with **no `Metrics`**, and `acceptEnv.dial` builds its client config internally with **no `ClientSessionCache`** and signs a **fresh certificate per call**. Neither the counter nor a shared ticket is reachable without extending the harness. | [`server_accept_test.go:55`](../../../server/internal/agentapi/server_accept_test.go#L55), [`server_accept_test.go:88`](../../../server/internal/agentapi/server_accept_test.go#L88) |
+| F15 | A cold-then-resumed dial pair that demonstrably flips `DidResume` exists, but is bound to its own listener: `agentResumeTLSConfig` sets `NextProtos: resumeTestALPN`, while the real listener speaks `opengate`. Its `newSignalingCache` and `waitForTicket` are in the same package and **are** reusable. | [`quic_resumption_test.go:155-166`](../../../server/internal/agentapi/quic_resumption_test.go#L155), [`cert.go:159`](../../../server/internal/cert/cert.go#L159) |
+| F26 | Resumption today spans **in-process reconnects only** — a process restart comes back cold (the sibling plan's gap). A production observation of `resumed="true"` must therefore be driven by an in-process redial: bouncing the **server**, not the agent. | [`techdebt.md`](../../techdebt.md), "Cross-restart TLS resumption is blocked on a rustls release" |
+| F16 | The metric-assertion pattern is established: `appmetrics.NewMetrics(prometheus.NewRegistry())` plus `prometheus/testutil`. | [`conn_register_metrics_test.go`](../../../server/internal/agentapi/conn_register_metrics_test.go) |
 | F17 | An **agent-side** store counter would be dishonest: rustls takes a ticket and *may then reject it* at `compatible_config` / `has_expired`, so `take_tls13_ticket() == Some` over-counts. That gate is live on the pinned `rustls 0.23.43`. | `rustls-0.23.43` `src/msgs/persist.rs:254-278` |
 | F18 | quinn exposes **no** client-side resumption signal — `handshake_data()` yields ALPN and SNI only. Server-side is the only faithful observation point available. | `quinn-proto-0.11.15` `src/crypto/rustls.rs:259-271` |
-| F30 | The nil-guard convention this plan follows is real and in force in the package. | [`conn_accounting.go:53`](../../server/internal/agentapi/conn_accounting.go#L53) |
-| F19 | No mutation-shard change is needed on the Go side: `server_connection.go` is in `go-agentapi-connection`, and `internal/metrics` is covered by a `dir:` shard. | [`mutation-shards.sh:336,376`](../../scripts/lib/mutation-shards.sh#L336) |
-| F20 | `sonar.coverage.exclusions` lists **no production file**, so every touched file is measured by the coverage gate. | [`sonar-project.properties:41-47`](../../sonar-project.properties#L41) |
+| F30 | The nil-guard convention this plan follows is real and in force in the package. | [`conn_accounting.go:53`](../../../server/internal/agentapi/conn_accounting.go#L53) |
+| F19 | No mutation-shard change is needed on the Go side: `server_connection.go` is in `go-agentapi-connection`, and `internal/metrics` is covered by a `dir:` shard. | [`mutation-shards.sh:336,376`](../../../scripts/lib/mutation-shards.sh#L336) |
+| F20 | `sonar.coverage.exclusions` lists **no production file**, so every touched file is measured by the coverage gate. | [`sonar-project.properties:41-47`](../../../sonar-project.properties#L41) |
 
 ## 2. Locked decisions
 
@@ -95,9 +95,9 @@ Each verified against the working tree at the pinned toolchain, or measured.
 - **Repairing keys already on disk.** D9 — the fleet is reinstalled.
 - **Enabling resumption.** It is already on: `rustls::ClientConfig` defaults
   `resumption` to `in_memory_sessions(256)`, and the agent builds the quinn
-  config once ([`main.rs:432`](../../agent/crates/mesh-agent/src/main.rs#L432))
+  config once ([`main.rs:432`](../../../agent/crates/mesh-agent/src/main.rs#L432))
   and clones it per attempt
-  ([`main.rs:599`](../../agent/crates/mesh-agent/src/main.rs#L599)); the clone
+  ([`main.rs:599`](../../../agent/crates/mesh-agent/src/main.rs#L599)); the clone
   shares `crypto: Arc<dyn ClientConfig>`, so one session store spans reconnects.
   This plan **measures** that, it does not switch it on.
 - **Changing how the enrollment token reaches the unit.** D14 closes who can
@@ -110,19 +110,19 @@ Each verified against the working tree at the pinned toolchain, or measured.
 
 | File | Change |
 |---|---|
-| [`agent/.../identity.rs`](../../agent/crates/mesh-agent-core/src/identity.rs) | Shared perms helper (D10, D11); `0600` key creation on both paths; `0700` directory on both paths |
-| [`agent/.../lib.rs`](../../agent/crates/mesh-agent-core/src/lib.rs) | `pub use` the helper |
-| [`agent/.../main.rs`](../../agent/crates/mesh-agent/src/main.rs) | The data-directory creation site calls the helper |
-| [`server/internal/api/install.sh`](../../server/internal/api/install.sh) | Systemd unit written `0600` (D14) |
-| [`scripts/tests/install-sh.test.sh`](../../scripts/tests/install-sh.test.sh) | Assert the unit's mode |
-| [`server/internal/metrics/metrics.go`](../../server/internal/metrics/metrics.go) | New counter vec + `ObserveAgentTLSHandshake(resumed bool)` |
-| [`server/internal/metrics/metrics_test.go`](../../server/internal/metrics/metrics_test.go) | Registration + both label values |
-| [`server/.../server_connection.go`](../../server/internal/agentapi/server_connection.go) | Observe `tlsState.DidResume` at the top of `performHandshake`, behind the `s.metrics != nil` convention (F30) |
-| [`server/.../server_accept_test.go`](../../server/internal/agentapi/server_accept_test.go) | Metrics-carrying env variant + config-taking `dial` form (D13) |
+| [`agent/.../identity.rs`](../../../agent/crates/mesh-agent-core/src/identity.rs) | Shared perms helper (D10, D11); `0600` key creation on both paths; `0700` directory on both paths |
+| [`agent/.../lib.rs`](../../../agent/crates/mesh-agent-core/src/lib.rs) | `pub use` the helper |
+| [`agent/.../main.rs`](../../../agent/crates/mesh-agent/src/main.rs) | The data-directory creation site calls the helper |
+| [`server/internal/api/install.sh`](../../../server/internal/api/install.sh) | Systemd unit written `0600` (D14) |
+| [`scripts/tests/install-sh.test.sh`](../../../scripts/tests/install-sh.test.sh) | Assert the unit's mode |
+| [`server/internal/metrics/metrics.go`](../../../server/internal/metrics/metrics.go) | New counter vec + `ObserveAgentTLSHandshake(resumed bool)` |
+| [`server/internal/metrics/metrics_test.go`](../../../server/internal/metrics/metrics_test.go) | Registration + both label values |
+| [`server/.../server_connection.go`](../../../server/internal/agentapi/server_connection.go) | Observe `tlsState.DidResume` at the top of `performHandshake`, behind the `s.metrics != nil` convention (F30) |
+| [`server/.../server_accept_test.go`](../../../server/internal/agentapi/server_accept_test.go) | Metrics-carrying env variant + config-taking `dial` form (D13) |
 | `server/.../server_accept_metrics_test.go` (new) | Cold and resumed dials assert the counter |
-| [`docs/infrastructure/Monitoring.md`](../../docs/infrastructure/Monitoring.md) | One metric row + the ratio query |
-| [`.claude/techdebt.md`](../techdebt.md) | Commit 2: delete the two entries this pays |
-| [`.claude/phases.md`](../phases.md) | Commit 2: Completed row |
+| [`docs/infrastructure/Monitoring.md`](../../../docs/infrastructure/Monitoring.md) | One metric row + the ratio query |
+| [`.claude/techdebt.md`](../../techdebt.md) | Commit 2: delete the two entries this pays |
+| [`.claude/phases.md`](../../phases.md) | Commit 2: Completed row |
 | This plan | Commit 2: `git mv` to `archive/`, links bumped one `../` deeper |
 
 ## 5. Steps
