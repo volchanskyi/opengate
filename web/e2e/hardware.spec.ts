@@ -31,8 +31,15 @@ test.describe("Hardware inventory", () => {
     await expect(authedPage.getByText(hardware.cpu_model as string)).toBeVisible();
     await expect(authedPage.getByText(`${String(hardware.cpu_cores)} cores`)).toBeVisible();
 
+    // Scoped to the interface list, because an interface name is short and
+    // generic — `lo` on any Linux host — and the page carries plenty of other
+    // text that contains it, including the customer picker's options. A
+    // document-wide substring match reaches one of those instead, and an
+    // <option> inside a closed <select> is never visible, so the assertion
+    // fails on a page that is rendering perfectly well.
     const interfaces = hardware.network_interfaces as { name: string; mac: string }[];
     expect(interfaces.length).toBeGreaterThan(0);
-    await expect(authedPage.getByText(interfaces[0].name, { exact: false }).first()).toBeVisible();
+    const list = authedPage.getByRole("list", { name: "Network Interfaces" });
+    await expect(list.getByText(`${interfaces[0].name}: ${interfaces[0].mac}`)).toBeVisible();
   });
 });

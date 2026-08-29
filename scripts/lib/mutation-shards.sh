@@ -373,7 +373,7 @@ mutation_go_shard_units() {
       echo "dir:internal/relay dir:internal/signaling dir:internal/clientapi"
       ;;
     go-observability-harness)
-      echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:tests/loadtest"
+      echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:internal/testreaper dir:tests/loadtest"
       ;;
     # The composition root. It is mutated rather than carved out: a dry run
     # measured 23 mutants there, and what they land on is behavior a test can

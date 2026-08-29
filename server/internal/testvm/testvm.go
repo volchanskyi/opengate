@@ -6,9 +6,8 @@
 //
 // The image tag is pinned to the same version the monitoring stack deploys
 // (deploy/helm/monitoring/values.yaml) so the test harness mirrors production.
-// Like testpg, this is a leaf package —
-// it imports no internal/* package — so any test package can depend on it
-// without risking an import cycle.
+// Like testpg, this package imports only the leaf internal/testreaper, so any
+// test package can depend on it without risking an import cycle.
 package testvm
 
 import (
@@ -22,7 +21,17 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/volchanskyi/opengate/server/internal/testreaper"
 )
+
+// init settles the reaper settings before anything can create one. It cannot
+// wait for startContainer: when VICTORIAMETRICS_TEST_URL is set this package
+// provisions nothing, and the first container of the process is then started by
+// somebody else, which would take the defaults.
+func init() {
+	testreaper.Settle()
+}
 
 // URLEnv names the environment variable that, when set, supplies an external
 // VictoriaMetrics base URL and bypasses container auto-provisioning.

@@ -490,8 +490,8 @@ export function DeviceDetail() {
               </dl>
               {hardware.network_interfaces.length > 0 && (
                 <div className="mt-2">
-                  <h4 className="text-xs text-gray-400 mb-1">Network Interfaces</h4>
-                  <ul className="text-xs space-y-1">
+                  <h4 id="network-interfaces-heading" className="text-xs text-gray-400 mb-1">Network Interfaces</h4>
+                  <ul aria-labelledby="network-interfaces-heading" className="text-xs space-y-1">
                     {hardware.network_interfaces.map((ni) => (
                       <li key={ni.name} className="font-mono">
                         {ni.name}: {ni.mac}{ni.ipv4.length > 0 && ` — ${ni.ipv4.join(', ')}`}

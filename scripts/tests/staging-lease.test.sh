@@ -368,6 +368,12 @@ fi
 # A run that waits on a live holder and then finds the claim gone must not carry
 # the old holder's name into whatever happens next. Losing the create race that
 # follows is reported as the race it is, not as the run that has already left.
+#
+# The assertion is on the last line alone, because how many times the loop polls
+# before its deadline depends on how fast the machine is: a busy one spends the
+# whole three seconds on one pass, an idle one gets three. The property does not
+# — whatever line the run ends on, it must not still be naming a holder that has
+# gone.
 rm -f "$STATE"
 seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 if out="$(FAKE_CREATE_TAKEN=1 timeout 20 env \
@@ -380,7 +386,7 @@ if out="$(FAKE_CREATE_TAKEN=1 timeout 20 env \
   "$LEASE" acquire cd-9 2>&1)"; then
   fail "a holder that has gone is not still named once the claim is gone"
 elif printf '%s' "$out" | grep -q 'held by other-run; waiting' \
-  && ! printf '%s' "$out" | tail -2 | grep -q 'other-run'; then
+  && ! printf '%s' "$out" | tail -1 | grep -q 'other-run'; then
   pass "a holder that has gone is not still named once the claim is gone"
 else
   fail "a holder that has gone is not still named once the claim is gone (got=[$out])"

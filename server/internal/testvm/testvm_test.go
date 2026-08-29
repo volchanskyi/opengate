@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -220,4 +221,18 @@ func TestBaseURL_StartsHealthyVictoriaMetrics(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+// TestPackageSettlesTheReaper is the regression guard for the failure this
+// package used to hand its callers: `server/tests/vmbackfill` imports testvm
+// and nothing else that provisions, so with the reaper left at its defaults the
+// process waited a fixed minute on a reaper container another process owned and
+// failed with "wait for reaper: context deadline exceeded" — a red suite about
+// a machine's load rather than about VictoriaMetrics. Settling both values at
+// package init is what makes this package safe to import on its own.
+func TestPackageSettlesTheReaper(t *testing.T) {
+	require.NotEmpty(t, os.Getenv("TESTCONTAINERS_RYUK_CONNECTION_TIMEOUT"),
+		"importing testvm must widen the reaper wait")
+	require.NotEmpty(t, os.Getenv("TESTCONTAINERS_SESSION_ID"),
+		"importing testvm must give this process a reaper of its own")
 }
