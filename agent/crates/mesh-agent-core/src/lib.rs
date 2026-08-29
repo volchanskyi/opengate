@@ -28,7 +28,9 @@ pub use connection::{
     ReconnectGovernor,
 };
 pub use error::{AgentError, ConnectionError};
-pub use identity::{AgentIdentity, PendingIdentity, CERT_FILE, DEVICE_ID_FILE, KEY_FILE};
+pub use identity::{
+    ensure_private_dir, AgentIdentity, PendingIdentity, CERT_FILE, DEVICE_ID_FILE, KEY_FILE,
+};
 pub use platform::{
     CaptureError, InputError, InputInjector, NullCapture, NullInput, NullServiceLifecycle,
     RawFrame, ScreenCapture, ServiceLifecycle,

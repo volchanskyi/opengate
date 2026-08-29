@@ -6,6 +6,7 @@ package metrics
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +40,12 @@ type Metrics struct {
 	// together.
 	AgentRegistrationsTotal   *prometheus.CounterVec
 	AgentRegistrationDuration *prometheus.HistogramVec
+
+	// Agent transport, measured where the honest answer lives. A client cannot
+	// report whether its TLS session resumed — it can present a ticket the
+	// server then declines — so the resumed/not-resumed split is taken from the
+	// server's own connection state.
+	AgentTLSHandshakesTotal *prometheus.CounterVec
 
 	// MPS
 	MPSConnectedDevices prometheus.Gauge
@@ -220,6 +227,10 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			"Machines in each coverage state for each rule, across the whole install. The four states always add up to the fleet, so a rule quietly evaluating on half an estate is visible rather than reading as healthy.",
 			"rule_id", "state"),
 
+		AgentTLSHandshakesTotal: counterVec("agent_tls_handshakes_total",
+			"Total agent QUIC connections that reached the application handshake, by whether the TLS session resumed. The population is connections whose control stream opened, so one lost before that is not counted. Dividing the resumed series by the sum of both is the share of reconnects that skipped the asymmetric handshake.",
+			"resumed"),
+
 		MetricsGridMisalignedTotal: counter("metrics_grid_misalignment_total",
 			"Total chart samples the time-series store returned outside the request-derived grid of the query it answered. The read is issued at the grid's own instants, so any non-zero value is a defect."),
 	}
@@ -247,6 +258,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.AlertsOpen,
 		m.IncidentsOpen,
 		m.RuleCoverage,
+		m.AgentTLSHandshakesTotal,
 		m.MetricsGridMisalignedTotal,
 	)
 	reg.MustRegister(newRegistrationAndPoolMetrics(m)...)
@@ -259,6 +271,13 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	for _, status := range openIncidentStatuses {
 		m.IncidentsOpen.WithLabelValues(status)
 	}
+
+	// Both handshake outcomes are published from start-up for the same reason:
+	// the resumption share divides one series by the sum of the two, and an
+	// absent denominator answers "no data" where the question was whether
+	// reconnects resume.
+	m.AgentTLSHandshakesTotal.WithLabelValues("true")
+	m.AgentTLSHandshakesTotal.WithLabelValues("false")
 
 	return m
 }
@@ -315,6 +334,15 @@ func (m *Metrics) ObserveBackfillDecision(granted bool, rate uint32, active int)
 // count rather than left as a number on a dashboard.
 func (m *Metrics) ObserveAlertSuppressed(reason string) {
 	m.AlertsSuppressedTotal.WithLabelValues(reason).Inc()
+}
+
+// ObserveAgentTLSHandshake counts one agent connection that reached the
+// application handshake, recording whether its TLS session resumed. It is
+// called once per connection, from the server side, because that is the only
+// place the outcome is known: the agent's own transport reports no resumption
+// result, and a ticket taken from its store may still be declined here.
+func (m *Metrics) ObserveAgentTLSHandshake(resumed bool) {
+	m.AgentTLSHandshakesTotal.WithLabelValues(strconv.FormatBool(resumed)).Inc()
 }
 
 // ObserveMetricsGridMisalignment counts n chart samples that arrived outside

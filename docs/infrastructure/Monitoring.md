@@ -113,6 +113,24 @@ Services via Kubernetes endpoint metadata rather than hard-coded Docker hostname
 Metric names and registration live under
 [`server/internal/metrics`](../../server/internal/metrics).
 
+Agent connections carry their own transport signal.
+`opengate_agent_tls_handshakes_total{resumed}` counts each QUIC connection that
+reached the application handshake, split by whether its TLS session resumed.
+The server is the only side that can answer: an agent's transport reports no
+resumption result, and a ticket it presents may still be declined here. So this
+is where the reconnect saving in
+[ADR-037](../adr/ADR-037-client-first-fast-path-reconnect.md) is measured. The
+share of connections that skipped the asymmetric handshake is
+
+```promql
+sum(rate(opengate_agent_tls_handshakes_total{resumed="true"}[1h]))
+  / sum(rate(opengate_agent_tls_handshakes_total[1h]))
+```
+
+Both label values are published from start-up, so that denominator exists before
+the first machine connects. The population is connections whose control stream
+opened — one lost earlier than that is outside the count.
+
 The vocabulary of host-resource dimensions an agent reports, what each one means,
 and which of them a platform may report as unsupported are in
 [Device Health](../product/Device-Health.md).

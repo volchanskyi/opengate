@@ -108,6 +108,15 @@ else
   fail "clean install writes binary/service and redacts the token from output"
 fi
 
+# The unit's ExecStart carries the enrollment token, and that token stays usable
+# until it expires or is exhausted — so the file it sits in is root-only.
+unit="$fixture/root/etc/systemd/system/mesh-agent.service"
+if [ "$(stat -c '%a' "$unit")" = "600" ]; then
+  pass "the systemd unit holding the enrollment token is owner-only"
+else
+  fail "the systemd unit holding the enrollment token is owner-only (mode $(stat -c '%a' "$unit"))"
+fi
+
 before_sha="$(sha256sum "$fixture/root/usr/local/bin/mesh-agent")"
 if run_installer "$fixture" "$token" >/dev/null \
   && [ "$(sha256sum "$fixture/root/usr/local/bin/mesh-agent")" = "$before_sha" ] \

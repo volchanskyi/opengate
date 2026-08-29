@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha512"
+	"crypto/tls"
 	"io"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -48,6 +50,14 @@ type acceptEnv struct {
 // it is accepting. The listener stops when the test ends.
 func newAcceptEnv(t *testing.T) *acceptEnv {
 	t.Helper()
+	return newAcceptEnvWithMetrics(t, nil)
+}
+
+// newAcceptEnvWithMetrics is newAcceptEnv with a registry the server records
+// against, for the assertions that are about what the accept path publishes
+// rather than about what it stores.
+func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
+	t.Helper()
 	store := testutil.NewTestStore(t)
 	devices := testutil.NewTestDevices(t, store)
 	cm, err := cert.NewManager(t.TempDir())
@@ -59,6 +69,7 @@ func newAcceptEnv(t *testing.T) *acceptEnv {
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
 		Relay:         relay.NewRelay(testLogger()),
 		Notifier:      &notifications.NoopNotifier{},
+		Metrics:       m,
 		Logger:        testLogger(),
 	})
 
@@ -89,9 +100,20 @@ func (e *acceptEnv) dial(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic.St
 	t.Helper()
 	tlsCert, err := e.srv.cert.SignAgent(deviceID.String(), "accept-test")
 	require.NoError(t, err)
+	return e.dialWith(t, e.srv.cert.AgentTLSConfig(tlsCert))
+}
+
+// dialWith is dial over a configuration the caller keeps. One machine dialling
+// twice is one certificate and one session cache held across both attempts,
+// which is what makes the second attempt resumable; a fresh config per dial
+// would make every reconnect look cold.
+func (e *acceptEnv) dialWith(t *testing.T, tlsCfg *tls.Config) (*quic.Conn, *quic.Stream) {
+	t.Helper()
+	require.NotEmpty(t, tlsCfg.Certificates,
+		"a machine reaches this listener holding a signed agent certificate")
 
 	conn, err := quic.DialAddr(t.Context(), e.addr,
-		e.srv.cert.AgentTLSConfig(tlsCert), &quic.Config{MaxIdleTimeout: 30 * time.Second})
+		tlsCfg, &quic.Config{MaxIdleTimeout: 30 * time.Second})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.CloseWithError(0, "test done") })
 
@@ -100,7 +122,7 @@ func (e *acceptEnv) dial(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic.St
 	require.NoError(t, err)
 	require.Zero(t, int64(stream.StreamID())%2, "the control stream is the machine's")
 
-	certHash := sha512.Sum384(tlsCert.Certificate[0])
+	certHash := sha512.Sum384(tlsCfg.Certificates[0].Certificate[0])
 	var nonce [32]byte
 	_, err = rand.Read(nonce[:])
 	require.NoError(t, err)
@@ -114,11 +136,18 @@ func (e *acceptEnv) dial(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic.St
 func (e *acceptEnv) connect(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic.Stream) {
 	t.Helper()
 	conn, stream := e.dial(t, deviceID)
+	readServerHello(t, stream)
+	return conn, stream
+}
+
+// readServerHello blocks until the server has greeted back, so the caller knows
+// the handshake ran to completion on the server side rather than racing it.
+func readServerHello(t *testing.T, stream *quic.Stream) {
+	t.Helper()
 	serverHello := make([]byte, 81)
 	_, err := io.ReadFull(stream, serverHello)
 	require.NoError(t, err)
 	require.Equal(t, byte(protocol.MsgServerHello), serverHello[0])
-	return conn, stream
 }
 
 // register sends the frame that makes a machine visible to the fleet.

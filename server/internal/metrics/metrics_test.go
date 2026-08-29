@@ -42,6 +42,28 @@ func TestObserveDeviceLogPull(t *testing.T) {
 	require.Equal(t, 2, testutil.CollectAndCount(m.DeviceLogPullDuration))
 }
 
+// TestObserveAgentTLSHandshake counts every agent QUIC connection that reached
+// the application handshake, split by whether TLS resumed. Both series exist
+// from start-up: the resumption ratio divides one by their sum, and a missing
+// denominator reads as "no data" exactly when somebody is checking whether
+// reconnects are resuming at all.
+func TestObserveAgentTLSHandshake(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+
+	require.InDelta(t, 0, testutil.ToFloat64(m.AgentTLSHandshakesTotal.WithLabelValues("true")), 0)
+	require.InDelta(t, 0, testutil.ToFloat64(m.AgentTLSHandshakesTotal.WithLabelValues("false")), 0)
+	require.Equal(t, 2, testutil.CollectAndCount(m.AgentTLSHandshakesTotal),
+		"both label values are published before either is observed")
+
+	m.ObserveAgentTLSHandshake(false)
+	m.ObserveAgentTLSHandshake(true)
+	m.ObserveAgentTLSHandshake(true)
+
+	require.InDelta(t, 2, testutil.ToFloat64(m.AgentTLSHandshakesTotal.WithLabelValues("true")), 0)
+	require.InDelta(t, 1, testutil.ToFloat64(m.AgentTLSHandshakesTotal.WithLabelValues("false")), 0)
+}
+
 // TestObserveEdgeTelemetryIngest counts accepted Edge-Sentinel telemetry
 // messages by control type, so the soak dashboard can chart ingest rate.
 func TestObserveEdgeTelemetryIngest(t *testing.T) {
