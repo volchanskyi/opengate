@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/rules"
@@ -64,14 +63,17 @@ func (j janitor) run(ctx context.Context, logger *slog.Logger) {
 	}
 }
 
-// startReconcileLoop runs the reconciliation sweep until ctx is cancelled. A nil
-// reconciler (purging disabled) returns immediately. It waits out the first
-// interval: the orphans it collects can only be left behind by a purge this
-// process ran, so there is nothing waiting for it at boot.
-func startReconcileLoop(ctx context.Context, every time.Duration, reconciler *lifecycle.Reconciler, logger *slog.Logger) {
-	if reconciler == nil {
-		return
-	}
+// orphanSweeper reclaims telemetry series no device owns any more. Named here
+// as a port so the loop can be driven without a metrics store, the same way the
+// incident sweep is.
+type orphanSweeper interface {
+	Sweep(ctx context.Context) (int, error)
+}
+
+// startReconcileLoop runs the reconciliation sweep until ctx is cancelled. It
+// waits out the first interval: the orphans it collects can only be left behind
+// by a purge this process ran, so there is nothing waiting for it at boot.
+func startReconcileLoop(ctx context.Context, every time.Duration, reconciler orphanSweeper, logger *slog.Logger) {
 	janitor{
 		every:  every,
 		sweep:  reconciler.Sweep,
@@ -190,8 +192,12 @@ func (a *Assembly) StartBackgroundWorkers(ctx context.Context, sched BackgroundS
 	}, a.Logger, sched.Investigations)
 
 	// Garbage-collect any orphaned telemetry series (defense in depth against a
-	// purge that partially failed). A no-op when purging is disabled.
-	go startReconcileLoop(ctx, sched.Reconcile, a.Reconciler, a.Logger)
+	// purge that partially failed). Purging off leaves nothing to reconcile, and
+	// the assembly is where that is known — a nil pointer handed to the loop as
+	// a port would arrive there as a non-nil interface and be swept against.
+	if a.Reconciler != nil {
+		go startReconcileLoop(ctx, sched.Reconcile, a.Reconciler, a.Logger)
+	}
 
 	// Garbage-collect session rows the relay no longer holds, so a token that was
 	// never connected — or one this process was serving when it last died — stops

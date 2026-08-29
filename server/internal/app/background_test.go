@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -152,4 +154,127 @@ func TestGroupWindowsAreTheRulesOwn(t *testing.T) {
 		assert.Equalf(t, time.Duration(def.GroupWindowSecs)*time.Second, windows[def.ID],
 			"%s holds its rooms open for its own grouping window", def.ID)
 	}
+}
+
+// recordingLogger captures what a sweep said, so the contract in the janitor's
+// own comment — a failure is always worth a line, a pass that reclaimed nothing
+// says nothing — is a test rather than a promise.
+func recordingLogger() (*slog.Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	return slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), &buf
+}
+
+// countingResolver reports a fixed reclamation, or a failure.
+type countingResolver struct {
+	reclaimed int
+	err       error
+}
+
+func (r *countingResolver) ResolveStale(context.Context, map[string]time.Duration) (int, error) {
+	return r.reclaimed, r.err
+}
+
+// A pass that reclaimed something says so, because that is the only place the
+// reclamation is visible: the sweep runs on a goroutine nobody is watching and
+// changes rows nobody asked about.
+func TestASweepThatReclaimedSomethingSaysSo(t *testing.T) {
+	logger, said := recordingLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	startIncidentSweepLoop(ctx, testSchedule.IncidentSweep, &countingResolver{reclaimed: 7}, nil, logger)
+
+	assert.Contains(t, said.String(), "auto-resolved quiet incidents")
+	assert.Contains(t, said.String(), "count=7")
+}
+
+// A pass that reclaimed nothing is the ordinary case, and an ordinary case that
+// logs is a log nobody reads.
+func TestASweepThatReclaimedNothingSaysNothing(t *testing.T) {
+	logger, said := recordingLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	startIncidentSweepLoop(ctx, testSchedule.IncidentSweep, &countingResolver{}, nil, logger)
+
+	assert.Empty(t, said.String())
+}
+
+// A failure is always worth a line. A sweep that cannot run leaves whatever it
+// was reclaiming to accumulate, and silence there is how it accumulates unseen.
+func TestASweepThatFailedSaysWhy(t *testing.T) {
+	logger, said := recordingLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	startIncidentSweepLoop(ctx, testSchedule.IncidentSweep,
+		&countingResolver{err: errors.New("the queue is unreadable")}, nil, logger)
+
+	assert.Contains(t, said.String(), "incident auto-resolve sweep failed")
+	assert.Contains(t, said.String(), "the queue is unreadable")
+}
+
+// A session sweep that collected rows says how many, for the same reason: the
+// rows it removed are ones a technician would otherwise still see as live.
+func TestASessionSweepThatCollectedRowsSaysHowMany(t *testing.T) {
+	logger, said := recordingLogger()
+	agentRelay := relay.NewRelay(slog.Default())
+	token := protocol.GenerateSessionToken()
+	require.NoError(t, agentRelay.Register(context.Background(), token, nopConn{}, relay.SideBrowser))
+
+	// The double returns one deletion per token it was told to spare, so a live
+	// relay entry is what makes this pass reclaim anything at all.
+	sweeper := session.NewSweeper(&sweepRepo{}, liveRelayTokens(agentRelay), testSchedule.SessionGrace, logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	startSessionSweepLoop(ctx, testSchedule.SessionSweep, sweeper, logger)
+
+	assert.Contains(t, said.String(), "swept stale agent sessions")
+	assert.Contains(t, said.String(), "count=1")
+}
+
+// countingOrphanSweeper reclaims a fixed number of orphaned series, or fails.
+type countingOrphanSweeper struct {
+	reclaimed int
+	err       error
+	// after ends the loop once a pass has been made, so a test sees exactly one.
+	after func()
+}
+
+func (s *countingOrphanSweeper) Sweep(context.Context) (int, error) {
+	if s.after != nil {
+		s.after()
+	}
+	return s.reclaimed, s.err
+}
+
+// Orphaned series are the defence in depth behind a purge that partly failed,
+// so a pass that found any is a pass that found a failed purge — the one thing
+// this sweep exists to surface.
+func TestAReconcileSweepThatFoundOrphansWarns(t *testing.T) {
+	logger, said := recordingLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// The sweep ends the loop once it has run, so exactly one pass is observable
+	// and the test never waits on a second tick.
+	sweeper := &countingOrphanSweeper{reclaimed: 3, after: cancel}
+	startReconcileLoop(ctx, time.Millisecond, sweeper, logger)
+
+	assert.Contains(t, said.String(), "reconcile sweep purged orphan telemetry")
+	assert.Contains(t, said.String(), "count=3")
+}
+
+// It waits out the first interval rather than sweeping at boot: the orphans it
+// collects can only be left behind by a purge this process ran, so there is
+// nothing waiting for it when it starts.
+func TestTheReconcileSweepDoesNotRunAtBoot(t *testing.T) {
+	logger, said := recordingLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	startReconcileLoop(ctx, time.Hour, &countingOrphanSweeper{reclaimed: 3}, logger)
+
+	assert.Empty(t, said.String(), "a cancelled context leaves no pass to have made")
 }

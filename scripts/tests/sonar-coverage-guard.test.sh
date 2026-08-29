@@ -96,6 +96,84 @@ echo "scov_main prerequisite:"
 )
 
 echo
+echo "scov_added_lines (what a diff actually touched):"
+assert_lines() {
+  local name="$1" want="$2" diff="$3" got
+  got="$(scov_added_lines <<<"$diff" | tr '\n' ' ')"
+  if [ "$got" = "$want" ]; then pass "$name"; else fail "$name (want [$want] got [$got])"; fi
+}
+assert_lines "a multi-line hunk reports every line it added" "12 13 14 " \
+  "@@ -10,2 +12,3 @@ func x() {"
+# A hunk with no count is one line. Reading the absent count as zero loses it,
+# and a one-line change is the commonest shape there is.
+assert_lines "a single-line hunk with no count reports that line" "7 " \
+  "@@ -7 +7 @@"
+# A pure deletion touches no line of the working tree, so it adds nothing that
+# needs covering — counting it would demand coverage of a line that is not there.
+assert_lines "a pure deletion adds nothing to cover" "" \
+  "@@ -4,3 +3,0 @@"
+assert_lines "several hunks are all reported" "2 9 10 " \
+  "$(printf '@@ -2 +2 @@\n@@ -8,0 +9,2 @@\n')"
+
+echo
+echo "scov_changed_lines (a file git has never seen):"
+WORK="$(mktemp -d)"
+# Invoked through the EXIT trap.
+# shellcheck disable=SC2329
+cleanup_work() { rm -rf "$WORK"; }
+trap 'cleanup; cleanup_work' EXIT
+printf 'a\nb\nc\n' >"$WORK/new.go"
+untracked="$(cd "$WORK" && bash -c "source '$GUARD'; scov_changed_lines new.go" | tr '\n' ' ')"
+if [ "$untracked" = "1 2 3 " ]; then
+  pass "a file with no history counts every line"
+else
+  fail "a file with no history counts every line (got [$untracked])"
+fi
+
+echo
+echo "scov_check_diff (blame-independent, per changed line):"
+export SCOV_CHANGED_OVERRIDE="server/internal/app/background.go"
+export SCOV_SETTLE_RETRIES=0
+export SCOV_SETTLE_SLEEP=0
+
+# The failure this half exists for: a file carved out of another arrives with
+# every line dated to the split, so CI measures all of it as new code. Four of
+# nine changed lines hit is 44%, which is roughly what the gate saw.
+split_lines() {
+  local hit="$1" miss="$2" out="" i
+  for ((i = 1; i <= hit; i++)); do out+="server/internal/app/background.go:$i:3"$'\n'; done
+  for ((i = hit + 1; i <= hit + miss; i++)); do out+="server/internal/app/background.go:$i:0"$'\n'; done
+  printf '%s' "$out"
+}
+touched_lines() {
+  local n="$1" out="" i
+  for ((i = 1; i <= n; i++)); do out+="server/internal/app/background.go:$i"$'\n'; done
+  printf '%s' "$out"
+}
+export SCOV_TOUCHED_OVERRIDE
+SCOV_TOUCHED_OVERRIDE="$(touched_lines 9)"
+
+SCOV_LINES_OVERRIDE="$(split_lines 4 5)" \
+  assert_rc "a split file at 44% is refused" 1 scov_check_diff
+SCOV_LINES_OVERRIDE="$(split_lines 9 0)" \
+  assert_ok "the same file fully covered passes" scov_check_diff
+SCOV_LINES_OVERRIDE="$(split_lines 8 1)" \
+  assert_ok "88% clears the 82 floor" scov_check_diff
+
+# A line the coverage report says nothing about — a comment, a blank, a
+# declaration — is a line nothing has to cover, and counting it as uncovered
+# would demand a test for a line no test can reach.
+SCOV_LINES_OVERRIDE="$(split_lines 2 0)" \
+  assert_ok "lines with no coverage figure do not count against the ratio" scov_check_diff
+
+# A guard that answers yes when it could not ask is the false green it was
+# written to close.
+SCOV_LINES_OVERRIDE="other/file.go:1:5" \
+  assert_rc "no figures for any changed file → rc 2, never a pass" 2 scov_check_diff
+
+unset SCOV_CHANGED_OVERRIDE SCOV_TOUCHED_OVERRIDE SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
+
+echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
   printf '  - %s\n' "${FAILURES[@]}" >&2

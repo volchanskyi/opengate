@@ -24,8 +24,11 @@ phases:
     connected_agents: 500
     sessions: 5
 
+# No processor ceiling. This stack is created by the job and thrown away with
+# it, so there is no neighbour to protect, and driving the processor is the
+# experiment rather than a hazard. What is declared is the room the run can
+# still exhaust: past it the node has nowhere to put what the run produces.
 safety:
-  max_node_cpu_percent: 90
   max_node_memory_percent: 90
   max_error_rate: 0.01
 

@@ -398,11 +398,14 @@ else
   # not wired in: a quality-gate evaluation against stale coverage was the gap
   # that let new_coverage regressions reach CI undetected.
   run_check "make sonar" -- make sonar
-  # new_coverage margin guard: `make sonar` enforces the gate at 80, but a value
-  # like 79.95% displays as "80.0" and flips green→red between local and CI due to
-  # sub-line coverage nondeterminism. This fails locally unless new_coverage clears
-  # a buffer above 80, keeping the result off the boundary (CI run 26929821908).
-  run_check "sonar new-coverage margin" -- bash scripts/sonar-coverage-guard.sh
+  # new-coverage guard, in two halves. The aggregate: a value like 79.95% displays
+  # as "80.0" and flips green→red between local and CI on sub-line coverage
+  # nondeterminism, so it must clear a buffer above 80 (CI run 26929821908). The
+  # diff: SonarCloud derives "new" from git blame, so the lines being committed
+  # right now are measured by nothing locally — a file split out of another read
+  # 47% in CI and green here — so every changed line is checked against the hit
+  # counts computed from the upload rather than from blame.
+  run_check "sonar new-coverage guard" -- bash scripts/sonar-coverage-guard.sh
   # new-duplication guard: `make sonar` enforces new_duplicated_lines_density ≤ 3,
   # but SonarCloud derives "new" lines from git blame, so uncommitted changes in a
   # pre-commit scan are under-counted and a copy-pasted file can pass locally then

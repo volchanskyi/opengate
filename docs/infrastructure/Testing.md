@@ -694,6 +694,14 @@ are read against. The environment vocabulary has no production member, which is
 what makes "production is never a target" a property of the schema rather than of
 a reviewer's attention.
 
+The environment also decides which safety limits mean anything. The processor
+ceiling is a promise made to whatever else sits on the node, so a staging profile
+declares one and a disposable runner stack — created by the job and thrown away
+with it — may not: driving the processor is the scaling sweep's whole experiment,
+and a ceiling nothing consults reads as protection that is not there. The memory
+and disk ceilings hold everywhere, because past them the node has nowhere to put
+what the run produces. The schema enforces both halves.
+
 **Bundles** are versioned JSON, one per run, uploaded as a workflow artifact. A
 bundle carries what produced the numbers, on what hardware, against how much
 data, what load was offered, what load arrived, what the run observed, and what
@@ -744,10 +752,16 @@ work the server refuses. A scenario that stood up its own fixtures would measure
 403 path instead. `setup()` throws on an unexpected status, so a broken precondition
 names itself rather than turning every request in the run red.
 
-Every identity a run creates carries a marker in its address, and every scenario
-prints what it created. [`scripts/loadtest-cleanup.sh`](../../scripts/loadtest-cleanup.sh)
-removes what matches and counts what is left, and that count travels in the
-bundle — a run that says it left nothing has to have looked.
+Every name a run creates carries the run's marker and its own seed, so two nights
+never ask the server for the same customer.
+[`scripts/loadtest-cleanup.sh`](../../scripts/loadtest-cleanup.sh) removes what
+matches — accounts, customers, sites and machines — and counts each kind, and
+that count travels in the bundle: a run that says it left nothing has to have
+looked, and a kind that is removed but never counted is a kind whose residue
+nobody can see. The statements are held to the live schema by a test in
+[`server/tests/loadtest/`](../../server/tests/loadtest) that runs the script
+against a database the migrations built, so a column that moves fails the day it
+moves rather than the next night.
 
 The relay scenario needs a machine on the other end of every session it opens, so
 the QUIC harness holds its fleet connected for the whole k6 window rather than

@@ -10,13 +10,22 @@ import (
 	"syscall"
 )
 
-// Every profile declares what the run must not push its machine past, and until
-// now nothing read those numbers.
+// Every profile declares what the run must not push its machine past, and the
+// check below is what reads those numbers.
 //
-// They are not about the verdict. Staging shares one node with production, and
-// a run that saturates it does not produce a bad measurement — it makes the
-// kubelet start choosing which pods to evict. The limits exist so a run stops
-// itself before anyone has to.
+// They are not about the verdict. Two different things are being protected, and
+// a profile declares whichever of them its environment has:
+//
+//   - The processor ceiling protects a neighbour. Staging shares one node with
+//     production, and a run that saturates it does not produce a bad measurement
+//     — it makes the kubelet start choosing which pods to evict. A disposable
+//     stack has no neighbour, and driving its processor is what the scaling
+//     sweep is for, so such a profile declares no processor ceiling and this
+//     leaves it alone.
+//   - The memory and disk ceilings protect the measurement. Past them the node
+//     has nowhere to put what the run produces, and the numbers describe a
+//     machine out of room rather than the system under test. They hold wherever
+//     the run is.
 //
 // A reading nobody took is not a reading of zero. An absent measurement fails
 // the check rather than passing it, because a guard that treats "unknown" as
@@ -46,12 +55,6 @@ type SafetyReader func() NodeReading
 
 // CheckSafety reports why a run must stop, or nil while it may continue.
 func CheckSafety(limits Safety, reading NodeReading) error {
-	if limits.MaxNodeCPUPercent <= 0 && limits.MaxNodeMemoryPercent <= 0 {
-		// A profile that declares no limits is asking for none. That is the
-		// throwaway stack: it is created by the job, thrown away at the end of
-		// it, and shares its machine with nothing.
-		return nil
-	}
 	if !reading.Measured {
 		return errors.New("safety: the node was not measured, and an unmeasured node is not a node inside its limits")
 	}
@@ -67,9 +70,14 @@ func CheckSafety(limits Safety, reading NodeReading) error {
 			"the node's memory is %.0f%% used against a limit of %.0f%% — past this the kubelet starts evicting",
 			reading.MemoryPercent, limits.MaxNodeMemoryPercent))
 	}
+	// Disk is held to the memory ceiling rather than one of its own. Both are
+	// the same statement — the node has nowhere left to put what the run
+	// produces — and a second number to keep in step would be a second number to
+	// forget. The message says which ceiling it is, so the reading is not
+	// mistaken for a limit somebody declared for disks.
 	if limits.MaxNodeMemoryPercent > 0 && reading.DiskPercent > limits.MaxNodeMemoryPercent {
 		problems = append(problems, fmt.Errorf(
-			"the node's disk is %.0f%% full against a limit of %.0f%% — the database production depends on writes there too",
+			"the node's disk is %.0f%% full against the same %.0f%% ceiling as its memory — the database writes there",
 			reading.DiskPercent, limits.MaxNodeMemoryPercent))
 	}
 	return errors.Join(problems...)
@@ -122,11 +130,12 @@ func LocalNodeReading() NodeReading {
 		reading.DiskPercent = float64(used) / float64(stat.Blocks) * 100
 	}
 
-	// Processor use over an interval cannot be read from a single sample, and a
-	// run that paused to take two would be pausing the thing it is measuring.
-	// The queue length against the processor count is what one look gives, and
-	// it is reported as that rather than dressed up as utilisation.
-	reading.CPUPercent = loadPercent(runtime.NumCPU())
+	// The run queue at this instant against the processor count. It is what one
+	// look gives, reported as that rather than dressed up as utilisation, and it
+	// describes the machine now rather than the minute before the look.
+	if raw, err := os.ReadFile(procLoadAvg); err == nil {
+		reading.CPUPercent = runQueuePercent(string(raw), runtime.NumCPU())
+	}
 	return reading
 }
 
@@ -155,25 +164,49 @@ func readMemInfo() (total, available int64, ok bool) {
 	return total, available, total > 0
 }
 
-// loadPercent turns the one-minute run queue into a percentage of the machine's
-// processors, capped at a hundred: a queue twice the processor count is a
-// machine fully committed, not one two hundred percent used.
-func loadPercent(processors int) float64 {
-	raw, err := os.ReadFile(procLoadAvg)
-	if err != nil || processors <= 0 {
+// runQueuePercent turns one /proc/loadavg reading into how much of the machine
+// is committed right now, as a percentage of its processors.
+//
+// It reads the fourth field — the tasks runnable at this instant — and not the
+// one-minute average, which describes the minute before the reading. On a runner
+// that minute is the one the job spent building images and a fleet, so the
+// average reports the build as the run's own commitment and stops the run before
+// its first phase.
+//
+// The reader itself is runnable while it reads, so it is subtracted: an
+// otherwise idle machine is committed to nothing, not to one task.
+//
+// The figure is reported as it is rather than trimmed to a hundred. A node
+// committed to four times what it has and one exactly full are different
+// findings, and a ceiling comparison reads them the same way either way.
+func runQueuePercent(raw string, processors int) float64 {
+	runnable, ok := parseRunQueue(raw)
+	if !ok || processors <= 0 {
 		return 0
 	}
-	fields := strings.Fields(string(raw))
-	if len(fields) == 0 {
-		return 0
+	others := runnable - 1
+	if others < 0 {
+		others = 0
 	}
-	oneMinute, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return 0
+	return float64(others) / float64(processors) * 100
+}
+
+// parseRunQueue reads the runnable-task count out of /proc/loadavg's fourth
+// field, which has the form "runnable/total". A shape it cannot read reports no
+// reading rather than a zero, because zero is a machine at rest and those are
+// different answers.
+func parseRunQueue(raw string) (int, bool) {
+	fields := strings.Fields(raw)
+	if len(fields) < 4 {
+		return 0, false
 	}
-	percent := oneMinute / float64(processors) * 100
-	if percent > 100 {
-		return 100
+	runnable, _, found := strings.Cut(fields[3], "/")
+	if !found {
+		return 0, false
 	}
-	return percent
+	value, err := strconv.Atoi(runnable)
+	if err != nil || value < 0 {
+		return 0, false
+	}
+	return value, true
 }

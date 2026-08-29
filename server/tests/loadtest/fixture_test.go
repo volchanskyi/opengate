@@ -115,3 +115,31 @@ func TestAnUnknownFixtureSizeIsRefused(t *testing.T) {
 func TestAFixtureDeclaresItRunsOutsideTimedPhases(t *testing.T) {
 	assert.False(t, planned(t, FixtureSmall, 1).RunsInsideTimedPhase())
 }
+
+// Two runs must be able to follow each other. A name built from the marker alone
+// is the same name every night, so the second night asks the server for a
+// customer that already exists, is refused, and the fleet it was building never
+// connects — which is what a whole week of nights did, because the accounts
+// carried the run's seed and the customers did not.
+func TestTwoRunsNeverAskForTheSameCustomer(t *testing.T) {
+	first, second := planned(t, FixtureSmall, 1), planned(t, FixtureSmall, 2)
+
+	taken := map[string]bool{}
+	for _, customer := range first.Customers {
+		taken[customer.Name] = true
+	}
+	for _, customer := range second.Customers {
+		assert.False(t, taken[customer.Name],
+			"customer %q is asked for by both runs, so the second is refused", customer.Name)
+	}
+}
+
+// The seed is in the name, so a cleanup that runs long after the fact can still
+// tell one run's customers from another's — the same property the accounts have.
+func TestACustomerNameCarriesTheRunItBelongsTo(t *testing.T) {
+	plan := planned(t, FixtureSmall, 4242)
+	for _, customer := range plan.Customers {
+		assert.Contains(t, customer.Name, "4242")
+		assert.Contains(t, customer.Name, loadTestMarker)
+	}
+}

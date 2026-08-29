@@ -368,6 +368,12 @@ jobs:
       - name: Run smoke tests
         run: bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 18080 --mode staging --scheme http
 
+      # Customers are emptied with everything else. A run's fixture asks the
+      # server for a customer by name and a name is unique inside its tenant, so
+      # a customer left behind is a customer the next run is refused — and a run
+      # refused its first customer builds no fleet at all. Every tenant is given
+      # its default customer back afterwards, so a machine always has somewhere
+      # to belong and the picker always has something to pick.
       - name: Reset staging DB for E2E
         run: |
           kubectl -n "$NAMESPACE" exec "statefulset/${RELEASE}-postgres" -- \
@@ -375,11 +381,14 @@ jobs:
             TRUNCATE TABLE
               security_group_members, device_hardware, device_updates,
               enrollment_tokens, amt_devices, audit_events, web_push_subscriptions,
-              agent_sessions, devices, sites, security_groups, users
+              agent_sessions, devices, sites, organizations, security_groups, users
             RESTART IDENTITY CASCADE;
             INSERT INTO security_groups (id, tenant_id, name, description, is_system)
             VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)
-            ON CONFLICT (id) DO NOTHING;"
+            ON CONFLICT (id) DO NOTHING;
+            INSERT INTO organizations (id, tenant_id, name)
+            SELECT gen_random_uuid(), t.id, 'Default Organization' FROM tenants t
+            ON CONFLICT DO NOTHING;"
 
       # After the reset, which truncates devices, and before the suite, which
       # reads them.
