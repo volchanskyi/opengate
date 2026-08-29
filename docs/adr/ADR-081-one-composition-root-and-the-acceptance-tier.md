@@ -59,19 +59,21 @@ followed the last.
 
 **One composition root.** [`internal/app`](../../server/internal/app) assembles
 the product from resolved configuration: every repository, every port, both
-servers. It reads no flag, reads no environment variable, calls no `os.Exit` and
-opens no listener. `cmd/meshserver` reads the world and starts things; it wires
-nothing. A configuration short of something required fails `Build` naming the
+servers, and the periodic workers that run on a timer rather than on a request.
+It reads no flag, reads no environment variable, calls no `os.Exit` and opens no
+listener. `cmd/meshserver` reads the world, chooses the cadence those workers
+run on, and starts things; it wires nothing. A configuration short of something required fails `Build` naming the
 missing dependency, rather than assembling a server that answers 500 on the
 routes that needed it.
 
 That split is what makes the package coverable: a `Build` free of flags and
 exits is exercisable to the last line by the harness that calls it, and
 `internal/app` falls inside the Go coverage gate. It is mutated rather than
-carved out — a dry run measured 23 mutants there, landing on the refusals, the
-all-or-nothing wiring of the metrics store's four faces, and the fallback that
-leaves device deletion as a plain Postgres delete — so it owns a mutation shard
-of its own rather than inheriting `cmd/meshserver`'s exclusion.
+carved out — its mutants land on the refusals, the all-or-nothing wiring of the
+metrics store's four faces, the fallback that leaves device deletion as a plain
+Postgres delete, and the schedule a worker is refused for leaving incomplete —
+so it owns a mutation shard of its own rather than inheriting
+`cmd/meshserver`'s exclusion.
 
 **An acceptance tier with two doors.**
 [`server/tests/acceptance`](../../server/tests/acceptance) stands the whole
@@ -156,11 +158,13 @@ count is unchanged. The e2e job gains a dependency on an agent-binary job that
 builds the static binary once inside the Rust cache and hands it over as an
 artifact, which keeps the compile off the e2e job's critical path.
 
-Two things are stated rather than fixed, because fixing them is a larger decision
+One thing is stated rather than fixed, because fixing it is a larger decision
 than this one. The Chat tab is shown only for a machine reporting RemoteDesktop,
 which a Linux agent does not, so `chat.spec.ts` keeps a described machine and
-says why in its own header. And an orphaned session row is reclaimed by a sweep
-that only the binary runs, since the periodic workers stay in `cmd/meshserver`;
-the acceptance tier states what the two doors can observe of a machine that
-disappears mid-session — nothing further is asked of it, a fresh session is
-refused with a reason, and the technician can clear the dead one.
+says why in its own header.
+
+The periodic workers are the assembled product's, started through an `Assembly`
+method on a schedule the caller states. The binary runs them on the cadence a
+running server keeps; an acceptance test states its own and watches an orphaned
+session row actually get reclaimed, which is an outcome the two doors can see
+rather than one asserted by a sweep's unit tests and nothing joined.

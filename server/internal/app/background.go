@@ -1,26 +1,22 @@
-package main
+package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/volchanskyi/opengate/server/internal/agentapi"
-	"github.com/volchanskyi/opengate/server/internal/alerts"
-	"github.com/volchanskyi/opengate/server/internal/amt"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/session"
-	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
-// Everything this process runs on a timer rather than on a request: the gauges
-// the platform is watched through, and the janitors that reclaim what
-// accumulates while nobody is looking.
+// Everything the assembled product runs on a timer rather than on a request:
+// the gauges the platform is watched through, and the janitors that reclaim
+// what accumulates while nobody is looking.
 //
 // They share one loop rather than a copy each, because a sweep that treats an
 // error or a cancelled context differently from its neighbours is a difference
@@ -68,19 +64,16 @@ func (j janitor) run(ctx context.Context, logger *slog.Logger) {
 	}
 }
 
-// reconcileInterval is how often the orphan-series sweep runs.
-const reconcileInterval = time.Hour
-
 // startReconcileLoop runs the reconciliation sweep until ctx is cancelled. A nil
 // reconciler (purging disabled) returns immediately. It waits out the first
 // interval: the orphans it collects can only be left behind by a purge this
 // process ran, so there is nothing waiting for it at boot.
-func startReconcileLoop(ctx context.Context, reconciler *lifecycle.Reconciler, logger *slog.Logger) {
+func startReconcileLoop(ctx context.Context, every time.Duration, reconciler *lifecycle.Reconciler, logger *slog.Logger) {
 	if reconciler == nil {
 		return
 	}
 	janitor{
-		every:  reconcileInterval,
+		every:  every,
 		sweep:  reconciler.Sweep,
 		failed: "reconcile sweep failed",
 		found: func(purged int) {
@@ -88,12 +81,6 @@ func startReconcileLoop(ctx context.Context, reconciler *lifecycle.Reconciler, l
 		},
 	}.run(ctx, logger)
 }
-
-// incidentSweepInterval is how often the auto-resolve sweep runs. It decides
-// only how promptly a room that has gone quiet leaves the triage queue, not
-// whether it does: the hold itself is the rule's own grouping window, and an
-// alert arriving after that window closes the lapsed room on its way past.
-const incidentSweepInterval = 5 * time.Minute
 
 // staleIncidentResolver closes the rooms whose hold has run out. Named here as a
 // port so the loop can be driven without a database.
@@ -106,10 +93,11 @@ type staleIncidentResolver interface {
 // than a room's whole hold comes back to a queue holding incidents that should
 // already have closed.
 func startIncidentSweepLoop(
-	ctx context.Context, store staleIncidentResolver, windows map[string]time.Duration, logger *slog.Logger,
+	ctx context.Context, every time.Duration, store staleIncidentResolver,
+	windows map[string]time.Duration, logger *slog.Logger,
 ) {
 	janitor{
-		every:  incidentSweepInterval,
+		every:  every,
 		atBoot: true,
 		sweep:  func(ctx context.Context) (int, error) { return store.ResolveStale(ctx, windows) },
 		failed: "incident auto-resolve sweep failed",
@@ -119,92 +107,108 @@ func startIncidentSweepLoop(
 	}.run(ctx, logger)
 }
 
-// backgroundLoops is everything this process runs on a timer rather than on a
-// request: the gauges the platform is watched through, and the janitors that
-// reclaim what accumulates while nobody is looking.
-type backgroundLoops struct {
-	metrics     *appmetrics.Metrics
-	store       *db.PostgresStore
-	relay       *relay.Relay
-	agents      *agentapi.AgentServer
-	amt         *amt.Service
-	signaling   *signaling.Tracker
-	alerts      *alerts.Store
-	sessions    session.Repository
-	reconciler  *lifecycle.Reconciler
-	catalogue   *rules.Catalogue
-	signingKeys *updater.SigningKeys
-	manifests   *updater.ManifestStore
-	githubRepo  string
-	logger      *slog.Logger
+// BackgroundSchedule is how often each periodic worker runs, and how long a
+// session row outlives the relay that stopped holding its token.
+//
+// It is a parameter rather than a set of constants here because the cadence is
+// the caller's to choose: the binary runs on the production one, and a test
+// that has to watch a sweep actually reclaim something cannot wait a minute for
+// the next pass. A zero field is refused rather than defaulted — a schedule
+// half-filled in is a worker that never runs, and a ticker built from zero
+// panics on the spot.
+type BackgroundSchedule struct {
+	// Gauges is how often the in-memory runtime counts are read.
+	Gauges time.Duration
+	// DBSize is how often the database's on-disk size is measured.
+	DBSize time.Duration
+	// Investigations is how often the rule-pack and queue aggregates run.
+	Investigations time.Duration
+	// Reconcile is how often orphaned telemetry series are swept.
+	Reconcile time.Duration
+	// SessionSweep is how often session rows the relay no longer holds are
+	// reclaimed, and SessionGrace is how long one survives before it can be.
+	SessionSweep time.Duration
+	SessionGrace time.Duration
+	// IncidentSweep is how often rooms whose hold has run out are closed.
+	IncidentSweep time.Duration
 }
 
-// startBackgroundLoops launches every periodic worker and returns immediately.
-// Each stops when ctx is cancelled.
-func startBackgroundLoops(ctx context.Context, d backgroundLoops) {
-	go appmetrics.StartGaugeUpdater(ctx, d.metrics, appmetrics.GaugeSource{
-		ActiveSessions:      d.relay.ActiveSessionCount,
-		ConnectedAgents:     d.agents.ConnectedAgentCount,
-		ConnectedMPSDevices: d.amt.ConnectedDeviceCount,
-		SignalingSuccesses:  d.signaling.SuccessCount,
-		SignalingFailures:   d.signaling.FailureCount,
-	}, gaugeRefreshInterval)
-	go appmetrics.StartDBSizeUpdater(ctx, d.metrics, d.store, d.logger, dbSizeRefreshInterval)
-	go appmetrics.StartDBPoolUpdater(ctx, d.metrics, appmetrics.SQLPoolStatter(d.store.PoolStats), gaugeRefreshInterval)
+// Validate refuses a schedule with a hole in it, naming the field. A zero
+// duration would panic inside time.NewTicker on a goroutine nobody is watching,
+// which surfaces as a worker that silently is not there.
+//
+// It is exported so the caller that owns the numbers can hold them to this
+// without standing the product up.
+func (s BackgroundSchedule) Validate() error {
+	for name, d := range map[string]time.Duration{
+		"Gauges":         s.Gauges,
+		"DBSize":         s.DBSize,
+		"Investigations": s.Investigations,
+		"Reconcile":      s.Reconcile,
+		"SessionSweep":   s.SessionSweep,
+		"SessionGrace":   s.SessionGrace,
+		"IncidentSweep":  s.IncidentSweep,
+	} {
+		if d <= 0 {
+			return fmt.Errorf("app: BackgroundSchedule.%s must be positive", name)
+		}
+	}
+	return nil
+}
+
+// StartBackgroundWorkers launches every periodic worker the assembled product
+// runs and returns immediately. Each stops when ctx is cancelled.
+//
+// Starting them belongs to whoever built the product rather than to the binary,
+// so an acceptance test can stand the whole thing up — sweeps included — and
+// state a reclamation as an outcome instead of asserting it against the sweep's
+// own unit tests and nothing joined.
+func (a *Assembly) StartBackgroundWorkers(ctx context.Context, sched BackgroundSchedule) error {
+	if err := sched.Validate(); err != nil {
+		return err
+	}
+
+	go appmetrics.StartGaugeUpdater(ctx, a.Metrics, appmetrics.GaugeSource{
+		ActiveSessions:      a.Relay.ActiveSessionCount,
+		ConnectedAgents:     a.Agents.ConnectedAgentCount,
+		ConnectedMPSDevices: a.AMT.ConnectedDeviceCount,
+		SignalingSuccesses:  a.Signaling.SuccessCount,
+		SignalingFailures:   a.Signaling.FailureCount,
+	}, sched.Gauges)
+	go appmetrics.StartDBSizeUpdater(ctx, a.Metrics, a.Store, a.Logger, sched.DBSize)
+	go appmetrics.StartDBPoolUpdater(ctx, a.Metrics,
+		appmetrics.SQLPoolStatter(a.Store.PoolStats), sched.Gauges)
 
 	// Platform meta-monitoring of the rule pack and the queue it feeds. Both
 	// gauges are counts over tables that only grow, so they are refreshed here
 	// on a timer rather than computed inside the collector, where a full
 	// aggregate would run on every scrape of an endpoint more than one thing
 	// scrapes.
-	go appmetrics.StartInvestigationsUpdater(ctx, d.metrics, appmetrics.InvestigationSource{
-		OpenInvestigations: d.alerts.OpenInvestigations,
-		FleetRuleCoverage:  d.agents.FleetRuleCoverage,
-	}, d.logger, investigationsRefreshInterval)
+	go appmetrics.StartInvestigationsUpdater(ctx, a.Metrics, appmetrics.InvestigationSource{
+		OpenInvestigations: a.Alerts.OpenInvestigations,
+		FleetRuleCoverage:  a.Agents.FleetRuleCoverage,
+	}, a.Logger, sched.Investigations)
 
 	// Garbage-collect any orphaned telemetry series (defense in depth against a
 	// purge that partially failed). A no-op when purging is disabled.
-	go startReconcileLoop(ctx, d.reconciler, d.logger)
+	go startReconcileLoop(ctx, sched.Reconcile, a.Reconciler, a.Logger)
 
 	// Garbage-collect session rows the relay no longer holds, so a token that was
 	// never connected — or one this process was serving when it last died — stops
 	// showing up as an active session.
-	sweeper := session.NewSweeper(d.sessions, liveRelayTokens(d.relay), sessionGracePeriod, d.logger)
-	go startSessionSweepLoop(ctx, sweeper, d.logger)
+	sweeper := session.NewSweeper(a.Sessions, liveRelayTokens(a.Relay), sched.SessionGrace, a.Logger)
+	go startSessionSweepLoop(ctx, sched.SessionSweep, sweeper, a.Logger)
 
 	// Close the incidents nothing is arriving in any more, so a customer's triage
 	// queue holds the problems they still have.
-	go startIncidentSweepLoop(ctx, d.alerts, groupWindows(d.catalogue), d.logger)
+	go startIncidentSweepLoop(ctx, sched.IncidentSweep, a.Alerts, groupWindows(a.Rules), a.Logger)
 
 	// Sync agent manifests from GitHub releases (default: every hour).
-	if d.githubRepo != "" {
-		go updater.StartPeriodicSync(ctx, d.githubRepo, 0, d.signingKeys, d.manifests, d.logger)
+	if a.githubRepo != "" {
+		go updater.StartPeriodicSync(ctx, a.githubRepo, 0, a.SigningKeys, a.Manifests, a.Logger)
 	}
+	return nil
 }
-
-// gaugeRefreshInterval is how often the runtime gauges — sessions, connected
-// agents, connected AMT devices, signaling, connection-pool occupancy — are
-// read from the components that hold them.
-//
-// It is short because a load run is short. The lag an observer adds is its own
-// refresh plus the scrape behind it, and a burst that starts and finishes
-// inside that window leaves every gauge reading the number it held before the
-// burst began — so a run that connected a thousand agents can be recorded as a
-// server that saw none. These are in-memory counts, so reading them this often
-// costs nothing worth saving.
-const gaugeRefreshInterval = 5 * time.Second
-
-// dbSizeRefreshInterval is how often the database's on-disk size is measured. It
-// moves slowly and the query is not free, so it is read far less often than it
-// is scraped.
-const dbSizeRefreshInterval = 60 * time.Second
-
-// investigationsRefreshInterval is how often the platform's own view of the
-// investigation tables is recomputed. It is deliberately slower than the scrape:
-// these are aggregates over tables that only grow, and a triage queue moves at
-// the speed of people rather than of requests, so a minute-old count answers
-// every question the gauges are asked.
-const investigationsRefreshInterval = time.Minute
 
 // groupWindows is how long each shipped rule's room stays open with nothing
 // further arriving. It is the rule's own grouping window and never a figure of
@@ -218,16 +222,6 @@ func groupWindows(catalogue *rules.Catalogue) map[string]time.Duration {
 	}
 	return windows
 }
-
-// sessionGracePeriod is how long a session row survives without the relay
-// holding its token. It only has to outlast the gap between issuing a token and
-// connecting with it — a live session is spared by the keep-list however old it
-// gets — so it doubles as the worst-case lag before a session orphaned by a
-// process restart disappears from the device page.
-const sessionGracePeriod = 5 * time.Minute
-
-// sessionSweepInterval is how often the stale-session sweep runs.
-const sessionSweepInterval = time.Minute
 
 // liveRelayTokens adapts the relay's live token set to the plain strings the
 // session store keys on.
@@ -246,9 +240,9 @@ func liveRelayTokens(r *relay.Relay) session.LiveTokens {
 // starting with one pass at boot: a process that just started holds no relay
 // sessions, so any row left behind by its predecessor is collectable as soon as
 // it ages past the grace period.
-func startSessionSweepLoop(ctx context.Context, sweeper *session.Sweeper, logger *slog.Logger) {
+func startSessionSweepLoop(ctx context.Context, every time.Duration, sweeper *session.Sweeper, logger *slog.Logger) {
 	janitor{
-		every:  sessionSweepInterval,
+		every:  every,
 		atBoot: true,
 		sweep:  sweeper.Sweep,
 		failed: "stale session sweep failed",
