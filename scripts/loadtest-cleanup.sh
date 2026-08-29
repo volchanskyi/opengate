@@ -15,14 +15,20 @@
 # load run holds no administrator credential — and giving one a standing
 # administrator would be a far larger thing than the residue it cleans.
 #
-# An account cannot simply be deleted. Three tables name a user and none of them
-# cascades — the token a run minted, the sessions a technician opened, and the
-# sites somebody owns — so a plain removal is refused by the database, the script
-# stops on the refusal, and nothing is cleaned at all. That is what happened
-# every night for four nights: the run that could not remove its own account
-# then found the address taken and failed at registration. The removal below
-# clears what points at an account before removing the account, in one
-# transaction, so a failure part-way leaves the database as it was.
+# An account cannot simply be deleted. Two tables name a user and neither
+# cascades — the token a run minted and the sessions a technician opened — so a
+# plain removal is refused by the database, the script stops on the refusal, and
+# nothing is cleaned at all. The removal below clears what points at an account
+# before removing the account, in one transaction, so a failure part-way leaves
+# the database as it was.
+#
+# A run creates four kinds of thing and this removes and counts all four:
+# accounts, customers, the sites under them, and machines. Counting is not a
+# report about the removal, it is the removal's only check — a kind that is
+# removed but never counted is a kind whose residue nobody can see. Eight
+# customers survived every cleanup for a week that way: nothing selected them
+# and nothing counted them, so every run said it had left nothing behind while
+# the next run's fixture was already colliding with what it found.
 #
 # Environment:
 #   LOADTEST_PSQL            the command that runs psql against the target
@@ -56,6 +62,16 @@ residue_predicate() {
     "$MARKER" "$SERVICE_ACCOUNT"
 }
 
+# residue_org_predicate selects the customers a run created. They are not
+# selected through the account that made them: a customer belongs to the tenant,
+# not to its creator, and the column that once tied a site to an owner was
+# dropped when the organization became the visibility boundary. What identifies
+# one is the marker its name carries, which is the same thing every other kind
+# of residue is recognised by.
+residue_org_predicate() {
+  printf "name LIKE '%s%%'" "$MARKER"
+}
+
 # psql_scalar runs one query and returns the single value it produced.
 psql_scalar() {
   # shellcheck disable=SC2086 # LOADTEST_PSQL is a command prefix, so it must split.
@@ -79,18 +95,29 @@ residue_devices() {
   psql_scalar "SELECT COUNT(*) FROM devices WHERE hostname LIKE '${MARKER}%' OR hostname LIKE 'soak-t%'"
 }
 
+residue_organizations() {
+  psql_scalar "SELECT COUNT(*) FROM organizations WHERE $(residue_org_predicate)"
+}
+
+residue_sites() {
+  psql_scalar "SELECT COUNT(*) FROM sites WHERE name LIKE '${MARKER}%'"
+}
+
 main() {
   local out="${1:-loadtest-cleanup.json}"
 
-  local before_users before_devices
+  local before_users before_devices before_orgs before_sites
   before_users="$(residue_users)"
   before_devices="$(residue_devices)"
+  before_orgs="$(residue_organizations)"
+  before_sites="$(residue_sites)"
 
   # Order matters and is the whole repair. Each statement clears something that
-  # names a doomed account, and the account goes last:
+  # names a doomed row, and the rows nothing points at go last:
   #
-  #   the tokens it minted → the sessions it opened → the machines it enrolled →
-  #   the sites it owns → the account itself
+  #   the tokens an account minted → the sessions it opened → the machines the
+  #   run enrolled → the sites it opened → the customers it took on → the
+  #   accounts themselves
   #
   # Removing a site unfiles its machines rather than taking them along, so the
   # machines go first and nothing is orphaned either way.
@@ -100,8 +127,12 @@ BEGIN;
 CREATE TEMPORARY TABLE loadtest_residue_users ON COMMIT DROP AS
   SELECT id FROM users WHERE $(residue_predicate);
 
+CREATE TEMPORARY TABLE loadtest_residue_orgs ON COMMIT DROP AS
+  SELECT id FROM organizations WHERE $(residue_org_predicate);
+
 DELETE FROM enrollment_tokens
- WHERE created_by IN (SELECT id FROM loadtest_residue_users);
+ WHERE created_by IN (SELECT id FROM loadtest_residue_users)
+    OR label LIKE '${MARKER}%';
 
 DELETE FROM agent_sessions
  WHERE user_id IN (SELECT id FROM loadtest_residue_users);
@@ -109,11 +140,14 @@ DELETE FROM agent_sessions
 DELETE FROM devices
  WHERE hostname LIKE '${MARKER}%'
     OR hostname LIKE 'soak-t%'
-    OR site_id IN (SELECT id FROM sites
-                    WHERE owner_id IN (SELECT id FROM loadtest_residue_users));
+    OR organization_id IN (SELECT id FROM loadtest_residue_orgs);
 
 DELETE FROM sites
- WHERE owner_id IN (SELECT id FROM loadtest_residue_users);
+ WHERE name LIKE '${MARKER}%'
+    OR organization_id IN (SELECT id FROM loadtest_residue_orgs);
+
+DELETE FROM organizations
+ WHERE id IN (SELECT id FROM loadtest_residue_orgs);
 
 DELETE FROM users
  WHERE id IN (SELECT id FROM loadtest_residue_users);
@@ -121,35 +155,46 @@ DELETE FROM users
 COMMIT;
 SQL
 
-  local after_users after_devices
+  local after_users after_devices after_orgs after_sites
   after_users="$(residue_users)"
   after_devices="$(residue_devices)"
+  after_orgs="$(residue_organizations)"
+  after_sites="$(residue_sites)"
 
   jq -n \
     --arg marker "$MARKER" \
     --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson removed_users "$((before_users - after_users))" \
     --argjson removed_devices "$((before_devices - after_devices))" \
+    --argjson removed_organizations "$((before_orgs - after_orgs))" \
+    --argjson removed_sites "$((before_sites - after_sites))" \
     --argjson orphan_users "${after_users:-0}" \
     --argjson orphan_devices "${after_devices:-0}" \
+    --argjson orphan_organizations "${after_orgs:-0}" \
+    --argjson orphan_sites "${after_sites:-0}" \
     '{
       verified: true,
       marker: $marker,
       timestamp: $timestamp,
       removed_users: $removed_users,
       removed_devices: $removed_devices,
+      removed_organizations: $removed_organizations,
+      removed_sites: $removed_sites,
       orphan_users: $orphan_users,
-      orphan_devices: $orphan_devices
+      orphan_devices: $orphan_devices,
+      orphan_organizations: $orphan_organizations,
+      orphan_sites: $orphan_sites
     }' >"$out"
 
   cat "$out"
 
-  if [ "${after_users:-0}" -ne 0 ] || [ "${after_devices:-0}" -ne 0 ]; then
-    echo "::error::cleanup left residue: ${after_users} users, ${after_devices} devices" >&2
+  if [ "${after_users:-0}" -ne 0 ] || [ "${after_devices:-0}" -ne 0 ] \
+    || [ "${after_orgs:-0}" -ne 0 ] || [ "${after_sites:-0}" -ne 0 ]; then
+    echo "::error::cleanup left residue: ${after_users} users, ${after_devices} devices, ${after_orgs} customers, ${after_sites} sites" >&2
     return 1
   fi
 
-  echo "Cleanup left nothing: removed ${before_users} users and ${before_devices} devices."
+  echo "Cleanup left nothing: removed ${before_users} users, ${before_devices} devices, ${before_orgs} customers and ${before_sites} sites."
   return 0
 }
 

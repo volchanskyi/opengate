@@ -81,9 +81,18 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 }
 
 // registerConn stores the connection in the server map and emits an online event.
+//
+// The count follows the machine rather than the connection. A machine that
+// drops and dials straight back is registered while its previous connection is
+// still tearing down, and that teardown will decline to decrement — it finds a
+// newer connection in the map and leaves it alone. Counting the replacement as
+// an arrival too would add one the process can never take back, and the
+// connected-agents gauge would climb by one on every reconnect race for as long
+// as the server runs.
 func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname string) {
-	s.conns.Store(ac.DeviceID, ac)
-	s.count.Add(1)
+	if _, replaced := s.conns.Swap(ac.DeviceID, ac); !replaced {
+		s.count.Add(1)
+	}
 	onlineEvt := notifications.Event{
 		Type:           notifications.EventDeviceOnline,
 		DeviceID:       ac.DeviceID,

@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-08-28. -->
+<!-- Last reviewed: 2026-08-29. -->
 
 ## Severity: High
 
@@ -79,29 +79,6 @@ Read the grant from the OCI console, set both gates to it, and record the figure
 in an ADR. The block-storage grant is exactly full independently of this, so no
 instance can be added until 50 GB is released whichever way it goes.
 
-### The QUIC accept path has no in-process test harness
-
-[`server.go`](../server/internal/agentapi/server.go) and
-[`server_connection.go`](../server/internal/agentapi/server_connection.go) are the
-only production files left in `sonar.coverage.exclusions`. They sit at ~4–80% line
-coverage because reaching `accept` means standing up a real QUIC listener, driving
-a TLS handshake with a client certificate, and holding a peer connection open —
-none of which any current test does. The package's QUIC tests exercise resumption
-and tombstones through other entry points, so the accept, register, teardown and
-control-loop paths run only in production and in e2e.
-
-That is a genuine gap, not a classification: an in-process harness *is* buildable
-(a `quic.Transport` on a loopback UDP socket with a self-signed cert pair), which
-is exactly why the exclusion is debt rather than a permanent carve-out. Until it
-exists, a change to the connection lifecycle is defended by e2e alone.
-
-**Pay-down trigger:** the next change to the connection lifecycle, or any further
-split of these files. Build the loopback harness, cover accept → register →
-control loop → unregister, then delete both entries and their justification lines
-from [`sonar-project.properties`](../sonar-project.properties) — the guard
-([`sonar-coverage-exclusion-guard.sh`](../scripts/sonar-coverage-exclusion-guard.sh))
-will then hold the list at zero production exclusions.
-
 ### Multi-tenant membership API and web tenant switcher deferred
 
 WS-0 satisfies "web carries tenant context" by retaining the JWT `tenant` claim in the
@@ -155,49 +132,7 @@ production saving is not realized. It is a backward-compatible client-side chang
 quinn caches and presents tickets and a reconnecting production agent is observed
 resuming (`DidResume`).
 
-### A CD failure issue carries no log excerpt
-
-Every issue [`notify_failure.py`](../.github/scripts/notify_failure.py) has filed
-for a `Deploy staging` failure records `No log output available.` in place of the
-excerpt, so the one artifact that outlives a run's log retention holds nothing
-about why the run failed. Two staging failures reached the point where their
-logs had expired and neither could be diagnosed afterwards from the issue, the
-run, or an artifact.
-
-The excerpt is empty because `fetch_job_log` returned nothing.
-`repos/{repo}/actions/jobs/{id}/logs` serves the log fine on its own, and the
-workflow grants the `actions: read` the endpoint needs, so neither is the cause.
-The untested claim is the one in the function's own docstring — that the
-endpoint serves a completed job while the run around it is still in progress,
-which is the only condition this job ever runs under.
-
-**Pay-down trigger:** the next CD failure worth diagnosing. Settle the docstring's
-claim against a run in flight; if it does not hold, take the excerpt from the
-step's own output rather than from the API. Either way the fix is a test that
-fails when the excerpt is empty, since every issue to date would have passed one
-that only checks an issue was filed.
-
 ## Severity: Low
-
-### The periodic workers cannot be driven from an acceptance test
-
-The janitors and gauge loops live in
-[`background.go`](../server/cmd/meshserver/background.go), which is `package main`
-and therefore importable by nothing. `internal/app` assembles the product; starting
-the loops belongs to whoever built it, and that is the binary.
-
-The consequence is visible in one outcome. A technician whose machine drops off
-mid-session leaves a session row behind, and what reclaims it is the stale-session
-sweep after its grace period. No acceptance test can wait for that, so
-`TestASessionOnAMachineThatDisappearsStopsBeingUsable` states what the two doors
-can observe instead — nothing further is asked of the machine, a fresh session is
-refused with a reason, and the technician can clear the dead one — and the row's
-reclamation is asserted by the sweep's own unit tests and by nothing joined.
-
-**Pay-down trigger:** the next change to a sweep's schedule or its keep-list.
-Move the loops behind an `Assembly` method that takes a context, leave the
-intervals and the signal handling in `cmd/meshserver`, and state the reclamation
-as an outcome.
 
 ### The Chat tab is unreachable from any machine the browser stack can run
 
@@ -421,30 +356,6 @@ than a nightly benchmark surprise.
 **Pay-down trigger:** the decode path shows up in a server CPU or allocation
 profile taken under fleet load, or the union crosses another size class without
 a message type to justify the fields that pushed it.
-
-### Thirteen surviving mutants in the reconnect-backfill drain
-
-The `rust-core-ml-backfill` shard never finished a nightly run before its split,
-so its survivors were only ever seen partially. The run that reported furthest
-([32212640976](https://github.com/volchanskyi/opengate/actions/runs/32212640976))
-named thirteen, all in the tier walk now in
-[`drain.rs`](../agent/crates/mesh-agent-core/src/ml/backfill/drain.rs): the
-production `TierReader` rollup read, both per-tier cursor arms in
-`BackfillCursors::get`, four band-arithmetic operators, and the phase-advance and
-read-window comparisons in `next_batch`.
-
-They are not one job. Some are ordinary test gaps — a resume test exists for the
-1-minute tier and not for the other two, and a T1/T2 read through a real store
-snapshot is never asserted. Others look equivalent on inspection: `emit_ok`'s
-future-clock guard cannot be reached, because the phase band already bounds every
-timestamp the reader is asked for, and the batch-window `+` behaves the same as
-`*` under `.min(band_hi)` for any realistic clock. Separating the two needs the
-shard to run to completion, which is what the split and the budget guard make
-possible.
-
-**Pay-down trigger:** the first nightly run in which both backfill shards
-complete. Kill what a test can kill, and carve out what the run proves
-equivalent with the reason written next to it.
 
 ### Alert state stays out of VictoriaMetrics
 

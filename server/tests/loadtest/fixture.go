@@ -116,7 +116,7 @@ func PlanFixture(size FixtureSize, seed uint64) (FixturePlan, error) {
 	// same fleet exactly rather than approximately.
 	source := &sequence{state: seed}
 
-	plan.Customers = planCustomers(size, devices, source)
+	plan.Customers = planCustomers(size, devices, seed, source)
 	for _, customer := range plan.Customers {
 		plan.Sites += customer.Sites
 	}
@@ -136,16 +136,22 @@ func fixtureDeviceCount(size FixtureSize) (int, error) {
 	}
 }
 
-// planCustomers splits the fleet between customers. The lopsided distribution
-// gives one customer most of it; the others spread the fleet evenly, which is
-// the shape that flatters a tenant-scoped read.
-func planCustomers(size FixtureSize, devices int, source *sequence) []CustomerPlan {
+// planCustomers splits the fleet between customers, naming each after the run
+// it belongs to. The lopsided distribution gives one customer most of it; the
+// others spread the fleet evenly, which is the shape that flatters a
+// tenant-scoped read.
+func planCustomers(size FixtureSize, devices int, seed uint64, source *sequence) []CustomerPlan {
 	shares := customerShares(size, devices, source)
 
 	customers := make([]CustomerPlan, 0, len(shares))
 	for i, share := range shares {
 		customers = append(customers, CustomerPlan{
-			Name:    fmt.Sprintf("%s-customer-%02d", loadTestMarker, i+1),
+			// The seed is in the name for the reason it is in every account
+			// address: a customer's name is unique inside its tenant, so a name
+			// built from the marker alone is the same name every night. The
+			// second night is then refused the customer it asked for and the
+			// fleet it was building never connects.
+			Name:    fmt.Sprintf("%s-%d-customer-%02d", loadTestMarker, seed, i+1),
 			Devices: share,
 			Sites:   sitesFor(share),
 		})

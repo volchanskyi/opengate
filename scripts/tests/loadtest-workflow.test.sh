@@ -125,6 +125,41 @@ else
   pass "the account password never rides the psql command line"
 fi
 
+# --- The fleet's own account of itself survives a failed scenario --------------
+#
+# The fleet is started in the background, so its log and its verdict are read
+# back by a later step. That step ran only while everything before it had passed
+# — which is every case except the one where the log is the answer. Three weeks
+# of nights failed with "no online machine to open a session against" and the
+# fleet's own reason for not being there was collected by nothing and printed
+# nowhere.
+fleet_wait_block="$(awk '
+  /^[[:space:]]*- name: Wait for the QUIC fleet to finish/ { found = 1; next }
+  found && /^[[:space:]]*- name:/ { exit }
+  found { print }
+' "$WORKFLOW")"
+if grep -qE 'if:[[:space:]]*(\$\{\{[[:space:]]*)?always\(\)' <<<"$fleet_wait_block"; then
+  pass "the fleet's verdict is collected on the failing path too"
+else
+  fail "the step that reads the fleet's log must run whatever the scenarios did"
+fi
+
+# --- The reset the next run stands on empties what a run creates ---------------
+#
+# A run's fixture asks the server for a customer by name, and a customer's name
+# is unique inside its tenant. The deploy's reset emptied the accounts and the
+# sites and left the customers, so the night after a deploy was refused the first
+# customer it asked for and never built a fleet at all.
+CD_WORKFLOW="$REPO_ROOT/.github/workflows/cd.yml"
+reset_tables="$(awk '/TRUNCATE TABLE/ {found = 1; next} found {print} found && /RESTART IDENTITY/ {exit}' "$CD_WORKFLOW")"
+for table in organizations sites devices users; do
+  if grep -qw "$table" <<<"$reset_tables"; then
+    pass "the staging reset empties $table"
+  else
+    fail "the staging reset leaves $table behind for the next run to collide with"
+  fi
+done
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

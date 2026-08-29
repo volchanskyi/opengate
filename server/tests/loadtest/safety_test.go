@@ -45,12 +45,6 @@ func TestAnUnmeasuredNodeDoesNotPassTheLimit(t *testing.T) {
 	assert.Contains(t, err.Error(), "not measured")
 }
 
-// A profile that declares no limits is asking for none, which is the runner
-// stack: it is thrown away at the end of the job and shares nothing.
-func TestAProfileWithNoLimitsIsNotGuarded(t *testing.T) {
-	assert.NoError(t, CheckSafety(Safety{}, NodeReading{Measured: false}))
-}
-
 func TestTheSequencerStopsWhenTheNodeIsPastItsLimit(t *testing.T) {
 	profile := threePhaseProfile()
 	fleet := &recordingFleet{}
@@ -90,4 +84,70 @@ func TestTheLocalReadingIsAnActualMeasurement(t *testing.T) {
 	assert.True(t, reading.Measured, "the process can read its own machine")
 	assert.GreaterOrEqual(t, reading.MemoryPercent, 0.0)
 	assert.LessOrEqual(t, reading.MemoryPercent, 100.0)
+}
+
+// The processor ceiling is a statement about a neighbour. A disposable stack has
+// none — the job creates it and throws it away — and driving the processor to
+// saturation is what the scaling sweep is for, so such a profile declares no
+// processor ceiling and a saturated reading is not a reason to stop.
+func TestADisposableStackIsNotHeldToAProcessorCeiling(t *testing.T) {
+	runnerSafety := Safety{MaxNodeMemoryPercent: 90, MaxErrorRate: 0.01}
+	assert.NoError(t, CheckSafety(runnerSafety, NodeReading{
+		Measured: true, CPUPercent: 240, MemoryPercent: 55,
+	}))
+}
+
+// The room it can still run out of holds either way: past the memory ceiling the
+// numbers describe a machine with nowhere to put them.
+func TestADisposableStackStillStopsWhenItRunsOutOfMemory(t *testing.T) {
+	runnerSafety := Safety{MaxNodeMemoryPercent: 90, MaxErrorRate: 0.01}
+	err := CheckSafety(runnerSafety, NodeReading{
+		Measured: true, CPUPercent: 240, MemoryPercent: 95,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "memory")
+}
+
+// What the check claims to read is what the node is committed to now. The
+// one-minute average is the minute before the check, and on a runner that minute
+// is the one the job spent building images and a fleet — so reading it stopped
+// every performance run before its first phase, naming the build as the run's
+// own commitment.
+func TestTheProcessorReadingIgnoresTheMinuteBeforeIt(t *testing.T) {
+	// A machine whose last minute was fully committed and whose run queue is now
+	// empty: nothing is running but this reader.
+	assert.InDelta(t, 0.0, runQueuePercent("8.00 6.00 4.00 1/512 9931\n", 4), 0)
+}
+
+func TestTheProcessorReadingCountsWhatIsRunnableNow(t *testing.T) {
+	// Nine runnable, one of them this reader, against four processors: the node
+	// is committed to twice what it has.
+	assert.InDelta(t, 200.0, runQueuePercent("0.00 0.00 0.00 9/512 9931\n", 4), 0)
+}
+
+// Reported as it is rather than trimmed to a hundred: a node committed to four
+// times what it has and one exactly full are different findings, and a ceiling
+// comparison works the same either way.
+func TestTheProcessorReadingIsNotTrimmedToAHundred(t *testing.T) {
+	assert.InDelta(t, 400.0, runQueuePercent("0.00 0.00 0.00 17/512 9931\n", 4), 0)
+}
+
+// A reading that could not be taken is not a reading of an idle machine, so the
+// unreadable shapes return nothing rather than zero-as-a-measurement.
+func TestAnUnreadableRunQueueMeasuresNothing(t *testing.T) {
+	for _, raw := range []string{"", "0.00 0.00 0.00", "0.00 0.00 0.00 notanumber 9931"} {
+		_, ok := parseRunQueue(raw)
+		assert.False(t, ok, "%q is not a run-queue reading", raw)
+	}
+}
+
+// Disk is held to the memory ceiling, and the message says so — a run stopped by
+// a number nobody declared for disks is a run whose reason reads as a mistake.
+func TestAFullDiskStopsTheRunAndNamesTheCeilingItUsed(t *testing.T) {
+	err := CheckSafety(tightSafety(), NodeReading{
+		Measured: true, CPUPercent: 10, MemoryPercent: 10, DiskPercent: 95,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk")
+	assert.Contains(t, err.Error(), "same 90% ceiling as its memory")
 }

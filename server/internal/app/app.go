@@ -157,6 +157,11 @@ type Assembly struct {
 
 	// Logger is the logger every component above was given.
 	Logger *slog.Logger
+
+	// githubRepo is the release feed agent manifests are synced from. It is
+	// read by the periodic sync rather than by anything the API serves, so it
+	// stays inside the package that starts that worker.
+	githubRepo string
 }
 
 // validate refuses a configuration that would assemble a product with a hole
@@ -390,6 +395,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Enrollment:      repos.enrollment,
 		Tombstones:      tombstoneStore,
 		Logger:          logger,
+		githubRepo:      cfg.GitHubRepo,
 	}, nil
 }
 

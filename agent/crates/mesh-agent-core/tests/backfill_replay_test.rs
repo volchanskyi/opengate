@@ -401,6 +401,13 @@ fn tier_cursor_keys_are_distinct_and_reserved() {
     for k in keys {
         assert!(k > 1_000, "tier keys sit far above real series ids");
     }
+    // The exact keys, so a watermark written by one build is still found by the
+    // next: these are a durable on-disk address, not an internal detail.
+    assert_eq!(
+        keys,
+        [SeriesId::MAX, SeriesId::MAX - 1, SeriesId::MAX - 2],
+        "the three watermarks sit at the very top of the series-id space"
+    );
 }
 
 #[test]
@@ -528,4 +535,267 @@ fn local_history_pull_is_bounded_and_flags_truncation() {
     let (all, truncated) = answer_local_history(&r, CPU, NOW - 100, NOW, 1000).unwrap();
     assert_eq!(all.len(), 100);
     assert!(!truncated, "a roomy cap does not report truncation");
+}
+
+/// The recent band's floor is what keeps an older reading out of the recent
+/// tier. Without it a raw sample from before the recent window would ship at
+/// full resolution as well as inside the minute rollup that already covers it,
+/// which is the double-count the tier walk exists to prevent.
+#[test]
+fn the_recent_floor_keeps_an_older_raw_sample_out_of_the_recent_tier() {
+    let mut r = FakeReader::default();
+    // Older than recent_secs (100), so this belongs to the 1 min tier.
+    r.push_raw(CPU, NOW - 150, 42.0);
+    // Inside the recent window, so this one does ship.
+    r.push_raw(CPU, NOW - 30, 43.0);
+
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let recent: Vec<i64> = batches
+        .iter()
+        .filter(|b| b.tier == BackfillTier::Recent60s)
+        .flat_map(|b| b.samples.iter().map(|s| s.ts))
+        .collect();
+    assert!(
+        recent.iter().all(|&ts| ts >= NOW - 100),
+        "the recent tier ships nothing below its floor: {recent:?}"
+    );
+    assert!(!recent.is_empty(), "and still ships what is inside it");
+}
+
+/// The 1 min band's floor hands everything older to the hour tier. Without it
+/// the minute tier would reach back across the whole retention window and ship
+/// buckets the hour tier is about to ship again.
+#[test]
+fn the_minute_floor_leaves_older_buckets_to_the_hour_tier() {
+    let mut r = FakeReader::default();
+    // Older than mid_secs (1000): outside the 1 min band entirely.
+    r.push_tier(CPU, Tier::T1, NOW - 5_000, 40.0);
+    // Inside it.
+    r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
+
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let minute: Vec<i64> = batches
+        .iter()
+        .filter(|b| b.tier == BackfillTier::Rollup1m)
+        .flat_map(|b| b.samples.iter().map(|s| s.ts))
+        .collect();
+    assert!(
+        minute.iter().all(|&ts| ts >= NOW - 1_000),
+        "the minute tier ships nothing below its floor: {minute:?}"
+    );
+    assert!(minute.contains(&(NOW - 300)), "and ships what is inside it");
+}
+
+/// A bucket sitting exactly on a band's ceiling is inside the band, so a walk
+/// that has stepped precisely onto it must read it rather than move on. The
+/// cursor lands there only when the batch before it ended one step short of the
+/// ceiling, which is why the sample cap is set to one bucket per batch.
+#[test]
+fn a_bucket_exactly_on_the_recent_ceiling_still_ships() {
+    // A whole-minute `now` and a recent window that is a whole number of
+    // minutes put both ends of the band on a bucket boundary, which is what
+    // lets the walk step precisely onto the ceiling.
+    let now = 100_020i64;
+    let cfg = BackfillConfig {
+        retention_secs: 10_000,
+        recent_secs: 120,
+        mid_secs: 1_000,
+        future_skew_secs: 60,
+        // Two samples a batch is one bucket (avg + max), so the batch before the
+        // ceiling ends exactly one step short of it.
+        max_batch_samples: 2,
+    };
+    let ceiling = now + cfg.future_skew_secs;
+
+    let mut r = FakeReader::default();
+    r.push_raw(CPU, ceiling - 60, 10.0);
+    r.push_raw(CPU, ceiling, 11.0);
+
+    let batches = drain_all(&r, now, cfg, &[CPU], BackfillCursors::default());
+    let seen: Vec<i64> = batches
+        .iter()
+        .flat_map(|b| b.samples.iter().map(|s| s.ts))
+        .collect();
+    assert!(
+        seen.contains(&ceiling),
+        "the bucket on the ceiling is inside the band: {seen:?}"
+    );
+}
+
+/// One batch reads a bounded window forward from its position, not the whole
+/// band. It matters when the data is sparse: a walk that read the entire band
+/// at once would gather buckets from the far end of it into the first batch,
+/// and the pacing the caller applies between batches would then be spread over
+/// the wrong amount of work.
+#[test]
+fn a_batch_reads_a_bounded_window_rather_than_the_whole_band() {
+    let mut r = FakeReader::default();
+    // Three 1 min buckets spread across the band, two steps apart, with the
+    // first one just above the band floor at NOW - 1000.
+    for i in 0..3 {
+        r.push_tier(CPU, Tier::T1, NOW - 960 + i * 300, 40.0 + i as f64);
+    }
+
+    // Six samples a batch is three buckets (avg + max each), so a batch that
+    // read the whole band would carry all three at once.
+    let batches = drain_all(&r, NOW, cfg(6), &[CPU], BackfillCursors::default());
+    let first = batches
+        .iter()
+        .find(|b| b.tier == BackfillTier::Rollup1m)
+        .expect("the minute tier ships");
+    assert_eq!(
+        first.samples.len(),
+        2,
+        "the first batch carries only what its read window reached: {:?}",
+        first.samples
+    );
+    let all: Vec<i64> = batches
+        .iter()
+        .flat_map(|b| b.samples.iter().map(|s| s.ts))
+        .collect();
+    for i in 0..3 {
+        assert!(
+            all.contains(&(NOW - 960 + i * 300)),
+            "every bucket still ships across the batches: {all:?}"
+        );
+    }
+}
+
+/// Each tier resumes from its own watermark. The minute tier's resume is
+/// covered above; these are the other two, and without them a stored recent or
+/// hour watermark could be read as "nothing stored" and replay the whole band.
+#[test]
+fn the_recent_and_hour_tiers_resume_from_their_own_watermarks() {
+    let mut r = FakeReader::default();
+    // Two whole recent buckets inside the band, which starts at NOW - 100 and
+    // is therefore bounded below by the bucket at NOW - 100 + 40.
+    for ts in 99_900..100_020 {
+        r.push_raw(CPU, ts, 25.0);
+    }
+    r.push_tier(CPU, Tier::T2, NOW - 9_000, 30.0);
+    r.push_tier(CPU, Tier::T2, NOW - 5_400, 31.0);
+
+    let cursors = BackfillCursors {
+        recent60s: Some(99_900),
+        rollup1h: Some(NOW - 9_000),
+        ..Default::default()
+    };
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], cursors);
+
+    let by_tier = |tier: BackfillTier| -> Vec<i64> {
+        batches
+            .iter()
+            .filter(|b| b.tier == tier)
+            .flat_map(|b| b.samples.iter().map(|s| s.ts))
+            .collect()
+    };
+    assert_eq!(
+        by_tier(BackfillTier::Recent60s),
+        vec![99_960, 99_960],
+        "the recent tier resumes strictly after its own watermark, as avg + max"
+    );
+    assert_eq!(
+        by_tier(BackfillTier::Rollup1h),
+        vec![NOW - 5_400, NOW - 5_400],
+        "the hour tier resumes strictly after its own watermark, as avg + max"
+    );
+}
+
+/// A pull holding exactly as many points as the cap allows is complete, not
+/// truncated — the flag says a window was cut short, and nothing was.
+#[test]
+fn a_history_pull_exactly_at_the_cap_is_not_truncated() {
+    let mut r = FakeReader::default();
+    for ts in (NOW - 10)..NOW {
+        r.push_raw(CPU, ts, ts as f64);
+    }
+    let (points, truncated) = answer_local_history(&r, CPU, NOW - 10, NOW, 10).unwrap();
+    assert_eq!(points.len(), 10);
+    assert!(!truncated, "a window that fits the cap exactly is complete");
+}
+
+/// The rollup tiers read through the real store's own snapshot, not only
+/// through the fake. The recent tier is covered by
+/// `drains_a_real_local_store_snapshot`; this is the other half — a store
+/// holding committed 1 min and 1 hr rollups, drained through the same
+/// `TierReader` the agent uses in production.
+#[test]
+fn drains_the_rollup_tiers_from_a_real_local_store_snapshot() {
+    use edge_tsdb::{Durability, LocalTsdb, TsdbConfig};
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+    // A whole-hour `now` so the hour buckets below are hand-checkable.
+    let now = 3_600_000i64;
+
+    // Inside the 1 min band (age 100..1000).
+    for ts in (now - 900)..(now - 840) {
+        store.append(CPU, Sample::new(ts, 40.0), false).unwrap();
+    }
+    // Inside the 1 hr band (age 1000..10000), and far enough from its ceiling
+    // that the whole 3600 s bucket lies inside it.
+    let hour_bucket = now - 7_200;
+    for ts in hour_bucket..(hour_bucket + 60) {
+        store.append(CPU, Sample::new(ts, 30.0), false).unwrap();
+    }
+    store.commit(Durability::Full).unwrap();
+    let snap = store.snapshot().unwrap();
+
+    let batches = drain_all(&snap, now, cfg(1000), &[CPU], BackfillCursors::default());
+    let by_tier = |tier: BackfillTier| -> Vec<i64> {
+        batches
+            .iter()
+            .filter(|b| b.tier == tier)
+            .flat_map(|b| b.samples.iter().map(|s| s.ts))
+            .collect()
+    };
+
+    assert_eq!(
+        by_tier(BackfillTier::Rollup1m),
+        vec![now - 900, now - 900],
+        "the minute rollup the store built comes back through range_tier"
+    );
+    assert_eq!(
+        by_tier(BackfillTier::Rollup1h),
+        vec![hour_bucket, hour_bucket],
+        "and so does the hour rollup"
+    );
+}
+
+/// The seam between two tiers is a bucket boundary, and a bucket that starts
+/// before the recent window does not ship in the recent tier even when part of
+/// what it covers is inside. The recent window's floor is wall-clock — an age in
+/// seconds from now — so it lands mid-bucket most of the time, and a bucket that
+/// straddles it belongs to the minute tier's span rather than to this one.
+/// Shipping it here as well would put the same wall-clock time on the chart
+/// twice, at two resolutions.
+#[test]
+fn a_bucket_straddling_the_recent_floor_does_not_ship_at_full_resolution() {
+    // A recent window of 90 s from a whole-minute `now` puts the floor at
+    // NOW - 90, which is halfway through the bucket that starts at NOW - 120.
+    let now = 100_020i64;
+    let cfg = BackfillConfig {
+        retention_secs: 10_000,
+        recent_secs: 90,
+        mid_secs: 1_000,
+        future_skew_secs: 60,
+        max_batch_samples: 1_000,
+    };
+    let floor = now - cfg.recent_secs;
+    assert_ne!(floor % 60, 0, "the floor has to land inside a bucket");
+
+    let mut r = FakeReader::default();
+    // Inside the window by five seconds, but in the bucket that began before it.
+    r.push_raw(CPU, floor + 5, 42.0);
+
+    let batches = drain_all(&r, now, cfg, &[CPU], BackfillCursors::default());
+    let recent: Vec<i64> = batches
+        .iter()
+        .filter(|b| b.tier == BackfillTier::Recent60s)
+        .flat_map(|b| b.samples.iter().map(|s| s.ts))
+        .collect();
+    assert!(
+        recent.is_empty(),
+        "a bucket that starts before the window is not the recent tier's to ship: {recent:?}"
+    );
 }

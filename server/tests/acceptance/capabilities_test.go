@@ -43,6 +43,7 @@ var capabilityOutcomes = map[string][]string{
 		"TestATechnicianOpensATerminalAndTheMachineIsToldToStartIt",
 		"TestASessionForAMachineThatIsOfflineIsRefusedWithAReason",
 		"TestASessionOnAMachineThatDisappearsStopsBeingUsable",
+		"TestASessionLeftByAMachineThatWentAwayIsReclaimed",
 		"TestACustomerFilterNarrowsAndDoesNotPermit",
 	},
 	"Device-Health.md": {

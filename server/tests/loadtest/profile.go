@@ -134,10 +134,15 @@ type Phase struct {
 	Sessions int `yaml:"sessions"`
 }
 
-// Safety is what makes a run stop itself. Every ceiling here is about the
-// machine the run shares with production, not about the verdict.
+// Safety is what makes a run stop itself. Nothing here is about the verdict.
 type Safety struct {
-	MaxNodeCPUPercent    float64 `yaml:"max_node_cpu_percent"`
+	// MaxNodeCPUPercent is the promise made to whatever else sits on the node.
+	// Staging shares one with production and declares it; a disposable stack
+	// shares its node with nothing and leaves it out.
+	MaxNodeCPUPercent float64 `yaml:"max_node_cpu_percent"`
+	// MaxNodeMemoryPercent is the room the run can still exhaust. Past it the
+	// node has nowhere to put what the run produces, so it is declared wherever
+	// the run is.
 	MaxNodeMemoryPercent float64 `yaml:"max_node_memory_percent"`
 	// MaxErrorRate stops a run that has stopped measuring anything: past this,
 	// the numbers describe the error path.
@@ -301,11 +306,7 @@ func (p *Profile) validatePhases() []error {
 
 func (p *Profile) validateSafety() []error {
 	var problems []error
-	if p.Safety.MaxNodeCPUPercent <= 0 || p.Safety.MaxNodeCPUPercent > 100 {
-		problems = append(problems, fmt.Errorf(
-			"safety.max_node_cpu_percent must be between 0 and 100, got %v — the run shares its node with production",
-			p.Safety.MaxNodeCPUPercent))
-	}
+	problems = append(problems, p.validateProcessorCeiling()...)
 	if p.Safety.MaxNodeMemoryPercent <= 0 || p.Safety.MaxNodeMemoryPercent > 100 {
 		problems = append(problems, fmt.Errorf(
 			"safety.max_node_memory_percent must be between 0 and 100, got %v", p.Safety.MaxNodeMemoryPercent))
@@ -314,6 +315,28 @@ func (p *Profile) validateSafety() []error {
 		problems = append(problems, fmt.Errorf("safety.max_error_rate is a ratio between 0 and 1, got %v", p.Safety.MaxErrorRate))
 	}
 	return problems
+}
+
+// validateProcessorCeiling holds each environment to the ceiling that means
+// something there. The processor ceiling is a promise made to whatever shares
+// the node, so staging declares one and a disposable stack — created by the job
+// and thrown away with it — may not: a ceiling nothing consults reads, to the
+// next person, as protection that is not there.
+func (p *Profile) validateProcessorCeiling() []error {
+	if p.Environment == EnvRunner {
+		if p.Safety.MaxNodeCPUPercent != 0 {
+			return []error{fmt.Errorf(
+				"safety.max_node_cpu_percent is declared as %v on a %q environment, which shares its node with nothing — leave it out",
+				p.Safety.MaxNodeCPUPercent, EnvRunner)}
+		}
+		return nil
+	}
+	if p.Safety.MaxNodeCPUPercent <= 0 || p.Safety.MaxNodeCPUPercent > 100 {
+		return []error{fmt.Errorf(
+			"safety.max_node_cpu_percent must be between 0 and 100, got %v — the run shares its node with production",
+			p.Safety.MaxNodeCPUPercent)}
+	}
+	return nil
 }
 
 func (p *Profile) validateGates() []error {

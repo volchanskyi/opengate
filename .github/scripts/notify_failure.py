@@ -30,14 +30,19 @@ log = logging.getLogger(__name__)
 # gh CLI wrapper
 # ---------------------------------------------------------------------------
 
-def gh(*args: str) -> tuple[str, int]:
-    """Run a ``gh`` CLI command and return (stdout, returncode)."""
+def gh(*args: str) -> tuple[str, str, int]:
+    """Run a ``gh`` CLI command and return (stdout, stderr, returncode).
+
+    stderr is returned rather than dropped: when a call is refused, the reason
+    is the only thing that says why, and an issue filed without it describes a
+    failure nobody can diagnose once the run's logs have expired.
+    """
     result = subprocess.run(
         ["gh", *args],
         capture_output=True,
         text=True,
     )
-    return result.stdout.strip(), result.returncode
+    return result.stdout.strip(), result.stderr.strip(), result.returncode
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +55,7 @@ def fetch_failed_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
         ".jobs[] | {id, name, conclusion, html_url, "
         'steps: [.steps[] | select(.conclusion == "failure") | .name]}'
     )
-    stdout, _ = gh(
+    stdout, _, _ = gh(
         "api", f"repos/{repo}/actions/runs/{run_id}/jobs",
         "--paginate", "--jq", jq_filter,
     )
@@ -68,17 +73,54 @@ def fetch_failed_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     return failed
 
 
-def fetch_job_log(repo: str, job_id: int) -> list[str]:
-    """Fetch log output for a single completed job via the per-job API.
+def fetch_job_log(repo: str, job_id: int) -> tuple[list[str], list[str]]:
+    """Fetch log output for one completed job, returning (lines, refusals).
 
-    Uses the jobs/{id}/logs endpoint which is available for completed
-    jobs even while the overall workflow run is still in progress.
+    Two routes reach the same log, and a job that failed always logged
+    something, so an empty answer is a refusal rather than a job that said
+    nothing. The archive endpoint (``jobs/{id}/logs``) is tried first — it
+    serves a completed job while the run around it is still in progress, which
+    is the only condition this ever runs under. ``gh run view --log`` is the
+    second route, reaching the log by a different path when the first is
+    refused.
+
+    ``refusals`` carries what each route said when it produced nothing, so a
+    log that cannot be read is reported with its reason instead of as silence.
     """
-    stdout, rc = gh("api", f"repos/{repo}/actions/jobs/{job_id}/logs")
-    if rc != 0 or not stdout:
-        return []
-    stdout = ANSI_RE.sub("", stdout)
-    return stdout.splitlines()
+    refusals: list[str] = []
+    routes = (
+        ("jobs/{id}/logs", ("api", f"repos/{repo}/actions/jobs/{job_id}/logs")),
+        (
+            "run view --log",
+            ("run", "view", "--repo", repo, "--log", "--job", str(job_id)),
+        ),
+    )
+    for name, args in routes:
+        stdout, stderr, rc = gh(*args)
+        if rc == 0 and stdout and not is_storage_error(stdout):
+            return ANSI_RE.sub("", stdout).splitlines(), []
+        reason = stderr or first_line(stdout) or f"exit {rc}, no output"
+        refusals.append(f"{name}: {reason}")
+    return [], refusals
+
+
+def is_storage_error(body: str) -> bool:
+    """Whether body is blob storage's error document rather than a log.
+
+    The archive endpoint redirects to storage, and when the blob behind it is
+    gone the redirect target answers with an XML error document — on stdout,
+    exit zero. Filing that as a job's log records a failure nobody can read.
+    """
+    head = body.lstrip()[:512]
+    return "<Error>" in head and "<Code>" in head
+
+
+def first_line(body: str) -> str:
+    """The first non-empty line of body, for reporting what a route answered."""
+    for line in body.splitlines():
+        if line.strip():
+            return line.strip()[:200]
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +133,7 @@ def build_issue_body(
     job_url: str,
     failed_steps: list[str],
     log_lines: list[str],
+    log_refusals: list[str],
     workflow: str,
     branch: str,
     sha: str,
@@ -105,7 +148,17 @@ def build_issue_body(
     steps_str = ", ".join(failed_steps) if failed_steps else "unknown"
 
     excerpt_lines = log_lines[-MAX_LOG_LINES:]
-    excerpt = "\n".join(excerpt_lines) if excerpt_lines else "No log output available."
+    if excerpt_lines:
+        excerpt = "\n".join(excerpt_lines)
+    else:
+        # The issue outlives the run's logs, so a log that could not be read
+        # says which routes were tried and what each one answered. "No log
+        # output available." on its own describes nothing and is what every
+        # issue said for months.
+        excerpt = "\n".join(
+            ["Could not read this job's log. Each route was tried and refused:"]
+            + [f"  - {r}" for r in log_refusals]
+        )
 
     body = (
         f"## CI Failure: {job_name}\n"
@@ -153,7 +206,7 @@ def create_or_comment_issue(
     title = f"{workflow} failure on {branch} in {job_name}"
     short_sha = sha[:7]
 
-    existing, _ = gh(
+    existing, _, _ = gh(
         "issue", "list",
         "--repo", repo,
         "--label", LABEL,
@@ -222,15 +275,21 @@ def main(argv: list[str] | None = None) -> None:
         log.info("No failed jobs found \u2014 nothing to do.")
         sys.exit(0)
 
+    unreadable: list[str] = []
     for job in failed_jobs:
         job_name: str = job["name"]
         job_id: int = job["id"]
-        log_lines = fetch_job_log(args.repo, job_id)
+        log_lines, log_refusals = fetch_job_log(args.repo, job_id)
+        if not log_lines:
+            unreadable.append(job_name)
+            for refusal in log_refusals:
+                log.error("no log for job '%s' via %s", job_name, refusal)
         body = build_issue_body(
             job_name=job_name,
             job_url=job["html_url"],
             failed_steps=job.get("steps", []),
             log_lines=log_lines,
+            log_refusals=log_refusals,
             workflow=args.workflow,
             branch=args.branch,
             sha=args.sha,
@@ -249,6 +308,16 @@ def main(argv: list[str] | None = None) -> None:
             sha=args.sha,
             workflow=args.workflow,
         )
+
+    # The issue is filed either way — a failure with no log is still worth
+    # recording — but a step that could not do the one thing it exists to do
+    # does not report success. A green step is how this went unnoticed until two
+    # staging failures had aged past their log retention with nothing to read.
+    if unreadable:
+        log.error(
+            "::error::no log could be read for: %s", ", ".join(unreadable)
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

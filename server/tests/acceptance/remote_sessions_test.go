@@ -3,10 +3,13 @@ package acceptance
 import (
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/volchanskyi/opengate/server/internal/app"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -101,6 +104,60 @@ func TestASessionOnAMachineThatDisappearsStopsBeingUsable(t *testing.T) {
 
 	assert.Equal(t, http.StatusNoContent, admin.Delete("/api/v1/sessions/"+session.Token).Status,
 		"the technician can clear a session whose machine is gone")
+}
+
+// TestASessionLeftByAMachineThatWentAwayIsReclaimed is the other half of the
+// same story, and the half a technician never presses a button for. A session
+// whose machine dropped off and whose technician closed the tab is nobody's
+// job to clear, so the product clears it: once the row has outlived its grace
+// period the sweep takes it, and it stops appearing on the machine's page.
+//
+// The sweep runs on a cadence measured in minutes in the running server, so
+// this states its own — the point is that the product reclaims the row, not how
+// long it waits first.
+func TestASessionLeftByAMachineThatWentAwayIsReclaimed(t *testing.T) {
+	t.Parallel()
+
+	product := newProduct(t, WithSweeps(app.BackgroundSchedule{
+		Gauges:         time.Second,
+		DBSize:         time.Second,
+		Investigations: time.Second,
+		Reconcile:      time.Hour,
+		SessionSweep:   50 * time.Millisecond,
+		SessionGrace:   time.Nanosecond,
+		IncidentSweep:  time.Hour,
+	}))
+	contoso := product.arrangeCustomer("Contoso")
+	admin := product.Administrator(contoso)
+
+	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-desk-05")
+	machine.AwaitOnline()
+
+	reply := admin.Post("/api/v1/sessions", map[string]any{"device_id": machine.DeviceID.String()})
+	require.Equal(t, http.StatusCreated, reply.Status)
+	machine.Await(protocol.MsgSessionRequest)
+
+	// Nobody connects to it, and the machine goes away.
+	machine.Disconnect()
+
+	require.Eventually(t, func() bool {
+		return len(admin.sessionsOn(machine.DeviceID)) == 0
+	}, eventually, poll, "a session nobody is holding stops being one the machine has")
+}
+
+// sessionsOn is the session list a technician sees on a machine's page.
+func (a *Technician) sessionsOn(deviceID uuid.UUID) []sessionSummary {
+	a.t.Helper()
+	var listed []sessionSummary
+	reply := a.Get("/api/v1/sessions?device_id=" + deviceID.String())
+	require.Equalf(a.t, http.StatusOK, reply.Status, "reading the session list failed: %s", reply.Text())
+	reply.Into(&listed)
+	return listed
+}
+
+// sessionSummary is a session as the machine's page shows it.
+type sessionSummary struct {
+	Token string `json:"token"`
 }
 
 // TestACustomerFilterNarrowsAndDoesNotPermit states the shape of the

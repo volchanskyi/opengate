@@ -279,7 +279,13 @@ jobs:
       # The fleet was started from a shell that has since exited, so its exit
       # code has nowhere to be returned to; the runner writes its verdict down
       # and this waits for that.
+      #
+      # On every path, because the path where a scenario failed is the one where
+      # the fleet's log is the answer. A relay scenario finds no machine to open
+      # a session against precisely when the fleet did not come up, and skipping
+      # this step there threw away the only account of why.
       - name: Wait for the QUIC fleet to finish
+        if: always()
         run: |
           set -euo pipefail
           STATUS_FILE="${LOADTEST_QUIC_OUTPUT}.status"

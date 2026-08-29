@@ -97,22 +97,10 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	startBackgroundLoops(ctx, backgroundLoops{
-		metrics:     assembly.Metrics,
-		store:       store,
-		relay:       assembly.Relay,
-		agents:      assembly.Agents,
-		amt:         assembly.AMT,
-		signaling:   assembly.Signaling,
-		alerts:      assembly.Alerts,
-		sessions:    assembly.Sessions,
-		reconciler:  assembly.Reconciler,
-		catalogue:   assembly.Rules,
-		signingKeys: assembly.SigningKeys,
-		manifests:   assembly.Manifests,
-		githubRepo:  os.Getenv("OPENGATE_GITHUB_REPO"),
-		logger:      logger,
-	})
+	if err := assembly.StartBackgroundWorkers(ctx, productionSchedule); err != nil {
+		logger.Error("start background workers", "error", err)
+		os.Exit(1)
+	}
 
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
@@ -170,4 +158,46 @@ func serveBackground(name string, srv *http.Server, logger *slog.Logger) {
 			os.Exit(1)
 		}
 	}()
+}
+
+// productionSchedule is how often each periodic worker runs in the running
+// server. The product knows how to start its workers; how often they should run
+// is this binary's choice, so the cadence is stated here and passed in.
+var productionSchedule = app.BackgroundSchedule{
+	// The runtime gauges — sessions, connected agents, connected AMT devices,
+	// signaling, connection-pool occupancy — are read often because a load run
+	// is short. The lag an observer adds is its own refresh plus the scrape
+	// behind it, and a burst that starts and finishes inside that window leaves
+	// every gauge reading the number it held before the burst began, so a run
+	// that connected a thousand agents can be recorded as a server that saw
+	// none. These are in-memory counts, so reading them this often costs
+	// nothing worth saving.
+	Gauges: 5 * time.Second,
+
+	// The database's on-disk size moves slowly and the query is not free, so it
+	// is read far less often than it is scraped.
+	DBSize: 60 * time.Second,
+
+	// The platform's own view of the investigation tables is deliberately
+	// slower than the scrape: these are aggregates over tables that only grow,
+	// and a triage queue moves at the speed of people rather than of requests,
+	// so a minute-old count answers every question the gauges are asked.
+	Investigations: time.Minute,
+
+	// The orphan-series sweep is defense in depth behind a purge that already
+	// ran, so it runs on the hour rather than on the minute.
+	Reconcile: time.Hour,
+
+	// A session row survives without the relay holding its token for long
+	// enough to outlast the gap between issuing a token and connecting with it
+	// — a live session is spared by the keep-list however old it gets — so the
+	// grace period doubles as the worst-case lag before a session orphaned by a
+	// process restart disappears from the device page.
+	SessionSweep: time.Minute,
+	SessionGrace: 5 * time.Minute,
+
+	// How promptly a room that has gone quiet leaves the triage queue, and not
+	// whether it does: the hold itself is the rule's own grouping window, and an
+	// alert arriving after that window closes the lapsed room on its way past.
+	IncidentSweep: 5 * time.Minute,
 }

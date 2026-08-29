@@ -242,3 +242,41 @@ func yamlNode(t *testing.T, value string) *yaml.Node {
 	require.NotEmpty(t, doc.Content)
 	return doc.Content[0]
 }
+
+// The processor ceiling is a promise made to a neighbour, and a disposable stack
+// has none. Declaring one there writes down a number nothing consults — and a
+// ceiling nothing consults reads, to the next person, as protection that is not
+// there. So the profile is refused rather than quietly ignored.
+func TestADisposableStackMayNotDeclareAProcessorCeiling(t *testing.T) {
+	_, err := ParseProfile([]byte(`
+schema_version: 1
+name: scaling
+family: scaling
+environment: runner
+fixture: small
+phases:
+  - {name: steady, duration: 1m, connected_agents: 1}
+safety: {max_node_cpu_percent: 95, max_node_memory_percent: 90}
+`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max_node_cpu_percent")
+	assert.Contains(t, err.Error(), "runner")
+}
+
+// The room it can still run out of is declared all the same: past the memory
+// ceiling the node has nowhere to put what the run produces, wherever the run is.
+func TestADisposableStackDeclaresTheRoomItCanRunOutOf(t *testing.T) {
+	p, err := ParseProfile([]byte(`
+schema_version: 1
+name: scaling
+family: scaling
+environment: runner
+fixture: small
+phases:
+  - {name: steady, duration: 1m, connected_agents: 1}
+safety: {max_node_memory_percent: 90, max_error_rate: 0.01}
+`))
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0, p.Safety.MaxNodeCPUPercent, 0, "no ceiling is declared where none applies")
+	assert.InDelta(t, 90.0, p.Safety.MaxNodeMemoryPercent, 0)
+}

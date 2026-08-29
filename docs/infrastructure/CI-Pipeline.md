@@ -232,6 +232,13 @@ The `notify-failure` job runs when any upstream job fails on `push`, `schedule`,
 - Last 80 lines of the failed job's log output (ANSI codes stripped, wrapped in a collapsible `<details>` block)
 - Body truncated to 60,000 chars with a link to the full run if the log is very large
 
+**A log that cannot be read is reported, not omitted.** The issue outlives the
+run's log retention, so it is the only place the reason survives. Two routes are
+tried for each failed job — the per-job archive endpoint, then `gh run view
+--log` — and if both are refused the body carries what each one answered and the
+step exits non-zero, so the gap shows up in the run that has it rather than
+months later in an issue nobody can act on.
+
 **No auto-close on success:** Issues are not automatically closed when the job passes again. Engineers must manually close after investigation to prevent masking flaky tests.
 
 ## Auto-Tagging and Changelog

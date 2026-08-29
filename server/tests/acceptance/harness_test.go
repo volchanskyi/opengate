@@ -75,6 +75,7 @@ type Product struct {
 // product it needs standing.
 type productOptions struct {
 	numericTelemetry bool
+	sweeps           *app.BackgroundSchedule
 }
 
 // ProductOption narrows or widens what newProduct stands up.
@@ -85,6 +86,14 @@ type ProductOption func(*productOptions)
 // is opt-in rather than the default.
 func WithNumericTelemetry() ProductOption {
 	return func(o *productOptions) { o.numericTelemetry = true }
+}
+
+// WithSweeps runs the product's periodic workers on the given cadence, so a
+// test can watch one reclaim something instead of asserting the sweep's own
+// unit tests and nothing joined. The running server's cadence is measured in
+// minutes, which no test can wait out, so the caller states its own.
+func WithSweeps(sched app.BackgroundSchedule) ProductOption {
+	return func(o *productOptions) { o.sweeps = &sched }
 }
 
 // newProduct stands the product up and returns it ready to be spoken to.
@@ -123,6 +132,11 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 		_ = assembly.Agents.ListenAndServe(ctx, "127.0.0.1:0")
 	}()
 	quicAddr := assembly.Agents.Addr()
+
+	if options.sweeps != nil {
+		require.NoError(t, assembly.StartBackgroundWorkers(ctx, *options.sweeps),
+			"the product's periodic workers must start")
+	}
 
 	httpSrv := httptest.NewServer(assembly.API)
 
