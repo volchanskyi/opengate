@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-08-28. -->
+<!-- Last reviewed: 2026-08-29. -->
 
 ## Severity: High
 
@@ -78,29 +78,6 @@ tenancy is entitled to, and nothing in the repository records which.
 Read the grant from the OCI console, set both gates to it, and record the figure
 in an ADR. The block-storage grant is exactly full independently of this, so no
 instance can be added until 50 GB is released whichever way it goes.
-
-### The QUIC accept path has no in-process test harness
-
-[`server.go`](../server/internal/agentapi/server.go) and
-[`server_connection.go`](../server/internal/agentapi/server_connection.go) are the
-only production files left in `sonar.coverage.exclusions`. They sit at ~4–80% line
-coverage because reaching `accept` means standing up a real QUIC listener, driving
-a TLS handshake with a client certificate, and holding a peer connection open —
-none of which any current test does. The package's QUIC tests exercise resumption
-and tombstones through other entry points, so the accept, register, teardown and
-control-loop paths run only in production and in e2e.
-
-That is a genuine gap, not a classification: an in-process harness *is* buildable
-(a `quic.Transport` on a loopback UDP socket with a self-signed cert pair), which
-is exactly why the exclusion is debt rather than a permanent carve-out. Until it
-exists, a change to the connection lifecycle is defended by e2e alone.
-
-**Pay-down trigger:** the next change to the connection lifecycle, or any further
-split of these files. Build the loopback harness, cover accept → register →
-control loop → unregister, then delete both entries and their justification lines
-from [`sonar-project.properties`](../sonar-project.properties) — the guard
-([`sonar-coverage-exclusion-guard.sh`](../scripts/sonar-coverage-exclusion-guard.sh))
-will then hold the list at zero production exclusions.
 
 ### Multi-tenant membership API and web tenant switcher deferred
 

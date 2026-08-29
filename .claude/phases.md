@@ -1,12 +1,13 @@
 # Implementation Phases
 
-<!-- Last updated: 2026-08-19 -->
+<!-- Last updated: 2026-08-29 -->
 <!-- Update this file after completing or starting any significant phase of work. -->
 
 ## Completed
 
 | Phase | Summary | Version | Plan |
 |-------|---------|---------|------|
+| Four tech-debt paydowns: backfill mutants, CD failure logs, periodic workers, QUIC accept harness | Killed every surviving mutant in the reconnect-backfill drain, made a failure issue report the log it could not read, started the periodic workers from the assembly, and covered the QUIC accept path — taking `sonar.coverage.exclusions` to zero production files. [ADR-081](../docs/adr/ADR-081-one-composition-root-and-the-acceptance-tier.md). | — | — |
 | Four tech-debt paydowns: bounded families, relay clock, delete-without-purger, bundle budgets | Bound the health-summary family label against a server vocabulary, put the relay timeout test on its own clock, refused a device delete that cannot erase what it deletes, and split the JS budget into first paint and whole app. [ADR-065](../docs/adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md). | — | — |
 | The deploy stops keeping state it cannot write | The deploy's cache token carries read scope only, so both its saves were refused and reported green. The pre-flight now reads the running deployment off the cluster, the agent binary comes from the image workflow as an artifact, and a cache write we name is read back. [ADR-086](../docs/adr/ADR-086-the-cluster-is-the-source-of-truth-for-what-is-deployed.md), [ADR-084](../docs/adr/ADR-084-staging-e2e-runs-against-real-machines.md). | — | [cd-cache-write-denied-investigation.md](plans/archive/cd-cache-write-denied-investigation.md) |
 | Staging browser suite carries real machines | Staging's deploy job cross-builds the agent for its node, enrols two machines named for what the specs ask for, and removes them and their credential afterwards; the load-test administrator its database reset destroys is reseeded from one shared file. [ADR-084](../docs/adr/ADR-084-staging-e2e-runs-against-real-machines.md). | — | [staging-e2e-enrolled-machines.md](plans/archive/staging-e2e-enrolled-machines.md) |

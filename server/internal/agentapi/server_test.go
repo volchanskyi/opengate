@@ -46,16 +46,18 @@ func TestAgentServer_ReconnectRaceCondition(t *testing.T) {
 	srv := newTestAgentServer(t)
 
 	deviceID := protocol.DeviceID(uuid.New())
+	ctx := context.Background()
 
-	// Simulate first connection registered in map.
+	// The first connection registers through the same door a real one uses.
 	oldConn := &AgentConn{DeviceID: deviceID}
-	srv.conns.Store(deviceID, oldConn)
-	srv.count.Add(1)
+	srv.registerConn(ctx, oldConn, "host")
+	assert.Equal(t, 1, srv.ConnectedAgentCount())
 
-	// Simulate rapid reconnect: new connection replaces old in map.
+	// The machine dials again before that one has torn down.
 	newConn := &AgentConn{DeviceID: deviceID}
-	srv.conns.Store(deviceID, newConn)
-	srv.count.Add(1) // count is now 2 (both registered)
+	srv.registerConn(ctx, newConn, "host")
+	assert.Equal(t, 1, srv.ConnectedAgentCount(),
+		"one machine is one machine, however many connections it has open")
 
 	// Old connection's defer runs CompareAndDelete with oldConn pointer.
 	// It should NOT delete the new connection.

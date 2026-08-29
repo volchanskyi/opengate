@@ -230,6 +230,9 @@ enforces the mechanical half in the gauntlet: every entry justified, no listed
 path missing, the per-language ignore lists identical across CI and the local
 run, and a file split out of an excluded file carrying its exclusion with it.
 
+The list holds no production file. What remains is test scaffolding, generated
+output, and the two browser entry points, which is where it is meant to end.
+
 ### Mutation testing
 
 Coverage % asserts which lines executed; mutation score asserts which lines
