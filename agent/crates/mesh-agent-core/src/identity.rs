@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 
 use mesh_protocol::DeviceId;
@@ -11,6 +12,55 @@ pub const DEVICE_ID_FILE: &str = "device_id.txt";
 pub const CERT_FILE: &str = "agent.crt";
 /// Filename for the DER-encoded agent private key.
 pub const KEY_FILE: &str = "agent.key";
+
+/// Mode for the agent's data directory: owner-only, so no other local account
+/// can traverse it to reach the device's private key.
+#[cfg(unix)]
+const DATA_DIR_MODE: u32 = 0o700;
+
+/// Mode for the agent's private key file: owner read/write only.
+#[cfg(unix)]
+const KEY_FILE_MODE: u32 = 0o600;
+
+/// Ensure `data_dir` exists and is reachable only by the account that owns it.
+///
+/// The mode is set rather than only requested at creation: the installer
+/// usually creates the directory first, and `create_dir_all` returns `Ok` on an
+/// existing directory without touching its mode.
+pub fn ensure_private_dir(data_dir: &Path) -> Result<(), AgentError> {
+    std::fs::create_dir_all(data_dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(data_dir, std::fs::Permissions::from_mode(DATA_DIR_MODE))?;
+    }
+    Ok(())
+}
+
+/// Write `contents` to `path` as a file only its owner can read.
+///
+/// The mode travels with the `open`, so the bytes are never observable at a
+/// wider mode. A file left behind by a partial uninstall keeps whatever mode it
+/// was created with, so the mode is also asserted before the new contents land
+/// — and the file is truncated rather than refused, because refusing would stop
+/// the agent from starting.
+fn write_private_file(path: &Path, contents: &[u8]) -> Result<(), AgentError> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(KEY_FILE_MODE);
+    }
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(KEY_FILE_MODE))?;
+    }
+    file.write_all(contents)?;
+    Ok(())
+}
 
 /// Generate an ECDSA P-256 key pair and certificate params with the device ID as CN.
 fn generate_key_and_params(
@@ -86,7 +136,7 @@ impl AgentIdentity {
     }
 
     fn generate(data_dir: &Path) -> Result<Self, AgentError> {
-        std::fs::create_dir_all(data_dir)?;
+        ensure_private_dir(data_dir)?;
 
         let device_id = DeviceId::new();
         let (key_pair, params) = generate_key_and_params(&device_id)?;
@@ -100,7 +150,7 @@ impl AgentIdentity {
 
         std::fs::write(data_dir.join(DEVICE_ID_FILE), device_id.0.to_string())?;
         std::fs::write(data_dir.join(CERT_FILE), &cert_der)?;
-        std::fs::write(data_dir.join(KEY_FILE), &key_der)?;
+        write_private_file(&data_dir.join(KEY_FILE), &key_der)?;
 
         Ok(Self {
             device_id,
@@ -132,7 +182,7 @@ impl PendingIdentity {
     /// `agent.key` to `data_dir`. The certificate will be saved later after
     /// the server signs the CSR.
     pub fn generate(data_dir: &Path) -> Result<Self, AgentError> {
-        std::fs::create_dir_all(data_dir)?;
+        ensure_private_dir(data_dir)?;
 
         let device_id = DeviceId::new();
         let (key_pair, params) = generate_key_and_params(&device_id)?;
@@ -145,7 +195,7 @@ impl PendingIdentity {
 
         // Persist device ID and key (cert comes after enrollment).
         std::fs::write(data_dir.join(DEVICE_ID_FILE), device_id.0.to_string())?;
-        std::fs::write(data_dir.join(KEY_FILE), &key_der)?;
+        write_private_file(&data_dir.join(KEY_FILE), &key_der)?;
 
         Ok(Self {
             device_id,
@@ -281,6 +331,104 @@ mod tests {
             assert_eq!(
                 identity.cert_der[0], 0x30,
                 "regenerated cert must be valid DER (which={which_present})"
+            );
+        }
+    }
+
+    /// The device's private key and the directory holding it are the endpoint's
+    /// mTLS credential. Every other local account on the machine must be unable
+    /// to read either, on both identity paths and whatever state the directory
+    /// was left in.
+    #[cfg(unix)]
+    mod permissions {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+
+        fn mode_of(path: &Path) -> u32 {
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+        }
+
+        /// A path the agent has to create itself — a container or an
+        /// `OPENGATE_DATA_DIR` override, where the installer never ran.
+        fn uncreated_data_dir(dir: &tempfile::TempDir) -> std::path::PathBuf {
+            dir.path().join("data")
+        }
+
+        #[test]
+        fn generate_writes_an_owner_only_key_in_an_owner_only_directory() {
+            let dir = tempfile::tempdir().unwrap();
+            let data_dir = uncreated_data_dir(&dir);
+
+            AgentIdentity::load_or_create(&data_dir).unwrap();
+
+            assert_eq!(mode_of(&data_dir), 0o700, "data directory");
+            assert_eq!(mode_of(&data_dir.join(KEY_FILE)), 0o600, "agent.key");
+        }
+
+        #[test]
+        fn pending_generate_writes_an_owner_only_key_in_an_owner_only_directory() {
+            let dir = tempfile::tempdir().unwrap();
+            let data_dir = uncreated_data_dir(&dir);
+
+            PendingIdentity::generate(&data_dir).unwrap();
+
+            assert_eq!(mode_of(&data_dir), 0o700, "data directory");
+            assert_eq!(mode_of(&data_dir.join(KEY_FILE)), 0o600, "agent.key");
+        }
+
+        /// The installer creates the data directory first with a bare `mkdir
+        /// -p`, so on a real endpoint the agent always arrives at a directory
+        /// that already exists — and `create_dir_all` leaves an existing
+        /// directory's mode alone. The mode has to be set, not merely requested
+        /// at creation.
+        #[test]
+        fn a_directory_that_already_exists_world_readable_is_repaired() {
+            for path in ["agent", "pending"] {
+                let dir = tempfile::tempdir().unwrap();
+                let data_dir = dir.path().join(path);
+                std::fs::create_dir_all(&data_dir).unwrap();
+                std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o755))
+                    .unwrap();
+
+                if path == "agent" {
+                    AgentIdentity::load_or_create(&data_dir).unwrap();
+                } else {
+                    PendingIdentity::generate(&data_dir).unwrap();
+                }
+
+                assert_eq!(mode_of(&data_dir), 0o700, "pre-created directory ({path})");
+                assert_eq!(
+                    mode_of(&data_dir.join(KEY_FILE)),
+                    0o600,
+                    "agent.key ({path})"
+                );
+            }
+        }
+
+        /// A partial uninstall or an interrupted enrolment leaves a key behind
+        /// without the other two files, and `load_or_create` then regenerates
+        /// over it. Refusing to overwrite would stop the agent from starting, so
+        /// the stale key is replaced — and ends owner-only however it was left.
+        #[test]
+        fn a_stale_key_is_replaced_rather_than_refused() {
+            let dir = tempfile::tempdir().unwrap();
+            let data_dir = dir.path().join("data");
+            std::fs::create_dir_all(&data_dir).unwrap();
+            let key_path = data_dir.join(KEY_FILE);
+            std::fs::write(&key_path, b"stale-key-from-a-partial-uninstall").unwrap();
+            std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+            let identity = AgentIdentity::load_or_create(&data_dir).unwrap();
+
+            assert_eq!(
+                mode_of(&key_path),
+                0o600,
+                "the stale key is left owner-only"
+            );
+            assert_eq!(
+                std::fs::read(&key_path).unwrap(),
+                identity.key_der,
+                "the stale bytes are gone, not appended to"
             );
         }
     }

@@ -373,10 +373,9 @@ async fn main() -> Result<()> {
         "mesh-agent starting"
     );
 
-    // Ensure data directory exists
-    tokio::fs::create_dir_all(&args.data_dir)
-        .await
-        .context("create data directory")?;
+    // Ensure the data directory exists and is owner-only — it holds the
+    // device's mTLS private key.
+    mesh_agent_core::ensure_private_dir(&args.data_dir).context("create data directory")?;
 
     // Load existing identity, or enroll to get a CA-signed certificate.
     // Enrollment also writes the CA PEM to --server-ca and the update signing

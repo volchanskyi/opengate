@@ -197,6 +197,12 @@ func (s *AgentServer) acceptControlStream(ctx context.Context, conn *quic.Conn, 
 // it closes the connection.
 func (s *AgentServer) performHandshake(ctx context.Context, conn *quic.Conn, stream *quic.Stream, logger *slog.Logger) (*HandshakeResult, error) {
 	tlsState := conn.ConnectionState().TLS
+	// Counted here, before the application handshake can fail, so the series is
+	// TLS handshakes rather than successful registrations. Only this side knows
+	// the answer: the machine cannot report whether its session resumed.
+	if s.metrics != nil {
+		s.metrics.ObserveAgentTLSHandshake(tlsState.DidResume)
+	}
 	peerCerts := make([][]byte, len(tlsState.PeerCertificates))
 	for i, c := range tlsState.PeerCertificates {
 		peerCerts[i] = c.Raw

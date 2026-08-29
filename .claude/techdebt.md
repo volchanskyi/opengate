@@ -106,31 +106,50 @@ platform-admin from tenant-admin bypass semantics, choose the tenant/email/secur
 group uniqueness model, decide the tenant visibility model, and build the
 web tenant switcher against that server-trusted flow.
 
-### W3 decision — adopt 1-RTT TLS session resumption; agent-side enablement pending; 0-RTT deferred
+### No production agent has been observed resuming its TLS session
 
-The W3 spike ([`quic_resumption_test.go`](../server/internal/agentapi/quic_resumption_test.go)
-+ paired benchmarks) settled the storm-cost question empirically against quic-go
-v0.60.0 and the repo's mTLS config: **1-RTT TLS session resumption** completes
-under `RequireAndVerifyClientCert`, **preserves the verified client identity**
-server-side (`DidResume==true`, `PeerCertificates` retained), and cuts the
-per-reconnect cost ~23% / ~360µs (~207 fewer allocs) by skipping the asymmetric
-handshake. **Decision: adopt 1-RTT resumption, defer 0-RTT** — 0-RTT works with
-mTLS on this version but its early data is replayable and it saves only latency,
-not crypto, on top of resumption (full replay analysis in the archived
-[W3 plan](plans/archive/fast-path-w3-0rtt-eval.md)).
+1-RTT resumption is adopted
+([ADR-037](../docs/adr/ADR-037-client-first-fast-path-reconnect.md)) and the
+agent is shaped for it: `rustls` defaults to an in-memory session store,
+and the quinn config is built once and cloned per reconnect attempt
+([`main.rs`](../agent/crates/mesh-agent/src/main.rs)), so one store spans
+in-process reconnects. The server counts the outcome of every connection on
+`opengate_agent_tls_handshakes_total{resumed}`
+([Monitoring](../docs/infrastructure/Monitoring.md)).
 
-**Server: no change.** Go/quic-go issues session tickets by default and the spike
-confirms resumption against the unmodified `ServerTLSConfig` with `Allow0RTT` off
-(kept off to foreclose 0-RTT replay). `TestQUICSessionResumption_PreservesMTLSIdentity`
-is the always-run regression guard.
+What is owed is the reading. The saving holds by construction and against the
+product's own listener in process, and no cluster series has yet reported a
+resumed connection — so the benefit ADR-037 claims stays unmeasured where it
+would be earned. A server bounce is what drives it: the live agent then redials
+in process, which is the case the in-memory store covers. Restarting the agent
+would come back cold by construction and prove nothing.
 
-**Residual (the debt):** the quinn agent
-([`main.rs`](../agent/crates/mesh-agent/src/main.rs)) does not yet enable TLS
-session resumption or persist a session-ticket cache across reconnects, so the
-production saving is not realized. It is a backward-compatible client-side change
-(falls back to a full handshake when no ticket is cached). **Pay-down trigger:**
-quinn caches and presents tickets and a reconnecting production agent is observed
-resuming (`DidResume`).
+**Pay-down trigger:**
+`sum by (resumed) (increase(opengate_agent_tls_handshakes_total[1h]))` against
+the cluster reports a non-zero `resumed="true"` after a server bounce.
+
+### Cross-restart TLS resumption is blocked on a rustls release
+
+The agent's session store lives in memory, so a process restart —
+auto-update, `RestartAgent`, watchdog rollback, a failed connect, a crash
+— comes back to a full mTLS handshake. Ordinary connection drops re-dial
+in process and are unaffected, which bounds this to restarts alone.
+
+Persisting the store is not implementable on the pinned `rustls 0.23.43`:
+the TLS 1.3 client session value is opaque by design — no public codec,
+`pub(crate)` byte accessors, a zeroizing secret — for client-side forward
+secrecy. The `0.24.0-dev.1` prerelease does expose `Tls13Session::encode`
+and `from_slice`, and replaces the pointer-identity resumption gate with a
+content-derived config hash, which is the shape a cross-process store
+needs. No stable rustls carries it, and the newest quinn still requires
+`rustls 0.23.x`.
+
+**Pay-down trigger:** a stable rustls exposing client-session serialization
+plus a published quinn that depends on it. Measure first whether a rebuilt
+agent binary still matches its own persisted cache — the config hash is
+derived partly from `TypeId`, and auto-update is the largest restart cause,
+so a cache that misses on rebuilt binaries would close this by decision
+rather than by code.
 
 ## Severity: Low
 

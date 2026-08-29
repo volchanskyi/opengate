@@ -170,10 +170,12 @@ rather than implicit prose, and **scoping the "contract-level" claim** to the
 modules `go-arch-lint` actually constrains.
 
 The current engineering investment correctly goes to single-replica reliability,
-not distribution: the in-flight `context-driven-fault-injection` master plan
-(FI0–FI6) and the `td-agent-session-resumption-cache` micro-plan (agent
-key-permission hardening + in-process TLS-resumption observability, tracked under
-the "W3 decision" entry in [`techdebt.md`](../../.claude/techdebt.md)).
+not distribution: the fault-injection harness (FI0–FI6), and two agent
+micro-plans whose debt is tracked in
+[`techdebt.md`](../../.claude/techdebt.md) —
+`td-agent-key-perms-and-resumption-evidence` (key-permission hardening plus a
+server-side resumption signal) and `td-agent-cross-restart-tls-resumption`
+(persisting the session-ticket store, blocked on an upstream rustls release).
 
 An optional follow-up — pilot `/modularity:review` on `db` once to compare its
 LLM output against this churn/fan-in analysis — remains advisory only, never a

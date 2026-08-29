@@ -101,6 +101,27 @@ only saves latency on top of resumption. The decision is therefore:
 - keep server `Allow0RTT` off; and
 - track quinn agent-side session-ticket caching as residual implementation debt.
 
+**The server needs no change to hold this decision.** quic-go issues
+session tickets by default, and the spike confirms resumption against the
+unmodified `ServerTLSConfig` with `Allow0RTT` off — kept off to foreclose
+0-RTT replay.
+[`TestQUICSessionResumption_PreservesMTLSIdentity`](../../server/internal/agentapi/quic_resumption_test.go)
+is the always-run regression guard for both halves: that resumption
+completes, and that the resumed session still carries the verified
+client identity.
+
+The agent's own `rustls::ClientConfig` defaults to an in-memory session
+store and the quinn config is built once and cloned per reconnect
+attempt, so resumption is available across in-process reconnects. The
+server counts each connection's outcome on
+`opengate_agent_tls_handshakes_total{resumed}`
+([Monitoring](../infrastructure/Monitoring.md)) — the only faithful
+observation point, since a client cannot report whether its own session
+resumed and may present a ticket that is then declined. Two things remain
+owed and are tracked in [`techdebt.md`](../../.claude/techdebt.md): that
+series has not yet been read against production, and the in-memory store
+does not survive a process restart.
+
 The empirical record is the archived
 [W3 plan](../../.claude/plans/archive/fast-path-w3-0rtt-eval.md) and
 [`server/internal/agentapi/quic_resumption_test.go`](../../server/internal/agentapi/quic_resumption_test.go).

@@ -194,7 +194,13 @@ mkdir -p "$DATA_DIR"
 # loads the saved identity from DATA_DIR and ignores the enrollment flags.
 
 mkdir -p "$SYSTEMD_DIR"
-cat >"${SYSTEMD_DIR}/${SERVICE_NAME}.service" <<UNIT
+UNIT_FILE="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+# ExecStart below carries the enrollment token, which stays usable until it
+# expires or is exhausted, so the unit is readable only by root. The mode is
+# placed on the file before the content, and re-placed on every run, because a
+# redirect keeps whatever mode the file already had.
+install -m 0600 /dev/null "$UNIT_FILE"
+cat >"$UNIT_FILE" <<UNIT
 [Unit]
 Description=OpenGate Agent
 After=network-online.target
