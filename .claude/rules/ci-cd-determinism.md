@@ -38,6 +38,24 @@ Where the save happens in an action's post step, the read-back is a separate job
 with a `needs:` on the one that wrote — a post step runs after every step of its
 own job, so nothing inside that job can see the result.
 
+### An artifact nobody wrote is not an artifact
+
+The same reasoning covers what a job hands to the job after it. `upload-artifact`
+answers an empty file set with a warning and a zero exit, so a step that produced
+nothing is green and the gap surfaces later, somewhere else, as an aggregate that
+will not add up — naming neither what is missing nor why.
+
+Every artifact [`mutation.yml`](../../.github/workflows/mutation.yml) uploads is
+an input to the aggregation that scores the night, so every one of its uploads
+sets `if-no-files-found: error`. The shard is where the absence is known, so the
+shard is where it fails. This matters most where the step already swallows its
+tool's exit code on purpose — a surviving mutant is not a build failure, which
+leaves the report coming back out as the only signal that any work happened.
+
+The setting is not blanket policy: an upload whose files are genuinely optional —
+a fuzz crash that usually does not exist — says `ignore` and means it. The rule
+binds an artifact **something downstream reads**.
+
 ### Do not declare a write you cannot make
 
 A workflow whose cache token cannot write declares no cache at all — not an

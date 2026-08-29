@@ -53,10 +53,24 @@ func TestWebSocketUpgradeThroughFullMiddlewareStack(t *testing.T) {
 }
 
 // apiTimeoutUnderTest is the injected RequestTimeout for the two tests below.
-// It is short enough that "outlives the API timeout" costs ~1.5s of wall clock
-// instead of ~32s, and long enough that a healthy REST round-trip completes
-// inside it on a loaded CI runner.
-const apiTimeoutUnderTest = 150 * time.Millisecond
+// It bounds two different things at once, which is what makes the figure worth
+// stating: the relay test must outlive it, so a smaller number is a faster
+// test — but the session the relay is built on is created through a timed API
+// route, so the same number is also the budget that setup has to finish inside.
+//
+// A budget sized only for the first of those is the one that fails. At 150ms
+// the POST that creates the session answered 503 under mutation-testing load,
+// where the whole test suite runs once per mutant and a Postgres commit waits
+// behind dozens of its own copies — a green relay assertion was never reached,
+// because setup never got that far. Two seconds is an order of magnitude clear
+// of that, and still well inside the 5s this file already allows one socket
+// operation.
+const apiTimeoutUnderTest = 2 * time.Second
+
+// relayIdleMargin is how far past the API timeout the relay is held open. One
+// crossing is the whole claim — a relay inside the middleware site is closed at
+// the first one — so the margin is small and the test does not pay for a second.
+const relayIdleMargin = 250 * time.Millisecond
 
 // TestInjectedRequestTimeoutReachesAPIRoutes is the control for
 // TestRelayRouteBypassesRequestTimeout: it proves ServerConfig.RequestTimeout
@@ -78,6 +92,14 @@ func TestInjectedRequestTimeoutReachesAPIRoutes(t *testing.T) {
 		"a 1ns RequestTimeout must expire on an API route — the injected value is not reaching the middleware site")
 }
 
+// relayExchangeTimeout bounds the whole heartbeat exchange below, once, rather
+// than each beat separately. What the test asserts is that the relay survives
+// the API timeout; how much spare capacity the runner had while it survived is
+// not part of the claim, so a beat that is slow because the machine is loaded
+// must not read as a relay that died. A single budget for the exchange fails a
+// genuinely broken relay in seconds and tolerates a starved one.
+const relayExchangeTimeout = 30 * time.Second
+
 // TestRelayRouteBypassesRequestTimeout verifies that the WebSocket relay route
 // lives outside the RequestTimeout middleware site: a relay connection must
 // stay bidirectionally functional well past the API timeout. The timeout is
@@ -91,33 +113,36 @@ func TestRelayRouteBypassesRequestTimeout(t *testing.T) {
 
 	agentConn, browserConn := env.setupRelayPair(t, ctx)
 
-	// Ten heartbeats one timeout-budget apart ⇒ the exchange spans 10× the API
-	// timeout, and every beat after the first lands past the expiry point.
-	const heartbeats = 10
-	totalDuration := heartbeats * apiTimeoutUnderTest
-	t.Logf("exchanging heartbeats every %s for %s to confirm relay survives past the %s API timeout",
-		apiTimeoutUnderTest, totalDuration, apiTimeoutUnderTest)
+	wsCtx, wsCancel := context.WithTimeout(ctx, relayExchangeTimeout)
+	defer wsCancel()
 
-	ticker := time.NewTicker(apiTimeoutUnderTest)
-	defer ticker.Stop()
+	// The connection is held open, and idle, across the expiry point: a relay
+	// inside the middleware site is already closed by the time the wait returns.
 	start := time.Now()
+	idleTimer := time.NewTimer(apiTimeoutUnderTest + relayIdleMargin)
+	defer idleTimer.Stop()
+	select {
+	case <-idleTimer.C:
+	case <-wsCtx.Done():
+		t.Fatal("the exchange budget expired before the relay was even idle past the API timeout")
+	}
+
+	// Ten beats back to back, so the exchange spans the expiry point rather than
+	// racing a wall-clock ticker the runner may not be able to keep.
+	const heartbeats = 10
+	t.Logf("relay idle for %s past the %s API timeout; exchanging %d heartbeats",
+		time.Since(start), apiTimeoutUnderTest, heartbeats)
 
 	for i := range heartbeats {
-		<-ticker.C
-		wsCtx, wsCancel := context.WithTimeout(ctx, 5*time.Second)
 		payload := fmt.Appendf(nil, "heartbeat-%d", i)
 		require.NoError(t, agentConn.Write(wsCtx, websocket.MessageBinary, payload), "heartbeat %d agent→browser write failed", i)
 		_, data, err := browserConn.Read(wsCtx)
-		wsCancel()
 		require.NoError(t, err, "heartbeat %d browser read failed", i)
 		require.Equal(t, payload, data, "heartbeat %d payload mismatch", i)
 	}
 
 	require.Greater(t, time.Since(start), apiTimeoutUnderTest,
 		"the exchange must outlast the API timeout for this test to mean anything")
-
-	wsCtx, wsCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer wsCancel()
 
 	// Final assertion: connection still alive after the full window.
 	payload := []byte("still-alive-after-timeout")

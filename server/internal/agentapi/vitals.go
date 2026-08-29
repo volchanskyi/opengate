@@ -51,10 +51,41 @@ var vitalDims = []string{
 	"disk.queue_depth",
 }
 
+// anomalyFamilies is every metric family a health summary may carry a rate for.
+// A family name arrives on the wire as a string and is copied into a central
+// label, so the same reasoning that fixes vitalDims fixes this list: how many
+// series a device's summary occupies is a property of what the fleet agreed to
+// send, not of what an agent chooses to send. A name outside the list is
+// dropped and counted.
+//
+// This list mirrors the family set the agent's sampler reports and the one the
+// load generator emits (`defaultFamilies` in server/tests/loadtest/soak.go);
+// the cross-language golden fixture testdata/golden/control_agent_health_summary.bin
+// pins the pair together.
+var anomalyFamilies = []string{
+	"cpu",
+	"mem",
+	"disk",
+	"net",
+	"proc",
+}
+
 // anomalySeriesPerDevice counts the series a device's health summary occupies:
-// one node-wide anomaly rate plus one rate per detected metric family (cpu, mem,
-// disk, net, proc).
+// one node-wide anomaly rate plus one rate per listed metric family.
 const anomalySeriesPerDevice = 1 + 5
+
+// anomalyFamilySet is anomalyFamilies as a lookup, built once at startup so the
+// ingest path costs a map read per family rather than a scan.
+var anomalyFamilySet = func() map[string]bool {
+	set := make(map[string]bool, len(anomalyFamilies))
+	for _, family := range anomalyFamilies {
+		set[family] = true
+	}
+	return set
+}()
+
+// isAnomalyFamily reports whether a family name is one the fleet agreed to store.
+func isAnomalyFamily(name string) bool { return anomalyFamilySet[name] }
 
 // vitalSeriesCap is the most central series one device may occupy. The count is
 // the whole cardinality budget per device, so it is a fixed number here rather

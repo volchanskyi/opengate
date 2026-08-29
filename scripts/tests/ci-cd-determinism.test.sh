@@ -101,6 +101,23 @@ for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
   fi
 done
 
+# --- an artifact nobody wrote is not an artifact ------------------------------
+#
+# Every artifact mutation.yml uploads is an input to the aggregation that scores
+# the night. A shard whose tool wrote no report uploads nothing, and the upload
+# action's default is to say so in a warning and exit zero — so the shard job is
+# green, and the only symptom is the publish job reporting an incomplete set
+# without naming what went missing or why. The shard is where the fact is known,
+# so the shard is where it has to fail.
+MUTATION="$WORKFLOWS/mutation.yml"
+uploads="$(grep -c 'uses: actions/upload-artifact' "$MUTATION" || true)"
+errors="$(grep -c 'if-no-files-found: error' "$MUTATION" || true)"
+if [ "$uploads" -gt 0 ] && [ "$uploads" -eq "$errors" ]; then
+  pass "all $uploads mutation.yml artifact uploads fail on an empty file set"
+else
+  fail "mutation.yml has $uploads artifact upload(s) but only $errors fail on an empty set — a shard that produced no report would report success"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

@@ -74,11 +74,16 @@ and how much of the store it may occupy.
   node-wide anomaly rate plus the five per-family rates. A Linux device occupies
   exactly that, so the headroom is spent and the next vital of any kind re-opens
   the cap.
-- **A server-side allowlist** on both write paths — live windows and reconnect
-  backfill, which write the same series. A name outside the vocabulary is dropped
-  and counted under
-  `opengate_edge_telemetry_drops_total{reason="unknown_dim"}`, so central
-  cardinality is a compile-time constant of the server rather than an input.
+- **A server-side allowlist** on every write path, for every label an agent
+  supplies. The dim name is checked on live windows and on reconnect backfill,
+  which write the same series; the metric-family name is checked on the health
+  summary and on the health-window read-back, which write the per-family anomaly
+  rate. A name outside its vocabulary is dropped and counted under
+  `opengate_edge_telemetry_drops_total{reason="unknown_dim"}` or
+  `{reason="unknown_family"}`, so central cardinality is a compile-time constant
+  of the server rather than an input. The rule is the label, not the path: a
+  string that arrives on the wire and leaves as a VictoriaMetrics label is bound
+  by a list the server holds.
 - **Backfill rolls to the same 60 s grid**, and takes each bucket's maximum from
   the **stored** rollup rather than recomputing it from the averages it just
   read. A max-of-averages is a different and smaller number, and it hides exactly
@@ -86,9 +91,9 @@ and how much of the store it may occupy.
 
 The agent builds the vocabulary from one series mapping
 ([`store_sink.rs`](../../agent/crates/mesh-agent-core/src/ml/store_sink.rs)); the
-server holds the allowlist
+server holds both allowlists
 ([`vitals.go`](../../server/internal/agentapi/vitals.go)); the cross-language
-golden fixture for a metric window pins the two together, and the per-device cost
+golden fixtures for a metric window and a health summary pin the two together, and the per-device cost
 is measured against a real VictoriaMetrics in
 [`spike_test.go`](../../server/tests/vmcardinality/spike_test.go).
 

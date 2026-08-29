@@ -31,9 +31,8 @@ import (
 // pins a crash instead of a refusal.
 type noAgentsConnected struct{}
 
-func (noAgentsConnected) GetAgent(uuid.UUID) api.AgentControl        { return nil }
-func (noAgentsConnected) ListConnectedAgents() []api.AgentControl    { return nil }
-func (noAgentsConnected) DeregisterAgent(context.Context, uuid.UUID) {}
+func (noAgentsConnected) GetAgent(uuid.UUID) api.AgentControl     { return nil }
+func (noAgentsConnected) ListConnectedAgents() []api.AgentControl { return nil }
 
 // stubAMT is a test double for amt.Operator that always returns "not connected".
 type stubAMT struct{}

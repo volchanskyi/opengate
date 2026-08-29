@@ -82,7 +82,7 @@ fn golden_control_frame_agent_health_summary() {
                 rate: 0.25,
             },
             FamilyAnomalyRate {
-                family: "process".to_string(),
+                family: "proc".to_string(),
                 rate: 0.5,
             },
         ],

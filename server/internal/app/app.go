@@ -492,10 +492,6 @@ func (g agentControlGetter) ListConnectedAgents() []api.AgentControl {
 	return out
 }
 
-func (g agentControlGetter) DeregisterAgent(ctx context.Context, deviceID db.DeviceID) {
-	g.srv.DeregisterAgent(ctx, deviceID)
-}
-
 // purgeDeps gathers the dependencies buildPurgeOrchestrator wires.
 type purgeDeps struct {
 	agentSrv        *agentapi.AgentServer
@@ -512,9 +508,10 @@ type purgeDeps struct {
 
 // buildPurgeOrchestrator wires the right-to-be-forgotten purge orchestrator
 // plus its reconciliation sweep. It needs a numeric metrics store to delete
-// series, so it returns nils when that is absent and device deletion falls
-// back to the plain Postgres delete. On success it warms the agent deny-list
-// and resumes any purge a prior crash interrupted before the server serves.
+// series, so it returns nils when that is absent, and a server assembled that
+// way refuses a device delete rather than serving one it cannot make good. On
+// success it warms the agent deny-list and resumes any purge a prior crash
+// interrupted before the server serves.
 func buildPurgeOrchestrator(ctx context.Context, d purgeDeps) (api.DevicePurger, api.PurgeJobReader, *lifecycle.Reconciler) {
 	if d.seriesPurger == nil {
 		return nil, nil, nil

@@ -45,13 +45,26 @@ func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.
 				"model_ver":   msg.ModelVersion,
 			},
 		})
+		unknownFamilies := 0
 		for _, family := range msg.PerFamilyRates {
+			if !isAnomalyFamily(family.Family) {
+				unknownFamilies++
+				continue
+			}
 			samples = append(samples, telemetry.Sample{
 				Name:   "opengate_edge_family_anomaly_rate",
 				Value:  family.Rate,
 				TS:     ts,
 				Labels: map[string]string{"family": family.Family},
 			})
+		}
+		// One summary is one message, so the counter moves once however many of
+		// its families were unlisted; the count rides the log line. Without the
+		// filter the family label would be agent-controlled, and central
+		// cardinality with it.
+		if unknownFamilies > 0 {
+			a.dropTelemetry("unknown_family", "type", protocol.MsgAgentHealthSummary,
+				"unknown", unknownFamilies, "families", len(msg.PerFamilyRates))
 		}
 	}
 	samples = append(samples, alertBreachSamples(msg.Breaches, ts)...)
@@ -173,6 +186,7 @@ func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protoco
 		return nil
 	}
 	var samples []telemetry.Sample
+	unknownFamilies := 0
 	for _, summary := range msg.Summaries {
 		ts := a.telemetryTimestamp(summary.TS)
 		samples = append(samples, telemetry.Sample{
@@ -186,6 +200,10 @@ func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protoco
 			},
 		})
 		for _, family := range summary.PerFamilyRates {
+			if !isAnomalyFamily(family.Family) {
+				unknownFamilies++
+				continue
+			}
 			samples = append(samples, telemetry.Sample{
 				Name:   "opengate_edge_family_anomaly_rate",
 				Value:  family.Rate,
@@ -193,6 +211,12 @@ func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protoco
 				Labels: map[string]string{"family": family.Family, "source": "health_window"},
 			})
 		}
+	}
+	// One response is one message however many summaries it replayed, so the
+	// counter moves once and the count rides the log line.
+	if unknownFamilies > 0 {
+		a.dropTelemetry("unknown_family", "type", protocol.MsgHealthWindowResponse,
+			"unknown", unknownFamilies, "summaries", len(msg.Summaries))
 	}
 	a.bufferTelemetry(ctx, samples)
 	return nil

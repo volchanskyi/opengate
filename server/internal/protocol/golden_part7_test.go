@@ -67,7 +67,7 @@ func TestGoldenControlAgentHealthSummary(t *testing.T) {
 	require.Len(t, msg.PerFamilyRates, 2)
 	assert.Equal(t, "cpu", msg.PerFamilyRates[0].Family)
 	assert.InEpsilon(t, 0.25, msg.PerFamilyRates[0].Rate, 0.0001)
-	assert.Equal(t, "process", msg.PerFamilyRates[1].Family)
+	assert.Equal(t, "proc", msg.PerFamilyRates[1].Family)
 	assert.InEpsilon(t, 0.5, msg.PerFamilyRates[1].Rate, 0.0001)
 	assert.Equal(t, []byte{0xAA, 0x55, 0xF0}, msg.RecentBitmask)
 	assert.Equal(t, "sysinfo-k2", msg.SamplerVersion)

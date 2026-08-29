@@ -369,7 +369,12 @@ jobs:
         with:
           name: mutation-${{ matrix.shard || matrix.language }}
           retention-days: 90
-          if-no-files-found: warn
+          # A shard whose tool wrote no report has done no work, and the shard
+          # step itself cannot say so: it swallows the tool's exit code because
+          # a surviving mutant is not a build failure. The report coming back
+          # out is the signal, so its absence fails the shard here rather than
+          # surfacing later as an unattributable "artifact set is incomplete".
+          if-no-files-found: error
           path: |
             agent/mutants.out/
             server/mutation-report-${{ matrix.shard }}.json
@@ -559,6 +564,7 @@ jobs:
           name: mutation-canonical-row
           path: canonical-row.json
           retention-days: 90
+          if-no-files-found: error
 
       - name: Push to VictoriaMetrics
         if: steps.status.outputs.complete == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')

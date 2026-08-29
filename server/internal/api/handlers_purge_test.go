@@ -158,3 +158,25 @@ func TestGetPurgeJobScopedToTenant(t *testing.T) {
 	w = doRequest(srv, http.MethodGet, "/api/v1/purge-jobs/"+uuid.New().String(), userToken, nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+// A delete with no purge orchestrator wired is refused rather than served by a
+// plain row delete. The fallback that used to stand here recorded no tombstone
+// and no purge job and never erased the device's alerts, so the incident counts
+// a foreign key cannot repair were left describing a machine that is gone.
+// Refusing keeps the erasure guarantee and the delete together.
+func TestDeleteDeviceRefusedWithoutPurger(t *testing.T) {
+	srv, cfg := newPurgeTestServer(t, nil, nil)
+	_, token := seedTestUser(t, srv, cfg, "admin-nopurger@example.com", true)
+
+	ctx := testTenantContext(t)
+	dev := &device.Device{ID: uuid.New(), Hostname: "survivor", OS: "linux", Status: device.StatusOffline}
+	require.NoError(t, srv.devices.Upsert(ctx, dev))
+
+	w := doRequest(srv, http.MethodDelete, "/api/v1/devices/"+dev.ID.String(), token, nil)
+	assert.Equal(t, http.StatusForbidden, w.Code,
+		"a delete that cannot erase the device's telemetry is refused")
+
+	got, err := srv.devices.Get(ctx, dev.ID)
+	require.NoError(t, err, "the device is still there to be deleted once a purger is wired")
+	assert.Equal(t, dev.ID, got.ID)
+}

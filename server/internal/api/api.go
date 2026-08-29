@@ -69,7 +69,6 @@ type AgentControl interface {
 type AgentGetter interface {
 	GetAgent(deviceID db.DeviceID) AgentControl
 	ListConnectedAgents() []AgentControl
-	DeregisterAgent(ctx context.Context, deviceID db.DeviceID)
 }
 
 // CertProvider gives access to the server CA certificate and agent CSR signing.
