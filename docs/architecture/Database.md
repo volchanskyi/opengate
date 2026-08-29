@@ -393,7 +393,8 @@ A customer may store **500 alerts per rolling hour**
 never per tenant: at the tenant one customer's storm would consume the budget of
 every other customer the MSP looks after. What the ceiling refuses is counted
 under `opengate_alerts_suppressed_total` (see
-[Monitoring](../infrastructure/Monitoring.md)) and folded into one storm incident
+[Metrics Reference](./Metrics-Reference.md#detection-alerts-incidents-and-coverage))
+and folded into one storm incident
 carrying the count, so suppression is never silent.
 
 ### Data Lifecycle Tables

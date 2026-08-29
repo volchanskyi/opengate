@@ -106,28 +106,6 @@ platform-admin from tenant-admin bypass semantics, choose the tenant/email/secur
 group uniqueness model, decide the tenant visibility model, and build the
 web tenant switcher against that server-trusted flow.
 
-### No production agent has been observed resuming its TLS session
-
-1-RTT resumption is adopted
-([ADR-037](../docs/adr/ADR-037-client-first-fast-path-reconnect.md)) and the
-agent is shaped for it: `rustls` defaults to an in-memory session store,
-and the quinn config is built once and cloned per reconnect attempt
-([`main.rs`](../agent/crates/mesh-agent/src/main.rs)), so one store spans
-in-process reconnects. The server counts the outcome of every connection on
-`opengate_agent_tls_handshakes_total{resumed}`
-([Monitoring](../docs/infrastructure/Monitoring.md)).
-
-What is owed is the reading. The saving holds by construction and against the
-product's own listener in process, and no cluster series has yet reported a
-resumed connection — so the benefit ADR-037 claims stays unmeasured where it
-would be earned. A server bounce is what drives it: the live agent then redials
-in process, which is the case the in-memory store covers. Restarting the agent
-would come back cold by construction and prove nothing.
-
-**Pay-down trigger:**
-`sum by (resumed) (increase(opengate_agent_tls_handshakes_total[1h]))` against
-the cluster reports a non-zero `resumed="true"` after a server bounce.
-
 ### Cross-restart TLS resumption is blocked on a rustls release
 
 The agent's session store lives in memory, so a process restart —

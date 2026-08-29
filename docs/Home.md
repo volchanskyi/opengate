@@ -37,6 +37,7 @@ Devices** is the day-to-day console, and the rest go deeper per capability.
 | [API Reference](./architecture/API-Reference.md) | REST API endpoints, OpenAPI spec, code generation, authentication |
 | [Wire Protocol](./architecture/Wire-Protocol.md) | MessagePack framing, handshake sequence, golden file testing |
 | [Database](./architecture/Database.md) | PostgreSQL schema, driver, pool, migrations, row-level security, transport security |
+| [Metrics Reference](./architecture/Metrics-Reference.md) | Every Prometheus series the server publishes — names, labels, populations, and the invariants that bind them |
 | [Platform Abstraction](./architecture/Platform-Abstraction.md) | OS-specific traits for capture, input, and service lifecycle |
 
 ## Infrastructure — how it runs

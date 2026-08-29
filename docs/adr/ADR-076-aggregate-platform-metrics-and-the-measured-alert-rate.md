@@ -42,6 +42,20 @@ of the conditions under which the deferred question of per-device alert series
 would be reopened. An assumption carrying that much weight is the shape of defect
 that surfaces as an incident rather than as a finding.
 
+What each measured outcome would oblige:
+
+| Measured rate | Consequence |
+|---|---|
+| ~0.2 / device / day | The ceilings hold with roughly twelve times headroom; nothing changes |
+| ~1 / device / day | Headroom falls to about 2.4x — raise the ceilings and bring the retention sweep forward |
+| ~5 / device / day | The customer ceiling starts clipping ordinary operation — tighten the curated thresholds, ship a smaller pack, or strengthen grouping so the incident count stays usable |
+
+The figure needs a real population and a full 24-hour window to mean anything. A
+figure taken from a synthetic run is a figure about the harness, and is reported
+as one — naming its rule pack and fixture — never as the fleet rate. The curated
+pack does not advance past its canary stage until a real population has produced
+the number.
+
 ## Decision
 
 **Five aggregate series on the existing `/metrics`, and every one of them is

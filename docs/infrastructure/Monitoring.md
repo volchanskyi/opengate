@@ -110,26 +110,11 @@ the production server pod per [Kubernetes.md](./Kubernetes.md#l4-quic--mps).
 The Go server exposes Prometheus metrics on the same HTTP listener as the REST
 API. The in-cluster VictoriaMetrics scrape configuration discovers the server
 Services via Kubernetes endpoint metadata rather than hard-coded Docker hostnames.
-Metric names and registration live under
-[`server/internal/metrics`](../../server/internal/metrics).
 
-Agent connections carry their own transport signal.
-`opengate_agent_tls_handshakes_total{resumed}` counts each QUIC connection that
-reached the application handshake, split by whether its TLS session resumed.
-The server is the only side that can answer: an agent's transport reports no
-resumption result, and a ticket it presents may still be declined here. So this
-is where the reconnect saving in
-[ADR-037](../adr/ADR-037-client-first-fast-path-reconnect.md) is measured. The
-share of connections that skipped the asymmetric handshake is
-
-```promql
-sum(rate(opengate_agent_tls_handshakes_total{resumed="true"}[1h]))
-  / sum(rate(opengate_agent_tls_handshakes_total[1h]))
-```
-
-Both label values are published from start-up, so that denominator exists before
-the first machine connects. The population is connections whose control stream
-opened — one lost earlier than that is outside the count.
+Every series the server publishes — its name, labels and the population it
+counts over — is in
+[Metrics Reference](../architecture/Metrics-Reference.md). This chapter covers
+how those series are scraped, rolled up, stored, charted and retained.
 
 The vocabulary of host-resource dimensions an agent reports, what each one means,
 and which of them a platform may report as unsupported are in
@@ -146,10 +131,9 @@ see [Database](../architecture/Database.md#device-processes-table).
 
 Host logs are edge-stored and server-proxied: raw lines stay on the device, are
 read on demand through the transient broker, and are never centralized. The
-broker exposes `opengate_device_log_pulls_total` (by outcome; the `ok` series is
-the audited-read count) and `opengate_device_log_pull_duration_seconds`, charted
-by the Edge-Sentinel Logs dashboard. The pull surface, its redaction guards and
-its audit trail are in [Endpoint Logs](../product/Endpoint-Logs.md).
+broker's pull counters are charted by the Edge-Sentinel Logs dashboard. The pull
+surface, its redaction guards and its audit trail are in
+[Endpoint Logs](../product/Endpoint-Logs.md).
 
 The monitoring chart passes the Edge Sentinel stream-aggregation config to
 single-node VictoriaMetrics through
@@ -256,78 +240,19 @@ measurement under it.
 
 ### Watching the rule pack itself
 
-A rule that is valid, affordable and wrong is the one thing here that can degrade
-every estate at once: the closed grammar bounds what a rule can *say* and the CI
-cost gate bounds what it *costs*, and neither has an opinion about whether the
-numbers on it are right. So the server exports five aggregate series on the same
-`/metrics` everything else uses
-([`internal/metrics/investigations.go`](../../server/internal/metrics/investigations.go)),
-and the [Rule Rollout And Triage
-dashboard](../../deploy/grafana/provisioning/dashboards/rule-rollout.json) reads
-them:
-
-| Series | What it says |
-|---|---|
-| `opengate_alerts_created_total{rule_id}` | Alerts that became a stored row. Replays and refusals are not counted, so a rise is new detection |
-| `opengate_alerts_suppressed_total{reason}` | Alerts that reached the server and became nothing. A rising `organization_ceiling` is detection being *refused* |
-| `opengate_alerts_open` | Alerts sitting in a room that is not resolved |
-| `opengate_incidents_open{status}` | The triage queue, split by where each room stands |
-| `opengate_rule_coverage{rule_id,state}` | How much of the whole install each rule is watching. The four states always add up to the fleet |
-
-**Every one of them is O(rules), and that is the constraint they are built
-around.** No series here carries a tenant, a customer or a machine: a rule pack
-is a handful of entries fixed for a release, a fleet is however many machines
-every customer between them runs, and one entity label would make the platform's
-own monitoring the largest cardinality source in the system it exists to watch.
-The `rule_id` label is bounded by the shipped catalogue rather than by what an
-agent echoes back, and every value of every closed vocabulary is exported even at
-zero — a missing series reads as "no data", which is not the same answer as "none
-open", and the two look identical exactly when somebody is checking whether a
-rollout raised anything. See
+The server exports five aggregate series covering alerts raised, refusals, the
+triage queue and fleet-wide rule coverage; they are defined in
+[Metrics Reference](../architecture/Metrics-Reference.md#detection-alerts-incidents-and-coverage),
+and what a measured rate obliges is in
 [ADR-076](../adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md).
 
-The two gauges are counts over tables that only grow, so they are refreshed on a
-timer rather than computed when the endpoint is scraped, and each refresh is one
-aggregate across every tenant. A read that fails leaves the previous answer
-standing: a database that is briefly unreachable is not an empty triage queue.
-
+The [Rule Rollout And Triage
+dashboard](../../deploy/grafana/provisioning/dashboards/rule-rollout.json) reads
+them, and its stat panel carries the measured alerts-per-device-per-day rate.
 Two alerts watch a bad rollout
 ([`alert-rules.yml`](../../deploy/grafana/provisioning/alerting/alert-rules.yml)) —
 one on the projected per-device alert rate, one on any ceiling suppression at
 all.
-
-#### Measuring the alert rate
-
-The alerts-per-device-per-day rate is currently an **estimate of 0.2**, and three
-things rest on it: the evidence volume projected for a year, the customer hourly
-ceiling ([Rule Administration](../product/Rule-Administration.md#alert-limits),
-set as roughly twelve times a rate nobody has observed), and the conditions under
-which per-device alert series would be reconsidered. The counters above are what
-make it measurable. The measurement is:
-
-```promql
-sum(increase(opengate_alerts_created_total[24h]))
-  / max(sum by (rule_id) (opengate_rule_coverage))
-```
-
-The numerator is a full day of stored alerts. The denominator is the fleet, read
-off the coverage gauge — its four states always sum to the fleet, so any rule's
-total is the fleet size. The stat panel on the dashboard is this expression.
-
-It needs a **real population and a full 24-hour window** to mean anything. Five
-canary machines on a one-device soak fleet cannot produce an estate-scale rate,
-and a figure taken from a synthetic run is a figure about the harness: if one is
-wanted as an early signal it is reported as a harness figure naming its rule pack
-and fixture, never as the fleet rate. What follows from the measurement:
-
-| Measured rate | Consequence |
-|---|---|
-| ~0.2 / device / day | The ceilings hold with roughly twelve times headroom; nothing changes |
-| ~1 / device / day | Headroom falls to about 2.4x — raise the ceilings and bring the retention sweep forward |
-| ~5 / device / day | The customer ceiling starts clipping ordinary operation — tighten the curated thresholds, ship a smaller pack, or strengthen grouping so the incident count stays usable |
-
-The curated pack does not advance past its canary stage until a real population
-has produced the number.
 
 ### Telemetry load and observability
 
@@ -348,64 +273,12 @@ drains through the admission scheduler one acked batch at a time. Run it through
 the Docker/e2e stack lifecycle, never bare tooling.
 
 The server instruments the ingest path so it stays observable: accepted
-telemetry (`opengate_edge_telemetry_ingested_total` by control type), server-side
-drops (`opengate_edge_telemetry_drops_total` by reason — `persist_slots_full` is
-the queue-saturation signal, since bounded per-connection persist slots shed
-telemetry rather than backpressuring heartbeat/session/control), and the
-reconnect-backfill scheduler state (`opengate_edge_backfill_active_slots`,
-`opengate_edge_backfill_decisions_total` by grant/defer, and
-`opengate_edge_backfill_grant_rate_samples_per_second`).
-
-Those two telemetry counters form a closed ledger: every message counted as
-ingested either produces a write or files exactly one typed drop, so
-`ingested − drops` tracks what was actually persisted. The reasons cover the
-admission bounds (`payload_too_large`, `interval_floor`, and their
-`discovery_*` counterparts), a payload that carries nothing to store
-(`empty_dims`, `empty_summary`, `empty_processes`, `empty_summaries`,
-`empty_discovery`), the persist path (`tenant_missing`, `persist_failed`,
-`persist_slots_full`), a purged device (`tombstoned`), reconnect backfill
-skipping samples older than its own retention floor
-(`backfill_out_of_retention`), and the alert path's own `alert_*` reasons below.
-A discarded coalesced batch reports every message
-it carried, so the two sides stay comparable. The invariant is pinned by
-`TestTelemetryAccountingInvariant` in
-[`conn_accounting_test.go`](../../server/internal/agentapi/conn_accounting_test.go),
-which also fails when a new telemetry control type joins the dispatch switch
-without joining the ledger.
-
-Alerts join that ledger with reasons of their own, prefixed `alert_` so a
-fleet-wide rollout bug and one misbehaving device never look like the same
-number: the path's own payload bound (`alert_payload_too_large`, applied before
-the ingest counter), the content checks
-([`conn_alerts.go`](../../server/internal/agentapi/conn_alerts.go)) for a severity
-outside the closed set, an incomplete idempotency key, a rule this build does
-not ship, timestamps outside the window that kind of alert is allowed, and
-evidence that names an unreadable codec or does not decode — and finally
-`alert_duplicate` for a reconnect replaying one already stored and
-`alert_organization_ceiling` for a customer's spent hourly budget.
-
-`opengate_alerts_suppressed_total{reason}` is the operator-facing half of that
-last one. A refused alert is an incident nobody can reconstruct — there is no
-path for asking the endpoint again — so a rising `organization_ceiling` series
-means detection is being turned away rather than noise filtered, and the same
-suppression is folded into one storm incident carrying the count (see
-[Database](../architecture/Database.md)).
-
-Agent clocks are corrected rather than trusted: a telemetry sample stamped
-outside the accepted window is pulled to the nearer bound and counted on
-`opengate_edge_telemetry_clock_clamped_total` by `direction` (`future`, `past`).
-A clamped message is still persisted — only its timestamp changes — so this is
-deliberately its own counter and never a drop reason. An alert is refused
-instead: its window start is part of the identity a reconnect replay resolves
-against, so pulling that to a bound would make the same alert land on a
-different row each time and duplicate itself rather than deduplicate. A
-retroactive finding is legitimately old, so its backward bound is the wider
-backfill retention. The bounds live next to
-the handlers in
-[`conn_telemetry.go`](../../server/internal/agentapi/conn_telemetry.go); reconnect
-backfill keeps its own, far wider retention floor in
-[`conn_backfill.go`](../../server/internal/agentapi/conn_backfill.go) so replaying
-months of pre-rolled history is never truncated by the live-path window.
+telemetry, server-side drops by typed reason, agent-clock corrections and the
+reconnect-backfill scheduler's own state. Those series, the closed ledger the
+first two form and the full reason vocabulary are in
+[Metrics Reference](../architecture/Metrics-Reference.md#telemetry-ingest); what
+a reading means for a machine is in
+[Device Health](../product/Device-Health.md).
 
 The **Edge-Sentinel Soak**
 Grafana dashboard charts these alongside anomaly rate, VM cardinality + disk
