@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router';
@@ -781,6 +781,26 @@ describe('DeviceDetail', () => {
     renderDetailWithHardware();
     const li = screen.getByText(/eth0/).closest('li');
     expect(li?.textContent).toBe('eth0: 00:11:22:33:44:55 — 10.0.0.1, 10.0.0.2');
+  });
+
+  it('the interface list carries its heading as an accessible name', () => {
+    // A short interface name — `lo` is on every Linux host — is a substring of
+    // plenty of unrelated text on this page, so a reader looking for one has to
+    // be able to ask inside the list rather than across the document. The
+    // accessible name is what makes that possible.
+    useDeviceStore.setState({
+      hardware: {
+        device_id: 'd1', cpu_model: 'cpu', cpu_cores: 1,
+        ram_total_mb: 1, disk_free_mb: 0, disk_total_mb: 0,
+        updated_at: '2026-01-01T00:00:00Z',
+        network_interfaces: [
+          { name: 'lo', mac: '00:00:00:00:00:00', ipv4: ['127.0.0.1'], ipv6: [] },
+        ],
+      },
+    });
+    renderDetailWithHardware();
+    const list = screen.getByRole('list', { name: 'Network Interfaces' });
+    expect(within(list).getByText(/^lo:/)).toBeInTheDocument();
   });
 
   it('Network Interfaces heading hidden when interface list is empty', () => {

@@ -3,9 +3,9 @@
 // used as-is; otherwise a throwaway postgres:17-alpine container is started so
 // integration tests always run deterministically and never silently skip.
 //
-// This is a leaf package — it imports no internal/* package — so any test
-// package (including internal `package foo` tests that cannot import testutil
-// without an import cycle) can depend on it.
+// This package imports only the leaf internal/testreaper, so any test package
+// (including internal `package foo` tests that cannot import testutil without
+// an import cycle) can depend on it.
 package testpg
 
 import (
@@ -13,15 +13,15 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // register pgx driver for the ping
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
+
+	"github.com/volchanskyi/opengate/server/internal/testreaper"
 )
 
 const (
@@ -30,28 +30,6 @@ const (
 	URLEnv = "POSTGRES_TEST_URL"
 	// PostgresImage is the pinned test database image and client-binary source.
 	PostgresImage = "postgres:17-alpine"
-
-	// ryukTimeoutEnv and ryukTimeout are read by the container reaper itself:
-	// they set how long it waits for a client to connect before it shuts down
-	// and reaps everything it holds. Its own default is 60s, and a workstation
-	// running the gauntlet — a Rust build, a Go suite, a browser stack and
-	// several databases at once — takes longer than that to reach the reaper.
-	// It then tears down the databases the suite is still using. Waiting longer
-	// costs nothing when the machine is idle.
-	ryukTimeoutEnv = "TESTCONTAINERS_RYUK_CONNECTION_TIMEOUT"
-	ryukTimeout    = "180s"
-
-	// sessionEnv decides which reaper container a process belongs to. Left
-	// alone, testcontainers derives it from the parent process, so every package
-	// process under one `go test ./...` shares a single reaper: the first to
-	// need one creates it and every other waits on that container to report
-	// ready. That wait is a fixed sixty seconds with no setting behind it. On a
-	// machine busy enough for the container to be slow — or one where it has
-	// already reaped itself and gone — the wait runs out, and the package left
-	// holding it fails on a reaper it never started, naming a container nobody
-	// wrote. A session of this process's own means it creates its own reaper and
-	// waits on nothing anybody else owns.
-	sessionEnv = "TESTCONTAINERS_SESSION_ID"
 )
 
 var (
@@ -107,37 +85,13 @@ func initBaseURL() {
 	}
 }
 
-// init settles both reaper settings before anything can create one. It cannot
+// init settles the reaper settings before anything can create one. It cannot
 // wait for startContainer: when POSTGRES_TEST_URL is set this package provisions
 // nothing, and the first container of the process is then started by somebody
 // else — the migration rehearsal in internal/db, which needs a database of its
 // own — which would take the defaults.
 func init() {
-	widenReaperWait()
-	isolateSession()
-}
-
-// widenReaperWait gives the container reaper room to see a slow suite out. An
-// operator who has set the variable themselves keeps their value.
-func widenReaperWait() {
-	if os.Getenv(ryukTimeoutEnv) == "" {
-		_ = os.Setenv(ryukTimeoutEnv, ryukTimeout)
-	}
-}
-
-// isolateSession gives this process a reaper of its own, so it never waits on a
-// container another process created and owns. An operator who has set the
-// variable themselves keeps their value.
-func isolateSession() {
-	if os.Getenv(sessionEnv) == "" {
-		_ = os.Setenv(sessionEnv, newSessionID())
-	}
-}
-
-// newSessionID returns a value no other process produces, in the 64-character
-// hex shape testcontainers builds the reaper's container name out of.
-func newSessionID() string {
-	return strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
+	testreaper.Settle()
 }
 
 // startContainer launches a throwaway postgres:17-alpine container and returns

@@ -4,7 +4,7 @@ The project follows a strict test-first approach. All logic is covered before sh
 
 ### Database Tests
 
-`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table. Integration and handler tests obtain stores through [`server/internal/testutil/testutil.go`](../../server/internal/testutil/testutil.go)'s `NewTestStore(t)`, which creates a fresh PostgreSQL schema (`ogt_<uuid>`) per test, runs migrations on it, and drops it on cleanup — so tests may safely call `t.Parallel()`. Each test pool caps at 3 connections and a process-wide semaphore limits concurrent live stores; with the default Postgres `max_connections=100` the working set can saturate when many parallel tests overlap, so the project's Makefile (`make postgres-test-up`) and CI launch Postgres with `-c max_connections=400`. When `POSTGRES_TEST_URL` is unset, [`server/internal/testpg`](../../server/internal/testpg/testpg.go) starts a throwaway container with the same setting and fails loudly if it cannot — a database-backed test always runs. Each package process also takes a testcontainers session of its own, so it creates and waits on its own container reaper rather than one a sibling process owns — the wait for somebody else's is a fixed minute with no setting behind it, and a busy machine exceeds it.
+`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table. Integration and handler tests obtain stores through [`server/internal/testutil/testutil.go`](../../server/internal/testutil/testutil.go)'s `NewTestStore(t)`, which creates a fresh PostgreSQL schema (`ogt_<uuid>`) per test, runs migrations on it, and drops it on cleanup — so tests may safely call `t.Parallel()`. Each test pool caps at 3 connections and a process-wide semaphore limits concurrent live stores; with the default Postgres `max_connections=100` the working set can saturate when many parallel tests overlap, so the project's Makefile (`make postgres-test-up`) and CI launch Postgres with `-c max_connections=400`. When `POSTGRES_TEST_URL` is unset, [`server/internal/testpg`](../../server/internal/testpg/testpg.go) starts a throwaway container with the same setting and fails loudly if it cannot — a database-backed test always runs. Every helper that provisions a container settles the reaper through [`server/internal/testreaper`](../../server/internal/testreaper/testreaper.go), so each package process creates and waits on its own container reaper rather than one a sibling process owns — the wait for somebody else's is a fixed minute with no setting behind it, and a busy machine exceeds it.
 
 To run the DB tests locally:
 
@@ -25,7 +25,9 @@ The packages under [`server/tests/`](../../server/tests) that measure the centra
 store — cardinality, backfill, and per-series cost — run against a real
 VictoriaMetrics, never a mock. [`server/internal/testvm`](../../server/internal/testvm/testvm.go)
 supplies it: `VICTORIAMETRICS_TEST_URL` when set, otherwise a throwaway
-container, failing loudly rather than skipping.
+container, failing loudly rather than skipping. It settles the reaper the same
+way `testpg` does, so a package that imports only this one still gets a reaper
+of its own.
 
 Share one instance across the run. `testvm` memoizes per test **binary** and
 `go test ./tests/...` builds one binary per package, so with the URL unset each

@@ -1,4 +1,4 @@
-package testpg
+package testreaper
 
 import (
 	"os"
@@ -7,19 +7,19 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestWidenReaperWaitLeavesAnOperatorsChoiceAlone pins both halves of the
-// reaper setting. Without it the reaper shuts down and reaps mid-suite on a
-// machine slow enough to need more than its default minute; with it overriding
+// TestWidenWaitLeavesAnOperatorsChoiceAlone pins both halves of the reaper
+// setting. Without it the reaper shuts down and reaps mid-suite on a machine
+// slow enough to need more than its default minute; with it overriding
 // somebody's deliberate value, a shorter wait they chose would be silently
 // ignored.
-func TestWidenReaperWaitLeavesAnOperatorsChoiceAlone(t *testing.T) {
-	t.Setenv(ryukTimeoutEnv, "5s")
-	widenReaperWait()
-	assert.Equal(t, "5s", os.Getenv(ryukTimeoutEnv), "an operator's own value stands")
+func TestWidenWaitLeavesAnOperatorsChoiceAlone(t *testing.T) {
+	t.Setenv(timeoutEnv, "5s")
+	widenWait()
+	assert.Equal(t, "5s", os.Getenv(timeoutEnv), "an operator's own value stands")
 
-	t.Setenv(ryukTimeoutEnv, "")
-	widenReaperWait()
-	assert.Equal(t, ryukTimeout, os.Getenv(ryukTimeoutEnv),
+	t.Setenv(timeoutEnv, "")
+	widenWait()
+	assert.Equal(t, timeout, os.Getenv(timeoutEnv),
 		"an unset wait takes the widened default, or a busy machine fails on the reaper")
 }
 
@@ -56,4 +56,15 @@ func TestSessionIDNamesAContainer(t *testing.T) {
 			(r >= '0' && r <= '9') || (r >= 'a' && r <= 'f'),
 			"session id carries %q, which is not hex", r)
 	}
+}
+
+// TestSettleAppliesBoth is what every provisioning package calls, and what a
+// package that forgets to call it goes without: a wait it cannot extend and a
+// reaper container somebody else owns.
+func TestSettleAppliesBoth(t *testing.T) {
+	t.Setenv(timeoutEnv, "")
+	t.Setenv(sessionEnv, "")
+	Settle()
+	assert.Equal(t, timeout, os.Getenv(timeoutEnv), "the wait is widened")
+	assert.NotEmpty(t, os.Getenv(sessionEnv), "the session is this process's own")
 }
