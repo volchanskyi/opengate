@@ -154,9 +154,37 @@ func (s *AgentServer) ListConnectedAgents() []*AgentConn {
 	return agents
 }
 
-// Addr blocks until the server is listening and returns the actual address.
+// addrWait bounds how long Addr will wait for the listener to bind. Binding a
+// UDP port on loopback takes milliseconds; the budget is wide enough that a
+// machine busy enough to be slow still gets its answer, and short enough that a
+// listener which is never coming up says so instead of stopping the caller for
+// good.
+const addrWait = 30 * time.Second
+
+// Addr waits for the server to start listening and returns the actual address,
+// or the empty string when it never did. Every dial against an empty address
+// fails immediately and names the server that did not come up, which is what a
+// caller can act on; waiting on the send with no deadline gives a caller that
+// can do nothing at all, on a channel nobody is going to write.
 func (s *AgentServer) Addr() string {
-	return <-s.addrCh
+	addr, listening := waitForAddr(s.addrCh, addrWait)
+	if !listening {
+		s.logger.Error("the agent listener did not bind", "waited", addrWait)
+	}
+	return addr
+}
+
+// waitForAddr reads the address the listener published, and reports whether one
+// arrived before the wait ran out.
+func waitForAddr(ch <-chan string, wait time.Duration) (string, bool) {
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case addr := <-ch:
+		return addr, true
+	case <-timer.C:
+		return "", false
+	}
 }
 
 // ListenAndServe starts the QUIC listener and blocks until ctx is cancelled.
