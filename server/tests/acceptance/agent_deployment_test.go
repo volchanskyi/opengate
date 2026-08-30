@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
 // enrolmentToken is the credential an administrator hands somebody installing
@@ -154,4 +156,13 @@ func TestAMachineRebuiltWithANewCertificateIsTheSameMachine(t *testing.T) {
 	rebuilt.AwaitOnline()
 
 	assert.Len(t, admin.devices(), 1, "a rebuilt machine is the same machine, not a duplicate")
+
+	// The machine it replaced is still being torn down, and that teardown
+	// writes the machine offline. A rebuild that reads offline while its agent
+	// is connected is a device list a technician cannot act on: it refuses the
+	// session they are trying to open.
+	assert.Never(t, func() bool {
+		d, err := product.deviceRow(rebuilt.DeviceID)
+		return err == nil && d.Status != db.StatusOnline
+	}, eventually, poll, "a machine that is connected stays online while the connection it replaced departs")
 }

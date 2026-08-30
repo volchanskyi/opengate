@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,10 +90,18 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 // an arrival too would add one the process can never take back, and the
 // connected-agents gauge would climb by one on every reconnect race for as long
 // as the server runs.
+//
+// Taking the device's status gate is what gives that teardown something to lose
+// to: a machine only becomes this connection's once the departing connection
+// has finished the offline write it was already authorised to make, so the two
+// writes reach the row in the order the connections arrived. See
+// releaseDeviceStatus.
 func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname string) {
+	leave := s.statusGate.enter(ac.DeviceID)
 	if _, replaced := s.conns.Swap(ac.DeviceID, ac); !replaced {
 		s.count.Add(1)
 	}
+	leave()
 	onlineEvt := notifications.Event{
 		Type:           notifications.EventDeviceOnline,
 		DeviceID:       ac.DeviceID,
@@ -102,8 +111,8 @@ func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname 
 	_ = s.notifier.Notify(ctx, onlineEvt) // fire-and-forget
 }
 
-// unregisterConn marks the device offline (if still owned by this connection)
-// and closes the stream and connection.
+// unregisterConn releases the device's status and closes the stream and
+// connection.
 func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *AgentConn, hostname string, logger *slog.Logger) {
 	// Free any backfill admission slot this connection held so a reconnect (or
 	// another agent) can drain. Idempotent for agents that never backfilled, and
@@ -112,31 +121,101 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 	// A machine that drops off becomes unknown for every rule rather than
 	// staying counted as one that is still being watched.
 	s.coverage.Forget(ac.DeviceID)
-	if s.conns.CompareAndDelete(ac.DeviceID, ac) {
-		s.count.Add(-1)
-		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if ac.TenantID != uuid.Nil {
-			offlineCtx = dbtx.WithTenant(offlineCtx, ac.TenantID, false)
-		} else {
-			offlineCtx = dbtx.WithDefaultTenant(offlineCtx, false)
-		}
-		if err := s.devices.SetStatus(offlineCtx, ac.DeviceID, device.StatusOffline); err != nil {
-			logger.Error("set device offline", "error", err)
-		}
-		offlineEvt := notifications.Event{
-			Type:           notifications.EventDeviceOffline,
-			DeviceID:       ac.DeviceID,
-			DeviceHostname: hostname,
-			Timestamp:      time.Now(),
-		}
-		_ = s.notifier.Notify(offlineCtx, offlineEvt) // fire-and-forget
-	} else {
-		logger.Info("skipping offline transition, newer connection exists")
-	}
+	s.releaseDeviceStatus(ac, hostname, logger)
 	_ = stream.Close()
 	_ = conn.CloseWithError(0, "bye")
 	logger.Info("agent disconnected")
+}
+
+// releaseDeviceStatus marks the device offline when this connection is still
+// the one the server holds for it.
+//
+// Both halves run under the device's gate because they are one decision. A
+// machine that drops and dials straight back has two connections writing its
+// status at once, and the connection map only says which of them owns the row
+// at the instant it is asked: a departing connection that reads the map, loses
+// the device to the reconnect, and only then reaches the database writes
+// offline over an online that is already true. Nothing writes the row again
+// until the machine next connects, so a technician's device list shows a
+// connected machine as offline and refuses a session to it.
+func (s *AgentServer) releaseDeviceStatus(ac *AgentConn, hostname string, logger *slog.Logger) {
+	defer s.statusGate.enter(ac.DeviceID)()
+
+	if !s.conns.CompareAndDelete(ac.DeviceID, ac) {
+		logger.Info("skipping offline transition, newer connection exists")
+		return
+	}
+	s.count.Add(-1)
+	offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if ac.TenantID != uuid.Nil {
+		offlineCtx = dbtx.WithTenant(offlineCtx, ac.TenantID, false)
+	} else {
+		offlineCtx = dbtx.WithDefaultTenant(offlineCtx, false)
+	}
+	if err := s.devices.SetStatus(offlineCtx, ac.DeviceID, device.StatusOffline); err != nil {
+		logger.Error("set device offline", "error", err)
+	}
+	offlineEvt := notifications.Event{
+		Type:           notifications.EventDeviceOffline,
+		DeviceID:       ac.DeviceID,
+		DeviceHostname: hostname,
+		Timestamp:      time.Now(),
+	}
+	_ = s.notifier.Notify(offlineCtx, offlineEvt) // fire-and-forget
+}
+
+// deviceStatusGate serializes one device's status transitions. It holds a lock
+// per device currently transitioning rather than one per device the server has
+// ever seen: the entry is created on the way in and dropped once nobody is left
+// waiting on it, so a fleet that has cycled through a million machines carries
+// as many gates as it has reconnects in flight. The zero value is ready to use.
+type deviceStatusGate struct {
+	mu    sync.Mutex
+	locks map[protocol.DeviceID]*deviceStatusLock
+}
+
+type deviceStatusLock struct {
+	mu      sync.Mutex
+	waiting int
+}
+
+// enter blocks until this device's gate is free and returns the function that
+// leaves it.
+func (g *deviceStatusGate) enter(id protocol.DeviceID) func() {
+	g.mu.Lock()
+	if g.locks == nil {
+		g.locks = make(map[protocol.DeviceID]*deviceStatusLock)
+	}
+	lock, ok := g.locks[id]
+	if !ok {
+		lock = &deviceStatusLock{}
+		g.locks[id] = lock
+	}
+	lock.waiting++
+	g.mu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		lock.waiting--
+		if lock.waiting == 0 {
+			delete(g.locks, id)
+		}
+	}
+}
+
+// inFlight names the devices currently holding a gate.
+func (g *deviceStatusGate) inFlight() []protocol.DeviceID {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	ids := make([]protocol.DeviceID, 0, len(g.locks))
+	for id := range g.locks {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (s *AgentServer) scopeForDevice(ctx context.Context, deviceID uuid.UUID, logger *slog.Logger) context.Context {

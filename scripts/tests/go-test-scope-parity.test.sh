@@ -24,6 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CI="$ROOT/.github/workflows/ci.yml"
+MUTATION="$ROOT/.github/workflows/mutation.yml"
 GAUNTLET="$ROOT/scripts/precommit-gauntlet.sh"
 SERVER="$ROOT/server"
 
@@ -42,7 +43,7 @@ fail() {
 
 echo "go-test-scope-parity:"
 
-for f in "$CI" "$GAUNTLET"; do
+for f in "$CI" "$MUTATION" "$GAUNTLET"; do
   if [ ! -f "$f" ]; then
     fail "missing file: $f"
     printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
@@ -122,6 +123,41 @@ if printf '%s\n' "$integration_job" | grep -q 'postgres:17-alpine'; then
 else
   fail "the integration job never starts Postgres"
 fi
+
+# The mutation shards run the same tree. gremlins takes the module as its unit
+# and re-runs the whole suite as the coverage baseline for every shard, so a
+# package left to start its own metrics store there starts one on each of the
+# thirty-odd Go shards a night — the same memory pressure the integration job
+# provisions its way out of, multiplied by the width of the matrix. A baseline
+# that fails writes no report, and the shard is lost along with it.
+# The shard-budget pre-flight gathers the same module-wide coverage, so it needs
+# the same two services as the shards it projects.
+mutation_budget="$(awk '/^  shard-budget:/{flag=1} /^  mutation:/{flag=0} flag' "$MUTATION")"
+mutation_matrix="$(awk '/^  mutation:/{flag=1} /^  publish:/{flag=0} flag' "$MUTATION")"
+
+check_provisioned() {
+  local label="$1" job="$2" var
+  for var in POSTGRES_TEST_URL VICTORIAMETRICS_TEST_URL; do
+    if printf '%s\n' "$job" | grep -q "$var:"; then
+      pass "$label exports $var"
+    else
+      fail "$label does not export $var — each package would start its own container"
+    fi
+  done
+  if printf '%s\n' "$job" | grep -q 'victoria-metrics:v'; then
+    pass "$label starts a pinned VictoriaMetrics"
+  else
+    fail "$label never starts VictoriaMetrics"
+  fi
+  if printf '%s\n' "$job" | grep -q 'postgres:17-alpine'; then
+    pass "$label starts a pinned Postgres"
+  else
+    fail "$label never starts Postgres"
+  fi
+}
+
+check_provisioned "the mutation shard-budget job" "$mutation_budget"
+check_provisioned "the mutation matrix" "$mutation_matrix"
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
