@@ -36,7 +36,13 @@ series at once is enough memory pressure for the kernel to kill one mid-run —
 which surfaces as an unrelated package failing on a refused connection.
 `make victoriametrics-test-up` starts the shared instance and prints the export;
 [`scripts/test-go.sh`](../../scripts/test-go.sh) (behind `make test-go`) and the
-precommit gauntlet both do it automatically.
+precommit gauntlet both do it automatically. Every CI job that runs the tree
+provisions it the same way — the integration job in
+[`ci.yml`](../../.github/workflows/ci.yml), and the shard-budget and matrix jobs
+in [`mutation.yml`](../../.github/workflows/mutation.yml), whose Go shards each
+re-run the whole suite as their coverage baseline.
+[`scripts/tests/go-test-scope-parity.test.sh`](../../scripts/tests/go-test-scope-parity.test.sh)
+holds them to it.
 
 A measurement that reads the store's *own* memory or disk needs the opposite —
 an instance nothing else writes to — and takes one through `testvm.Dedicated`,

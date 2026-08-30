@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Reconstruct the previous per-language mutation baseline from VictoriaMetrics
 # and print it as the one-line canonical HISTORY_FILE row that
-# scripts/mutation-summarize.sh reads via previous_row(). This is what makes the
-# summarizer's drop-rule — "score fell more than REGRESSION_DROP_PP from the
-# previous run" — actually fire in CI: the in-repo docs/mutation-history.jsonl
-# was retired, so without a restored baseline previous_row is always null and
-# only the absolute floor ever trips (a gradual 92→89→86→84.9 slide stays
-# invisible until the last step crosses the floor).
+# scripts/mutation-summarize.sh reads via previous_row(). VictoriaMetrics holds
+# the trend, and a workflow run starts with no history of its own, so this read
+# is what makes the summarizer's drop-rule — "score fell more than
+# REGRESSION_DROP_PP from the previous run" — fire in CI at all. Without a
+# restored baseline previous_row is null and only the absolute floor ever trips,
+# leaving a gradual 92→89→86→84.9 slide invisible until the last step crosses it.
 #
 # For each canonical language it reads the newest prior mutation_score sample
 # through the shared read-back lib scripts/lib/vm-query.sh (the labels/metric

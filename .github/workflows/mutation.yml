@@ -7,11 +7,11 @@ name: Mutation Testing
 #   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
 #   - Workflow exits red (audit trail)
 # All scores are pushed to VictoriaMetrics for the "Mutation Testing Trend"
-# Grafana dashboard. The per-run canonical row is also uploaded as a workflow
-# artifact for one-off audit access. The repo no longer stores
-# docs/mutation-history.jsonl — the previous
-# attempt to commit nightly snapshots to dev was rejected by branch protection
-# because the bot push lacks the required status checks for new commits.
+# Grafana dashboard, which is where the trend lives. The per-run canonical row
+# is also uploaded as a workflow artifact for one-off audit access. Nothing is
+# committed back to the repo: a bot push carries none of the status checks
+# branch protection requires of a new commit on dev, so a nightly snapshot
+# written that way is refused.
 
 on:
   schedule:
@@ -22,9 +22,8 @@ concurrency:
   group: mutation-testing
   cancel-in-progress: false
 
-# Default to read-only at the workflow level. The publish job no longer
-# commits anything to the repo (trend data lives in VictoriaMetrics + workflow artifacts);
-# read-only is sufficient throughout.
+# Read-only at the workflow level is sufficient throughout: trend data lives in
+# VictoriaMetrics and in workflow artifacts, so no job writes to the repo.
 permissions:
   contents: read
 
@@ -82,6 +81,31 @@ jobs:
             sleep 1
           done
           echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
+      # The same dry-run reaches the metrics-backed packages under server/tests/,
+      # and testvm memoizes per test binary: with the URL unset each of them
+      # starts a store of its own on a runner already holding Postgres and two
+      # toolchains.
+      - name: Start VictoriaMetrics
+        run: |
+          for attempt in 1 2 3; do
+            if docker pull victoriametrics/victoria-metrics:v1.114.0; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::could not pull victoriametrics/victoria-metrics:v1.114.0 after 3 attempts"; exit 1
+            fi
+            echo "::warning::victoriametrics image pull attempt $attempt/3 failed; retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          docker run -d --rm --name vm-ci \
+            -p 8428:8428 victoriametrics/victoria-metrics:v1.114.0
+          for i in {1..30}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:8428/health >/dev/null 2>&1; then
+              echo "victoriametrics ready after ${i} attempt(s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::victoriametrics never became ready"; docker logs vm-ci; exit 1
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -100,6 +124,7 @@ jobs:
       - name: Project every shard against the job cap
         env:
           POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+          VICTORIAMETRICS_TEST_URL: http://127.0.0.1:8428
         # pipefail explicitly: the default shell does not set it, so without it
         # the step's status is tee's and a refused projection reports green —
         # a pre-flight nobody can fail is a pre-flight that guards nothing.
@@ -116,10 +141,10 @@ jobs:
     strategy:
       fail-fast: false
       # The Go leg is sharded by directory/file mutation units so it scales
-      # horizontally instead of
-      # crossing a hand-tuned cap as the server grows: the monolithic run grew
-      # past the prior 100min ceiling (cancelled 2026-06-18/19) while the mutant
-      # count stayed flat. Each shard runs the whole module (module-wide coverage)
+      # horizontally instead of crossing a hand-tuned cap as the server grows:
+      # a single run's wall clock tracks the size of the module, not the number
+      # of mutants in it, so an unsharded leg outgrows any fixed ceiling while
+      # its mutant count stays flat. Each shard runs the whole module (module-wide coverage)
       # and restricts mutation via --exclude-files; the split (in
       # scripts/lib/mutation-shards.sh, asserted by the workflow tests) is
       # balanced by CI runtime, which is dominated by the Postgres-backed
@@ -247,6 +272,37 @@ jobs:
           done
           echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
 
+      # The metrics store backs the Go legs for the same reason Postgres does,
+      # and for one more: testvm memoizes per test BINARY, so with the URL unset
+      # every package under server/tests/ that touches metrics starts a store of
+      # its own. Several of them holding a fleet's worth of series at once is the
+      # memory pressure that has the runner kill one mid-run, and it surfaces as
+      # an unrelated package failing on a refused connection or on a container
+      # reaper that never came up. gremlins runs that whole suite as its coverage
+      # baseline on every shard, so one store here replaces dozens across a night.
+      - name: Start VictoriaMetrics
+        if: matrix.language == 'go'
+        run: |
+          for attempt in 1 2 3; do
+            if docker pull victoriametrics/victoria-metrics:v1.114.0; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::could not pull victoriametrics/victoria-metrics:v1.114.0 after 3 attempts"; exit 1
+            fi
+            echo "::warning::victoriametrics image pull attempt $attempt/3 failed; retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          docker run -d --rm --name vm-ci \
+            -p 8428:8428 victoriametrics/victoria-metrics:v1.114.0
+          for i in {1..30}; do
+            if curl -fsS --max-time 2 http://127.0.0.1:8428/health >/dev/null 2>&1; then
+              echo "victoriametrics ready after ${i} attempt(s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::victoriametrics never became ready"; docker logs vm-ci; exit 1
+
       # -- Rust --------------------------------------------------------------
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         if: matrix.language == 'rust'
@@ -286,6 +342,10 @@ jobs:
           # cargo-mutants exits non-zero when any mutant survives. For an
           # observability workflow that is expected; capture and continue.
           echo "cargo-mutants exit: ${EXIT:-0}"
+          # …which is why the outcome file, not the exit status, is what says
+          # this shard did any work. It is read back here so a refused run fails
+          # beside the output that explains it.
+          "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" cargo-mutants mutants.out/outcomes.json
 
       # -- Go ----------------------------------------------------------------
       - uses: actions/setup-go@v7
@@ -300,6 +360,7 @@ jobs:
         if: matrix.language == 'go'
         env:
           POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+          VICTORIAMETRICS_TEST_URL: http://127.0.0.1:8428
           # gremlins derives each mutant's timeout from the coverage dry-run
           # elapsed × timeout-coefficient. setup-go restores the Go test cache,
           # so without -count=1 the dry-run hits the cache (~0.5s) and the budget
@@ -324,7 +385,12 @@ jobs:
           echo "shard ${{ matrix.shard }} timeout-coefficient: ${coef:-baseline}"
           cd server
           gremlins unleash . -E "$excl" "${coef_flag[@]}" --output "mutation-report-${{ matrix.shard }}.json" || EXIT=$?
+          # gremlins exits non-zero on a surviving mutant, so the status above is
+          # captured rather than propagated. The report is what distinguishes a
+          # shard that measured and found survivors from one whose coverage
+          # baseline failed and never mutated anything.
           echo "gremlins exit: ${EXIT:-0}"
+          "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" gremlins "mutation-report-${{ matrix.shard }}.json"
 
       # -- Web ---------------------------------------------------------------
       - uses: actions/setup-node@v7
@@ -361,6 +427,7 @@ jobs:
           # Stryker exits 0 even with surviving mutants when thresholds.break
           # is null (it is). JSON reporter writes to reports/mutation/mutation.json.
           ./node_modules/.bin/stryker run
+          "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" stryker reports/mutation/mutation.json
 
       # -- Upload artifacts (HTML reports + JSON outputs, 90d retention) ----
       - name: Upload mutation artifacts (${{ matrix.shard || matrix.language }})

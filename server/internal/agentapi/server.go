@@ -46,6 +46,7 @@ type AgentServer struct {
 	metrics        *appmetrics.Metrics
 	quicHost       string   // extra DNS SAN for the server certificate
 	conns          sync.Map // map[protocol.DeviceID]*AgentConn
+	statusGate     deviceStatusGate
 	count          atomic.Int64
 	tombstones     sync.Map // map[protocol.DeviceID]struct{} — deleted devices (in-memory deny-list)
 	tombstoneStore tombstoneLoader

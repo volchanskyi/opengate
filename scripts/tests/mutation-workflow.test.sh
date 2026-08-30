@@ -535,6 +535,24 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "the shard-budget step must set pipefail around mutation-shard-budget.sh"
   fi
 
+  # Each shard's tool step swallows the tool's exit code on purpose: a surviving
+  # mutant is not a build failure. That leaves the report the only thing that
+  # says any work happened, and the step must read it back itself. Without that
+  # the shard's own step is green and the absence surfaces two steps later as
+  # "no files were found" — a message that names the artifact and not the
+  # baseline suite that actually refused, which is where the answer is.
+  for tool_step in \
+    'Run cargo-mutants (shard' \
+    'Run gremlins (shard' \
+    'Run stryker'; do
+    step="$(sed -n "/${tool_step}/,/^      - /p" "$WORKFLOW")"
+    if printf '%s' "$step" | grep -q 'assert-mutation-report.sh'; then
+      pass "the ${tool_step%% (shard*} step reads its own report back"
+    else
+      fail "the ${tool_step%% (shard*} step must read its report back, not leave it to the upload"
+    fi
+  done
+
   # The pre-flight needs the same Postgres the matrix legs use: the Go count
   # comes from a coverage run, and an uncovered mutant is a mutant the
   # projection cannot see.
