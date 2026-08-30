@@ -467,17 +467,20 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "conn_backfill.go and handshaker.go must be isolated (backfill=$backfill_owner handshake=$handshake_owner)"
   fi
 
-  # go-agentapi-backfill's runtime is dominated by a few conn_backfill.go
-  # guard-clause mutants that block under the Postgres harness and TIME OUT
-  # (already counted as caught). The baseline coefficient in
-  # server/.gremlins.yaml grants each a multi-minute budget, so those timeout
-  # waves burn the whole shard. A tighter backfill-scoped coefficient keeps them
-  # caught while restoring headroom under the 90-minute cap; it must stay well
-  # above 1 so a genuinely-killable slow Postgres mutant is not cut off — false
-  # caught credit is the only correctness risk. Every other shard inherits the
-  # baseline (empty override).
+  # Two shards' runtimes are dominated by a few guard-clause mutants that block
+  # under their harness and TIME OUT (already counted as caught):
+  # go-agentapi-backfill's under Postgres, and go-agentapi-connection's on the
+  # listener path, where a mutant that stops the server publishing its address
+  # leaves every test that dials it waiting. Both sit behind a four-minute
+  # coverage run, so the baseline coefficient in server/.gremlins.yaml grants
+  # each blocked mutant an hour and one of them alone outlasts the 90-minute
+  # cap — the shard is cancelled, writes no report, and the night loses its
+  # score. A tighter scoped coefficient keeps those mutants caught while
+  # restoring headroom; it must stay well above 1 so a genuinely-killable slow
+  # mutant is not cut off — false caught credit is the only correctness risk.
+  # Every other shard inherits the baseline (empty override).
   baseline_coef="$(sed -nE 's/^[[:space:]]*timeout-coefficient:[[:space:]]*([0-9]+).*/\1/p' "$REPO_ROOT/server/.gremlins.yaml")"
-  scoped_shards=(go-agentapi-backfill)
+  scoped_shards=(go-agentapi-backfill go-agentapi-connection)
   scoped_bad=""
   for shard in "${scoped_shards[@]}"; do
     got="$(mutation_go_shard_timeout_coefficient "$shard")"

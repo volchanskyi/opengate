@@ -457,17 +457,22 @@ mutation_go_shard_budget_minutes() {
 # Per-shard gremlins timeout-coefficient override. Most shards inherit the
 # baseline in server/.gremlins.yaml (empty output => no CLI flag).
 #
-# The isolated go-agentapi-backfill shard is the exception: its runtime is
-# dominated by a handful of conn_backfill.go guard-clause mutants that block
-# under the Postgres-backed harness and TIME OUT. gremlins already counts
-# TIMED_OUT as caught, so those mutants were never going to be reported as
-# survivors — the baseline's multi-minute per-mutant budget only burns wall-clock
-# on them and leaves the shard with no headroom under the 90-minute cap. A
-# coefficient of 5 still gives a genuine slow Postgres mutant a comfortable
-# budget (well above the ~40 s schema re-setup a real test pays) so no would-be
-# survivor is falsely credited as caught, while cutting the blocking mutants'
-# budget by two-thirds. The baseline stays high globally because the wide
-# Postgres domain shards need it to avoid false timeouts inflating their score.
+# The two isolated go-agentapi shards are the exception. Each has its runtime
+# dominated by a handful of guard-clause mutants that block under its harness and
+# TIME OUT: backfill's conn_backfill.go mutants under the Postgres-backed
+# harness, and connection's server.go listener mutants, which stop the server
+# publishing its address and leave every test that dials it waiting. gremlins
+# already counts TIMED_OUT as caught, so those mutants were never going to be
+# reported as survivors — the baseline's multi-minute per-mutant budget only
+# burns wall-clock on them. Both shards sit behind a four-minute coverage run, so
+# at the baseline one blocked mutant is granted an hour and outlasts the
+# 90-minute cap on its own; the shard is cancelled, writes no report, and the
+# night loses its score. A coefficient of 5 still gives a genuine slow mutant a
+# comfortable budget (well above the ~40 s schema re-setup a real test pays) so
+# no would-be survivor is falsely credited as caught, while cutting the blocking
+# mutants' budget by two-thirds. The baseline stays high globally because the
+# wide Postgres domain shards need it to avoid false timeouts inflating their
+# score.
 #
 # A coefficient is a bound, not a cure: where a mutant blocks because the test
 # harness has no deadline of its own, the deadline is what to fix — a bounded
@@ -475,6 +480,7 @@ mutation_go_shard_budget_minutes() {
 mutation_go_shard_timeout_coefficient() {
   case "$1" in
     go-agentapi-backfill) echo "5" ;;
+    go-agentapi-connection) echo "5" ;;
     *) echo "" ;;
   esac
 }
