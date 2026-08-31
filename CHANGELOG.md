@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.91.17] - 2026-08-31
+
+### Fixed
+- **ci:** a Rust test file is test code, and the guard that said so was guessing
+- **loadtest,ci,agent:** four debts, and the language the gate never saw
+
 ## [v0.91.16] - 2026-08-31
 
 ### Fixed
