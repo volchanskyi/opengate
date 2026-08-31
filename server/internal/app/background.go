@@ -109,6 +109,35 @@ func startIncidentSweepLoop(
 	}.run(ctx, logger)
 }
 
+// expiredRowSweeper reclaims what has been held longer than it is kept for.
+// Named here as a port so the loop can be driven without a database.
+type expiredRowSweeper interface {
+	SweepExpired(ctx context.Context, horizon time.Duration) (int, error)
+}
+
+// startRetentionSweepLoop removes the alerts, evidence and closed rooms held
+// longer than the horizon. It starts with one pass at boot: these tables only
+// grow, and a process that was down comes back to rows that went past the
+// horizon while it was gone, on top of whatever the outage itself accumulated.
+//
+// Unlike the other janitors, this one destroys a customer's records rather than
+// reclaiming the system's own leftovers, so a pass that removed anything says
+// how much. A pass that removed nothing stays silent, as they all do.
+func startRetentionSweepLoop(
+	ctx context.Context, every, horizon time.Duration,
+	store expiredRowSweeper, logger *slog.Logger,
+) {
+	janitor{
+		every:  every,
+		atBoot: true,
+		sweep:  func(ctx context.Context) (int, error) { return store.SweepExpired(ctx, horizon) },
+		failed: "retention sweep failed",
+		found: func(removed int) {
+			logger.Info("reclaimed records past the retention horizon", "count", removed)
+		},
+	}.run(ctx, logger)
+}
+
 // BackgroundSchedule is how often each periodic worker runs, and how long a
 // session row outlives the relay that stopped holding its token.
 //
@@ -133,6 +162,10 @@ type BackgroundSchedule struct {
 	SessionGrace time.Duration
 	// IncidentSweep is how often rooms whose hold has run out are closed.
 	IncidentSweep time.Duration
+	// RetentionSweep is how often records past the retention horizon are
+	// removed, and RetentionHorizon is how long one is kept before it can be.
+	RetentionSweep   time.Duration
+	RetentionHorizon time.Duration
 }
 
 // Validate refuses a schedule with a hole in it, naming the field. A zero
@@ -150,6 +183,11 @@ func (s BackgroundSchedule) Validate() error {
 		"SessionSweep":   s.SessionSweep,
 		"SessionGrace":   s.SessionGrace,
 		"IncidentSweep":  s.IncidentSweep,
+		// A zero horizon is refused for a second reason: it would put the
+		// cutoff at the present instant and delete everything on the first
+		// pass, which is a misconfiguration rather than a policy.
+		"RetentionSweep":   s.RetentionSweep,
+		"RetentionHorizon": s.RetentionHorizon,
 	} {
 		if d <= 0 {
 			return fmt.Errorf("app: BackgroundSchedule.%s must be positive", name)
@@ -208,6 +246,11 @@ func (a *Assembly) StartBackgroundWorkers(ctx context.Context, sched BackgroundS
 	// Close the incidents nothing is arriving in any more, so a customer's triage
 	// queue holds the problems they still have.
 	go startIncidentSweepLoop(ctx, sched.IncidentSweep, a.Alerts, groupWindows(a.Rules), a.Logger)
+
+	// Remove the alerts, evidence and closed rooms held longer than they are
+	// kept for, so the retention period the product declares is the one the
+	// tables actually observe.
+	go startRetentionSweepLoop(ctx, sched.RetentionSweep, sched.RetentionHorizon, a.Alerts, a.Logger)
 
 	// Sync agent manifests from GitHub releases (default: every hour).
 	if a.githubRepo != "" {

@@ -84,6 +84,25 @@ A periodic sweep also removes any metric series whose device no longer exists, a
 a second line of defence: the stores are not one transaction, so a partially
 failed purge is caught rather than left behind.
 
+## Records also age out on their own
+
+Erasure runs off a subject. A second, independent rule runs off age: an alert,
+the evidence frozen with it, and the incident it folded into are kept for **one
+year**, after which a periodic sweep removes them.
+
+Two things bound what that sweep touches, so it can never take work somebody is
+still doing:
+
+- **An open incident is never removed, at any age.** Only a closed room is a
+  candidate, and only once every alert that folded into it has itself aged out —
+  so an alert never survives with its investigation detached.
+- **Age is counted from when the record was received, not from when the event
+  happened.** A retroactive finding is legitimately months old the day it
+  arrives, and counting from the event would erase it before anyone read it.
+
+Audit events are outside this, for the same reason they survive a purge: they
+are the proof of what happened.
+
 ## The one caveat: database backups
 
 The metric store keeps no backups, so its erasure is immediate.

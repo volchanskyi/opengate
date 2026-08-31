@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -27,6 +28,9 @@ var testSchedule = BackgroundSchedule{
 	SessionSweep:   time.Minute,
 	SessionGrace:   5 * time.Minute,
 	IncidentSweep:  5 * time.Minute,
+
+	RetentionSweep:   6 * time.Hour,
+	RetentionHorizon: 365 * 24 * time.Hour,
 }
 
 // sweepRepo is a session.Repository double recording the keep-list each sweep
@@ -277,4 +281,74 @@ func TestTheReconcileSweepDoesNotRunAtBoot(t *testing.T) {
 	startReconcileLoop(ctx, time.Hour, &countingOrphanSweeper{reclaimed: 3}, logger)
 
 	assert.Empty(t, said.String(), "a cancelled context leaves no pass to have made")
+}
+
+// expiredRowCollector counts sweeps and reports the horizon it was handed.
+type expiredRowCollector struct {
+	calls   int
+	horizon time.Duration
+	err     error
+}
+
+func (c *expiredRowCollector) SweepExpired(_ context.Context, horizon time.Duration) (int, error) {
+	c.calls++
+	c.horizon = horizon
+	return 0, c.err
+}
+
+// TestStartRetentionSweepLoop_SweepsAtBootThenStops covers the pass before the
+// first tick. These tables only grow, and a process that was down for longer
+// than the interval comes back to rows that were already past the horizon while
+// it was gone — waiting out an interval before looking leaves them there, on
+// top of whatever the outage itself accumulated.
+func TestStartRetentionSweepLoop_SweepsAtBootThenStops(t *testing.T) {
+	collector := &expiredRowCollector{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	startRetentionSweepLoop(ctx, testSchedule.RetentionSweep, testSchedule.RetentionHorizon,
+		collector, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	assert.Equal(t, 1, collector.calls, "the sweep runs once at boot, then the cancelled context stops it")
+	assert.Equal(t, testSchedule.RetentionHorizon, collector.horizon,
+		"the loop passes the configured horizon down, never one of its own")
+}
+
+// TestARetentionSweepThatReclaimedSomethingSaysSo: deleting a customer's records
+// is not routine housekeeping, so a pass that removed anything leaves a line
+// saying how much. A pass that removed nothing is the ordinary case and is
+// silent.
+func TestARetentionSweepThatReclaimedSomething(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		reclaimed int
+		wantLog   bool
+	}{
+		{"something", 42, true},
+		{"nothing", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&buf, nil))
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			janitor{
+				every:  time.Hour,
+				atBoot: true,
+				sweep:  func(context.Context) (int, error) { return tc.reclaimed, nil },
+				failed: "retention sweep failed",
+				found: func(removed int) {
+					logger.Info("reclaimed records past the retention horizon", "count", removed)
+				},
+			}.run(ctx, logger)
+
+			if tc.wantLog {
+				assert.Contains(t, buf.String(), "retention horizon")
+				assert.Contains(t, buf.String(), "count=42")
+				return
+			}
+			assert.Empty(t, buf.String())
+		})
+	}
 }

@@ -28,6 +28,11 @@ func backgroundSchedule() app.BackgroundSchedule {
 		SessionSweep:   10 * time.Millisecond,
 		SessionGrace:   time.Minute,
 		IncidentSweep:  10 * time.Millisecond,
+
+		RetentionSweep: 10 * time.Millisecond,
+		// A horizon long enough that the acceptance run's own rows are never
+		// candidates: this asserts the worker runs, not what it removes.
+		RetentionHorizon: 365 * 24 * time.Hour,
 	}
 }
 
