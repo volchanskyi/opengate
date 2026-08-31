@@ -181,8 +181,11 @@ fi
 
 log "Installing agent..."
 
-# Binary
-install -m 0755 "${WORK_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+# Binary. Owner and group only: it is owned by root and started by a unit that
+# runs as root, so no other local account needs to read or run it — and every one
+# of those accounts is somebody the agent's key and data directory are already
+# closed to. The auto-updater writes the same mode.
+install -m 0750 "${WORK_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 
 # Config + data directories
 mkdir -p "$CONFIG_DIR"

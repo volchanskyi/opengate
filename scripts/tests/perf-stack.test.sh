@@ -201,6 +201,51 @@ else
   fail "the weighing counts tables that do not exist:$unknown_tables"
 fi
 
+# --- Every family enrols; none signs its own ----------------------------------
+#
+# The stack's certificate authority is created by the server, inside a container
+# whose /data is a tmpfs. A harness given no enrolment URL builds an authority of
+# its own in a temp directory instead, and the two are then different generations
+# of the same-named authority: every dial is refused with "certificate signed by
+# unknown authority ... OpenGate CA". All four scaling shards died that way on
+# every run the workflow has ever had, 3300 refusals apiece.
+job_block() {
+  awk -v job="$1" '
+    $0 ~ "^  " job ":$" { in_job = 1; next }
+    /^  [a-z-]+:$/ { in_job = 0 }
+    in_job { print }
+  ' "$WORKFLOW"
+}
+for family in volume scaling; do
+  block="$(job_block "$family")"
+  if grep -q -- '-enroll-url=' <<<"$block"; then
+    pass "the $family family asks the server to sign, so it holds the server's own authority"
+  else
+    fail "the $family family signs its own certificates against an authority the server never made"
+  fi
+done
+
+# The scaling family holds the data constant and varies the processors, so the
+# fixture its profile declares has to actually be built. Running it against an
+# empty database holds the data constant at nothing.
+if grep -q -- '-fixture-account=' <<<"$(job_block scaling)"; then
+  pass "the scaling family builds the fleet its profile declares"
+else
+  fail "the scaling family measures against an empty database, so its data is not the profile's"
+fi
+
+# --- The bundle's verdict is read back ----------------------------------------
+#
+# The harness writes what it thought of its own run into the bundle, and the
+# volume family passed a run whose bundle said "invalid" and whose fleet was
+# 0/500. A verdict nothing reads is a string in a file, which is the same defect
+# as a cache save nobody asserts.
+if grep -q 'verdict' "$WORKFLOW"; then
+  pass "the workflow reads the verdict the harness wrote about the run"
+else
+  fail "the workflow never reads the bundle's verdict, so a run that measured nothing passes"
+fi
+
 # Weekly answered a question that changes when the schema or the read paths do.
 # It now runs nightly, in a slot where the twenty-job pool is clear: the mutation
 # matrix holds it from 03:00 to about 05:30 and the load test follows at 05:00.

@@ -20,6 +20,24 @@ import (
 // the run asked for is added to it.
 const agentDeadline = 30 * time.Second
 
+// What the process returns, and what each code means to the runner reading it.
+//
+// A run has three outcomes and needs three codes. Deriving the code from the
+// failure count alone collapses two of them: a run whose agents produced no
+// result each, rather than a failed one each, counts zero failures and is
+// indistinguishable from a clean run. The runner around this then keeps the
+// output and the trend absorbs a night that measured nothing.
+const (
+	// exitAgentFailures is a run that measured the system and some of its
+	// machines did not arrive. That is still a measurement — a fleet that half
+	// connects is what the trend exists to record — so the runner keeps it.
+	exitAgentFailures = 1
+	// exitMeasuredNothing is a run that did not measure the system at all. Its
+	// output describes the absence rather than the system, so the runner
+	// discards it and the run is short a scenario.
+	exitMeasuredNothing = 2
+)
+
 type agentResult struct {
 	connectDur   time.Duration
 	handshakeDur time.Duration
@@ -27,7 +45,32 @@ type agentResult struct {
 	err          error
 }
 
+// exitCode is what the process returns for a finished run.
+//
+// The verdict comes first and the failure count second, because they answer
+// different questions: the count says how many machines did not arrive, and the
+// verdict says whether what happened was a measurement at all. A run that
+// measured nothing cannot be reported as one that did, however few of its
+// machines failed.
+func exitCode(verdict Verdict, failures int) int {
+	switch {
+	case verdict.Result == ResultInvalid:
+		return exitMeasuredNothing
+	case verdict.Result == ResultFailed, failures > 0:
+		return exitAgentFailures
+	default:
+		return 0
+	}
+}
+
 func main() {
+	os.Exit(run())
+}
+
+// run is the whole harness, returning the code the process exits with. It is
+// separated from main so the temp directory holding the certificates this run
+// signed is removed on every path, including the ones that end badly.
+func run() int {
 	agents := flag.Int("agents", 100, "number of concurrent agents")
 	addr := flag.String("addr", "127.0.0.1:9090", "QUIC server address")
 	dataDir := flag.String("data-dir", "", "cert manager data directory (temp if empty)")
@@ -124,26 +167,32 @@ func main() {
 	// however slow the write becomes.
 	registration := readServerRegistration(*metricsURL)
 
+	// The bundle is built whether or not it is written, because it carries the
+	// verdict — and the verdict is what says whether this run measured the
+	// system. A run that reports its own outcome only into a file nobody reads
+	// is the shape a green shard on a sweep that connected nobody came from.
+	bundle := buildRunBundle(runBundleInputs{
+		Profile:      profile,
+		Results:      results,
+		StartedAt:    start,
+		Total:        totalDur,
+		AgentCount:   *agents,
+		Target:       *addr,
+		Phases:       phases,
+		Registration: registration,
+		Fixture:      fixture,
+	})
+
 	if *bundleDir != "" {
-		err := writeRunBundle(runBundleInputs{
-			Profile:      profile,
-			Results:      results,
-			StartedAt:    start,
-			Total:        totalDur,
-			AgentCount:   *agents,
-			Target:       *addr,
-			Phases:       phases,
-			Registration: registration,
-			Fixture:      fixture,
-		}, *bundleDir)
-		if err != nil {
+		if err := writeRunBundle(bundle, *bundleDir); err != nil {
 			log.Fatalf("bundle: %v", err)
 		}
 	}
 
-	if failures > 0 {
-		os.Exit(1)
+	for _, reason := range bundle.Verdict.Reasons {
+		fmt.Printf("::error::%s\n", reason)
 	}
+	return exitCode(bundle.Verdict, failures)
 }
 
 // reportResults prints the timing summary and returns the number of failed

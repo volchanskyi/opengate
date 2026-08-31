@@ -219,10 +219,17 @@ jobs:
 
           # The QUIC generator holds its own allocation too, so the two
           # generators cannot take each other's processor either.
+          #
+          # The Service carries the HTTP port only, so the name the certificate
+          # names is pointed at the server pod here — the arrangement the staging
+          # browser suite's own machines use (deploy/scripts/e2e-machine-pod.sh).
+          # An agent takes its TLS name from the host half of the address it is
+          # given, and a pod IP is in no certificate, so the name it dials and
+          # the name it verifies have to be this one and the same.
           kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
-            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep 1800
           kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_POD" --timeout=120s
           kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
@@ -238,7 +245,7 @@ jobs:
             kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- \
               /tmp/loadtest \
                 -agents="$AGENTS" \
-                -addr="${SERVER_POD_IP}:9090" \
+                -addr="${RELEASE}-server:9090" \
                 -enroll-url="$LOADTEST_BASE_URL" \
                 -metrics-url="$LOADTEST_BASE_URL" \
                 -fixture-account="$LOADTEST_SERVICE_ACCOUNT" \
@@ -436,6 +443,31 @@ jobs:
         with:
           name: loadtest-summary
           path: artifacts/loadtest
+
+      # The run already classified itself, into a file that reached this job and
+      # was read by nothing. Every night since the fleet stopped connecting
+      # pushed rps 0 and error_rate 1 for a scenario that never ran, and the
+      # fourteen-day median fell from 113 to 57 — which raises the bar a genuine
+      # collapse has to clear before the gate notices it. One partial night
+      # quietly costs two, and that is the whole reason the verdict exists.
+      #
+      # An absent verdict fails here as loudly as an invalid one: a guard that
+      # answers yes when it cannot ask protects nothing.
+      - name: Read the run's own verdict before publishing anything
+        run: |
+          set -euo pipefail
+          VERDICT_FILE=artifacts/loadtest/loadtest-completeness.json
+          if [ ! -s "$VERDICT_FILE" ]; then
+            echo "::error::the run wrote no completeness verdict, so whether it measured anything is unknown."
+            exit 1
+          fi
+          RESULT="$(jq -r '.result // empty' "$VERDICT_FILE")"
+          echo "run verdict: ${RESULT:-<none>}"
+          if [ "$RESULT" != "valid" ] && [ "$RESULT" != "failed" ]; then
+            jq . "$VERDICT_FILE"
+            echo "::error::this run did not measure the system, so its rows do not enter the trend."
+            exit 1
+          fi
 
       - name: Check regression
         id: check

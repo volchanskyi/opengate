@@ -180,6 +180,32 @@ func waitForCount(t *testing.T, srv *AgentServer, want int) {
 	t.Fatalf("connected agents never reached %d (holding %d)", want, srv.ConnectedAgentCount())
 }
 
+// waitForStatus polls until the machine's row carries want.
+//
+// The connection count is not this signal and cannot stand in for it. The count
+// moves when the connection joins the fleet, which the accept path does before
+// it reads a single frame; the row moves when the register frame is handled,
+// which is a later moment on another goroutine. A case that waits on the count
+// and then reads the row is reading whatever the row happened to hold — the
+// seeded value, on a machine busy enough to widen the gap.
+func waitForStatus(t *testing.T, env *acceptEnv, deviceID uuid.UUID, want device.DeviceStatus) {
+	t.Helper()
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	deadline := time.Now().Add(10 * time.Second)
+	var last device.DeviceStatus
+	for time.Now().Before(deadline) {
+		stored, err := env.devices.Get(ctx, deviceID)
+		if err == nil {
+			if stored.Status == want {
+				return
+			}
+			last = stored.Status
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the machine's status never reached %q (holding %q)", want, last)
+}
+
 // TestAMachineThatConnectsBecomesVisibleAndThenOffline walks the whole
 // lifecycle: the machine dials, hands over its certificate, registers, is
 // counted, and — when it goes away — is marked offline and stops being counted.
@@ -187,9 +213,12 @@ func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	env := newAcceptEnv(t)
 	deviceID := uuid.New()
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	// Seeded under the name the enrolment gave it. Registration reports the name
+	// the machine calls itself, and the two differ here so the assertion below
+	// is about what registration wrote rather than about what the seed left.
 	require.NoError(t, env.devices.Upsert(ctx, &device.Device{
 		ID:       deviceID,
-		Hostname: "the-machine",
+		Hostname: "as-enrolled",
 		OS:       "linux",
 		Status:   db.StatusOffline,
 	}))
@@ -202,6 +231,9 @@ func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	require.NotNil(t, ac, "the machine that registered is the one the fleet holds")
 	assert.Equal(t, deviceID, uuid.UUID(ac.DeviceID))
 
+	// The row is read once registration has landed. The count moves earlier, on
+	// the accept path, so reading on the count alone reads the seed.
+	waitForStatus(t, env, deviceID, db.StatusOnline)
 	stored, err := env.devices.Get(ctx, deviceID)
 	require.NoError(t, err)
 	assert.Equal(t, "the-machine", stored.Hostname)
@@ -283,6 +315,11 @@ func TestASecondConnectionLeavesTheLiveOneAlone(t *testing.T) {
 	_, first := env.connect(t, deviceID)
 	register(t, first, "the-machine")
 	waitForCount(t, env.srv, 1)
+	// The machine is online before the reconnect, because that is the state the
+	// older connection's teardown must not undo. Waiting on the count alone
+	// would leave the row still holding the seeded offline, and the assertion
+	// below would then be about the seed rather than about the teardown.
+	waitForStatus(t, env, deviceID, db.StatusOnline)
 	firstConn := env.srv.GetAgent(protocol.DeviceID(deviceID))
 	require.NotNil(t, firstConn)
 

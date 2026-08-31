@@ -139,3 +139,84 @@ describe('RuleCoveragePanel — when it cannot be read', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('catalogue unavailable');
   });
 });
+
+describe('RuleCoveragePanel — reading the split', () => {
+  // A standing blind spot is the one state that is a finding rather than a
+  // number, so it is the one state that is coloured. Colouring a throttled
+  // count the same way would make a delay look like a hole.
+  it('colours a standing blind spot and nothing else', async () => {
+    mockedGet.mockResolvedValue(catalogue(
+      [rule({ coverage: { active: 300, throttled: 6, unsupported: 6, unknown: 0 } })], 312) as never);
+    await openPanel();
+
+    const row = within(await screen.findByRole('table')).getByRole('row', { name: /cpu\.sustained/ });
+    expect(within(row).getByLabelText('Cannot evaluate')).toHaveClass('text-red-400');
+    expect(within(row).getByLabelText('Throttled')).not.toHaveClass('text-red-400');
+    expect(within(row).getByLabelText('Watching')).not.toHaveClass('text-red-400');
+  });
+
+  it('leaves a rule with no blind spot uncoloured', async () => {
+    mockedGet.mockResolvedValue(catalogue(
+      [rule({ coverage: { active: 312, throttled: 0, unsupported: 0, unknown: 0 } })], 312) as never);
+    await openPanel();
+
+    const row = within(await screen.findByRole('table')).getByRole('row', { name: /cpu\.sustained/ });
+    expect(within(row).getByLabelText('Cannot evaluate')).not.toHaveClass('text-red-400');
+  });
+
+  // The fleet count is the denominator these counts were taken against. With no
+  // fleet counted there is none, and "300 / 0" would state a ratio nobody measured.
+  it('omits the denominator when no fleet has been counted', async () => {
+    mockedGet.mockResolvedValue(catalogue(
+      [rule({ coverage: { active: 3, throttled: 0, unsupported: 0, unknown: 0 } })], 0) as never);
+    await openPanel();
+
+    const row = within(await screen.findByRole('table')).getByRole('row', { name: /cpu\.sustained/ });
+    expect(within(row).queryByText(/\/ 0/)).not.toBeInTheDocument();
+  });
+
+  // Switched off and stopped are different facts: one is the customer's own
+  // choice, the other an intervention. Reading them as one hides which happened.
+  it('tells a rule switched off apart from one somebody stopped', async () => {
+    mockedGet.mockResolvedValue(catalogue(
+      [rule({ rollout: { ...fullRollout(), enabled: false, kill: false } })], 312) as never);
+    await openPanel();
+
+    const row = within(await screen.findByRole('table')).getByRole('row', { name: /cpu\.sustained/ });
+    expect(within(row).getByText('Off')).toBeInTheDocument();
+    expect(within(row).queryByText('Stopped')).not.toBeInTheDocument();
+  });
+
+  // A rule that is everywhere is the unremarkable case, so it carries no note.
+  // A badge on every row would leave nothing for the exceptions to stand out from.
+  it('says nothing about the rollout of a rule that has reached everywhere', async () => {
+    mockedGet.mockResolvedValue(catalogue([rule()], 312) as never);
+    await openPanel();
+
+    const row = within(await screen.findByRole('table')).getByRole('row', { name: /cpu\.sustained/ });
+    expect(within(row).queryByText('Stopped')).not.toBeInTheDocument();
+    expect(within(row).queryByText('Off')).not.toBeInTheDocument();
+    expect(within(row).queryByText(/rolled out/)).not.toBeInTheDocument();
+  });
+
+  // The first open has nothing to show yet, so it says it is reading rather
+  // than rendering an empty table that reads as "no rules are bound".
+  it('says it is reading while the first catalogue is in flight', async () => {
+    mockedGet.mockReturnValue(new Promise(() => {}) as never);
+    await openPanel();
+
+    expect(await screen.findByText('Reading the catalogue…')).toBeInTheDocument();
+    expect(screen.queryByText(/No curated rules/i)).not.toBeInTheDocument();
+  });
+
+  it('turns the disclosure marker as the panel opens', async () => {
+    mockedGet.mockResolvedValue(catalogue([rule()], 312) as never);
+    render(<RuleCoveragePanel />);
+
+    const toggle = screen.getByRole('button', { name: /Rule coverage/i });
+    expect(toggle.firstElementChild).not.toHaveClass('rotate-90');
+
+    await userEvent.setup().click(toggle);
+    expect(toggle.firstElementChild).toHaveClass('rotate-90');
+  });
+});

@@ -109,6 +109,29 @@ else
   fail "an aborted harness says its output was discarded"
 fi
 
+# A run that finished and connected nobody is the third outcome, and it is not
+# an abort: the harness ran to completion and printed a full results block, and
+# what it measured was nothing. Its rows are zeroes, so they are discarded the
+# same way — but a message calling it an abort sends a reader looking for a crash
+# that never happened.
+MEASURED_NOTHING='Starting QUIC load test: 500 agents across 1 tenant(s) → 10.0.0.42:9090
+
+=== Results ===
+Total time:  6m12.2s
+Agents:      0/500 succeeded
+Failures:    0
+
+::error::scenario "quic-agents" produced no rows, so this run is a partial night rather than a measurement'
+
+run_case 2 "$MEASURED_NOTHING"
+assert_eq "a run that measured nothing propagates its status" "2" "$STATUS"
+assert_no_file "a run that measured nothing discards its output" "$WORK/quic.txt"
+if grep -q "measured nothing" "$WORK/err.txt"; then
+  pass "a run that measured nothing is named as one, not as an abort"
+else
+  fail "a run that measured nothing is named as one, not as an abort"
+fi
+
 # The exit code is not the only thing that can lie. Output with no results block
 # never completed a run, whatever it exited with.
 run_case 0 "$ABORTED"

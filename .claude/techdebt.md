@@ -1,84 +1,9 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-08-30. -->
+<!-- Last reviewed: 2026-08-31. -->
 
 ## Severity: High
-
-### The staging load test's agent fleet cannot verify the server certificate
-
-Every agent the nightly load test dials is refused at the TLS handshake:
-`certificate is valid for 127.0.0.1, not 10.244.0.65`, 0 of 100 connected. The
-run reaches the server by pod IP —
-[`load-test.yml`](../.github/workflows/load-test.yml) reads
-`.status.podIP` and passes it as `-addr` — and a pod IP is in no certificate,
-because the server's extra SAN is the DNS name the deployment gives it
-([`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml)
-defaults `OPENGATE_QUIC_HOST` to the service name, and
-[`values-staging.yaml`](../deploy/helm/opengate/values-staging.yaml) sets
-nothing else). A pod IP cannot be added to a SAN list — it changes on every
-restart — so the address the harness dials is what has to move.
-
-The k6 relay scenario fails behind it for the same reason and says so
-(`no online machine to open a session against`), and the regression gate then
-reports the fleet's own collapse as a regression: `quic-agents` rps
-113.77 → 0, error rate 0 → 1. Both are consequences; there is one defect here.
-
-The workflow has been red since 2026-08-22, so nothing has measured whether the
-agent-facing path carries load for that whole period — over a week in which the
-QUIC accept path itself was being changed.
-
-**Pay-down trigger:** immediate. Dial the server's service DNS name rather than
-its pod IP, and let the run go green on its own before reading anything from the
-trend it publishes.
-
-### The performance stack's agent fleet cannot verify the server CA
-
-All four scaling shards fail identically —
-`certificate signed by unknown authority (possibly because of "x509: ECDSA
-verification failure") while trying to verify candidate authority certificate
-"OpenGate CA"` — 0 of 500 agents connected on each, 3300 dial attempts refused.
-The harness holds a CA that does not verify the certificate the server presents,
-so the two are different generations of the same-named authority rather than a
-missing one. The compose stack behind it is
-[`docker-compose.perf.yml`](../deploy/docker-compose.perf.yml); the harness is
-[`server/tests/loadtest`](../server/tests/loadtest/), the same binary the
-staging load test runs, dialling loopback here rather than a pod.
-
-[`perf-stack.yml`](../.github/workflows/perf-stack.yml) has not been green in
-any of the six runs since it was introduced on 2026-08-23. The certificate is
-only the newest way it measures nothing: the run before this one never reached a
-dial at all, stopping on the harness's own node-commitment guard
-(`stopping before phase "ramp": the node's processor is 100% committed against a
-limit of 95%`) on the same four-processor runner the sweep is sized for. That
-guard wants its own answer once the handshake works.
-
-**Pay-down trigger:** immediate, and ordered after the false-green entry below —
-until the harness fails a run that connected nobody, a fix here cannot be shown
-to have worked.
-
-### A performance run that connected nobody reports success
-
-The volume family passed on a run where it connected no agents at all:
-`Agents: 0/500 succeeded`, `Failures: 0`, `bundle.json (invalid)`, step green.
-The exit code is read off the failure count alone —
-[`main.go`](../server/tests/loadtest/main.go) ends `if failures > 0 { os.Exit(1) }`
-— so a run whose agents produced no result each, rather than a failed one each,
-is indistinguishable from a clean run. The harness already writes the verdict
-that contradicts it, into the evidence bundle, where nothing in
-[`perf-stack.yml`](../.github/workflows/perf-stack.yml) reads it.
-
-This is the defect class [`ci-cd-determinism.md`](rules/ci-cd-determinism.md)
-names: the work was refused, the step is green, and the only way anyone finds
-out is by going to look. The load test closed the same hole with
-[`loadtest-run-completeness.sh`](../scripts/loadtest-run-completeness.sh), which
-did fail the run it was given; the performance stack has no equivalent, and its
-green shard is why the sweep reads as partly working when none of it is.
-
-**Pay-down trigger:** immediate, and before either QUIC entry above — a gate
-that cannot fail cannot confirm their fixes. A run that achieved no connected
-agents fails where the absence is known, in the harness, and the perf workflow
-reads the bundle's verdict the way the load test reads its completeness file.
 
 ### The 0-RTT test trips a race inside quic-go, and reds the gate at random
 
@@ -112,26 +37,50 @@ correctly.
 
 ## Severity: Medium
 
-### The nightly mutation score is below its baseline in all three languages
+### The nightly mutation score is below its baseline in go and rust
 
-The last complete run scored rust 87.4, go 85.5 and web 82.4 against a baseline
-of 88.5 / 88.2 / 85.7, so the gate fails on two counts at once: go dropped more
-than the 2pp the check allows, and web sits under its 85% floor. The run that
-measured it was complete, so these are scores rather than an artefact of a
-shard that went missing.
+The go and rust legs sit under their baselines: rust 87.4 and go 85.5 against
+88.5 and 88.2, so go has dropped more than the 2pp the check allows. The runs
+that measured them were complete, so these are scores rather than an artefact of
+a shard that went missing.
+
+Reading the score at all needs a night that finishes, and the nightly stopped
+producing one: a shard's own baseline suite has to pass before gremlins mutates
+anything, and `TestASecondConnectionLeavesTheLiveOneAlone` failed on the
+`go-domain-persistence` shard, taking the whole run's artefact set with it. That
+case waited on the connected-agent count and then read the device row, and the
+two move at different moments — the count on the accept path, the row when the
+register frame is handled — so on a machine busy enough to widen the gap it read
+the seeded status. It now waits for the machine to be online, which is the state
+the reconnect is supposed to leave alone.
 
 What moved is the denominator. Forty-seven commits landed the rules, alerts and
 investigations programme between the baseline and that run — 434 files, roughly
 66k lines — and the go figure carries 325 mutants in code no test reaches at
 all, against 94 that a test reaches and fails to kill. The shape says new
-surface arriving under-tested rather than existing tests weakening, which is
-also why the drop is spread across all three languages instead of one.
+surface arriving under-tested rather than existing tests weakening.
+
+The web leg is out of it. A full local run reproduced the nightly's 82.4 exactly,
+which made the gap addressable per file rather than per shard: the survivors
+concentrated in the same rules and investigations surface the drop came from,
+and covering seven of those files — `WhatItDoes`, `RuleList`, `RuleCoveragePanel`,
+`DeviceLabels`, `MaintenancePanel`, `rule-store` and `device-tags-store` — took
+the leg to 85.3 against its 85 floor. Nothing but tests changed. The margin
+over the floor is thin enough that the next tranche of web surface will need the
+same treatment as it lands rather than after the leg reds again.
+
+`internal/rules` is the same job started on the go side: the two functions the
+package left unreached — `Term.Comparator` and `ResumeRuleTenantWide` — are
+covered, and with them the whole `wireTerms` path, which every test had been
+skipping past because no fixture carried a rule with extra conditions.
 
 **Pay-down trigger:** this is measured per shard, so it pays down per shard
 rather than in one pass. Take the shards covering the new rules and alerts code,
 kill what a test can kill, and carve out what the run proves equivalent with the
-reason written next to it. The floor is the gate going green on its own rather
-than the baseline being moved to meet it.
+reason written next to it. A file's survivor list is the unit of work — reading
+it off a local run costs less than a nightly and names the assertions that are
+missing. The floor is the gate going green on its own rather than the baseline
+being moved to meet it.
 
 ### The two larger fleets have not been built on staging
 
@@ -288,30 +237,63 @@ migration time rather than by the tests themselves.
 
 ### E2E worker-scoped identities not adopted; Playwright stays single-worker
 
-46 of 56 Playwright tests provision their own account
+77 Playwright tests across 21 spec files provision their own account
 ([`fixtures.ts`](../web/e2e/fixtures.ts)), and `workers: 1` is a deliberate fix
 for `createAdminUser` racing on shared IAM state. Sharing one identity per worker
-would cut account setup and is the prerequisite for raising the worker count, but
-it makes every test that writes devices, groups, or users visible to its
-siblings. Adopting it needs a per-test audit classifying which of the 19 spec
-files mutate state that another test observes; guessing at that trades a known
-cost for unpredictable cross-test flake. The per-test navigation cost has been
-halved in the meantime (the token is seeded via `addInitScript`, so an
-authenticated page is reached in one navigation instead of two).
+would cut account setup and is the prerequisite for raising the worker count.
+The per-test navigation cost has been halved in the meantime (the token is
+seeded via `addInitScript`, so an authenticated page is reached in one
+navigation instead of two).
 
-Two pieces of that audit are now enforced rather than pending. The
+The per-spec audit is done, and it names two barriers rather than a diffuse
+risk. Both are properties of the suite, not of the identities, so per-worker
+accounts do not clear either on their own.
+
+The binding one is `cannot remove last admin` in
+[`security-permissions.spec.ts`](../web/e2e/security-permissions.spec.ts). It
+empties the Administrators group down to a single member to reach the state it
+asserts, and puts the members back in a `finally`. For the width of that window
+the bootstrap operator is not an admin — and `createAdminUser` promotes every
+admin fixture through exactly that credential
+([`auth-helper.ts`](../web/e2e/helpers/auth-helper.ts)), so any of the 8 spec
+files taking `adminUser` or `adminPage` that overlaps the window fails on a
+promotion it had no part in. That is a serialization barrier against a third of
+the suite at any worker count.
+
+The second is [`device-site-dnd.spec.ts`](../web/e2e/device-site-dnd.spec.ts),
+which holds two sites under the fixed names `Site A` and `Site B` and moves
+`agent-b` between them, restoring both in `afterEach`. Sites are visible to the
+whole customer while they are held, so the specs that render the fleet — the
+screenshot baselines in
+[`visual-regression.spec.ts`](../web/e2e/visual-regression.spec.ts) among them —
+read them if they overlap.
+
+The rest of the suite clears the audit on evidence.
+[`device-list.spec.ts`](../web/e2e/device-list.spec.ts) names its sites by
+timestamp, asserts only on the name it created, and deletes them `afterEach`.
+[`restart.spec.ts`](../web/e2e/restart.spec.ts) fulfils the restart route in the
+browser, so `agent-b` is read for its id and never actually restarted. The
+membership tests in `security-permissions.spec.ts` assert `toContain` against a
+user they registered themselves, which no sibling can perturb. Of the two real
+machines, `agent-a` is read-only to
+[`file-manager`](../web/e2e/file-manager.spec.ts),
+[`hardware`](../web/e2e/hardware.spec.ts),
+[`inventory`](../web/e2e/inventory.spec.ts) and
+[`session-terminal`](../web/e2e/session-terminal.spec.ts), and `agent-b` is
+written by `device-site-dnd.spec.ts` alone.
+
+Two pieces of that audit are enforced rather than pending. The
 `globalTeardown` in [`global-teardown.ts`](../web/e2e/global-teardown.ts) fails
 any run that leaves a group behind, and
 [`fleet-stub.ts`](../web/e2e/helpers/fleet-stub.ts) gives the specs that assert
 an empty fleet a way to supply that emptiness instead of reading shared state.
-Both narrow the audit to specs that seed devices or users, and both hold at any
-worker count. Since the tenant — not the creating user — is the visibility
-boundary, per-worker identities would not isolate fleet writes on their own; the
-remaining audit has to cover that, or the worker count needs a per-worker
-tenant.
+Both hold at any worker count. Since the tenant — not the creating user — is the
+visibility boundary, raising the count needs the last-admin test in a lane of its
+own and `device-site-dnd.spec.ts` holding uniquely-named sites on a device it
+owns, or it needs a per-worker tenant.
 
-**Pay-down trigger:** E2E wall time becomes a merge-latency problem, making the
-per-test mutation audit worth its cost.
+**Pay-down trigger:** E2E wall time becomes a merge-latency problem. The audit no
+longer gates the change; the two barriers above are what the work consists of.
 
 ### Device-list filtering is client-side (future server-side concern at scale)
 

@@ -15,6 +15,11 @@
 #   * exit 1 — some agents failed. Still a measurement: a fleet that half
 #     connects is exactly what the trend exists to record, and the error rate
 #     carries the finding.
+#   * exit 2 — the harness finished and measured nothing. It ran to completion
+#     and printed a full results block; what the block says is that no agent
+#     arrived. Rows of zeroes, so the output goes the same way as an abort's —
+#     but naming it an abort sends a reader looking for a crash that never
+#     happened.
 #   * anything else — the harness aborted. Its output describes the abort, so it
 #     is discarded and the run is short a scenario.
 #
@@ -32,6 +37,11 @@ set -euo pipefail
 # QUIC_AGENT_FAILURES is the harness's exit code when some agents failed but the
 # run completed.
 QUIC_AGENT_FAILURES=1
+
+# QUIC_MEASURED_NOTHING is the harness's exit code when the run completed and no
+# agent arrived. The harness knows this because it classifies its own run, and
+# the classification is what says whether there is anything here to trend.
+QUIC_MEASURED_NOTHING=2
 
 usage() {
   echo "usage: $0 <output-path> -- <harness command...>" >&2
@@ -68,6 +78,13 @@ main() {
   local status=0
   "$@" >"$output" 2>&1 || status=$?
   cat "$output"
+
+  if [ "$status" = "$QUIC_MEASURED_NOTHING" ]; then
+    rm -f "$output"
+    echo "::error::the QUIC harness finished and measured nothing; its output is discarded so a run that connected nobody does not enter the trend." >&2
+    printf '%s\n' "$status" >"$status_file"
+    return "$status"
+  fi
 
   if [ "$status" -ne 0 ] && [ "$status" -ne "$QUIC_AGENT_FAILURES" ]; then
     rm -f "$output"

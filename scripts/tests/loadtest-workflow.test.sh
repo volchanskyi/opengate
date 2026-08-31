@@ -144,6 +144,69 @@ else
   fail "the step that reads the fleet's log must run whatever the scenarios did"
 fi
 
+# --- The fleet dials a name the certificate carries ----------------------------
+#
+# An agent takes its TLS name from the host half of the address it is given, and
+# a pod IP is in no certificate — it changes on every restart, so no SAN list can
+# name one. Dialling the pod IP refused every agent at the handshake
+# ("certificate is valid for 127.0.0.1, not 10.244.0.99") for over a week, and
+# the relay scenario failed behind it for want of a machine to open a session
+# against. The name the chart signs the server for is its Service name, so that
+# is the name the fleet dials; the packets still reach the pod, because the alias
+# below points the name at it.
+quic_start_block="$(awk '
+  /^[[:space:]]*- name: Start the QUIC fleet and hold it connected/ { found = 1; next }
+  found && /^[[:space:]]*- name:/ { exit }
+  found { print }
+' "$WORKFLOW")"
+if grep -qE -- '-addr="\$\{?SERVER_POD_IP\}?:9090"' <<<"$quic_start_block"; then
+  fail "the fleet dials the server's pod IP, which no certificate can name"
+else
+  pass "the fleet does not dial an address no certificate can name"
+fi
+
+if grep -qE -- '-addr="\$\{RELEASE\}-server:9090"' <<<"$quic_start_block"; then
+  pass "the fleet dials the server by the name its certificate carries"
+else
+  fail "the fleet must dial the server's in-cluster name, the one on the certificate"
+fi
+
+# The Service carries the HTTP port only, so the name is pointed at the server
+# pod itself — the same arrangement the staging browser suite's machines use.
+quic_stage_block="$(awk '
+  /^[[:space:]]*- name: Stage QUIC harness in cluster/ { found = 1; next }
+  found && /^[[:space:]]*- name:/ { exit }
+  found { print }
+' "$WORKFLOW")"
+if grep -q 'hostAliases' <<<"$quic_stage_block" \
+  && grep -q 'SERVER_POD_IP' <<<"$quic_stage_block"; then
+  pass "the name the fleet dials resolves to the server pod the listener is in"
+else
+  fail "without an alias the name resolves to a Service with no QUIC port, and the packets reach nothing"
+fi
+
+# --- A run that measured nothing does not enter the trend ----------------------
+#
+# The completeness verdict is written by the load-test job and was read by
+# nothing: the publish job ran on every path and pushed whatever rows existed, so
+# nine nights of rps 0 / error_rate 1 went into the fourteen-day window and took
+# its median from 113 to 57. A depressed median is a gate that fires later, which
+# is the cost the invalid classification exists to avoid.
+publish_block="$(awk '/^  publish:/ { found = 1; next } found && /^  [a-z]/ { exit } found { print }' "$WORKFLOW")"
+if grep -q 'loadtest-completeness.json' <<<"$publish_block"; then
+  pass "the publish job reads the verdict the run wrote about itself"
+else
+  fail "the publish job pushes rows without reading whether the run measured anything"
+fi
+
+push_line="$(grep -n 'loadtest-vm-push.sh' <<<"$publish_block" | head -1 | cut -d: -f1)"
+verdict_line="$(grep -n 'loadtest-completeness.json' <<<"$publish_block" | head -1 | cut -d: -f1)"
+if [ -n "$push_line" ] && [ -n "$verdict_line" ] && [ "$verdict_line" -lt "$push_line" ]; then
+  pass "the verdict is read before anything is pushed"
+else
+  fail "the verdict (line $verdict_line) must be read before the push (line $push_line)"
+fi
+
 # --- The reset the next run stands on empties what a run creates ---------------
 #
 # A run's fixture asks the server for a customer by name, and a customer's name

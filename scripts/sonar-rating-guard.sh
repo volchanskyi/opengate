@@ -57,13 +57,13 @@ RATING_SETTLE_SLEEP="${RATING_SETTLE_SLEEP:-5}"
 CURL_BIN="${CURL_BIN:-curl}"
 
 # srat_is_analyzed <path> — exit 0 when SonarCloud reads the file at all: under a
-# sonar.sources root, a Rust/Go/TS extension, and not generated output. Test
-# files are included; they are analyzed, they raise findings, and those findings
-# are worth naming even though they move no rating.
+# sonar.sources or sonar.tests root, a Rust/Go/TS extension, and not generated
+# output. server/tests is one of those roots and holds Go the analysis reads, so
+# a finding can land there; leaving it out meant the guard could not see one.
 srat_is_analyzed() {
   local p="$1"
   case "$p" in
-    server/internal/* | agent/crates/* | web/src/*) ;;
+    server/internal/* | server/tests/* | agent/crates/* | web/src/*) ;;
     *) return 1 ;;
   esac
   case "$p" in
@@ -76,14 +76,24 @@ srat_is_analyzed() {
   esac
 }
 
-# srat_is_source <path> — exit 0 when the file is main production code, which is
-# what the two ratings are computed over. A finding in a test file cannot move
-# them, so the guard must not fail a commit the gate would pass.
+# srat_is_source <path> — exit 0 when a finding on this file can move one of the
+# two ratings the gate holds at A.
+#
+# The line is sonar.exclusions, not the shape of the path. A file that list
+# removes is never analysed, so no finding can exist on it; a file it keeps is
+# analysed and its findings count however test-like the path reads. Skipping
+# every path containing /tests/ conflated the two and let two rust:S2612
+# findings on a Rust integration test take new_security_rating to 3 in CI while
+# this guard reported the commit clean.
+#
+# The entries below mirror sonar.exclusions. server/tests holds Go that is not
+# *_test.go, which that list does not remove — so it is main code here.
 srat_is_source() {
   srat_is_analyzed "$1" || return 1
   case "$1" in
     *_test.go | *.test.ts | *.test.tsx | *.spec.ts | *.spec.tsx) return 1 ;;
-    */tests/* | */testutil/* | */testpg/*) return 1 ;;
+    agent/crates/*/tests/*) return 1 ;;
+    */testutil/* | */testpg/* | */testdata/*) return 1 ;;
   esac
   return 0
 }

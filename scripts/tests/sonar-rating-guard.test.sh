@@ -88,6 +88,11 @@ assert_ok "web tsx source" srat_is_source web/src/features/rules/TuningPanel.tsx
 assert_fail "go test file is not main code" srat_is_source server/internal/api/handlers_test.go
 assert_fail "ts test file is not main code" srat_is_source web/src/features/rules/RuleList.test.tsx
 assert_fail "rust integration test is not main code" srat_is_source agent/crates/edge-tsdb/tests/store_test.rs
+# A file is out of the ratings' reach because sonar.exclusions removes it from
+# analysis, not because its path reads like a test. server/tests holds Go that
+# is not *_test.go, so SonarCloud analyses it and a vulnerability there lands on
+# new_security_rating like any other — which the blanket */tests/* skip hid.
+assert_ok "analysed Go under server/tests is main code" srat_is_source server/tests/loadtest/credentials.go
 assert_fail "generated go is not main code" srat_is_source server/internal/api/openapi_gen.go
 assert_fail "outside the sonar roots" srat_is_source scripts/foo.go
 assert_fail "markdown is not source" srat_is_source docs/Home.md
@@ -149,11 +154,20 @@ RATING_CHANGED_OVERRIDE="web/src/features/rules/RuleList.tsx" \
 RATING_CHANGED_OVERRIDE="web/src/features/rules/RuleList.tsx" \
   RATING_ISSUES_OVERRIDE="web/src/features/rules/RuleList.tsx	CODE_SMELL	MAJOR	typescript:S3358	31	nested ternary" \
   assert_says "a code smell is still named in the output" "typescript:S3358" srat_main
-# A bug in a test file cannot move new_reliability_rating, which is a main-code
-# metric, so the guard says so rather than failing a commit the gate would pass.
+# A bug on a file sonar.exclusions removes from analysis cannot move a rating,
+# because no finding can exist there at all. That is why this passes — not
+# because the path reads like a test.
 RATING_CHANGED_OVERRIDE="web/src/features/rules/RuleList.test.tsx" \
   RATING_ISSUES_OVERRIDE="web/src/features/rules/RuleList.test.tsx	BUG	CRITICAL	typescript:S2871	10	sort" \
-  assert_rc "a bug in a test file does not fail the gate's metric" 0 srat_main
+  assert_rc "a bug in an unanalysed test file does not fail the gate's metric" 0 srat_main
+
+# The distinction the guard used to miss. A file SonarCloud analyses moves the
+# rating whatever its path looks like: two rust:S2612 findings on a Rust
+# integration test took new_security_rating to 3 and failed CI while this guard
+# reported the commit clean, because it skipped every path containing /tests/.
+RATING_CHANGED_OVERRIDE="server/tests/loadtest/credentials.go" \
+  RATING_ISSUES_OVERRIDE="server/tests/loadtest/credentials.go	VULNERABILITY	MAJOR	go:S2077	45	dynamically formatted SQL" \
+  assert_rc "a vulnerability on an analysed file under tests/ fails" 1 srat_main
 RATING_CHANGED_OVERRIDE="web/src/features/rules/RuleList.test.tsx" \
   RATING_ISSUES_OVERRIDE="web/src/features/rules/RuleList.test.tsx	BUG	CRITICAL	typescript:S2871	10	sort" \
   assert_says "a bug in a test file is still named" "typescript:S2871" srat_main

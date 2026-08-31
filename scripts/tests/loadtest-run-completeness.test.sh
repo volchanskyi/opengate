@@ -95,6 +95,36 @@ assert_eq "a breached mark is a failure, not an invalid run" "failed" "$(jq -r '
 assert_eq "a breached mark is named" "api-baseline" "$(jq -r '.threshold_breaches | join(",")' "$WORK/completeness.json")"
 rm -f "$WORK/k6"/*.thresholds
 
+# A scenario whose every request failed produced a row, and a row is not a
+# measurement. The QUIC fleet that could not verify the server's certificate
+# emitted rps 0 and error_rate 1 every night for over a week; each of those rows
+# counted as the scenario having run, and each one went into the trend.
+rowsWithError() {
+  local scenario="$1" rate="$2"
+  {
+    printf '['
+    printf '{"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":90,"error_rate":0},'
+    printf '{"source":"k6","scenario":"concurrent-agents","phase":"http","latency_p95_ms":90,"error_rate":0},'
+    printf '{"source":"k6","scenario":"relay-throughput","phase":"http","latency_p95_ms":90,"error_rate":0},'
+    printf '{"source":"quic","scenario":"%s","phase":"aggregate","rps":0,"error_rate":%s}' "$scenario" "$rate"
+    printf ']'
+  } >"$WORK/summary.json"
+}
+
+rowsWithError quic-agents 1
+run_check
+assert_eq "a scenario where nothing succeeded exits 3" "3" "$STATUS"
+assert_eq "a scenario where nothing succeeded is invalid" "invalid" "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "the scenario that measured nothing is named" "quic-agents" \
+  "$(jq -r '.unmeasured_scenarios | join(",")' "$WORK/completeness.json")"
+
+# A run that mostly worked is still a measurement: the error rate is the finding,
+# and the trend is where a degrading night belongs.
+rowsWithError quic-agents 0.1
+run_check
+assert_eq "a scenario that mostly worked exits 0" "0" "$STATUS"
+assert_eq "a scenario that mostly worked is valid" "valid" "$(jq -r '.result' "$WORK/completeness.json")"
+
 # Which scenarios a run owes is the run's own declaration, so a profile that
 # runs fewer of them is not permanently invalid.
 rows api-baseline

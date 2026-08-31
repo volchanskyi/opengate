@@ -78,3 +78,36 @@ func TestAnswerLogPull_IgnoresOtherFrames(t *testing.T) {
 	assert.False(t, handled, "a non-pull frame is not a raw pull")
 	assert.Zero(t, out.Len(), "no reply is written for a non-pull frame")
 }
+
+// What the process returns is the only thing the runner around it can read, so
+// the three outcomes a run has must be three different codes.
+//
+// A run that connected nobody produced no failed agents — it produced no agents
+// at all — so a code derived from the failure count alone reports it as a clean
+// run. That is how a sweep came to read as partly working when none of it was.
+func TestTheExitCodeSaysWhichOfTheThreeOutcomesHappened(t *testing.T) {
+	t.Run("a run that measured nothing is not a clean run", func(t *testing.T) {
+		verdict := Verdict{Result: ResultInvalid, Reasons: []string{"scenario \"quic-agents\" produced no rows"}}
+		assert.Equal(t, exitMeasuredNothing, exitCode(verdict, 0),
+			"no failures and no measurement is the shape that used to pass")
+	})
+
+	t.Run("a fleet that half arrived is a measurement", func(t *testing.T) {
+		assert.Equal(t, exitAgentFailures, exitCode(Verdict{Result: ResultValid}, 12),
+			"a fleet that half connects is exactly what the trend exists to record")
+	})
+
+	t.Run("a run that breached a gate is a measurement too", func(t *testing.T) {
+		assert.Equal(t, exitAgentFailures, exitCode(Verdict{Result: ResultFailed}, 0),
+			"a gate breach is a finding about the system, not a missing run")
+	})
+
+	t.Run("a whole fleet that arrived and held is clean", func(t *testing.T) {
+		assert.Equal(t, 0, exitCode(Verdict{Result: ResultValid}, 0))
+	})
+
+	t.Run("measuring nothing outranks the failure count", func(t *testing.T) {
+		assert.Equal(t, exitMeasuredNothing, exitCode(Verdict{Result: ResultInvalid}, 500),
+			"a run that never measured the system cannot be reported as one that did")
+	})
+}

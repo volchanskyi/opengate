@@ -117,6 +117,18 @@ else
   fail "the systemd unit holding the enrollment token is owner-only (mode $(stat -c '%a' "$unit"))"
 fi
 
+# The agent binary is owned by root and started by a unit that runs as root, so
+# nobody else needs to read or run it. Every other local account on the endpoint
+# is somebody the agent's own key and data directory are already closed to, and
+# the binary was the one file left open to them. The auto-updater writes the same
+# mode, so a machine that updates does not drift from one that installed.
+binary="$fixture/root/usr/local/bin/mesh-agent"
+if [ "$(stat -c '%a' "$binary")" = "750" ]; then
+  pass "the agent binary is closed to other local accounts"
+else
+  fail "the agent binary is closed to other local accounts (mode $(stat -c '%a' "$binary"))"
+fi
+
 before_sha="$(sha256sum "$fixture/root/usr/local/bin/mesh-agent")"
 if run_installer "$fixture" "$token" >/dev/null \
   && [ "$(sha256sum "$fixture/root/usr/local/bin/mesh-agent")" = "$before_sha" ] \

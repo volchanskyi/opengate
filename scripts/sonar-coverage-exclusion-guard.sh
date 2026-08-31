@@ -28,9 +28,13 @@
 #   staleness     — every literal (non-glob) path in the list must exist.
 #   justification — every entry is named in the JUSTIFICATIONS comment block above
 #                   the property, so no exclusion can be added without writing why.
-#   agreement     — the per-language ignore lists in ci.yml and
-#                   precommit-gauntlet.sh match each other. A path exempt in every
-#                   place coverage is enforced is measured by nothing at all.
+#   agreement     — the per-language ignore lists in ci.yml, precommit-gauntlet.sh
+#                   and the Makefile's sonar-coverage target all match. A path
+#                   exempt in every place coverage is enforced is measured by
+#                   nothing at all; and the Makefile is the one that generates the
+#                   report SonarCloud reads, so a list that drifts there narrows
+#                   the gate's view of the workspace without narrowing either
+#                   ≥80% job. It had drifted by four files.
 #
 # Env:
 #   SCEG_PROPERTIES     sonar-project.properties path, default repo-root file.
@@ -40,6 +44,7 @@
 #                       lines (skips git; set-but-empty means "no copies").
 #   SCEG_CI_WORKFLOW    ci.yml path, default under SCEG_ROOT.
 #   SCEG_GAUNTLET       precommit-gauntlet.sh path, default under SCEG_ROOT.
+#   SCEG_MAKEFILE       Makefile path, default under SCEG_ROOT.
 #   SCEG_ROOT           directory literal paths are resolved against, default
 #                       the properties file's directory.
 #
@@ -52,6 +57,7 @@ SCEG_PROPERTIES="${SCEG_PROPERTIES:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && 
 SCEG_ROOT="${SCEG_ROOT:-$(dirname "$SCEG_PROPERTIES")}"
 SCEG_CI_WORKFLOW="${SCEG_CI_WORKFLOW:-$SCEG_ROOT/.github/workflows/ci.yml}"
 SCEG_GAUNTLET="${SCEG_GAUNTLET:-$SCEG_ROOT/scripts/precommit-gauntlet.sh}"
+SCEG_MAKEFILE="${SCEG_MAKEFILE:-$SCEG_ROOT/Makefile}"
 
 # sceg_exclusions — print one sonar.coverage.exclusions pattern per line. The
 # property spans several physical lines joined by trailing backslashes.
@@ -260,6 +266,28 @@ sceg_main() {
         failed=1
       fi
     done
+  fi
+
+  # The Makefile's sonar-coverage target writes the report SonarCloud reads, so a
+  # list that drifts there narrows the gate's view of the workspace while both
+  # ≥80% jobs go on measuring the wider one. Rust only: the Go report is the same
+  # profile all three read, filtered at the point of use.
+  local makefile="$SCEG_MAKEFILE"
+  if [ -f "$ci" ] && [ -f "$makefile" ]; then
+    local ci_rust make_rust
+    ci_rust="$(sceg_rust_ignore "$ci")"
+    make_rust="$(sceg_rust_ignore "$makefile")"
+    if [ "$ci_rust" != "$make_rust" ]; then
+      {
+        echo "✗ the rust coverage ignore list differs between CI and the Sonar report."
+        echo "    ci.yml:                    $ci_rust"
+        echo "    Makefile sonar-coverage:   $make_rust"
+        echo "  The Makefile writes what SonarCloud reads, so a wider list here hides"
+        echo "  files from the gate that both ≥80% jobs still measure."
+        echo "  Fix: make them identical."
+      } >&2
+      failed=1
+    fi
   fi
 
   if [ "$failed" -ne 0 ]; then

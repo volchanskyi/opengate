@@ -330,7 +330,8 @@ load-test-quic:
 sonar-coverage:
 	cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
 	cd agent && cargo llvm-cov nextest --workspace --lcov --output-path lcov.info \
-		--ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)'
+		--ignore-filename-regex '(/tests/)'
+	./scripts/rust-lcov-relativize.sh agent/lcov.info "$$(pwd)"
 	cd web && npx vitest run --coverage
 
 sonar: sonar-coverage
