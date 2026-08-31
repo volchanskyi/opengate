@@ -156,3 +156,68 @@ describe('rule-store', () => {
     expect(useRuleStore.getState().resolved).toBeNull();
   });
 });
+
+// Every write re-reads the rule, so a write that did not happen must not
+// trigger the re-read: the refetch is what tells the page its request landed,
+// and one issued after a refusal would redraw the page as if it had.
+describe('rule-store refusals', () => {
+  it('does not re-read the rule when a removal is refused', async () => {
+    mockedDelete.mockResolvedValue(refused('that value is not yours to remove') as never);
+
+    expect(await useRuleStore.getState().removeBinding('disk-critical', 'binding-1')).toBe(false);
+    expect(mockedGet).not.toHaveBeenCalled();
+    expect(useRuleStore.getState().error).toContain('not yours');
+  });
+
+  it('does not re-read the rule when a pace change is refused', async () => {
+    mockedPut.mockResolvedValue(refused('a canary above the staged share is not a rollout') as never);
+
+    expect(await useRuleStore.getState().saveRollout('disk-critical', {
+      enabled: true, canary_percent: 90, staged_percent: 25,
+      canary_hold_secs: 7200, staged_hold_secs: 43200,
+    })).toBe(false);
+    expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  // A stop that was refused has to read as refused. Reporting it as done would
+  // leave an operator believing a rule degrading an estate had been halted.
+  it('does not re-read the rule when a stop is refused', async () => {
+    mockedPost.mockResolvedValue(refused('stopping tenant-wide is not yours to do') as never);
+
+    expect(await useRuleStore.getState().setStopped('disk-critical', 'tenant', true)).toBe(false);
+    expect(mockedGet).not.toHaveBeenCalled();
+    expect(useRuleStore.getState().error).toContain('not yours');
+  });
+
+  it('does not re-read the rule when an acknowledgement is refused', async () => {
+    mockedPost.mockResolvedValue(refused('that clamp is already acknowledged') as never);
+
+    expect(await useRuleStore.getState().acknowledgeClamp('disk-critical', 'clamp-1')).toBe(false);
+    expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  // Asking how one machine is running the rule is a read the page can do
+  // without: a refusal reports itself and leaves the last answer alone rather
+  // than blanking the panel.
+  it('keeps the last resolved answer when a resolve is refused', async () => {
+    mockedGet.mockResolvedValueOnce(ok({
+      rule_id: 'disk-critical', device_id: 'fs01', delivered: true,
+      params: { threshold: { value: 95, level: 'site', source: "set on this machine's office" } },
+    }) as never);
+    await useRuleStore.getState().resolveFor('disk-critical', 'fs01');
+
+    mockedGet.mockResolvedValueOnce(refused('no such machine') as never);
+    await useRuleStore.getState().resolveFor('disk-critical', 'ghost');
+
+    expect(useRuleStore.getState().resolved?.params.threshold?.value).toBe(95);
+    expect(useRuleStore.getState().error).toContain('no such machine');
+  });
+
+  it('reports a stop and an acknowledgement as done when they are', async () => {
+    mockedPost.mockResolvedValue(noContent() as never);
+    mockedGet.mockResolvedValue(ok(detail()) as never);
+
+    expect(await useRuleStore.getState().setStopped('disk-critical', 'organization', true)).toBe(true);
+    expect(await useRuleStore.getState().acknowledgeClamp('disk-critical', 'clamp-1')).toBe(true);
+  });
+});

@@ -233,9 +233,10 @@ func millis(d time.Duration) float64 {
 	return float64(d) / float64(time.Millisecond)
 }
 
-// writeRunBundle is the thin wrapper the harness's main calls.
-func writeRunBundle(in runBundleInputs, dir string) error {
-	bundle := buildRunBundle(in)
+// writeRunBundle puts a built bundle on disk. Building and writing are separate
+// because the verdict is read on every run and the file is written only when one
+// was asked for.
+func writeRunBundle(bundle *Bundle, dir string) error {
 	path, err := bundle.WriteTo(dir)
 	if err != nil {
 		return err

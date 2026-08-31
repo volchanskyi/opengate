@@ -190,14 +190,14 @@ func TestWriteRunBundlePutsTheEvidenceOnDisk(t *testing.T) {
 	p, err := ParseProfile([]byte(minimalProfile))
 	require.NoError(t, err)
 
-	require.NoError(t, writeRunBundle(runBundleInputs{
+	require.NoError(t, writeRunBundle(buildRunBundle(runBundleInputs{
 		Profile:    p,
 		Results:    harnessResults(),
 		StartedAt:  time.Now(),
 		Total:      time.Second,
 		AgentCount: 3,
 		Target:     "opengate-staging-server:9090",
-	}, dir))
+	}), dir))
 
 	read, err := LoadBundle(filepath.Join(dir, "bundle.json"))
 	require.NoError(t, err)

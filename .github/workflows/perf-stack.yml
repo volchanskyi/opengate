@@ -90,7 +90,18 @@ jobs:
       # pointed at server/ with -C. A step that changes directory instead cannot
       # see the scripts and profiles it names, and fails after the stack is
       # already up.
-      - name: Run the scaling profile
+      #
+      # The machines enrol the way an installer does, through the server's own
+      # endpoint: they keep their private keys and send signing requests, and
+      # what comes back is a certificate plus the authority to verify the server
+      # with. A harness signing for itself owns a different authority from the
+      # one the server created in its container, and every dial is then refused
+      # at the handshake against an authority of the same name.
+      #
+      # Building the fleet is also what makes this a scaling sweep: the family
+      # holds the load and the data constant and varies the processors, and its
+      # profile names the fixture it holds constant.
+      - name: Run the scaling profile, building its fleet first
         run: |
           set -euo pipefail
           mkdir -p "$PERF_BUNDLE_DIR"
@@ -102,8 +113,23 @@ jobs:
               -default-telemetry \
               -hold=3m \
               -profile=load/profiles/scaling.yaml \
+              -enroll-url=http://127.0.0.1:8080 \
               -metrics-url=http://127.0.0.1:8080 \
+              -fixture-account=perf-admin@opengate-loadtest.invalid \
+              -fixture-password="$PERF_FIXTURE_PASSWORD" \
+              -fixture-bootstrap \
+              -fixture-seed=1 \
               -bundle="$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}"
+        env:
+          # The stack is created by this job and thrown away at the end of it, is
+          # reachable only from inside the runner, and holds nothing but the
+          # fleet this run invented. The password is generated per run all the
+          # same, so nothing fixed is ever written down.
+          PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+
+      - name: Read the verdict the run wrote about itself
+        if: always()
+        run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json"
 
       - name: Tear the stack down
         if: always()
@@ -190,6 +216,10 @@ jobs:
           # fleet this run invented. The password is generated per run all the
           # same, so nothing fixed is ever written down.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+
+      - name: Read the verdict the run wrote about itself
+        if: always()
+        run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/volume/bundle.json"
 
       - name: Weigh what the fleet actually cost
         if: always()

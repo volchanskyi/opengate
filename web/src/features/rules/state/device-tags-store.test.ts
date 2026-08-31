@@ -83,3 +83,65 @@ describe('device-tags-store', () => {
     expect(mockedDelete).toHaveBeenCalledWith('/api/v1/device-tags/assignments', expect.anything());
   });
 });
+
+describe('device-tags-store refusals and scoping', () => {
+  // A label list that could not be read stays empty rather than half-written:
+  // a partial catalogue would show machines carrying labels that are not there.
+  it('leaves the catalogue alone when it cannot be read', async () => {
+    useDeviceTagsStore.setState({ labels: catalogue().data.labels });
+    mockedGet.mockResolvedValue(inUse() as never);
+
+    await useDeviceTagsStore.getState().fetchTags();
+
+    expect(useDeviceTagsStore.getState().labels).toHaveLength(1);
+    expect(useDeviceTagsStore.getState().error).toContain('aimed at');
+  });
+
+  // Every write re-reads the list, so a refused write must not re-read: the
+  // refetch is what tells the screen the change landed.
+  it('does not re-read the list when a label is refused', async () => {
+    mockedPost.mockResolvedValue(inUse() as never);
+
+    expect(await useDeviceTagsStore.getState().createLabel('env', 'production')).toBe(false);
+    expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  it('does not re-read the list when an assignment is refused', async () => {
+    mockedPut.mockResolvedValue(inUse() as never);
+
+    expect(await useDeviceTagsStore.getState().assignLabel('label-1', ['fs01'])).toBe(false);
+    expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  it('does not re-read the list when taking a label off is refused', async () => {
+    mockedDelete.mockResolvedValue(inUse() as never);
+
+    expect(await useDeviceTagsStore.getState().clearTag('fs01', 'role')).toBe(false);
+    expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  it('re-reads the list once a label is actually gone', async () => {
+    mockedDelete.mockResolvedValue(noContent() as never);
+    mockedGet.mockResolvedValue(catalogue() as never);
+
+    expect(await useDeviceTagsStore.getState().deleteLabel('label-1')).toBe(true);
+    expect(mockedGet).toHaveBeenCalledTimes(1);
+  });
+
+  // Labels belong to a customer. With one on screen the reads and writes have
+  // to name it, or an operator holding several customers would file Contoso's
+  // label against whichever one the server picked.
+  it('names the customer on screen in the reads and writes that carry one', async () => {
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-9' });
+    mockedGet.mockResolvedValue(catalogue() as never);
+    mockedPost.mockResolvedValue(noContent() as never);
+
+    await useDeviceTagsStore.getState().fetchTags();
+    expect(mockedGet).toHaveBeenCalledWith('/api/v1/device-tags',
+      { params: { query: { organization_id: 'org-9' } } });
+
+    await useDeviceTagsStore.getState().createLabel('env', 'production');
+    const call = mockedPost.mock.calls.at(-1) as unknown as [string, { params: { query: unknown } }];
+    expect(call[1].params.query).toEqual({ organization_id: 'org-9' });
+  });
+});

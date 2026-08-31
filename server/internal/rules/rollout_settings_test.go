@@ -277,3 +277,39 @@ func foreignTenant(t *testing.T, e estate) context.Context {
 	testutil.EnsureTenant(t, context.Background(), e.store, tenantID, "Tenant "+tenantID.String()[:8])
 	return dbtx.WithTenant(context.Background(), tenantID, false)
 }
+
+// Lifting a tenant-wide stop reaches exactly the customers the stop reached.
+// The lift and the stop are one statement apart — the flag it writes is the
+// only difference — so a lift that wrote the stop's flag would read as a rule
+// that can never be resumed, and the estate would stay dark until somebody
+// went looking in the table.
+func TestResumingARuleTenantWideLiftsTheStopForEveryCustomer(t *testing.T) {
+	t.Parallel()
+
+	s, e := newEstate(t)
+	other := seedSecondCustomer(t, e)
+
+	require.NoError(t, s.StopRuleTenantWide(e.ctx, "cpu-saturated", "ivan"))
+	for _, org := range []uuid.UUID{e.org, other} {
+		require.True(t, mustListRollouts(t, s, e.ctx, org)["cpu-saturated"].Kill)
+	}
+
+	require.NoError(t, s.ResumeRuleTenantWide(e.ctx, "cpu-saturated", "ivan"))
+	for _, org := range []uuid.UUID{e.org, other} {
+		resumed := mustListRollouts(t, s, e.ctx, org)["cpu-saturated"]
+		assert.False(t, resumed.Kill, "the tenant-wide stop is lifted for every customer")
+		assert.True(t, resumed.Delivers(), "a rule with no stop on it delivers again")
+	}
+
+	// A lift is scoped the same way the stop was: nobody outside the tenant.
+	assert.Empty(t, mustListRollouts(t, s, foreignTenant(t, e), e.org))
+}
+
+// A tenant-wide lift needs a rule id, and it needs a caller the tenant can be
+// read from. Neither reaches the database without one.
+func TestResumingARuleTenantWideRefusesAnEmptyRuleID(t *testing.T) {
+	t.Parallel()
+
+	s, e := newEstate(t)
+	assert.ErrorIs(t, s.ResumeRuleTenantWide(e.ctx, "", "ivan"), ErrInvalidRollout)
+}

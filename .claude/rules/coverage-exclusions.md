@@ -57,7 +57,7 @@ production code.
 
 ## The lists must agree
 
-Coverage is enforced in three places, and an exclusion added to one is invisible
+Coverage is enforced in four places, and an exclusion added to one is invisible
 in the others:
 
 | Where | What it holds |
@@ -65,10 +65,36 @@ in the others:
 | [`sonar-project.properties`](../../sonar-project.properties) | `sonar.coverage.exclusions` — the new-code gate |
 | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) | the per-language ≥80% jobs |
 | [`scripts/precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh) | the same per-language checks locally |
+| [`Makefile`](../../Makefile)'s `sonar-coverage` | the report the gate itself reads |
 
-A path exempt in all three is checked by nothing at all, which is how a package
+A path exempt in all of them is checked by nothing at all, which is how a package
 carrying more test code than production code came to be measured by no gate. The
-guard fails when the Rust ignore lists in the three files disagree.
+guard fails when the Rust ignore lists disagree.
+
+The fourth row is the one that hides: it generates what SonarCloud reads, so a
+list that grows there narrows the gate's view of the workspace while both ≥80%
+jobs go on measuring the wider one, and no number anywhere changes to say so. It
+had drifted by four files.
+
+## The report has to be readable by the scanner that reads it
+
+An exclusion is a decision. A report the analysis cannot resolve is the same
+outcome reached by accident, and it is the harder one to notice: nothing is
+listed anywhere, so there is nothing to review.
+
+`cargo llvm-cov` names every file by its absolute path on the machine that ran
+it. Every scanner that reads the report analyses the tree from inside a
+container mounted somewhere else — `/usr/src` for the Docker scanner, and
+`/github/workspace` for the scan action CI runs — so those paths resolve to no
+indexed file and the coverage is dropped without a word. No Rust file had ever
+carried a coverage figure, for the life of the project, while two ≥80% jobs
+passed against that very report.
+
+So the report is rewritten into the reader's coordinates and then asked whether
+it worked: [`rust-lcov-relativize.sh`](../../scripts/rust-lcov-relativize.sh)
+fails on a report that still names an absolute path, and on one that names no
+source at all. The rewrite is not the guard — the read-back is, for the reason
+[`ci-cd-determinism.md`](ci-cd-determinism.md) gives.
 
 ## An exclusion is re-earned, not kept
 

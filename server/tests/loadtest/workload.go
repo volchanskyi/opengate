@@ -57,6 +57,15 @@ func buildFixtureIfAsked(request fixtureRequest) (*BuiltFixture, string) {
 	return &built, built.EnrollmentToken
 }
 
+// reportingFleet is a fleet that can be wound down and asked what happened. The
+// walk needs only the level-holding half; the reading needs the other two, and
+// naming them here is what lets the order between them be tested.
+type reportingFleet interface {
+	Fleet
+	Stop()
+	Results() []agentResult
+}
+
 // runWorkload walks the profile's phases when there is one, and otherwise offers
 // the whole fleet at once — which is a real event, a site whose link came back,
 // and the only shape available before profiles existed.
@@ -71,17 +80,31 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 		plan := agentPlan[index%len(agentPlan)]
 		return runAgentWithContext(ctx, credentials, addr, plan, opts)
 	})
-	defer fleet.Stop()
 
+	results, phases, err := runProfile(profile, fleet, NewRealClock(), LocalNodeReading)
+	if err != nil {
+		log.Fatalf("phases: %v", err)
+	}
+	return results, phases
+}
+
+// runProfile walks a profile's phases and returns what the fleet did.
+//
+// The fleet is wound down before its results are read, and the order is the
+// whole point: a machine reports once, when its own life ends, so a fleet still
+// holding its level has reported nothing. Reading first gives a run that held
+// five hundred machines for six minutes the same account as one that connected
+// nobody — no successes, no failures — and a run with no failures reads as a
+// clean run.
+func runProfile(profile *Profile, fleet reportingFleet, clock Clock, read SafetyReader,
+) ([]agentResult, []PhaseResult, error) {
 	// The machine the run shares is looked at between phases, and a run that has
 	// pushed it past what its profile said it would accept stops there. On the
 	// throwaway stack the profile declares no limits, so nothing is gated; on
 	// staging the node carries production too.
-	phases, err := RunPhasesWatched(profile, fleet, NewRealClock(), LocalNodeReading)
-	if err != nil {
-		log.Fatalf("phases: %v", err)
-	}
-	return fleet.Results(), phases
+	phases, err := RunPhasesWatched(profile, fleet, clock, read)
+	fleet.Stop()
+	return fleet.Results(), phases, err
 }
 
 // runFlat offers every machine at once and waits for all of them.

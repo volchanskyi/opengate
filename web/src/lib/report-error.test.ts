@@ -3,6 +3,7 @@ import {
   reportClientError,
   resetReportErrorState,
   installGlobalErrorReporting,
+  sanitizeReportedUrl,
 } from './report-error';
 
 // Mirror of the module-private rate-limit window so the pruning test can drive
@@ -181,5 +182,54 @@ describe('installGlobalErrorReporting', () => {
     expect(parsed.message).toBe('async boom');
     expect(parsed.source).toBe('unhandledrejection');
     expect(parsed.stack).toBeDefined();
+  });
+});
+
+// The path reduction is what keeps a bearer credential out of the log store, so
+// its edges are tested directly rather than through a beacon.
+describe('sanitizeReportedUrl', () => {
+  it('reports nothing for a url that was never supplied', () => {
+    expect(sanitizeReportedUrl(undefined)).toBeUndefined();
+    expect(sanitizeReportedUrl('')).toBeUndefined();
+  });
+
+  // A short segment is redacted whole. Showing the first eight characters of an
+  // eight-character credential would print the credential.
+  it('replaces a credential no longer than the prefix it would show', () => {
+    expect(sanitizeReportedUrl('https://app.example/sessions/abcdefgh')).toBe('/sessions/***');
+  });
+
+  it('shows only the leading characters of a longer credential', () => {
+    expect(sanitizeReportedUrl('https://app.example/sessions/abcdefghi')).toBe('/sessions/abcdefgh...');
+  });
+
+  // The prefix on its own carries no credential to redact, and a deeper path is
+  // a route rather than a token — redacting either would lose the route without
+  // protecting anything.
+  it('leaves a credential prefix that carries no credential alone', () => {
+    expect(sanitizeReportedUrl('https://app.example/sessions/')).toBe('/sessions/');
+    expect(sanitizeReportedUrl('https://app.example/sessions/abcdefghi/frames')).toBe('/sessions/abcdefghi/frames');
+  });
+
+  // Every route whose next segment authenticates its holder is covered, not
+  // just the first one in the list.
+  it('covers every credential-bearing route', () => {
+    expect(sanitizeReportedUrl('https://app.example/ws/relay/abcdefghijkl')).toBe('/ws/relay/abcdefgh...');
+    expect(sanitizeReportedUrl('https://app.example/api/v1/enroll/abcdefghijkl')).toBe('/api/v1/enroll/abcdefgh...');
+  });
+
+  it('keeps an ordinary route as it is', () => {
+    expect(sanitizeReportedUrl('https://app.example/devices/abc')).toBe('/devices/abc');
+  });
+
+  // A relative url is still reduced to a path even with no page origin to
+  // resolve it against, so a caller cannot widen what gets reported.
+  it('reduces a relative url with no origin to resolve against', () => {
+    vi.stubGlobal('location', undefined);
+    try {
+      expect(sanitizeReportedUrl('/devices/abc?auth=secret')).toBe('/devices/abc');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

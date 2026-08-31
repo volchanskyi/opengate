@@ -6,6 +6,10 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::{debug, info, warn};
 
+/// Mode for the replaced agent binary: owner and group, nothing for anyone else.
+#[cfg(unix)]
+const BINARY_MODE: u32 = 0o750;
+
 /// Errors that can occur during the update process.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -117,11 +121,17 @@ pub async fn apply_update(
         }
     }
 
-    // 6. Set executable permissions and atomically replace
+    // 6. Set executable permissions and atomically replace.
+    //
+    // Owner and group only. The binary is owned by root and started by a unit
+    // that runs as root, so no other local account needs to read or run it —
+    // and every one of those accounts is somebody the agent's key and data
+    // directory are already closed to. The installer writes the same mode, so a
+    // machine that updates does not drift from one that installed.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o755);
+        let perms = std::fs::Permissions::from_mode(BINARY_MODE);
         fs::set_permissions(&new_path, perms).await?;
     }
 

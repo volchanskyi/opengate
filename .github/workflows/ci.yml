@@ -80,10 +80,10 @@ jobs:
       # The instrumented run is the canonical execution of the workspace suite:
       # it reports pass/fail AND produces lcov.info, so the workspace is compiled
       # and executed once rather than once bare and once under instrumentation.
-      # Ignored files have no in-process harness: main.rs (binary entry points),
-      # webrtc.rs (live STUN/ICE stack), terminal.rs (PTY + shell subprocess),
-      # session/relay.rs (loops driven by a live screen source), /tests/ (the
-      # test files themselves).
+      # The only files ignored are the test files themselves. Everything the
+      # workspace ships is measured here, and the same list generates the report
+      # SonarCloud reads — a wider list in one place hides files from one gate
+      # that the other still holds to 80%.
       - name: Tests & coverage
         id: coverage
         run: |
@@ -124,6 +124,16 @@ jobs:
           echo "Rust coverage: $PCT%"
           echo "percentage=$PCT" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
+      # cargo-llvm-cov names every file by its absolute path on the machine that
+      # ran it, and every scanner that reads this report analyses the tree from
+      # inside a container mounted somewhere else — so an absolute path resolves
+      # to no indexed file and the coverage for it is dropped without a word.
+      # That is why no Rust file has ever carried a coverage figure in the
+      # project, while this job passed 80% against the very same report.
+      - name: Make the coverage report portable
+        run: |
+          "$GITHUB_WORKSPACE/scripts/rust-lcov-relativize.sh" lcov.info "$GITHUB_WORKSPACE"
+
       - name: Upload Rust coverage
         uses: actions/upload-artifact@v7
         with:
