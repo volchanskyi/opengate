@@ -52,9 +52,16 @@
     {
       "name": "BenchmarkHandshaker_PerformHandshake",
       "lang": "go",
-      "ns_op": 17109,
-      "bytes_op": 4096,
-      "allocs_op": 53
+      "ns_op": 8900,
+      "bytes_op": 3736,
+      "allocs_op": 49
+    },
+    {
+      "name": "BenchmarkHandshaker_PerformHandshake_FastPath",
+      "lang": "go",
+      "ns_op": 6600,
+      "bytes_op": 3576,
+      "allocs_op": 47
     },
     {
       "name": "BenchmarkManager_SignAgent",

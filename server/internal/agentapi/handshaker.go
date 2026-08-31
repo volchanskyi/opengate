@@ -26,15 +26,20 @@ type HandshakeResult struct {
 
 // Handshaker performs the binary mTLS handshake with a newly connected agent.
 type Handshaker struct {
-	cert *cert.Manager
+	// caCertHash is the SHA-384 of the CA certificate. A manager's CA is fixed
+	// for its lifetime, and both handshake paths need this same digest — the
+	// full path writes it into the ServerHello, the fast path compares an
+	// agent's cached copy against it — so it is taken once here rather than
+	// recomputed over the whole CA DER on every connection.
+	caCertHash [48]byte
 	// rand is the randomness source for the ServerHello nonce; overridable in
 	// tests to exercise the generation-failure path.
 	rand io.Reader
 }
 
-// NewHandshaker creates a new Handshaker.
+// NewHandshaker creates a new Handshaker bound to the CA the manager holds.
 func NewHandshaker(cm *cert.Manager) *Handshaker {
-	return &Handshaker{cert: cm, rand: rand.Reader}
+	return &Handshaker{caCertHash: sha512.Sum384(cm.CACert().Raw), rand: rand.Reader}
 }
 
 // PerformHandshake authenticates a newly connected agent. The agent opens the
@@ -111,7 +116,7 @@ func (h *Handshaker) fastHandshake(stream io.Reader, peerCerts [][]byte) (*Hands
 	if _, err := io.ReadFull(stream, cachedHash[:]); err != nil {
 		return nil, fmt.Errorf("read SkipAuth: %w", err)
 	}
-	if cachedHash != sha512.Sum384(h.cert.CACert().Raw) {
+	if cachedHash != h.caCertHash {
 		return nil, fmt.Errorf("%w: stale CA cert hash on fast path", ErrHandshakeFailed)
 	}
 
@@ -132,8 +137,7 @@ func (h *Handshaker) writeServerHello(stream io.Writer) error {
 	if _, err := io.ReadFull(h.rand, nonce[:]); err != nil {
 		return fmt.Errorf("generate nonce: %w", err)
 	}
-	caCertHash := sha512.Sum384(h.cert.CACert().Raw)
-	if _, err := stream.Write(protocol.EncodeServerHello(nonce, caCertHash)); err != nil {
+	if _, err := stream.Write(protocol.EncodeServerHello(nonce, h.caCertHash)); err != nil {
 		return fmt.Errorf("write ServerHello: %w", err)
 	}
 	return nil

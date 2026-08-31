@@ -191,7 +191,9 @@ func TestHandshaker_Timeout(t *testing.T) {
 func TestHandshaker_NonceGenerationError(t *testing.T) {
 	cm, _, agentCertDER := newTestAgentCert(t)
 	// Inject a failing randomness source so ServerHello nonce generation errors.
-	h := &Handshaker{cert: cm, rand: errReader{}}
+	// Built through the constructor so every other field is the real one.
+	h := NewHandshaker(cm)
+	h.rand = errReader{}
 
 	serverConn, clientConn := newHandshakeConns(t)
 
@@ -298,4 +300,60 @@ func TestHandshaker_IOFailures(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// TestHandshaker_CACertHashAgreesAcrossPaths pins the value both handshake
+// paths publish and check. The full path writes the CA hash into its
+// ServerHello and the fast path compares an agent's cached copy against it, so
+// the two must be the same bytes as the live CA certificate's — a handshaker
+// that derived either from anywhere else would accept a hash no agent was ever
+// given, or hand out one no agent could replay.
+//
+// The negative case uses a second, real CA rather than a zero hash: it proves
+// the fast path compares against this manager's certificate, not merely that it
+// rejects an obviously empty value.
+func TestHandshaker_CACertHashAgreesAcrossPaths(t *testing.T) {
+	p := newHandshakePipe(t)
+	live := caCertHash(p.cm)
+
+	writeAgentHello(t, p.client, sha512.Sum384(p.agentCertDER))
+	hello := p.readServerHello(t)
+	res := <-p.result
+	require.NoError(t, res.err)
+	assert.Equal(t, live[:], hello[33:81], "ServerHello must carry the live CA cert hash")
+
+	// The same handshaker instance must accept that exact value on the fast
+	// path, and reject another CA's.
+	h := NewHandshaker(p.cm)
+	for _, tc := range []struct {
+		name    string
+		hash    [48]byte
+		wantErr bool
+	}{
+		{"live CA hash", live, false},
+		{"another CA's hash", caCertHash(otherCAManager(t)), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			serverConn, clientConn := newHandshakeConns(t)
+			ch := runHandshakeAsync(h, serverConn, [][]byte{p.agentCertDER}, handshakeTestTimeout)
+			writeSkipAuth(t, clientConn, tc.hash)
+			got := <-ch
+			if tc.wantErr {
+				require.Error(t, got.err)
+				assert.True(t, errors.Is(got.err, ErrHandshakeFailed))
+				return
+			}
+			require.NoError(t, got.err)
+			assert.True(t, got.hr.Skipped)
+		})
+	}
+}
+
+// otherCAManager builds an unrelated CA, so a test can present a hash that is
+// well-formed and genuinely someone else's.
+func otherCAManager(t *testing.T) *cert.Manager {
+	t.Helper()
+	cm, err := cert.NewManager(t.TempDir())
+	require.NoError(t, err)
+	return cm
 }

@@ -1,11 +1,114 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-08-29. -->
+<!-- Last reviewed: 2026-08-30. -->
 
 ## Severity: High
 
-_None currently._
+### The staging load test's agent fleet cannot verify the server certificate
+
+Every agent the nightly load test dials is refused at the TLS handshake:
+`certificate is valid for 127.0.0.1, not 10.244.0.65`, 0 of 100 connected. The
+run reaches the server by pod IP —
+[`load-test.yml`](../.github/workflows/load-test.yml) reads
+`.status.podIP` and passes it as `-addr` — and a pod IP is in no certificate,
+because the server's extra SAN is the DNS name the deployment gives it
+([`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml)
+defaults `OPENGATE_QUIC_HOST` to the service name, and
+[`values-staging.yaml`](../deploy/helm/opengate/values-staging.yaml) sets
+nothing else). A pod IP cannot be added to a SAN list — it changes on every
+restart — so the address the harness dials is what has to move.
+
+The k6 relay scenario fails behind it for the same reason and says so
+(`no online machine to open a session against`), and the regression gate then
+reports the fleet's own collapse as a regression: `quic-agents` rps
+113.77 → 0, error rate 0 → 1. Both are consequences; there is one defect here.
+
+The workflow has been red since 2026-08-22, so nothing has measured whether the
+agent-facing path carries load for that whole period — over a week in which the
+QUIC accept path itself was being changed.
+
+**Pay-down trigger:** immediate. Dial the server's service DNS name rather than
+its pod IP, and let the run go green on its own before reading anything from the
+trend it publishes.
+
+### The performance stack's agent fleet cannot verify the server CA
+
+All four scaling shards fail identically —
+`certificate signed by unknown authority (possibly because of "x509: ECDSA
+verification failure") while trying to verify candidate authority certificate
+"OpenGate CA"` — 0 of 500 agents connected on each, 3300 dial attempts refused.
+The harness holds a CA that does not verify the certificate the server presents,
+so the two are different generations of the same-named authority rather than a
+missing one. The compose stack behind it is
+[`docker-compose.perf.yml`](../deploy/docker-compose.perf.yml); the harness is
+[`server/tests/loadtest`](../server/tests/loadtest/), the same binary the
+staging load test runs, dialling loopback here rather than a pod.
+
+[`perf-stack.yml`](../.github/workflows/perf-stack.yml) has not been green in
+any of the six runs since it was introduced on 2026-08-23. The certificate is
+only the newest way it measures nothing: the run before this one never reached a
+dial at all, stopping on the harness's own node-commitment guard
+(`stopping before phase "ramp": the node's processor is 100% committed against a
+limit of 95%`) on the same four-processor runner the sweep is sized for. That
+guard wants its own answer once the handshake works.
+
+**Pay-down trigger:** immediate, and ordered after the false-green entry below —
+until the harness fails a run that connected nobody, a fix here cannot be shown
+to have worked.
+
+### A performance run that connected nobody reports success
+
+The volume family passed on a run where it connected no agents at all:
+`Agents: 0/500 succeeded`, `Failures: 0`, `bundle.json (invalid)`, step green.
+The exit code is read off the failure count alone —
+[`main.go`](../server/tests/loadtest/main.go) ends `if failures > 0 { os.Exit(1) }`
+— so a run whose agents produced no result each, rather than a failed one each,
+is indistinguishable from a clean run. The harness already writes the verdict
+that contradicts it, into the evidence bundle, where nothing in
+[`perf-stack.yml`](../.github/workflows/perf-stack.yml) reads it.
+
+This is the defect class [`ci-cd-determinism.md`](rules/ci-cd-determinism.md)
+names: the work was refused, the step is green, and the only way anyone finds
+out is by going to look. The load test closed the same hole with
+[`loadtest-run-completeness.sh`](../scripts/loadtest-run-completeness.sh), which
+did fail the run it was given; the performance stack has no equivalent, and its
+green shard is why the sweep reads as partly working when none of it is.
+
+**Pay-down trigger:** immediate, and before either QUIC entry above — a gate
+that cannot fail cannot confirm their fixes. A run that achieved no connected
+agents fails where the absence is known, in the harness, and the perf workflow
+reads the bundle's verdict the way the load test reads its completeness file.
+
+### The 0-RTT test trips a race inside quic-go, and reds the gate at random
+
+`make sonar` runs the tree under `-race`, and on 2026-08-30 it failed with a data
+race whose two stacks are both inside `quic-go` v0.61.0: `(*Conn).newFlowController`
+reads the connection's `peerParams` while `(*Conn).handleTransportParameters`
+writes it. The read is reached from `OpenStreamSync` in
+[`streamPing`](../server/internal/agentapi/quic_resumption_test.go), called by
+`TestQUIC0RTT_ClientCertBehaviour` on the connection `quic.DialAddrEarly`
+returned — which is what sending 0-RTT data means, and what quic-go documents
+that connection as being for.
+
+The field is unguarded, and `v0.62.0` carries both functions byte-identical, so
+the bump does not fix it. It is load-dependent: it did not reproduce in forty
+consecutive runs of that test alone, nor in a second whole-tree run, and it fires
+when every package runs at once and the handshake window widens.
+
+One race fails every test in flight with it — about twenty on the run that found
+it, spread across alert accounting and resumption, none of them related. So the
+symptom names neither the cause nor even the right package.
+
+Waiting for the handshake before opening the stream would remove it and remove
+the test's subject with it: the connection would no longer be carrying early
+data, and `Used0RTT` is the thing being measured. The test is right and the
+dependency is wrong.
+
+**Pay-down trigger:** immediate, and upstream. Report it to quic-go with both
+stacks, and pin the release that guards the field. Until then the gate reds at
+random, and a red that names twenty unrelated tests is one nobody will read
+correctly.
 
 ## Severity: Medium
 
@@ -296,24 +399,6 @@ TypeScript 6.x.
 TypeScript 6.x (`npm view openapi-typescript versions` / its peerDependencies
 range), then bump both together.
 
-### The whole-app JS budget is within 3 KB of its cap
-
-[`.size-limit.json`](../web/.size-limit.json) measures first paint and the
-whole app separately, and the whole-app number sits just under its cap. Most of
-that weight is one lazy route: the session view carries the terminal engine, and
-it is the largest single chunk the app can ask for. It never loads on first
-paint, which is why the first-paint budget has room while the total does not.
-
-The remaining spend is therefore not in the entry chunk and not in any one
-feature — it is the sum of every route the app can reach. Nothing has measured
-which of them share code they need not share.
-
-**Pay-down trigger:** the first CI failure on the whole-app budget, or a feature
-that lands within 2 KB of it. Read the chunk breakdown `npm run build` prints,
-find what two routes are each carrying a private copy of, and give it a shared
-chunk — then move the budget only after that has been done, since raising the
-number is how a budget stops being one.
-
 ### `reopen_window` has no per-rule override
 
 An incident's auto-resolve hold is its rule's own grouping window, and there is
@@ -371,16 +456,3 @@ a while, and a measured alert volume at customer scale rather than the 0.2 per
 device per day the ceilings were sized against. Together they turn the trade from
 a judgement into arithmetic.
 
-### One-year retention on alerts, evidence and incidents is declared, not swept
-
-Alerts, evidence and incidents are declared to be kept for a year, and no
-age-based deletion runs. The purge machinery in
-[`internal/lifecycle`](../server/internal/lifecycle/) is device- and
-customer-triggered rather than scheduled, so erasure still cascades — a purged
-device or customer takes its alerts and evidence with it — and the aggregate
-counters make row growth visible. What is missing is the sweep that would make
-the declared year the actual one.
-
-**Pay-down trigger:** measured growth projecting past ~10 GB/year, or a
-compliance commitment that makes the year contractual. Build it against the
-measured rate rather than the ~1.8 GB/year the estimate projects.

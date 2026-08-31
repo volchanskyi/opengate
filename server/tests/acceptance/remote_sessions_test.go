@@ -126,6 +126,11 @@ func TestASessionLeftByAMachineThatWentAwayIsReclaimed(t *testing.T) {
 		SessionSweep:   50 * time.Millisecond,
 		SessionGrace:   time.Nanosecond,
 		IncidentSweep:  time.Hour,
+		// This case is about the session sweep. The retention horizon is set
+		// far beyond anything the run creates so the age sweep has no candidate
+		// to take, and its cadence out of the way for the same reason.
+		RetentionSweep:   time.Hour,
+		RetentionHorizon: 365 * 24 * time.Hour,
 	}))
 	contoso := product.arrangeCustomer("Contoso")
 	admin := product.Administrator(contoso)

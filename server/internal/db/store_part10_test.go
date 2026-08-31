@@ -53,6 +53,34 @@ func assertQueueIndexesDownReversal(t *testing.T, ctx context.Context, db *sql.D
 		"the index 015 replaced has to come back with the rollback")
 }
 
+// retentionIndexes is what migration 017 adds: the two the age sweep reads. It
+// runs across every tenant at once, so both lead with the timestamp — an index
+// whose leading column the sweep cannot constrain is one it cannot use.
+var retentionIndexes = []string{
+	"idx_alerts_received_at",
+	"idx_incidents_resolved_at",
+}
+
+// assertRetentionIndexesIntroduced confirms migration 017 built the orders the
+// age sweep reads.
+func assertRetentionIndexesIntroduced(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	for _, index := range retentionIndexes {
+		assert.Truef(t, indexExists(t, ctx, db, index),
+			"%s should exist after migration 017", index)
+	}
+}
+
+// assertRetentionIndexesDownReversal confirms the rollback took them away
+// again. Nothing is restored in their place: 017 replaced no index.
+func assertRetentionIndexesDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	for _, index := range retentionIndexes {
+		assert.Falsef(t, indexExists(t, ctx, db, index),
+			"%s should be gone after the 017 rollback", index)
+	}
+}
+
 // indexExists reports whether an index of that name is defined.
 func indexExists(t *testing.T, ctx context.Context, db *sql.DB, name string) bool {
 	t.Helper()

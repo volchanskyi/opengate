@@ -1,6 +1,7 @@
 [
-  { "name": "Initial JS (entry chunk, first paint)", "path": "dist/assets/index-*.js",                                 "limit": "100 KB", "gzip": true },
-  { "name": "All app JS (excl. charts)",             "path": ["dist/assets/*.js", "!dist/assets/charts-*.js"],        "limit": "250 KB", "gzip": true },
-  { "name": "Charts chunk (lazy uPlot)",             "path": "dist/assets/charts-*.js",                               "limit": "30 KB",  "gzip": true },
-  { "name": "CSS bundle",                            "path": "dist/assets/*.css",                                     "limit": "12 KB",  "gzip": true }
+  { "name": "Initial JS (entry chunk, first paint)", "path": "dist/assets/index-*.js",                                                    "limit": "100 KB", "gzip": true },
+  { "name": "All app JS (excl. lazy engines)",       "path": ["dist/assets/*.js", "!dist/assets/charts-*.js", "!dist/assets/terminal-*.js"], "limit": "180 KB", "gzip": true },
+  { "name": "Charts chunk (lazy uPlot)",             "path": "dist/assets/charts-*.js",                                                   "limit": "30 KB",  "gzip": true },
+  { "name": "Terminal chunk (lazy xterm)",           "path": "dist/assets/terminal-*.js",                                                 "limit": "95 KB",  "gzip": true },
+  { "name": "CSS bundle",                            "path": "dist/assets/*.css",                                                         "limit": "12 KB",  "gzip": true }
 ]

@@ -200,4 +200,16 @@ var productionSchedule = app.BackgroundSchedule{
 	// whether it does: the hold itself is the rule's own grouping window, and an
 	// alert arriving after that window closes the lapsed room on its way past.
 	IncidentSweep: 5 * time.Minute,
+
+	// A year is how long an alert, its evidence and the room it folded into are
+	// kept. Erasure already runs off a machine or a customer the moment either
+	// is purged; this is the other axis, and it is what makes the declared
+	// period the one the tables actually observe.
+	RetentionHorizon: 365 * 24 * time.Hour,
+
+	// Against a horizon of a year, the cadence decides only two things: how far
+	// past the horizon a row can sit before it goes, and how much one pass has
+	// to remove. Four passes a day keeps both small, and a caught-up pass is an
+	// indexed range scan that finds nothing.
+	RetentionSweep: 6 * time.Hour,
 }
