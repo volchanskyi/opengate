@@ -101,7 +101,14 @@ export default function (data) {
     commandAcceptLatency.add(command.timings.duration);
   }
 
-  sleep(1);
+  // Six requests an iteration across twenty virtual users, all of them leaving
+  // one pod and therefore one source address, so the whole scenario spends a
+  // single per-IP token bucket at the server. This cadence keeps what the fleet
+  // offers under that limit; at a faster one the run fills with 429s and the
+  // latency and error numbers describe the rate limiter instead of the server.
+  // A request added above moves that sum, and the budget is recomputed on every
+  // commit rather than remembered.
+  sleep(1.5);
 }
 
 export function teardown(data) {

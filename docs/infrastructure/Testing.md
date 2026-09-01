@@ -746,7 +746,7 @@ its own VU ramp and thresholds in its `options` block:
 
 | Scenario | Exercises |
 |----------|-----------|
-| [`api-baseline.js`](../../load/k6/scenarios/api-baseline.js) | Health, current user, sites, and the device list under a steady ramp |
+| [`api-baseline.js`](../../load/k6/scenarios/api-baseline.js) | A technician's round: health, current user, sites and the device list, then one machine's page and one instruction sent to it, each timed on its own |
 | [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | A real remote session: the operator's side of the relay, timing its own frame coming back from the machine |
 | [`concurrent-agents.js`](../../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's sites |
 
@@ -756,11 +756,26 @@ member can see. Where a scenario times a journey against one machine, it reads
 the fleet from a site chosen for holding machines: an estate spreads its fleet
 over its sites, so a site picked for sorting first is empty as often as not, and
 a journey with nothing to open publishes a zero indistinguishable from a fast
-night. The scenarios drive read paths only: organization is the visibility
-boundary, so a member reads the whole fleet, while creating a site is administrator
-work the server refuses. A scenario that stood up its own fixtures would measure the
-403 path instead. `setup()` throws on an unexpected status, so a broken precondition
-names itself rather than turning every request in the run red.
+night. The scenarios act on the fleet the estate already holds rather than
+standing up their own: organization is the visibility boundary, so a member
+reads the whole fleet, while creating a site is administrator work the server
+refuses, and a scenario that built its own fixtures would measure the 403 path
+instead. What they do send a machine is idempotent and stops at the server
+accepting it, so a run times the acceptance path without a fleet-wide side
+effect. `setup()` throws on an unexpected status, so a broken precondition names
+itself rather than turning every request in the run red.
+
+A run drives the server from one pod, so every virtual user in every scenario
+shares a single source address and therefore a single per-IP token bucket at the
+[API router](../../server/internal/api/api.go). A scenario is sized to keep what
+its virtual users offer under that limit; above it the run fills with 429s and
+the latency and error numbers describe the rate limiter rather than the server —
+which is a nightly error-rate regression on a night nothing regressed. The
+budget is the peak virtual users times the requests one iteration issues over
+the shortest sleep between them, and
+[`scripts/tests/loadtest-rate-budget.test.sh`](../../scripts/tests/loadtest-rate-budget.test.sh)
+recomputes it against the router's own limit on every commit, so a request added
+to an iteration moves the sum where someone sees it.
 
 Every name a run creates carries the run's marker and its own seed, so two nights
 never ask the server for the same customer.
