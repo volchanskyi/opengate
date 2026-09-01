@@ -360,7 +360,10 @@ run_check "rust coverage ≥80%" -- bash -c '
 # Phase 5: security audits — lockfile-based; fail on any reported vuln.
 banner "Security audits"
 run_check "govulncheck" -- bash -c 'cd server && govulncheck ./...'
-run_check "npm audit" -- bash -c 'cd web && npm audit --audit-level=high'
+# One audit per lockfile: npm audit reads the lockfile of the directory it runs
+# from, so a second dependency set needs a second run to be looked at.
+run_check "npm audit (web)" -- bash -c 'cd web && npm audit --audit-level=high'
+run_check "npm audit (mermaid-validate)" -- bash -c 'cd tools/mermaid-validate && npm audit --audit-level=high'
 run_check "cargo audit" -- bash -c 'cd agent && cargo audit'
 run_check "cargo deny" -- bash -c 'cd agent && cargo deny check 2>&1'
 

@@ -1030,16 +1030,28 @@ jobs:
         # Install once, outside the loop: a retry exists for the registry lookup
         # `npm audit` performs, not for dependency installation, which has its own
         # caching and is not the transient point.
+        #
+        # One pass per lockfile. `npm audit` reports on the lockfile of the
+        # directory it runs from, so a dependency set that is never named is
+        # never looked at, and its packages age out of the advisory database
+        # with the job still green.
         run: |
           set -e
-          (cd web && npm ci)
-          for attempt in 1 2 3; do
-            if (cd web && npm audit --audit-level=high); then exit 0; fi
-            echo "::warning::npm audit attempt $attempt/3 failed; retrying in $((attempt * 15))s"
-            sleep $((attempt * 15))
+          for dir in web tools/mermaid-validate; do
+            (cd "$dir" && npm ci)
           done
-          echo "::error::npm audit failed after 3 attempts"
-          exit 1
+          for dir in web tools/mermaid-validate; do
+            audited=""
+            for attempt in 1 2 3; do
+              if (cd "$dir" && npm audit --audit-level=high); then audited=yes; break; fi
+              echo "::warning::npm audit ($dir) attempt $attempt/3 failed; retrying in $((attempt * 15))s"
+              sleep $((attempt * 15))
+            done
+            if [ -z "$audited" ]; then
+              echo "::error::npm audit ($dir) failed after 3 attempts"
+              exit 1
+            fi
+          done
 
   pentest-review:
     name: Pen-Test Gate
