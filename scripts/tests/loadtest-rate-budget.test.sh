@@ -48,6 +48,18 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
+# Every exit goes through here, so a run that bails early reports what a run that
+# finishes reports.
+summarize() {
+  echo
+  echo "Summary: $PASS passed, $FAIL failed"
+  if [ "$FAIL" -gt 0 ]; then
+    printf '  - %s\n' "${FAILURES[@]}" >&2
+    exit 1
+  fi
+  exit 0
+}
+
 echo "loadtest-rate-budget:"
 
 # offered_rps <file> — peak requests per second the scenario's iteration loop
@@ -82,23 +94,21 @@ offered_rps() {
 
 if [ ! -f "$API" ]; then
   fail "server/internal/api/api.go is readable"
-  echo
-  echo "Summary: $PASS passed, $FAIL failed"
-  printf '  - %s\n' "${FAILURES[@]}" >&2
-  exit 1
+  summarize
 fi
 
 # The limit the scenarios have to live under, read from the router that applies
 # it rather than restated here, so raising or lowering it re-sizes this gate.
-LIMIT="$(grep -oE 'RateLimiter\([0-9]+(\.[0-9]+)?, *[0-9]+\)' "$API" | head -1 \
+#
+# The leading non-letter is load-bearing: AuthRateLimiter ends in this name, and
+# matching it would read the tighter limit guarding the login endpoints and call
+# it the fleet's budget. Only the router-wide limiter is the number here.
+LIMIT="$(grep -oE '[^A-Za-z]RateLimiter\([0-9]+(\.[0-9]+)?, *[0-9]+\)' "$API" | head -1 \
   | grep -oE '\(([0-9]+(\.[0-9]+)?)' | tr -d '(' || true)"
 
 if [ -z "$LIMIT" ]; then
   fail "api.go declares a per-IP RateLimiter(rps, burst) the budget can be read from"
-  echo
-  echo "Summary: $PASS passed, $FAIL failed"
-  printf '  - %s\n' "${FAILURES[@]}" >&2
-  exit 1
+  summarize
 fi
 pass "per-IP rate limit read from api.go: ${LIMIT} rps"
 
@@ -176,10 +186,4 @@ else
   pass "detector refuses a scenario whose iteration loop it cannot read"
 fi
 
-echo
-echo "Summary: $PASS passed, $FAIL failed"
-if [ "$FAIL" -gt 0 ]; then
-  printf '  - %s\n' "${FAILURES[@]}" >&2
-  exit 1
-fi
-exit 0
+summarize

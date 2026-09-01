@@ -35,15 +35,24 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
+# Every exit goes through here, so a run that bails early reports what a run that
+# finishes reports.
+summarize() {
+  echo
+  echo "Summary: $PASS passed, $FAIL failed"
+  if [ "$FAIL" -gt 0 ]; then
+    printf '  - %s\n' "${FAILURES[@]}" >&2
+    exit 1
+  fi
+  exit 0
+}
+
 echo "npm-audit-scope:"
 
 for f in "$GAUNTLET" "$CI"; do
   if [ ! -f "$f" ]; then
     fail "$(basename "$f") is readable"
-    echo
-    echo "Summary: $PASS passed, $FAIL failed"
-    printf '  - %s\n' "${FAILURES[@]}" >&2
-    exit 1
+    summarize
   fi
 done
 
@@ -94,10 +103,4 @@ for lock in "${LOCKFILES[@]}"; do
   fi
 done
 
-echo
-echo "Summary: $PASS passed, $FAIL failed"
-if [ "$FAIL" -gt 0 ]; then
-  printf '  - %s\n' "${FAILURES[@]}" >&2
-  exit 1
-fi
-exit 0
+summarize
