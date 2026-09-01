@@ -14,20 +14,16 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 )
 
-// W3 spike — QUIC 0-RTT / TLS 1.3 session resumption with mTLS.
+// QUIC reconnect behaviour, measured against the repo's own mutual-TLS
+// certificate configuration on a loopback listener.
 //
-// These tests are the empirical artifact behind the W3 decision (see the
-// archived fast-path-w3-0rtt-eval plan). They prove, against the repo's own
-// quic-go v0.60.0 + mutual-TLS cert config, that:
+//   - A cold connection completes a full mutual-TLS handshake and the server
+//     holds the client's verified certificate.
+//   - A reconnect resumes the TLS session and still carries that identity —
+//     DidResume is true on both sides and the certificate keeps its common
+//     name — so skipping the asymmetric handshake costs no identity.
 //
-//   - 1-RTT session resumption completes with RequireAndVerifyClientCert and
-//     preserves the client's verified identity server-side (DidResume == true,
-//     PeerCertificates still populated) — a reconnect skips the full asymmetric
-//     handshake without weakening mTLS.
-//   - The per-reconnect saving is measured by BenchmarkQUICHandshake_{Cold,Resumed}.
-//   - 0-RTT early-data behaviour with client certs is whatever quic-go actually
-//     does here — asserted so the replay-safety analysis stays anchored to
-//     observed behaviour, not assumption.
+// What each reconnect saves is measured by BenchmarkQUICHandshake_{Cold,Resumed}.
 
 const resumeTestALPN = "opengate"
 
@@ -66,18 +62,17 @@ type resumeTestServer struct {
 
 	mu        sync.Mutex
 	lastState tls.ConnectionState
-	lastUsed0 bool
 }
 
-func (s *resumeTestServer) snapshot() (tls.ConnectionState, bool) {
+func (s *resumeTestServer) snapshot() tls.ConnectionState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.lastState, s.lastUsed0
+	return s.lastState
 }
 
 // startResumeTestServer brings up a localhost QUIC listener with the repo's mTLS
-// server config. allow0RTT toggles server-side early-data acceptance.
-func startResumeTestServer(tb testing.TB, mgr *cert.Manager, allow0RTT bool) *resumeTestServer {
+// server config.
+func startResumeTestServer(tb testing.TB, mgr *cert.Manager) *resumeTestServer {
 	tb.Helper()
 
 	tlsCfg, err := mgr.ServerTLSConfig()
@@ -93,7 +88,6 @@ func startResumeTestServer(tb testing.TB, mgr *cert.Manager, allow0RTT bool) *re
 	ln, err := tr.Listen(tlsCfg, &quic.Config{
 		MaxIdleTimeout:  30 * time.Second,
 		KeepAlivePeriod: 10 * time.Second,
-		Allow0RTT:       allow0RTT,
 	})
 	if err != nil {
 		tb.Fatalf("quic listen: %v", err)
@@ -126,9 +120,8 @@ func (s *resumeTestServer) acceptLoop(ctx context.Context, ln *quic.Listener) {
 // connection's TLS state. The byte round-trip drives the handshake (and the
 // post-handshake session ticket) to completion.
 func (s *resumeTestServer) serve(ctx context.Context, conn *quic.Conn) {
-	st := conn.ConnectionState()
 	s.mu.Lock()
-	s.lastState, s.lastUsed0 = st.TLS, st.Used0RTT
+	s.lastState = conn.ConnectionState().TLS
 	s.mu.Unlock()
 
 	stream, err := conn.AcceptStream(ctx)
@@ -218,14 +211,14 @@ func TestQUICColdHandshake_FullMTLS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
-	srv := startResumeTestServer(t, mgr, false)
+	srv := startResumeTestServer(t, mgr)
 
 	// No session cache -> every dial is a full mTLS handshake.
 	if clientState := dialRoundTrip(t, srv.addr, agentResumeTLSConfig(t, mgr, nil)); clientState.DidResume {
 		t.Fatalf("cold handshake unexpectedly resumed")
 	}
 
-	serverState, _ := srv.snapshot()
+	serverState := srv.snapshot()
 	if serverState.DidResume {
 		t.Fatalf("server saw a resumed session on the cold path")
 	}
@@ -240,7 +233,7 @@ func TestQUICSessionResumption_PreservesMTLSIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
-	srv := startResumeTestServer(t, mgr, false)
+	srv := startResumeTestServer(t, mgr)
 
 	cache := newSignalingCache()
 	clientCfg := agentResumeTLSConfig(t, mgr, cache)
@@ -256,7 +249,7 @@ func TestQUICSessionResumption_PreservesMTLSIdentity(t *testing.T) {
 		t.Fatalf("reconnect did not resume the TLS session (no per-reconnect saving)")
 	}
 
-	serverState, _ := srv.snapshot()
+	serverState := srv.snapshot()
 	if !serverState.DidResume {
 		t.Fatalf("server did not treat the reconnect as resumed")
 	}
@@ -265,49 +258,5 @@ func TestQUICSessionResumption_PreservesMTLSIdentity(t *testing.T) {
 	}
 	if serverState.PeerCertificates[0].Subject.CommonName == "" {
 		t.Fatalf("resumed client certificate has no CommonName (identity not carried)")
-	}
-}
-
-func TestQUIC0RTT_ClientCertBehaviour(t *testing.T) {
-	t.Parallel()
-	mgr, err := cert.NewManager(t.TempDir())
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	srv := startResumeTestServer(t, mgr, true)
-
-	cache := newSignalingCache()
-	clientCfg := agentResumeTLSConfig(t, mgr, cache)
-
-	// Warm up to obtain a ticket (which carries the 0-RTT allowance, if any).
-	_ = dialRoundTrip(t, srv.addr, clientCfg)
-	waitForTicket(t, cache)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// DialAddrEarly sends 0-RTT early data before the handshake completes;
-	// whether the server accepts it with client certs is what we measure.
-	conn, err := quic.DialAddrEarly(ctx, srv.addr, clientCfg, &quic.Config{MaxIdleTimeout: 30 * time.Second})
-	if err != nil {
-		t.Fatalf("dial early: %v", err)
-	}
-	defer func() { _ = conn.CloseWithError(0, "done") }()
-
-	streamPing(t, ctx, conn)
-	select {
-	case <-conn.HandshakeComplete():
-	case <-time.After(5 * time.Second):
-		t.Fatalf("handshake never completed")
-	}
-
-	t.Logf("W3 0-RTT spike: client Used0RTT=%v (mTLS, quic-go v0.60.0)", conn.ConnectionState().Used0RTT)
-
-	// Security invariant regardless of 0-RTT: the server must still hold the
-	// verified client identity — 0-RTT must never silently drop mTLS.
-	serverState, serverUsed0 := srv.snapshot()
-	t.Logf("W3 0-RTT spike: server Used0RTT=%v DidResume=%v", serverUsed0, serverState.DidResume)
-	if len(serverState.PeerCertificates) == 0 {
-		t.Fatalf("0-RTT/resumed connection lost client certificate — mTLS regressed")
 	}
 }

@@ -3,38 +3,6 @@
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
 <!-- Last reviewed: 2026-08-31. -->
 
-## Severity: High
-
-### The 0-RTT test trips a race inside quic-go, and reds the gate at random
-
-`make sonar` runs the tree under `-race`, and on 2026-08-30 it failed with a data
-race whose two stacks are both inside `quic-go` v0.61.0: `(*Conn).newFlowController`
-reads the connection's `peerParams` while `(*Conn).handleTransportParameters`
-writes it. The read is reached from `OpenStreamSync` in
-[`streamPing`](../server/internal/agentapi/quic_resumption_test.go), called by
-`TestQUIC0RTT_ClientCertBehaviour` on the connection `quic.DialAddrEarly`
-returned — which is what sending 0-RTT data means, and what quic-go documents
-that connection as being for.
-
-The field is unguarded, and `v0.62.0` carries both functions byte-identical, so
-the bump does not fix it. It is load-dependent: it did not reproduce in forty
-consecutive runs of that test alone, nor in a second whole-tree run, and it fires
-when every package runs at once and the handshake window widens.
-
-One race fails every test in flight with it — about twenty on the run that found
-it, spread across alert accounting and resumption, none of them related. So the
-symptom names neither the cause nor even the right package.
-
-Waiting for the handshake before opening the stream would remove it and remove
-the test's subject with it: the connection would no longer be carrying early
-data, and `Used0RTT` is the thing being measured. The test is right and the
-dependency is wrong.
-
-**Pay-down trigger:** immediate, and upstream. Report it to quic-go with both
-stacks, and pin the release that guards the field. Until then the gate reds at
-random, and a red that names twenty unrelated tests is one nobody will read
-correctly.
-
 ## Severity: Medium
 
 ### The nightly mutation score is below its baseline in go and rust

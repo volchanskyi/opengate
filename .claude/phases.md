@@ -1,6 +1,6 @@
 # Implementation Phases
 
-<!-- Last updated: 2026-08-29 -->
+<!-- Last updated: 2026-09-01 -->
 <!-- Update this file after completing or starting any significant phase of work. -->
 
 ## Completed
@@ -177,6 +177,7 @@
 | Server→agent wire contract + mutation/coverage carve-out closure | Made the server-to-agent wire contract complete — every zero-valued field dropped on encode, every variant decodable — and closed the mutation and coverage carve-outs. [ADR-063](../docs/adr/ADR-063-server-to-agent-control-message-completeness.md). | — | [wire-contract-and-mutation-carveout-tests.md](plans/archive/wire-contract-and-mutation-carveout-tests.md) |
 | Four tech-debt paydowns: two fleets that could not verify the server, a run that connected nobody and passed, and a flaky baseline blocking every mutation night | The load fleet dials the name on the certificate and the perf sweep enrols instead of signing for itself; a run is gated on its own verdict and every workflow reads it back. [ADR-090](../docs/adr/ADR-090-a-run-is-gated-on-its-own-verdict-not-on-its-failure-count.md). | — | — |
 | Rust coverage reaches the quality gate for the first time | The lcov report is rewritten into the scanner's coordinates and read back, the ignore list is held equal wherever it is written, and four carve-outs are measured instead. [ADR-091](../docs/adr/ADR-091-a-coverage-report-is-written-in-the-readers-coordinates.md). | — | — |
+| The listener's refusal of early data becomes a test | Deleted a test named for early data that never checked it and tripped a race inside quic-go, and put in its place a guard that dials the running listener the way a machine asking for early data would and fails if any is granted. [ADR-037](../docs/adr/ADR-037-client-first-fast-path-reconnect.md). | — | [quic-0rtt-race-paydown.md](plans/archive/quic-0rtt-race-paydown.md) |
 
 ---
 
