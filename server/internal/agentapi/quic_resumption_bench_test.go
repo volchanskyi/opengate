@@ -7,17 +7,17 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 )
 
-// W3 measurement — per-reconnect handshake cost, cold mTLS vs 1-RTT resumed.
-// The delta between the two benchmarks is the saving the W3 decision quantifies.
-// Shared harness (server, cert config, dial/ticket helpers) lives in
-// quic_resumption_test.go.
+// Per-reconnect handshake cost, cold mutual TLS against a 1-RTT resumed
+// session. The gap between the two is what a reconnect saves by resuming.
+// The shared harness — server, certificate configuration, dial and ticket
+// helpers — lives in quic_resumption_test.go.
 
 func benchmarkQUICHandshake(b *testing.B, resume bool) {
 	mgr, err := cert.NewManager(b.TempDir())
 	if err != nil {
 		b.Fatalf("new manager: %v", err)
 	}
-	srv := startResumeTestServer(b, mgr, false)
+	srv := startResumeTestServer(b, mgr)
 
 	var cache tls.ClientSessionCache
 	if resume {

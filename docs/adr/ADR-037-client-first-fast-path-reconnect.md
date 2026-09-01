@@ -106,9 +106,13 @@ session tickets by default, and the spike confirms resumption against the
 unmodified `ServerTLSConfig` with `Allow0RTT` off — kept off to foreclose
 0-RTT replay.
 [`TestQUICSessionResumption_PreservesMTLSIdentity`](../../server/internal/agentapi/quic_resumption_test.go)
-is the always-run regression guard for both halves: that resumption
-completes, and that the resumed session still carries the verified
-client identity.
+is the always-run regression guard for both halves of resumption: that it
+completes, and that the resumed session still carries the verified client
+identity.
+[`TestProductionListenerRefusesEarlyData`](../../server/internal/agentapi/server_zero_rtt_test.go)
+is what holds early data off. It dials the running listener the way a machine
+asking for early data would and fails if any is granted, so switching
+`Allow0RTT` on turns a test red.
 
 The agent's own `rustls::ClientConfig` defaults to an in-memory session
 store and the quinn config is built once and cloned per reconnect
@@ -137,9 +141,10 @@ One thing remains owed and is tracked in
 [`techdebt.md`](../../.claude/techdebt.md): the in-memory store does not
 survive a process restart.
 
-The empirical record is the archived
-[W3 plan](../../.claude/plans/archive/fast-path-w3-0rtt-eval.md) and
-[`server/internal/agentapi/quic_resumption_test.go`](../../server/internal/agentapi/quic_resumption_test.go).
+The empirical record for resumption is
+[`server/internal/agentapi/quic_resumption_test.go`](../../server/internal/agentapi/quic_resumption_test.go);
+for the early-data finding it is the archived
+[W3 plan](../../.claude/plans/archive/fast-path-w3-0rtt-eval.md).
 
 ## Consequences
 
