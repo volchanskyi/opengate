@@ -46,7 +46,7 @@ set -uo pipefail
 printf '%s\n' "$*" >>"${KUBECTL_ARGS:-/dev/null}"
 args="$*"
 vec() { printf '{"status":"success","data":{"resultType":"vector","result":[%s]}}\n' "$1"; }
-s() { printf '{"metric":{"source":"%s","scenario":"%s","phase":"%s"},"value":[2000,"%s"]}' "$1" "$2" "$3" "$4"; }
+s() { printf '{"metric":{"source":"%s","scenario":"%s","phase":"%s","workload":"%s"},"value":[2000,"%s"]}' "$1" "$2" "$3" "${WL:-w1}" "$4"; }
 case "${VM_PROFILE:-seeded}" in
   empty) ;;
   invalid) printf '%s\n' 'not-json' ;;
@@ -93,8 +93,8 @@ write_summary() {
 echo "load-test regression checker:"
 
 write_summary "$WORK/p95-regression.json" '[
-  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":1500,"latency_p99_ms":1800,"commit":"deadbeef","env":"ci"},
-  {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":110,"latency_p99_ms":180,"commit":"deadbeef","env":"ci"}
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":1500,"latency_p99_ms":1800,"workload":"w1","commit":"deadbeef","env":"ci"},
+  {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":110,"latency_p99_ms":180,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(run_check "$WORK/p95-regression.json" 2>&1)" || rc=$?
@@ -105,7 +105,7 @@ assert_not_contains "clean peer series stays out of alert" "k6/api-baseline/http
 assert_contains "window query excludes current commit" 'commit!="deadbeef"' "$(cat "$WORK/kubectl.args")"
 
 write_summary "$WORK/rps-regression.json" '[
-  {"source":"quic","scenario":"quic-agents","phase":"aggregate","rps":40,"commit":"deadbeef","env":"ci"}
+  {"source":"quic","scenario":"quic-agents","phase":"aggregate","rps":40,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(run_check "$WORK/rps-regression.json" 2>&1)" || rc=$?
@@ -118,8 +118,8 @@ assert_contains "rps alert is direction-aware" "quic/quic-agents/aggregate rps" 
 # from the observed run-to-run spread so a night like this stays green, and
 # error_rate — which stayed at zero throughout — remains the correctness signal.
 write_summary "$WORK/contention-night.json" '[
-  {"source":"quic","scenario":"quic-agents","phase":"aggregate","rps":80,"error_rate":0,"commit":"deadbeef","env":"ci"},
-  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":390,"latency_p95_ms":900,"commit":"deadbeef","env":"ci"}
+  {"source":"quic","scenario":"quic-agents","phase":"aggregate","rps":80,"error_rate":0,"workload":"w1","commit":"deadbeef","env":"ci"},
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":390,"latency_p95_ms":900,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(run_check "$WORK/contention-night.json" 2>&1)" || rc=$?
@@ -127,7 +127,7 @@ assert_eq "shared-cluster contention night stays green" "0" "$rc"
 assert_not_contains "contention night raises no regression alert" "REGRESSION_ALERT:" "$out"
 
 write_summary "$WORK/error-rate-regression.json" '[
-  {"source":"quic","scenario":"quic-agents","phase":"aggregate","error_rate":0.02,"commit":"deadbeef","env":"ci"}
+  {"source":"quic","scenario":"quic-agents","phase":"aggregate","error_rate":0.02,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(run_check "$WORK/error-rate-regression.json" 2>&1)" || rc=$?
@@ -135,7 +135,7 @@ assert_eq "error-rate ceiling exits 1" "1" "$rc"
 assert_contains "error-rate alert names ceiling" "error_rate" "$out"
 
 write_summary "$WORK/p99-only.json" '[
-  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":220,"latency_p99_ms":5000,"commit":"deadbeef","env":"ci"}
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":220,"latency_p99_ms":5000,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(run_check "$WORK/p99-only.json" 2>&1)" || rc=$?
@@ -144,7 +144,7 @@ assert_contains "p99-only breach emits advisory context" "P99_ADVISORY:" "$out"
 assert_not_contains "p99-only breach does not emit regression alert" "REGRESSION_ALERT:" "$out"
 
 write_summary "$WORK/cold-start-under-ceiling.json" '[
-  {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":180,"commit":"deadbeef","env":"ci"}
+  {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":180,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(VM_PROFILE=empty run_check "$WORK/cold-start-under-ceiling.json" 2>&1)" || rc=$?
@@ -152,7 +152,7 @@ assert_eq "cold-start under absolute ceiling stays green" "0" "$rc"
 assert_not_contains "cold-start under ceiling has no regression alert" "REGRESSION_ALERT:" "$out"
 
 write_summary "$WORK/cold-start-over-ceiling.json" '[
-  {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":250,"commit":"deadbeef","env":"ci"}
+  {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":250,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(VM_PROFILE=empty run_check "$WORK/cold-start-over-ceiling.json" 2>&1)" || rc=$?
@@ -160,7 +160,7 @@ assert_eq "cold-start over absolute ceiling exits 1" "1" "$rc"
 assert_contains "cold-start over ceiling alert names ceiling" "absolute ceiling" "$out"
 
 write_summary "$WORK/fail-open.json" '[
-  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":700,"commit":"deadbeef","env":"ci"}
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":700,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(KUBECTL_STATUS=19 run_check "$WORK/fail-open.json" 2>&1)" || rc=$?
@@ -168,12 +168,54 @@ assert_eq "VM transport failure is fail-open under absolute ceiling" "0" "$rc"
 assert_not_contains "transport failure has no regression alert" "REGRESSION_ALERT:" "$out"
 
 write_summary "$WORK/nulls.json" '[
-  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":null,"rps":null,"error_rate":null,"commit":"deadbeef","env":"ci"}
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":null,"rps":null,"error_rate":null,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(run_check "$WORK/nulls.json" 2>&1)" || rc=$?
 assert_eq "null metrics are skipped per series" "0" "$rc"
 assert_not_contains "null metrics have no regression alert" "REGRESSION_ALERT:" "$out"
+
+# A series is only comparable to itself.
+#
+# When a scenario is rewritten to measure something else it keeps its name, so
+# the stored numbers and the new ones sit in one series under two different
+# pieces of work. That is how a relay scenario that started opening real
+# sessions was reported as a collapse against the health check it replaced. The
+# workload each sample was produced by travels with it, and the window is keyed
+# by that, so a rewritten workload compares against itself or against nothing.
+if grep -qF 'by (source, scenario, phase, workload)' "$CHECK"; then
+  pass "the window is grouped by the workload that produced each sample"
+else
+  fail "the window is not grouped by workload — a rewritten scenario still compares against the work it replaced"
+fi
+
+write_summary "$WORK/rewritten-workload.json" '[
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":900,"workload":"rewritten","commit":"deadbeef","env":"ci"}
+]'
+rc=0
+out="$(run_check "$WORK/rewritten-workload.json" 2>&1)" || rc=$?
+assert_eq "a rewritten workload clears its predecessor's window" "1" "$rc"
+assert_contains "the absolute ceiling is what judges it" "absolute ceiling" "$out"
+assert_not_contains "the replaced workload's median is not used" "window median" "$out"
+
+# A latency well inside the absolute ceiling passes on a workload with no
+# history, which is the cold start the sample-count guard already exists for.
+write_summary "$WORK/rewritten-ok.json" '[
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":300,"workload":"rewritten","commit":"deadbeef","env":"ci"}
+]'
+rc=0
+out="$(run_check "$WORK/rewritten-ok.json" 2>&1)" || rc=$?
+assert_eq "a new workload inside the ceiling passes" "0" "$rc"
+
+# The same figure under the workload the window was built from is still judged
+# against that window, so the keying narrows nothing it should not.
+write_summary "$WORK/same-workload.json" '[
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":900,"workload":"w1","commit":"deadbeef","env":"ci"}
+]'
+rc=0
+out="$(run_check "$WORK/same-workload.json" 2>&1)" || rc=$?
+assert_eq "the established workload is still judged against its window" "1" "$rc"
+assert_contains "and by its window median" "window median" "$out"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

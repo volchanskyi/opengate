@@ -33,6 +33,14 @@ const relayMsgCount = new Counter("relay_msg_count");
 // is a finding rather than a tight budget.
 const ECHO_TIMEOUT_MS = 5000;
 
+// The probe the operator sends. Bytes rather than a string, because the real
+// browser sends the agent protocol's binary frames and the relay forwards
+// whatever it is given as binary either way.
+const PROBE = new Uint8Array([
+  0x6f, 0x70, 0x65, 0x6e, 0x67, 0x61, 0x74, 0x65, 0x2d, 0x72, 0x65, 0x6c, 0x61,
+  0x79, 0x2d, 0x70, 0x72, 0x6f, 0x62, 0x65,
+]);
+
 export const options = {
   scenarios: {
     relay: {
@@ -86,16 +94,26 @@ export default function (data) {
   let echoed = false;
 
   const res = ws.connect(relayUrl, {}, function (socket) {
-    socket.on("open", () => socket.send("opengate-relay-probe"));
+    socket.on("open", () => socket.sendBinary(PROBE.buffer));
 
-    socket.on("message", () => {
-      // The frame this operator sent has come back through the machine, so the
-      // elapsed time is the whole path rather than one leg of it.
+    // The frame this operator sent has come back through the machine, so the
+    // elapsed time is the whole path rather than one leg of it.
+    const recordEcho = () => {
       relayMsgLatency.add(Date.now() - sentAt);
       relayMsgCount.add(1);
       echoed = true;
       socket.close();
-    });
+    };
+
+    // The relay is a byte pipe — the agent protocol is MessagePack, so the
+    // server writes every frame it forwards as binary — and k6 dispatches a
+    // binary frame to a different handler than a text one. Listening on only
+    // one of them leaves the echo arriving at a handler that does not exist:
+    // the frame lands, ws_msgs_received counts it, and this trend stays empty
+    // while three gate ceilings sit on the zero it reports. Both are registered
+    // so what the round trip records does not depend on which type carried it.
+    socket.on("binaryMessage", recordEcho);
+    socket.on("message", recordEcho);
 
     // A machine that never answers is the finding; the socket is closed so the
     // iteration ends rather than holding a relay entry open for the run.

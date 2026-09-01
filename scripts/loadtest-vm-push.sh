@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Convert canonical load-test rows to Prometheus text and push them to VM.
+#
+# The workload label rides with every sample so the gate can tell one scenario's
+# work from the work it replaced. See workload_name in loadtest-summarize.sh.
 set -euo pipefail
 
 SUMMARY_FILE="${1:-loadtest-summary.json}"
@@ -18,7 +21,7 @@ metrics="$(
 
     def sample($metric; $value):
       select($value != null)
-      | "\($metric){commit=\"\(.commit | label_escape)\",env=\"\((.env // "ci") | label_escape)\",source=\"\((.source // "unknown") | label_escape)\",scenario=\"\((.scenario // "unknown") | label_escape)\",phase=\"\((.phase // "aggregate") | label_escape)\"} \($value)";
+      | "\($metric){commit=\"\(.commit | label_escape)\",env=\"\((.env // "ci") | label_escape)\",source=\"\((.source // "unknown") | label_escape)\",scenario=\"\((.scenario // "unknown") | label_escape)\",phase=\"\((.phase // "aggregate") | label_escape)\",workload=\"\((.workload // "unknown") | label_escape)\"} \($value)";
 
     .[]
     | sample("loadtest_latency_p50_ms"; .latency_p50_ms),

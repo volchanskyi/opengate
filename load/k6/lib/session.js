@@ -89,9 +89,35 @@ export function visibleSiteIds(baseUrl, token) {
 }
 
 /**
+ * The first site that actually holds machines, or undefined when none does.
+ *
+ * A journey timed against a machine needs the fleet read to return one, and a
+ * site is not guaranteed to hold any: an estate spreads its machines over its
+ * sites, and asking whichever site sorts first is asking an arbitrary one of
+ * them. When it holds none the read is legitimately empty, the journeys are
+ * skipped, and their trends publish a zero indistinguishable from a fast night.
+ *
+ * Undefined is the honest answer when no site has machines, and `devicesUrl`
+ * already reads it as the unfiltered fleet request.
+ */
+export function siteWithDevices(baseUrl, token) {
+  const headers = authHeaders(token);
+  for (const siteId of visibleSiteIds(baseUrl, token)) {
+    const resp = http.get(devicesUrl(baseUrl, siteId), { headers });
+    if (resp.status !== 200) {
+      throw new Error(`setup: list devices returned ${resp.status}: ${resp.body}`);
+    }
+    if ((resp.json() || []).length > 0) {
+      return siteId;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Device-list URL, narrowed to `siteId` when one is given. An absent site id
- * means the organization has no sites, so the unfiltered fleet read is the
- * request a client would actually make.
+ * means no site holds machines, so the unfiltered fleet read is the request a
+ * client would actually make.
  */
 export function devicesUrl(baseUrl, siteId) {
   return siteId
