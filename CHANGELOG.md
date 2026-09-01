@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.91.19] - 2026-09-01
+
+### Fixed
+- **loadtest,ci,rules:** size k6 to the rate limit, audit every lockfile
+
+### Changed
+- **tests:** one exit path, and a limit the guard reads from the right call
+
 ## [v0.91.18] - 2026-09-01
 
 ### Fixed
