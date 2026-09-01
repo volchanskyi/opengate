@@ -69,6 +69,10 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 		return res
 	}
 	res.registerDur = time.Since(t2)
+	// The machine is part of the fleet from here. What follows — its traffic and
+	// whatever hold the run asked for — is the fleet being carried, not the
+	// fleet arriving.
+	res.arrivedAt = time.Now()
 
 	if err := runSoakTraffic(codec, stream, opts); err != nil {
 		res.err = err

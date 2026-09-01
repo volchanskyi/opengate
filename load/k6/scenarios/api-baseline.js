@@ -6,7 +6,7 @@ import {
   devicesUrl,
   printCleanupManifest,
   registerMember,
-  visibleSiteIds,
+  siteWithDevices,
 } from "../lib/session.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
@@ -51,7 +51,10 @@ export function setup() {
   return {
     token: member.token,
     email: member.email,
-    siteIds: visibleSiteIds(BASE_URL, member.token),
+    // The site the fleet is read from is chosen for holding machines. Two of the
+    // journeys below are timed against one, so a site picked for sorting first
+    // leaves them recording nothing on every night it happens to be empty.
+    siteId: siteWithDevices(BASE_URL, member.token),
   };
 }
 
@@ -71,7 +74,7 @@ export default function (data) {
   check(sites, { "sites 200": (r) => r.status === 200 });
 
   // List devices, narrowed to a site when the organization has one
-  const devices = http.get(devicesUrl(BASE_URL, data.siteIds[0]), { headers });
+  const devices = http.get(devicesUrl(BASE_URL, data.siteId), { headers });
   check(devices, { "devices 200": (r) => r.status === 200 });
   deviceListLatency.add(devices.timings.duration);
 

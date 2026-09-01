@@ -42,7 +42,15 @@ type agentResult struct {
 	connectDur   time.Duration
 	handshakeDur time.Duration
 	registerDur  time.Duration
-	err          error
+
+	// arrivedAt is when this machine finished registering — the moment it is
+	// part of the fleet. It is what bounds the arrival window, and it is
+	// deliberately not the moment the machine's life ended: a machine held open
+	// for the generator beside it leaves when the run does, so an end time would
+	// measure the hold.
+	arrivedAt time.Time
+
+	err error
 }
 
 // exitCode is what the process returns for a finished run.
@@ -160,12 +168,13 @@ func run() int {
 	results, phases := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts)
 	totalDur := time.Since(start)
 
-	failures := reportResults(results, totalDur, *agents)
-
 	// Registration as the server measured it, where the device row lands. The
 	// harness's own clock stops at a local send buffer, which cannot move
-	// however slow the write becomes.
+	// however slow the write becomes — so the reading is taken before the
+	// results block is printed, because the block is where it is published.
 	registration := readServerRegistration(*metricsURL)
+
+	failures := reportResults(results, start, totalDur, *agents, registration)
 
 	// The bundle is built whether or not it is written, because it carries the
 	// verdict — and the verdict is what says whether this run measured the
@@ -195,15 +204,41 @@ func run() int {
 	return exitCode(bundle.Verdict, failures)
 }
 
+// arrivalWindow is how long the fleet took to arrive: from the run's start to
+// the moment the last machine finished registering.
+//
+// It is the denominator of the run's arrival rate, and the run's own wall clock
+// is not. A run keeps its fleet connected so the generator beside it has
+// machines to open sessions against, so the clock is minutes of holding after a
+// second of arriving — dividing by it reports the hold under the arrival's
+// name, and a fleet that entirely arrived reads as one that never did.
+//
+// A machine that failed has no arrival, so it cannot be the last one. A fleet
+// where nobody arrived has no window at all rather than a zero-length one: zero
+// is the fastest run ever recorded, and this is the opposite of a run.
+func arrivalWindow(results []agentResult, start time.Time) time.Duration {
+	var window time.Duration
+	for _, r := range results {
+		if r.err != nil || r.arrivedAt.IsZero() {
+			continue
+		}
+		if elapsed := r.arrivedAt.Sub(start); elapsed > window {
+			window = elapsed
+		}
+	}
+	return window
+}
+
 // reportResults prints the timing summary and returns the number of failed
 // agents, so the caller can set the process exit code.
-func reportResults(results []agentResult, totalDur time.Duration, agents int) int {
+func reportResults(results []agentResult, start time.Time, totalDur time.Duration, agents int,
+	registration *ServerRegistration,
+) int {
 	var (
 		successes    int
 		failures     int
 		connectTimes []time.Duration
 		hsTimes      []time.Duration
-		regTimes     []time.Duration
 	)
 	for _, r := range results {
 		if r.err != nil {
@@ -213,27 +248,52 @@ func reportResults(results []agentResult, totalDur time.Duration, agents int) in
 		successes++
 		connectTimes = append(connectTimes, r.connectDur)
 		hsTimes = append(hsTimes, r.handshakeDur)
-		regTimes = append(regTimes, r.registerDur)
 	}
 
 	fmt.Printf("\n=== Results ===\n")
 	fmt.Printf("Total time:  %s\n", totalDur.Round(time.Millisecond))
+	fmt.Printf("Arrival window:  %s\n", arrivalWindow(results, start).Round(time.Millisecond))
 	fmt.Printf("Agents:      %d/%d succeeded\n", successes, agents)
 	fmt.Printf("Failures:    %d\n", failures)
 
 	if successes > 0 {
+		// Connect and handshake are the generator's own side of the wire, and it
+		// is the only side that can see them.
 		fmt.Printf("\nConnect:     p50=%s  p95=%s  p99=%s\n",
 			percentile(connectTimes, 50), percentile(connectTimes, 95), percentile(connectTimes, 99))
 		fmt.Printf("Handshake:   p50=%s  p95=%s  p99=%s\n",
 			percentile(hsTimes, 50), percentile(hsTimes, 95), percentile(hsTimes, 99))
-		fmt.Printf("Register:    p50=%s  p95=%s  p99=%s\n",
-			percentile(regTimes, 50), percentile(regTimes, 95), percentile(regTimes, 99))
+		printRegisterLine(registration)
 	}
 
 	if failures > 0 {
 		printErrorSamples(results)
 	}
 	return failures
+}
+
+// printRegisterLine publishes registration as the server measured it, where the
+// device row lands.
+//
+// A run the server did not answer publishes no line at all. The harness has its
+// own timing around the register frame, but that clock stops at a local send
+// buffer: it reports microseconds whatever the write behind it costs, so it
+// cannot say anything about registration, and two gate ceilings named after
+// this line would go on sitting where they sat. An absent figure is honest.
+func printRegisterLine(registration *ServerRegistration) {
+	if registration == nil || !registration.Measured() {
+		return
+	}
+	fmt.Printf("Register:    p50=%s  p95=%s  p99=%s\n",
+		millisDuration(registration.QuantileMs(0.50)),
+		millisDuration(registration.QuantileMs(0.95)),
+		millisDuration(registration.QuantileMs(0.99)))
+}
+
+// millisDuration renders a millisecond figure in the same duration form the
+// percentile lines beside it use, so one parser reads the whole block.
+func millisDuration(ms float64) time.Duration {
+	return time.Duration(ms * float64(time.Millisecond)).Round(time.Microsecond)
 }
 
 // printErrorSamples prints up to three unique error messages from failed agents.

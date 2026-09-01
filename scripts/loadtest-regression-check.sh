@@ -140,11 +140,13 @@ prom_label_escape() {
 }
 
 series_selector() {
-  local source scenario phase
+  local source scenario phase workload
   source="$(prom_label_escape "$1")"
   scenario="$(prom_label_escape "$2")"
   phase="$(prom_label_escape "$3")"
-  printf 'env="ci",source="%s",scenario="%s",phase="%s"' "$source" "$scenario" "$phase"
+  workload="$(prom_label_escape "${4:-}")"
+  printf 'env="ci",source="%s",scenario="%s",phase="%s",workload="%s"' \
+    "$source" "$scenario" "$phase" "$workload"
 }
 
 window_stats_for_metric() {
@@ -153,23 +155,27 @@ window_stats_for_metric() {
   selector="${vm_metric}{$(vm_query_selector 'env="ci"')}"
   window="[${WINDOW_DAYS}d]"
   {
-    vm_query_window "quantile(0.5, median_over_time(${selector}${window})) by (source, scenario, phase)" \
+    vm_query_window "quantile(0.5, median_over_time(${selector}${window})) by (source, scenario, phase, workload)" \
       | sed "s/^/M\t${metric}\t/"
-    vm_query_window "count(count_over_time(${selector}${window})) by (source, scenario, phase)" \
+    vm_query_window "count(count_over_time(${selector}${window})) by (source, scenario, phase, workload)" \
       | sed "s/^/C\t${metric}\t/"
   } | awk -F'\t' '
     {
       kind = $1; metric = $2; sig = $3; val = $4
-      source = ""; scenario = ""; phase = ""
+      source = ""; scenario = ""; phase = ""; workload = ""
       n = split(sig, parts, ",")
       for (i = 1; i <= n; i++) {
         split(parts[i], kv, "=")
         if (kv[1] == "source") source = kv[2]
         if (kv[1] == "scenario") scenario = kv[2]
         if (kv[1] == "phase") phase = kv[2]
+        if (kv[1] == "workload") workload = kv[2]
       }
       if (source == "" || scenario == "" || phase == "") next
-      key = metric "/" source "/" scenario "/" phase
+      # A sample produced before the workload was named carries no label, and
+      # groups under the empty one. No current row keys there, which is the
+      # point: what produced it cannot be established, so it compares to nothing.
+      key = metric "/" source "/" scenario "/" phase "/" workload
       if (kind == "M") med[key] = val; else cnt[key] = val
     }
     END {
@@ -202,23 +208,23 @@ window_map() {
 }
 
 window_entry() {
-  local map="$1" metric="$2" source="$3" scenario="$4" phase="$5"
+  local map="$1" metric="$2" source="$3" scenario="$4" phase="$5" workload="${6:-}"
   jq -c \
-    --arg key "${metric}/${source}/${scenario}/${phase}" \
+    --arg key "${metric}/${source}/${scenario}/${phase}/${workload}" \
     '.[$key] // null' <<<"$map" 2>/dev/null || printf 'null\n'
 }
 
 previous_error_rate() {
-  local source="$1" scenario="$2" phase="$3" value
-  value="$(vm_query_latest loadtest_error_rate "$(series_selector "$source" "$scenario" "$phase")" 2>/dev/null || true)"
+  local source="$1" scenario="$2" phase="$3" workload="$4" value
+  value="$(vm_query_latest loadtest_error_rate "$(series_selector "$source" "$scenario" "$phase" "$workload")" 2>/dev/null || true)"
   printf '%s\n' "$value"
 }
 
 latency_regression_line() {
-  local source="$1" scenario="$2" phase="$3" metric="$4" current="$5" p99="$6" window="$7"
+  local source="$1" scenario="$2" phase="$3" metric="$4" current="$5" p99="$6" window="$7" workload="$8"
   local series="${source}/${scenario}/${phase}"
   local entry count median threshold ceiling detail
-  entry="$(window_entry "$window" "$metric" "$source" "$scenario" "$phase")"
+  entry="$(window_entry "$window" "$metric" "$source" "$scenario" "$phase" "$workload")"
   count="$(jq -r '.count // 0' <<<"$entry")"
   median="$(jq -r '.median // empty' <<<"$entry")"
 
@@ -247,10 +253,10 @@ latency_regression_line() {
 }
 
 rps_regression_line() {
-  local source="$1" scenario="$2" phase="$3" current="$4" window="$5"
+  local source="$1" scenario="$2" phase="$3" current="$4" window="$5" workload="$6"
   local series="${source}/${scenario}/${phase}"
   local entry count median threshold floor
-  entry="$(window_entry "$window" rps "$source" "$scenario" "$phase")"
+  entry="$(window_entry "$window" rps "$source" "$scenario" "$phase" "$workload")"
   count="$(jq -r '.count // 0' <<<"$entry")"
   median="$(jq -r '.median // empty' <<<"$entry")"
 
@@ -269,7 +275,7 @@ rps_regression_line() {
 }
 
 error_rate_regression_line() {
-  local source="$1" scenario="$2" phase="$3" current="$4"
+  local source="$1" scenario="$2" phase="$3" current="$4" workload="$5"
   local series="${source}/${scenario}/${phase}"
   local ceiling prev threshold
   ceiling="$(error_rate_ceiling "$source" "$scenario" "$phase")"
@@ -278,7 +284,7 @@ error_rate_regression_line() {
     return
   fi
 
-  prev="$(previous_error_rate "$source" "$scenario" "$phase")"
+  prev="$(previous_error_rate "$source" "$scenario" "$phase" "$workload")"
   if [ -n "$prev" ] && num_pos "$prev"; then
     threshold="$(mul "$prev" "$(awk -v tol="$ERROR_RATE_REL_TOL" 'BEGIN { printf "%.6f", 1 + tol }')")"
     if num_gt "$current" "$threshold"; then
@@ -288,10 +294,10 @@ error_rate_regression_line() {
 }
 
 p99_advisory_line() {
-  local source="$1" scenario="$2" phase="$3" current="$4" window="$5"
+  local source="$1" scenario="$2" phase="$3" current="$4" window="$5" workload="$6"
   local series="${source}/${scenario}/${phase}"
   local entry count median threshold ceiling
-  entry="$(window_entry "$window" latency_p99_ms "$source" "$scenario" "$phase")"
+  entry="$(window_entry "$window" latency_p99_ms "$source" "$scenario" "$phase" "$workload")"
   count="$(jq -r '.count // 0' <<<"$entry")"
   median="$(jq -r '.median // empty' <<<"$entry")"
 
@@ -314,12 +320,16 @@ regression_check() {
   local branch="${GITHUB_REF_NAME:-dev}"
   local regression_lines=()
   local p99_lines=()
-  local row source scenario phase p50 p95 p99 rps error_rate line
+  local row source scenario phase workload p50 p95 p99 rps error_rate line
 
   while IFS= read -r row; do
     source="$(jq -r '.source // "unknown"' <<<"$row")"
     scenario="$(jq -r '.scenario // "unknown"' <<<"$row")"
     phase="$(jq -r '.phase // "aggregate"' <<<"$row")"
+    # A row that names no workload cannot say what produced it, so it keys to
+    # the same empty bucket the unnamed history sits in and is judged by the
+    # absolute rules alone.
+    workload="$(jq -r '.workload // ""' <<<"$row")"
     p50="$(jq -r '.latency_p50_ms // empty' <<<"$row")"
     p95="$(jq -r '.latency_p95_ms // empty' <<<"$row")"
     p99="$(jq -r '.latency_p99_ms // empty' <<<"$row")"
@@ -327,23 +337,23 @@ regression_check() {
     error_rate="$(jq -r '.error_rate // empty' <<<"$row")"
 
     if [ -n "$p50" ]; then
-      line="$(latency_regression_line "$source" "$scenario" "$phase" latency_p50_ms "$p50" "$p99" "$window")"
+      line="$(latency_regression_line "$source" "$scenario" "$phase" latency_p50_ms "$p50" "$p99" "$window" "$workload")"
       [ -z "$line" ] || regression_lines+=("$line")
     fi
     if [ -n "$p95" ]; then
-      line="$(latency_regression_line "$source" "$scenario" "$phase" latency_p95_ms "$p95" "$p99" "$window")"
+      line="$(latency_regression_line "$source" "$scenario" "$phase" latency_p95_ms "$p95" "$p99" "$window" "$workload")"
       [ -z "$line" ] || regression_lines+=("$line")
     fi
     if [ -n "$rps" ]; then
-      line="$(rps_regression_line "$source" "$scenario" "$phase" "$rps" "$window")"
+      line="$(rps_regression_line "$source" "$scenario" "$phase" "$rps" "$window" "$workload")"
       [ -z "$line" ] || regression_lines+=("$line")
     fi
     if [ -n "$error_rate" ]; then
-      line="$(error_rate_regression_line "$source" "$scenario" "$phase" "$error_rate")"
+      line="$(error_rate_regression_line "$source" "$scenario" "$phase" "$error_rate" "$workload")"
       [ -z "$line" ] || regression_lines+=("$line")
     fi
     if [ -n "$p99" ]; then
-      line="$(p99_advisory_line "$source" "$scenario" "$phase" "$p99" "$window")"
+      line="$(p99_advisory_line "$source" "$scenario" "$phase" "$p99" "$window" "$workload")"
       [ -z "$line" ] || p99_lines+=("$line")
     fi
   done < <(jq -c '.[]' <<<"$rows")

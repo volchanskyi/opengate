@@ -41,6 +41,7 @@ cat >"$TMP_ROOT/loadtest-summary.json" <<'JSON'
     "source": "k6",
     "scenario": "api-baseline",
     "phase": "http",
+    "workload": "member-journeys/1",
     "latency_p50_ms": 50.5,
     "latency_p95_ms": 123.4,
     "latency_p99_ms": 222.2,
@@ -53,6 +54,7 @@ cat >"$TMP_ROOT/loadtest-summary.json" <<'JSON'
     "source": "quic",
     "scenario": "quic-agents",
     "phase": "connect",
+    "workload": "fleet-arrival/1",
     "latency_p50_ms": 10,
     "latency_p95_ms": 750,
     "latency_p99_ms": 1500,
@@ -63,6 +65,7 @@ cat >"$TMP_ROOT/loadtest-summary.json" <<'JSON'
     "source": "quic",
     "scenario": "quic-agents",
     "phase": "aggregate",
+    "workload": "fleet-arrival/1",
     "rps": 20,
     "error_rate": 0.02,
     "commit": "deadbeef",
@@ -87,27 +90,27 @@ else
   fail "VM endpoint missing from kubectl args"
 fi
 
-if grep -qF 'loadtest_latency_p95_ms{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http"} 123.4' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_latency_p95_ms{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 123.4' "$TMP_ROOT/payload.prom"; then
   pass "maps k6 latency"
 else
   fail "k6 latency metric missing"
 fi
-if grep -qF 'loadtest_rps{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http"} 42.5' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_rps{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 42.5' "$TMP_ROOT/payload.prom"; then
   pass "maps k6 rps"
 else
   fail "k6 rps metric missing"
 fi
-if grep -qF 'loadtest_error_rate{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http"} 0.005' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_error_rate{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 0.005' "$TMP_ROOT/payload.prom"; then
   pass "maps k6 error rate"
 else
   fail "k6 error rate metric missing"
 fi
-if grep -qF 'loadtest_latency_p99_ms{commit="deadbeef",env="ci",source="quic",scenario="quic-agents",phase="connect"} 1500' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_latency_p99_ms{commit="deadbeef",env="ci",source="quic",scenario="quic-agents",phase="connect",workload="fleet-arrival/1"} 1500' "$TMP_ROOT/payload.prom"; then
   pass "maps QUIC latency"
 else
   fail "QUIC latency metric missing"
 fi
-if grep -qF 'loadtest_error_rate{commit="deadbeef",env="ci",source="quic",scenario="quic-agents",phase="aggregate"} 0.02' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_error_rate{commit="deadbeef",env="ci",source="quic",scenario="quic-agents",phase="aggregate",workload="fleet-arrival/1"} 0.02' "$TMP_ROOT/payload.prom"; then
   pass "maps QUIC aggregate error rate"
 else
   fail "QUIC aggregate error metric missing"

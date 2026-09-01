@@ -752,7 +752,11 @@ its own VU ramp and thresholds in its `options` block:
 
 `setup()` registers a throwaway member of the staging organization through
 [`load/k6/lib/session.js`](../../load/k6/lib/session.js) and reads the sites that
-member can see. The scenarios drive read paths only: organization is the visibility
+member can see. Where a scenario times a journey against one machine, it reads
+the fleet from a site chosen for holding machines: an estate spreads its fleet
+over its sites, so a site picked for sorting first is empty as often as not, and
+a journey with nothing to open publishes a zero indistinguishable from a fast
+night. The scenarios drive read paths only: organization is the visibility
 boundary, so a member reads the whole fleet, while creating a site is administrator
 work the server refuses. A scenario that stood up its own fixtures would measure the
 403 path instead. `setup()` throws on an unexpected status, so a broken precondition
@@ -772,7 +776,19 @@ moves rather than the next night.
 The relay scenario needs a machine on the other end of every session it opens, so
 the QUIC harness holds its fleet connected for the whole k6 window rather than
 running after it. What the metric records is the operator's own frame going out
-through the server, through the machine, and back.
+through the server, through the machine, and back. The relay is a byte pipe —
+the agent protocol is MessagePack, so the server forwards every frame as binary
+— and k6 delivers a binary frame to a different handler than a text one, so the
+operator's side listens on both. Listening on one leaves the echo arriving at a
+handler that does not exist: the frame lands and is counted, the round trip is
+never recorded, and each iteration spends its whole echo timeout waiting for an
+answer it already had.
+
+Each scenario declares the workload it performs, and that name travels with every
+sample into the trend store. A window baseline is only a baseline for the work
+that produced it, so a scenario rewritten to measure something else takes a new
+name and is compared against itself rather than against what it replaced. See
+[ADR-092](../adr/ADR-092-a-trend-series-carries-the-workload-that-produced-it.md).
 
 The scenarios spell their URLs by hand, so
 [`scripts/tests/api-endpoint-drift.test.sh`](../../scripts/tests/api-endpoint-drift.test.sh)
@@ -808,12 +824,23 @@ reconnects with a backlog to drain, duplicate connections, and the machine side
 of any relay session the server hands it. It reports p50/p95/p99 for connect,
 handshake and register, and writes an evidence bundle.
 
+It also reports the window the fleet arrived in — from the run's start to the
+moment the last machine finished registering — and that is what the run's arrival
+rate divides by. The run's own wall clock is nearly all hold: `-hold` keeps every
+machine connected so the k6 relay scenario has something to open sessions
+against, so a rate taken from it describes the hold rather than the arrival, and
+a hundred machines that all arrived report a fraction of one per second.
+
 Registration is the one figure it does not time itself. The harness's own clock
-would stop when the frame reaches a local send buffer, and the device row is
-written later and elsewhere — so `-metrics-url` points it at the server's own
-account of how long registration took, published where that row lands, with the
-connection pool beside it. A registration queued behind a connection and one
-executing slowly are the same latency until the pool says which.
+would stop when the frame reaches a local send buffer, which reports microseconds
+however slow the write behind it becomes, and the device row is written later and
+elsewhere — so `-metrics-url` points it at the server's own account of how long
+registration took, published where that row lands, with the connection pool
+beside it. A registration queued behind a connection and one executing slowly are
+the same latency until the pool says which. That figure is the one the run
+publishes: a run the server did not answer publishes no registration line at all,
+because an absent figure is honest where a local write under registration's name
+is not.
 
 ```bash
 # Default: 100 machines against a local stack that owns its own authority

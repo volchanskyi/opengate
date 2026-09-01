@@ -165,10 +165,17 @@ func phaseResults(in runBundleInputs, finished time.Time, succeeded int,
 }
 
 func connectPhase(in runBundleInputs, finished time.Time, succeeded int, register []time.Duration, errorRate float64) PhaseResult {
+	// The connect ends when the fleet is up. A run that then holds its fleet for
+	// the generator beside it spends most of its wall clock there, so a phase
+	// carrying the run's own end reports the hold under the arrival's name.
+	arrived := finished
+	if window := arrivalWindow(in.Results, in.StartedAt); window > 0 {
+		arrived = in.StartedAt.Add(window)
+	}
 	return PhaseResult{
 		Name:       "connect",
 		StartedAt:  in.StartedAt,
-		FinishedAt: finished,
+		FinishedAt: arrived,
 		// Every machine is offered at once, so the offered and achieved counts
 		// are the fleet and the fleet that arrived.
 		OfferedConnectedAgents:  in.AgentCount,

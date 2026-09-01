@@ -50,11 +50,18 @@ duration_to_ms() {
 emit_k6_rows() {
   local file="$1"
   local scenario="$2"
+  local workload
+
+  if ! workload="$(workload_name "$scenario")"; then
+    echo "scenario $scenario declares no workload; add it to workload_name in $0" >&2
+    return 2
+  fi
 
   jq -c \
     --arg commit "$COMMIT_SHA" \
     --arg timestamp "$TIMESTAMP" \
     --arg scenario "$scenario" \
+    --arg workload "$workload" \
     '
       # k6 v1.x writes a metric statistics flat on the metric object; v0.x
       # nested them under "values". Accept both so the extraction does not
@@ -65,6 +72,7 @@ emit_k6_rows() {
         source: "k6",
         scenario: $scenario,
         phase: $phase,
+        workload: $workload,
         commit: $commit,
         env: "ci",
         timestamp: $timestamp
@@ -106,11 +114,41 @@ emit_k6_rows() {
     ' "$file"
 }
 
+# workload_name is what a scenario measures, named.
+#
+# A trend compares a number against the numbers before it, and that is sound only
+# while the scenario keeps measuring the same thing. The relay scenario had been
+# timing an unauthenticated health check; it was rewritten to open a real session
+# and time its own frame coming back, kept its name, and the first night of the
+# new work was reported as a collapse against the old work's figures — a window
+# median of 1ms judging an 8ms session create, and a throughput floor built from
+# a request that did no relaying. Nothing in the stored data could say the two
+# were different work.
+#
+# So the name travels with every sample. The gate keys its window by it, which
+# makes a rewritten scenario a new series: it compares against itself, or, until
+# three nights of it exist, against the absolute ceilings alone — which are
+# recalibrated in the same commit that does the rewriting.
+#
+# Changing what a scenario measures means changing the name here. A scenario
+# with no name cannot enter the trend: an unnamed workload is exactly the
+# ambiguity this removes.
+workload_name() {
+  case "$1" in
+    api-baseline) printf '%s\n' "member-journeys/1" ;;
+    concurrent-agents) printf '%s\n' "fleet-reads/1" ;;
+    relay-throughput) printf '%s\n' "relay-session-echo/1" ;;
+    quic-agents) printf '%s\n' "fleet-arrival/1" ;;
+    *) return 2 ;;
+  esac
+}
+
 emit_quic_phase_row() {
   local phase="$1"
   local p50="$2"
   local p95="$3"
   local p99="$4"
+  local workload="$5"
   local p50_ms p95_ms p99_ms
 
   p50_ms="$(duration_to_ms "$p50")" || return 2
@@ -121,6 +159,7 @@ emit_quic_phase_row() {
     --arg commit "$COMMIT_SHA" \
     --arg timestamp "$TIMESTAMP" \
     --arg phase "$phase" \
+    --arg workload "$workload" \
     --argjson p50 "$p50_ms" \
     --argjson p95 "$p95_ms" \
     --argjson p99 "$p99_ms" \
@@ -128,6 +167,7 @@ emit_quic_phase_row() {
       source: "quic",
       scenario: "quic-agents",
       phase: $phase,
+      workload: $workload,
       latency_p50_ms: $p50,
       latency_p95_ms: $p95,
       latency_p99_ms: $p99,
@@ -141,8 +181,19 @@ emit_quic_rows() {
   local file="$1"
   [ -f "$file" ] || return 0
 
-  local total_duration agents_line successes total_agents total_ms rps error_rate
-  total_duration="$(awk '/^Total time:/ { sub(/^Total time:[[:space:]]*/, ""); print; exit }' "$file")"
+  local window_duration agents_line successes total_agents window_ms rps error_rate workload
+
+  if ! workload="$(workload_name quic-agents)"; then
+    echo "scenario quic-agents declares no workload; add it to workload_name in $0" >&2
+    return 2
+  fi
+
+  # The arrival window, not the run's own clock. A run holds its fleet connected
+  # so the k6 relay scenario has machines to open sessions against, and the hold
+  # is nearly all of the wall clock — so a rate taken from it reports the hold
+  # rather than the arrival, and a fleet that entirely arrived reads as one that
+  # collapsed. The harness prints the window it measured; this divides by that.
+  window_duration="$(awk '/^Arrival window:/ { sub(/^Arrival window:[[:space:]]*/, ""); print; exit }' "$file")"
   agents_line="$(awk '/^Agents:/ { print; exit }' "$file")"
 
   if [[ ! "$agents_line" =~ ^Agents:[[:space:]]+([0-9]+)/([0-9]+)[[:space:]]+succeeded$ ]]; then
@@ -151,8 +202,20 @@ emit_quic_rows() {
   fi
   successes="${BASH_REMATCH[1]}"
   total_agents="${BASH_REMATCH[2]}"
-  total_ms="$(duration_to_ms "$total_duration")" || return 2
-  rps="$(awk -v successes="$successes" -v total_ms="$total_ms" 'BEGIN { if (total_ms <= 0) print 0; else printf "%.6f", successes / (total_ms / 1000) }')"
+
+  # A block reporting arrivals with no window has no denominator this may use.
+  # Falling back to the run's clock is the defect above, arrived at quietly, so
+  # the extraction refuses rather than publishing a number it cannot stand behind.
+  if [ -z "$window_duration" ] && [ "$successes" -gt 0 ]; then
+    echo "missing QUIC arrival window line in $file" >&2
+    return 2
+  fi
+
+  window_ms=0
+  if [ -n "$window_duration" ]; then
+    window_ms="$(duration_to_ms "$window_duration")" || return 2
+  fi
+  rps="$(awk -v successes="$successes" -v window_ms="$window_ms" 'BEGIN { if (window_ms <= 0) print 0; else printf "%.6f", successes / (window_ms / 1000) }')"
   error_rate="$(awk -v successes="$successes" -v total_agents="$total_agents" 'BEGIN { if (total_agents <= 0) print 0; else printf "%.6f", (total_agents - successes) / total_agents }')"
 
   jq -nc \
@@ -160,10 +223,12 @@ emit_quic_rows() {
     --arg timestamp "$TIMESTAMP" \
     --argjson rps "$rps" \
     --argjson error_rate "$error_rate" \
+    --arg workload "$workload" \
     '{
       source: "quic",
       scenario: "quic-agents",
       phase: "aggregate",
+      workload: $workload,
       rps: $rps,
       error_rate: $error_rate,
       commit: $commit,
@@ -179,6 +244,16 @@ emit_quic_rows() {
       if [ "$successes" -eq 0 ]; then
         continue
       fi
+      # Registration is the server's figure, taken where the device row lands,
+      # and a run the server did not answer has none. Publishing the harness's
+      # own clock instead is what two ceilings sat on: it stops at a local send
+      # buffer and reports microseconds whatever the write behind it costs. So
+      # the row is absent rather than wrong. Connect and handshake are the
+      # generator's own side of the wire and it is the only side that can see
+      # them, so their absence is a malformed block.
+      if [ "$label" = "Register" ]; then
+        continue
+      fi
       echo "missing QUIC $label latency line in $file" >&2
       return 2
     fi
@@ -186,7 +261,7 @@ emit_quic_rows() {
       echo "malformed QUIC $label latency line in $file" >&2
       return 2
     fi
-    emit_quic_phase_row "$phase" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" || return 2
+    emit_quic_phase_row "$phase" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "$workload" || return 2
   done
 }
 

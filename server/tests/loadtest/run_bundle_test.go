@@ -203,3 +203,31 @@ func TestWriteRunBundlePutsTheEvidenceOnDisk(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, read.Validate())
 }
+
+// A phase named "connect" that ends when the run ends is not describing the
+// connect. A held fleet's run is eight minutes of holding after a second of
+// arriving, so a connect phase spanning the whole run reports the hold under
+// the arrival's name — and anything reading the phase back for an arrival rate
+// divides by the wrong number.
+func TestTheConnectPhaseEndsWhenTheFleetIsUp(t *testing.T) {
+	start := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)
+	results := []agentResult{
+		{connectDur: 10 * time.Millisecond, registerDur: 5 * time.Millisecond, arrivedAt: start.Add(180 * time.Millisecond)},
+		{connectDur: 12 * time.Millisecond, registerDur: 6 * time.Millisecond, arrivedAt: start.Add(420 * time.Millisecond)},
+	}
+	bundle := buildRunBundle(runBundleInputs{
+		Results:    results,
+		StartedAt:  start,
+		Total:      8 * time.Minute,
+		AgentCount: len(results),
+		Target:     "opengate-staging-server:9090",
+	})
+
+	require.Len(t, bundle.Phases, 1)
+	phase := bundle.Phases[0]
+	assert.Equal(t, "connect", phase.Name)
+	assert.Equal(t, start.Add(420*time.Millisecond), phase.FinishedAt,
+		"the connect ends at the last arrival; the hold that follows is not part of it")
+	assert.Equal(t, start.Add(8*time.Minute), bundle.Run.FinishedAt,
+		"the run still ends when it ended — only the phase is bounded to the arrival")
+}

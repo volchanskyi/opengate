@@ -95,6 +95,7 @@ Starting QUIC load test: 100 agents across 1 tenant(s) → 10.0.0.42:9090
 
 === Results ===
 Total time:  1.5s
+Arrival window:  1.5s
 Agents:      100/100 succeeded
 Failures:    0
 
