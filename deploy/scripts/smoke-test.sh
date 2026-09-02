@@ -8,7 +8,8 @@
 # deployed release; --domain targets the public ingress instead.
 #
 # Usage: smoke-test.sh --mode <local|staging|production> --domain <domain>
-#    or: smoke-test.sh --mode <local|staging|production> --host <host> --port <port> [--scheme <http|https>]
+#    or: smoke-test.sh --mode <local|staging|production> --host <host> --port <port>
+#                      --metrics-port <port> [--scheme <http|https>]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,6 +21,7 @@ source "${SCRIPT_DIR}/common.sh"
 DOMAIN=""
 HOST=""
 PORT=""
+METRICS_PORT=""
 MODE=""
 SCHEME="http"
 
@@ -35,6 +37,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --port)
       PORT="$2"
+      shift 2
+      ;;
+    --metrics-port)
+      METRICS_PORT="$2"
       shift 2
       ;;
     --mode)
@@ -57,7 +63,13 @@ if [[ -n "$DOMAIN" ]]; then
 else
   [[ -z "$HOST" ]] && fail "Missing required argument: --host (or use --domain)"
   [[ -z "$PORT" ]] && fail "Missing required argument: --port (or use --domain)"
+  # Named rather than derived. The exposition lives on the server's second
+  # listener, so a caller that forwards only the API port would otherwise
+  # probe the API port for it, find the SPA fallback, and report a pass on a
+  # check that never reached the endpoint.
+  [[ -z "$METRICS_PORT" ]] && fail "Missing required argument: --metrics-port (or use --domain)"
   BASE_URL="${SCHEME}://${HOST}:${PORT}"
+  METRICS_BASE_URL="${SCHEME}://${HOST}:${METRICS_PORT}"
 fi
 TESTS_PASSED=0
 TESTS_FAILED=0
@@ -103,20 +115,55 @@ test_health() {
 
 check "GET /api/v1/health returns 200" test_health
 
-# --- Metrics endpoint ---------------------------------------------------------
-# /metrics is served on the same listener as the API but is not routed by the
-# ingress, so it is reachable exactly when this run talks to the server port
-# directly — the compose published port, or a port-forward into the Service.
-# A --domain run goes through the ingress and cannot see it.
+# --- The two listeners --------------------------------------------------------
+# The exposition and the profiler answer on the server's second listener, which
+# the Service publishes and the Ingress does not route. A run that talks to that
+# port directly — the compose published port, or a port-forward into the Service
+# — reads them there. A --domain run goes through the ingress, and its job is
+# the other half of the same claim: the public edge answers those paths with
+# something that is not the process's own internals.
 
 test_metrics() {
-  http_get "${BASE_URL}/metrics"
+  http_get "${METRICS_BASE_URL}/metrics"
   [[ "$RESPONSE_STATUS" == "200" ]] || return 1
   echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total' || return 1
 }
 
-if [[ -z "$DOMAIN" ]]; then
+test_profiler() {
+  http_get "${METRICS_BASE_URL}/debug/pprof/"
+  [[ "$RESPONSE_STATUS" == "200" ]] || return 1
+  echo "$RESPONSE_BODY" | grep -q 'Types of profiles available' || return 1
+}
+
+# Whatever the edge answers with — the SPA fallback, or a 404 — the one thing it
+# must not be is the exposition. Asserting the body rather than the status is
+# deliberate: the catch-all ingress rule sends every unrouted path to the SPA,
+# so a status code alone cannot tell a served page from a served registry.
+test_metrics_off_the_edge() {
+  http_get "${BASE_URL}/metrics"
+  if echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total'; then
+    return 1
+  fi
+  if echo "$RESPONSE_BODY" | grep -q '^# HELP '; then
+    return 1
+  fi
+  return 0
+}
+
+test_profiler_off_the_edge() {
+  http_get "${BASE_URL}/debug/pprof/"
+  if echo "$RESPONSE_BODY" | grep -q 'Types of profiles available'; then
+    return 1
+  fi
+  return 0
+}
+
+if [[ -n "$DOMAIN" ]]; then
+  check "GET /metrics through the ingress is not the exposition" test_metrics_off_the_edge
+  check "GET /debug/pprof/ through the ingress is not the profiler" test_profiler_off_the_edge
+else
   check "GET /metrics returns Prometheus metrics" test_metrics
+  check "GET /debug/pprof/ returns the profiler index" test_profiler
 fi
 
 # --- Web UI tests (all modes) -------------------------------------------------

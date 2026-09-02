@@ -25,6 +25,7 @@ const shutdownBudget = 10 * time.Second
 
 func main() {
 	listen := flag.String("listen", ":8080", "HTTP listen address")
+	internalListen := flag.String("internal-listen", ":8081", "cluster-only listen address for metrics and profiling")
 	quicListen := flag.String("quic-listen", ":9090", "QUIC listen address for agent connections")
 	mpsListen := flag.String("mps-listen", ":4433", "MPS TLS listen address for Intel AMT CIRA connections")
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
@@ -84,6 +85,7 @@ func main() {
 		BaseURL:            os.Getenv("OPENGATE_BASE_URL"),
 		QuicHost:           os.Getenv("OPENGATE_QUIC_HOST"),
 		WebDir:             *webDir,
+		InternalListen:     *internalListen,
 	})
 	if err != nil {
 		logger.Error("assemble server", "error", err)
@@ -106,6 +108,7 @@ func main() {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	serveBackground("HTTP server", httpSrv, logger)
+	serveBackground("internal HTTP server", assembly.Internal, logger)
 
 	go func() {
 		logger.Info("agent QUIC server starting", "addr", *quicListen)
@@ -142,6 +145,10 @@ func main() {
 
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP shutdown error", "error", err)
+	}
+
+	if err := assembly.Internal.Shutdown(shutdownCtx); err != nil {
+		logger.Error("internal HTTP shutdown error", "error", err)
 	}
 
 	logger.Info("server stopped")

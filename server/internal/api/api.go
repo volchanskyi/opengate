@@ -10,13 +10,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/amt"
@@ -200,7 +199,7 @@ type ServerConfig struct {
 	RuleAdmin             RuleAdmin
 	AlertBudget           AlertBudget
 	Relay                 *relay.Relay
-	Signaling             *signaling.Tracker
+	Signaling             signaling.Config
 	Notifier              notifications.Notifier
 	Signing               *updater.SigningKeys
 	Manifests             *updater.ManifestStore
@@ -209,7 +208,6 @@ type ServerConfig struct {
 	QuicHost              string // override hostname for QUIC address in enrollment (bypasses CDN proxy)
 	Logger                *slog.Logger
 	WebDir                string // directory containing SPA static assets (optional)
-	MetricsRegistry       *prometheus.Registry
 	Metrics               *appmetrics.Metrics
 	// RequestTimeout bounds a single API request. Zero selects
 	// defaultRequestTimeout. Tests inject a short budget so timeout-boundary
@@ -263,7 +261,7 @@ type Server struct {
 	ruleAdmin       RuleAdmin
 	alertBudget     AlertBudget
 	relay           *relay.Relay
-	signaling       *signaling.Tracker
+	signaling       signaling.Config
 	notifier        notifications.Notifier
 	signing         *updater.SigningKeys
 	manifests       *updater.ManifestStore
@@ -273,9 +271,15 @@ type Server struct {
 	router          chi.Router
 	logger          *slog.Logger
 	webDir          string
-	metricsRegistry *prometheus.Registry
 	metrics         *appmetrics.Metrics
 	loginLimiter    *emailLimiter
+	// auditSlots bounds concurrent audit writes; auditSlotsOnce creates it on
+	// first use. Lazily rather than in NewServer because a nil channel sheds
+	// every write silently, and a Server assembled anywhere else — a test
+	// building one field by field — would then keep no audit trail at all while
+	// reporting nothing wrong. See auditConcurrentWrites.
+	auditSlots      chan struct{}
+	auditSlotsOnce  sync.Once
 	requestTimeout  time.Duration
 	peerWaitTimeout time.Duration
 	pingInterval    time.Duration
@@ -384,7 +388,6 @@ func NewServer(cfg ServerConfig) *Server {
 		router:          chi.NewRouter(),
 		logger:          cfg.Logger,
 		webDir:          cfg.WebDir,
-		metricsRegistry: cfg.MetricsRegistry,
 		metrics:         cfg.Metrics,
 		loginLimiter:    newEmailLimiter(loginMaxFailures, loginFailureWindow),
 		requestTimeout:  cfg.RequestTimeout,
@@ -415,6 +418,22 @@ const (
 	loginFailureWindow = 15 * time.Minute
 )
 
+const (
+	// auditConcurrentWrites bounds how many audit rows may be in flight at once.
+	//
+	// The writes run off the response path so a slow store never holds a request
+	// open, and unbounded that makes a burst worse: every audited request in a
+	// spike starts one more goroutine competing for the same connection pool,
+	// which is what was slow to begin with. Four, matching the telemetry
+	// persistence slots this copies — the two paths write to the same pool, and
+	// a bound that is not small enough to be a bound is decoration.
+	auditConcurrentWrites = 4
+
+	// auditWriteTimeout bounds one audit row's write. A slot held past it is a
+	// slot no other audited action can have.
+	auditWriteTimeout = 5 * time.Second
+)
+
 // ServeHTTP implements the http.Handler interface.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
@@ -431,11 +450,6 @@ func (s *Server) routes() {
 	r.Use(SecurityHeaders)
 	r.Use(MaxBodySize(maxRequestBodySize))
 	r.Use(RequestLogger(s.logger))
-
-	// Prometheus metrics endpoint (internal only — not exposed through the ingress)
-	if s.metricsRegistry != nil {
-		r.Handle("/metrics", promhttp.HandlerFor(s.metricsRegistry, promhttp.HandlerOpts{}))
-	}
 
 	// Liveness probe — reports only that the process is up. Deliberately
 	// dependency-free: a Postgres or Redis blip must NOT restart the pod, which
@@ -584,8 +598,24 @@ func (s *Server) auditLog(ctx context.Context, userID db.UserID, action, target,
 	} else {
 		auditCtx = dbtx.WithDefaultTenant(auditCtx, false)
 	}
+
+	slots := s.auditWriteSlots()
+	select {
+	case slots <- struct{}{}:
+	default:
+		// Every slot is busy, which means the store is slower than the requests
+		// arriving. Shedding here is deliberate and counted: the alternative is
+		// one more goroutine per audited request competing for the very
+		// connection pool that is already the bottleneck, which turns a slow
+		// store into an unbounded one.
+		s.observeAuditWrite("shed")
+		s.logger.Warn("audit log write shed: every write slot is busy", "action", action)
+		return
+	}
+
 	go func() {
-		ctx, cancel := context.WithTimeout(auditCtx, 5*time.Second)
+		defer func() { <-slots }()
+		ctx, cancel := context.WithTimeout(auditCtx, auditWriteTimeout)
 		defer cancel()
 		if err := s.audit.Write(ctx, &audit.Event{
 			UserID:    userID,
@@ -594,9 +624,32 @@ func (s *Server) auditLog(ctx context.Context, userID db.UserID, action, target,
 			Details:   details,
 			CreatedAt: time.Now(),
 		}); err != nil {
+			s.observeAuditWrite("failed")
 			s.logger.Error("audit log write failed", "action", action, "error", err)
+			return
 		}
+		s.observeAuditWrite("written")
 	}()
+}
+
+// auditWriteSlots is the bound, created on first use.
+func (s *Server) auditWriteSlots() chan struct{} {
+	s.auditSlotsOnce.Do(func() {
+		if s.auditSlots == nil {
+			s.auditSlots = make(chan struct{}, auditConcurrentWrites)
+		}
+	})
+	return s.auditSlots
+}
+
+// observeAuditWrite records one audited action's outcome. The three outcomes
+// close a ledger: every call to auditLog is written, failed or shed, so a run
+// can be asked whether any audit row went missing rather than only whether the
+// ones that arrived look right.
+func (s *Server) observeAuditWrite(result string) {
+	if s.metrics != nil {
+		s.metrics.ObserveAuditWrite(result)
+	}
 }
 
 type httpRequestKey struct{}

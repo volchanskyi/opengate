@@ -354,7 +354,7 @@ jobs:
 
       - name: Port-forward server
         run: |
-          kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 >/tmp/pf.log 2>&1 &
+          kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 18081:8081 >/tmp/pf.log 2>&1 &
           echo "$!" > /tmp/pf.pid
           for _ in $(seq 1 30); do
             if curl -sf http://127.0.0.1:18080/api/v1/health >/dev/null; then
@@ -366,7 +366,16 @@ jobs:
           exit 1
 
       - name: Run smoke tests
-        run: bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 18080 --mode staging --scheme http
+        run: bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 18080 --metrics-port 18081 --mode staging --scheme http
+
+      # The same script through the public edge, which is where the two
+      # listeners stop being an implementation detail: this run is the one that
+      # asserts the exposition and the profiler are not reachable from outside.
+      # Without it the boundary is a claim nothing executes.
+      - name: Run smoke tests through the public edge
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_STAGING_DOMAIN }}
+        run: bash deploy/scripts/smoke-test.sh --domain "$DOMAIN" --mode staging
 
       # Customers are emptied with everything else. A run's fixture asks the
       # server for a customer by name and a name is unique inside its tenant, so
@@ -613,7 +622,7 @@ jobs:
 
       - name: Port-forward + smoke test
         run: |
-          kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 >/tmp/pf.log 2>&1 &
+          kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 18081:8081 >/tmp/pf.log 2>&1 &
           PF_PID=$!
           for _ in $(seq 1 30); do
             if curl -sf http://127.0.0.1:18080/api/v1/health >/dev/null; then
@@ -621,8 +630,13 @@ jobs:
             fi
             sleep 1
           done
-          bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 18080 --mode production --scheme http
+          bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 18080 --metrics-port 18081 --mode production --scheme http
           kill "$PF_PID" 2>/dev/null || true
+
+      - name: Run smoke tests through the public edge
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+        run: bash deploy/scripts/smoke-test.sh --domain "$DOMAIN" --mode production
 
       - name: Remove OCI credentials
         if: always()

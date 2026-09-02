@@ -115,25 +115,56 @@ arrangement helpers, and holds every acceptance test to `t.Parallel()`.
 
 ### Conservation tests
 
-Every other layer asks whether an operation produced the right answer. A
-conservation test asks whether it gave back what it took, which is a different
-question and the one nothing else here was asking: coverage counts a leaking
-line as covered because it executes, the benchmark trend measures allocations
-per operation, which a leak leaves unchanged because only retention differs, and
-a statement-level mutant of the leaking line is equivalent under every other
-assertion.
+**What they ask:** *did the operation give back what it took?*
 
+Every other layer here asks whether an operation produced the right answer. That
+is a different question, and a leak passes it. A relay session that stranded two
+goroutines every time it completed returned the right answer on every request,
+for the life of the project, while the server walked up to its memory limit.
+
+**Why no other gate saw it.** Each was blind for its own structural reason, and
+the reasons are worth knowing because they are not specific to this defect:
+
+| Gate | Why it stayed green |
+|---|---|
+| Coverage | The leaking line *executed*, so it counted as covered. |
+| Benchmark trend | It measures allocations per operation. A leak allocates the same amount; only *retention* differs. |
+| Mutation testing | Deleting the line changed no assertion in the suite, so the mutant was equivalent — a tree with the line removed passed every test, slightly faster. |
+
+**What the test does.**
 [`conservation_test.go`](../../server/tests/integration/conservation_test.go)
-drives N complete relay sessions against one assembled server at several values
-of N and fits a line through retained goroutines and retained heap against
-completed sessions. The assertion is that both slopes are flat. A slope rather
-than a fixed reading, because a server starts goroutines that never stop and a
-baseline would have to guess at that constant; the slope removes it. Each
-tolerance is stated in the file beside the two figures that bracket it — what
-the defect read, and what the fixed code reads.
+runs against **one** assembled server and, at several different session counts:
 
-The rule the tier exists for, and the static guard that fires before the test has
-to, are in
+1. drives N relay sessions from start to finish;
+2. reads the two resources the process actually holds — live goroutines, and
+   retained heap;
+3. plots those readings against the number of sessions completed, and fits a
+   line through them.
+
+**The assertion is that both lines are flat** — zero retained per completed
+session, within a stated tolerance.
+
+**Why a slope and not a single reading.** A server starts goroutines that take no
+context and never stop, and its store and connection pool add more. Any fixed
+"goroutines should be ≤ N" figure has to guess at that constant and goes stale
+the moment anything else in the process changes. A slope cancels the constant
+out, and it states the property directly: *one more completed session should
+cost nothing*.
+
+**Where the tolerances come from.** Each is written in the file next to the two
+measurements that bracket it — what the defect read, and what the fixed code
+reads. For the relay that is 2.0 goroutines and 34 KiB per session with the bug,
+0.0 and 1.8 KiB without it, so the tolerances sit at 0.5 and 8 KiB. A tolerance
+nobody can justify is a flake waiting for a slow machine.
+
+**Why the integration tier.** The test drives real WebSocket connections, and
+that tier's seam is "what needs a transport".
+
+**Two things run beside it.** A static guard in the pen-test gate refuses the
+code shape that caused this before the test has to run, and the nightly load run
+asks the same question of the deployed server under real load
+([ADR-094](../adr/ADR-094-a-run-records-what-its-target-was-holding.md)). The
+rule all three serve is
 [`resource-conservation.md`](../../.claude/rules/resource-conservation.md).
 
 ### The acceptance tier
@@ -655,10 +686,10 @@ Sends properly encoded `[type][4-byte BE length][payload]` frames through the fu
 
 | Test | What It Verifies |
 |------|-----------------|
-| `TestSignalingFlowThroughRelay` | Full signaling lifecycle: SDP offer → answer → ICE candidates → dual SwitchAck → tracker reaches `PhaseConnected` |
-| `TestSignalingTimeout` | Offer sent, no answer → tracker records `PhaseFailed` |
+| `TestSignalingFlowThroughRelay` | Full negotiation across the relay: SDP offer → answer → ICE candidates → dual SwitchAck, each one carried between the two peers |
+| `TestSignalingOfferReachesTheAgentWithNoAnswer` | An offer the far side never answers still crosses, byte for byte, and the session stays a relayed one |
 
-Uses fake SDP strings — the relay is message-agnostic and just forwards binary frames.
+Uses fake SDP strings — the relay is message-agnostic and just forwards binary frames, which is the outcome both tests state.
 
 ### OTA Update Pipeline (Go + Rust)
 
@@ -890,7 +921,7 @@ cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 cd server && go run ./tests/loadtest/ \
   -agents=500 -addr=10.0.0.42:9090 \
   -enroll-url=http://opengate-staging-server:8080 \
-  -metrics-url=http://opengate-staging-server:8080 \
+  -metrics-url=http://opengate-staging-server:8081 \
   -fixture-account="$SERVICE_ACCOUNT" -fixture-password="$SERVICE_PASSWORD" \
   -relay-sessions -hold=8m \
   -profile=../load/profiles/normal.yaml -bundle=/tmp/loadtest-bundle

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 	"time"
 
@@ -25,6 +26,10 @@ type deadlineBuffer struct {
 	// expired makes every read after the first report a timeout, so a hold
 	// spins on the quiet path rather than on real frames.
 	drained bool
+
+	// writeErr is what the far side does when the connection is gone. A QUIC
+	// stream whose peer has died refuses the write; a live peer accepts it.
+	writeErr error
 }
 
 func (b *deadlineBuffer) Read(p []byte) (int, error) {
@@ -35,7 +40,13 @@ func (b *deadlineBuffer) Read(p []byte) (int, error) {
 	return b.in.Read(p)
 }
 
-func (b *deadlineBuffer) Write(p []byte) (int, error)     { return b.out.Write(p) }
+func (b *deadlineBuffer) Write(p []byte) (int, error) {
+	if b.writeErr != nil {
+		return 0, b.writeErr
+	}
+	return b.out.Write(p)
+}
+
 func (b *deadlineBuffer) SetReadDeadline(time.Time) error { return nil }
 
 // timeoutError reports itself as a network timeout.
@@ -72,6 +83,52 @@ func TestAQuietServerDoesNotEndTheHold(t *testing.T) {
 	assert.NoError(t, holdOpen(&protocol.Codec{}, stream, loadOptions{holdFor: 100 * time.Millisecond}))
 }
 
+// The defect this closes: a hold that only ever reads cannot tell a quiet
+// server from a dead one.
+//
+// The heartbeat runs agent to server, so a held machine receives nothing from a
+// healthy server either — reading harder can never separate the two. Writing
+// can: a write to a peer that is gone fails, which turns a severance nothing
+// could see into a named error. The run that found this reported
+// "Agents: 100/100 succeeded, Failures: 0" for an 8m30s hold whose connections
+// were severed at the four-minute mark.
+func TestAHoldFailsWhenItsPeerDiesPartWayThrough(t *testing.T) {
+	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}, writeErr: errors.New("connection reset")}
+
+	err := holdOpen(&protocol.Codec{}, stream, loadOptions{holdFor: time.Second})
+
+	require.Error(t, err, "a hold against a peer that is gone must not report success")
+	assert.ErrorIs(t, err, ErrHeldPeerGone,
+		"the severance is named, so the bundle can count the machines it took")
+}
+
+// A hold does not just fail on a dead peer; it proves the peer alive on a live
+// one, or the arm above proves nothing about the ordinary case.
+func TestAHeldMachineProvesItsPeerIsAlive(t *testing.T) {
+	codec := &protocol.Codec{}
+	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}}
+
+	require.NoError(t, holdOpen(codec, stream, loadOptions{holdFor: 100 * time.Millisecond}))
+
+	require.NotZero(t, stream.out.Len(), "a hold that wrote nothing cannot tell a quiet peer from an absent one")
+	beat := readControl(t, codec, stream.out)
+	assert.Equal(t, protocol.MsgAgentHeartbeat, beat.Type)
+	assert.NotZero(t, beat.Timestamp, "a heartbeat carries when the machine sent it")
+	assert.Less(t, holdHeartbeatInterval, 8*time.Minute,
+		"the interval has to be well inside a hold, or a severance is still invisible for most of one")
+}
+
+// A hold shorter than one interval still writes once. A run whose hold is
+// seconds long would otherwise never ask, and the same severance would come
+// back reported as a success on exactly the runs that are cheapest to make.
+func TestAShortHoldStillAsksOnce(t *testing.T) {
+	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}, writeErr: errors.New("connection reset")}
+
+	err := holdOpen(&protocol.Codec{}, stream, loadOptions{holdFor: 50 * time.Millisecond})
+
+	require.Error(t, err, "a hold too short for a full interval must still prove its peer")
+}
+
 // A held machine still answers what the server asks of it. A machine that goes
 // silent once connected is not a machine anybody has.
 func TestAHeldMachineAnswersARawLogPull(t *testing.T) {
@@ -84,8 +141,7 @@ func TestAHeldMachineAnswersARawLogPull(t *testing.T) {
 	require.NoError(t, holdOpen(codec, stream, loadOptions{holdFor: 120 * time.Millisecond}))
 
 	require.NotZero(t, stream.out.Len(), "a held machine must answer the pull")
-	reply := readControl(t, codec, stream.out)
-	assert.Equal(t, protocol.MsgDeviceLogsResponse, reply.Type)
+	reply := readControlOfType(t, codec, stream.out, protocol.MsgDeviceLogsResponse)
 	assert.Len(t, reply.LogEntries, 5)
 }
 
@@ -133,4 +189,21 @@ func TestAHeldMachineRefusesASessionOnADisallowedTarget(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not an allowed load-test target")
+}
+
+// readControlOfType reads frames until it finds one of the wanted type. A held
+// machine writes its own heartbeats down the same stream, so a test about what
+// it answers has to look past what it asks.
+func readControlOfType(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer,
+	want protocol.ControlMessageType,
+) *protocol.ControlMessage {
+	t.Helper()
+	for buf.Len() > 0 {
+		msg := readControl(t, codec, buf)
+		if msg.Type == want {
+			return msg
+		}
+	}
+	require.FailNowf(t, "frame not found", "the machine never wrote a %s", want)
+	return nil
 }

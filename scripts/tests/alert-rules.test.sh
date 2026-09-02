@@ -141,6 +141,66 @@ else
   fail "server-process-restarted must carry severity: warning"
 fi
 
+# The two container alerts below stand on a scrape that reaches each kubelet
+# directly, authorised against one RBAC subresource. Get that wrong and the
+# series never arrive, both alerts stay quiet, and the silence reads exactly
+# like a healthy fleet. So the scrape itself is watched.
+scrape_query="$(rule_query cadvisor-scrape-unreachable)"
+if grep -q 'up{job="kubernetes-cadvisor"}' <<<"$scrape_query"; then
+  pass "a cAdvisor scrape that is not answering raises an alert"
+else
+  fail "cadvisor-scrape-unreachable must alert on up{job=\"kubernetes-cadvisor\"}"
+fi
+
+# An absent series and a refused scrape are the same outcome here, so no data
+# has to alert rather than resolve.
+if [ "$(rule_field cadvisor-scrape-unreachable noDataState)" = "Alerting" ]; then
+  pass "no data on the container scrape alerts rather than reading as healthy"
+else
+  fail "cadvisor-scrape-unreachable must set noDataState: Alerting — an absent series is the failure"
+fi
+
+# A pod sat at 90% of its own memory limit for three hours and nothing fired.
+# The rule that was supposed to cover it read node-wide available memory, which
+# says nothing about one container against one cgroup ceiling.
+limit_query="$(rule_query container-memory-against-limit)"
+if grep -q 'container_memory_working_set_bytes' <<<"$limit_query" \
+  && grep -q 'container_spec_memory_limit_bytes' <<<"$limit_query" \
+  && grep -q '/' <<<"$limit_query"; then
+  pass "a container walking up to its own memory limit raises an alert"
+else
+  fail "container-memory-against-limit must compare working set against the container's own limit"
+fi
+
+# Node-wide memory is not a substitute: it was true and quiet throughout.
+if grep -q 'node_memory_MemAvailable_bytes' <<<"$limit_query"; then
+  fail "container-memory-against-limit reads node-wide memory, which is the reading that stayed quiet"
+else
+  pass "the container alert reads the container, not the node"
+fi
+
+if [ "$(rule_field container-memory-against-limit for)" = "10m" ]; then
+  pass "the container alert waits ten minutes, so a burst does not page anyone"
+else
+  fail "container-memory-against-limit must carry for: 10m"
+fi
+
+# And when the kill happens anyway, the alert names the container it took —
+# which is the answer this incident cost six hours to reconstruct by hand.
+oom_query="$(rule_query container-oom-killed)"
+if grep -q 'container_oom_events_total' <<<"$oom_query" \
+  && grep -q 'increase(' <<<"$oom_query"; then
+  pass "a container killed for memory raises an alert"
+else
+  fail "container-oom-killed must alert on increase(container_oom_events_total)"
+fi
+
+if [ "$(rule_field container-oom-killed labels.severity)" = "critical" ]; then
+  pass "an out-of-memory kill is critical"
+else
+  fail "container-oom-killed must carry severity: critical"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf '  - %s\n' "${FAILURES[@]}" >&2

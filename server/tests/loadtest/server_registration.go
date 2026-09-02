@@ -114,29 +114,41 @@ func (r ServerRegistration) QuantileMs(q float64) float64 {
 
 // FetchServerRegistration reads the running server's own account of the run.
 func FetchServerRegistration(baseURL string) (ServerRegistration, error) {
+	page, err := fetchExpositionPage(baseURL)
+	if err != nil {
+		return ServerRegistration{}, err
+	}
+	return ParseServerRegistration(page)
+}
+
+// fetchExpositionPage reads the target's exposition once. Both readers above it
+// want the same page from the same listener, so the request is made in one
+// place — including the base URL, which names the server's cluster-only
+// listener and not the one the API answers on.
+func fetchExpositionPage(baseURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), serverMetricsTimeout)
 	defer cancel()
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(baseURL, "/")+"/metrics", nil)
 	if err != nil {
-		return ServerRegistration{}, fmt.Errorf("build metrics request: %w", err)
+		return "", fmt.Errorf("build metrics request: %w", err)
 	}
 
 	response, err := (&http.Client{Timeout: serverMetricsTimeout}).Do(request)
 	if err != nil {
-		return ServerRegistration{}, fmt.Errorf("read server metrics: %w", err)
+		return "", fmt.Errorf("read server metrics: %w", err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return ServerRegistration{}, fmt.Errorf("read server metrics: server answered %d", response.StatusCode)
+		return "", fmt.Errorf("read server metrics: server answered %d", response.StatusCode)
 	}
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return ServerRegistration{}, fmt.Errorf("read server metrics: %w", err)
+		return "", fmt.Errorf("read server metrics: %w", err)
 	}
-	return ParseServerRegistration(string(body))
+	return string(body), nil
 }
 
 // ParseServerRegistration reads the two families this needs out of a metrics

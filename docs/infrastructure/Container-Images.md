@@ -47,6 +47,7 @@ The container runs as a non-root `opengate` user by default.
 **Exposed ports:**
 - `8080` (TCP) — HTTP REST API
 - `4433` (TCP) — MPS (Intel AMT CIRA)
+- `8081/tcp` — Prometheus exposition and `net/http/pprof`, for the cluster only
 - `9090/udp` — QUIC agent connections (mTLS)
 
 **Required environment:**
@@ -54,7 +55,7 @@ The container runs as a non-root `opengate` user by default.
 
 **Default entrypoint:**
 ```
-meshserver -listen :8080 -quic-listen :9090 -mps-listen :4433 -data-dir /data -web-dir /srv/web
+meshserver -listen :8080 -internal-listen :8081 -quic-listen :9090 -mps-listen :4433 -data-dir /data -web-dir /srv/web
 ```
 
 **Volumes:**
@@ -68,7 +69,7 @@ docker build -t opengate-server .
 
 # Run
 docker run -e JWT_SECRET=changeme \
-  -p 8080:8080 -p 4433:4433 -p 9090:9090/udp \
+  -p 8080:8080 -p 8081:8081 -p 4433:4433 -p 9090:9090/udp \
   -v opengate-data:/data \
   opengate-server
 

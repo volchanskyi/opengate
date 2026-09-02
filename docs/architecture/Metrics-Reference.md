@@ -3,7 +3,13 @@
 Every Prometheus series the OpenGate server publishes, what it counts, and the
 population it counts over. Names, labels and registration live under
 [`server/internal/metrics`](../../server/internal/metrics); the server exposes
-them on the same HTTP listener as the REST API.
+them on a second HTTP listener, separate from the one that serves the REST API
+and the single-page application
+([`internal_listener.go`](../../server/internal/app/internal_listener.go)).
+That listener also carries `net/http/pprof`. The Service publishes its port and
+the Ingress routes only the API port, so both are reachable from inside the
+cluster and from nowhere else — see
+[Monitoring](../infrastructure/Monitoring.md).
 
 This chapter defines the series. What an operator concludes from a reading
 belongs to the capability that owns it — [Device Health](../product/Device-Health.md),
@@ -173,10 +179,28 @@ real population before it means anything, is in
 | `opengate_relay_active_sessions` | — | Relay sessions currently open |
 | `opengate_agents_connected` | — | Agents currently connected |
 | `opengate_mps_connected_devices` | — | Connected MPS (Intel AMT) devices |
-| `opengate_signaling_upgrades_total` | `result` | WebRTC signaling upgrades |
 
 `route` is the registered pattern rather than the requested path, so the label
 stays bounded by the routing table instead of growing with traffic.
+
+The three gauges above are maintained by the paths they describe, so each one
+says its own bookkeeping ran. What says the resource came back is
+[the process itself](#the-process-itself), and the two are read together.
+
+## Audit
+
+| Series | Labels | Counts |
+|---|---|---|
+| `opengate_audit_writes_total` | `result` | Audited actions, by what became of their row: `written`, `failed`, or `shed` |
+
+An audit row is written off the response path, so a slow store never holds a
+request open, and the writes hold a slot bound
+([`api.go`](../../server/internal/api/api.go)) so a burst of audited actions
+cannot answer a slow connection pool with more callers competing for it. `shed`
+is what that bound turns away. It is counted rather than logged alone because
+the three values close a ledger against the actions themselves: an audit trail
+that quietly lost rows under load is one nobody can rely on, and a shed write
+nothing counted is exactly that.
 
 ## Registration
 
@@ -218,6 +242,36 @@ anyway, since any increase at all says a request queued behind the pool.
 The per-aggregate instrumented decorators (audit, updater, auth, device,
 notifications, AMT, session) record against the same `db_query_*` pair, so they
 share dashboards without duplicating label discipline.
+
+## The process itself
+
+| Series | Labels | Reads |
+|---|---|---|
+| `go_goroutines` | — | Goroutines the runtime currently holds |
+| `go_memstats_*`, `go_gc_*`, `go_threads`, `go_info` | — | The Go runtime's own accounting: heap, allocation, collection, OS threads |
+| `process_resident_memory_bytes` | — | Resident set size of the process |
+| `process_virtual_memory_bytes`, `process_virtual_memory_max_bytes` | — | Address space in use, and the ceiling on it |
+| `process_open_fds`, `process_max_fds` | — | Open file descriptors, and the ceiling on them |
+| `process_cpu_seconds_total` | — | CPU time consumed |
+| `process_start_time_seconds` | — | When this process started, as a Unix timestamp |
+
+These come from the client library's `NewGoCollector` and `NewProcessCollector`
+([`metrics.go`](../../server/internal/metrics/metrics.go)) rather than from
+anything this codebase counts, and that is exactly what makes them worth
+naming. Every `opengate_*` series above is bookkeeping some code path
+maintains: it says the code that decrements a counter ran. These read the
+resource. A count of live sessions returning to zero and a goroutine total that
+does not are the two halves that catch a session whose teardown ran and whose
+resources did not come back — the invariant
+[resource conservation](../../.claude/rules/resource-conservation.md) states, and
+the pairing a load run records in its own bundle
+([Testing](../infrastructure/Testing.md)).
+
+`process_start_time_seconds` answers a different question from the rest: it
+changes only when the process is replaced. A reading taken at the start of a
+measurement and again at the end tells whoever compares them whether both
+readings came from the same process, which is what makes every other number in
+between comparable.
 
 ## Chart read path
 

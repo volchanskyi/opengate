@@ -301,7 +301,7 @@ agent-binary:
 e2e: agent-binary
 	bash deploy/scripts/e2e-stack-up.sh
 	@(cd web && npx playwright test); rc=$$?; \
-		bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 8080 --mode local --scheme http || rc=1; \
+		bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 8080 --metrics-port 8081 --mode local --scheme http || rc=1; \
 		cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v; \
 		exit $$rc
 

@@ -15,3 +15,10 @@ spec:
       port: {{ .Values.server.httpPort }}
       targetPort: http
       protocol: TCP
+    # The exposition and the profiler. The Service publishes them so a scraper
+    # and a port-forward can reach them; the Ingress routes only the http port,
+    # which is what keeps them off the public edge.
+    - name: metrics
+      port: {{ .Values.server.metricsPort }}
+      targetPort: metrics
+      protocol: TCP

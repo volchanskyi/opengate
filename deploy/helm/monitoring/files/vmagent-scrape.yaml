@@ -48,6 +48,41 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_component]
         target_label: component
 
+  # The kubelet's own cAdvisor endpoint, and the only place a container's
+  # working set against its own limit exists. The node exporter reads the node,
+  # so a pod at 90% of its cgroup ceiling is invisible there — which is how one
+  # sat at 344 MiB against a 384Mi limit for three hours with nothing firing.
+  # container_oom_events_total is on the same page, and it names the container
+  # that was killed rather than leaving a node-wide counter to be correlated by
+  # hand.
+  - job_name: kubernetes-cadvisor
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    kubernetes_sd_configs:
+      - role: node
+    # The kubelet serves this over TLS with a certificate from the cluster's own
+    # authority and requires the scraper's identity, so both halves are the
+    # in-pod service-account material rather than anything configured.
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecure_skip_verify: true
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+      # Node discovery yields the kubelet's own address; the metrics path above
+      # is what makes it the container endpoint rather than the node one.
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+    metric_relabel_configs:
+      # Every alert on these is per container, so the three labels that name one
+      # have to survive. cAdvisor publishes them already; naming them here is
+      # what stops a later drop rule from quietly taking them.
+      - source_labels: [namespace]
+        target_label: namespace
+      - source_labels: [pod]
+        target_label: pod
+      - source_labels: [container]
+        target_label: container
+
   - job_name: opengate-server
     kubernetes_sd_configs:
       - role: endpoints
@@ -59,4 +94,4 @@ scrape_configs:
         regex: server
       - source_labels: [__meta_kubernetes_endpoint_port_name]
         action: keep
-        regex: http
+        regex: metrics

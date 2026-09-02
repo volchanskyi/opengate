@@ -20,6 +20,10 @@
 #                                (default: the four the nightly runs)
 #   LOADTEST_K6_SUMMARY_DIR      where the k6 exports and any threshold breach
 #                                records were written
+#   LOADTEST_BUNDLE              the QUIC harness's evidence bundle, which
+#                                carries what the target was holding either side
+#                                of the run (default: the path the workflow
+#                                collects it to)
 #
 # Usage: loadtest-run-completeness.sh <loadtest-summary.json> [completeness.json]
 set -euo pipefail
@@ -31,6 +35,12 @@ DEFAULT_EXPECTED="api-baseline concurrent-agents relay-throughput quic-agents"
 # runs against (server/tests/loadtest/validity.go), held equal here because a run
 # has one verdict however many places compute it.
 MAX_ERROR_RATE="${LOADTEST_MAX_ERROR_RATE:-0.25}"
+
+# Where the harness's evidence bundle is collected to. It carries the run's own
+# verdict about the target it ran against — whether the process was replaced
+# underneath it, and whether it gave back what it took — read from the target's
+# process families rather than from any count the target maintains about itself.
+BUNDLE="${LOADTEST_BUNDLE:-loadtest-bundle/quic-agents.json}"
 
 usage() {
   echo "usage: $0 <loadtest-summary.json> [completeness.json]" >&2
@@ -67,6 +77,25 @@ breached_thresholds() {
     | sort
 }
 
+# target_verdict is the harness's own result about its target, or the empty
+# string when no bundle was written.
+#
+# A bundle nobody wrote is silence rather than a pass: the harness may not have
+# run at all, and a gate that answers yes when it could not ask is the false
+# green this repository already rules against. The scenario checks above have
+# their own reasons to fail a night, and they still apply.
+target_verdict() {
+  [ -s "$BUNDLE" ] || return 0
+  jq -r '.verdict.result // empty' "$BUNDLE" 2>/dev/null || true
+}
+
+# target_findings is why, in the harness's own words, so the reason travels with
+# the night rather than living only in a workflow log.
+target_findings() {
+  [ -s "$BUNDLE" ] || return 0
+  jq -r '.verdict.reasons // [] | .[]' "$BUNDLE" 2>/dev/null || true
+}
+
 main() {
   if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     usage
@@ -82,6 +111,7 @@ main() {
   fi
 
   local expected produced missing unexpected unmeasured breached result
+  local target_result findings
   expected="$(printf '%s\n' "${LOADTEST_EXPECTED_SCENARIOS:-$DEFAULT_EXPECTED}" | tr ' ' '\n' | sed '/^$/d' | sort -u)"
   produced="$(produced_scenarios "$summary")"
   missing="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$produced"))"
@@ -89,10 +119,18 @@ main() {
   unmeasured="$(unmeasured_scenarios "$summary")"
   breached="$(breached_thresholds)"
 
+  target_result="$(target_verdict)"
+  findings="$(target_findings)"
+
+  # The target's own two outcomes fold in on the same doctrine the rest of this
+  # file follows: a process that was replaced means the numbers describe two
+  # systems, so the night is invalid; a target that kept what it took is a
+  # finding about the system, so the night is failed and its rows still enter
+  # the trend.
   result="valid"
-  if [ -n "$missing" ] || [ -n "$unexpected" ] || [ -n "$unmeasured" ]; then
+  if [ -n "$missing" ] || [ -n "$unexpected" ] || [ -n "$unmeasured" ] || [ "$target_result" = "invalid" ]; then
     result="invalid"
-  elif [ -n "$breached" ]; then
+  elif [ -n "$breached" ] || [ "$target_result" = "failed" ]; then
     result="failed"
   fi
 
@@ -106,6 +144,7 @@ main() {
     --argjson unexpected "$(printf '%s\n' "$unexpected" | jq -Rn '[inputs | select(length > 0)]')" \
     --argjson unmeasured "$(printf '%s\n' "$unmeasured" | jq -Rn '[inputs | select(length > 0)]')" \
     --argjson breached "$(printf '%s\n' "$breached" | jq -Rn '[inputs | select(length > 0)]')" \
+    --argjson target_findings "$(printf '%s\n' "$findings" | jq -Rn '[inputs | select(length > 0)]')" \
     '{
       result: $result,
       commit: $commit,
@@ -115,7 +154,8 @@ main() {
       missing_scenarios: $missing,
       unexpected_scenarios: $unexpected,
       unmeasured_scenarios: $unmeasured,
-      threshold_breaches: $breached
+      threshold_breaches: $breached,
+      target_findings: $target_findings
     }' >"$out"
 
   cat "$out"
@@ -124,8 +164,17 @@ main() {
     [ -z "$missing" ] || echo "::error::scenarios produced no rows: $(printf '%s' "$missing" | tr '\n' ' ')" >&2
     [ -z "$unexpected" ] || echo "::error::rows arrived from scenarios nobody asked for: $(printf '%s' "$unexpected" | tr '\n' ' ')" >&2
     [ -z "$unmeasured" ] || echo "::error::scenarios whose error rate is past ${MAX_ERROR_RATE}, so their rows describe the error path: $(printf '%s' "$unmeasured" | tr '\n' ' ')" >&2
+    while IFS= read -r finding; do
+      [ -z "$finding" ] || echo "::error::${finding}" >&2
+    done <<<"$findings"
     echo "::error::this run is invalid and must not enter the trend." >&2
     return 3
+  fi
+
+  if [ "$result" = "failed" ]; then
+    while IFS= read -r finding; do
+      [ -z "$finding" ] || echo "::warning::${finding}" >&2
+    done <<<"$findings"
   fi
 
   return 0

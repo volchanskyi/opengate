@@ -85,7 +85,7 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 		Duration: 15 * time.Minute,
 	}
 
-	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
+	sigConfig := signaling.DefaultConfig()
 	signingKeys, err := updater.LoadOrGenerateSigningKeys(t.TempDir())
 	require.NoError(t, err)
 	manifestStore := updater.NewManifestStore(t.TempDir())
@@ -105,7 +105,7 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 		JWT:            jwtCfg,
 		Agents:         serverAgentGetter{srv: agentSrv},
 		Relay:          r,
-		Signaling:      sigTracker,
+		Signaling:      sigConfig,
 		Notifier:       &notifications.NoopNotifier{},
 		Signing:        signingKeys,
 		Manifests:      manifestStore,
@@ -135,7 +135,6 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 		agentAddr:     agentAddr,
 		httpSrv:       ts,
 		jwt:           jwtCfg,
-		sigTracker:    sigTracker,
 		signing:       signingKeys,
 		manifests:     manifestStore,
 		cancel:        cancel,

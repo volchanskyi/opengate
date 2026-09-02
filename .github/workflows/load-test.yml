@@ -122,6 +122,11 @@ jobs:
             # this service, so naming the service by its in-cluster DNS is the
             # same hop every other pod in the namespace makes.
             echo "LOADTEST_BASE_URL=http://${RELEASE}-server:8080"
+            # The exposition is on the server's second listener, which the
+            # Service publishes on its own port. A run that read it off the API
+            # port would find the SPA fallback instead, and record a target it
+            # never measured.
+            echo "LOADTEST_METRICS_URL=http://${RELEASE}-server:8081"
           } >>"$GITHUB_ENV"
 
       # --- Both generators run beside the server -----------------------------
@@ -247,7 +252,7 @@ jobs:
                 -agents="$AGENTS" \
                 -addr="${RELEASE}-server:9090" \
                 -enroll-url="$LOADTEST_BASE_URL" \
-                -metrics-url="$LOADTEST_BASE_URL" \
+                -metrics-url="$LOADTEST_METRICS_URL" \
                 -fixture-account="$LOADTEST_SERVICE_ACCOUNT" \
                 -fixture-password="$LOADTEST_SERVICE_PASSWORD" \
                 -fixture-size="${{ inputs.fixture || 'small' }}" \
@@ -375,6 +380,7 @@ jobs:
           set -euo pipefail
           set +e
           LOADTEST_K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
+            LOADTEST_BUNDLE=loadtest-bundle/quic-agents.json \
             scripts/loadtest-run-completeness.sh loadtest-summary.json loadtest-completeness.json
           COMPLETENESS_STATUS=$?
           set -e

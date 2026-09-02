@@ -212,8 +212,6 @@ func (a *Assembly) StartBackgroundWorkers(ctx context.Context, sched BackgroundS
 		ActiveSessions:      a.Relay.ActiveSessionCount,
 		ConnectedAgents:     a.Agents.ConnectedAgentCount,
 		ConnectedMPSDevices: a.AMT.ConnectedDeviceCount,
-		SignalingSuccesses:  a.Signaling.SuccessCount,
-		SignalingFailures:   a.Signaling.FailureCount,
 	}, sched.Gauges)
 	go appmetrics.StartDBSizeUpdater(ctx, a.Metrics, a.Store, a.Logger, sched.DBSize)
 	go appmetrics.StartDBPoolUpdater(ctx, a.Metrics,

@@ -223,6 +223,44 @@ for table in organizations sites devices users; do
   fi
 done
 
+# --- the harness reads its target's health off the right listener -------------
+#
+# The exposition moved to the server's second listener, which the Service
+# publishes on its own port. A harness pointed at the API port would find the
+# SPA fallback where the exposition should be, parse nothing out of it, and
+# record a target it never measured. The port is read back against the chart's.
+
+VALUES="$REPO_ROOT/deploy/helm/opengate/values.yaml"
+METRICS_PORT="$(awk '/^[[:space:]]+metricsPort:/ { print $2; exit }' "$VALUES")"
+
+if [ -n "$METRICS_PORT" ] && grep -qF "LOADTEST_METRICS_URL=http://\${RELEASE}-server:${METRICS_PORT}" "$WORKFLOW"; then
+  pass "the run addresses the exposition on the chart's internal port ($METRICS_PORT)"
+else
+  fail "the run's metrics URL does not name the chart's internal port ($METRICS_PORT)"
+fi
+
+# shellcheck disable=SC2016 # the pattern is the workflow's literal text, not an expansion
+if grep -qF -- '-metrics-url="$LOADTEST_METRICS_URL"' "$WORKFLOW"; then
+  pass "the harness is given that URL rather than the API's"
+else
+  fail "the harness must read its target off LOADTEST_METRICS_URL, not the API base URL"
+fi
+
+# --- the night's verdict reads what the harness recorded about its target -----
+#
+# The harness writes what the target was holding either side of the run into its
+# bundle; the completeness gate folds that in. Two steps, two paths, and a run
+# has one verdict however many places compute it — so the path the bundle is
+# collected to and the path the gate reads have to be the same one.
+
+BUNDLE_PATH='loadtest-bundle/quic-agents.json'
+if grep -qF "$BUNDLE_PATH" "$WORKFLOW" \
+  && grep -qF "LOADTEST_BUNDLE=$BUNDLE_PATH" "$WORKFLOW"; then
+  pass "the completeness gate reads the bundle the run collected"
+else
+  fail "the completeness gate does not read the collected bundle, so the target's own verdict is dropped"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

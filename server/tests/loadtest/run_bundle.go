@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -40,6 +41,22 @@ type runBundleInputs struct {
 
 	// Fixture is the fleet this run built, when it built one.
 	Fixture *BuiltFixture
+
+	// Conservation is what the target was holding either side of the run, and
+	// how many completed operations sit between the two readings.
+	Conservation TargetConservation
+}
+
+// succeededAgents counts the machines that connected, handshook and registered.
+// A machine that failed took nothing the target has to give back.
+func succeededAgents(results []agentResult) int {
+	succeeded := 0
+	for _, result := range results {
+		if result.err == nil {
+			succeeded++
+		}
+	}
+	return succeeded
 }
 
 // buildRunBundle turns a finished run into its evidence.
@@ -82,6 +99,7 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		ProducedScenarios: producedScenarios(succeeded),
 		Headroom:          bundle.GeneratorHeadroom,
 		Phases:            bundle.Phases,
+		Target:            in.Conservation,
 	})
 
 	return bundle
@@ -196,6 +214,10 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, in ru
 		{At: at, Series: "handshake_p95_ms", Value: millis(percentile(handshake, 95))},
 	}
 
+	observations = append(observations,
+		Observation{At: at, Series: "agents_severed_mid_hold", Value: float64(severedMidHold(in.Results))})
+	observations = append(observations, targetObservations(at, in.Conservation)...)
+
 	// Registration is reported only when the server was asked. Its own clock
 	// stops at a local send buffer, and a number that cannot move is worse than
 	// an absent one: two ceilings sat on it for months.
@@ -209,6 +231,51 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, in ru
 		)
 	}
 	return observations
+}
+
+// severedMidHold counts the machines whose connection went away while they were
+// being held.
+//
+// It is recorded even when it is zero, because zero is the finding: a run that
+// held a hundred machines for eight minutes and severed none of them says so,
+// and the same run reporting a hundred successes while its fleet was gone is
+// what this number exists to make impossible.
+func severedMidHold(results []agentResult) int {
+	severed := 0
+	for _, result := range results {
+		if errors.Is(result.err, ErrHeldPeerGone) {
+			severed++
+		}
+	}
+	return severed
+}
+
+// targetObservations records what the target was holding either side of the
+// run, so the bundle carries the question as well as the verdict.
+//
+// Both readings travel rather than the difference alone: a bundle is read years
+// after the metrics store forgot the night, and a delta cannot be re-divided by
+// a denominator a later reader wants to change. Open file descriptors travel
+// with them because they are what separates a goroutine leak from a socket
+// leak — their flatness through a 344 MiB climb is what ruled sockets out.
+//
+// Resident memory is recorded and not gated, for the reason
+// maxRetainedGoroutinesPerOperation states.
+func targetObservations(at time.Time, target TargetConservation) []Observation {
+	if !target.Start.Read && !target.End.Read {
+		return nil
+	}
+	return []Observation{
+		{At: at, Series: "target_goroutines_start", Value: target.Start.Goroutines},
+		{At: at, Series: "target_goroutines_end", Value: target.End.Goroutines},
+		{At: at, Series: "target_resident_bytes_start", Value: target.Start.ResidentBytes},
+		{At: at, Series: "target_resident_bytes_end", Value: target.End.ResidentBytes},
+		{At: at, Series: "target_open_fds_start", Value: target.Start.OpenFDs},
+		{At: at, Series: "target_open_fds_end", Value: target.End.OpenFDs},
+		{At: at, Series: "target_completed_operations", Value: float64(target.Operations)},
+		{At: at, Series: "target_retained_goroutines_per_operation", Value: target.RetainedGoroutinesPerOperation()},
+		{At: at, Series: "target_retained_bytes_per_operation", Value: target.RetainedBytesPerOperation()},
+	}
 }
 
 // producedScenarios reports whether this half of the night measured anything. A
