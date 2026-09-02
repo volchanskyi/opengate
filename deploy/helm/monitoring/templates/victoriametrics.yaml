@@ -13,13 +13,21 @@ metadata:
   labels:
     {{- include "mon.labels" . | nindent 4 }}
 rules:
-  # kubernetes_sd discovery in files/vmagent-scrape.yaml uses the `pod` and
-  # `endpoints` roles, so VictoriaMetrics must list/watch those plus the
-  # services backing the endpoints. Read-only metadata only; targets are scraped
-  # directly, not through the API-server proxy.
+  # kubernetes_sd discovery in files/vmagent-scrape.yaml uses the `pod`,
+  # `endpoints` and `node` roles, so VictoriaMetrics must list/watch those plus
+  # the services backing the endpoints. Read-only metadata only; targets are
+  # scraped directly, not through the API-server proxy.
   - apiGroups: [""]
-    resources: [pods, endpoints, services]
+    resources: [pods, endpoints, services, nodes]
     verbs: [get, list, watch]
+  # The kubelet's cAdvisor endpoint is what publishes a container's working set
+  # against its own limit, and reaching it needs the metrics subresource as well
+  # as the node itself.
+  - apiGroups: [""]
+    resources: [nodes/metrics, nodes/proxy]
+    verbs: [get]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

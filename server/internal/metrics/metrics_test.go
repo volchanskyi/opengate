@@ -18,8 +18,6 @@ func zeroGaugeSource() GaugeSource {
 		ActiveSessions:      func() int { return 0 },
 		ConnectedAgents:     func() int { return 0 },
 		ConnectedMPSDevices: func() int { return 0 },
-		SignalingSuccesses:  func() int64 { return 0 },
-		SignalingFailures:   func() int64 { return 0 },
 	}
 }
 
@@ -157,18 +155,18 @@ func TestStartGaugeUpdater_StopsOnCancel(t *testing.T) {
 	}, time.Second, 5*time.Millisecond, "updater should return after context cancellation")
 }
 
-func TestStartGaugeUpdaterTracksSignalingDeltas(t *testing.T) {
+// The gauge updater keeps reading its source until it is told to stop, and
+// stops when it is. A gauge that stopped refreshing reports the number it held
+// when it stopped, which reads exactly like a system that has not changed.
+func TestStartGaugeUpdaterKeepsReadingUntilItIsStopped(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	var successes atomic.Int64
-	var failures atomic.Int64
-	successes.Store(5)
-	failures.Store(3)
+	var sessions atomic.Int64
+	sessions.Store(5)
 	src := zeroGaugeSource()
-	src.SignalingSuccesses = successes.Load
-	src.SignalingFailures = failures.Load
+	src.ActiveSessions = func() int { return int(sessions.Load()) }
 
 	done := make(chan struct{})
 	go func() {
@@ -177,15 +175,12 @@ func TestStartGaugeUpdaterTracksSignalingDeltas(t *testing.T) {
 	}()
 
 	require.Eventually(t, func() bool {
-		return testutil.ToFloat64(m.SignalingUpgradesTotal.WithLabelValues("success")) == 5 &&
-			testutil.ToFloat64(m.SignalingUpgradesTotal.WithLabelValues("failure")) == 3
+		return testutil.ToFloat64(m.RelayActiveSessions) == 5
 	}, time.Second, 5*time.Millisecond)
 
-	successes.Store(8)
-	failures.Store(7)
+	sessions.Store(8)
 	require.Eventually(t, func() bool {
-		return testutil.ToFloat64(m.SignalingUpgradesTotal.WithLabelValues("success")) == 8 &&
-			testutil.ToFloat64(m.SignalingUpgradesTotal.WithLabelValues("failure")) == 7
+		return testutil.ToFloat64(m.RelayActiveSessions) == 8
 	}, time.Second, 5*time.Millisecond)
 
 	cancel()

@@ -655,10 +655,10 @@ Sends properly encoded `[type][4-byte BE length][payload]` frames through the fu
 
 | Test | What It Verifies |
 |------|-----------------|
-| `TestSignalingFlowThroughRelay` | Full signaling lifecycle: SDP offer → answer → ICE candidates → dual SwitchAck → tracker reaches `PhaseConnected` |
-| `TestSignalingTimeout` | Offer sent, no answer → tracker records `PhaseFailed` |
+| `TestSignalingFlowThroughRelay` | Full negotiation across the relay: SDP offer → answer → ICE candidates → dual SwitchAck, each one carried between the two peers |
+| `TestSignalingOfferReachesTheAgentWithNoAnswer` | An offer the far side never answers still crosses, byte for byte, and the session stays a relayed one |
 
-Uses fake SDP strings — the relay is message-agnostic and just forwards binary frames.
+Uses fake SDP strings — the relay is message-agnostic and just forwards binary frames, which is the outcome both tests state.
 
 ### OTA Update Pipeline (Go + Rust)
 
@@ -890,7 +890,7 @@ cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 cd server && go run ./tests/loadtest/ \
   -agents=500 -addr=10.0.0.42:9090 \
   -enroll-url=http://opengate-staging-server:8080 \
-  -metrics-url=http://opengate-staging-server:8080 \
+  -metrics-url=http://opengate-staging-server:8081 \
   -fixture-account="$SERVICE_ACCOUNT" -fixture-password="$SERVICE_PASSWORD" \
   -relay-sessions -hold=8m \
   -profile=../load/profiles/normal.yaml -bundle=/tmp/loadtest-bundle

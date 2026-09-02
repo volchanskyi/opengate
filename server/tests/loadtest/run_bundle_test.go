@@ -231,3 +231,34 @@ func TestTheConnectPhaseEndsWhenTheFleetIsUp(t *testing.T) {
 	assert.Equal(t, start.Add(8*time.Minute), bundle.Run.FinishedAt,
 		"the run still ends when it ended — only the phase is bounded to the arrival")
 }
+
+// A run that severed nothing says so, and a run that lost machines mid-hold
+// says how many. The count is the difference between "the fleet held" and "the
+// fleet was gone and every agent reported success", which is the shape a whole
+// night was recorded in.
+func TestTheBundleCountsMachinesSeveredMidHold(t *testing.T) {
+	t.Parallel()
+
+	held := buildRunBundle(runBundleInputs{
+		Results:    []agentResult{{}, {}, {err: ErrHeldPeerGone}, {err: errors.New("dial: refused")}},
+		StartedAt:  time.Now().Add(-time.Minute),
+		Total:      time.Minute,
+		AgentCount: 4,
+		Target:     "127.0.0.1:9090",
+	})
+
+	assert.Equal(t, 1.0, observationValue(t, held, "agents_severed_mid_hold"),
+		"only the machine whose hold was severed counts; a machine that never connected took nothing")
+}
+
+// observationValue reads one series out of a bundle's observations.
+func observationValue(t *testing.T, bundle *Bundle, series string) float64 {
+	t.Helper()
+	for _, observation := range bundle.Observations {
+		if observation.Series == series {
+			return observation.Value
+		}
+	}
+	require.FailNowf(t, "series not found", "the bundle carries no %q observation", series)
+	return 0
+}

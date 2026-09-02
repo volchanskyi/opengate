@@ -300,14 +300,18 @@ Three data channels match the frame routing:
 | `desktop` | 1 | No | No (`maxRetransmits=0`) | Screen frames (latest wins) |
 | `bulk` | 2 | Yes | Yes | Terminal I/O, file transfers |
 
-The signaling state machine (`server/internal/signaling/`) tracks upgrade
-progress: `Relay` → `Offered` → `Answered` → `ICEGathering` → `Connected` (or
-`Failed`). On `Failed` the relay connection carries the session unchanged.
+The negotiation runs between the two peers. The relay copies bytes between the
+two connections without decoding a frame, so the server sees the offer, the
+answer and the candidates go past without reading any of them, and it holds no
+view of how far the upgrade has got. The peers do, which is where the decision
+belongs: an upgrade that never completes leaves the relay connection carrying
+the session unchanged, which is what the session was already doing.
 
-**ICE configuration.** The server returns STUN/TURN server URLs in the
-`CreateSession` response (`ice_servers`), and both the browser and the agent use
-them to find a path. The default configuration points at Google's public STUN
-server.
+**ICE configuration.** The server's one part in the negotiation is naming the
+STUN/TURN servers to try. It returns them in the `CreateSession` response
+(`ice_servers`), and both the browser and the agent use them to find a path. The
+default configuration ([`config.go`](../../server/internal/signaling/config.go))
+points at Google's public STUN server.
 
 ### Agent Session Handler
 

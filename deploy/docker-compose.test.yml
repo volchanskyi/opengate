@@ -30,9 +30,10 @@ services:
     # The machine-facing listener is published as well as the browser-facing
     # one: the specs open pages against real enrolled machines, and a machine
     # reaches the server over QUIC.
-    command: ["-listen", ":8080", "-quic-listen", ":9090", "-data-dir", "/data", "-web-dir", "/srv/web"]
+    command: ["-listen", ":8080", "-internal-listen", ":8081", "-quic-listen", ":9090", "-data-dir", "/data", "-web-dir", "/srv/web"]
     ports:
       - "8080:8080"
+      - "8081:8081"
       - "9090:9090/udp"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]

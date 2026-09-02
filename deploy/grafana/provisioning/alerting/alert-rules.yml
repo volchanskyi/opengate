@@ -281,6 +281,97 @@ groups:
             apart, and the container memory alert for whether it was walking
             up to its limit beforehand.
 
+      - uid: container-memory-against-limit
+        title: "Container memory is above 80% of its own limit"
+        noDataState: OK
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                max by (namespace, pod, container) (
+                  container_memory_working_set_bytes{container!="",container!="POD"}
+                  /
+                  container_spec_memory_limit_bytes{container!="",container!="POD"} > 0
+                )
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.8]
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A container is walking up to its memory limit"
+          description: >-
+            The container's working set has been above 80% of its own cgroup
+            limit for ten minutes. The node may have memory to spare and this
+            container still be minutes from being killed, which is why the
+            reading is the container against its own ceiling rather than the
+            node against its total. A container that stays here without a
+            matching rise in load is retaining something it is not giving back.
+
+      - uid: container-oom-killed
+        title: "Container killed for memory"
+        noDataState: OK
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                sum by (namespace, pod, container) (
+                  increase(container_oom_events_total{container!=""}[15m])
+                )
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A container was killed for exceeding its memory limit"
+          description: >-
+            The kernel took this container for memory. The series names which
+            one, which is the question that otherwise costs hours: a node-wide
+            kill counter says a kill happened somewhere. For the server
+            container this also resets every device to offline and severs every
+            live remote session, so the fleet re-registers at once.
+
       - uid: edge-telemetry-drop-ratio
         title: "Edge telemetry drop ratio > 5%"
         noDataState: OK

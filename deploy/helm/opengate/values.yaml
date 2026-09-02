@@ -22,6 +22,7 @@ serviceAccount:
 server:
   replicas: 1
   httpPort: 8080            # HTTP API + SPA (behind ingress)
+  metricsPort: 8081         # Prometheus exposition + pprof (ClusterIP only, never the ingress)
   quicPort: 9090            # QUIC agent transport (UDP, L4)
   mpsPort: 4433            # Intel AMT CIRA / MPS (TCP, L4)
   webDir: /srv/web          # server serves the SPA itself (api.go os.OpenRoot)

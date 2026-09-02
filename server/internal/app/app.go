@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"time"
 
@@ -92,6 +93,9 @@ type Config struct {
 	QuicHost string
 	// WebDir holds the single-page application's static assets.
 	WebDir string
+	// InternalListen is the address the cluster-only listener binds. Empty
+	// selects defaultInternalListen.
+	InternalListen string
 
 	// AMTOperator replaces the management service the API surface is given.
 	// Intel management hardware answers on its own network path, which no test
@@ -107,6 +111,10 @@ type Config struct {
 type Assembly struct {
 	// API is the operator-facing HTTP surface.
 	API *api.Server
+	// Internal is the listener only the cluster reaches: the Prometheus
+	// exposition and the profiler. Starting it belongs to whoever built the
+	// assembly, the same as the public one.
+	Internal *http.Server
 	// Agents is the QUIC control-stream server machines connect to.
 	Agents *agentapi.AgentServer
 	// AgentControl is the API server's view of Agents, bridged to its port.
@@ -117,8 +125,10 @@ type Assembly struct {
 	AMT *amt.Service
 	// Relay pairs an operator's session side with a machine's.
 	Relay *relay.Relay
-	// Signaling tracks WebRTC negotiation outcomes.
-	Signaling *signaling.Tracker
+	// Signaling is the ICE configuration a browser is handed when it asks to
+	// upgrade a session. The negotiation itself happens between the two peers,
+	// inside the relay pipe the server copies without decoding.
+	Signaling signaling.Config
 
 	// Metrics and MetricsRegistry are this process's own instrumentation.
 	Metrics         *appmetrics.Metrics
@@ -310,7 +320,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	// detail reader can only be handed back once both exist.
 	mpsSrv.SetDetailProber(amtSvc)
 
-	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
+	sigConfig := signaling.DefaultConfig()
 	agentControl := agentControlGetter{srv: agentSrv}
 	// One operator serves both the port the handlers hold and the port the
 	// device page reads, so a stand-in cannot be wired into half the surface.
@@ -341,7 +351,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Purger:                purger,
 		PurgeJobs:             purgeJobs,
 		Relay:                 agentRelay,
-		Signaling:             sigTracker,
+		Signaling:             sigConfig,
 		Notifier:              notifier,
 		Signing:               signingKeys,
 		Manifests:             manifestStore,
@@ -350,7 +360,6 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		QuicHost:              cfg.QuicHost,
 		Logger:                logger,
 		WebDir:                cfg.WebDir,
-		MetricsRegistry:       metricsRegistry,
 		Metrics:               appMetrics,
 		Lifetime:              ctx,
 		// The triage queue reads the same store the ingest path writes, and the
@@ -371,12 +380,13 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 
 	return &Assembly{
 		API:             srv,
+		Internal:        newInternalServer(cfg.InternalListen, metricsRegistry),
 		Agents:          agentSrv,
 		AgentControl:    agentControl,
 		MPS:             mpsSrv,
 		AMT:             amtSvc,
 		Relay:           agentRelay,
-		Signaling:       sigTracker,
+		Signaling:       sigConfig,
 		Metrics:         appMetrics,
 		MetricsRegistry: metricsRegistry,
 		Cert:            certMgr,

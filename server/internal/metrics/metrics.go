@@ -1,5 +1,5 @@
 // Package metrics provides Prometheus instrumentation for the OpenGate server.
-// It exposes HTTP, relay, agent, MPS, signaling, and database metrics via a
+// It exposes HTTP, relay, agent, MPS, and database metrics via a
 // custom registry (not the global default).
 package metrics
 
@@ -19,8 +19,6 @@ type GaugeSource struct {
 	ActiveSessions      func() int
 	ConnectedAgents     func() int
 	ConnectedMPSDevices func() int
-	SignalingSuccesses  func() int64
-	SignalingFailures   func() int64
 }
 
 // Metrics holds all Prometheus metric descriptors for the OpenGate server.
@@ -50,8 +48,10 @@ type Metrics struct {
 	// MPS
 	MPSConnectedDevices prometheus.Gauge
 
-	// Signaling
-	SignalingUpgradesTotal *prometheus.CounterVec
+	// Audit, by outcome. Every audited action is written, failed or shed, so
+	// the three together answer whether any audit row went missing rather than
+	// only whether the ones that arrived look right.
+	AuditWritesTotal *prometheus.CounterVec
 
 	// Database
 	DBQueryDuration *prometheus.HistogramVec
@@ -163,8 +163,8 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		MPSConnectedDevices: gauge("mps_connected_devices",
 			"Number of connected MPS (Intel AMT) devices."),
 
-		SignalingUpgradesTotal: counterVec("signaling_upgrades_total",
-			"Total number of WebRTC signaling upgrades.",
+		AuditWritesTotal: counterVec("audit_writes_total",
+			"Audited actions by what became of their row.",
 			"result"),
 
 		DBQueryDuration: histogramVec("db_query_duration_seconds",
@@ -241,7 +241,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.RelayActiveSessions,
 		m.AgentsConnected,
 		m.MPSConnectedDevices,
-		m.SignalingUpgradesTotal,
+		m.AuditWritesTotal,
 		m.DBQueryDuration,
 		m.DBQueriesTotal,
 		m.DBSizeBytes,
@@ -280,6 +280,15 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.AgentTLSHandshakesTotal.WithLabelValues("false")
 
 	return m
+}
+
+// ObserveAuditWrite counts one audited action under what became of its row:
+// written, failed, or shed because every write slot was busy. The three close a
+// ledger against the actions themselves — an audit trail that quietly lost rows
+// under load is one nobody can rely on, and a shed write that nothing counted is
+// exactly that.
+func (m *Metrics) ObserveAuditWrite(result string) {
+	m.AuditWritesTotal.WithLabelValues(result).Inc()
 }
 
 // ObserveEdgeTelemetryIngest counts one accepted Edge-Sentinel telemetry
@@ -399,24 +408,7 @@ func StartGaugeUpdater(ctx context.Context, m *Metrics, src GaugeSource, interva
 		m.MPSConnectedDevices.Set(float64(src.ConnectedMPSDevices()))
 	}
 
-	// Signaling counters are monotonically increasing atomics in the Tracker.
-	// We track the previous value and increment the Prometheus counter by the delta.
-	var prevSuccess, prevFailure int64
-	updateSignaling := func() {
-		curSuccess := src.SignalingSuccesses()
-		curFailure := src.SignalingFailures()
-		if delta := curSuccess - prevSuccess; delta > 0 {
-			m.SignalingUpgradesTotal.WithLabelValues("success").Add(float64(delta))
-		}
-		if delta := curFailure - prevFailure; delta > 0 {
-			m.SignalingUpgradesTotal.WithLabelValues("failure").Add(float64(delta))
-		}
-		prevSuccess = curSuccess
-		prevFailure = curFailure
-	}
-
 	update()
-	updateSignaling()
 
 	for {
 		select {
@@ -424,7 +416,6 @@ func StartGaugeUpdater(ctx context.Context, m *Metrics, src GaugeSource, interva
 			return
 		case <-ticker.C:
 			update()
-			updateSignaling()
 		}
 	}
 }

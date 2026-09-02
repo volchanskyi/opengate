@@ -8,7 +8,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/relay"
-	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 	"net/http/httptest"
 )
@@ -29,7 +28,6 @@ type sessionTestEnv struct {
 	agentAddr     string
 	httpSrv       *httptest.Server
 	jwt           *auth.JWTConfig
-	sigTracker    *signaling.Tracker
 	signing       *updater.SigningKeys
 	manifests     *updater.ManifestStore
 	cancel        context.CancelFunc

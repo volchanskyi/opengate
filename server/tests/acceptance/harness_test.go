@@ -54,6 +54,10 @@ type Product struct {
 
 	// HTTP is the door a technician knocks on.
 	HTTP *httptest.Server
+	// Internal is the door only the cluster knocks on: the platform's reading
+	// of itself, and the profiler. It is a second listener because everything
+	// on the first one is published by the ingress.
+	Internal *httptest.Server
 	// QUICAddr is the door a machine dials.
 	QUICAddr string
 
@@ -139,8 +143,10 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 	}
 
 	httpSrv := httptest.NewServer(assembly.API)
+	internalSrv := httptest.NewServer(assembly.Internal.Handler)
 
 	t.Cleanup(func() {
+		internalSrv.Close()
 		httpSrv.Close()
 		cancel()
 		select {
@@ -154,6 +160,7 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 		t:            t,
 		assembly:     assembly,
 		HTTP:         httpSrv,
+		Internal:     internalSrv,
 		QUICAddr:     quicAddr,
 		hardware:     hardware,
 		readingStore: readingStore,

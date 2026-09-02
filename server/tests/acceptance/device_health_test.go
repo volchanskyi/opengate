@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -194,8 +195,19 @@ func (a *Technician) awaitReading(product *Product, deviceID fmt.Stringer, from,
 
 // platformInstrumentation is the platform's own reading of itself — what a
 // monitoring system scrapes. It is a door an operator has, which is why an
-// outcome about accounting may be stated through it.
+// outcome about accounting may be stated through it. The door is the
+// cluster-only listener: the exposition is what a scraper reaches, never what
+// the ingress publishes.
 func (a *Technician) platformInstrumentation() string {
 	a.t.Helper()
-	return a.Get("/metrics").Text()
+	req, err := http.NewRequestWithContext(a.t.Context(),
+		http.MethodGet, a.product.Internal.URL+"/metrics", nil)
+	require.NoError(a.t, err)
+	resp, err := a.product.Internal.Client().Do(req)
+	require.NoError(a.t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(a.t, http.StatusOK, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(a.t, err)
+	return string(body)
 }

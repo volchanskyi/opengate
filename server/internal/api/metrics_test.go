@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
@@ -19,10 +20,13 @@ import (
 )
 
 // TestServer_MetricsWiring verifies that NewServer wires the metrics
-// middleware (api.go:131) and the /metrics endpoint (api.go:139) when
-// Metrics + MetricsRegistry are non-nil. Without this test, both
-// CONDITIONALS_NEGATION mutants on those `!= nil` checks survive: API
-// tests that pass nil metrics never exercise the registered branch.
+// middleware when Metrics is non-nil, and that the exposition it feeds is not
+// reachable on this listener. Without the first half the CONDITIONALS_NEGATION
+// mutant on that `!= nil` check survives: API tests that pass nil metrics never
+// exercise the registered branch. The second half is the boundary — the
+// exposition renders process internals to anyone who asks, and everything this
+// router serves is published by one catch-all ingress rule, so it belongs to
+// the cluster-only listener the composition root builds.
 func TestServer_MetricsWiring(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
@@ -37,46 +41,54 @@ func TestServer_MetricsWiring(t *testing.T) {
 	m := appmetrics.NewMetrics(registry)
 
 	srv := NewServer(ServerConfig{
-		Store:           store,
-		Audit:           testutil.NewTestAudit(t, store),
-		SecurityGroups:  testutil.NewTestSecurityGroups(t, store),
-		Devices:         testutil.NewTestDevices(t, store),
-		Sites:           testutil.NewTestSites(t, store),
-		Hardware:        testutil.NewTestHardware(t, store),
-		WebPush:         testutil.NewTestWebPush(t, store),
-		Sessions:        testutil.NewTestSessions(t, store),
-		Users:           testutil.NewTestUsers(t, store),
-		JWT:             cfg,
-		Agents:          &stubAgentGetter{},
-		AMT:             &stubAMTOperator{},
-		Relay:           relay.NewRelay(slog.Default()),
-		Notifier:        &notifications.NoopNotifier{},
-		Logger:          logger,
-		MetricsRegistry: registry,
-		Metrics:         m,
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
+		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
+		Devices:        testutil.NewTestDevices(t, store),
+		Sites:          testutil.NewTestSites(t, store),
+		Hardware:       testutil.NewTestHardware(t, store),
+		WebPush:        testutil.NewTestWebPush(t, store),
+		Sessions:       testutil.NewTestSessions(t, store),
+		Users:          testutil.NewTestUsers(t, store),
+		JWT:            cfg,
+		Agents:         &stubAgentGetter{},
+		AMT:            &stubAMTOperator{},
+		Relay:          relay.NewRelay(slog.Default()),
+		Notifier:       &notifications.NoopNotifier{},
+		Logger:         logger,
+		Metrics:        m,
 	})
 
-	// 1) /metrics is registered when MetricsRegistry != nil (kills api.go:139 mutation).
+	// 1) The exposition is absent from the listener the ingress publishes.
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code, "/metrics should be served when registry is set")
-	body := w.Body.String()
-	assert.Contains(t, body, "# HELP", "expected Prometheus exposition format")
+	require.Equal(t, http.StatusNotFound, w.Code,
+		"/metrics belongs to the cluster-only listener, not to the public router")
 
-	// 2) HTTPMiddleware is wired when Metrics != nil (kills api.go:131 mutation).
-	// Issue a request that hits a real route, then verify the request counter
-	// recorded a sample for that exact method+route. If the middleware were
-	// not registered, the counter would have zero series.
+	// 2) HTTPMiddleware is wired when Metrics != nil (kills the api.go
+	// conditional mutation). Issue a request that hits a real route, then read
+	// the registry the middleware writes to — the same registry the internal
+	// listener renders. If the middleware were not registered, the counter
+	// would have zero series.
 	hreq := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	hw := httptest.NewRecorder()
 	srv.ServeHTTP(hw, hreq)
 
-	w2 := httptest.NewRecorder()
-	srv.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	require.Equal(t, http.StatusOK, w2.Code)
-	scrape := w2.Body.String()
+	scrape := gatherText(t, registry)
 	assert.True(t,
 		strings.Contains(scrape, `opengate_http_requests_total{method="GET"`),
 		"metrics middleware should record an HTTP request series for GET, got:\n%s", scrape)
+}
+
+// gatherText renders a registry the way the internal listener does, so a test
+// in this package can assert what the middleware wrote without the endpoint
+// that renders it being on this package's router.
+func gatherText(t *testing.T, registry *prometheus.Registry) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	return rec.Body.String()
 }

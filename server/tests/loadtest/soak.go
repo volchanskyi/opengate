@@ -1,12 +1,12 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -35,6 +35,13 @@ type loadOptions struct {
 	// relay and echoing. The browser side then times its own frame coming back,
 	// which is what makes a relay latency figure a measurement of the relay.
 	relaySessions bool
+
+	// sessionsJoined counts the machine sides this run answered, across every
+	// agent. It is the denominator the target's conservation is expressed
+	// against: a session has exactly one machine side, so a count of the sides
+	// answered is a count of the sessions completed. Nil counts nothing, which
+	// is what a unit test driving one agent wants.
+	sessionsJoined *atomic.Int64
 }
 
 // defaultMetricDimNames is every host metric dimension a machine writes, in the
@@ -168,96 +175,6 @@ func runSoakTraffic(codec *protocol.Codec, stream soakStream, opts loadOptions) 
 	}
 	return holdOpen(codec, stream, opts)
 }
-
-// holdOpen keeps this machine in the run for opts.holdFor, answering what the
-// server sends. A fleet's steady-state cost is connections that stay up, not
-// connections that open; a harness that disconnects immediately never applies
-// it.
-//
-// A read that times out is the ordinary case — a quiet server has nothing to
-// say — so the loop simply reads again until the hold is over.
-func holdOpen(codec *protocol.Codec, stream soakStream, opts loadOptions) error {
-	if opts.holdFor <= 0 {
-		return nil
-	}
-
-	deadline := time.Now().Add(opts.holdFor)
-	for time.Now().Before(deadline) {
-		wait := min(holdReadSlice, time.Until(deadline))
-		if err := stream.SetReadDeadline(time.Now().Add(wait)); err != nil {
-			return fmt.Errorf("set read deadline: %w", err)
-		}
-		msg, err := readControlFrame(codec, stream)
-		if err != nil {
-			if isTimeout(err) {
-				continue
-			}
-			return fmt.Errorf("hold open: %w", err)
-		}
-		if err := answerHeldFrame(codec, stream, msg, opts); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// holdReadSlice bounds one read while a machine is held open, so the hold ends
-// close to when it was asked to rather than at the next frame the server
-// happens to send.
-const holdReadSlice = 2 * time.Second
-
-// answerHeldFrame replies to what the server sends a held-open machine. Only
-// the frames a load run needs to keep moving are answered; anything else is
-// read and discarded, which is what an agent that does not support a capability
-// does.
-func answerHeldFrame(codec *protocol.Codec, w io.Writer, msg *protocol.ControlMessage, opts loadOptions) error {
-	switch msg.Type {
-	case protocol.MsgRequestDeviceLogs:
-		payload, err := codec.EncodeControl(buildDeviceLogsResponse(int(msg.LogLimit)))
-		if err != nil {
-			return fmt.Errorf("encode device logs response: %w", err)
-		}
-		if err := codec.WriteFrame(w, protocol.FrameControl, payload); err != nil {
-			return fmt.Errorf("write device logs response: %w", err)
-		}
-	case protocol.MsgSessionRequest:
-		if !opts.relaySessions {
-			return nil
-		}
-		return joinRequestedSession(msg)
-	}
-	return nil
-}
-
-// joinRequestedSession opens the machine side of the session the server just
-// handed this connection and echoes on it until the operator's side goes away.
-//
-// It runs on its own goroutine because the relay is a separate connection: the
-// control stream must stay readable, or the machine stops answering everything
-// else for as long as somebody has a session open.
-func joinRequestedSession(msg *protocol.ControlMessage) error {
-	req, err := RelayRequestFrom(msg)
-	if err != nil {
-		return fmt.Errorf("session request: %w", err)
-	}
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), relaySessionLifetime)
-		defer cancel()
-
-		joined, err := JoinRelay(ctx, req)
-		if err != nil {
-			return
-		}
-		defer func() { _ = joined.Close() }()
-		_ = joined.Echo(ctx)
-	}()
-	return nil
-}
-
-// relaySessionLifetime bounds one simulated session, so a run cannot leave a
-// goroutine echoing into a pipe nobody is reading.
-const relaySessionLifetime = 5 * time.Minute
 
 // emitMetricWindows writes n host-metric windows, driving the ingest path.
 func emitMetricWindows(codec *protocol.Codec, w io.Writer, n int) error {

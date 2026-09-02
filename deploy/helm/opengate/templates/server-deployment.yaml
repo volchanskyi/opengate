@@ -44,6 +44,8 @@ spec:
           args:
             - "-listen"
             - ":{{ .Values.server.httpPort }}"
+            - "-internal-listen"
+            - ":{{ .Values.server.metricsPort }}"
             - "-quic-listen"
             - ":{{ .Values.server.quicPort }}"
             - "-mps-listen"
@@ -119,6 +121,9 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.server.httpPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.server.metricsPort }}
               protocol: TCP
             - name: quic
               containerPort: {{ .Values.server.quicPort }}

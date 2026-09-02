@@ -74,6 +74,18 @@ maintained here. Current chart components are:
 | Node Exporter | DaemonSet + Service | Node metrics. |
 | Postgres Exporter | Deployment + Service | PostgreSQL metrics for the production Postgres service. |
 
+The scraper also reads each kubelet's own cAdvisor endpoint
+([`vmagent-scrape.yaml`](../../deploy/helm/monitoring/files/vmagent-scrape.yaml)),
+which is the only place a container's working set against **its own** limit
+exists. The node exporter reads the node, and the two answer different
+questions: a pod can sit at 90% of its cgroup ceiling on a node with memory to
+spare, minutes from being killed, and a node-wide reading stays quiet the whole
+time. `container_oom_events_total` comes from the same endpoint and names the
+container the kernel took, which is what turns a kill from an event to be
+correlated by hand into one the alert states outright. Reaching it needs the
+`nodes`, `nodes/metrics` and `nodes/proxy` grants in the scraper's ClusterRole
+([`victoriametrics.yaml`](../../deploy/helm/monitoring/templates/victoriametrics.yaml)).
+
 Image tags, resource requests/limits, retention, storage class, and persistence
 settings live in [`values.yaml`](../../deploy/helm/monitoring/values.yaml). Do not
 copy those values into prose; link to the values file when exact numbers matter.
@@ -107,8 +119,29 @@ the production server pod per [Kubernetes.md](./Kubernetes.md#l4-quic--mps).
 
 ## Application Instrumentation
 
-The Go server exposes Prometheus metrics on the same HTTP listener as the REST
-API. The in-cluster VictoriaMetrics scrape configuration discovers the server
+The Go server exposes Prometheus metrics on a second HTTP listener, separate
+from the one that serves the REST API and the single-page application
+([`internal_listener.go`](../../server/internal/app/internal_listener.go)). That
+listener carries the exposition and `net/http/pprof`, and its address comes from
+`-internal-listen`.
+
+The split is a boundary the cluster can enforce and the edge cannot. Everything
+the API listener serves sits behind one catch-all ingress rule, so a path
+mounted on it is published; and the ingress controller runs with snippet
+annotations disabled
+([`NOTES.txt`](../../deploy/helm/opengate/templates/NOTES.txt)), so a per-path
+denial is not available either. A second port is the boundary that holds in both
+directions: the Service publishes it under the port name `metrics`, and the
+Ingress backs onto the API port alone. Everything that reads the exposition
+reaches it that way — the scrape through the Service endpoint, the deploy smoke
+test and an operator through a `kubectl port-forward`, the nightly load harness
+through the in-cluster Service name, and `make e2e` through the compose stack's
+published port. The agreement between those places is held by
+[`internal-listener.test.sh`](../../scripts/tests/internal-listener.test.sh),
+and the edge half of the claim is asserted on every deploy by the `--domain`
+smoke run.
+
+The in-cluster VictoriaMetrics scrape configuration discovers the server
 Services via Kubernetes endpoint metadata rather than hard-coded Docker hostnames.
 
 Every series the server publishes — its name, labels and the population it
@@ -283,7 +316,7 @@ a reading means for a machine is in
 The **Edge-Sentinel Soak**
 Grafana dashboard charts these alongside anomaly rate, VM cardinality + disk
 growth, and control-plane query p99 over the VM datasource. The
-`opengate_*` series require the server `/metrics` scrape; the `vm_*` series require
+`opengate_*` series require the server exposition scrape; the `vm_*` series require
 the VictoriaMetrics self-scrape.
 
 ### Long-term (cold) tier

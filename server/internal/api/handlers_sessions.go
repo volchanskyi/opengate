@@ -74,10 +74,12 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 		return CreateSession409JSONResponse{Error: "agent communication failed"}, nil
 	}
 
-	// Build ICE server list from signaling config
+	// The STUN servers a browser should try when it asks to reach the machine
+	// directly. A deployment that names none leaves the field out rather than
+	// sending an empty list, which a client would read as "try nothing".
 	var iceServers *[]ICEServer
-	if s.signaling != nil {
-		servers := iceServersToAPI(s.signaling.Config().ICEServers)
+	if len(s.signaling.ICEServers) > 0 {
+		servers := iceServersToAPI(s.signaling.ICEServers)
 		iceServers = &servers
 	}
 

@@ -53,16 +53,50 @@ fi
 
 server_block="$(job_block opengate-server)"
 if grep -qF 'source_labels: [__meta_kubernetes_endpoint_port_name]' <<<"$server_block" \
-  && grep -qF 'regex: http' <<<"$server_block"; then
-  pass "OpenGate server scrape is restricted to the HTTP metrics endpoint"
+  && grep -qF 'regex: metrics' <<<"$server_block"; then
+  pass "OpenGate server scrape is restricted to the endpoint that serves the exposition"
 else
-  fail "OpenGate server scrape must not target QUIC/MPS ports"
+  fail "OpenGate server scrape must keep the 'metrics' endpoint port and no other"
 fi
 
-if grep -qF 'role: node' "$SCRAPE_FILE"; then
-  fail "scrape config should use node-exporter instead of direct kubelet node scraping"
+# The kubelet's cAdvisor endpoint is the only place a container's working set
+# against its own limit exists. Nothing else in this cluster publishes it: the
+# node exporter reads the node, and a pod at 90% of its cgroup ceiling is
+# invisible in a node-wide reading — which is how one sat there for three hours.
+cadvisor_block="$(job_block kubernetes-cadvisor)"
+if grep -qF 'role: node' <<<"$cadvisor_block" \
+  && grep -qF '/metrics/cadvisor' <<<"$cadvisor_block"; then
+  pass "the kubelet's cAdvisor endpoint is scraped"
 else
-  pass "scrape config avoids direct kubelet node scraping"
+  fail "a kubernetes-cadvisor job must scrape the kubelet's /metrics/cadvisor"
+fi
+
+# The kubelet serves it over TLS with a certificate signed by the cluster's own
+# authority, and it demands the scraper's service-account token.
+if grep -qF 'scheme: https' <<<"$cadvisor_block" \
+  && grep -qF 'bearer_token_file' <<<"$cadvisor_block" \
+  && grep -qF 'ca_file' <<<"$cadvisor_block"; then
+  pass "the cAdvisor scrape authenticates to the kubelet over TLS"
+else
+  fail "the cAdvisor job must present its service-account token to the kubelet over TLS"
+fi
+
+# The series are per-container and the alert is per-container, so the namespace,
+# pod and container have to survive relabelling.
+for label in namespace pod node; do
+  if grep -qF "target_label: $label" <<<"$cadvisor_block"; then
+    pass "the cAdvisor scrape keeps the $label label"
+  else
+    fail "the cAdvisor scrape drops the $label label, so an alert cannot name what was killed"
+  fi
+done
+
+# The node exporter still answers for the node itself; the kubelet job is the
+# container's own ceiling, which the node exporter cannot see.
+if grep -qF 'job_name: kubernetes-cadvisor' "$SCRAPE_FILE"; then
+  pass "the node-level scrape is the kubelet's cAdvisor and nothing wider"
+else
+  fail "the node role must be used for the cAdvisor job only"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"

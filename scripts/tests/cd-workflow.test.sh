@@ -233,6 +233,55 @@ else
   fail "a dispatched tag has no way to reach the run that built its agent"
 fi
 
+# --- the deploy forwards the internal listener, and proves the edge does not ---
+#
+# The exposition and the profiler answer on the server's second listener. A
+# port-forward that names only the API port leaves the smoke test probing the
+# SPA fallback for an exposition — a check that passes without ever reaching
+# what it is about, which is the false green ci-cd-determinism rules against.
+# So the forwarded port is read back against the chart's own.
+
+VALUES="$SCRIPT_DIR/../../deploy/helm/opengate/values.yaml"
+METRICS_PORT="$(awk '/^[[:space:]]+metricsPort:/ { print $2; exit }' "$VALUES")"
+
+# shellcheck disable=SC2016 # the pattern is the workflow's literal text, not an expansion
+PF_LINES="$(grep -F 'port-forward "svc/${RELEASE}-server"' "$WORKFLOW" || true)"
+if [ -n "$PF_LINES" ]; then
+  pass "the deploy port-forwards the server Service"
+else
+  fail "no port-forward of the server Service found"
+fi
+
+# Every forward of that Service has to carry the internal port, not just one of
+# them: staging and production each run their own smoke test.
+PF_COUNT="$(printf '%s\n' "$PF_LINES" | grep -c . || true)"
+PF_WITH_METRICS="$(printf '%s\n' "$PF_LINES" | grep -cF ":${METRICS_PORT}" || true)"
+if [ -n "$METRICS_PORT" ] && [ "$PF_COUNT" -gt 0 ] && [ "$PF_COUNT" -eq "$PF_WITH_METRICS" ]; then
+  pass "every port-forward carries the chart's internal port ($METRICS_PORT)"
+else
+  fail "a port-forward omits the chart's internal port ($METRICS_PORT), so the exposition is unreachable"
+fi
+
+# The local port the forward binds for it, and the port the smoke test is told
+# to read, are two independent numbers. They have to be the same one.
+LOCAL_METRICS_PORT="$(printf '%s\n' "$PF_LINES" | grep -oE "[0-9]+:${METRICS_PORT}\b" | head -n 1 | cut -d: -f1)"
+SMOKE_HOST_RUNS="$(grep -F 'smoke-test.sh --host' "$WORKFLOW" || true)"
+SMOKE_HOST_COUNT="$(printf '%s\n' "$SMOKE_HOST_RUNS" | grep -c . || true)"
+SMOKE_WITH_PORT="$(printf '%s\n' "$SMOKE_HOST_RUNS" | grep -cF -- "--metrics-port ${LOCAL_METRICS_PORT}" || true)"
+if [ -n "$LOCAL_METRICS_PORT" ] && [ "$SMOKE_HOST_COUNT" -gt 0 ] \
+  && [ "$SMOKE_HOST_COUNT" -eq "$SMOKE_WITH_PORT" ]; then
+  pass "every smoke run reads the exposition off the forwarded port ($LOCAL_METRICS_PORT)"
+else
+  fail "a smoke run does not name the forwarded internal port, so its metrics check reads the wrong listener"
+fi
+
+# The boundary itself is only asserted by a run that goes through the ingress.
+if grep -qF 'smoke-test.sh --domain' "$WORKFLOW"; then
+  pass "a smoke run goes through the public edge, where the boundary is provable"
+else
+  fail "nothing runs the smoke test through the public edge, so the boundary is a claim nothing executes"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

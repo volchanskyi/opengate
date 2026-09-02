@@ -114,7 +114,7 @@ jobs:
               -hold=3m \
               -profile=load/profiles/scaling.yaml \
               -enroll-url=http://127.0.0.1:8080 \
-              -metrics-url=http://127.0.0.1:8080 \
+              -metrics-url=http://127.0.0.1:8081 \
               -fixture-account=perf-admin@opengate-loadtest.invalid \
               -fixture-password="$PERF_FIXTURE_PASSWORD" \
               -fixture-bootstrap \
@@ -204,7 +204,7 @@ jobs:
               -hold=3m \
               -profile=load/profiles/volume.yaml \
               -enroll-url=http://127.0.0.1:8080 \
-              -metrics-url=http://127.0.0.1:8080 \
+              -metrics-url=http://127.0.0.1:8081 \
               -fixture-account=perf-admin@opengate-loadtest.invalid \
               -fixture-password="$PERF_FIXTURE_PASSWORD" \
               -fixture-bootstrap \

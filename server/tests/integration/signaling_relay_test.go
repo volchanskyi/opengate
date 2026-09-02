@@ -9,13 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
-	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"nhooyr.io/websocket"
 )
 
-// TestSignalingFlowThroughRelay exercises the full WebRTC signaling flow
-// via the relay WebSocket path: SDP offer → answer → ICE candidates → SwitchAck.
-// Uses fake SDP strings — the relay is message-agnostic and just forwards binary frames.
+// TestSignalingFlowThroughRelay exercises the full WebRTC negotiation as it
+// actually happens: SDP offer → answer → ICE candidates → SwitchAck, every one
+// of them carried between the two sides by the relay.
+//
+// The outcome is that the relay forwards them and does not read them. It copies
+// bytes between two connections without decoding a frame, which is why the
+// strings here are fake and why the server has no view of the negotiation's
+// progress — the two peers do, and they are the only ones who need it.
 func TestSignalingFlowThroughRelay(t *testing.T) {
 	t.Parallel()
 	env := newSessionTestEnv(t)
@@ -50,21 +54,12 @@ func TestSignalingFlowThroughRelay(t *testing.T) {
 		return msg
 	}
 
-	// Start signaling state tracking on the server side
-	sessionToken := "test-signaling-token-0123456789abcdef0123456789abcdef"
-	state := env.sigTracker.StartSignaling(sessionToken)
-	require.NotNil(t, state)
-	assert.Equal(t, signaling.PhaseRelay, state.Phase())
-
 	// 1. Browser sends SwitchToWebRTC offer → agent receives it
 	fakeSDP := "v=0\r\no=- 123 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
 	sendControl(browserConn, &protocol.ControlMessage{
 		Type:     protocol.MsgSwitchToWebRTC,
 		SDPOffer: fakeSDP,
 	})
-
-	// Transition tracker to Offered
-	require.NoError(t, state.Transition(signaling.PhaseOffered))
 
 	agentMsg := readControl(agentConn)
 	assert.Equal(t, protocol.MsgSwitchToWebRTC, agentMsg.Type)
@@ -77,15 +72,11 @@ func TestSignalingFlowThroughRelay(t *testing.T) {
 		SDPOffer: fakeAnswer,
 	})
 
-	require.NoError(t, state.Transition(signaling.PhaseAnswered))
-
 	browserMsg := readControl(browserConn)
 	assert.Equal(t, protocol.MsgSwitchToWebRTC, browserMsg.Type)
 	assert.Equal(t, fakeAnswer, browserMsg.SDPOffer)
 
 	// 3. ICE candidate exchange
-	require.NoError(t, state.Transition(signaling.PhaseICEGathering))
-
 	sendControl(browserConn, &protocol.ControlMessage{
 		Type:      protocol.MsgIceCandidate,
 		Candidate: "candidate:1 1 udp 2113937151 192.168.1.1 12345 typ host",
@@ -113,26 +104,16 @@ func TestSignalingFlowThroughRelay(t *testing.T) {
 	ackMsg := readControl(agentConn)
 	assert.Equal(t, protocol.MsgSwitchAck, ackMsg.Type)
 
-	// Record first ack
-	complete := env.sigTracker.RecordAck(sessionToken)
-	assert.False(t, complete, "need both sides to ack")
-
 	sendControl(agentConn, &protocol.ControlMessage{Type: protocol.MsgSwitchAck})
 	ackMsg2 := readControl(browserConn)
 	assert.Equal(t, protocol.MsgSwitchAck, ackMsg2.Type)
-
-	// Record second ack — should complete
-	complete = env.sigTracker.RecordAck(sessionToken)
-	assert.True(t, complete, "both sides acked, should be complete")
-
-	// Verify tracker state reached PhaseConnected
-	assert.Equal(t, signaling.PhaseConnected, state.Phase())
-	assert.Equal(t, int64(1), env.sigTracker.SuccessCount())
 }
 
-// TestSignalingTimeout verifies that if an offer is sent but no answer arrives,
-// the tracker records PhaseFailed.
-func TestSignalingTimeout(t *testing.T) {
+// TestSignalingOfferReachesTheAgentWithNoAnswer is the other half: an offer the
+// far side never answers still crosses the relay, and the relay neither waits
+// for the answer nor notices that none came. A negotiation that stalls is the
+// two peers' problem, and the session stays a relayed one.
+func TestSignalingOfferReachesTheAgentWithNoAnswer(t *testing.T) {
 	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
@@ -142,11 +123,6 @@ func TestSignalingTimeout(t *testing.T) {
 	defer wsCancel()
 
 	codec := &protocol.Codec{}
-
-	// Start signaling
-	sessionToken := "test-timeout-token-0123456789abcdef0123456789abcdef01"
-	state := env.sigTracker.StartSignaling(sessionToken)
-	require.NotNil(t, state)
 
 	// Browser sends offer
 	offerMsg := &protocol.ControlMessage{
@@ -159,15 +135,16 @@ func TestSignalingTimeout(t *testing.T) {
 	require.NoError(t, codec.WriteFrame(&buf, protocol.FrameControl, payload))
 	require.NoError(t, browserConn.Write(wsCtx, websocket.MessageBinary, buf.Bytes()))
 
-	require.NoError(t, state.Transition(signaling.PhaseOffered))
-	assert.Equal(t, signaling.PhaseOffered, state.Phase())
-
 	// Agent receives the offer (relay forwarded it)
-	_, _, err = agentConn.Read(wsCtx)
+	_, data, err := agentConn.Read(wsCtx)
 	require.NoError(t, err)
 
-	// Simulate timeout — no answer sent. Record failure.
-	env.sigTracker.RecordFailure(sessionToken)
-	assert.Equal(t, signaling.PhaseFailed, state.Phase())
-	assert.Equal(t, int64(1), env.sigTracker.FailureCount())
+	ft, forwarded, err := codec.ReadFrame(bytes.NewReader(data))
+	require.NoError(t, err)
+	assert.Equal(t, protocol.FrameControl, ft)
+	arrived, err := codec.DecodeControl(forwarded)
+	require.NoError(t, err)
+	assert.Equal(t, protocol.MsgSwitchToWebRTC, arrived.Type)
+	assert.Equal(t, offerMsg.SDPOffer, arrived.SDPOffer,
+		"the relay forwards the offer byte for byte; it does not read it")
 }

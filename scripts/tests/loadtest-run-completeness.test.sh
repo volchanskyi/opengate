@@ -133,6 +133,67 @@ LOADTEST_EXPECTED_SCENARIOS="api-baseline" LOADTEST_K6_SUMMARY_DIR="$WORK/k6" \
   "$CHECK" "$WORK/summary.json" "$WORK/completeness.json" >/dev/null 2>&1 || STATUS=$?
 assert_eq "a run that owed one scenario and produced it is valid" "0" "$STATUS"
 
+# --- what the target was holding ----------------------------------------------
+#
+# A run has one verdict however many places compute it. The harness reads its
+# target's own process families either side of the run and records what it
+# found; this gate folds that in, so a night whose target was replaced or whose
+# target kept what it took cannot be recorded here as a complete one.
+
+bundle_verdict() {
+  local result="$1"
+  shift
+  local reasons
+  reasons="$(printf '%s\n' "$@" | jq -Rn '[inputs | select(length > 0)]')"
+  jq -n --arg result "$result" --argjson reasons "$reasons" \
+    '{verdict: {result: $result, reasons: $reasons}}' >"$WORK/bundle.json"
+}
+
+run_check_with_bundle() {
+  STATUS=0
+  LOADTEST_K6_SUMMARY_DIR="$WORK/k6" GITHUB_SHA="deadbeef" LOADTEST_BUNDLE="$WORK/bundle.json" \
+    "$CHECK" "$WORK/summary.json" "$WORK/completeness.json" >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
+}
+
+rm -f "$WORK/k6"/*.thresholds
+rows api-baseline concurrent-agents relay-throughput quic-agents
+
+# The incident: the process was replaced 90 seconds into the night, and every
+# number either side of it was measured against a different server.
+bundle_verdict invalid "target restarted mid-run: the process answering at the end started at 1756761838, not 1756761000"
+run_check_with_bundle
+assert_eq "a night whose target was replaced exits 3" "3" "$STATUS"
+assert_eq "a night whose target was replaced is invalid" "invalid" "$(jq -r '.result' "$WORK/completeness.json")"
+if grep -q "target restarted mid-run" "$WORK/err.txt"; then
+  pass "the restart is named, not just counted"
+else
+  fail "the restart is named, not just counted"
+fi
+
+# Not giving the goroutines back is a finding about the system, so the night is
+# failed and its rows still enter the trend.
+bundle_verdict failed "target retained 2.00 goroutines per completed operation (ceiling 0.50) across 1200 operations"
+run_check_with_bundle
+assert_eq "a target that kept what it took exits 0" "0" "$STATUS"
+assert_eq "a target that kept what it took is a failure, not an invalid run" "failed" \
+  "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "the per-operation figure travels into the record" "1" \
+  "$(jq '[.target_findings[] | select(test("goroutines per completed operation"))] | length' "$WORK/completeness.json")"
+
+# A target that gave everything back leaves the night exactly as it found it.
+bundle_verdict valid
+run_check_with_bundle
+assert_eq "a target that conserved exits 0" "0" "$STATUS"
+assert_eq "a target that conserved is valid" "valid" "$(jq -r '.result' "$WORK/completeness.json")"
+
+# A bundle nobody wrote is silence, not a pass and not a failure: the harness
+# may not have run at all, and this gate has its own reasons to fail a night.
+rm -f "$WORK/bundle.json"
+run_check_with_bundle
+assert_eq "an absent bundle leaves the night valid" "valid" "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "an absent bundle records no findings about the target" "0" \
+  "$(jq '.target_findings | length' "$WORK/completeness.json")"
+
 # A missing summary is a setup defect, not a verdict about the system.
 STATUS=0
 "$CHECK" "$WORK/nope.json" >/dev/null 2>&1 || STATUS=$?

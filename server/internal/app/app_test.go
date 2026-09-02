@@ -117,12 +117,17 @@ func TestBuildTwiceSharesNoMutableState(t *testing.T) {
 
 	assert.NotSame(t, first.Relay, second.Relay)
 	assert.NotSame(t, first.Agents, second.Agents)
-	assert.NotSame(t, first.Signaling, second.Signaling)
 	assert.NotSame(t, first.Metrics, second.Metrics)
 	assert.NotSame(t, first.MetricsRegistry, second.MetricsRegistry)
 	assert.NotSame(t, first.Cert, second.Cert)
 	assert.NotSame(t, first.API, second.API)
+	assert.NotSame(t, first.Internal, second.Internal)
 	assert.NotSame(t, first.Store, second.Store)
+
+	// Signaling is not in that list because it is a value: the ICE servers a
+	// browser is told to try are configuration, and two products holding equal
+	// copies of it is the point rather than a leak.
+	assert.Equal(t, first.Signaling, second.Signaling)
 }
 
 // TestBuildWithoutNumericTelemetryLeavesPurgingOff pins the documented

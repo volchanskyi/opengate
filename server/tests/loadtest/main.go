@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"sync/atomic"
 	"time"
 )
 
@@ -118,7 +119,12 @@ func run() int {
 		}
 	}
 
+	// The machine sides this run answers, counted across every agent. It is the
+	// denominator the target's conservation is divided by.
+	sessionsJoined := &atomic.Int64{}
+
 	opts := loadOptions{
+		sessionsJoined:          sessionsJoined,
 		defaultTelemetry:        *defaultTelemetry,
 		telemetryCycles:         *telemetryCycles,
 		metricWindows:           *metricWindows,
@@ -163,10 +169,26 @@ func run() int {
 	}
 
 	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)
+
+	// What the target is holding before any of this run's work reaches it.
+	//
+	// The bracket opens here rather than at the top of main because the
+	// denominator it is divided by counts this run's workload: the fixture
+	// above is thousands of writes with nothing in that count to answer for
+	// them, and folding it in would charge the target for work the figure does
+	// not measure. From here the harness holds its fleet for the whole night —
+	// the generators beside it run inside the hold — so this bracket covers
+	// every scenario, which is what makes a mid-run restart visible at all.
+	targetAtStart := readTargetHealth(*metricsURL, "the start of the run")
+
 	start := time.Now()
 
 	results, phases := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts)
 	totalDur := time.Since(start)
+
+	// And what it is holding once the fleet is wound down and it has stopped
+	// putting things back.
+	targetAtEnd := readSettledTargetHealth(*metricsURL)
 
 	// Registration as the server measured it, where the device row lands. The
 	// harness's own clock stops at a local send buffer, which cannot move
@@ -190,6 +212,14 @@ func run() int {
 		Phases:       phases,
 		Registration: registration,
 		Fixture:      fixture,
+		Conservation: TargetConservation{
+			Start: targetAtStart,
+			End:   targetAtEnd,
+			// Every machine that connected and every session that was answered
+			// is one operation the target took something for and was expected
+			// to give back.
+			Operations: succeededAgents(results) + int(sessionsJoined.Load()),
+		},
 	})
 
 	if *bundleDir != "" {

@@ -29,7 +29,7 @@ RUN apk upgrade --no-cache \
 COPY --from=server-build /meshserver /usr/local/bin/meshserver
 COPY --from=web-build /build/web/dist /srv/web
 USER opengate
-EXPOSE 8080 4433 9090/udp
+EXPOSE 8080 8081 4433 9090/udp
 # busybox `wget` ships in alpine:3.20 by default — no extra apk add needed.
 # Production health is still gated by docker-compose's per-service healthcheck,
 # but this satisfies Checkov CKV_DOCKER_2 and lets `docker inspect` report
@@ -37,4 +37,4 @@ EXPOSE 8080 4433 9090/udp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --quiet --spider --tries=1 http://127.0.0.1:8080/healthz || exit 1
 ENTRYPOINT ["meshserver"]
-CMD ["-listen", ":8080", "-quic-listen", ":9090", "-mps-listen", ":4433", "-data-dir", "/data", "-web-dir", "/srv/web"]
+CMD ["-listen", ":8080", "-internal-listen", ":8081", "-quic-listen", ":9090", "-mps-listen", ":4433", "-data-dir", "/data", "-web-dir", "/srv/web"]
