@@ -1,0 +1,45 @@
+# og-hijacked-request-context — reject blocking a WebSocket handler on the
+# request context a hijack left uncancellable.
+#
+# Catches gap class: a handler that upgrades to WebSocket and then waits on
+# r.Context().Done(). websocket.Accept hijacks the connection, and net/http
+# stops managing a hijacked connection — the context is cancelled only after
+# ServeHTTP returns, the pending read that turns a client hangup into a
+# cancellation is aborted, and the connection is untracked so Server.Shutdown
+# neither waits for it nor closes it. The wait is a select branch that can never
+# fire, and every abandoned connection strands its handler goroutine and that
+# goroutine's retained heap for the life of the process. An attacker who opens
+# and abandons sessions consumes the server without bound (CWE-400), and the
+# same shape severs every live session on an ordinary rolling deploy.
+#
+# Approximate by design, in two ways. It is scoped by path to the API package's
+# handler files, because that is where this server hijacks connections and the
+# Accept usually sits in a different function from the wait — requiring both in
+# one body would miss the layout the defect actually had. And it treats any wait
+# on a request context there as this defect: a handler in that package that
+# legitimately blocks on cancellation, such as a long poll that never upgrades,
+# would need the rule revisited rather than suppressed.
+#
+# Cleared by waiting on something the server itself closes — a session's own
+# done channel, plus a server-lifetime context.
+rules:
+  - id: og-hijacked-request-context
+    languages: [go]
+    severity: ERROR
+    message: >-
+      This handler waits on the request context. A connection websocket.Accept
+      has hijacked is untracked by net/http, so that context is cancelled by
+      neither a client hangup nor Server.Shutdown, and the handler goroutine is
+      retained for the life of the process. Wait on a signal the server closes —
+      the session's own done channel, plus a server-lifetime context — and close
+      the connection on the way out. ADR-093, ADR-027.
+    metadata:
+      category: security
+      cwe: "CWE-400: Uncontrolled Resource Consumption"
+      owasp: "A04:2021 - Insecure Design"
+      confidence: MEDIUM
+      adr: ADR-093
+    paths:
+      include:
+        - server/internal/api/handlers_*.go
+    pattern: <-$R.Context().Done()
