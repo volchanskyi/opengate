@@ -310,7 +310,6 @@ func (r *Relay) Unregister(token protocol.SessionToken) {
 	if r.OnSessionEnd != nil {
 		r.OnSessionEnd(token)
 	}
-	s.end()
 	// A graceful WebSocket close can wait for a peer acknowledgement. External
 	// cleanup must already be complete before that network wait begins.
 	for _, conn := range []Conn{agent, browser} {
@@ -318,6 +317,9 @@ func (r *Relay) Unregister(token protocol.SessionToken) {
 			_ = conn.Close()
 		}
 	}
+	// Last, matching the pipe: a parked handler unblocks after the graceful
+	// close has been attempted rather than racing it with its own abrupt one.
+	s.end()
 }
 
 // copyMessages reads complete messages from src and writes them to dst,
@@ -347,8 +349,19 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 	var closeOnce sync.Once
 	closeBoth := func() {
 		closeOnce.Do(func() {
-			_ = s.agent.Close()
-			_ = s.browser.Close()
+			// Concurrently, not one after the other. Each graceful close waits
+			// on an acknowledgement, and a peer that is not answering the first
+			// one is not going to answer the second — sequencing them doubles
+			// the worst case for nothing.
+			var closing sync.WaitGroup
+			for _, conn := range []Conn{s.agent, s.browser} {
+				closing.Add(1)
+				go func(c Conn) {
+					defer closing.Done()
+					_ = c.Close()
+				}(conn)
+			}
+			closing.Wait()
 		})
 	}
 
@@ -359,9 +372,12 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 	browserToAgent := make(chan struct{})
 
 	defer func() {
-		closeBoth()
-		<-agentToBrowser
-		<-browserToAgent
+		// Books first, network last — the order Unregister already states. A
+		// graceful close waits on an acknowledgement an absent peer never
+		// sends, and for as long as it does a finished session must not still
+		// be counted, still be named by ActiveTokens (which the stale-session
+		// sweep reads as "in use", so the row cannot be collected), or still
+		// sit in the registry.
 		cancel()
 		r.sessions.Delete(token)
 		r.count.Add(-1)
@@ -374,6 +390,12 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 		if r.OnSessionEnd != nil {
 			r.OnSessionEnd(token)
 		}
+
+		closeBoth()
+		<-agentToBrowser
+		<-browserToAgent
+		// Last, so the parked handlers unblock after the graceful close has
+		// been attempted rather than racing it with their own abrupt one.
 		s.end()
 	}()
 

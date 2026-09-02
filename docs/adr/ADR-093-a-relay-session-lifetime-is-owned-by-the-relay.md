@@ -80,6 +80,32 @@ own teardown has had its graceful close.
 own active count under the shutdown budget, and the process waits on it *before*
 `httpSrv.Shutdown`, which cannot see a hijacked connection at all.
 
+**A session proves its peer is alive rather than assuming it.** The parked
+handler pings its own connection on an interval and requires the pong back
+inside it. That catches both the peer that vanished and the peer that is present
+and no longer consuming — the frame carries its own deadline, and the answer has
+to arrive. One unanswered ping ends the session: a peer that cannot answer
+inside a whole interval is not answering. TCP keep-alive does not reach this
+case, because the socket is alive.
+
+**A forwarded frame carries a deadline; a read does not.** A peer that stops
+draining lets the buffers fill, and the forwarding write then blocks with no
+error for as long as that peer stays connected — measured still blocked after
+six seconds. A read stays undeadlined on purpose: a quiet session is legitimate,
+and a read deadline would end a technician's session watching a static screen.
+Liveness is the ping's job, not the read's.
+
+**Teardown books out before it waits on the network.** `closeBoth` performs
+graceful closes that each wait up to five seconds for an acknowledgement an
+absent peer never sends — measured at 5.005 s for one and 10.005 s for the
+sequential pair. The pipe did that work *first*, so for up to ten seconds after
+a session was over the gauge still counted it, `ActiveTokens` still reported it
+live — which the stale-session sweep reads as "in use", so the row could not be
+collected — and the registry still held it. `Unregister` already did the
+opposite and stated the principle in a comment; the pipe is now held to the same
+order, and the two sides are closed **concurrently**, which bounds the bad case
+at one handshake instead of two.
+
 **Both pipe directions are waited for.** Only one of the two copiers ends a
 session; the other is unblocked by the close. That was not a leak, but the
 asymmetry was one edit away from becoming one.
@@ -95,8 +121,16 @@ at session end, and because nothing would be left holding the socket to close it
 
 **A hard cap on relay session duration.** A remote session a technician
 legitimately holds open for an hour is not a defect, and a cap would make it one.
-Liveness is answered by proving the peer is alive
-— a control frame the peer has to answer — not by a deadline on the session.
+The ping is the liveness answer; a cap is a product regression wearing a fix's
+clothes.
+
+**`CloseNow` everywhere in teardown.** It would be zero seconds always, and it
+was rejected: it discards the `1000 Normal Closure` that tells an operator's
+browser the session *ended* rather than *broke*. Booking out first and closing
+the two sides concurrently gets the books honest immediately and halves the
+remaining wait, which is what actually mattered. `CloseNow` is used only where
+there is no acknowledgement left to wait for — the handler's own backstop close
+on a connection `net/http` will not close.
 
 ## Consequences
 
@@ -109,6 +143,11 @@ rather than severing them.
 `Register` returns two values where it returned one, which every caller and test
 had to be adapted to — a deliberate cost, taken because the alternative shape
 races teardown.
+
+The ping is only meaningful because the relay is already reading each side: a
+pong is delivered through the connection's own read loop, so a side nothing
+reads could send a ping and never see the answer. The pipe reads both sides for
+the life of the session, which is what makes the question askable at all.
 
 The test that holds this is a **slope** rather than a `NumGoroutine` baseline.
 Every `NewServer` starts immortal sweeper goroutines that take no context, and
