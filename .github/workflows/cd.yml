@@ -372,10 +372,25 @@ jobs:
       # listeners stop being an implementation detail: this run is the one that
       # asserts the exposition and the profiler are not reachable from outside.
       # Without it the boundary is a claim nothing executes.
+      #
+      # Staging's Ingress matches a host the public resolver does not answer for,
+      # and terminates no TLS, so this run is told both: the scheme that edge
+      # actually serves, and the address its controller published for it. A name
+      # on its own resolves to the runner's own loopback, and a boundary check
+      # shaped as an absence cannot tell that apart from a boundary held.
       - name: Run smoke tests through the public edge
         env:
           DOMAIN: ${{ secrets.DEPLOY_STAGING_DOMAIN }}
-        run: bash deploy/scripts/smoke-test.sh --domain "$DOMAIN" --mode staging
+        run: |
+          set -euo pipefail
+          EDGE="$(kubectl -n "$NAMESPACE" get ingress "$RELEASE" \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          if [ -z "$EDGE" ]; then
+            echo "::error::the staging Ingress carries no address; nothing reaches the edge"
+            exit 1
+          fi
+          bash deploy/scripts/smoke-test.sh --domain "$DOMAIN" --mode staging \
+            --scheme http --edge-address "$EDGE"
 
       # Customers are emptied with everything else. A run's fixture asks the
       # server for a customer by name and a name is unique inside its tenant, so

@@ -8,6 +8,7 @@
 # deployed release; --domain targets the public ingress instead.
 #
 # Usage: smoke-test.sh --mode <local|staging|production> --domain <domain>
+#                      [--scheme <http|https>] [--edge-address <ip[:port]>]
 #    or: smoke-test.sh --mode <local|staging|production> --host <host> --port <port>
 #                      --metrics-port <port> [--scheme <http|https>]
 set -euo pipefail
@@ -23,7 +24,10 @@ HOST=""
 PORT=""
 METRICS_PORT=""
 MODE=""
-SCHEME="http"
+# Left empty so the branch below can tell "not asked for" from "asked for http",
+# and pick the default that suits the target rather than one that suits both.
+SCHEME=""
+EDGE_ADDRESS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,6 +55,10 @@ while [[ $# -gt 0 ]]; do
       SCHEME="$2"
       shift 2
       ;;
+    --edge-address)
+      EDGE_ADDRESS="$2"
+      shift 2
+      ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done
@@ -58,9 +66,31 @@ done
 [[ -z "$MODE" ]] && fail "Missing required argument: --mode"
 validate_mode "$MODE"
 
+# Every request carries these. Empty for a run that reaches its target by name.
+CURL_EDGE=()
+
 if [[ -n "$DOMAIN" ]]; then
-  BASE_URL="https://${DOMAIN}"
+  # TLS unless the caller says otherwise. Production terminates it and staging
+  # does not, and of the two a default that guessed http is the one that would
+  # quietly downgrade the run nobody wants downgraded.
+  SCHEME="${SCHEME:-https}"
+  if [[ "$SCHEME" == "https" ]]; then EDGE_PORT=443; else EDGE_PORT=80; fi
+
+  if [[ -n "$EDGE_ADDRESS" ]]; then
+    # An Ingress routes on the Host header, and the host it matches need not be
+    # a name the public resolver can answer for — staging's is not. Pinning the
+    # name to the address the controller published for it keeps the request the
+    # edge's own, same host and same rules, and sends it somewhere that exists.
+    EDGE_IP="${EDGE_ADDRESS%%:*}"
+    [[ "$EDGE_ADDRESS" == *:* ]] && EDGE_PORT="${EDGE_ADDRESS##*:}"
+    CURL_EDGE=(--resolve "${DOMAIN}:${EDGE_PORT}:${EDGE_IP}")
+    BASE_URL="${SCHEME}://${DOMAIN}:${EDGE_PORT}"
+  else
+    BASE_URL="${SCHEME}://${DOMAIN}"
+  fi
 else
+  [[ -n "$EDGE_ADDRESS" ]] && fail "--edge-address names the edge for --domain, which was not given"
+  SCHEME="${SCHEME:-http}"
   [[ -z "$HOST" ]] && fail "Missing required argument: --host (or use --domain)"
   [[ -z "$PORT" ]] && fail "Missing required argument: --port (or use --domain)"
   # Named rather than derived. The exposition lives on the server's second
@@ -89,7 +119,8 @@ check() {
 }
 
 http_status() {
-  curl -s -o /dev/null -w '%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "$@"
+  curl -s -o /dev/null -w '%{http_code}' --max-time 10 --retry 3 --retry-delay 2 \
+    "${CURL_EDGE[@]}" "$@"
 }
 
 # http_get URL [CURL_ARGS...]
@@ -100,9 +131,21 @@ http_get() {
   local url="$1"
   shift
   local response
-  response=$(curl -s -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "$@" "$url")
+  response=$(curl -s -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 \
+    "${CURL_EDGE[@]}" "$@" "$url")
   RESPONSE_STATUS=$(echo "$response" | tail -1)
   RESPONSE_BODY=$(echo "$response" | sed '$d')
+}
+
+# curl reports 000 when the transfer never happened at all — a name that
+# resolved nowhere, a refused connection, a TLS handshake against a port serving
+# plain HTTP. Three of the checks below are shaped as absences, and an absence is
+# exactly what that looks like: an empty body matches no pattern, and no status
+# is not 404. So each of them asks first whether the edge answered. Without it a
+# run that reached nothing reports the boundary green, which is the failure this
+# whole file exists to make loud.
+edge_answered() {
+  [[ "$1" =~ ^[1-5][0-9][0-9]$ ]]
 }
 
 # --- Health check (both modes) ------------------------------------------------
@@ -141,6 +184,7 @@ test_profiler() {
 # so a status code alone cannot tell a served page from a served registry.
 test_metrics_off_the_edge() {
   http_get "${BASE_URL}/metrics"
+  edge_answered "$RESPONSE_STATUS" || return 1
   if echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total'; then
     return 1
   fi
@@ -152,6 +196,7 @@ test_metrics_off_the_edge() {
 
 test_profiler_off_the_edge() {
   http_get "${BASE_URL}/debug/pprof/"
+  edge_answered "$RESPONSE_STATUS" || return 1
   if echo "$RESPONSE_BODY" | grep -q 'Types of profiles available'; then
     return 1
   fi
@@ -234,9 +279,11 @@ if [[ "$MODE" == "local" || "$MODE" == "staging" ]]; then
   test_relay_route() {
     local status
     status=$(http_status "${BASE_URL}/ws/relay/test-token?side=browser")
-    # Any non-404 proves the route is registered. Plain curl (non-WebSocket)
-    # may get 200 (handler returns without writing) or 400 depending on the
-    # WebSocket library version — both confirm the route exists.
+    # An answer first, then which answer. Any non-404 proves the route is
+    # registered: plain curl (non-WebSocket) may get 200 (handler returns
+    # without writing) or 400 depending on the WebSocket library version — both
+    # confirm the route exists, and neither is what a dead edge returns.
+    edge_answered "$status" || return 1
     [[ "$status" != "404" ]]
   }
 
