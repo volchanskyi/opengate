@@ -39,6 +39,7 @@ After completing significant work, update [`phases.md`](.claude/phases.md), [`te
 | [`rules/cache-hygiene.md`](.claude/rules/cache-hygiene.md) | reclaim local build caches after every push | `post-push-clean-caches.sh`, `posttooluse-cache-clean.sh` |
 | [`rules/ci-cd-determinism.md`](.claude/rules/ci-cd-determinism.md) | a CI/CD step whose work was refused must not report success | `ci-cd-determinism.test.sh`, `assert-cache-written.sh` |
 | [`rules/docs-live-state.md`](.claude/rules/docs-live-state.md) | docs and comments describe live state only; the three-tree seam | `docs-live-state.test.sh`, `docs-seam.test.sh` |
+| [`rules/resource-conservation.md`](.claude/rules/resource-conservation.md) | a completed operation gives back what it took; a counter is not a measurement | `conservation_test.go`, `hijacked-request-context.yaml` |
 
 ## Code and Process Conventions
 

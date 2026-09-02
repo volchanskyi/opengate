@@ -113,6 +113,29 @@ refuses a test in the integration tier that reaches no transport, refuses an
 acceptance test that imports a repository package outside the harness's
 arrangement helpers, and holds every acceptance test to `t.Parallel()`.
 
+### Conservation tests
+
+Every other layer asks whether an operation produced the right answer. A
+conservation test asks whether it gave back what it took, which is a different
+question and the one nothing else here was asking: coverage counts a leaking
+line as covered because it executes, the benchmark trend measures allocations
+per operation, which a leak leaves unchanged because only retention differs, and
+a statement-level mutant of the leaking line is equivalent under every other
+assertion.
+
+[`conservation_test.go`](../../server/tests/integration/conservation_test.go)
+drives N complete relay sessions against one assembled server at several values
+of N and fits a line through retained goroutines and retained heap against
+completed sessions. The assertion is that both slopes are flat. A slope rather
+than a fixed reading, because a server starts goroutines that never stop and a
+baseline would have to guess at that constant; the slope removes it. Each
+tolerance is stated in the file beside the two figures that bracket it — what
+the defect read, and what the fixed code reads.
+
+The rule the tier exists for, and the static guard that fires before the test has
+to, are in
+[`resource-conservation.md`](../../.claude/rules/resource-conservation.md).
+
 ### The acceptance tier
 
 An acceptance test stands the whole product up — the composition root in

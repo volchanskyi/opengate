@@ -115,5 +115,6 @@ Every `NewServer` starts immortal sweeper goroutines that take no context, and
 the store and its pool add more; those are a constant, which a slope removes and
 a baseline cannot. That the suite had no such assertion anywhere — no
 `runtime.NumGoroutine`, no `goleak`, no `ReadMemStats`, in any language at any
-tier — is the wider finding, and it is what the conservation rule is written to
-close.
+tier — is the wider finding, and it is
+[ADR-096](ADR-096-a-counter-of-a-resource-is-not-a-measurement-of-it.md)'s
+subject.
