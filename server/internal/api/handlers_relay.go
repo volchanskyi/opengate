@@ -105,8 +105,9 @@ func (s *Server) upgradeRelayWebSocket(w http.ResponseWriter, r *http.Request) *
 	return wsConn
 }
 
-// registerAndWait registers conn with the relay and blocks until the peer connects
-// or the request context is cancelled. It closes wsConn on registration failure.
+// registerAndWait registers conn with the relay, waits for the peer, and parks
+// until the relay says the session is over. It closes wsConn on registration
+// failure.
 //
 // The deferred release covers the side that connects and leaves while its peer
 // never arrives: no pipe runs for that session, so without it the relay entry,
@@ -115,15 +116,23 @@ func (s *Server) upgradeRelayWebSocket(w http.ResponseWriter, r *http.Request) *
 func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn relay.Conn, token string, side relay.Side) {
 	ctx := r.Context()
 
-	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
+	sessionDone, err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side)
+	if err != nil {
 		s.logger.Error("relay register failed", "error", err, "token_prefix", protocol.RedactToken(token))
 		_ = wsConn.Close(websocket.StatusInternalError, "relay error")
 		return
 	}
+	// websocket.Accept hijacked this connection, so net/http will not close it
+	// when the handler returns — this is the only thing that can. It is
+	// registered first so it runs last, after the relay's own teardown has had
+	// its graceful close and a peer still listening has seen a normal closure.
+	// CloseNow rather than Close: a graceful close waits on an acknowledgement,
+	// and by this point either it has already been sent or the peer is gone.
+	defer wsConn.CloseNow()
 	defer s.relay.Unregister(protocol.SessionToken(token))
 
 	peerCtx, cancelPeerWait := context.WithTimeout(ctx, s.peerWaitTimeout)
-	err := s.relay.WaitForPeer(peerCtx, protocol.SessionToken(token))
+	err = s.relay.WaitForPeer(peerCtx, protocol.SessionToken(token))
 	cancelPeerWait()
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -134,8 +143,15 @@ func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn r
 		return
 	}
 
-	// Block until the request context is done (relay handles piping).
-	<-ctx.Done()
+	// Park until the relay ends the session, or until the process is shutting
+	// down. The request context is deliberately not a branch here: the
+	// connection was hijacked at Accept, which untracks it, so nothing cancels
+	// that context — not a client hangup and not Server.Shutdown. Selecting on
+	// it would encode a belief that either is handled.
+	select {
+	case <-sessionDone:
+	case <-s.lifetime.Done():
+	}
 }
 
 func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {

@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +46,35 @@ func newRelayTestServerWith(t *testing.T, r *relay.Relay) (*httptest.Server, *Se
 
 func newRelayTestServerWithPeerTimeout(t *testing.T, r *relay.Relay, peerTimeout time.Duration) (*httptest.Server, *Server, *auth.JWTConfig) {
 	t.Helper()
+	ts, srv, cfg, _ := newWatchedRelayTestServer(t, r, peerTimeout)
+	return ts, srv, cfg
+}
+
+// relayHandlerWatch reports every relay handler that has returned.
+//
+// net/http will not report it: websocket.Accept hijacks the connection and the
+// server stops tracking it, so a handler that never returns is invisible to
+// everything except a wrapper that sees ServeHTTP come back. That is the whole
+// difference this file's leak tests turn on.
+type relayHandlerWatch struct {
+	inner    http.Handler
+	returned chan string
+}
+
+func (w *relayHandlerWatch) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+	w.inner.ServeHTTP(rw, r)
+	if strings.HasPrefix(r.URL.Path, testPathWSRelay) {
+		select {
+		case w.returned <- r.URL.Query().Get("side"):
+		default:
+		}
+	}
+}
+
+// newWatchedRelayTestServer is newRelayTestServerWithPeerTimeout plus a channel
+// carrying the ?side= of each relay handler that has returned.
+func newWatchedRelayTestServer(t *testing.T, r *relay.Relay, peerTimeout time.Duration) (*httptest.Server, *Server, *auth.JWTConfig, <-chan string) {
+	t.Helper()
 	store := testutil.NewTestStore(t)
 	cfg := &auth.JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",
@@ -71,9 +102,10 @@ func newRelayTestServerWithPeerTimeout(t *testing.T, r *relay.Relay, peerTimeout
 	serverCfg.RelayPeerTimeout = peerTimeout
 	srv := NewServer(serverCfg)
 
-	ts := httptest.NewServer(srv)
+	watch := &relayHandlerWatch{inner: srv, returned: make(chan string, 256)}
+	ts := httptest.NewServer(watch)
 	t.Cleanup(ts.Close)
-	return ts, srv, cfg
+	return ts, srv, cfg, watch.returned
 }
 
 func dialWS(t *testing.T, ctx context.Context, serverURL, path string, headers http.Header) *websocket.Conn {
@@ -370,4 +402,167 @@ func TestRelayWebSocket(t *testing.T) {
 		_, err := srv.sessions.Get(tenantCtx, token)
 		assert.ErrorIs(t, err, session.ErrSessionNotFound)
 	})
+}
+
+// seedRelayTokenFor issues one more relay session row against an already-seeded
+// user and device. The leak test needs many tokens and only one estate, so the
+// user, site and device are seeded once by the caller.
+func seedRelayTokenFor(t *testing.T, ctx context.Context, srv *Server, deviceID, userID uuid.UUID) string {
+	t.Helper()
+	return testutil.SeedAgentSession(t, dbtx.WithDefaultTenant(ctx, true), srv.store, deviceID, userID).Token
+}
+
+// runRelaySession opens both sides of one relay session, proves the pipe is
+// carrying data, and hangs both clients up — one completed session, the unit
+// the leak is measured per.
+func runRelaySession(t *testing.T, ctx context.Context, ts *httptest.Server, srv *Server, token, jwtToken string) {
+	t.Helper()
+	agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
+	browserHeaders := http.Header{}
+	browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
+	browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
+
+	waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
+
+	require.NoError(t, agentConn.Write(ctx, websocket.MessageBinary, []byte("payload")))
+	_, data, err := browserConn.Read(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []byte("payload"), data)
+
+	agentConn.Close(websocket.StatusNormalClosure, "done")
+	browserConn.Close(websocket.StatusNormalClosure, "done")
+}
+
+// TestRelayWebSocket_HandlerReturnsWhenSessionEnds pins the lifetime of the
+// relay handler to the lifetime of the session it opened.
+//
+// websocket.Accept hijacks the connection, and net/http stops managing a
+// hijacked connection: nothing cancels the request context when the client
+// hangs up, so a handler parked on it never returns. Both handlers of a
+// completed session must come back.
+func TestRelayWebSocket_HandlerReturnsWhenSessionEnds(t *testing.T) {
+	agentRelay := relay.NewRelay(slog.Default())
+	ts, srv, cfg, returned := newWatchedRelayTestServer(t, agentRelay, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
+	runRelaySession(t, ctx, ts, srv, token, jwtToken)
+
+	sides := map[string]bool{}
+	deadline := time.After(10 * time.Second)
+	for len(sides) < 2 {
+		select {
+		case side := <-returned:
+			sides[side] = true
+		case <-deadline:
+			t.Fatalf("relay handlers did not return after the session ended; returned %v", sides)
+		}
+	}
+	assert.True(t, sides["agent"], "the machine side's handler must return")
+	assert.True(t, sides["browser"], "the operator side's handler must return")
+}
+
+// relayLeakPoints are the completed-session counts the slope is fitted through,
+// cumulative against one server. Three points, because two cannot tell a slope
+// from a single noisy reading, and small ones because each session is two real
+// WebSocket dials against a real Postgres row.
+var relayLeakPoints = []int{4, 8, 16}
+
+// relayLeakSlopeTolerance is the goroutines-per-completed-session the fit may
+// carry. The defect this pins retained 2.05 goroutines per session, so half a
+// goroutine is far below what a regression looks like and far above what a
+// machine under load can invent between two readings.
+const relayLeakSlopeTolerance = 0.5
+
+// TestRelayWebSocket_CompletedSessionsRetainNoGoroutines measures the slope of
+// retained goroutines against completed sessions and requires it to be flat.
+//
+// A slope rather than a fixed NumGoroutine baseline: every NewServer starts
+// sweeper goroutines that take no context and never stop, and the store and its
+// pool add more. Those are a constant, which a slope removes and a baseline
+// cannot. What is being asserted is conservation — a completed session gives
+// back what it took — not an absolute figure.
+func TestRelayWebSocket_CompletedSessionsRetainNoGoroutines(t *testing.T) {
+	agentRelay := relay.NewRelay(slog.Default())
+	ts, srv, cfg := newRelayTestServerWith(t, agentRelay)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	tenantCtx := dbtx.WithDefaultTenant(ctx, true)
+	user := testutil.SeedUser(t, tenantCtx, srv.store)
+	site := testutil.SeedSite(t, tenantCtx, srv.store)
+	dev := testutil.SeedDevice(t, tenantCtx, srv.store, site.ID)
+	jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.TenantID)
+	require.NoError(t, err)
+
+	// Warm the paths every session shares — the first dial compiles queries and
+	// grows the pool, and charging that to session one would tilt the fit.
+	runRelaySession(t, ctx, ts, srv, seedRelayTokenFor(t, ctx, srv, dev.ID, user.ID), jwtToken)
+	settleGoroutines(t, agentRelay)
+
+	var xs, ys []float64
+	completed := 0
+	for _, point := range relayLeakPoints {
+		for ; completed < point; completed++ {
+			runRelaySession(t, ctx, ts, srv, seedRelayTokenFor(t, ctx, srv, dev.ID, user.ID), jwtToken)
+		}
+		xs = append(xs, float64(point))
+		ys = append(ys, float64(settleGoroutines(t, agentRelay)))
+	}
+
+	slope := leastSquaresSlope(xs, ys)
+	t.Logf("completed sessions %v → retained goroutines %v (slope %.3f/session)", xs, ys, slope)
+	assert.LessOrEqualf(t, math.Abs(slope), relayLeakSlopeTolerance,
+		"a completed relay session must give back its goroutines: %.3f retained per session across %v", slope, xs)
+}
+
+// settleGoroutines waits for the relay to book every session out and for the
+// goroutine count to stop falling, then returns it. Teardown is asynchronous on
+// both sides, so a reading taken the instant a client hangs up measures the
+// tail of the previous session rather than what the process is holding.
+func settleGoroutines(t *testing.T, r *relay.Relay) int {
+	t.Helper()
+	require.Eventually(t, func() bool { return r.ActiveSessionCount() == 0 },
+		10*time.Second, 20*time.Millisecond, "the relay must book out every finished session")
+
+	last := runtime.NumGoroutine()
+	stable := 0
+	for i := 0; i < 200; i++ {
+		time.Sleep(25 * time.Millisecond)
+		runtime.GC()
+		now := runtime.NumGoroutine()
+		if now >= last {
+			stable++
+			if stable == 8 {
+				return now
+			}
+		} else {
+			stable = 0
+		}
+		last = now
+	}
+	return last
+}
+
+// leastSquaresSlope fits y = a + bx and returns b. Fewer than two distinct x
+// values describe no line, and the caller's points are compile-time constants,
+// so that case returns zero rather than reporting a slope it cannot know.
+func leastSquaresSlope(xs, ys []float64) float64 {
+	n := float64(len(xs))
+	if n < 2 {
+		return 0
+	}
+	var sumX, sumY, sumXY, sumXX float64
+	for i, x := range xs {
+		sumX += x
+		sumY += ys[i]
+		sumXY += x * ys[i]
+		sumXX += x * x
+	}
+	denom := n*sumXX - sumX*sumX
+	if denom == 0 {
+		return 0
+	}
+	return (n*sumXY - sumX*sumY) / denom
 }

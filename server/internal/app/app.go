@@ -185,7 +185,9 @@ func (c Config) validate() error {
 
 // Build assembles the whole product from cfg. ctx bounds the boot-time
 // database work — resetting statuses left online by a previous run, warming
-// the erasure deny-list, and resuming a purge a crash interrupted.
+// the erasure deny-list, and resuming a purge a crash interrupted — and it is
+// the assembled server's lifetime: cancelling it ends the live relay sessions
+// no other shutdown mechanism can reach.
 //
 // It returns an error rather than exiting, so the same wiring serves the
 // binary and the acceptance harness.
@@ -350,6 +352,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		WebDir:                cfg.WebDir,
 		MetricsRegistry:       metricsRegistry,
 		Metrics:               appMetrics,
+		Lifetime:              ctx,
 		// The triage queue reads the same store the ingest path writes, and the
 		// rules view is the compiled pack beside how far each rule has reached
 		// and how much of an estate it is watching — the last read comes from

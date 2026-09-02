@@ -309,6 +309,17 @@ chart intentionally does not duplicate dashboard JSON; its
 [`NOTES.txt`](../../deploy/helm/monitoring/templates/NOTES.txt) documents creating
 ConfigMaps from the canonical files.
 
+The rule set in
+[`alert-rules.yml`](../../deploy/grafana/provisioning/alerting/alert-rules.yml)
+is pinned by
+[`alert-rules.test.sh`](../../scripts/tests/alert-rules.test.sh), which reads
+the file rather than the cluster: every rule carries a condition, a duration, a
+severity and a summary, and the rules watching the server process itself are
+named there by uid so a refactor cannot quietly drop one. A server process that
+was replaced raises `server-process-restarted` off
+`process_start_time_seconds`, which is already collected and dates the
+replacement to the second.
+
 Current dashboard files include the app overview, DB performance, PostgreSQL,
 the Edge-Sentinel Logs dashboard (raw-log pull rate/latency and audited reads),
 the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
