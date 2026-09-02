@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.93.0] - 2026-09-02
+
+### Added
+- **loadtest,monitoring,server:** see the target, and keep the exposition off the edge
+
+### Fixed
+- **deploy,web,docs:** wrap the compose command, drop a grant, patch fast-uri
+
 ## [v0.92.1] - 2026-09-02
 
 ### Fixed
