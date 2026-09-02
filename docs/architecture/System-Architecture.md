@@ -195,6 +195,8 @@ sequenceDiagram
 - **Bounded unpaired release**: The relay bounds how long either side may wait for its peer. If that deadline expires, the handler releases the token — dropping the entry, the active-session count and the session row together
 - **Background row deletion**: `OnSessionEnd` deletes by globally unique token through the relay-scoped repository path, so cleanup is not tied to a disconnected request's tenant context. Relay bookkeeping and row cleanup run before a potentially blocking graceful WebSocket close
 - **Stale-session sweep**: A periodic sweep deletes session rows the relay no longer holds once they pass a grace period, which collects tokens that were issued but never connected and rows left behind by a process restart. Live sessions are named by the relay's active-token set and are never swept, however long they run
+- **Handler lifetime**: `Register` hands the registering side the channel its session ends on, and the handler parks on that channel and on the server's lifetime context. `websocket.Accept` hijacks the connection, which untracks it, so the request context is cancelled by neither a client hangup nor `Server.Shutdown` — the relay is the only thing that knows the session is over. The handler closes its own WebSocket on the way out, because nothing in `net/http` will. See [ADR-093](../adr/ADR-093-a-relay-session-lifetime-is-owned-by-the-relay.md)
+- **Shutdown drain**: A shutting-down process cancels the lifetime context and then waits on `Relay.WaitForDrain` under the shutdown budget, before `Server.Shutdown`, which cannot see a hijacked connection at all
 
 See [ADR-059](../adr/ADR-059-agent-session-row-lifecycle.md) for the cleanup invariants and failure recovery design.
 
@@ -222,7 +224,8 @@ The relay WebSocket route passes through global HTTP middleware (metrics, securi
 End-to-end view of a browser↔agent session: establish (REST + control plane),
 stream (bidirectional frames over the relay), and teardown. A paired session ends
 when either connection leaves; an unpaired session ends when its peer wait expires.
-Both paths release relay state and delete the session row.
+Both paths release relay state, delete the session row, and close the session's
+done channel, which is what returns the two parked handlers.
 
 ```mermaid
 sequenceDiagram

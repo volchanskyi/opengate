@@ -124,10 +124,21 @@ func main() {
 	<-done
 	logger.Info("shutting down")
 
-	cancel() // Stop the agent QUIC server
+	// Cancelling the assembly's context stops the agent QUIC server and tells
+	// every parked relay handler to close its session.
+	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownBudget)
 	defer shutdownCancel()
+
+	// Wait for those sessions before Shutdown rather than after. Shutdown cannot
+	// see them — websocket.Accept hijacked each one, which untracks it — so it
+	// would return immediately and the process would exit out from under
+	// connections it was in a position to close.
+	if err := assembly.Relay.WaitForDrain(shutdownCtx); err != nil {
+		logger.Warn("relay sessions still live at the shutdown deadline",
+			"sessions", assembly.Relay.ActiveSessionCount(), "error", err)
+	}
 
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP shutdown error", "error", err)

@@ -65,7 +65,8 @@ func TestLiveRelayTokens_MirrorsTheRelay(t *testing.T) {
 	assert.Empty(t, live())
 
 	token := protocol.GenerateSessionToken()
-	require.NoError(t, agentRelay.Register(context.Background(), token, nopConn{}, relay.SideBrowser))
+	_, err := agentRelay.Register(context.Background(), token, nopConn{}, relay.SideBrowser)
+	require.NoError(t, err)
 
 	assert.Equal(t, []string{string(token)}, live())
 
@@ -224,7 +225,8 @@ func TestASessionSweepThatCollectedRowsSaysHowMany(t *testing.T) {
 	logger, said := recordingLogger()
 	agentRelay := relay.NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
-	require.NoError(t, agentRelay.Register(context.Background(), token, nopConn{}, relay.SideBrowser))
+	_, err := agentRelay.Register(context.Background(), token, nopConn{}, relay.SideBrowser)
+	require.NoError(t, err)
 
 	// The double returns one deletion per token it was told to spare, so a live
 	// relay entry is what makes this pass reclaim anything at all.

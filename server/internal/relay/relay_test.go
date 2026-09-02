@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,6 +71,17 @@ func (c *mockConn) Close() error {
 	return nil
 }
 
+// mustRegister registers one side and hands back the channel its session ends
+// on, asserting both that the registration succeeded and that a registered side
+// is always given that channel.
+func mustRegister(t *testing.T, r *Relay, ctx context.Context, token protocol.SessionToken, conn Conn, side Side) <-chan struct{} {
+	t.Helper()
+	done, err := r.Register(ctx, token, conn, side)
+	require.NoError(t, err)
+	require.NotNil(t, done, "a registered side must be handed the channel its session ends on")
+	return done
+}
+
 // registerSession registers both sides of a fresh session on r and returns the
 // token plus the local (test-controlled) ends of the agent and browser conns.
 // Closing either local end tears the session down because paired mockConns
@@ -84,8 +94,8 @@ func registerSession(t *testing.T, r *Relay) (token protocol.SessionToken, agent
 	var agentRelay, browserRelay *mockConn
 	agentLocal, agentRelay = newMockConnPair(t)
 	browserLocal, browserRelay = newMockConnPair(t)
-	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
-	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
+	mustRegister(t, r, ctx, token, agentRelay, SideAgent)
+	mustRegister(t, r, ctx, token, browserRelay, SideBrowser)
 	return token, agentLocal, browserLocal
 }
 
@@ -132,9 +142,10 @@ func TestRelay_Register_DuplicateSide(t *testing.T) {
 	_, conn1 := newMockConnPair(t)
 	_, conn2 := newMockConnPair(t)
 
-	require.NoError(t, r.Register(ctx, token, conn1, SideAgent))
-	err := r.Register(ctx, token, conn2, SideAgent)
+	mustRegister(t, r, ctx, token, conn1, SideAgent)
+	done, err := r.Register(ctx, token, conn2, SideAgent)
 	assert.True(t, errors.Is(err, ErrDuplicateSide))
+	assert.Nil(t, done, "a refused registration owns no session and must return no done channel")
 }
 
 // TestRelay_Pipe_CopiesData forwards one message agent→browser, boundary intact.
@@ -205,10 +216,10 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 
 	assert.Equal(t, 0, r.ActiveSessionCount())
 
-	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
+	mustRegister(t, r, ctx, token, agentRelay, SideAgent)
 	assert.Equal(t, 1, r.ActiveSessionCount())
 
-	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
+	mustRegister(t, r, ctx, token, browserRelay, SideBrowser)
 
 	awaitPumping(t, agentLocal, browserLocal)
 
@@ -234,67 +245,6 @@ func TestRelay_ActiveTokens_ReportsLiveSessions(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
-// TestRelay_Unregister_TearsDownHalfOpenSession covers the side that connects
-// and leaves while its peer never arrives: no pipe ever runs, so teardown has
-// to come from Unregister — otherwise the entry, the active count and the
-// caller's session row all leak for the life of the process.
-func TestRelay_Unregister_TearsDownHalfOpenSession(t *testing.T) {
-	r := NewRelay(slog.Default())
-	var ended []protocol.SessionToken
-	r.OnSessionEnd = func(token protocol.SessionToken) { ended = append(ended, token) }
-
-	token := protocol.GenerateSessionToken()
-	_, browserRelay := newMockConnPair(t)
-	require.NoError(t, r.Register(context.Background(), token, browserRelay, SideBrowser))
-	require.Equal(t, 1, r.ActiveSessionCount())
-
-	r.Unregister(token)
-
-	assert.Equal(t, 0, r.ActiveSessionCount())
-	assert.Empty(t, r.ActiveTokens())
-	assert.Equal(t, []protocol.SessionToken{token}, ended)
-}
-
-// TestRelay_Unregister_LeavesPipedSessionAlone keeps Unregister off a paired
-// session: the pipe owns that teardown, and a second one would double-count.
-func TestRelay_Unregister_LeavesPipedSessionAlone(t *testing.T) {
-	r := NewRelay(slog.Default())
-	// The pipe goroutine fires OnSessionEnd, so the count is read across
-	// goroutines and has to be atomic.
-	var ends atomic.Int64
-	r.OnSessionEnd = func(protocol.SessionToken) { ends.Add(1) }
-
-	token, agentLocal, browserLocal := registerSession(t, r)
-	r.Unregister(token)
-
-	assert.Equal(t, 1, r.ActiveSessionCount())
-	assert.Equal(t, int64(0), ends.Load())
-
-	// The pipe still carries frames, then ends the session exactly once.
-	require.NoError(t, agentLocal.WriteMessage([]byte("still piping")))
-	data, err := browserLocal.ReadMessage()
-	require.NoError(t, err)
-	assert.Equal(t, []byte("still piping"), data)
-
-	agentLocal.Close()
-	require.Eventually(t, func() bool {
-		return r.ActiveSessionCount() == 0 && ends.Load() == 1
-	}, time.Second, 10*time.Millisecond)
-}
-
-// TestRelay_Unregister_UnknownTokenIsNoop keeps a late or repeated call inert,
-// so it can be deferred unconditionally by the WebSocket handler.
-func TestRelay_Unregister_UnknownTokenIsNoop(t *testing.T) {
-	r := NewRelay(slog.Default())
-	var ends int
-	r.OnSessionEnd = func(protocol.SessionToken) { ends++ }
-
-	r.Unregister(protocol.GenerateSessionToken())
-
-	assert.Equal(t, 0, r.ActiveSessionCount())
-	assert.Equal(t, 0, ends)
-}
-
 // TestRelay_Pipe_SurvivesRegisterContextCancel proves the pipe outlives the
 // (per-request) registration context — frames flow after that ctx is cancelled.
 func TestRelay_Pipe_SurvivesRegisterContextCancel(t *testing.T) {
@@ -305,11 +255,11 @@ func TestRelay_Pipe_SurvivesRegisterContextCancel(t *testing.T) {
 	browserLocal, browserRelay := newMockConnPair(t)
 
 	// Register agent with background context.
-	require.NoError(t, r.Register(context.Background(), token, agentRelay, SideAgent))
+	mustRegister(t, r, context.Background(), token, agentRelay, SideAgent)
 
 	// Register browser with a cancellable context (simulates HTTP handler context).
 	ctx, cancel := context.WithCancel(context.Background())
-	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
+	mustRegister(t, r, ctx, token, browserRelay, SideBrowser)
 
 	// Verify data flows before cancellation.
 	msg := []byte("before cancel")

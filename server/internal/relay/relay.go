@@ -52,9 +52,28 @@ type session struct {
 	agent    Conn
 	browser  Conn
 	ready    chan struct{} // closed when both sides are registered
+	done     chan struct{} // closed when the session has ended
+	endOnce  sync.Once     // both teardown owners call end; only one close happens
 	started  bool
 	piping   bool // guards the one-time local pipe start
 	released bool // Unregister claimed the session; no pipe may start on it
+}
+
+// newSession returns a session with both of its signalling channels open.
+func newSession() *session {
+	return &session{
+		ready: make(chan struct{}),
+		done:  make(chan struct{}),
+	}
+}
+
+// end announces that the session is over, exactly once.
+//
+// A session has two teardown owners — the pipe's defer for a pair that reached
+// the pipe, and Unregister for one that never did — and exactly one of them
+// runs for any given session. end is idempotent so neither has to know which.
+func (s *session) end() {
+	s.endOnce.Do(func() { close(s.done) })
 }
 
 // setSide assigns conn to the side's slot, returning ErrDuplicateSide if that
@@ -134,16 +153,19 @@ func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 
 // Register registers one side of a session identified by token. When both sides
 // are registered, piping starts automatically.
-func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) error {
-	val, _ := r.sessions.LoadOrStore(token, &session{
-		ready: make(chan struct{}),
-	})
+//
+// It returns the session's done channel, closed when the session ends. The
+// channel comes back from the registering call rather than from a later lookup
+// by token: teardown deletes the token, so a lookup races the very event the
+// caller is asking to be told about.
+func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) (<-chan struct{}, error) {
+	val, _ := r.sessions.LoadOrStore(token, newSession())
 	s := val.(*session)
 
 	s.mu.Lock()
 	if err := s.setSide(side, conn); err != nil {
 		s.mu.Unlock()
-		return err
+		return nil, err
 	}
 	firstSide := s.markStarted(&r.count)
 	s.mu.Unlock()
@@ -158,7 +180,7 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 	}
 
 	r.startPipeIfReady(token, s)
-	return nil
+	return s.done, nil
 }
 
 // writeOwnerMeta records the session metadata in the registry. Failures are
@@ -212,6 +234,33 @@ func (r *Relay) ActiveSessionCount() int {
 	return int(r.count.Load())
 }
 
+// drainPoll is how often WaitForDrain re-reads the active count. A shutdown is
+// bounded in seconds and teardown is driven by connection closes rather than by
+// this loop, so the interval only decides how promptly the last one is noticed.
+const drainPoll = 20 * time.Millisecond
+
+// WaitForDrain blocks until no session is live, or until ctx expires, in which
+// case it returns ctx's error.
+//
+// A shutting-down process cannot learn this from net/http: websocket.Accept
+// hijacked each relay connection, which untracks it, so Server.Shutdown neither
+// waits for a live session nor closes one and returns as though it had. The
+// relay's own count is what the process has to ask.
+func (r *Relay) WaitForDrain(ctx context.Context) error {
+	ticker := time.NewTicker(drainPoll)
+	defer ticker.Stop()
+	for {
+		if r.ActiveSessionCount() == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 // ActiveTokens returns the tokens the relay currently holds, whether paired and
 // piping or still waiting for a peer. It is the liveness answer the stale-session
 // sweep needs: a token in this set is in use and must not be collected.
@@ -261,6 +310,7 @@ func (r *Relay) Unregister(token protocol.SessionToken) {
 	if r.OnSessionEnd != nil {
 		r.OnSessionEnd(token)
 	}
+	s.end()
 	// A graceful WebSocket close can wait for a peer acknowledgement. External
 	// cleanup must already be complete before that network wait begins.
 	for _, conn := range []Conn{agent, browser} {
@@ -302,8 +352,16 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 		})
 	}
 
+	// One channel per direction, and both are waited for. Closing the conns
+	// unblocks whichever direction did not end the session, and a copier nobody
+	// observes is a leak the next edit to this function would introduce silently.
+	agentToBrowser := make(chan struct{})
+	browserToAgent := make(chan struct{})
+
 	defer func() {
 		closeBoth()
+		<-agentToBrowser
+		<-browserToAgent
 		cancel()
 		r.sessions.Delete(token)
 		r.count.Add(-1)
@@ -316,27 +374,24 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 		if r.OnSessionEnd != nil {
 			r.OnSessionEnd(token)
 		}
+		s.end()
 	}()
 
-	done := make(chan struct{})
-
-	// agent → browser
 	go func() {
-		defer close(done)
+		defer close(agentToBrowser)
 		r.copyMessages(s.browser, s.agent, "agent→browser", tp)
 	}()
 
-	// browser → agent
 	go func() {
+		defer close(browserToAgent)
 		r.copyMessages(s.agent, s.browser, "browser→agent", tp)
 		// When this direction ends, close both to unblock the other.
 		closeBoth()
 	}()
 
 	select {
-	case <-done:
+	case <-agentToBrowser:
+	case <-browserToAgent:
 	case <-ctx.Done():
-		closeBoth()
-		<-done
 	}
 }
