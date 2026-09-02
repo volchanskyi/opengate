@@ -141,6 +141,25 @@ else
   fail "server-process-restarted must carry severity: warning"
 fi
 
+# The two container alerts below stand on a scrape that reaches each kubelet
+# directly, authorised against one RBAC subresource. Get that wrong and the
+# series never arrive, both alerts stay quiet, and the silence reads exactly
+# like a healthy fleet. So the scrape itself is watched.
+scrape_query="$(rule_query cadvisor-scrape-unreachable)"
+if grep -q 'up{job="kubernetes-cadvisor"}' <<<"$scrape_query"; then
+  pass "a cAdvisor scrape that is not answering raises an alert"
+else
+  fail "cadvisor-scrape-unreachable must alert on up{job=\"kubernetes-cadvisor\"}"
+fi
+
+# An absent series and a refused scrape are the same outcome here, so no data
+# has to alert rather than resolve.
+if [ "$(rule_field cadvisor-scrape-unreachable noDataState)" = "Alerting" ]; then
+  pass "no data on the container scrape alerts rather than reading as healthy"
+else
+  fail "cadvisor-scrape-unreachable must set noDataState: Alerting — an absent series is the failure"
+fi
+
 # A pod sat at 90% of its own memory limit for three hours and nothing fired.
 # The rule that was supposed to cover it read node-wide available memory, which
 # says nothing about one container against one cgroup ceiling.

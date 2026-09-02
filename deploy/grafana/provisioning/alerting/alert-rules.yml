@@ -281,6 +281,50 @@ groups:
             apart, and the container memory alert for whether it was walking
             up to its limit beforehand.
 
+      - uid: cadvisor-scrape-unreachable
+        title: "Container metrics are not being collected"
+        noDataState: Alerting
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                sum(up{job="kubernetes-cadvisor"})
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The kubelet's container metrics are not reaching the store"
+          description: >-
+            Nothing is answering the cAdvisor scrape, so the two alerts below
+            this one have no data to fire on and would stay silent through
+            exactly the condition they exist for. The usual cause is the
+            scraper's authorisation: it reaches each kubelet directly, and the
+            kubelet checks that request against the nodes/metrics subresource.
+            This rule alerts on no data as well as on a failing scrape, because
+            an absent series and a refused one are the same outcome here.
+
       - uid: container-memory-against-limit
         title: "Container memory is above 80% of its own limit"
         noDataState: OK

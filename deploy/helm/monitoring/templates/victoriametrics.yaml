@@ -21,12 +21,16 @@ rules:
     resources: [pods, endpoints, services, nodes]
     verbs: [get, list, watch]
   # The kubelet's cAdvisor endpoint is what publishes a container's working set
-  # against its own limit, and reaching it needs the metrics subresource as well
-  # as the node itself.
+  # against its own limit. The scrape connects to the kubelet directly, and the
+  # kubelet authorises /metrics/cadvisor against the `metrics` subresource, so
+  # this one grant is the whole requirement.
+  #
+  # Deliberately not `nodes/proxy`: that is what a scrape through the API-server
+  # proxy would need, it lets its holder relay arbitrary requests through the
+  # kubelet, and Trivy refuses it as a privilege-escalation path (KSV-0047).
+  # Nothing here goes through that proxy.
   - apiGroups: [""]
-    resources: [nodes/metrics, nodes/proxy]
-    verbs: [get]
-  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    resources: [nodes/metrics]
     verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

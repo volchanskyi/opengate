@@ -82,9 +82,18 @@ questions: a pod can sit at 90% of its cgroup ceiling on a node with memory to
 spare, minutes from being killed, and a node-wide reading stays quiet the whole
 time. `container_oom_events_total` comes from the same endpoint and names the
 container the kernel took, which is what turns a kill from an event to be
-correlated by hand into one the alert states outright. Reaching it needs the
-`nodes`, `nodes/metrics` and `nodes/proxy` grants in the scraper's ClusterRole
+correlated by hand into one the alert states outright.
+
+The scrape reaches each kubelet directly and the kubelet authorises
+`/metrics/cadvisor` against the `nodes/metrics` subresource, so that grant plus
+`nodes` for discovery is the whole requirement in the scraper's ClusterRole
 ([`victoriametrics.yaml`](../../deploy/helm/monitoring/templates/victoriametrics.yaml)).
+`nodes/proxy` is what a scrape *through* the API-server proxy would need
+instead; it also lets its holder relay arbitrary requests through the kubelet,
+and the IaC policy scan refuses it on that basis. If that authorisation were
+wrong the series would simply never arrive and both container alerts would stay
+quiet through the condition they exist for, so a third rule watches the scrape
+itself and treats absent data as the failure rather than as health.
 
 Image tags, resource requests/limits, retention, storage class, and persistence
 settings live in [`values.yaml`](../../deploy/helm/monitoring/values.yaml). Do not

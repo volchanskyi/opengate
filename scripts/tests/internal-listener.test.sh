@@ -154,11 +154,38 @@ fi
 
 # --- both compose stacks publish it, or the harnesses that read it are blind ---
 
+# Parsed rather than grepped: a command list is equally valid written inline or
+# one argument per line, and a gate that recognises only one of those shapes
+# fails the next time somebody reformats the file — which says nothing about
+# whether the listener is started.
+compose_serves_internal_port() {
+  python3 - "$1" "$2" <<'PYEOF'
+import sys, yaml
+
+path, port = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    doc = yaml.safe_load(fh)
+
+server = doc.get("services", {}).get("server", {})
+
+command = server.get("command") or []
+if isinstance(command, str):
+    command = command.split()
+command = [str(word) for word in command]
+
+started = any(
+    word == "-internal-listen" and command[i + 1 :][:1] == [f":{port}"]
+    for i, word in enumerate(command)
+)
+published = any(str(mapping) == f"{port}:{port}" for mapping in server.get("ports") or [])
+
+sys.exit(0 if started and published else 1)
+PYEOF
+}
+
 for compose in deploy/docker-compose.test.yml deploy/docker-compose.perf.yml; do
   file="$REPO_ROOT/$compose"
-  if [ -n "$METRICS_PORT" ] \
-    && grep -qF "\"-internal-listen\", \":${METRICS_PORT}\"" "$file" \
-    && grep -qF "\"${METRICS_PORT}:${METRICS_PORT}\"" "$file"; then
+  if [ -n "$METRICS_PORT" ] && compose_serves_internal_port "$file" "$METRICS_PORT"; then
     pass "$compose starts and publishes the internal listener"
   else
     fail "$compose must start -internal-listen :$METRICS_PORT and publish it"

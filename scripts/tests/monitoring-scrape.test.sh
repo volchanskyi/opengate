@@ -99,6 +99,32 @@ else
   fail "the node role must be used for the cAdvisor job only"
 fi
 
+# --- and the grant that scrape stands on ---------------------------------------
+#
+# Reaching each kubelet directly is authorised against one subresource. The
+# other one a reader might reach for, nodes/proxy, is what a scrape through the
+# API-server proxy would need — it also lets its holder relay arbitrary requests
+# through the kubelet, which Trivy refuses as a privilege-escalation path. The
+# grant is pinned in both directions so neither half drifts.
+RBAC_FILE="$REPO_ROOT/deploy/helm/monitoring/templates/victoriametrics.yaml"
+
+# Comments stripped first: this file explains in prose why one of these grants
+# is absent, and a gate that reads the explanation as the grant would fail on
+# the very sentence saying it was not made.
+rbac_rules() { sed 's/[[:space:]]*#.*$//' "$RBAC_FILE"; }
+
+if rbac_rules | grep -qF 'nodes/metrics'; then
+  pass "the scraper may read the kubelet's metrics subresource"
+else
+  fail "the scraper's ClusterRole must grant nodes/metrics, or the cAdvisor scrape is refused"
+fi
+
+if rbac_rules | grep -qF 'nodes/proxy'; then
+  fail "the scraper's ClusterRole grants nodes/proxy, which it does not need and which permits privilege escalation"
+else
+  pass "the scraper holds no node-proxy grant"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf '  - %s\n' "${FAILURES[@]}" >&2
