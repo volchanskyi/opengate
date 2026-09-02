@@ -236,6 +236,51 @@ groups:
           summary: "Memory usage is above 80%"
           description: "System memory utilization has exceeded 80%."
 
+      - uid: server-process-restarted
+        title: "OpenGate server process restarted"
+        noDataState: OK
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                sum(changes(process_start_time_seconds{job="opengate-server"}[15m]))
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The OpenGate server process was replaced"
+          description: >-
+            process_start_time_seconds moved, so the server is a different
+            process than it was fifteen minutes ago. A rolling deploy is the
+            expected cause and needs no action. Anything else is a crash or an
+            out-of-memory kill, and it resets every device to offline and
+            severs every live remote session. Read
+            container_oom_events_total for the namespace to tell the two
+            apart, and the container memory alert for whether it was walking
+            up to its limit beforehand.
+
       - uid: edge-telemetry-drop-ratio
         title: "Edge telemetry drop ratio > 5%"
         noDataState: OK
