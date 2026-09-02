@@ -218,6 +218,10 @@ type ServerConfig struct {
 	// RelayPeerTimeout bounds how long one relay side may wait for its peer.
 	// Zero selects defaultRelayPeerTimeout; paired sessions are not time-limited.
 	RelayPeerTimeout time.Duration
+	// RelayPingInterval is how often each relay side asks its peer to prove it
+	// is still consuming, and the budget the answer must arrive inside. Zero
+	// selects defaultRelayPingInterval.
+	RelayPingInterval time.Duration
 	// Lifetime is cancelled when the process is shutting down. It is the only
 	// cancellation a relay handler can act on: websocket.Accept hijacks the
 	// connection, which untracks it, so neither the request context nor
@@ -274,6 +278,7 @@ type Server struct {
 	loginLimiter    *emailLimiter
 	requestTimeout  time.Duration
 	peerWaitTimeout time.Duration
+	pingInterval    time.Duration
 	lifetime        context.Context
 }
 
@@ -384,6 +389,7 @@ func NewServer(cfg ServerConfig) *Server {
 		loginLimiter:    newEmailLimiter(loginMaxFailures, loginFailureWindow),
 		requestTimeout:  cfg.RequestTimeout,
 		peerWaitTimeout: cfg.RelayPeerTimeout,
+		pingInterval:    cfg.RelayPingInterval,
 		lifetime:        cfg.Lifetime,
 	}
 	if s.lifetime == nil {
@@ -394,6 +400,9 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 	if s.peerWaitTimeout <= 0 {
 		s.peerWaitTimeout = defaultRelayPeerTimeout
+	}
+	if s.pingInterval <= 0 {
+		s.pingInterval = defaultRelayPingInterval
 	}
 	s.routes()
 	return s

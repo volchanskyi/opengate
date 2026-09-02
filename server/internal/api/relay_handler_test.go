@@ -75,6 +75,13 @@ func (w *relayHandlerWatch) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // carrying the ?side= of each relay handler that has returned.
 func newWatchedRelayTestServer(t *testing.T, r *relay.Relay, peerTimeout time.Duration) (*httptest.Server, *Server, *auth.JWTConfig, <-chan string) {
 	t.Helper()
+	return newWatchedRelayTestServerWithPing(t, r, peerTimeout, 0)
+}
+
+// newWatchedRelayTestServerWithPing is newWatchedRelayTestServer with an
+// explicit liveness budget, so the ping is provable in milliseconds.
+func newWatchedRelayTestServerWithPing(t *testing.T, r *relay.Relay, peerTimeout, pingInterval time.Duration) (*httptest.Server, *Server, *auth.JWTConfig, <-chan string) {
+	t.Helper()
 	store := testutil.NewTestStore(t)
 	cfg := &auth.JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",
@@ -100,6 +107,7 @@ func newWatchedRelayTestServer(t *testing.T, r *relay.Relay, peerTimeout time.Du
 		Logger:         logger,
 	}
 	serverCfg.RelayPeerTimeout = peerTimeout
+	serverCfg.RelayPingInterval = pingInterval
 	srv := NewServer(serverCfg)
 
 	watch := &relayHandlerWatch{inner: srv, returned: make(chan string, 256)}
@@ -565,4 +573,55 @@ func leastSquaresSlope(xs, ys []float64) float64 {
 		return 0
 	}
 	return (n*sumXY - sumX*sumY) / denom
+}
+
+// TestRelayWebSocket_StalledPeerEndsTheSession pins the liveness budget.
+//
+// A peer that is present on the network and no longer consuming is invisible to
+// everything else: the socket is alive, so TCP keep-alive says nothing, and a
+// quiet session is legitimate, so no read deadline may end it. The handler asks
+// the question directly — a control frame the peer has to answer — and the side
+// that cannot ends the session for both.
+func TestRelayWebSocket_StalledPeerEndsTheSession(t *testing.T) {
+	agentRelay := relay.NewRelay(slog.Default())
+	ts, srv, cfg, returned := newWatchedRelayTestServerWithPing(t, agentRelay, 0, 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
+
+	agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
+	defer agentConn.CloseNow()
+	browserHeaders := http.Header{}
+	browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
+	browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
+	defer browserConn.CloseNow()
+	waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
+
+	// The machine side stays healthy: its read loop answers the control frame,
+	// which is what a real agent and a real browser both do.
+	go func() {
+		for {
+			if _, _, err := agentConn.Read(ctx); err != nil {
+				return
+			}
+		}
+	}()
+
+	// The operator side never reads, so it never answers. Nothing is written to
+	// it, so this is a peer that looks perfectly healthy at the socket.
+	require.Eventually(t, func() bool { return agentRelay.ActiveSessionCount() == 0 },
+		10*time.Second, 20*time.Millisecond,
+		"a peer that stops answering must end the session within the ping budget")
+
+	sides := map[string]bool{}
+	deadline := time.After(10 * time.Second)
+	for len(sides) < 2 {
+		select {
+		case side := <-returned:
+			sides[side] = true
+		case <-deadline:
+			t.Fatalf("both handlers must return when the session ends; returned %v", sides)
+		}
+	}
 }

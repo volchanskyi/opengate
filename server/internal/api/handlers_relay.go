@@ -20,6 +20,25 @@ import (
 // session row and relay token alive indefinitely.
 const defaultRelayPeerTimeout = 30 * time.Second
 
+// defaultRelayPingInterval is how often a parked relay handler asks its peer to
+// answer a control frame, and the budget the answer must arrive inside.
+//
+// A paired session is deliberately not time-limited — a technician may hold one
+// open for an hour, and a duration cap would make that a defect. So liveness is
+// proved rather than assumed. The ping catches both the peer that vanished and
+// the peer that is present and no longer consuming: the frame carries its own
+// deadline, and the pong has to come back. One unanswered ping ends the session;
+// a peer that cannot answer inside a whole interval is not answering.
+const defaultRelayPingInterval = 20 * time.Second
+
+// sideLabel names a relay side for logs and for the connection wrapper.
+func sideLabel(side relay.Side) string {
+	if side == relay.SideBrowser {
+		return "browser"
+	}
+	return "agent"
+}
+
 // rejectWebSocket accepts the WebSocket handshake and immediately closes the
 // connection with a policy-violation status code carrying the given reason.
 func rejectWebSocket(w http.ResponseWriter, r *http.Request, reason string) {
@@ -144,26 +163,52 @@ func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn r
 	}
 
 	// Park until the relay ends the session, or until the process is shutting
-	// down. The request context is deliberately not a branch here: the
-	// connection was hijacked at Accept, which untracks it, so nothing cancels
-	// that context — not a client hangup and not Server.Shutdown. Selecting on
-	// it would encode a belief that either is handled.
-	select {
-	case <-sessionDone:
-	case <-s.lifetime.Done():
+	// down, proving the peer is still there in the meantime. The request context
+	// is deliberately not a branch here: the connection was hijacked at Accept,
+	// which untracks it, so nothing cancels that context — not a client hangup
+	// and not Server.Shutdown. Selecting on it would encode a belief that either
+	// is handled.
+	ticker := time.NewTicker(s.pingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-sessionDone:
+			return
+		case <-s.lifetime.Done():
+			return
+		case <-ticker.C:
+			// A background parent, not the lifetime: a shutdown must not be
+			// reported as a peer that stopped answering.
+			pingCtx, cancelPing := context.WithTimeout(context.Background(), s.pingInterval)
+			err := wsConn.Ping(pingCtx)
+			cancelPing()
+			if err == nil {
+				continue
+			}
+			// Returning runs the deferred CloseNow, which errors the relay's
+			// read on this side and so ends the session for both.
+			s.logger.Warn("relay peer did not answer a ping",
+				"token_prefix", protocol.RedactToken(token), "side", sideLabel(side), "error", err)
+			return
+		}
 	}
 }
 
+// handleRelayWebSocket authenticates the side, upgrades the connection and hands
+// it to the relay.
+//
+// token_prefix is redacted inline at each call site rather than through a local,
+// the same convention the relay package follows, so the full token never reaches
+// logs and the static gate can see that at every site.
 func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
-	tp := protocol.RedactToken(token)
 
 	if err := s.validateRelayToken(r, token); err != nil {
 		if errors.Is(err, session.ErrSessionNotFound) {
-			s.logger.Warn("relay token not found", "token_prefix", tp)
+			s.logger.Warn("relay token not found", "token_prefix", protocol.RedactToken(token))
 			rejectWebSocket(w, r, "session not found")
 		} else {
-			s.logger.Error("relay token validation error", "token_prefix", tp, "error", err)
+			s.logger.Error("relay token validation error", "token_prefix", protocol.RedactToken(token), "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
 		return
@@ -171,23 +216,21 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	side, ok := s.parseSide(w, r, token)
 	if !ok {
-		s.logger.Warn("relay invalid side param", "token_prefix", tp, "side_param", r.URL.Query().Get("side"))
+		s.logger.Warn("relay invalid side param",
+			"token_prefix", protocol.RedactToken(token), "side_param", r.URL.Query().Get("side"))
 		return
 	}
 
-	sideLabel := "agent"
-	if side == relay.SideBrowser {
-		sideLabel = "browser"
-	}
+	label := sideLabel(side)
 
 	wsConn := s.upgradeRelayWebSocket(w, r)
 	if wsConn == nil {
 		return
 	}
 
-	s.logger.Info("relay session connected", "token_prefix", tp, "side", sideLabel)
-	s.registerAndWait(r, wsConn, NewWSConn(wsConn, sideLabel), token, side)
-	s.logger.Info("relay session disconnected", "token_prefix", tp, "side", sideLabel)
+	s.logger.Info("relay session connected", "token_prefix", protocol.RedactToken(token), "side", label)
+	s.registerAndWait(r, wsConn, NewWSConn(wsConn, label), token, side)
+	s.logger.Info("relay session disconnected", "token_prefix", protocol.RedactToken(token), "side", label)
 }
 
 // validateRelayToken checks that the given token exists in the agent session store.

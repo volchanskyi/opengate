@@ -197,6 +197,9 @@ sequenceDiagram
 - **Stale-session sweep**: A periodic sweep deletes session rows the relay no longer holds once they pass a grace period, which collects tokens that were issued but never connected and rows left behind by a process restart. Live sessions are named by the relay's active-token set and are never swept, however long they run
 - **Handler lifetime**: `Register` hands the registering side the channel its session ends on, and the handler parks on that channel and on the server's lifetime context. `websocket.Accept` hijacks the connection, which untracks it, so the request context is cancelled by neither a client hangup nor `Server.Shutdown` — the relay is the only thing that knows the session is over. The handler closes its own WebSocket on the way out, because nothing in `net/http` will. See [ADR-093](../adr/ADR-093-a-relay-session-lifetime-is-owned-by-the-relay.md)
 - **Shutdown drain**: A shutting-down process cancels the lifetime context and then waits on `Relay.WaitForDrain` under the shutdown budget, before `Server.Shutdown`, which cannot see a hijacked connection at all
+- **Peer liveness**: Each parked handler pings its own connection on an interval and requires the pong back inside it, so a peer that vanished and a peer that is present and no longer consuming are both caught. One unanswered ping ends the session for both sides. There is no cap on a session's duration — a technician may legitimately hold one open for hours
+- **Write budget, no read budget**: A forwarded frame carries a deadline, because a peer that stops draining lets the buffers fill and the write then blocks with no error. Reads stay undeadlined: a quiet session is legitimate, and liveness is the ping's job
+- **Teardown order**: Both teardown paths update the count, the token set and the registry, and fire `OnSessionEnd`, *before* any graceful close — a close waits on an acknowledgement an absent peer never sends, and a finished session must not read as live meanwhile. The two sides are closed concurrently
 
 See [ADR-059](../adr/ADR-059-agent-session-row-lifecycle.md) for the cleanup invariants and failure recovery design.
 
@@ -211,6 +214,7 @@ The relay uses structured logging via `*slog.Logger` (injected at construction):
 | Read/write error | `Error` | `direction`, `token_prefix`, `msgs_copied`, `error` |
 | Connection established | `Info` | `token_prefix`, `side` |
 | Connection disconnected | `Info` | `token_prefix`, `side` |
+| Peer did not answer a ping | `Warn` | `token_prefix`, `side`, `error` |
 | Upgrade/register failure | `Error` | `token_prefix`, `side`, `error` |
 
 Set `LOG_LEVEL=debug` for per-message tracing. All tokens are redacted to 8-char prefixes via `protocol.RedactToken`.
