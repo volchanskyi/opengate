@@ -56,6 +56,34 @@ The setting is not blanket policy: an upload whose files are genuinely optional 
 a fuzz crash that usually does not exist — says `ignore` and means it. The rule
 binds an artifact **something downstream reads**.
 
+### A check that asserts an absence proves it reached something first
+
+The two rules above are about a step that produced nothing. This one is about a
+step that *read* nothing, which is harder to see, because a check written as an
+absence is satisfied by the absence of the whole conversation.
+
+The smoke run through the public edge asserts that the exposition and the
+profiler are not what the edge answers with. An empty body matches neither
+pattern, and no status at all is not `404` — so a request that resolved nowhere,
+was refused, or died in a TLS handshake reports the boundary green. `curl` says
+so plainly, writing `000` for a transfer that never happened, and nothing was
+reading it.
+
+So every absence-shaped check in
+[`smoke-test.sh`](../../deploy/scripts/smoke-test.sh) asks `edge_answered` first,
+and the target it is pointed at is named rather than assumed: an Ingress matches
+on a Host header, which need not be a name any public resolver answers for, so
+the run is handed the address its controller published alongside the scheme that
+edge actually serves. [`smoke-test-edge.test.sh`](../../scripts/tests/smoke-test-edge.test.sh)
+drives the script against a stub edge that keeps the boundary, one that breaks
+it, and one that is not there at all, and requires a different verdict from each.
+
+The generalisation is worth stating, because absence-shaped checks are common in
+a deploy gate: *the port is closed*, *the header is gone*, *the path is not
+served*, *no secret appears in the log*. Every one of them passes on a target
+that was never contacted. Whatever asserts the absence has to first prove it was
+talking to something.
+
 ### Do not declare a write you cannot make
 
 A workflow whose cache token cannot write declares no cache at all — not an

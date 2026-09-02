@@ -85,6 +85,18 @@ body rather than the status is deliberate: the catch-all rule sends every
 unrouted path to the SPA, so a status code alone cannot tell a served page from
 a served registry.
 
+**An edge run proves it reached the edge before it asserts what the edge did
+not serve.** Both boundary checks are shaped as absences, and so is a request
+that never happened: an empty body matches no pattern, and `curl` reports `000`
+for a transfer it could not make. So each one reads the status first. The target
+is named rather than assumed for the same reason — an Ingress routes on a Host
+header, which need not be a name a public resolver answers for, so the run is
+handed the address the controller published for that Ingress and the scheme it
+serves there. [`smoke-test-edge.test.sh`](../../scripts/tests/smoke-test-edge.test.sh)
+drives the script against a stub edge that keeps the boundary, one that serves
+the exposition, and one that is not listening, and requires a different verdict
+from each.
+
 **A missing `--metrics-port` fails the smoke test rather than defaulting to the
 API port.** A default there would silently probe the wrong listener and report a
 pass, which is the failure this whole decision is about.

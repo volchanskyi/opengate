@@ -282,6 +282,36 @@ else
   fail "nothing runs the smoke test through the public edge, so the boundary is a claim nothing executes"
 fi
 
+# Staging's edge is reachable on neither of the two things a bare name implies.
+# Its Ingress matches a host the public resolver does not answer for, so the run
+# has to be handed an address; and the chart terminates no TLS there, so it has
+# to be handed the scheme. Both are read back against the chart that decides
+# them, because a run that reaches nothing still answers an absence-shaped check
+# with a pass.
+STAGING_VALUES="$SCRIPT_DIR/../../deploy/helm/opengate/values-staging.yaml"
+STAGING_TLS="$(awk '/^ingress:/ { in_block = 1; next }
+                    in_block && /^[^[:space:]]/ { exit }
+                    in_block && /^[[:space:]]+tls:/ { print $2; exit }' "$STAGING_VALUES")"
+if [ "$STAGING_TLS" = "true" ]; then
+  EXPECTED_SCHEME=https
+else
+  EXPECTED_SCHEME=http
+fi
+
+# shellcheck disable=SC2016 # the pattern is the workflow's literal text, not an expansion
+if grep -qF -- '--edge-address "$EDGE"' "$WORKFLOW" \
+  && grep -qF 'status.loadBalancer.ingress[0].ip' "$WORKFLOW"; then
+  pass "the edge run is given the address the controller published for the Ingress"
+else
+  fail "the edge run must be given the Ingress's own address, or it reaches the runner instead"
+fi
+
+if grep -qF -- "--scheme $EXPECTED_SCHEME --edge-address" "$WORKFLOW"; then
+  pass "the edge run asks for the scheme the chart serves there ($EXPECTED_SCHEME)"
+else
+  fail "the edge run's scheme must match values-staging.yaml's ingress.tls ($EXPECTED_SCHEME)"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
