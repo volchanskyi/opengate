@@ -121,6 +121,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/pretooluse-test-skip-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/pretooluse-test-value-guard.sh"
           }
         ]
       },

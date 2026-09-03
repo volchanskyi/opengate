@@ -113,6 +113,36 @@ refuses a test in the integration tier that reaches no transport, refuses an
 acceptance test that imports a repository package outside the harness's
 arrangement helpers, and holds every acceptance test to `t.Parallel()`.
 
+### What a test may assert
+
+Where a test lives says what it needs. What it may assert is decided separately,
+by [`.claude/rules/test-value.md`](../../.claude/rules/test-value.md), and rests
+on one line: **a test asserts on the code that ships, and leaves the environment
+as it found it.**
+
+Four things follow from it, and two of them are machine-checked:
+
+| | Held by |
+|---|---|
+| A test exercises the shipped module rather than a copy pasted into the test file | [`test-value-check.sh`](../../scripts/test-value-check.sh) — a test beside `foo.ts` binds `foo`'s own export |
+| A test that patches a global or a prototype restores it | the same analyser — an assignment inside a `finally`, `afterEach` or `afterAll` puts the original back |
+| A test asserts behaviour the product has, not a literal it just built, a compile-time constraint, or a third-party library | review |
+| A module awkward to test is reached by a different test approach, never by adding an export or a factory that exists only for the test | review |
+
+Both machine checks run twice: at write time through
+[`pretooluse-test-value-guard.sh`](../../.claude/hooks/pretooluse-test-value-guard.sh),
+and over every tracked web test in the gauntlet through
+[`test-value.test.sh`](../../scripts/tests/test-value.test.sh).
+
+**What is deliberately not checked matters as much.** Grading tests by the shape
+of their assertions and deleting the weak-looking ones inverts the correlation
+it assumes: measured against the nightly breakage report, the web test files
+with the most "weak" assertions catch *more* breakage than the files with none.
+So presence-only queries that pin a literal string, styling assertions where
+colour is the only carrier of state, and DOM walks such as `closest('li')` or a
+`querySelector('script')` XSS check are all legitimate, and the rule file names
+each one and why. A change that lowers the caught-rate is not a cleanup.
+
 ### Conservation tests
 
 **What they ask:** *did the operation give back what it took?*
