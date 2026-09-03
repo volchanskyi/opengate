@@ -68,6 +68,18 @@ EXPOSITION = (
     b"# TYPE opengate_http_requests_total counter\n"
     b'opengate_http_requests_total{code="200"} 42\n'
 )
+# The same registry before it has answered a single request. A labelled counter
+# publishes no sample until one of its label sets is incremented, so this is
+# what the exposition looks like for the first moments of a server's life — and
+# a check keyed on the request counter reads it as no exposition at all.
+QUIET_EXPOSITION = (
+    b"# HELP opengate_relay_active_sessions Number of active relay sessions.\n"
+    b"# TYPE opengate_relay_active_sessions gauge\n"
+    b"opengate_relay_active_sessions 0\n"
+    b"# HELP go_goroutines Number of goroutines that currently exist.\n"
+    b"# TYPE go_goroutines gauge\n"
+    b"go_goroutines 24\n"
+)
 PROFILER = b"<html><body>Types of profiles available:<br>heap<br>goroutine</body></html>\n"
 
 
@@ -94,11 +106,16 @@ class Edge(BaseHTTPRequestHandler):
             self._send(200, b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml")
         elif path == "/metrics":
             # A breached edge routes the internal listener; a sound one has no
-            # rule for the path and falls through to the SPA.
-            self._send(200, EXPOSITION if MODE == "breached" else SPA,
-                       "text/plain; charset=utf-8" if MODE == "breached" else "text/html")
+            # rule for the path and falls through to the SPA. "quiet" is a
+            # breached edge in front of a server that has answered nothing yet.
+            if MODE == "breached":
+                self._send(200, EXPOSITION, "text/plain; charset=utf-8")
+            elif MODE == "quiet":
+                self._send(200, QUIET_EXPOSITION, "text/plain; charset=utf-8")
+            else:
+                self._send(200, SPA, "text/html")
         elif path == "/debug/pprof/":
-            self._send(200, PROFILER if MODE == "breached" else SPA)
+            self._send(200, PROFILER if MODE in ("breached", "quiet") else SPA)
         else:
             self._send(200, SPA)
 
@@ -309,6 +326,47 @@ if check_line "$OUT" PASS "GET /metrics returns Prometheus metrics" \
   pass "the forwarded run reads the exposition and the profiler off the listener"
 else
   fail "the forwarded run must read the exposition and the profiler off the listener"
+fi
+
+# --- a server that has answered nothing yet ----------------------------------
+#
+# A labelled counter publishes no sample until one of its label sets is
+# incremented, so a freshly started server's exposition carries its gauges and
+# none of its request counters. Both halves of the boundary have to survive
+# that: the forwarded run must still recognise the exposition it is looking at,
+# and the edge run must still call it a breach. Keying either on the request
+# counter gets the first wrong on a restarted server and the second wrong on a
+# newly rolled-out one — the more dangerous of the two, since it is the
+# security boundary reporting green.
+
+PORT="$(start_stub quiet)"
+OUT="$WORK/quiet-forwarded.log"
+if run_smoke "$OUT" --host 127.0.0.1 --port "$PORT" --metrics-port "$PORT" \
+  --mode local --scheme http; then
+  pass "the forwarded run passes against a server that has answered nothing yet"
+else
+  fail "the forwarded run must pass against a server that has answered nothing yet (see $OUT)"
+  cat "$OUT" >&2
+fi
+
+if check_line "$OUT" PASS "GET /metrics returns Prometheus metrics"; then
+  pass "the exposition is recognised before any request has been counted"
+else
+  fail "the exposition must be recognised before any request has been counted"
+fi
+
+OUT="$WORK/quiet-edge.log"
+if run_smoke "$OUT" --domain edge.test --mode staging \
+  --scheme http --edge-address "127.0.0.1:${PORT}"; then
+  fail "an edge serving a freshly started server's exposition must not pass"
+else
+  pass "an edge serving a freshly started server's exposition fails"
+fi
+
+if check_line "$OUT" FAIL "GET /metrics through the ingress is not the exposition"; then
+  pass "the boundary catches an exposition with no request counter in it"
+else
+  fail "the boundary must catch an exposition with no request counter in it"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
