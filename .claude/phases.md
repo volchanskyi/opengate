@@ -187,3 +187,4 @@
 
 | Phase | Summary | Version | Plan |
 |-------|---------|---------|------|
+| Test-value program | A test asserts on the code that ships: the rule, its write-time guard and repo sweep, the four defects the census exposed, the Rust blind spots, and the thirty tests that cannot fail. | — | — |
