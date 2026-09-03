@@ -65,7 +65,7 @@ mutation_rust_shards() {
     rust-core-runtime
     rust-tsdb-blocks
     rust-tsdb-encoding
-    rust-tsdb-substrates
+    rust-tsdb-surface
     rust-agent-loops
     rust-protocol-wire
   )
@@ -85,7 +85,7 @@ mutation_rust_shard_package() {
     rust-core-correlate-divergence | rust-core-correlate-ranking) echo "mesh-agent-core" ;;
     rust-core-session-terminal | rust-core-session-dispatch) echo "mesh-agent-core" ;;
     rust-core-discovery | rust-core-runtime-lifecycle | rust-core-runtime) echo "mesh-agent-core" ;;
-    rust-tsdb-blocks | rust-tsdb-encoding | rust-tsdb-substrates) echo "edge-tsdb" ;;
+    rust-tsdb-blocks | rust-tsdb-encoding | rust-tsdb-surface) echo "edge-tsdb" ;;
     rust-agent-loops) echo "mesh-agent" ;;
     rust-protocol-wire) echo "mesh-protocol" ;;
     *)
@@ -161,9 +161,14 @@ mutation_rust_shard_units() {
       echo "dir:crates/edge-tsdb/src/store file:crates/edge-tsdb/src/compact.rs file:crates/edge-tsdb/src/deflate.rs"
       ;;
     rust-tsdb-encoding)
-      echo "file:crates/edge-tsdb/src/gorilla.rs file:crates/edge-tsdb/src/bitio.rs file:crates/edge-tsdb/src/crc.rs file:crates/edge-tsdb/src/frame.rs file:crates/edge-tsdb/src/tier.rs"
+      echo "file:crates/edge-tsdb/src/gorilla.rs file:crates/edge-tsdb/src/bitio.rs file:crates/edge-tsdb/src/tier.rs"
       ;;
-    rust-tsdb-substrates) echo "rest" ;;
+    # The crate's remainder — its configuration, its error and sample types,
+    # its crate root and the fixture corpus — and the catch-all a source added
+    # tomorrow lands in. The bake-off substrates it used to sweep up are carved
+    # out in agent/.cargo/mutants.toml: they sit behind a feature the shipped
+    # agent turns off, so no customer runs them.
+    rust-tsdb-surface) echo "rest" ;;
     rust-agent-loops) echo "rest" ;;
     rust-protocol-wire) echo "rest" ;;
     *)

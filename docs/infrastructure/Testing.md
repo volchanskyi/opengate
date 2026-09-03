@@ -332,7 +332,14 @@ gremlins (Go), and stryker (Web).
 **Carve-outs** (genuinely unmutateable code, analogous to platform shims). Each
 config carries a per-entry justification next to the exclusion it explains:
 - Rust: [agent/.cargo/mutants.toml](../../agent/.cargo/mutants.toml) — platform
-  shims, agent binary entry point, SELinux restorecon match guards.
+  shims, agent binary entry point, SELinux restorecon match guards, and the nine
+  `edge-tsdb` bake-off substrates. Those last are a different kind of carve-out:
+  not code without a harness, but code no customer runs. They sit behind a
+  feature the shipped agent turns off, and cargo-mutants builds with default
+  features, so without the carve-out a fifth of the Rust leg's unnoticed
+  breakages were in a reference implementation. What keeps that true is
+  [`noship_test.rs`](../../agent/crates/mesh-agent/tests/noship_test.rs), which
+  fails if any crate in the workspace turns the feature back on.
 - Go:   [server/.gremlins.yaml](../../server/.gremlins.yaml) — `openapi_gen.go`,
   `cmd/meshserver/main.go`, `tests/loadtest/main.go`, `internal/testutil/`.
 - Web:  [web/stryker.config.json](../../web/stryker.config.json) — `main.tsx`,
