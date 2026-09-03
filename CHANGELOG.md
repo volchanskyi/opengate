@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.93.4] - 2026-09-03
+
+### Fixed
+- **web,server:** four tests that could not fail, and one guard that let a link out
+
 ## [v0.93.3] - 2026-09-03
 
 ### Fixed
