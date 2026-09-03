@@ -166,10 +166,18 @@ check "GET /api/v1/health returns 200" test_health
 # the other half of the same claim: the public edge answers those paths with
 # something that is not the process's own internals.
 
+# A labelled counter publishes no sample until one of its label sets is
+# incremented, so the request counter is absent for the first moments of a
+# server's life and is the wrong thing to ask for here — a restart between the
+# traffic and the scrape reads as no exposition at all. What is always there is
+# the namespace: a gauge is published from the moment it is registered. That the
+# request counter rises with traffic is asserted where it can be asserted
+# deterministically, in the metrics middleware's own test.
 test_metrics() {
   http_get "${METRICS_BASE_URL}/metrics"
   [[ "$RESPONSE_STATUS" == "200" ]] || return 1
-  echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total' || return 1
+  echo "$RESPONSE_BODY" | grep -q '^# HELP ' || return 1
+  echo "$RESPONSE_BODY" | grep -q '^opengate_' || return 1
 }
 
 test_profiler() {
