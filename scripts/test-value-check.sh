@@ -36,13 +36,7 @@ ROOT="${TEST_VALUE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # Entries exempt from the primary-export check, each naming why. An entry is
 # re-earned, not kept: the sweep fails on an entry whose file is now clean, so
 # the exemption cannot outlive the defect it covers.
-ALLOWLIST_PRIMARY_EXPORT=(
-  # web/src/lib/api.test.ts — the defect the check was written for. It copies
-  # the production auth middleware into the test and asserts on the copy, so
-  # the shipped client is unexercised. Removed with the rewrite that binds the
-  # real middleware.
-  "web/src/lib/api.test.ts"
-)
+ALLOWLIST_PRIMARY_EXPORT=()
 
 usage() {
   cat >&2 <<'EOF'
@@ -235,7 +229,7 @@ for v in violations:
 sys.exit(1 if violations else 0)
 '
 
-allow_json="$(printf '%s\n' "${ALLOWLIST_PRIMARY_EXPORT[@]}" \
+allow_json="$(printf '%s\n' ${ALLOWLIST_PRIMARY_EXPORT[@]+"${ALLOWLIST_PRIMARY_EXPORT[@]}"} \
   | python3 -c 'import json,sys; print(json.dumps([l for l in sys.stdin.read().split(chr(10)) if l]))')"
 
 case "${1:-}" in
