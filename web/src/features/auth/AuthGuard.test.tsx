@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { useAuthStore } from '../../state/auth-store';
@@ -55,5 +55,58 @@ describe('AuthGuard', () => {
     useAuthStore.setState({ token: 'valid-token', user: null });
     renderGuard();
     expect(screen.getByText('Loading...')).toBeInTheDocument();
+  });
+
+  // A technician who reloads the browser mid-incident arrives with the token
+  // still in local storage and no user in memory. Nothing else asks the server
+  // who they are, so if the guard does not, "Loading…" is the whole session.
+  it('asks the server who the technician is when a reload leaves a token and no user', async () => {
+    const fetchMe = vi.fn().mockResolvedValue(undefined);
+    useAuthStore.setState({ token: 'valid-token', user: null, fetchMe });
+
+    renderGuard();
+
+    await waitFor(() => expect(fetchMe).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows the page once the reloaded session has been identified', async () => {
+    const user = {
+      id: '1',
+      email: 'tech@example.com',
+      display_name: 'Tech',
+      is_admin: false,
+      created_at: '',
+      updated_at: '',
+    };
+    const fetchMe = vi.fn().mockImplementation(async () => {
+      useAuthStore.setState({ user });
+    });
+    useAuthStore.setState({ token: 'valid-token', user: null, fetchMe });
+
+    renderGuard();
+
+    expect(await screen.findByText('Protected Content')).toBeInTheDocument();
+  });
+
+  it('asks nobody who the technician is when the user is already loaded', () => {
+    const fetchMe = vi.fn().mockResolvedValue(undefined);
+    useAuthStore.setState({
+      token: 'valid-token',
+      user: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false, created_at: '', updated_at: '' },
+      fetchMe,
+    });
+
+    renderGuard();
+
+    expect(fetchMe).not.toHaveBeenCalled();
+  });
+
+  it('asks nobody who the technician is when there is no token to identify', () => {
+    const fetchMe = vi.fn().mockResolvedValue(undefined);
+    useAuthStore.setState({ token: null, user: null, fetchMe });
+
+    renderGuard();
+
+    expect(fetchMe).not.toHaveBeenCalled();
   });
 });

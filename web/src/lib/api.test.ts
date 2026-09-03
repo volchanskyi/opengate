@@ -1,68 +1,106 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import createClient, { type Middleware } from 'openapi-fetch';
-import { QUERY_SERIALIZER } from './api';
+import { api, QUERY_SERIALIZER } from './api';
 
-describe('api client', () => {
+/**
+ * What the module hands to openapi-fetch when it is loaded.
+ *
+ * The credential is attached by a middleware the module registers on the shared
+ * client, so the only thing worth asserting is that *that* middleware, on *that*
+ * client, does it — a copy of the same code in this file would pass whatever
+ * production did. openapi-fetch is a genuine third-party boundary, so the mock
+ * sits there: it delegates to the real implementation and records the options
+ * and the middleware the shipped client is built with. Only the first client is
+ * recorded, which is the one `api.ts` builds at module load; the serializer
+ * cases below build their own and are none of its business.
+ */
+const shipped = vi.hoisted(() => ({
+  options: null as Record<string, unknown> | null,
+  client: null as unknown,
+  middleware: [] as unknown[],
+}));
+
+vi.mock('openapi-fetch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('openapi-fetch')>();
+  const record = (options: Record<string, unknown>) => {
+    const client = actual.default(options) as { use: (...m: unknown[]) => void };
+    if (shipped.options === null) {
+      shipped.options = options;
+      shipped.client = client;
+      const register = client.use.bind(client);
+      client.use = (...middleware: unknown[]) => {
+        shipped.middleware.push(...middleware);
+        return register(...middleware);
+      };
+    }
+    return client;
+  };
+  return { ...actual, default: record };
+});
+
+/** The base a browser resolves the module's relative base against. */
+const ORIGIN = 'https://opengate.example';
+
+type OnRequestParams = Parameters<NonNullable<Extract<Middleware, { onRequest: unknown }>['onRequest']>>[0];
+
+/**
+ * Run the middleware the shipped client actually registered, against a request
+ * carrying the absolute URL a browser would have resolved. Node's Request
+ * constructor rejects the relative base the module is built with, which is what
+ * makes driving the client itself impossible here — the middleware, though, is
+ * the whole of the behaviour, and it is reachable as the module registered it.
+ */
+async function attachCredentialTo(request: Request): Promise<Request> {
+  expect(shipped.middleware).toHaveLength(1);
+  const entry = (shipped.middleware as Middleware[])[0];
+  if (entry === undefined) {
+    throw new Error('the shipped client registered no middleware');
+  }
+  const onRequest = 'onRequest' in entry ? entry.onRequest : undefined;
+  if (typeof onRequest !== 'function') {
+    throw new Error('the shipped client registered no onRequest middleware');
+  }
+  const result = await onRequest({
+    request,
+    schemaPath: '/api/v1/health',
+    params: {},
+    id: 'test-request',
+    options: {},
+  } as OnRequestParams);
+  return result instanceof Request ? result : request;
+}
+
+describe('the shared api client', () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it('attaches Authorization header when token in localStorage', async () => {
-    localStorage.setItem('token', 'test-jwt-token');
-
-    let capturedHeaders: Headers | undefined;
-    const middleware: Middleware = {
-      async onRequest({ request }) {
-        const token = localStorage.getItem('token');
-        if (token) {
-          request.headers.set('Authorization', `Bearer ${token}`);
-        }
-        return request;
-      },
-    };
-
-    const client = createClient({ baseUrl: 'http://localhost' });
-    client.use(middleware);
-    client.use({
-      async onRequest({ request }) {
-        capturedHeaders = request.headers;
-        return new Response(JSON.stringify({ status: 'ok' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      },
-    });
-
-    await client.GET('/api/v1/health' as never);
-    expect(capturedHeaders?.get('Authorization')).toBe('Bearer test-jwt-token');
+  it('is the client the module built, and carries the shared query serializer', () => {
+    expect(api).toBe(shipped.client);
+    expect(shipped.options?.querySerializer).toBe(QUERY_SERIALIZER);
   });
 
-  it('omits Authorization header when no token', async () => {
-    let capturedHeaders: Headers | undefined;
-    const middleware: Middleware = {
-      async onRequest({ request }) {
-        const token = localStorage.getItem('token');
-        if (token) {
-          request.headers.set('Authorization', `Bearer ${token}`);
-        }
-        return request;
-      },
-    };
+  it('attaches the technician credential as a Bearer token', async () => {
+    localStorage.setItem('token', 'test-jwt-token');
 
-    const client = createClient({ baseUrl: 'http://localhost' });
-    client.use(middleware);
-    client.use({
-      async onRequest({ request }) {
-        capturedHeaders = request.headers;
-        return new Response(JSON.stringify({ status: 'ok' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      },
-    });
+    const request = await attachCredentialTo(new Request(`${ORIGIN}/api/v1/health`));
 
-    await client.GET('/api/v1/health' as never);
-    expect(capturedHeaders?.get('Authorization')).toBeNull();
+    expect(request.headers.get('Authorization')).toBe('Bearer test-jwt-token');
+  });
+
+  it('sends no credential when nobody is signed in', async () => {
+    const request = await attachCredentialTo(new Request(`${ORIGIN}/api/v1/health`));
+
+    expect(request.headers.get('Authorization')).toBeNull();
+  });
+
+  it('leaves a header the caller set alone when nobody is signed in', async () => {
+    const request = await attachCredentialTo(
+      new Request(`${ORIGIN}/api/v1/health`, { headers: { Accept: 'application/json' } }),
+    );
+
+    expect(request.headers.get('Accept')).toBe('application/json');
+    expect(request.headers.get('Authorization')).toBeNull();
   });
 });
 
@@ -76,7 +114,7 @@ describe('api client — repeated query parameters', () => {
     call: (client: ReturnType<typeof createClient>) => Promise<unknown>,
   ): Promise<URL> {
     let captured: URL | undefined;
-    const client = createClient({ baseUrl: 'http://localhost', querySerializer: QUERY_SERIALIZER });
+    const client = createClient({ baseUrl: ORIGIN, querySerializer: QUERY_SERIALIZER });
     client.use({
       async onRequest({ request }) {
         captured = new URL(request.url);

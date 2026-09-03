@@ -65,6 +65,29 @@ func machinesWithTheDiskRule(t *testing.T, p *CatalogueAlertRuleProvider, org uu
 	return count
 }
 
+// The pace a rule reaches an estate at, written out rather than read back from
+// the code under test. Asking rules.StagePopulation what to expect makes the
+// assertion agree with whatever that function returns, including "everyone" —
+// which is the one answer this test exists to refuse.
+const (
+	// A two-hundred-machine estate: large enough that a tenth of it is well
+	// clear of the floor, small enough that a hundredth of it is not.
+	rolloutEstate = 200
+	// rules.DefaultRollout's shipped pace.
+	canaryPercent = 1
+	stagedPercent = 10
+	// The fewest machines a partial stage runs on. A hundredth of two hundred
+	// is two, and two machines proving a rule proves nothing.
+	canaryFloorMachines = 5
+	// Membership is decided by hashing each machine against the rule, so the
+	// count a stage realises sits near the population it aims at rather than
+	// exactly on it. These widths keep both assertions meaningful: a canary
+	// must still be a handful, and the staged step must still be a tenth
+	// rather than the estate.
+	canarySlack = 3.0
+	stagedSlack = 6.0
+)
+
 // A rule being tried reaches the machines its stage covers and no others. The
 // whole mitigation for a bad curated rule is that the first hour of it costs a
 // handful of endpoints rather than the estate.
@@ -72,15 +95,32 @@ func TestStagedRuleReachesOnlyItsStage(t *testing.T) {
 	t.Parallel()
 
 	org := uuid.New()
-	const estate = 200
-	fleet := &countingFleet{size: estate}
-	p := newRolloutProvider(t, &fakeRuleConfig{rollouts: stagedAt(org, 1)}, fleet)
 
-	got := machinesWithTheDiskRule(t, p, org, estate)
-	want := rules.StagePopulation(1, estate)
-	assert.InDelta(t, want, got, float64(want)/2+3,
-		"a canary aims at %d of %d machines and reached %d", want, estate, got)
-	assert.Less(t, got, estate, "a canary is not the estate")
+	// A canary on this estate is the floor rather than the percentage: a
+	// hundredth of two hundred machines is two, and the floor is five.
+	canary := newRolloutProvider(t,
+		&fakeRuleConfig{rollouts: stagedAt(org, canaryPercent)}, &countingFleet{size: rolloutEstate})
+	got := machinesWithTheDiskRule(t, canary, org, rolloutEstate)
+	assert.InDelta(t, canaryFloorMachines, got, canarySlack,
+		"a canary aims at the %d-machine floor of %d and reached %d",
+		canaryFloorMachines, rolloutEstate, got)
+
+	// The staged step is a tenth of the estate — more than the canary, and
+	// nowhere near everybody.
+	staged := newRolloutProvider(t,
+		&fakeRuleConfig{rollouts: stagedAt(org, stagedPercent)}, &countingFleet{size: rolloutEstate})
+	gotStaged := machinesWithTheDiskRule(t, staged, org, rolloutEstate)
+	assert.InDelta(t, rolloutEstate*stagedPercent/100, gotStaged, stagedSlack,
+		"a staged rule aims at a tenth of %d machines and reached %d", rolloutEstate, gotStaged)
+	assert.Greater(t, gotStaged, got, "the staged step reaches more machines than the canary")
+	assert.Less(t, gotStaged, rolloutEstate, "a staged rule is not the estate")
+
+	// And full reach is everyone, so a stage short of it is a real distinction
+	// rather than the same answer under three names.
+	full := newRolloutProvider(t,
+		&fakeRuleConfig{rollouts: stagedAt(org, 100)}, &countingFleet{size: rolloutEstate})
+	assert.Equal(t, rolloutEstate, machinesWithTheDiskRule(t, full, org, rolloutEstate),
+		"a rule at full reach is on every machine")
 }
 
 // The rest of the pack is untouched by one rule being staged: a machine outside
