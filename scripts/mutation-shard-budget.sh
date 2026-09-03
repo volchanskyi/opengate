@@ -13,6 +13,12 @@
 # source; `gremlins unleash --dry-run` lists the Go mutants coverage actually
 # reaches. Multiplied by the shard's measured per-mutant cost that gives the
 # projection this refuses on, before the matrix has burned a night.
+#
+# On the Go side that product is only the first term. A mutant that removes a
+# loop's exit condition never terminates and holds a worker for its whole leash,
+# which is minutes rather than seconds, so the projection adds one leash per
+# declared blocking mutant. Leaving that term out is how go-domain-alerts cleared
+# this pre-flight at 31 minutes and was then shot at the 90-minute cap.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -107,6 +113,12 @@ count_go_shard() {
 }
 
 go_budget="$(mutation_go_shard_budget_minutes)"
+# A shard's wall clock has two terms, and only the first is a count of anything.
+# The second is one leash per mutant that never terminates — gremlins gives every
+# mutant the coverage elapsed times the timeout coefficient, and a mutant with no
+# exit condition holds all of it. Projecting the first term alone is what cleared
+# go-domain-alerts at 31 minutes on the night it was shot at the 90-minute cap.
+go_leash="$(mutation_go_leash_ceiling_seconds)" || exit 2
 listing="$(mktemp)"
 trap 'rm -f "$listing"' EXIT
 go_dryrun | runnable_paths >"$listing"
@@ -115,10 +127,12 @@ echo
 printf '%-34s %8s %10s %8s\n' shard mutants projected verdict
 for shard in $(mutation_go_shards); do
   cost="$(mutation_go_shard_seconds_per_mutant "$shard")" || exit 2
+  blocking="$(mutation_go_shard_blocking_mutants "$shard")" || exit 2
   count="$(count_go_shard "$shard" "$listing")" || exit 2
   require_count "$shard" "$count"
+  require_count "$shard" "$blocking"
   # Seconds, rounded up to whole minutes, for the same reason as above.
-  projected=$(((count * cost + 59) / 60))
+  projected=$(((count * cost + blocking * go_leash + 59) / 60))
   if [ "$projected" -gt "$go_budget" ]; then
     verdict=OVER
     over=$((over + 1))
@@ -132,7 +146,9 @@ if [ "$over" -gt 0 ]; then
   echo
   echo "::error::$over mutation shard(s) project past their budget" \
     "(Rust ${budget}min, Go ${go_budget}min)." \
-    "Split the offending scopes in scripts/lib/mutation-shards.sh before the matrix runs."
+    "Split the offending scopes in scripts/lib/mutation-shards.sh before the matrix runs." \
+    "A Go shard whose projection is mostly leash is over because its mutants block," \
+    "not because it grew: bound the harness rather than splitting it."
   exit 1
 fi
 

@@ -104,6 +104,45 @@ The list of workflows that may not cache is a statement about tokens, not about
 places. If a workflow gains write scope — a trusted trigger would do it — the
 row comes out and the cache comes back, in the same commit that proves it.
 
+### A budget covers every term, including the one nothing counts
+
+The rules above are about a step that produced nothing, read nothing, or wrote
+nothing. This one is about a step that was *predicted* — a pre-flight that
+projects a job's cost and refuses the ones that will not fit. Such a projection is
+only as good as the terms it carries, and the term it leaves out is invisible
+precisely because nothing counts it.
+
+The mutation pre-flight projected each Go shard as `mutants × per-mutant cost`
+and cleared them all. `go-domain-alerts` was projected at 31 minutes and was shot
+at the 90-minute cap, taking the night's canonical score row with it, because a
+shard's wall clock has a second term: gremlins gives every mutant a leash of the
+coverage run's elapsed time times a coefficient, and a mutant that removes a
+loop's exit condition never terminates and holds a worker for all of it. At the
+coefficient then in force that leash was 46 to 75 minutes — comparable to the
+whole cap, on a shard whose entire projected cost was 31.
+
+The term hid well. gremlins records such a mutant as `TIMED OUT`, which is
+neither a kill nor a survivor, so it moves no score and appears in no report
+field; the only trace is wall clock. It also corrupted the first term, because the
+per-mutant costs were being measured as `elapsed_time / mutants_total` — dividing
+one mutant's leash across all of them. That read `go-updates-certificates` at 21
+seconds a mutant when 143 of its 144 finished in 106 seconds, and it is why the
+declared costs had drifted in both directions at once.
+
+So: **a projection states every term of the cost, and a term that is a bound is
+bounded where it is set.** The leash is now declared per shard
+([`mutation-shards.sh`](../../scripts/lib/mutation-shards.sh)) and added to the
+projection, the per-mutant cost is measured over the mutants that *finish*, and
+the coefficient in [`.gremlins.yaml`](../../server/.gremlins.yaml) is held by
+[`mutation-workflow.test.sh`](../../scripts/tests/mutation-workflow.test.sh) to a
+value whose leash still fits in what a fully-spent shard has left of the cap — so
+a mutant that starts blocking between one nightly and the next, before any run has
+declared it, still cannot carry the job past the cap alone.
+
+The generalisation: wherever a gate answers *will this fit*, the answer is worth
+no more than the slowest thing it forgot to add up. A cost that no counter
+reports is the one to go looking for.
+
 ## Scope
 
 The read-back covers every cache write whose key we choose. A cache an action

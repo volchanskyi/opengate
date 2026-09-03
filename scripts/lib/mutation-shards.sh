@@ -12,6 +12,10 @@
 # sources outside internal/ (notably tests/loadtest) from being mutated and
 # counted once per shard.
 
+# Where this library sits, so the functions below can read the gremlins config
+# that is the single source of truth for the per-mutant leash.
+MUTATION_SHARDS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # The Rust leg is split by scope, the same way the Go leg is: each shard names
 # the behavior it mutates and owns a fixed set of sources.
 #
@@ -262,7 +266,7 @@ mutation_web_shards() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  echo "go-api-runtime go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
 }
 
 mutation_all_shards() {
@@ -351,8 +355,13 @@ mutation_go_shard_units() {
     go-domain-rules)
       echo "dir:internal/rules"
       ;;
-    go-domain-alerts)
-      echo "dir:internal/alerts"
+    # Split by what the mutants cost, along the seam the package doc already
+    # draws: the room reports fold into, and the record they fold from.
+    go-domain-alerts-room)
+      echo "file:internal/alerts/room.go file:internal/alerts/queue.go file:internal/alerts/incident.go file:internal/alerts/aggregate.go"
+      ;;
+    go-domain-alerts-record)
+      echo "file:internal/alerts/types.go file:internal/alerts/limits.go file:internal/alerts/noise.go file:internal/alerts/postgres.go file:internal/alerts/postgres_fold.go file:internal/alerts/postgres_lifecycle.go file:internal/alerts/postgres_limits.go file:internal/alerts/postgres_noise.go file:internal/alerts/postgres_retention.go"
       ;;
     go-domain-persistence)
       echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"
@@ -397,44 +406,56 @@ mutation_go_shard_units() {
 # gremlins re-runs the test packages that cover the mutated line, so the cost is
 # a property of those tests rather than of the source: an internal/api handler
 # mutant re-pays the Postgres-backed API suite and the integration tests that
-# reach it (~41-51 s), while an internal/agentapi mutant re-runs an in-process
-# harness (~4 s). Ignoring that spread is what makes a shard count meaningless as
-# a size — 95 API mutants and 593 domain mutants are the same 70 minutes.
+# reach it (~42-72 s), while an internal/agentapi mutant re-runs an in-process
+# harness (~3-10 s). Ignoring that spread is what makes a shard count meaningless
+# as a size — 56 API mutants and 640 harness mutants are both under an hour.
 #
-# These come from completed nightly shards (elapsed_time / mutants_total in each
-# shard's mutation-report JSON), rounded up so a shard is never projected cheaper
-# than it ran. A shard carved out of another inherits its parent's rate until a
-# nightly measures it on its own. Re-measure from a run rather than lowering a
+# These come from completed nightly shards, rounded up so a shard is never
+# projected cheaper than it ran. Re-measure from a run rather than lowering a
 # number to make a shard fit.
+#
+# Measure over the mutants that FINISH, not over elapsed_time / mutants_total.
+# A mutant that never terminates holds a worker for its whole leash, and dividing
+# that leash across the shard's mutants charges every one of them for it: it
+# reported go-updates-certificates at 21 s a mutant when 143 of its 144 finished
+# in 106 seconds, and go-amt at 13 when its real figure is under 2. The window to
+# divide is from the end of the coverage run to the last result that is not
+# TIMED OUT; the blocked ones are counted separately, below.
 mutation_go_shard_seconds_per_mutant() {
   case "$1" in
-    go-api-runtime) echo 59 ;;
-    # Measured together as one intake shard; the status half carries that rate
-    # until a night measures it on its own.
-    go-api-intake | go-api-status) echo 44 ;;
-    go-api-converters) echo 54 ;;
-    go-api-incidents) echo 72 ;;
-    go-api-rules) echo 73 ;;
-    go-api-identity) echo 59 ;;
-    go-api-tenancy-admin) echo 69 ;;
-    go-api-enrollment) echo 50 ;;
-    go-api-updates-purge) echo 63 ;;
-    # Measured on the control half; the sessions and reads halves carved out of
-    # it inherit that rate until a night measures each on its own.
-    go-api-device-control | go-api-device-sessions | go-api-device-reads) echo 72 ;;
-    go-agentapi-connection) echo 6 ;;
-    go-agentapi-handshake) echo 9 ;;
-    go-agentapi-edge-telemetry) echo 5 ;;
-    go-agentapi-backfill) echo 2 ;;
-    # The detection pair was shot at the job cap before it could write a report,
-    # so its rate is the floor that fact implies — the cap less setup, over the
-    # mutants it was carrying — rather than a figure read off a finished run.
-    # The two halves carry it until each measures its own.
-    go-domain-rules | go-domain-alerts) echo 13 ;;
+    go-api-runtime) echo 46 ;;
+    go-api-intake) echo 42 ;;
+    go-api-status) echo 46 ;;
+    go-api-converters) echo 68 ;;
+    go-api-incidents) echo 63 ;;
+    go-api-rules) echo 67 ;;
+    go-api-identity) echo 57 ;;
+    go-api-tenancy-admin) echo 72 ;;
+    go-api-enrollment) echo 53 ;;
+    go-api-updates-purge) echo 64 ;;
+    go-api-device-control) echo 69 ;;
+    go-api-device-sessions) echo 66 ;;
+    go-api-device-reads) echo 54 ;;
+    go-agentapi-connection) echo 10 ;;
+    go-agentapi-handshake) echo 8 ;;
+    go-agentapi-edge-telemetry) echo 7 ;;
+    go-agentapi-backfill) echo 3 ;;
+    go-domain-rules) echo 12 ;;
+    # The room half carries the reads a person does inside an incident, each of
+    # which assembles a room from several tables; the record half is a narrower
+    # write path over one.
+    go-domain-alerts-room) echo 39 ;;
+    go-domain-alerts-record) echo 25 ;;
     go-domain-persistence) echo 5 ;;
-    go-amt) echo 13 ;;
-    go-updates-certificates) echo 21 ;;
-    go-protocol-wire | go-relay-signaling) echo 22 ;;
+    # These two spent almost their whole run inside one blocked mutant's leash:
+    # 224 of go-amt's 225 mutants finished in 5 minutes, 143 of
+    # go-updates-certificates' 144 in under two. What they cost is the leash
+    # declared below, not these figures.
+    go-amt) echo 2 ;;
+    go-updates-certificates) echo 1 ;;
+    # Neither leaves the process: the wire codecs and the signalling handshake
+    # run against in-memory fixtures.
+    go-protocol-wire | go-relay-signaling) echo 1 ;;
     go-observability-harness) echo 1 ;;
     # Postgres-backed like the API shards: every mutant re-pays a schema
     # migration and a full assembly.
@@ -446,41 +467,100 @@ mutation_go_shard_seconds_per_mutant() {
   esac
 }
 
-# Minutes of mutant execution a Go shard may spend. The job cap is 90 minutes;
-# a measured Go leg pays about 4.5 of them before the first mutant runs (image
-# pull, Postgres, toolchain, gremlins, and the module-wide coverage run), and the
-# workflow holds 15 minutes of headroom. What is left is the budget.
-mutation_go_shard_budget_minutes() {
-  echo 70
+# How many of a shard's mutants never terminate.
+#
+# Each of these is a loop whose exit condition CONDITIONALS_NEGATION removes, so
+# the mutated build runs until gremlins' own deadline cuts it off. gremlins
+# records that as TIMED OUT, which is neither a kill nor a survivor — it leaves
+# the score alone and takes the wall clock instead, which is why nothing in a
+# report ever said these were there.
+#
+# They are a property of the code, so they are declared beside the per-mutant
+# cost and re-measured the same way: count the TIMED OUT lines in a shard's run.
+mutation_go_shard_blocking_mutants() {
+  case "$1" in
+    # server.go's listener guard and server_connection.go's read guard: a mutant
+    # that stops the server publishing its address leaves every test that dials
+    # it waiting.
+    go-agentapi-connection) echo 2 ;;
+    # transport/mps.go's accept loop returns on a cancelled context; negated, it
+    # accepts forever.
+    go-amt) echo 1 ;;
+    # notifications/vapid.go pads a private key to 32 bytes; negated, it prepends
+    # zero bytes without end.
+    go-updates-certificates) echo 1 ;;
+    # postgres_retention.go's drain repeats a batched delete until a pass
+    # reclaims less than a full batch; negated, a pass that reclaims nothing
+    # repeats forever. This is the mutant that took run 33727909504 past the cap.
+    go-domain-alerts-record) echo 1 ;;
+    *)
+      mutation_go_shard_seconds_per_mutant "$1" >/dev/null || return 1
+      echo 0
+      ;;
+  esac
 }
 
-# Per-shard gremlins timeout-coefficient override. Most shards inherit the
-# baseline in server/.gremlins.yaml (empty output => no CLI flag).
+# The longest a Go shard's coverage run takes before the first mutant runs.
+# Measured across all 26 Go shards of a nightly: 185s at the fastest, 298s at the
+# slowest. gremlins derives every mutant's leash from this same figure, so it
+# sets both the shard's fixed overhead and the leash ceiling below.
+mutation_go_coverage_elapsed_ceiling_seconds() {
+  echo 300
+}
+
+# What a Go shard pays before the first mutant runs, beyond the coverage run:
+# checkout, the image pulls, Postgres, VictoriaMetrics, the toolchain and
+# installing gremlins. Measured at 26s.
+mutation_go_setup_ceiling_seconds() {
+  echo 30
+}
+
+# The most wall clock a single non-terminating mutant can cost a shard.
 #
-# The two isolated go-agentapi shards are the exception. Each has its runtime
-# dominated by a handful of guard-clause mutants that block under its harness and
-# TIME OUT: backfill's conn_backfill.go mutants under the Postgres-backed
-# harness, and connection's server.go listener mutants, which stop the server
-# publishing its address and leave every test that dials it waiting. gremlins
-# already counts TIMED_OUT as caught, so those mutants were never going to be
-# reported as survivors — the baseline's multi-minute per-mutant budget only
-# burns wall-clock on them. Both shards sit behind a four-minute coverage run, so
-# at the baseline one blocked mutant is granted an hour and outlasts the
-# 90-minute cap on its own; the shard is cancelled, writes no report, and the
-# night loses its score. A coefficient of 5 still gives a genuine slow mutant a
-# comfortable budget (well above the ~40 s schema re-setup a real test pays) so
-# no would-be survivor is falsely credited as caught, while cutting the blocking
-# mutants' budget by two-thirds. The baseline stays high globally because the
-# wide Postgres domain shards need it to avoid false timeouts inflating their
-# score.
+# gremlins multiplies the coverage run's elapsed time by the timeout coefficient
+# and gives every mutant that long, so the coefficient is not a tuning knob — it
+# is the bound on this number. server/.gremlins.yaml is where it is set, and this
+# reads it there rather than restating it.
+mutation_go_leash_ceiling_seconds() {
+  local coefficient
+  coefficient="$(sed -nE 's/^[[:space:]]*timeout-coefficient:[[:space:]]*([0-9]+).*/\1/p' \
+    "$MUTATION_SHARDS_LIB_DIR/../../server/.gremlins.yaml")"
+  case "$coefficient" in
+    '' | *[!0-9]*)
+      echo "could not read timeout-coefficient from server/.gremlins.yaml" >&2
+      return 1
+      ;;
+  esac
+  echo $((coefficient * $(mutation_go_coverage_elapsed_ceiling_seconds)))
+}
+
+# Minutes of mutant execution a Go shard may spend.
+#
+# The 90-minute cap is spent in four parts, and the budget is what is left after
+# the other three: 30s of setup, up to 300s of coverage, the budget itself, and a
+# headroom equal to one full leash — so a mutant that starts blocking between one
+# nightly and the next, before any run has declared it, still cannot carry the
+# job past the cap on its own.
+#
+#   90:00 - 0:30 setup - 5:00 coverage - 15:00 leash = 69:30
+mutation_go_shard_budget_minutes() {
+  echo 69
+}
+
+# Per-shard gremlins timeout-coefficient override. Every shard inherits the
+# baseline in server/.gremlins.yaml today (empty output => no CLI flag), because
+# the baseline is itself held to a bound a blocked mutant cannot break: see
+# mutation_go_leash_ceiling_seconds.
+#
+# The seam stays for a shard that one day needs a tighter leash than the rest.
+# What it may never carry is a looser one — a coefficient above the baseline puts
+# that shard's blocked mutants back outside the bound the budget is built on.
 #
 # A coefficient is a bound, not a cure: where a mutant blocks because the test
 # harness has no deadline of its own, the deadline is what to fix — a bounded
 # harness kills the same mutant in seconds instead of minutes.
 mutation_go_shard_timeout_coefficient() {
   case "$1" in
-    go-agentapi-backfill) echo "5" ;;
-    go-agentapi-connection) echo "5" ;;
     *) echo "" ;;
   esac
 }
