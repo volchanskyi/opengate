@@ -340,11 +340,20 @@ rather than from the source, because a Go mutant runs only where coverage reache
 it: adding an integration test grows a shard without a line of production code
 changing.
 
-A shard whose runtime is dominated by mutants that block rather than by mutants
-that run is sized by its timeout instead, through
-`mutation_go_shard_timeout_coefficient`: gremlins derives each mutant's budget
-from the coverage dry-run, and at the baseline coefficient a blocked mutant burns
-minutes of it, so a thirteen-mutant shard can fill a ninety-minute job.
+A shard's wall clock has a second term the count does not reach.
+`CONDITIONALS_NEGATION` on a loop's exit condition produces a mutant that never
+terminates — a batched delete that repeats after reclaiming nothing, a key-padding
+loop that prepends zero bytes without end — and gremlins gives every mutant the
+coverage run's elapsed time multiplied by
+[`timeout-coefficient`](../../server/.gremlins.yaml) before cutting it off. One
+such mutant holds a worker for all of it, so a shard of cheap mutants can still
+fill most of a job.
+
+Both terms are declared: `mutation_go_shard_blocking_mutants` counts the mutants
+that never terminate, and the projection adds a full leash for each. The
+coefficient is bounded so that leash stays inside what a fully-spent shard has
+left of the ninety minutes, which is what keeps one of them from taking the job
+past the cap on its own.
 
 ### Mutation testing trend
 

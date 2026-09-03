@@ -149,6 +149,50 @@ else
   pass "an unknown Go shard is refused rather than costed"
 fi
 
+# A shard's wall clock is not only its mutants times what one costs. gremlins
+# gives every mutant a leash — the coverage run's elapsed time times the timeout
+# coefficient — and a mutant that never terminates holds a worker for all of it.
+# Five such mutants are in the tree today, each a loop whose exit condition
+# CONDITIONALS_NEGATION removes. Run 33727909504 projected go-domain-alerts at
+# 31 minutes and lost it at the 90-minute cap, because the projection carried
+# only the first term and one retention-drain mutant was spending the second.
+blocking_bad=""
+for shard in $(mutation_go_shards); do
+  blocking="$(mutation_go_shard_blocking_mutants "$shard" 2>/dev/null)"
+  [[ "$blocking" =~ ^[0-9]+$ ]] || blocking_bad="$blocking_bad [$shard='$blocking']"
+done
+if [ -z "$blocking_bad" ]; then
+  pass "every Go shard declares how many of its mutants never terminate"
+else
+  fail "Go shards missing a blocking-mutant count:$blocking_bad"
+fi
+
+if mutation_go_shard_blocking_mutants not-a-shard >/dev/null 2>&1; then
+  fail "an unknown Go shard must not resolve to a blocking count"
+else
+  pass "an unknown Go shard is refused rather than given a blocking count"
+fi
+
+# The leash term has to be in the projection, not left to headroom.
+leash_min=$((($(mutation_go_leash_ceiling_seconds) + 59) / 60))
+if [ "$leash_min" -gt 0 ]; then
+  pass "the leash ceiling is a positive number of minutes ($leash_min)"
+else
+  fail "the leash ceiling must be positive (got '$leash_min')"
+fi
+
+# go-amt costs little per mutant and carries one mutant that never terminates —
+# its MPS accept loop. Its projection is therefore dominated by the leash, and
+# stating the shard's mutants alone would put it near zero.
+dryrun="$(stub_dryrun go-amt 1)"
+out="$(MUTATION_GO_DRYRUN_FILE="$dryrun" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
+amt_proj="$(printf '%s\n' "$out" | awk '$1 == "go-amt" { sub(/min$/, "", $3); print $3 }')"
+if [ -n "$amt_proj" ] && [ "$amt_proj" -ge "$leash_min" ]; then
+  pass "a shard's projection carries the leash its blocked mutants hold"
+else
+  fail "go-amt must project at least the ${leash_min}min leash it holds (got '$amt_proj')"
+fi
+
 # One mutant per owned path is inside any budget.
 dryrun="$(stub_dryrun go-api-runtime 1)"
 if MUTATION_GO_DRYRUN_FILE="$dryrun" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" >/dev/null 2>&1; then
@@ -157,7 +201,7 @@ else
   fail "a one-mutant Go listing must pass"
 fi
 
-# go-api-runtime costs 59s a mutant, so 200 mutants project to 197 minutes —
+# go-api-runtime costs 46s a mutant, so 200 mutants project past two hours —
 # past any budget a 90-minute job can carry.
 dryrun="$(stub_dryrun go-api-runtime 200)"
 out="$(MUTATION_GO_DRYRUN_FILE="$dryrun" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
@@ -175,7 +219,7 @@ fi
 
 # A shard the listing never mentions projects to zero rather than vanishing from
 # the table: a leg reported as absent reads as a leg nobody measured.
-if printf '%s' "$out" | grep -q 'go-domain-alerts'; then
+if printf '%s' "$out" | grep -q 'go-domain-alerts-room'; then
   pass "every Go shard is reported, including the ones the listing does not reach"
 else
   fail "the Go table must report every shard (got: $out)"

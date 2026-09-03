@@ -284,7 +284,7 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "expected shard set drifted (all='$(mutation_all_shards)')"
   fi
 
-  meaningful_go="go-api-runtime go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  meaningful_go="go-api-runtime go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
   if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
     pass "Go shard ids describe their owned behavior"
   else
@@ -467,49 +467,63 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "conn_backfill.go and handshaker.go must be isolated (backfill=$backfill_owner handshake=$handshake_owner)"
   fi
 
-  # Two shards' runtimes are dominated by a few guard-clause mutants that block
-  # under their harness and TIME OUT (already counted as caught):
-  # go-agentapi-backfill's under Postgres, and go-agentapi-connection's on the
-  # listener path, where a mutant that stops the server publishing its address
-  # leaves every test that dials it waiting. Both sit behind a four-minute
-  # coverage run, so the baseline coefficient in server/.gremlins.yaml grants
-  # each blocked mutant an hour and one of them alone outlasts the 90-minute
-  # cap — the shard is cancelled, writes no report, and the night loses its
-  # score. A tighter scoped coefficient keeps those mutants caught while
-  # restoring headroom; it must stay well above 1 so a genuinely-killable slow
-  # mutant is not cut off — false caught credit is the only correctness risk.
-  # Every other shard inherits the baseline (empty override).
+  # gremlins gives every mutant the same leash: the coverage run's own elapsed
+  # time multiplied by the timeout coefficient. That product is the term that
+  # decides whether a non-terminating mutant costs a shard its report, and it is
+  # bounded only by what the coefficient is set to — so the coefficient is not a
+  # tuning knob, it is the bound.
+  #
+  # Two mutants in the tree do not terminate at all: the VAPID key padding loop
+  # in internal/notifications/vapid.go and the MPS accept loop in
+  # internal/amt/transport/mps.go, both of which turn into `for {}` under
+  # CONDITIONALS_NEGATION. Each one holds a worker for its whole leash. Nightly
+  # coverage runs measure 185s to 298s across the Go shards, so the leash has to
+  # be small enough that one such mutant still leaves the shard able to finish,
+  # and large enough that a genuinely slow mutant is not cut off and miscredited
+  # as caught — the slowest mutant that does finish takes about 290s.
   baseline_coef="$(sed -nE 's/^[[:space:]]*timeout-coefficient:[[:space:]]*([0-9]+).*/\1/p' "$REPO_ROOT/server/.gremlins.yaml")"
-  scoped_shards=(go-agentapi-backfill go-agentapi-connection)
-  scoped_bad=""
-  for shard in "${scoped_shards[@]}"; do
-    got="$(mutation_go_shard_timeout_coefficient "$shard")"
-    [[ "$got" =~ ^[0-9]+$ ]] \
-      && [ -n "$baseline_coef" ] \
-      && [ "$got" -lt "$baseline_coef" ] \
-      && [ "$got" -ge 2 ] \
-      || scoped_bad="$scoped_bad [$shard='$got']"
-  done
-  if [ -z "$scoped_bad" ]; then
-    pass "the blocking-mutant shards use a scoped timeout coefficient below the baseline"
+  leash="$(mutation_go_leash_ceiling_seconds)"
+  if [ -n "$baseline_coef" ] \
+    && [ "$leash" = "$((baseline_coef * $(mutation_go_coverage_elapsed_ceiling_seconds)))" ]; then
+    pass "the leash ceiling is the baseline coefficient times the coverage ceiling"
   else
-    fail "a scoped coefficient must be numeric, >=2 and <baseline($baseline_coef):$scoped_bad"
+    fail "leash ceiling must derive from server/.gremlins.yaml (coef='$baseline_coef' leash='$leash')"
   fi
 
+  # The bound that matters: a mutant that never terminates must fit in what the
+  # job has left after the widest shard has spent its whole budget. Without it a
+  # single blocked mutant runs the job past the cap, which is how run
+  # 33727909504 lost go-domain-alerts and with it the night's canonical row.
+  cap_s=$((90 * 60))
+  spent=$((cap_s - $(mutation_go_setup_ceiling_seconds) - $(mutation_go_coverage_elapsed_ceiling_seconds) - $(mutation_go_shard_budget_minutes) * 60))
+  if [ "$leash" -le "$spent" ]; then
+    pass "a non-terminating mutant fits inside the job's remaining headroom"
+  else
+    fail "leash ceiling ${leash}s exceeds the ${spent}s a fully-spent shard has left"
+  fi
+
+  # A slow mutant that does finish must not be cut off: false timeouts are
+  # dropped from both halves of the score, so they quietly depress it.
+  if [ "$leash" -ge $((290 * 2)) ]; then
+    pass "the leash leaves a finishing mutant at least twice its measured worst case"
+  else
+    fail "leash ceiling ${leash}s is too tight for the ~290s slowest finishing mutant"
+  fi
+
+  # The baseline now holds the bound for every shard, so no shard overrides it.
+  # The override seam stays for a shard that one day needs a tighter one; what it
+  # may never be is looser than the baseline it is scoped inside.
   coef_bad=""
   for shard in "${go_shards[@]}"; do
-    scoped=0
-    for s in "${scoped_shards[@]}"; do
-      [ "$shard" = "$s" ] && scoped=1
-    done
-    [ "$scoped" -eq 1 ] && continue
     got="$(mutation_go_shard_timeout_coefficient "$shard")"
-    [ -z "$got" ] || coef_bad="$coef_bad [$shard=$got]"
+    [ -z "$got" ] && continue
+    [[ "$got" =~ ^[0-9]+$ ]] && [ "$got" -lt "$baseline_coef" ] && [ "$got" -ge 2 ] \
+      || coef_bad="$coef_bad [$shard=$got]"
   done
   if [ -z "$coef_bad" ]; then
-    pass "every other Go shard inherits the baseline timeout coefficient"
+    pass "no Go shard overrides the coefficient upward"
   else
-    fail "only the blocking-mutant shards may override the coefficient:$coef_bad"
+    fail "a scoped coefficient must be numeric, >=2 and <baseline($baseline_coef):$coef_bad"
   fi
 
   # Both CI and local runs must derive the per-shard coefficient from the shard

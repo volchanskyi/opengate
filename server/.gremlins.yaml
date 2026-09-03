@@ -14,17 +14,22 @@ unleash:
     - "cmd/meshserver/"
     - "tests/loadtest/main\\.go"
     - "internal/testutil/"
-  # Per-mutant test timeout = coverage-dry-run-elapsed * timeout-coefficient
-  # (gremlins default coefficient is 5). The dry-run elapsed is a single,
-  # runner-load-sensitive measurement: when the coverage phase happens to run
-  # fast (e.g. a partial/contended run — observed 2026-06-03, coverage 78% vs
-  # the usual 92%), the derived budget shrinks below what the Postgres-backed
-  # packages need per mutant (each re-pays container/migration setup, ~20-40s).
-  # That false-times-out would-be-KILLED mutants, which gremlins drops from the
-  # kill count — depressing the reported score with no real change in test
-  # quality. Coefficient 10 was not always enough: the 2026-06-09 run still left
-  # 13 mutants TIMED OUT (7 in relay.go alone), trimming Go to a razor-thin 85.0%.
-  # 15 gives those Postgres-backed slow mutants more headroom so they score KILLED
-  # and the floor margin is restored. Genuine infinite-loop mutants are still
-  # caught — they simply get a longer (still-bounded) leash.
-  timeout-coefficient: 15
+  # Per-mutant test timeout = coverage-dry-run-elapsed * timeout-coefficient.
+  #
+  # This coefficient is a bound, not a tuning knob. A mutant that removes a
+  # loop's exit condition never terminates, and gremlins hands it this whole
+  # budget before cutting it off — so the product decides whether one such mutant
+  # costs a shard its report. Five of them are in the tree today (listed beside
+  # mutation_go_shard_blocking_mutants in scripts/lib/mutation-shards.sh).
+  #
+  # A nightly's coverage runs measure 185s to 298s across the Go shards, so at 3
+  # the leash is 9 to 15 minutes: inside the headroom the shard budget leaves
+  # (scripts/lib/mutation-shards.sh), and still two to three times the ~290s of
+  # the slowest mutant that does finish. That margin is what keeps a slow
+  # Postgres-backed mutant from being cut off and counted as neither killed nor
+  # survived, which would quietly depress the score.
+  #
+  # The floor the margin needs is held by GOFLAGS=-count=1 in the workflow and in
+  # the Makefile: without it setup-go's restored test cache answers the dry-run in
+  # about half a second and every derived budget collapses with it.
+  timeout-coefficient: 3

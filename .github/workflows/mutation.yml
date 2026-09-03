@@ -200,15 +200,15 @@ jobs:
           - { language: go, shard: go-api-rules }
           - { language: go, shard: go-api-enrollment }
           - { language: go, shard: go-api-updates-purge }
-          # conn_backfill.go produces a wave of mutants that block under the
-          # Postgres-backed harness, so it is isolated from the connection
-          # lifecycle and scopes its own timeout coefficient.
+          # conn_backfill.go's mutants run under the Postgres-backed harness and
+          # cost far more than the handshake's, so it is sized on its own.
           - { language: go, shard: go-agentapi-connection }
           - { language: go, shard: go-agentapi-handshake }
           - { language: go, shard: go-agentapi-backfill }
           - { language: go, shard: go-agentapi-edge-telemetry }
           - { language: go, shard: go-domain-rules }
-          - { language: go, shard: go-domain-alerts }
+          - { language: go, shard: go-domain-alerts-room }
+          - { language: go, shard: go-domain-alerts-record }
           - { language: go, shard: go-domain-persistence }
           - { language: go, shard: go-amt }
           - { language: go, shard: go-updates-certificates }
@@ -218,9 +218,10 @@ jobs:
           - { language: go, shard: go-composition-root }
     runs-on: ubuntu-latest
     # 90min is a flat safety cap, not a target. Every shard is sized against its
-    # own measured per-mutant cost (scripts/lib/mutation-shards.sh) for at least
-    # 15min of headroom, and the shard-budget job above refuses a split that has
-    # drifted past it before the matrix spends a night discovering the same thing.
+    # own measured per-mutant cost and the leash its non-terminating mutants hold
+    # (scripts/lib/mutation-shards.sh), and the shard-budget job above refuses a
+    # split that has drifted past it before the matrix spends a night discovering
+    # the same thing.
     #
     # The cap sits above the widest measured shard rather than on top of it. A
     # shard shot at the cap writes no report, the artifact set comes back short,
@@ -376,9 +377,9 @@ jobs:
           . scripts/lib/mutation-shards.sh
           excl="$(mutation_go_shard_exclude_regex '${{ matrix.shard }}')"
           echo "shard ${{ matrix.shard }} exclude: $excl"
-          # Most shards inherit the timeout coefficient from server/.gremlins.yaml;
-          # go-agentapi-backfill scopes it lower to end its conn_backfill.go
-          # timeout waves early (still counted as caught) and keep headroom.
+          # Every shard inherits the timeout coefficient from server/.gremlins.yaml,
+          # which is held to a bound a mutant that never terminates cannot break.
+          # The seam below is for a shard that one day needs a tighter one.
           coef="$(mutation_go_shard_timeout_coefficient '${{ matrix.shard }}')"
           coef_flag=()
           [ -n "$coef" ] && coef_flag=(--timeout-coefficient "$coef")
