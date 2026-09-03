@@ -90,3 +90,13 @@ exclude_re = [
 # IceCandidate arm mutants ARE killed: those arms route through the
 # WebRtcDispatch seam, which a recording mock observes in session/handler.rs
 # tests (the live delegation lives in the excluded handlers/webrtc.rs).
+
+# Equivalent mutant, not excluded (cargo-mutants has no per-expression
+# exclusion): `evidence.ranked.len() > 1` in evidence.rs's shrink ladder reads
+# the same as `>= 1`. The two differ only when the ranking is already down to
+# one dimension and the evidence still will not fit — and there the mutant
+# empties the ranking and re-encodes, while the real code falls out of the loop
+# and resets the evidence to the same empty, flagged value. Both hand back an
+# identical AlertEvidence and identical bytes, so no assertion can separate
+# them. The rest of that ladder is held by the order-of-sacrifice tests in
+# mesh-agent-core/tests/alert_evidence_test.rs.

@@ -105,6 +105,30 @@ fn drain_scan(scan: &mut RetroScan, db: &LocalTsdb, sink: &AlertSink) -> RetroSt
     }
 }
 
+/// Walk a whole history in small chunks, throwing the scan away after each one
+/// and rebuilding it from nothing but the cursor — an agent restart between
+/// every chunk. Bounded, so a cursor that stops advancing fails rather than
+/// hangs.
+fn resume_scan_to_the_end(rule: &ThresholdRule, db: &LocalTsdb, sink: &AlertSink) {
+    let budget = RetroBudget::new(30, 2.0);
+    let mut cursor = RetroCursor::default();
+    for step_count in 0..10_000 {
+        let mut scan = RetroScan::resume(RetroPlan::for_rule(rule).unwrap(), budget, cursor);
+        let snapshot = db.snapshot().unwrap();
+        let step = scan.run_chunk(&snapshot, sink, SCAN_NOW_MICROS).unwrap();
+        let next = scan.cursor();
+        if !matches!(step, RetroStep::Yielded { .. }) {
+            return;
+        }
+        assert_ne!(
+            next, cursor,
+            "the cursor stopped advancing after {step_count} chunks"
+        );
+        cursor = next;
+    }
+    panic!("a resumed scan that never finishes");
+}
+
 /// A roomy sink, so the ceiling is only in play in the test that is about it.
 fn roomy() -> AlertSink {
     AlertSink::new(512, 512)
@@ -751,4 +775,145 @@ fn a_shape_the_live_evaluator_refuses_is_refused_over_history_too() {
             "history accepts a shape the live evaluator refuses: {rule:?}"
         );
     }
+}
+
+/// What a retrospective finding *says*. Every other test here is about when a
+/// finding happens and what it costs the machine; this is about the two fields a
+/// technician actually reads, and they had nothing holding them: replacing the
+/// summary with an empty string, or the readings with an empty list, changed
+/// nothing any test asserted. A finding that reaches the queue with a blank
+/// explanation is worse than no finding — it says a machine had a problem and
+/// refuses to say which.
+#[test]
+fn a_finding_says_what_the_rule_means_and_shows_the_readings_behind_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = seed(dir.path(), SERIES_DISK, 10_800, three_full_disk_episodes());
+    let sink = roomy();
+    let mut scan = RetroScan::new(
+        RetroPlan::for_rule(&disk_critical()).unwrap(),
+        RetroBudget::default(),
+    );
+
+    drain_scan(&mut scan, &db, &sink);
+    let alerts = sink.drain();
+    assert_eq!(alerts.len(), 3);
+
+    for alert in &alerts {
+        // The summary reads as the rule, in words: the metric, the relation its
+        // comparator names, the line, and how long it had to hold.
+        assert_eq!(
+            alert.summary, "disk.used_percent at or above 90 for 5 min",
+            "a finding's summary is the rule in the words the queue shows first"
+        );
+        assert_eq!(
+            alert.subject, "disk.used_percent",
+            "the subject names the metric the finding is about"
+        );
+
+        // The readings behind it are the run-up, oldest first, each labelled by
+        // how far before the firing minute it was read.
+        assert!(
+            !alert.evidence.is_empty(),
+            "a finding carries the readings behind it"
+        );
+        let last = alert.evidence.last().unwrap();
+        assert!(
+            last.starts_with("as it fired: disk.used_percent = "),
+            "the last reading is the one the rule fired on, got {last:?}"
+        );
+        for earlier in &alert.evidence[..alert.evidence.len() - 1] {
+            assert!(
+                earlier.contains(" min earlier: disk.used_percent = "),
+                "an earlier reading says how long before the firing minute it was, got {earlier:?}"
+            );
+        }
+        let minutes_back: Vec<i64> = alert.evidence[..alert.evidence.len() - 1]
+            .iter()
+            .map(|line| {
+                line.split(' ')
+                    .next()
+                    .and_then(|n| n.parse::<i64>().ok())
+                    .unwrap_or_else(|| panic!("an earlier reading starts with its age: {line:?}"))
+            })
+            .collect();
+        assert!(
+            minutes_back.windows(2).all(|w| w[0] > w[1]),
+            "readings run oldest first, got {minutes_back:?}"
+        );
+        assert!(
+            alert.evidence.iter().any(|line| line.contains("= 9")),
+            "the readings show the machine over its line, got {:?}",
+            alert.evidence
+        );
+    }
+}
+
+/// The same fields, for the other three comparators and for a rule with no
+/// sustain at all. A summary that read "past" for everything, or that appended
+/// a hold to a rule that has none, would still be a non-empty string.
+#[test]
+fn a_summary_names_the_relation_the_rule_actually_uses() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = seed(dir.path(), SERIES_DISK, 3_600, |_| Some(95.0));
+    let sink = roomy();
+
+    let cases = [
+        (AlertComparator::Gt, 0u32, "disk.used_percent above 90"),
+        (
+            AlertComparator::Gte,
+            120,
+            "disk.used_percent at or above 90 for 2 min",
+        ),
+    ];
+
+    for (comparator, sustain_secs, want) in cases {
+        let rule = ThresholdRule {
+            comparator,
+            sustain_secs,
+            ..disk_critical()
+        };
+        let mut scan = RetroScan::new(RetroPlan::for_rule(&rule).unwrap(), RetroBudget::default());
+        drain_scan(&mut scan, &db, &sink);
+        let alerts = sink.drain();
+        assert!(
+            !alerts.is_empty(),
+            "a machine held over the line must produce a finding for {comparator:?}"
+        );
+        assert_eq!(alerts[0].summary, want);
+    }
+}
+
+/// A resume has to re-read across everything the live rule was remembering:
+/// how long it must hold a breach, plus how far its widest window looks back.
+/// A windowed rule is where that second term shows — read one term short and a
+/// resumed scan starts blind to the average it was in the middle of, so the
+/// breach it was carrying disappears at the seam and never comes back.
+#[test]
+fn a_windowed_rule_resumes_across_its_window_as_well_as_its_sustain() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = seed(dir.path(), SERIES_DISK, 10_800, three_full_disk_episodes());
+
+    // A five-minute average held for two, inside ten-minute episodes: the
+    // window is the wider term, so it is the one a resume gets wrong if the
+    // arithmetic drops it.
+    let windowed = ThresholdRule {
+        predicate: RulePredicate::WindowMean,
+        window_secs: 300,
+        sustain_secs: 120,
+        ..disk_critical()
+    };
+
+    let uninterrupted = roomy();
+    let mut whole = RetroScan::new(
+        RetroPlan::for_rule(&windowed).unwrap(),
+        RetroBudget::default(),
+    );
+    drain_scan(&mut whole, &db, &uninterrupted);
+    let expected = event_times(&uninterrupted.drain());
+    assert!(!expected.is_empty(), "the fixture has findings to lose");
+
+    let resumed = roomy();
+    resume_scan_to_the_end(&windowed, &db, &resumed);
+
+    assert_eq!(event_times(&resumed.drain()), expected);
 }
