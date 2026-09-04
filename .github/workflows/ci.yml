@@ -1018,7 +1018,7 @@ jobs:
         # install (which has its own caching).
         run: |
           set -e
-          cargo install cargo-audit@0.22.1
+          cargo install --locked cargo-audit@0.22.1
           for attempt in 1 2 3; do
             if (cd agent && cargo audit); then exit 0; fi
             echo "::warning::cargo audit attempt $attempt/3 failed; retrying in $((attempt * 15))s"

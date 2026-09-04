@@ -98,6 +98,25 @@ used to build cold it takes as an artifact from
 [`build-image.yml`](../../.github/workflows/build-image.yml), whose token does
 write. See [ADR-086](../../docs/adr/ADR-086-the-cluster-is-the-source-of-truth-for-what-is-deployed.md).
 
+### A tool a workflow builds is built from a graph somebody has tested
+
+`cargo install <tool>` re-resolves that tool's entire dependency graph to
+"latest compatible versions" every time it runs, so a workflow that installs one
+is compiling software nobody has ever compiled before. It does not fail as a
+version bump or an advisory. It fails as a compile error deep inside a
+transitive crate, in a job whose subject is something else — and it is invisible
+on a workstation, where the tool was installed once and is never rebuilt again.
+
+That is how a green gauntlet sat beside a red Security Audit: the workstation's
+`cargo-audit` was years old and working, while CI rebuilt it every run and one
+day resolved a `tinyvec` that does not compile. Two of the three installs that
+lacked `--locked` were building the release cross-compiler.
+
+So every `cargo install` in a workflow passes `--locked`, which uses the
+lockfile the tool's own authors tested — the only build there is evidence
+about. [`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
+holds all of them to it.
+
 ### An exemption is re-earned
 
 The list of workflows that may not cache is a statement about tokens, not about

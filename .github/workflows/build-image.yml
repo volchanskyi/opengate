@@ -94,7 +94,7 @@ jobs:
 
       - name: Install cross tools
         if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: cargo install --locked cross --git https://github.com/cross-rs/cross
 
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:

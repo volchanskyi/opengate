@@ -84,12 +84,24 @@ def fetch_job_log(repo: str, job_id: int) -> tuple[list[str], list[str]]:
     second route, reaching the log by a different path when the first is
     refused.
 
+    The archive endpoint is asked twice. Almost every job here sets a colour
+    terminal — cargo and go both do — so almost every log carries escape
+    sequences, and ``gh`` refuses to hand such a body over unless asked to. The
+    second route drops the flag, for a ``gh`` old enough not to know it. Only
+    then does the third route try the other door, which cannot help while the
+    run is in progress but is what reaches a log once it is not.
+
     ``refusals`` carries what each route said when it produced nothing, so a
     log that cannot be read is reported with its reason instead of as silence.
     """
     refusals: list[str] = []
+    logs = f"repos/{repo}/actions/jobs/{job_id}/logs"
     routes = (
-        ("jobs/{id}/logs", ("api", f"repos/{repo}/actions/jobs/{job_id}/logs")),
+        (
+            "jobs/{id}/logs --allow-escape-sequences",
+            ("api", logs, "--allow-escape-sequences"),
+        ),
+        ("jobs/{id}/logs", ("api", logs)),
         (
             "run view --log",
             ("run", "view", "--repo", repo, "--log", "--job", str(job_id)),

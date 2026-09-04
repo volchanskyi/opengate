@@ -48,6 +48,18 @@ case "$1 ${2:-}" in
         exit 0
         ;;
       *"/logs")
+        # What gh does with a log carrying terminal colour: it refuses to hand
+        # it over unless asked to. Every cargo and go job sets a colour term, so
+        # this is the ordinary case rather than an edge one.
+        if [ -n "${FAKE_GH_LOG_NEEDS_ESCAPE_FLAG:-}" ]; then
+          case "$*" in
+            *--allow-escape-sequences*) ;;
+            *)
+              echo "gh: the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway" >&2
+              exit 1
+              ;;
+          esac
+        fi
         if [ -n "${FAKE_GH_LOG_REFUSED:-}" ]; then
           echo "gh: HTTP 403: Server failed to authenticate the request" >&2
           exit 1
@@ -132,6 +144,26 @@ if grep -q "the step that failed said this" "$FAKE_GH_BODY"; then
   pass "the issue body carries the job's log"
 else
   fail "the issue body carries the job's log (body=[$(cat "$FAKE_GH_BODY")])"
+fi
+
+# --- a log carrying terminal colour is still read ----------------------------
+#
+# Every job that runs cargo or go sets a colour terminal, so nearly every log
+# this ever fetches carries escape sequences. gh refuses to hand such a body
+# over unless it is asked to, and the second route — `gh run view --log` —
+# cannot help: this runs while the run around it is still in progress, which is
+# the one condition that route refuses. So a coloured log meant no log at all,
+# and the notify job failed on top of the job it was reporting.
+FAKE_GH_LOG_NEEDS_ESCAPE_FLAG=1 run_notify && coloured_rc=0 || coloured_rc=$?
+if [ "$coloured_rc" -eq 0 ]; then
+  pass "a log carrying terminal colour is fetched rather than refused"
+else
+  fail "a log carrying terminal colour must still be fetched (rc=$coloured_rc)"
+fi
+if grep -q "the step that failed said this" "$FAKE_GH_BODY"; then
+  pass "the coloured log's content reaches the issue"
+else
+  fail "the coloured log's content must reach the issue"
 fi
 
 # --- a refused log is reported, never filed as an empty excerpt ---------------
