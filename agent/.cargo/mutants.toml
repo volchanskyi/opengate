@@ -91,6 +91,16 @@ exclude_globs = [
 #     a different question and is tested: `entries_from_exit`, `units_from_exit`,
 #     `read_journald_lines`, `build_journald_args`, `parse_journald_json` and
 #     `batch_saturated` are all pure and all held.
+#   * the /proc reader in `mesh-agent-core/src/discovery/ports.rs`.
+#     `collect_ports` and its Linux arm read `/proc/net/{tcp,tcp6,udp,udp6}`,
+#     and `build_inode_proc_map` walks `/proc/[pid]/fd` to name the process
+#     behind each socket. All three answer with whatever that machine is
+#     listening on: a container answers with nothing, which is what the
+#     replacement mutants answer too, and a developer box answers with that
+#     machine's real sockets, which no assertion can name. `collect_ports`
+#     covers `collect_ports_linux` as a substring. What the module does with
+#     *parsed* rows is pure and is held — `parse_proc_net`, `resolve_ports`,
+#     `hex_local_port`, `hex_remote_port` and `parse_socket_inode`.
 exclude_re = [
     "restore_selinux_context",
     "collect_host_logs",
@@ -99,6 +109,8 @@ exclude_re = [
     "collect_journald",
     "list_journald_units",
     "poll_once",
+    "collect_ports",
+    "build_inode_proc_map",
 ]
 
 # Equivalent mutant, deferred — NOT excluded (no per-match-arm exclusion
@@ -162,3 +174,19 @@ exclude_re = [
 #     on the `#[cfg(not(feature = "cold-deflate"))]` arm, which the build
 #     cargo-mutants runs does not compile, so nothing links them. The compiled
 #     arm's own mutants are killed by the cold-tier read-back.
+
+# Two mutants in `reconnect_with_backoff`, not excluded (cargo-mutants has no
+# per-expression exclusion) and deliberately not tested: `attempt - 1` read as
+# `attempt + 1` or `attempt / 1`. Both change only the *distribution* of a
+# delay drawn from `rand::rng()` inside the function, and the distributions
+# overlap heavily — over eight attempts the real sum averages 45s against the
+# mutant's 74s with an 18s spread either side, so a bound tight enough to
+# separate them fails roughly one honest run in six. The only way to pin them
+# is an RNG the production signature does not take, which .claude/rules/
+# test-value.md forbids adding for a test's sake. What *is* behaviour is
+# asserted where the RNG is already injected: `full_jitter` proves the ceiling
+# doubles with the exponent and that draws reach across the whole window, and
+# `ReconnectGovernor` proves a first flap is drawn against the base delay. The
+# rest of that loop is held — `attempt < max_attempts` is pinned from both
+# sides, by the single-attempt run that must not wait and the eight-attempt run
+# that must.
