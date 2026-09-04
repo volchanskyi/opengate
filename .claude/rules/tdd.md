@@ -48,6 +48,21 @@ Tests must pass before AND after the refactor. To touch the source, *first* touc
 4. /precommit → commit → /refactor → /precommit → commit → push
 ```
 
+### Rust unit tests, which live in the file they cover
+
+Rust keeps a module's unit tests inside it, in a `#[cfg(test)] mod tests` block.
+A branch that adds nothing but tests to such a file therefore has no test-shaped
+path anywhere in it, and a classifier that reads paths alone sees a source
+change and refuses the commit — a false refusal on a branch that did exactly
+what the mandate asks.
+
+So the classifier reads the diff for Rust files: a change whose every touched
+line falls at or after the file's own `#[cfg(test)]` attribute is a test change.
+A file changed above that line as well is a source change and stays one, which
+is what keeps the exemption from becoming a way through. It is Rust's alone —
+Go and TypeScript keep their tests in files of their own, which the paths
+already name.
+
 ### Generated code
 
 Files matching `openapi_gen.go`, `*_gen.go`, and `*.pb.go` are excluded from the source classifier. Running the generator via `Bash` (e.g. `oapi-codegen`) and committing the output requires no prior test edit. Hand-editing generated files is discouraged for other reasons — they will be overwritten on the next regeneration.

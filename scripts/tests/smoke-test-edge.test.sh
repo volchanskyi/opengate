@@ -80,6 +80,14 @@ QUIET_EXPOSITION = (
     b"# TYPE go_goroutines gauge\n"
     b"go_goroutines 24\n"
 )
+# The same breach in front of a server that has been running long enough to
+# have a real registry. Size is the whole point of this one: the leaked series
+# is on the first line, and everything after it is the hundreds of kilobytes a
+# fleet's exposition actually runs to. A reader that stops at the match and
+# leaves the rest of the body unread reports this edge as sealed.
+EXPOSITION_LARGE = EXPOSITION + (
+    b'go_gc_duration_seconds{quantile="0"} 0.0001 padding padding padding\n' * 8000
+)
 PROFILER = b"<html><body>Types of profiles available:<br>heap<br>goroutine</body></html>\n"
 
 
@@ -110,12 +118,17 @@ class Edge(BaseHTTPRequestHandler):
             # breached edge in front of a server that has answered nothing yet.
             if MODE == "breached":
                 self._send(200, EXPOSITION, "text/plain; charset=utf-8")
+            elif MODE == "breached-large":
+                self._send(200, EXPOSITION_LARGE, "text/plain; charset=utf-8")
             elif MODE == "quiet":
                 self._send(200, QUIET_EXPOSITION, "text/plain; charset=utf-8")
             else:
                 self._send(200, SPA, "text/html")
         elif path == "/debug/pprof/":
-            self._send(200, PROFILER if MODE in ("breached", "quiet") else SPA)
+            self._send(
+                200,
+                PROFILER if MODE in ("breached", "breached-large", "quiet") else SPA,
+            )
         else:
             self._send(200, SPA)
 
@@ -232,6 +245,30 @@ if check_line "$OUT" FAIL "GET /debug/pprof/ through the ingress is not the prof
   pass "the profiler on the edge is reported as a failure"
 else
   fail "an edge serving the profiler must fail its boundary check"
+fi
+
+# --- a breached edge whose exposition is the size a real one is ---------------
+#
+# The verdict must not depend on how much of the body the check reads. A reader
+# that stops at the match leaves the rest unwritten, and a shell pipeline scores
+# that unwritten remainder as the reader's own failure — so the check comes back
+# false on the one body it exists to catch, and the bigger the exposition the
+# more reliably it does. Which is backwards: an exposition is small only while
+# the server is new, and a leak matters most once it is not.
+
+PORT="$(start_stub breached-large)"
+OUT="$WORK/breached-large.log"
+if run_smoke "$OUT" --domain edge.test --mode staging \
+  --scheme http --edge-address "127.0.0.1:${PORT}"; then
+  fail "a run through an edge serving a full-size exposition must not pass"
+else
+  pass "a run through an edge serving a full-size exposition fails"
+fi
+
+if check_line "$OUT" FAIL "GET /metrics through the ingress is not the exposition"; then
+  pass "a full-size exposition on the edge is reported as a failure"
+else
+  fail "an edge serving a full-size exposition must fail its boundary check"
 fi
 
 # --- an edge that does not answer: the boundary checks must not pass ----------

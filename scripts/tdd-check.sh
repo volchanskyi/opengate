@@ -58,6 +58,55 @@ resolve_base() {
   git rev-list --max-parents=0 HEAD 2>/dev/null | head -1
 }
 
+# rust_change_is_inline_tests_only BASE PATH — is every line this branch
+# changed in PATH inside the file's own `#[cfg(test)] mod tests` block?
+#
+# Rust keeps a module's unit tests in the file they cover. That is the language's
+# idiom and most of the agent's tests are written that way, so a branch that adds
+# nothing but tests to such a file has no test-shaped path anywhere in it and the
+# path patterns above see only a source change. Asking the diff is the only way
+# to tell that apart from a change to the code itself.
+#
+# Conservative in both directions it cannot resolve: a file with no inline test
+# module, a diff that reaches above the block, or a block whose opening
+# attribute is not immediately followed by its `mod` line all answer no, and the
+# change stays a source change.
+rust_change_is_inline_tests_only() {
+  local base="$1" path="$2"
+  [[ "$path" =~ \.rs$ ]] || return 1
+  [ -f "$path" ] || return 1
+
+  # The last `#[cfg(test)]` that opens a module, so a file carrying a cfg(test)
+  # helper higher up is judged by its test block rather than by the helper.
+  local marker
+  marker=$(awk '
+    /^[[:space:]]*#\[cfg\(test\)\]/ { attr = NR; next }
+    attr && /^[[:space:]]*(pub[[:space:]]+)?mod[[:space:]]/ { line = attr }
+    { attr = 0 }
+    END { print line + 0 }
+  ' "$path")
+  [ "${marker:-0}" -gt 0 ] || return 1
+
+  # Base commit against the working tree, so committed, staged and unstaged
+  # changes are all in the one diff.
+  local hunks
+  hunks=$(git diff -U0 "$base" -- "$path" 2>/dev/null | grep '^@@' || true)
+  [ -n "$hunks" ] || return 1
+
+  # Every hunk's new-side start must fall at or after the attribute. A hunk that
+  # deletes without adding reports the line it followed, so the same comparison
+  # holds: a deletion out of the code above the block starts above it.
+  printf '%s\n' "$hunks" | awk -v m="$marker" '
+    {
+      plus = $3
+      sub(/^\+/, "", plus)
+      split(plus, n, ",")
+      if (n[1] + 0 < m) { bad = 1 }
+    }
+    END { exit bad ? 1 : 0 }
+  '
+}
+
 has_test_change() {
   local base
   base=$(resolve_base) || return 1
@@ -72,7 +121,18 @@ has_test_change() {
   } | sort -u | grep -v '^$' || true)
 
   [ -n "$files" ] || return 1
-  printf '%s\n' "$files" | grep -qE "$TEST_RE"
+  if printf '%s\n' "$files" | grep -qE "$TEST_RE"; then
+    return 0
+  fi
+
+  # No test-shaped path. A Rust file may still carry the change in its own
+  # inline test module.
+  local rs
+  while IFS= read -r rs; do
+    [ -n "$rs" ] || continue
+    rust_change_is_inline_tests_only "$base" "$rs" && return 0
+  done <<<"$(printf '%s\n' "$files" | grep -E '\.rs$' || true)"
+  return 1
 }
 
 usage() {
