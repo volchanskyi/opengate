@@ -149,6 +149,31 @@ derived partly from `TypeId`, and auto-update is the largest restart cause,
 so a cache that misses on rebuilt binaries would close this by decision
 rather than by code.
 
+### A held fleet can be invisible to the read the relay scenario makes
+
+The relay scenario reads the fleet and keeps the machines whose status is
+`online`. Run 33565000569 has the harness reporting 100 of 100 agents connected
+and holding for eight and a half minutes, and the read taken four minutes fifty
+into that hold returning no online machine at all — so the scenario failed for
+want of something the fleet was holding open the whole time. The two nights
+after it were green, which makes it intermittent rather than a broken read.
+
+The server sets every online device offline when it starts
+([`internal/app/app.go`](../server/internal/app/app.go)), so a server that
+restarts under the run's own load would empty the read while the agents stay
+connected, and the fleet would come back only as each machine re-registers.
+That is the leading candidate and it is not evidence: no reading of that pod's
+restart count was taken at the time, and the node the run shares carries two
+processors for staging and production together.
+
+**Pay-down trigger:** the run already brackets itself with two readings of its
+target ([ADR-094](../docs/adr/ADR-094-a-run-records-what-its-target-was-holding.md)),
+and a restart between them is what that bracket is for — so read the server's
+own uptime and restart count into the evidence bundle beside the rest, and have
+the relay scenario say which of the two it hit when the fleet read comes back
+empty: a fleet that never arrived, or one the server forgot. Fix what that
+names.
+
 ## Severity: Low
 
 ### The Chat tab is unreachable from any machine the browser stack can run

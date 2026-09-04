@@ -127,8 +127,8 @@ fi
 
 # --- The fleet's own account of itself survives a failed scenario --------------
 #
-# The fleet is started in the background, so its log and its verdict are read
-# back by a later step. That step ran only while everything before it had passed
+# The fleet is held in the cluster, so its log and its verdict are read back by
+# a later step. That step ran only while everything before it had passed
 # — which is every case except the one where the log is the answer. Three weeks
 # of nights failed with "no online machine to open a session against" and the
 # fleet's own reason for not being there was collected by nothing and printed

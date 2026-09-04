@@ -244,27 +244,22 @@ jobs:
         run: |
           set -euo pipefail
           AGENTS="${{ inputs.agents || '100' }}"
-          # Backgrounded on purpose: the fleet stays connected while the k6
-          # scenarios run beside it, and the runner collects its output after.
-          nohup scripts/loadtest-quic-run.sh "$LOADTEST_QUIC_OUTPUT" -- \
-            kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- \
-              /tmp/loadtest \
-                -agents="$AGENTS" \
-                -addr="${RELEASE}-server:9090" \
-                -enroll-url="$LOADTEST_BASE_URL" \
-                -metrics-url="$LOADTEST_METRICS_URL" \
-                -fixture-account="$LOADTEST_SERVICE_ACCOUNT" \
-                -fixture-password="$LOADTEST_SERVICE_PASSWORD" \
-                -fixture-size="${{ inputs.fixture || 'small' }}" \
-                -fixture-seed="$GITHUB_RUN_ID" \
-                -relay-sessions \
-                -hold="$LOADTEST_HOLD" \
-                -bundle=/tmp/loadtest-bundle \
-            >/tmp/loadtest-quic-runner.log 2>&1 &
-
-          # k6's relay scenario reads the fleet and fails loudly if nothing is
-          # online, so the fleet is given time to connect before k6 starts.
-          sleep 45
+          # The harness is launched detached inside the pod, so the fleet is
+          # held by the pod rather than by a stream this runner owns, and the
+          # step returns only once the harness says it is offering its fleet.
+          scripts/loadtest-quic-incluster.sh start -- \
+            /tmp/loadtest \
+              -agents="$AGENTS" \
+              -addr="${RELEASE}-server:9090" \
+              -enroll-url="$LOADTEST_BASE_URL" \
+              -metrics-url="$LOADTEST_METRICS_URL" \
+              -fixture-account="$LOADTEST_SERVICE_ACCOUNT" \
+              -fixture-password="$LOADTEST_SERVICE_PASSWORD" \
+              -fixture-size="${{ inputs.fixture || 'small' }}" \
+              -fixture-seed="$GITHUB_RUN_ID" \
+              -relay-sessions \
+              -hold="$LOADTEST_HOLD" \
+              -bundle=/tmp/loadtest-bundle
 
       - name: Run k6 API baseline
         run: |
@@ -288,9 +283,9 @@ jobs:
             kubectl -n "$NAMESPACE" delete pod "$LOADTEST_K6_POD" --ignore-not-found --wait=false
           fi
 
-      # The fleet was started from a shell that has since exited, so its exit
-      # code has nowhere to be returned to; the runner writes its verdict down
-      # and this waits for that.
+      # The harness holds its fleet in the pod, so its output and its exit code
+      # are read back from there and handed to the keep-or-discard rule, which
+      # stays the one place that decides whether the night measured anything.
       #
       # On every path, because the path where a scenario failed is the one where
       # the fleet's log is the answer. A relay scenario finds no machine to open
@@ -300,17 +295,8 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          STATUS_FILE="${LOADTEST_QUIC_OUTPUT}.status"
-          for _ in $(seq 1 120); do
-            [[ -f "$STATUS_FILE" ]] && break
-            sleep 10
-          done
-          cat /tmp/loadtest-quic-runner.log
-          if [[ ! -f "$STATUS_FILE" ]]; then
-            echo "::error::the QUIC fleet never reported a verdict; the run is short a scenario."
-            exit 1
-          fi
-          exit "$(cat "$STATUS_FILE")"
+          scripts/loadtest-quic-run.sh "$LOADTEST_QUIC_OUTPUT" -- \
+            scripts/loadtest-quic-incluster.sh collect
 
       - name: Collect the QUIC evidence bundle
         if: always()
