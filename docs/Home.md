@@ -52,7 +52,7 @@ Devices** is the day-to-day console, and the rest go deeper per capability.
 | [Monitoring](./infrastructure/Monitoring.md) | Observability stack — VictoriaMetrics, Grafana, Loki (uptime via external SaaS) |
 | [Security and Dependencies](./infrastructure/Security-and-Dependencies.md) | CodeQL, vulnerability scanning, Dependabot, key dependencies |
 | [Testing](./infrastructure/Testing.md) | Test layers, running tests, benchmarks |
-| [Fault Injection](./infrastructure/Fault-Injection.md) | Fault-tolerance harness — Go adapter-substitution suite, on-demand Chaos Mesh drills, ingress edge faults, scenario SLOs |
+| [Fault Injection](./infrastructure/Fault-Injection.md) | Fault-tolerance harness — Go adapter-substitution suite, Kubernetes and ingress edge drills, the nightly network drill through a link shaper, scenario SLOs |
 | [Shell Quality](./infrastructure/Shell-Quality.md) | Pinned linting, formatting, execution classes, behavioral tests |
 
 ## Decision records

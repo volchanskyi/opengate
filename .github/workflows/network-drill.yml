@@ -1,0 +1,635 @@
+name: Network Drill
+
+# The link between a customer's machine and the server is the most common
+# failure a remote-management product meets in the field, and it is the one the
+# reconnect backoff, the flap governor and the whole backfill engine exist to
+# survive. Nothing else in this repository breaks it.
+#
+# The drill runs its machines through a link shaper of its own — an ordinary
+# unprivileged pod forwarding datagrams — because the worker node ships no
+# kernel network emulator and every off-the-shelf impairment tool is a wrapper
+# around one. It reports and trends; it never gates a deploy.
+on:
+  schedule:
+    # After the load test at 05:00, which holds the same namespace lease, and
+    # clear of the 03:00 and 04:00 batches that occupy the job pool.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: "Scenarios to run, in order"
+        required: false
+        default: "s1 s2 s3 s4"
+
+concurrency:
+  group: network-drill
+  cancel-in-progress: false
+
+env:
+  NAMESPACE: opengate-staging
+  RELEASE: opengate-staging
+  # Named once: the release step matches on this identity, and a claim released
+  # under a different one is left to time out instead.
+  STAGING_LEASE_HOLDER: network-drill-${{ github.run_id }}-${{ github.run_attempt }}
+  # The administrator the enrolment token is minted against. The deployment
+  # seeds it and no cleanup removes it.
+  DRILL_SERVICE_ACCOUNT: opengate-service@service.invalid
+  DRILL_MEASUREMENTS: /tmp/netdrill/measurements.jsonl
+  DRILL_EVIDENCE: /tmp/netdrill/evidence
+  # Twenty machines in one tenant produce a real queue against the four
+  # concurrent drains the server admits per customer — four draining, sixteen
+  # deferred — which is the herd behaviour the thin-uplink scenario is about.
+  DRILL_FLEET_AGENTS: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  network-drill:
+    name: Network drill (four scenarios, two victims)
+    runs-on: ubuntu-latest
+    # Twenty-four minutes of scenarios plus setup, teardown, and room for a wait
+    # on the namespace lease behind a staging deploy.
+    timeout-minutes: 60
+    # Deliberately no `environment: staging`: its required reviewers would leave
+    # a scheduled run waiting for a human who never comes. This reaches the
+    # cluster with repository-level OCI credentials and creates only short-lived
+    # test pods, exactly as the nightly load run does.
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      measured: ${{ steps.summarize.outputs.measured }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      # The staging deploy and the load run drive this same release. Each takes
+      # the namespace before touching it and gives it back after.
+      - name: Take the staging namespace
+        env:
+          STAGING_LEASE_WAIT_SECONDS: "1200"
+        run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
+
+      - name: Resolve the staging target
+        run: |
+          set -euo pipefail
+          kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
+          SERVER_POD="$(kubectl -n "$NAMESPACE" get pods \
+            -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=server" \
+            -o jsonpath='{.items[0].metadata.name}')"
+          SERVER_POD_IP="$(kubectl -n "$NAMESPACE" get pod "$SERVER_POD" -o jsonpath='{.status.podIP}')"
+          SERVER_NODE="$(kubectl -n "$NAMESPACE" get pod "$SERVER_POD" -o jsonpath='{.spec.nodeName}')"
+          NODE_ARCH="$(kubectl get node "$SERVER_NODE" -o jsonpath='{.status.nodeInfo.architecture}')"
+          case "$NODE_ARCH" in
+            arm64) AGENT_TARGET=aarch64-unknown-linux-musl ;;
+            amd64) AGENT_TARGET=x86_64-unknown-linux-musl ;;
+            *) echo "::error::Unsupported OKE node architecture: $NODE_ARCH"; exit 1 ;;
+          esac
+          test -n "$SERVER_POD_IP"
+          {
+            echo "SERVER_POD=$SERVER_POD"
+            echo "SERVER_POD_IP=$SERVER_POD_IP"
+            echo "NODE_ARCH=$NODE_ARCH"
+            echo "AGENT_TARGET=$AGENT_TARGET"
+            # Enrolment goes to the Service by its fully-qualified name. The
+            # short name is the one on the certificate and is pointed at the
+            # shaper with a hostAliases entry, which an /etc/hosts entry does
+            # not intercept for the qualified form — so enrolment resolves
+            # through cluster DNS to the Service while QUIC goes to the shaper.
+            echo "DRILL_ENROLL_URL=http://${RELEASE}-server.${NAMESPACE}.svc.cluster.local:8080"
+            echo "DRILL_API_URL=http://${RELEASE}-server.${NAMESPACE}.svc.cluster.local:8080"
+          } >>"$GITHUB_ENV"
+
+      # The mechanism this whole drill rests on is that the node ships no kernel
+      # network emulator. It is re-read every night rather than trusted from a
+      # document, so a node image that starts shipping one is visible in the
+      # record instead of only in a decision nobody re-checks.
+      - name: Record what the node's kernel offers
+        run: |
+          set -euo pipefail
+          mkdir -p "$DRILL_EVIDENCE"
+          EXPORTER="$(kubectl -n monitoring get pods -l app.kubernetes.io/name=node-exporter \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          if [ -z "$EXPORTER" ]; then
+            echo "no node-exporter pod to read the node's modules through" \
+              >"$DRILL_EVIDENCE/node-kernel.txt"
+            exit 0
+          fi
+          # A container shares its node's kernel, so the release the exporter
+          # reports is the node's. Reading it here rather than inside the remote
+          # shell keeps the module paths below expanded by this shell, where
+          # they can be seen.
+          node_read() { kubectl -n monitoring exec "$EXPORTER" -- sh -c "$1" 2>/dev/null || true; }
+          K="$(kubectl -n monitoring exec "$EXPORTER" -- uname -r 2>/dev/null || echo unknown)"
+          MODULES="/host/root/lib/modules/${K}"
+          {
+            echo "kernel=$K"
+            node_read "zcat /host/root/proc/config.gz | grep NET_SCH_NETEM"
+            echo "netem-files=$(node_read "find ${MODULES} -name '*netem*' | wc -l")"
+            echo "netem-in-modules-dep=$(node_read "grep -c netem ${MODULES}/modules.dep")"
+          } >"$DRILL_EVIDENCE/node-kernel.txt" 2>&1
+          cat "$DRILL_EVIDENCE/node-kernel.txt"
+
+      - name: Build the link shaper and the fleet harness
+        working-directory: server
+        run: |
+          set -euo pipefail
+          GOARCH_FOR_NODE="$NODE_ARCH"
+          CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH_FOR_NODE" \
+            go build -trimpath -o /tmp/netfault ./tests/netfault/
+          CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH_FOR_NODE" \
+            go build -trimpath -o /tmp/loadtest ./tests/loadtest/
+
+      # The agent binary is taken, not built. An aarch64 Rust release build
+      # would not fit beside twenty-four minutes of scenarios in this job's
+      # hour, and the commit that produced the image staging is running is the
+      # one the drill wants anyway.
+      #
+      # A run that cannot resolve one is inconclusive by the same rule a dead
+      # shaper is: it emits no rows rather than rows about a machine that never
+      # existed.
+      - name: Resolve the agent built for the staging node
+        id: agent-build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ARTIFACT="mesh-agent-${AGENT_TARGET}"
+          SINCE="$(date -u -d '21 days ago' +%Y-%m-%d)"
+          RUN_ID="$(gh api --paginate \
+            "/repos/$REPO/actions/workflows/build-image.yml/runs" \
+            -f "created=>=$SINCE" -f "branch=main" -f "status=success" -F per_page=100 \
+            --jq '[.workflow_runs[].id] | first // empty')"
+          if [ -z "$RUN_ID" ]; then
+            echo "::warning::no successful build-image run on main inside the artifact retention window"
+            echo "resolved=0" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PRESENT="$(gh api --paginate "/repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.expired == false) | .name')"
+          if ! printf '%s\n' "$PRESENT" | grep -qFx "$ARTIFACT"; then
+            echo "::warning::${ARTIFACT} is absent from image-build run ${RUN_ID}"
+            echo "resolved=0" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "resolved=1"
+            echo "run_id=$RUN_ID"
+          } >>"$GITHUB_OUTPUT"
+          echo "Taking $ARTIFACT from image-build run $RUN_ID"
+
+      - name: Stop the run when there is no machine to measure
+        if: steps.agent-build.outputs.resolved != '1'
+        run: |
+          echo "::error::no agent binary for ${AGENT_TARGET}; this run is inconclusive and pushes no rows"
+          exit 1
+
+      - name: Download the agent
+        uses: actions/download-artifact@v8
+        with:
+          name: mesh-agent-${{ env.AGENT_TARGET }}
+          path: /tmp/agent-artifact
+          run-id: ${{ steps.agent-build.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Make the agent executable
+        run: install -m 0755 /tmp/agent-artifact/mesh-agent /tmp/mesh-agent
+
+      - name: Seed the drill's administrator and mint a credential
+        run: |
+          set -euo pipefail
+          PASSWORD="$(kubectl -n "$NAMESPACE" get secret \
+            "${RELEASE}-loadtest-account" -o jsonpath='{.data.password}' | base64 -d)"
+          test -n "$PASSWORD"
+          echo "::add-mask::$PASSWORD"
+          echo "DRILL_SERVICE_PASSWORD=$PASSWORD" >>"$GITHUB_ENV"
+          # The staging deploy's database reset truncates this account away, so
+          # whether it is present when a run starts depends on what a deploy did
+          # hours earlier. The statements are idempotent, and they go over
+          # standard input because a psql argv is readable by every process in
+          # the Postgres pod and is recorded in the exec audit entry.
+          ACCOUNT_EMAIL="$DRILL_SERVICE_ACCOUNT" ACCOUNT_PASSWORD="$PASSWORD" \
+            deploy/scripts/loadtest-account-sql.sh \
+            | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
+                psql -U opengate -d opengate -v ON_ERROR_STOP=1 -q
+
+      # Everything the runner asks the cluster goes through this one client:
+      # both the shaper's control endpoint and the server's API are
+      # cluster-internal, and a port-forward held open for half an hour across
+      # four scenarios is a second thing that can fail quietly mid-measurement.
+      - name: Stand up the in-cluster client
+        run: |
+          set -euo pipefail
+          PROBE_POD="netdrill-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "PROBE_POD=$PROBE_POD" >>"$GITHUB_ENV"
+          kubectl -n "$NAMESPACE" run "$PROBE_POD" \
+            --image=docker.io/curlimages/curl:8.11.1 \
+            --restart=Never \
+            --overrides='{"spec":{"containers":[{"name":"'"$PROBE_POD"'","image":"docker.io/curlimages/curl:8.11.1","command":["sleep","3000"],"resources":{"requests":{"cpu":"10m","memory":"32Mi"},"limits":{"cpu":"100m","memory":"64Mi"}}}]}}' \
+            --command -- sleep 3000
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$PROBE_POD" --timeout=120s
+
+      - name: Mint the enrolment credential the machines spend
+        run: |
+          set -euo pipefail
+          probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
+
+          TOKEN="$(probe -X POST "$DRILL_API_URL/api/v1/auth/login" \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$DRILL_SERVICE_ACCOUNT\",\"password\":\"$DRILL_SERVICE_PASSWORD\"}" \
+            | jq -r '.token // empty')"
+          test -n "$TOKEN" || { echo "::error::could not sign in as the drill's administrator"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          echo "DRILL_API_TOKEN=$TOKEN" >>"$GITHUB_ENV"
+
+          # Through the same public endpoint an installer uses, expiring within
+          # the hour. Nothing copies the certificate authority's key out of the
+          # cluster: that key mints a trusted machine for the whole fleet.
+          ENROLMENT="$(probe -X POST "$DRILL_API_URL/api/v1/enrollment-tokens" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $TOKEN" \
+            -d '{"label":"nightly network drill","max_uses":0,"expires_in_hours":1}' \
+            | jq -r '.token // empty')"
+          test -n "$ENROLMENT" || { echo "::error::could not mint an enrolment token"; exit 1; }
+          echo "::add-mask::$ENROLMENT"
+          echo "DRILL_ENROLMENT_TOKEN=$ENROLMENT" >>"$GITHUB_ENV"
+
+          kubectl -n "$NAMESPACE" create secret generic opengate-netdrill-enrolment \
+            --from-literal=token="$ENROLMENT" \
+            --dry-run=client -o yaml | kubectl -n "$NAMESPACE" apply -f -
+
+      - name: Start the link shaper
+        run: |
+          set -euo pipefail
+          SHAPER_POD="netdrill-shaper-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "SHAPER_POD=$SHAPER_POD" >>"$GITHUB_ENV"
+          # The seed is the run's own, recorded in the evidence, so a night can
+          # be compared against the one before it.
+          echo "SHAPER_SEED=$GITHUB_RUN_ID" >>"$GITHUB_ENV"
+
+          MACHINE="$SHAPER_POD" RELEASE="$RELEASE" NODE_ARCH="$NODE_ARCH" \
+            SERVER_POD_IP="$SERVER_POD_IP" SHAPER_SEED="$GITHUB_RUN_ID" \
+            deploy/scripts/netfault-shaper-pod.sh \
+            | kubectl -n "$NAMESPACE" apply -f -
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$SHAPER_POD" --timeout=180s
+          kubectl -n "$NAMESPACE" cp /tmp/netfault "$SHAPER_POD:/tmp/netfault"
+          kubectl -n "$NAMESPACE" exec "$SHAPER_POD" -- chmod 0755 /tmp/netfault
+          kubectl -n "$NAMESPACE" exec "$SHAPER_POD" -- touch /tmp/ready
+
+          SHAPER_IP="$(kubectl -n "$NAMESPACE" get pod "$SHAPER_POD" -o jsonpath='{.status.podIP}')"
+          test -n "$SHAPER_IP"
+          echo "SHAPER_IP=$SHAPER_IP" >>"$GITHUB_ENV"
+          echo "SHAPER_URL=http://${SHAPER_IP}:9091" >>"$GITHUB_ENV"
+
+          for _ in $(seq 1 60); do
+            if kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- \
+              curl -sS --max-time 5 "http://${SHAPER_IP}:9091/healthz" >/dev/null 2>&1; then
+              echo "the shaper is answering"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the shaper never answered on its control endpoint"
+          exit 1
+
+      # Both machines dial the name on the certificate, and for them that name
+      # resolves to the shaper rather than to the server pod. Enrolment takes
+      # the fully-qualified Service name, which the alias does not intercept.
+      - name: Start the real machine, with its path through the shaper
+        run: |
+          set -euo pipefail
+          MACHINE_POD="netdrill-machine-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "MACHINE_POD=$MACHINE_POD" >>"$GITHUB_ENV"
+
+          MACHINE="$MACHINE_POD" RELEASE="$RELEASE" NODE_ARCH="$NODE_ARCH" \
+            SERVER_POD_IP="$SHAPER_IP" \
+            ENROLMENT_SECRET=opengate-netdrill-enrolment \
+            OPENGATE_ENROLL_URL="$DRILL_ENROLL_URL" \
+            deploy/scripts/e2e-machine-pod.sh \
+            | kubectl -n "$NAMESPACE" apply -f -
+
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$MACHINE_POD" --timeout=180s
+          kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- mkdir -p /tmp/agent
+          kubectl -n "$NAMESPACE" cp /tmp/mesh-agent "$MACHINE_POD:/tmp/mesh-agent"
+          kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- chmod 0755 /tmp/mesh-agent
+          kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- touch /tmp/ready
+
+      - name: Wait for the machine to arrive, and learn which one it is
+        run: |
+          set -euo pipefail
+          probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
+          for _ in $(seq 1 60); do
+            DEVICE_ID="$(probe "$DRILL_API_URL/api/v1/devices" \
+              -H "Authorization: Bearer $DRILL_API_TOKEN" \
+              | jq -r --arg h "$MACHINE_POD" \
+                  '[.[] | select(.hostname == $h and .status == "online") | .id] | first // empty')"
+            if [ -n "$DEVICE_ID" ]; then
+              echo "DEVICE_ID=$DEVICE_ID" >>"$GITHUB_ENV"
+              echo "the drill's machine is online as $DEVICE_ID"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::the drill's machine never came online through the shaper — the enrolment split may have been missed"
+          exit 1
+
+      # The simulated fleet is what makes the thin-uplink scenario a herd rather
+      # than one machine: twenty in one tenant against four concurrent drains.
+      - name: Start the simulated fleet behind the same shaper
+        run: |
+          set -euo pipefail
+          FLEET_POD="netdrill-fleet-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "FLEET_POD=$FLEET_POD" >>"$GITHUB_ENV"
+
+          kubectl -n "$NAMESPACE" run "$FLEET_POD" \
+            --image=docker.io/library/alpine:3.21.3 \
+            --restart=Never \
+            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SHAPER_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$FLEET_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","2700"],"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --command -- sleep 2700
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$FLEET_POD" --timeout=120s
+          kubectl -n "$NAMESPACE" cp /tmp/loadtest "$FLEET_POD:/tmp/loadtest"
+          kubectl -n "$NAMESPACE" exec "$FLEET_POD" -- chmod 0755 /tmp/loadtest
+
+          # The fleet is held for the whole drill, so every scenario has the herd
+          # in place rather than standing one up per scenario.
+          scripts/loadtest-quic-incluster.sh start -- \
+            /tmp/loadtest \
+              -agents="$DRILL_FLEET_AGENTS" \
+              -addr="${RELEASE}-server:9090" \
+              -enroll-url="$DRILL_ENROLL_URL" \
+              -enroll-token="$DRILL_ENROLMENT_TOKEN" \
+              -default-telemetry \
+              -backfill-batches=4 \
+              -backfill-samples=1000 \
+              -hold=25m
+
+      - name: Run the scenarios
+        id: scenarios
+        env:
+          NETDRILL_RUN_SCENARIOS: ${{ inputs.scenarios || 's1 s2 s3 s4' }}
+        run: |
+          set -uo pipefail
+          mkdir -p "$DRILL_EVIDENCE" "$(dirname "$DRILL_MEASUREMENTS")"
+          : >"$DRILL_MEASUREMENTS"
+          inconclusive=0
+          for scenario in $NETDRILL_RUN_SCENARIOS; do
+            echo "::group::$scenario"
+            NAMESPACE="$NAMESPACE" \
+            PROBE_POD="$PROBE_POD" \
+            SHAPER_POD="$SHAPER_POD" \
+            SHAPER_URL="$SHAPER_URL" \
+            SERVER_URL="$DRILL_API_URL" \
+            DEVICE_ID="$DEVICE_ID" \
+            API_TOKEN="$DRILL_API_TOKEN" \
+            EVIDENCE_DIR="$DRILL_EVIDENCE" \
+            MEASUREMENTS_FILE="$DRILL_MEASUREMENTS" \
+              scripts/fault/network-drill.sh "$scenario"
+            rc=$?
+            echo "::endgroup::"
+            # A scenario that could not observe the system is not a failed
+            # drill: it contributes no row and the run says so. A scenario that
+            # measured the product and found it wanting is a measurement, and
+            # the regression check is what decides about it.
+            if [ "$rc" -eq 2 ]; then
+              echo "::warning::$scenario was inconclusive and contributed no measurement"
+              inconclusive=$((inconclusive + 1))
+            elif [ "$rc" -ne 0 ]; then
+              echo "::error::$scenario failed to run (exit $rc)"
+              inconclusive=$((inconclusive + 1))
+            fi
+          done
+          echo "inconclusive=$inconclusive" >>"$GITHUB_OUTPUT"
+
+      - name: Collect the evidence
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p "$DRILL_EVIDENCE"
+          cp "$DRILL_MEASUREMENTS" "$DRILL_EVIDENCE/measurements.jsonl" 2>/dev/null || true
+          kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp \
+            >"$DRILL_EVIDENCE/events.txt" 2>&1 || true
+          kubectl -n "$NAMESPACE" get pods -o wide >"$DRILL_EVIDENCE/pods.txt" 2>&1 || true
+          for pod in "${SHAPER_POD:-}" "${MACHINE_POD:-}" "${FLEET_POD:-}"; do
+            [ -n "$pod" ] || continue
+            kubectl -n "$NAMESPACE" logs "$pod" --tail=2000 \
+              >"$DRILL_EVIDENCE/${pod}.log" 2>&1 || true
+          done
+
+      - name: Build the canonical rows
+        id: summarize
+        run: |
+          set -uo pipefail
+          if scripts/network-drill-summarize.sh "$DRILL_MEASUREMENTS" >/tmp/netdrill-summary.json; then
+            echo "measured=1" >>"$GITHUB_OUTPUT"
+            cp /tmp/netdrill-summary.json "$DRILL_EVIDENCE/netdrill-summary.json"
+            jq -r '.[] | "\(.scenario)/\(.victim) \(.metric) = \(.value)"' /tmp/netdrill-summary.json
+          else
+            echo "measured=0" >>"$GITHUB_OUTPUT"
+            echo "::warning::this run measured nothing, so it pushes no rows"
+          fi
+
+      - name: Upload the evidence bundle
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: netdrill-evidence
+          path: /tmp/netdrill/evidence
+          # The bundle is what a human reads to understand a night; an empty
+          # upload would leave a run looking collected when nothing was.
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the canonical rows
+        if: steps.summarize.outputs.measured == '1'
+        uses: actions/upload-artifact@v5
+        with:
+          name: netdrill-summary
+          path: /tmp/netdrill-summary.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove every pod the drill created, and prove none remains
+        if: always()
+        run: |
+          set -uo pipefail
+          for pod in "${SHAPER_POD:-}" "${MACHINE_POD:-}" "${FLEET_POD:-}" "${PROBE_POD:-}"; do
+            [ -n "$pod" ] || continue
+            kubectl -n "$NAMESPACE" delete pod "$pod" --ignore-not-found --wait=true --timeout=120s || true
+          done
+          kubectl -n "$NAMESPACE" delete secret opengate-netdrill-enrolment --ignore-not-found || true
+          LEFT="$(kubectl -n "$NAMESPACE" get pods -o name 2>/dev/null \
+            | grep -E "netdrill-(shaper|machine|fleet|probe)-${GITHUB_RUN_ID}-" || true)"
+          if [ -n "$LEFT" ]; then
+            echo "::error::the drill left pods behind: $LEFT"
+            exit 1
+          fi
+          echo "the drill left nothing behind"
+
+      - name: Release the staging namespace
+        if: always()
+        run: scripts/staging-lease.sh release "$STAGING_LEASE_HOLDER" || true
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
+
+  publish:
+    name: Publish the network-drill trend
+    needs: [network-drill]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # This job's result is the observability environment's deployment status, so
+    # it reports only whether the trend was collected and published. The
+    # regression verdict is the job below: a regression is a finding about the
+    # system under test, not a failure to publish.
+    environment: observability
+    permissions:
+      contents: read
+    outputs:
+      regression: ${{ steps.check.outputs.regression }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      # A run that measured nothing has nothing to publish, and saying so is the
+      # point: rows of zeroes pull a window median down and one bad night
+      # quietly costs two.
+      - name: Read whether the run measured anything at all
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.network-drill.outputs.measured }}" != "1" ]; then
+            echo "::warning::the drill measured nothing this night; no rows enter the trend"
+            echo "NETDRILL_MEASURED=0" >>"$GITHUB_ENV"
+          else
+            echo "NETDRILL_MEASURED=1" >>"$GITHUB_ENV"
+          fi
+
+      - name: Download the canonical rows
+        if: needs.network-drill.outputs.measured == '1'
+        uses: actions/download-artifact@v8
+        with:
+          name: netdrill-summary
+          path: artifacts/netdrill
+
+      - name: Check for a regression
+        id: check
+        if: needs.network-drill.outputs.measured == '1'
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          OUT="$(scripts/network-drill-regression-check.sh artifacts/netdrill/netdrill-summary.json 2>&1)"
+          rc=$?
+          printf '%s\n' "$OUT"
+          if [ "$rc" -eq 1 ]; then
+            echo "regression=1" >>"$GITHUB_OUTPUT"
+            {
+              echo 'alert_text<<NETDRILL'
+              printf '%s\n' "$OUT"
+              echo 'NETDRILL'
+            } >>"$GITHUB_OUTPUT"
+          else
+            echo "regression=0" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Push the rows to VictoriaMetrics
+        if: needs.network-drill.outputs.measured == '1'
+        run: scripts/network-drill-vm-push.sh artifacts/netdrill/netdrill-summary.json
+
+      - name: Write the run summary
+        if: always()
+        run: |
+          set -uo pipefail
+          {
+            echo "## Network drill"
+            echo
+            if [ "${{ needs.network-drill.outputs.measured }}" != "1" ]; then
+              echo "This run measured nothing; no rows entered the trend."
+            else
+              echo "| Scenario | Victim | Measurement | Value |"
+              echo "|---|---|---|---|"
+              jq -r '.[] | "| \(.scenario) | \(.victim) | \(.metric) | \(.value) |"' \
+                artifacts/netdrill/netdrill-summary.json
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Telegram alert on regression
+        if: steps.check.outputs.regression == '1'
+        env:
+          BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          ALERT_TEXT: ${{ steps.check.outputs.alert_text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
+            echo "::warning::Telegram secrets not set; the regression is still reported by the workflow's own result."
+            exit 0
+          fi
+          MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Network Drill Trends" (opengate-network-drill-trend)' \
+            "$ALERT_TEXT" "$RUN_URL")"
+          send_http=$(curl -sS --max-time 30 -o /tmp/telegram-send.json -w '%{http_code}' \
+            -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT}" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=true" 2>/dev/null || echo "curl_error")
+          if [ "$send_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-send.json >/dev/null 2>&1; then
+            echo "::error::Telegram sendMessage returned HTTP ${send_http}."
+            cat /tmp/telegram-send.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+          echo "Telegram alert delivered"
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
+
+  gate:
+    name: Network-drill regression gate
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      # The drill never blocks a deploy. What this decides is whether the
+      # nightly goes red, which is a finding to read rather than a reason to
+      # stop shipping.
+      - name: Fail the workflow red on a regression
+        run: |
+          if [ "${{ needs.publish.result }}" != "success" ]; then
+            echo "::error::Network-drill trend publishing did not succeed; see the publish job."
+            exit 1
+          fi
+          if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then
+            echo "::error::Network-drill regression — see the workflow summary and the Telegram alert (if delivered)."
+            exit 1
+          fi
+          echo "No network-drill regression."

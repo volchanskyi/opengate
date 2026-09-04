@@ -35,6 +35,17 @@ set -euo pipefail
 # the name it verifies are this one and the same.
 SERVER_NAME="${RELEASE}-server"
 
+# Where the machine enrols, which is a different address from the one it dials
+# for QUIC and is aimed independently.
+#
+# Enrolment is plain HTTP to the Service; QUIC goes to whatever the hostAliases
+# entry above points the certificate's name at. They are the same host here, and
+# the default below says so. They are not the same host for the nightly network
+# drill, which points the certificate's name at a link shaper and needs
+# enrolment to keep reaching the Service — so it passes the fully-qualified
+# Service name, which an /etc/hosts entry for the short name does not intercept.
+ENROLL_URL="${OPENGATE_ENROLL_URL:-http://${SERVER_NAME}:8080}"
+
 cat <<POD
 apiVersion: v1
 kind: Pod
@@ -76,7 +87,7 @@ spec:
         - name: OPENGATE_SERVER_ADDR
           value: ${SERVER_NAME}:9090
         - name: OPENGATE_ENROLL_URL
-          value: http://${SERVER_NAME}:8080
+          value: ${ENROLL_URL}
         - name: OPENGATE_DATA_DIR
           value: /tmp/agent
         # The image is stock Alpine and the container is not root, so the

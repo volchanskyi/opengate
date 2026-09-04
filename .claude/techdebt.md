@@ -1,54 +1,34 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-08-31. -->
+<!-- Last reviewed: 2026-09-04. -->
 
 ## Severity: Medium
 
-### The nightly mutation score is below its baseline in go and rust
+### The go mutation score has not recovered from the rules and alerts surface
 
-The go and rust legs sit under their baselines: rust 87.4 and go 85.5 against
-88.5 and 88.2, so go has dropped more than the 2pp the check allows. The runs
-that measured them were complete, so these are scores rather than an artefact of
-a shard that went missing.
+The go leg reads 85.5 against the 88.2 it carried before that surface landed.
+The nightly is green — the check in
+[`mutation-summarize.sh`](../scripts/mutation-summarize.sh) compares each run
+with the one before it and holds an absolute floor of 85.0, and 85.5 clears both
+— so what is owed is the 2.7 points, not a red run.
 
-Reading the score at all needs a night that finishes, and the nightly stopped
-producing one: a shard's own baseline suite has to pass before gremlins mutates
-anything, and `TestASecondConnectionLeavesTheLiveOneAlone` failed on the
-`go-domain-persistence` shard, taking the whole run's artefact set with it. That
-case waited on the connected-agent count and then read the device row, and the
-two move at different moments — the count on the accept path, the row when the
-register frame is handled — so on a machine busy enough to widen the gap it read
-the seeded status. It now waits for the machine to be online, which is the state
-the reconnect is supposed to leave alone.
+The shape says new surface arriving under-tested rather than existing tests
+weakening. Of 2 965 go mutants, 332 sit in code no test reaches at all, against
+96 that a test reaches and fails to kill: reaching the code is the larger half
+of the work by more than three to one.
 
-What moved is the denominator. Forty-seven commits landed the rules, alerts and
-investigations programme between the baseline and that run — 434 files, roughly
-66k lines — and the go figure carries 325 mutants in code no test reaches at
-all, against 94 that a test reaches and fails to kill. The shape says new
-surface arriving under-tested rather than existing tests weakening.
-
-The web leg is out of it. A full local run reproduced the nightly's 82.4 exactly,
-which made the gap addressable per file rather than per shard: the survivors
-concentrated in the same rules and investigations surface the drop came from,
-and covering seven of those files — `WhatItDoes`, `RuleList`, `RuleCoveragePanel`,
-`DeviceLabels`, `MaintenancePanel`, `rule-store` and `device-tags-store` — took
-the leg to 85.3 against its 85 floor. Nothing but tests changed. The margin
-over the floor is thin enough that the next tranche of web surface will need the
-same treatment as it lands rather than after the leg reds again.
-
-`internal/rules` is the same job started on the go side: the two functions the
-package left unreached — `Term.Comparator` and `ResumeRuleTenantWide` — are
-covered, and with them the whole `wireTerms` path, which every test had been
-skipping past because no fixture carried a rule with extra conditions.
+The web leg clears its own floor by half a point, 85.5 against 85.0. That margin
+is thin enough that the next tranche of web surface needs its survivors covered
+as it lands rather than after the leg reds.
 
 **Pay-down trigger:** this is measured per shard, so it pays down per shard
-rather than in one pass. Take the shards covering the new rules and alerts code,
+rather than in one pass. Take the shards covering the rules and alerts code,
 kill what a test can kill, and carve out what the run proves equivalent with the
 reason written next to it. A file's survivor list is the unit of work — reading
 it off a local run costs less than a nightly and names the assertions that are
-missing. The floor is the gate going green on its own rather than the baseline
-being moved to meet it.
+missing. The trigger is the leg reaching 88.2 on its own rather than that figure
+being moved down to meet it.
 
 ### The two larger fleets have not been built on staging
 
@@ -212,7 +192,7 @@ handlers can reject rather than sanitize.
 ### Per-test migration replay is real cost but not on the wall-clock critical path
 
 [`NewTestStore`](../server/internal/testutil/testutil.go) creates a schema and
-applies every migration for each of its 56 call sites. Measured against a warm
+applies every migration for each of its 82 call sites. Measured against a warm
 shared Postgres: **~356 ms** per store for schema + migrations, versus **~80 ms**
 for a `CREATE DATABASE … TEMPLATE` clone of a pre-migrated template — a 4.4x
 per-operation gain. A full template-clone implementation (content-addressed
@@ -303,26 +283,42 @@ needed until list-fetch latency shows up in practice.
 **Pay-down trigger:** device-list fetch latency or payload size becomes a
 problem as the fleet approaches the >20k-agent scaling tier.
 
-### On-demand network drills deferred
+### Network faults on the server's own side are not covered
 
-The deployed fault drills are active in staging CD: with the `STAGING_FAULT_TESTS`
-repository variable set to `true`,
-[`cd.yml`](../.github/workflows/cd.yml) runs a
-[`fault-tolerance.yml`](../.github/workflows/fault-tolerance.yml) drill against
-`opengate-staging` after E2E and gates production promotion on its result. The
-runner surface covers `pod-delete`, `bad-rollout`, `ingress-504`, and
-`ingress-502` (`STAGING_FAULT_PROFILE` selects one; default `pod-delete`), and
-the node scrape (`up`, node-exporter, `/metrics`, ingress logs) is live in
-VictoriaMetrics so infra scenarios have usable CPU/mem/disk evidence.
+The nightly network drill faults the machine-facing QUIC path by putting a link
+shaper between the drill's machines and the server
+([Fault-Injection](../docs/infrastructure/Fault-Injection.md)). Because the
+shaper sits on the machine's side of the connection, it can fail the machine's
+path but not the server's own network interface.
 
-On-demand network drills stay deferred: packet loss/corrupt/partition on the QUIC
-path (a privileged CRI-O daemon for one pod) is disproportionate today and is
-never wired into the gating path. Build the network-drill tooling only when a
-storm/lossy-network scenario needs it (see
-[Fault-Injection](../docs/infrastructure/Fault-Injection.md)).
+**Pay-down trigger:** a failure is observed that is specific to the server's own
+interface and is not already covered by the pod-deletion and gateway drills.
+Closing it needs either a privileged node agent on the one worker production runs
+on, or a second cluster — both of which the free-tier block-volume cap and the
+shared node currently rule out
+([ADR-055](../docs/adr/ADR-055-fault-injection-mechanism.md)).
 
-**Pay-down trigger:** the network-drill item closes only if/when a lossy-network
-scenario is actually needed.
+### An alert a machine raises never reaches the server
+
+The agent's alert production side is complete and wired into `main.rs`: a bounded
+`AlertSink`, an event watch, a rule evaluator and a retroactive scanner all write
+into the sink. The server's ingestion side is equally complete —
+`conn_alerts.go` carries ten drop reasons, duplicate suppression and
+reconnect-replay handling. **Nothing connects them.** `AlertSink::drain()` has no
+production call site (its only caller is inside `#[cfg(test)] mod tests`),
+`ControlMessage::AgentAlert` is constructed only in golden tests, and `EdgeAlert`
+has no consumer outside the alerts module. Every alert every machine raises goes
+into a 256-entry ring buffer, ages out under the sink's oldest-first eviction,
+and is discarded; the server's alert machinery has never had a producer.
+
+This surfaced while specifying the network drill, which wanted to ask whether an
+alert raised during an outage arrives on reconnect. It cannot, and not for any
+reason a network fault would find — so the drill's `netdrill_alerts_replayed`
+series and its assertion were withdrawn rather than left to fail nightly.
+
+**Pay-down trigger:** immediate — a silently non-functional alerting pipeline is
+a product defect rather than a testing gap. The drill's withdrawn alert-replay
+assertion returns in the same change that gives the sink a drain.
 
 ### Edge-Sentinel audited command-line redaction not wired into sampler output
 

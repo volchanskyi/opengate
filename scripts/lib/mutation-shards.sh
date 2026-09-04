@@ -287,7 +287,7 @@ mutation_all_shards() {
 # process is assembled rather than what any behavior does. Splitting that wiring
 # across files for readability must not quietly enrol it in mutation testing.
 mutation_go_global_excludes() {
-  echo 'openapi_gen\.go|cmd/meshserver/|tests/loadtest/main\.go|internal/testutil/|internal/faulttest/'
+  echo 'openapi_gen\.go|cmd/meshserver/|tests/loadtest/main\.go|tests/netfault/main\.go|internal/testutil/|internal/faulttest/'
 }
 
 mutation_go_shard_units() {
@@ -387,7 +387,7 @@ mutation_go_shard_units() {
       echo "dir:internal/relay dir:internal/signaling dir:internal/clientapi"
       ;;
     go-observability-harness)
-      echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:internal/testreaper dir:tests/loadtest"
+      echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:internal/testreaper dir:tests/loadtest dir:tests/netfault"
       ;;
     # The composition root. It is mutated rather than carved out: a dry run
     # measured 23 mutants there, and what they land on is behavior a test can

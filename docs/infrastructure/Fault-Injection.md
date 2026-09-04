@@ -2,9 +2,9 @@
 
 This chapter is the single source of truth for OpenGate's fault-injection
 harness. It freezes the contract that the Go fault suite, the ingress fault
-profiles, and the Chaos Mesh scenario runner build against. The mechanism
-decision — no fault code in the shipped binary — is recorded in
-[ADR-055](../adr/ADR-055-fault-injection-mechanism.md).
+profiles, the Kubernetes scenario runners and the nightly network drill build
+against. The mechanism decision — no fault code in the shipped binary — is
+recorded in [ADR-055](../adr/ADR-055-fault-injection-mechanism.md).
 
 ## Mechanism
 
@@ -15,9 +15,11 @@ Faults come from two disjoint places, never from code inside the server:
   for one of the consumer interfaces the server already depends on. This is the
   [`store_failure_test.go`](../../server/internal/api/store_failure_test.go)
   port-substitution idiom, extended to the other seams.
-- **Deployed faults** run in [Chaos Mesh](https://chaos-mesh.org/), installed
-  **on-demand** for a drill against the `opengate-staging` namespace and
-  uninstalled after. Chaos Mesh runs no code in the server.
+- **Deployed faults** come from three staging-scoped places outside the server:
+  runner scripts driving `kubectl` and `helm` directly, ingress-nginx annotations
+  at the edge, and a **link shaper** the drill's own machines send their traffic
+  through. None of them runs code in the server, and none of them holds any
+  privilege: the shaper is an ordinary unprivileged pod with two sockets.
 
 Edge 5xx/timeout is injected at ingress-nginx (staging host annotations).
 
@@ -47,18 +49,32 @@ and the `api.before-handler` middleware. The two repositories are `ServerConfig`
 interface ports; the Edge-Sentinel ports (`TelemetryReader`, `Inventory`,
 `Purger`/`PurgeJobs`) and the notifier/AMT ports are candidate, non-gating.
 
-### Chaos Mesh surfaces (deployed, on-demand)
+### Link-shaper surface (deployed, nightly)
 
-| Surface | Experiment kind |
+The machine-facing QUIC path is faulted by putting a forwarder in it. The drill's
+machines dial the name on the server's certificate; a `hostAliases` entry points
+that name at the shaper instead of at the server pod, and the shaper forwards
+every datagram on to the server with whatever impairment the scenario has
+commanded. Enrolment goes to the Service by its fully-qualified name, which an
+`/etc/hosts` entry for the short name does not intercept, so the shaper carries
+UDP and nothing else.
+
+| Surface | Impairment |
 |---|---|
-| server↔Postgres / server↔relay latency and abort | `NetworkChaos` |
-| QUIC/UDP agent path; packet loss / corrupt / reorder / partition (D1) | `NetworkChaos` |
-| CPU / memory pressure | `StressChaos` |
+| machine↔server QUIC path | total outage, one-way packet loss, fixed delay each way, a shared bit-rate link, and re-addressing mid-connection |
+
+The forwarder is [`server/tests/netfault/`](../../server/tests/netfault), built
+for the node's architecture and copied into the pod the drill creates from
+[`netfault-shaper-pod.sh`](../../deploy/scripts/netfault-shaper-pod.sh). Every
+impairment draws from a seed recorded in the run's evidence, so two nights with
+the same seed make the same decisions. A `go list -deps` assertion holds the
+shaper out of the shipped server binary, in the pattern
+[`noship_test.go`](../../server/internal/faulttest/noship_test.go) sets.
 
 ### Kubernetes scenario runner (C1/C2, deployed)
 
 Single-pod deletion and bad-rollout are driven by idempotent, staging-only runner
-scripts — a direct `kubectl`/`helm` fault needs no Chaos Mesh controller:
+scripts, which drive the cluster's own API directly:
 
 - **Pod deletion (C1)** — [`scripts/fault/pod-delete.sh`](../../scripts/fault/pod-delete.sh)
   deletes the staging server pod by the exact selector
@@ -80,8 +96,8 @@ Edge 502/504/timeout is injected with version-controlled, staging-only
 ingress-nginx annotation templates applied to the public staging host, then
 restored. `502` is produced by making the **upstream unavailable** (backend
 scaled to zero / pointed at a dead service), not by a reviewed critical-risk
-nginx configuration snippet; `504` is produced by a backend delay (Chaos Mesh)
-that exceeds the ingress proxy-read timeout. A reviewed-snippet 502 path is
+nginx configuration snippet; `504` is produced by shortening the ingress
+proxy-read and proxy-send timeouts below what the backend takes to answer. A reviewed-snippet 502 path is
 deferred until the ingress security contract is tightened.
 
 The templates and save/apply/restore tooling live in
@@ -103,39 +119,64 @@ production render in `make lint-k8s`.
 | `error` | Returns a typed boundary error; the handler maps it to the mapped HTTP status. |
 | `panic` | `middleware.Recoverer` turns the panic into a 500, telemetry records it, and the **next request succeeds**. |
 | `blocked` | Waits on context cancellation — models a hung dependency (replaces a literal deadlock); the request context cancels and the goroutine exits. |
-| `connection-close` | The harness closes the concrete connection it owns and asserts **server-side cleanup**: sends surface an error, the device transitions to offline, and no goroutine leaks. Agent-side reconnect is proven by the Chaos Mesh drills, not here. |
+| `connection-close` | The harness closes the concrete connection it owns and asserts **server-side cleanup**: sends surface an error, the device transitions to offline, and no goroutine leaks. Agent-side reconnect is proven by the nightly network drill, not here. |
 
-## Chaos Mesh experiment surface and guardrails
+## The nightly network drill
 
-Because a separate Always-Free cluster is infeasible (the 200 GB block-volume cap
-is already consumed — see [ADR-035](../adr/ADR-035-oke-free-tier-block-volume-remediation.md)),
-Chaos Mesh runs on the one shared worker under a **mandatory** safety contract.
-Every item below is a required deliverable of the scenario runner, not a
-convention:
+The link between a customer's machine and the server is the failure a remote
+management product meets most often in the field, and it is the one the reconnect
+backoff, the flap governor and the backfill engine exist to survive.
+[`network-drill.yml`](../../.github/workflows/network-drill.yml) runs four
+scenarios against it every night, driven by
+[`network-drill.sh`](../../scripts/fault/network-drill.sh).
 
-- **On-demand install/uninstall.** Chaos Mesh is `helm install`ed for a drill and
-  uninstalled after; no standing chaos control plane sits next to production.
-- **Namespace-scoped.** Installed with `clusterScoped=false` and the controller
-  bound to `opengate-staging`; the dashboard is disabled.
-- **Required `duration`.** Every experiment carries a `duration` — Chaos Mesh
-  runs indefinitely by default, so an unbounded experiment is rejected.
-- **Staging selectors + production-pod-exclusion guard.** Selectors pin the
-  staging namespace and the staging release label; a guard forbids any selector
-  that could resolve a production pod, and the install refuses any namespace but
-  `opengate-staging`.
-- **Pinned arm64 digest.** The daemon image is pinned by an `arm64` digest
-  verified to schedule on the A1 worker (multi-arch manifests are not guaranteed).
-- **Zero residue.** Every drill uninstalls the daemon and verifies zero Chaos
-  Mesh residue, even on failure (`trap` + workflow `always()`).
+Two machines are behind the shaper at once. The **real machine** is the shipped
+agent, taken as an artifact from the image build that produced the running
+staging image, so the scenarios exercise the real backoff schedule and the real
+backfill engine. The **simulated fleet** is twenty agents from
+[`tests/loadtest`](../../server/tests/loadtest) — enough, in one tenant, to
+queue against the concurrent drains the server admits per customer.
 
-The exact Helm values, the exclusion admission/selector guard, and the pinned
-digest are implemented by the scenario runner.
+Every scenario is three phases: baseline, fault, recovery.
+
+| Scenario | The fault | What is measured |
+|---|---|---|
+| S1 | the site goes dark, and comes back on a healthy link | how long the machine took to come back on its own, and how much of the hole its absence left in the customer's charts filled in |
+| S2 | the same outage, recovered over a 2 Mbit/s uplink shared by every machine | the worst staleness of the live readings while the site catches up, and whether any machine lost its connection doing it |
+| S3 | the connection stays up and a fifth of what the machine sends is lost | whether the machine holds its connection or churns |
+| S4 | a third of a second each way, then the machine returns on a new address | whether the session survives the new address, and — recorded separately — whether the machine reconnected instead |
+
+S4's two numbers are recorded together on purpose. A migration that does not
+happen and a link that breaks look identical from the outside: both end at the
+idle timeout. Only the pair tells them apart.
+
+### What the drill is held to
+
+- **A scenario that could not observe the system emits nothing.** A dead or
+  unreachable shaper, a refused impairment, or a drop count that disagrees with
+  the impairment commanded all end the scenario with no row at all. Rows of
+  zeroes pull a window median down, and one bad night would quietly cost two.
+- **No privilege of any kind.** No node agent, no runtime socket, no added
+  capability, no root.
+- **Staging only.** The runner refuses any namespace but `opengate-staging`, and
+  it takes the namespace lease before touching anything.
+- **It never gates a deploy.** The drill reports and trends. A regression turns
+  the nightly red and raises a Telegram alert; nothing it finds blocks a release.
+- **The link is handed back clear**, on every path out of a scenario including
+  the ones that end badly.
+
+Measurements reach VictoriaMetrics as `netdrill_*` series labelled by scenario
+and victim, and render on the **Network Drill Trends** dashboard
+([`network-drill-trend.json`](../../deploy/grafana/provisioning/dashboards/network-drill-trend.json)).
+[`network-drill-regression-check.sh`](../../scripts/network-drill-regression-check.sh)
+compares each night against a fourteen-day window and against absolute floors,
+and says in its output which of the two it applied.
 
 ## Scenario catalog and expected outcomes
 
-Executor legend: **H** = Go harness (in-process) · **CM** = Chaos Mesh
-(on-demand, staging) · **IG** = ingress annotations · **RUN** = scenario runner
-script ([`scripts/fault/`](../../scripts/fault)).
+Executor legend: **H** = Go harness (in-process) · **IG** = ingress annotations ·
+**RUN** = scenario runner script ([`scripts/fault/`](../../scripts/fault)) ·
+**ND** = the nightly network drill through the link shaper.
 
 | Scenario | Executor | Expected outcome | Recovery budget |
 |---|---|---|---|
@@ -143,15 +184,17 @@ script ([`scripts/fault/`](../../scripts/fault)).
 | Repository timeout | H | Boundary maps the timeout to `503`/`504`-class per handler; no leaked transaction or goroutine. | n/a |
 | Handler panic | H | `500` response; process survives and the next request returns `2xx`. | next request |
 | Hung dependency | H | Request context cancels; the blocked goroutine exits. | request deadline |
-| Agent control-write fault | H | Send surfaces a typed error; device → offline; no goroutine leak. Agent reconnect is proven by CM, not here. | n/a |
+| Agent control-write fault | H | Send surfaces a typed error; device → offline; no goroutine leak. Agent reconnect is proven by ND, not here. | n/a |
 | Relay connection drop | H | Both sides close cleanly; server-side cleanup completes and the reconnect path activates. | n/a |
 | WebSocket handshake failure | H / IG | Client gets a bounded failure and reconnects. | ≤ 30 s reconnect |
-| Deployed DB/relay latency | CM `NetworkChaos` | Real-pod dependency delay bounded; the pool/driver recovers after the fault clears. | ≤ 60 s after clear |
 | Edge 502 | IG | Public client gets the configured status; cleanup restores `2xx`. | on restore |
-| Edge 504 | IG + CM | Backend delay exceeds the ingress timeout; public client times out; cleanup restores `2xx`. | on restore |
+| Edge 504 | IG | The proxy read timeout is shorter than the backend takes; public client times out; cleanup restores `2xx`. | on restore |
 | Pod deletion | RUN | Replacement pod ready within the **120 s** SLO; clients reconnect. | **≤ 120 s** |
 | Bad rollout | RUN | Rollout fails readiness; Helm rollback restores the prior image healthy. | ≤ 180 s rollback |
-| Packet loss / partition + QUIC (D1) | CM `NetworkChaos` | Reconnect/backoff within budget; no data loss; recovers after the fault clears. | ≤ 60 s after clear |
+| Machine outage, healthy recovery (S1) | ND | The machine comes back unaided and the hole in its charts fills to at least 95 %. | **≤ 120 s** to reconnect |
+| Machine outage, thin-uplink recovery (S2) | ND | Live readings stay fresh while the site catches up; no machine loses its connection. | ≤ 90 s staleness |
+| One-way packet loss (S3) | ND | The machine holds its connection; no offline transition, no flap. | n/a — held throughout |
+| Satellite delay and re-addressing (S4) | ND | The connection stays open at 300 ms each way, and the session survives the machine returning on a new address. | ≤ 90 s after the change |
 
 ### Recovery SLO budgets
 
@@ -165,12 +208,14 @@ promotion from its first run.
 ## Safety invariants
 
 - No fault code in the shipped binary; production and staging run the identical
-  image. The Go fault suite lives only in `_test.go`; Chaos Mesh runs entirely
-  outside the process.
-- Chaos Mesh is present only during an on-demand drill and is scoped to
-  `opengate-staging`.
-- Every experiment is duration-bounded; every drill verifies zero residue after
-  cleanup.
+  image. The Go fault suite lives only in `_test.go`, and the link shaper is a
+  separate binary a `go list -deps` assertion keeps out of the server's
+  dependency graph.
+- Every deployed fault is scoped to `opengate-staging`, and every runner refuses
+  any other namespace.
+- Every drill is bounded and removes what it created, verified on every path
+  (`trap` + workflow `always()`); the network drill additionally asserts that no
+  pod it created remains.
 - There is no chaos endpoint or fault flag in the server — the absence of a
   compiled-in injector is asserted structurally by the fault suite's
   no-import rule, not measured as disabled overhead.
