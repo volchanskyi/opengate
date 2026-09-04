@@ -3,8 +3,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useConnectionStore } from '../session';
 import { TerminalView } from './TerminalView';
 
-const xtermStylesheet = vi.hoisted(() => ({ loaded: false }));
-
 vi.mock('../../lib/api', () => ({
   api: {
     GET: vi.fn().mockResolvedValue({ data: undefined, error: { error: 'mock' }, response: { status: 404 } }),
@@ -13,10 +11,7 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-vi.mock('@xterm/xterm/css/xterm.css', () => {
-  xtermStylesheet.loaded = true;
-  return {};
-});
+vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 // Mock xterm — jsdom doesn't support real terminal rendering
 const mockWrite = vi.fn();
@@ -56,10 +51,6 @@ describe('TerminalView', () => {
   it('renders terminal container div', () => {
     render(<TerminalView />);
     expect(document.querySelector('[data-testid="terminal-container"]')).toBeInTheDocument();
-  });
-
-  it('loads the xterm stylesheet that hides its helper textarea', () => {
-    expect(xtermStylesheet.loaded).toBe(true);
   });
 
   it('shows placeholder when disconnected', () => {

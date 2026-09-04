@@ -238,12 +238,4 @@ mod tests {
         MouseHandler::handle_mouse_move(&perms(true), &null, 1, 1);
         MouseHandler::handle_mouse_click(&perms(true), &null, MouseButton::Left, true, 1, 1);
     }
-
-    #[test]
-    fn mouse_handler_implements_control_message_handler() {
-        // Compile-time pin: MouseHandler must be a ControlMessageHandler.
-        // Catches accidental removal of the impl marker.
-        fn assert_impl<T: ControlMessageHandler>() {}
-        assert_impl::<MouseHandler>();
-    }
 }

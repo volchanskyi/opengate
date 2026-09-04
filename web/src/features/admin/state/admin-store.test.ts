@@ -42,16 +42,6 @@ describe('admin store', () => {
     });
   });
 
-  it('initial state is empty arrays + idle', () => {
-    // Pin initial state literal-by-literal so a mutant flipping `isLoading: false`
-    // to `isLoading: true` (or `users: []` to `users: undefined`) is killed.
-    const fresh = useAdminStore.getState();
-    expect(fresh.users).toEqual([]);
-    expect(fresh.auditEvents).toEqual([]);
-    expect(fresh.isLoading).toBe(false);
-    expect(fresh.error).toBeNull();
-  });
-
   it('fetchUsers populates users array', async () => {
     mockGet.mockResolvedValueOnce({ data: [fakeUser], error: undefined });
 

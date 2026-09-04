@@ -6,10 +6,6 @@ describe('chat-store', () => {
     useChatStore.setState({ messages: [] });
   });
 
-  it('has empty initial messages', () => {
-    expect(useChatStore.getState().messages).toEqual([]);
-  });
-
   it('addMessage appends a message', () => {
     const { addMessage } = useChatStore.getState();
     addMessage({ text: 'hello', sender: 'browser' });

@@ -151,10 +151,4 @@ mod tests {
         *rec.fail.lock().unwrap() = true;
         KeyboardHandler::handle_key_press(&perms(true), &rec, None, KeyCode::KeyA, true);
     }
-
-    #[test]
-    fn keyboard_handler_implements_control_message_handler() {
-        fn assert_impl<T: ControlMessageHandler>() {}
-        assert_impl::<KeyboardHandler>();
-    }
 }

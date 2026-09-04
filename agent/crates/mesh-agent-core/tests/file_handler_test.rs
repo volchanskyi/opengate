@@ -27,18 +27,3 @@ async fn handle_list_success_emits_file_list_response() {
         other => panic!("expected FileListResponse, got {other:?}"),
     }
 }
-
-#[tokio::test]
-async fn handle_upload_is_silent_acknowledgement() {
-    // Upload not yet implemented; the handler must accept and drop without
-    // emitting any frame. Mutating the arm away would break the wire
-    // protocol's expectation of silent ack on unimplemented features.
-    let (_frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(8);
-
-    FileHandler::handle_upload("/tmp/x", 1024);
-
-    assert!(matches!(
-        frame_rx.try_recv(),
-        Err(mpsc::error::TryRecvError::Empty)
-    ));
-}

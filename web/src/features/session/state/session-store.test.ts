@@ -39,13 +39,6 @@ describe('session store', () => {
     });
   });
 
-  it('initial state', () => {
-    const fresh = useSessionStore.getState();
-    expect(fresh.sessions).toEqual([]);
-    expect(fresh.isLoading).toBe(false);
-    expect(fresh.error).toBeNull();
-  });
-
   it('createSession returns token and relay_url and sends ALL permissions=true', async () => {
     mockPost.mockResolvedValueOnce({
       data: { token: 'session-token', relay_url: 'ws://localhost/ws/relay/session-token' },

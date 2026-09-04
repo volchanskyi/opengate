@@ -699,38 +699,6 @@ mod tests {
         }
     }
 
-    /// Pin handle_control's `ControlMessage::FileUploadRequest` arm: even
-    /// though upload is not yet implemented, the arm must exist so the
-    /// message is acknowledged silently (no panic, no rogue frame emission).
-    #[tokio::test]
-    async fn handle_control_file_upload_request_is_silently_acknowledged() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::FileUploadRequest {
-                    path: "/tmp/x".to_string(),
-                    total_size: 1024,
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        // No frame should be emitted.
-        assert!(matches!(
-            frame_rx.try_recv(),
-            Err(mpsc::error::TryRecvError::Empty)
-        ));
-    }
-
     /// Pin `ControlMessage::IceCandidate` and `ControlMessage::SwitchAck` arms
     /// when there is no active WebRTC peer connection. Both must early-return
     /// without panicking, and must not emit any frames.

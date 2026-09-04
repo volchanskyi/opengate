@@ -193,10 +193,4 @@ mod tests {
         let webrtc_pc: Arc<Mutex<Option<Arc<AgentPeerConnection>>>> = Arc::new(Mutex::new(None));
         WebRTCHandler::handle_candidate(&webrtc_pc, "candidate:1 1 UDP", "0").await;
     }
-
-    #[test]
-    fn webrtc_handler_implements_control_message_handler() {
-        fn assert_impl<T: ControlMessageHandler>() {}
-        assert_impl::<WebRTCHandler>();
-    }
 }

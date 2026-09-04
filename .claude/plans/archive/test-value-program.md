@@ -2,8 +2,7 @@
 
 ## Status — 2026-09-04
 
-Eight commits on `dev`. PR 1, PR 2 and PR 3 are done in full; PR 4 and PR 5
-are not.
+Ten commits on `dev`. The program is complete.
 
 | Landed | Commit | What |
 |---|---|---|
@@ -13,6 +12,7 @@ are not.
 | Rust gaps, first half (PR 3 iii) | `cb0c3290` | the `evidence.rs` shrink ladder and what a retro finding says |
 | Rust gaps, the store and the log reader (PR 3 iii) | `0424ddec` | `edge-tsdb`'s shipping store and block codec, `mesh-agent`'s journald batch cap and the watch's loss report |
 | Rust gaps, the last two files (PR 3 iii) | working tree | `connection.rs`'s frame-size cap, backoff ceiling, first-flap exponent and retry wait; `discovery/ports.rs` named as a `/proc` seam |
+| The tests that cannot fail, and the split (PR 4 + PR 5) | working tree | 31 deletions — 23 web, 8 Rust — the disk composition moved off the seven that held it, four decorative styling assertions, and `DeviceDetail.test.tsx` split six ways |
 
 Two commits landed alongside the program, for defects it ran into rather than
 ones it went looking for:
@@ -161,11 +161,43 @@ spread either side, so a bound tight enough to separate them fails roughly one
 honest run in six. The only way to pin them is an RNG the production signature
 does not take, which §5's rule 4 forbids.
 
-**PR 4.** The thirty deletions in §4.1, verified file by file.
+**PR 4 — done, and it is thirty-one, not thirty.** Reading each store test's
+`beforeEach` found a sixth "initial state" test the census's list of five had
+missed, in `connection-store`. The class was confirmed against the real thing
+rather than assumed: flipping `isLoading: false` to `true` in `admin-store.ts`
+leaves all ten of that file's tests green, including the one whose comment
+claims to kill exactly that mutant — every one of those `beforeEach` blocks
+calls `setState` with the literal its test then asserts, so `getState()` hands
+back the test's own object.
 
-**PR 5.** The four decorative styling assertions, the `DeviceDetail.test.tsx`
-split, the `phases.md` Completed row, the ADR and its `decisions.md` row, and
-archiving this plan.
+**§4.1 was wrong about one thing, and it mattered.** The seven `formatBytes`
+tests were not pure duplication of `format-bytes.test.ts`: between them they
+held the detail page's own `free / total` composition, which the unit file
+cannot cover. Deleting them as listed would have taken §7.1's breakage #2 —
+a full disk reading as empty — green with it. The assertion moved onto
+`shows hardware details when hardware data is available`, which already
+rendered 100 GB free of 500 and asserted everything except those two rows.
+Breakage #2 turns it red.
+
+**PR 5 — done, and it landed with PR 4 rather than after it.** The split
+consumed PR 4's version of `DeviceDetail.test.tsx`, so separating the two would
+have meant reconstructing an intermediate file that no longer exists and that no
+gate would ever have seen.
+
+**The paginator test was trimmed, not deleted.** §4.3 listed the `DeviceLogs`
+paginator among the four decorative assertions, and the palette half is exactly
+that. The same test also asserts that a single page disables both arrows, and
+*Next* disabled on `has_more: false` is asserted nowhere else in that file — so
+the styling went and the behaviour stayed.
+
+**The split's shape was forced by Vitest, not chosen.** `vi.mock` is hoisted
+above every import in the file that declares it, so a mock registered in a
+shared module runs after the importing file's imports have already resolved.
+The three mock blocks are therefore stated in each of the six suites; only the
+fixtures, the two render helpers and the store seeding could move into
+`DeviceDetail.testkit.tsx`. The duplication is bounded and it is test
+scaffolding, not a copy of production code — and the duplication gate does not
+read test files, which was checked rather than assumed.
 
 ### How to pick this up
 
