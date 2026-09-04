@@ -152,8 +152,20 @@ func TestAMachineRebuiltWithANewCertificateIsTheSameMachine(t *testing.T) {
 	original.AwaitOnline()
 	original.Disconnect()
 
-	rebuilt := product.MachineWithIdentity(token.Token, original.DeviceID, "contoso-workstation")
-	rebuilt.AwaitOnline()
+	// The reimaged endpoint comes back under the name it was rebuilt with,
+	// which is also how this test can tell the two connections apart. A status
+	// of online is written by both of them, so waiting on it would return
+	// while the row still holds what the departing machine wrote — and the
+	// window below would then be racing a teardown that has not run yet. The
+	// name only the rebuild sends is what says the rebuild's own registration
+	// reached the row, and with it the connection map, which is what makes the
+	// departing connection decline to write anything at all.
+	const reimaged = "contoso-workstation-reimaged"
+	rebuilt := product.MachineWithIdentity(token.Token, original.DeviceID, reimaged)
+	require.Eventually(t, func() bool {
+		d, err := product.deviceRow(rebuilt.DeviceID)
+		return err == nil && d.Hostname == reimaged && d.Status == db.StatusOnline
+	}, eventually, poll, "the rebuilt machine must come back online under its own registration")
 
 	assert.Len(t, admin.devices(), 1, "a rebuilt machine is the same machine, not a duplicate")
 

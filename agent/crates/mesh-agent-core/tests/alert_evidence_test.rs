@@ -300,6 +300,12 @@ fn oversized_evidence_is_truncated_and_still_travels() {
         evidence.log_samples.len() < LOG_SAMPLES,
         "log samples are the first thing the cap takes"
     );
+    // Halved each round rather than cut to a remainder: a rung that emptied the
+    // list in one step would throw away samples the cap did not need.
+    assert!(
+        !evidence.log_samples.is_empty(),
+        "the samples are halved until they fit, not discarded wholesale"
+    );
     assert_eq!(
         evidence.ranked.len(),
         RANKED_DIMS,
@@ -384,4 +390,342 @@ fn mix(mut z: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^ (z >> 31)
+}
+
+// --- The order of sacrifice ---------------------------------------------------
+//
+// The tests above check the ends of the ladder: that oversized evidence is cut
+// down and that evidence which fits is left alone. Neither says anything about
+// *what* is given up first, and fifteen of the sixteen ways to break the ladder
+// went unnoticed because of it — including reversing every one of its guards and
+// replacing each halving with a remainder.
+//
+// The order is the composition table read bottom-up, and it is what a technician
+// experiences: on a struggling machine they should lose log samples, then the
+// process list, then the depth of each reading series, then whole series, and
+// the ranking last and never entirely, because it is the line they read first.
+//
+// These build an AlertEvidence directly rather than composing one, so each case
+// can put the whole overflow in one part and watch only that part be given up.
+
+use mesh_protocol::{EvidenceSeries, RankedDim};
+
+/// `count` log samples of `bytes` each, incompressible so the cap is reached by
+/// content rather than by repetition the codec would fold away.
+fn heavy_logs(count: usize, bytes: usize) -> Vec<String> {
+    (0..count).map(|i| noisy_line(i, bytes)).collect()
+}
+
+/// A series of `points` readings, one a second, ending the second before the
+/// event.
+fn series_of(dim: &str, points: usize) -> EvidenceSeries {
+    #[allow(clippy::cast_possible_wrap)]
+    let span = points as i64;
+    EvidenceSeries {
+        dim: dim.to_string(),
+        points: (0..points)
+            .map(|i| HistoryPoint {
+                #[allow(clippy::cast_possible_wrap)]
+                ts: EVENT_TS - span + i as i64,
+                #[allow(clippy::cast_precision_loss)]
+                value: i as f64,
+            })
+            .collect(),
+    }
+}
+
+fn ranked_dims(count: usize) -> Vec<RankedDim> {
+    (0..count)
+        .map(|i| RankedDim {
+            dim: format!("dim.{i}"),
+            #[allow(clippy::cast_precision_loss)]
+            score: 1.0 - (i as f64) * 0.01,
+        })
+        .collect()
+}
+
+/// Every part at its composed size, as the ladder's untouched baseline.
+fn full_evidence() -> AlertEvidence {
+    AlertEvidence {
+        ranked: ranked_dims(RANKED_DIMS),
+        series: (0..SERIES_DIMS)
+            .map(|i| series_of(&format!("dim.{i}"), SERIES_MAX_POINTS))
+            .collect(),
+        processes: processes(PROCESS_ROWS as u32),
+        log_samples: log_lines(LOG_SAMPLES),
+        truncated: false,
+    }
+}
+
+#[test]
+fn log_samples_are_the_first_thing_given_up_and_nothing_else_is_touched() {
+    let before = full_evidence();
+    let mut evidence = AlertEvidence {
+        log_samples: heavy_logs(LOG_SAMPLES, 16_000),
+        ..before.clone()
+    };
+
+    let encoded = encode_evidence(&mut evidence).expect("evidence must encode");
+
+    assert!(encoded.truncated, "the cap cost this evidence something");
+    assert!(
+        evidence.log_samples.len() < LOG_SAMPLES,
+        "log samples are the first thing the cap takes"
+    );
+    // Halved each round rather than cut to a remainder: a rung that emptied the
+    // list in one step would throw away samples the cap did not need.
+    assert!(
+        !evidence.log_samples.is_empty(),
+        "the samples are halved until they fit, not discarded wholesale"
+    );
+    assert_eq!(
+        evidence.processes, before.processes,
+        "the process list is not touched while log samples remain to give"
+    );
+    assert_eq!(
+        evidence.series, before.series,
+        "the readings are not touched while log samples remain to give"
+    );
+    assert_eq!(
+        evidence.ranked, before.ranked,
+        "the ranking is not touched while log samples remain to give"
+    );
+}
+
+#[test]
+fn the_process_list_goes_next_and_the_readings_stay_whole() {
+    let before = full_evidence();
+    let mut evidence = AlertEvidence {
+        log_samples: Vec::new(),
+        processes: (0..PROCESS_ROWS)
+            .map(|i| ProcessReportEntry {
+                #[allow(clippy::cast_possible_truncation)]
+                rank: i as u32,
+                basename: noisy_line(i, 16_000),
+                cmdline_hash: None,
+                #[allow(clippy::cast_possible_truncation)]
+                pid: 2000 + i as u32,
+                cpu: 1.0,
+                mem: 1.0,
+            })
+            .collect(),
+        ..before.clone()
+    };
+
+    let encoded = encode_evidence(&mut evidence).expect("evidence must encode");
+
+    assert!(encoded.truncated);
+    assert!(
+        evidence.processes.len() < PROCESS_ROWS,
+        "the process list is given up once there are no log samples left"
+    );
+    assert!(
+        !evidence.processes.is_empty(),
+        "the process list is halved until it fits, not discarded wholesale"
+    );
+    assert_eq!(
+        evidence.series, before.series,
+        "the readings outlive the process list"
+    );
+    assert_eq!(
+        evidence.ranked, before.ranked,
+        "the ranking outlives the process list"
+    );
+}
+
+#[test]
+fn readings_are_thinned_from_the_far_end_before_a_series_is_dropped() {
+    let deep = 20_000;
+    let mut evidence = AlertEvidence {
+        ranked: ranked_dims(RANKED_DIMS),
+        series: (0..SERIES_DIMS)
+            .map(|i| series_of(&format!("dim.{i}"), deep))
+            .collect(),
+        processes: Vec::new(),
+        log_samples: Vec::new(),
+        truncated: false,
+    };
+
+    let encoded = encode_evidence(&mut evidence).expect("evidence must encode");
+
+    assert!(encoded.truncated);
+    assert_eq!(
+        evidence.series.len(),
+        SERIES_DIMS,
+        "every series is thinned before any of them is dropped"
+    );
+    for series in &evidence.series {
+        assert!(
+            series.points.len() < deep,
+            "an oversized series is thinned, got {} points",
+            series.points.len()
+        );
+        // Halved each round rather than cut to a remainder: what is left of a
+        // twenty-thousand-point series is thousands, never one or none.
+        assert!(
+            series.points.len() > 1,
+            "thinning halves a series; it does not cut it to a remainder"
+        );
+        // The readings nearest the event are the ones a technician needs, so
+        // the far end goes first and what survives is one unbroken run ending
+        // where the series ended.
+        let first = series
+            .points
+            .first()
+            .expect("a thinned series keeps readings");
+        let last = series
+            .points
+            .last()
+            .expect("a thinned series keeps readings");
+        assert_eq!(
+            last.ts,
+            EVENT_TS - 1,
+            "the readings kept are the ones nearest the event"
+        );
+        #[allow(clippy::cast_possible_wrap)]
+        let kept = series.points.len() as i64;
+        assert_eq!(
+            last.ts - first.ts + 1,
+            kept,
+            "what is kept is one unbroken run ending at the event"
+        );
+    }
+    assert_eq!(
+        evidence.ranked.len(),
+        RANKED_DIMS,
+        "the ranking outlives the readings"
+    );
+}
+
+#[test]
+fn whole_series_go_before_the_ranking_does() {
+    // Series carrying no readings at all: there is nothing left to thin, so the
+    // next rung is the one that clears them. Their labels are the overflow.
+    let mut evidence = AlertEvidence {
+        ranked: ranked_dims(RANKED_DIMS),
+        series: (0..SERIES_DIMS)
+            .map(|i| EvidenceSeries {
+                dim: noisy_line(i, 60_000),
+                points: Vec::new(),
+            })
+            .collect(),
+        processes: Vec::new(),
+        log_samples: Vec::new(),
+        truncated: false,
+    };
+
+    let encoded = encode_evidence(&mut evidence).expect("evidence must encode");
+
+    assert!(encoded.truncated);
+    assert!(
+        evidence.series.is_empty(),
+        "series with nothing left to thin are cleared whole"
+    );
+    assert_eq!(
+        evidence.ranked.len(),
+        RANKED_DIMS,
+        "the ranking outlives the series"
+    );
+}
+
+#[test]
+fn the_ranking_is_halved_last_and_never_entirely() {
+    let mut evidence = AlertEvidence {
+        ranked: (0..RANKED_DIMS)
+            .map(|i| RankedDim {
+                dim: noisy_line(i, 30_000),
+                #[allow(clippy::cast_precision_loss)]
+                score: 1.0 - (i as f64) * 0.01,
+            })
+            .collect(),
+        series: Vec::new(),
+        processes: Vec::new(),
+        log_samples: Vec::new(),
+        truncated: false,
+    };
+
+    let encoded = encode_evidence(&mut evidence).expect("evidence must encode");
+
+    assert!(encoded.truncated);
+    assert!(
+        encoded.bytes.len() <= MAX_EVIDENCE_BYTES,
+        "the cap holds even when the ranking is all there is"
+    );
+    assert!(
+        evidence.ranked.len() < RANKED_DIMS,
+        "the ranking is thinned when it is the only thing left"
+    );
+    assert!(
+        !evidence.ranked.is_empty(),
+        "the ranking is never given up entirely — it is what a technician reads first"
+    );
+}
+
+#[test]
+fn evidence_that_cannot_fit_at_all_still_travels_and_says_so() {
+    // One ranked dimension whose label alone is larger than the cap, so the
+    // ladder runs out of rungs. The alert still goes: empty, flagged, and inside
+    // the cap. A machine in trouble says so even when nothing travels with it.
+    let mut evidence = AlertEvidence {
+        ranked: vec![RankedDim {
+            dim: noisy_line(0, MAX_EVIDENCE_BYTES * 4),
+            score: 1.0,
+        }],
+        series: Vec::new(),
+        processes: Vec::new(),
+        log_samples: Vec::new(),
+        truncated: false,
+    };
+
+    let encoded = encode_evidence(&mut evidence).expect("evidence must encode");
+
+    assert!(encoded.bytes.len() <= MAX_EVIDENCE_BYTES);
+    assert!(encoded.truncated);
+    assert_eq!(
+        evidence,
+        AlertEvidence {
+            truncated: true,
+            ..AlertEvidence::default()
+        },
+        "the evidence handed on is empty and flagged, so silence is never mistaken \
+         for a machine that saw nothing"
+    );
+    let decoded = AlertEvidence::decode(&encoded.bytes, encoded.codec).expect("decodes");
+    assert!(decoded.truncated);
+}
+
+#[test]
+fn the_ranking_stops_at_one_dimension_rather_than_at_none() {
+    // Eight dimensions whose labels are sized so that one of them fits and two
+    // do not. The ladder halves 8 to 4 to 2 to 1 and stops there: the last
+    // dimension is the whole of what a technician has left to read, and a rung
+    // that gave it up as well would leave an alert saying only that something
+    // happened.
+    let mut evidence = AlertEvidence {
+        ranked: (0..RANKED_DIMS)
+            .map(|i| RankedDim {
+                dim: noisy_line(i, 90_000),
+                #[allow(clippy::cast_precision_loss)]
+                score: 1.0 - (i as f64) * 0.01,
+            })
+            .collect(),
+        series: Vec::new(),
+        processes: Vec::new(),
+        log_samples: Vec::new(),
+        truncated: false,
+    };
+
+    let encoded = encode_evidence(&mut evidence).expect("evidence must encode");
+
+    assert!(encoded.truncated);
+    assert!(encoded.bytes.len() <= MAX_EVIDENCE_BYTES);
+    assert_eq!(
+        evidence.ranked.len(),
+        1,
+        "the ranking is thinned down to its most anomalous dimension and no further"
+    );
+    assert_eq!(
+        evidence.ranked[0].score, 1.0,
+        "the dimension that survives is the most anomalous one"
+    );
 }

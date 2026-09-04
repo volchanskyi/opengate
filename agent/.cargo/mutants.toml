@@ -43,11 +43,35 @@ additional_cargo_test_args = [
 #     no-peer branches are unit-tested (webrtc_handler_test.rs) for regression;
 #     mutation tracking is excluded for the same reason webrtc.rs is.
 
+
+#   * the edge-tsdb bake-off substrates — a different carve-out from the four
+#     above, and the reason it is worth naming separately: those are code with
+#     no in-tree harness, these are code no customer runs. The nine modules
+#     below sit behind edge-tsdb's `bakeoff` feature, which `mesh-agent` and
+#     `mesh-agent-core` both disable, so none of them is in the shipped binary —
+#     they are the measured off-ramp reference the on-device store was chosen
+#     against, plus the harness that corrupts a store on purpose to test the
+#     others, plus the bench corpus. cargo-mutants builds with default features,
+#     where `bakeoff` is on, so without this it mutates all nine: 61 missed and
+#     243 caught, a fifth of the Rust leg's unnoticed breakages, in a bake-off
+#     reference. Writing tests for them would be testing the reference.
+#     mesh-agent/tests/noship_test.rs holds the premise — that every consumer
+#     keeps the feature off — so the carve-out cannot outlive it.
+
 exclude_globs = [
     "crates/platform-linux/**",
     "crates/mesh-agent/src/main.rs",
     "crates/mesh-agent-core/src/webrtc.rs",
     "crates/mesh-agent-core/src/session/handlers/webrtc.rs",
+    "crates/edge-tsdb/src/append_only.rs",
+    "crates/edge-tsdb/src/baseline.rs",
+    "crates/edge-tsdb/src/crc.rs",
+    "crates/edge-tsdb/src/fault.rs",
+    "crates/edge-tsdb/src/frame.rs",
+    "crates/edge-tsdb/src/redb_backend.rs",
+    "crates/edge-tsdb/src/redb_compact.rs",
+    "crates/edge-tsdb/src/redb_store.rs",
+    "crates/edge-tsdb/src/substrate.rs",
 ]
 
 # Skip `restore_selinux_context` — the only mutants here are guards on
@@ -66,3 +90,13 @@ exclude_re = [
 # IceCandidate arm mutants ARE killed: those arms route through the
 # WebRtcDispatch seam, which a recording mock observes in session/handler.rs
 # tests (the live delegation lives in the excluded handlers/webrtc.rs).
+
+# Equivalent mutant, not excluded (cargo-mutants has no per-expression
+# exclusion): `evidence.ranked.len() > 1` in evidence.rs's shrink ladder reads
+# the same as `>= 1`. The two differ only when the ranking is already down to
+# one dimension and the evidence still will not fit — and there the mutant
+# empties the ranking and re-encodes, while the real code falls out of the loop
+# and resets the evidence to the same empty, flagged value. Both hand back an
+# identical AlertEvidence and identical bytes, so no assertion can separate
+# them. The rest of that ladder is held by the order-of-sacrifice tests in
+# mesh-agent-core/tests/alert_evidence_test.rs.

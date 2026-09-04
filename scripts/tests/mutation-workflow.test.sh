@@ -131,7 +131,7 @@ if [ -f "$SHARDS_LIB" ]; then
   # Rust shard ids name the behavior they mutate, so a red leg says what broke
   # without anyone opening the matrix to decode a slice number.
   have_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  meaningful_rust="rust-agent-loops rust-core-alerts-conditions rust-core-alerts-evaluator rust-core-alerts-event rust-core-alerts-retro-plan rust-core-alerts-retro-scan rust-core-alerts-sink rust-core-correlate-divergence rust-core-correlate-ranking rust-core-discovery rust-core-ml-analysis rust-core-ml-backfill-drain rust-core-ml-backfill-tiers rust-core-ml-host-sources rust-core-ml-redaction rust-core-ml-sampling rust-core-ml-store-sink rust-core-runtime rust-core-runtime-lifecycle rust-core-session-dispatch rust-core-session-terminal rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-substrates "
+  meaningful_rust="rust-agent-loops rust-core-alerts-conditions rust-core-alerts-evaluator rust-core-alerts-event rust-core-alerts-retro-plan rust-core-alerts-retro-scan rust-core-alerts-sink rust-core-correlate-divergence rust-core-correlate-ranking rust-core-discovery rust-core-ml-analysis rust-core-ml-backfill-drain rust-core-ml-backfill-tiers rust-core-ml-host-sources rust-core-ml-redaction rust-core-ml-sampling rust-core-ml-store-sink rust-core-runtime rust-core-runtime-lifecycle rust-core-session-dispatch rust-core-session-terminal rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-surface "
   if [ "$have_rust" = "$meaningful_rust" ]; then
     pass "Rust shard ids describe their owned behavior"
   else
@@ -220,6 +220,27 @@ if [ -f "$SHARDS_LIB" ]; then
     pass "every mutable Rust source is assigned to exactly one shard"
   else
     fail "Rust source partition mismatch:$rust_partition_bad"
+  fi
+
+  # A shard may not name a source cargo-mutants carves out. Such a unit selects
+  # nothing, so the shard reports a clean run over a file it never mutated and
+  # the map says a scope is covered that is not.
+  rust_carved_unit_bad=""
+  for shard in "${rust_shards[@]}"; do
+    units="$(mutation_rust_shard_units "$shard")"
+    [ "$units" = "rest" ] && continue
+    for unit in $units; do
+      case "$unit" in
+        file:*) rust_is_carved "${unit#file:}" && rust_carved_unit_bad="$rust_carved_unit_bad [$shard:$unit]" ;;
+        dir:*) rust_is_carved "${unit#dir:}/x.rs" && rust_carved_unit_bad="$rust_carved_unit_bad [$shard:$unit]" ;;
+        *) ;;
+      esac
+    done
+  done
+  if [ -z "$rust_carved_unit_bad" ]; then
+    pass "no Rust shard claims a source cargo-mutants carves out"
+  else
+    fail "Rust shards claim carved-out sources:$rust_carved_unit_bad"
   fi
 
   # Declared units must exist, so a rename cannot leave a shard silently

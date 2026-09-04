@@ -118,6 +118,37 @@ else
   fail "mutation.yml has $uploads artifact upload(s) but only $errors fail on an empty set — a shard that produced no report would report success"
 fi
 
+# --- a tool a workflow builds resolves the graph it was tested against -------
+#
+# `cargo install <tool>` re-resolves that tool's whole dependency graph to
+# "latest compatible versions" on every run, so a workflow that installs one is
+# building software nobody has ever built before. It does not fail as a
+# vulnerability or a version bump; it fails as a compile error deep inside a
+# transitive crate, in a job whose subject is something else entirely — and it
+# is invisible on a workstation, where the tool was installed once and is never
+# rebuilt. `--locked` uses the lockfile the tool's own authors tested, which is
+# the only build anybody has evidence about.
+install_bad=""
+while IFS= read -r line; do
+  # Prose in a comment is not an install.
+  case "$line" in
+    *'#'*) continue ;;
+  esac
+  case "$line" in
+    *'cargo install'*) ;;
+    *) continue ;;
+  esac
+  case "$line" in
+    *--locked*) ;;
+    *) install_bad="$install_bad [$(printf '%s' "$line" | sed 's/^[[:space:]]*//')]" ;;
+  esac
+done < <(grep -rh 'cargo install' "$WORKFLOWS"/*.yml | sed 's/[[:space:]]*$//' | sort -u)
+if [ -z "$install_bad" ]; then
+  pass "every workflow cargo install pins its dependency graph with --locked"
+else
+  fail "cargo install without --locked re-resolves the tool's whole graph every run:$install_bad"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

@@ -178,7 +178,7 @@ jobs:
           - { language: rust, shard: rust-core-runtime }
           - { language: rust, shard: rust-tsdb-blocks }
           - { language: rust, shard: rust-tsdb-encoding }
-          - { language: rust, shard: rust-tsdb-substrates }
+          - { language: rust, shard: rust-tsdb-surface }
           - { language: rust, shard: rust-agent-loops }
           - { language: rust, shard: rust-protocol-wire }
           - { language: web }
