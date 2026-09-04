@@ -2,9 +2,8 @@
 
 ## Status — 2026-09-04
 
-Six commits on `dev`, all pushed, and a seventh in the working tree. PR 1, PR 2
-and PR 3 parts (i), (ii) and most of (iii) are done; the last two (iii) files,
-PR 4 and PR 5 are not.
+Eight commits on `dev`. PR 1, PR 2 and PR 3 are done in full; PR 4 and PR 5
+are not.
 
 | Landed | Commit | What |
 |---|---|---|
@@ -12,7 +11,8 @@ PR 4 and PR 5 are not.
 | The security fixes and the new gate (PR 2) | `14f0e6a1` | `api.test.ts` rewritten, `alert_rules_rollout_test.go` de-self-verified, `AuthGuard` rehydration covered, the repository-level tenant-deny gate, `safe-url.ts` |
 | Rust scope + its guard (PR 3 i, ii) | `779ede88` | nine bake-off modules out of the mutation scope, `mesh-agent/tests/noship_test.rs`, shard map and workflow updated, a new guard against a shard naming a carved source |
 | Rust gaps, first half (PR 3 iii) | `cb0c3290` | the `evidence.rs` shrink ladder and what a retro finding says |
-| Rust gaps, the store and the log reader (PR 3 iii) | working tree | `edge-tsdb`'s shipping store and block codec, `mesh-agent`'s journald batch cap and the watch's loss report |
+| Rust gaps, the store and the log reader (PR 3 iii) | `0424ddec` | `edge-tsdb`'s shipping store and block codec, `mesh-agent`'s journald batch cap and the watch's loss report |
+| Rust gaps, the last two files (PR 3 iii) | working tree | `connection.rs`'s frame-size cap, backoff ceiling, first-flap exponent and retry wait; `discovery/ports.rs` named as a `/proc` seam |
 
 Two commits landed alongside the program, for defects it ran into rather than
 ones it went looking for:
@@ -21,6 +21,7 @@ ones it went looking for:
 |---|---|
 | `dc9fadc8` | the `make e2e` smoke check asked the exposition for a labelled counter that publishes nothing until a request has been counted |
 | `41a132db` | three red gates: `cargo install` without `--locked` rebuilding cargo-audit from an unresolved graph, the failure notifier unable to read a log carrying terminal colour, and the rebuilt-machine acceptance test racing its own subject |
+| `3c8d2328` | two gates that graded the wrong thing: the public-edge boundary check reading a leaked exposition as a sealed one, and the TDD classifier refusing a branch whose only change was Rust's inline tests |
 
 ### What the work changed about the plan
 
@@ -63,25 +64,33 @@ count fell from 945 to 641.
 | `edge-tsdb` store + `compact.rs` | 33 | 11, every one equivalent and recorded in `mutants.toml` |
 | `mesh-agent` `host_logs.rs` + `event_watch.rs` | 23 | 0 (10 of the 23 carved out as the journald subprocess boundary) |
 
-### Hand-breakages verified so far
+### Hand-breakages — all ten, plus rehydration
 
 Numbering follows §7.1. Each was broken in the real code, the suite run, and the
-code reverted.
+code reverted; every one of the six production files is byte-identical to HEAD
+afterwards.
 
-- **#3** `api.ts` — removing `api.use(authMiddleware)`, renaming the header and
-  dropping the `Bearer` prefix each turn the client test red. Was green.
-- **#4** the customer repository's tenant clause — dropping it makes one
-  customer's records readable from another and turns `organization`'s proof red.
-- **#8** `rules.StagePopulation` — a canary reaching 105 of 200 machines now
-  fails. Under the old band it passed.
-- **#10** `alerts/evidence.rs` — every rung of the shrink ladder now has a case
-  that fails when its order or its halving changes.
-- Rehydration — deleting `AuthGuard`'s effect, and weakening its condition, both
-  turn the guard's tests red. Was green.
+| # | What was broken | What went red |
+|---|---|---|
+| 1 | `format-bytes.ts` — the unit ladder stops at GB | 2 of `format-bytes.test.ts`'s 6 |
+| 2 | `DeviceDetail.tsx` — disk *free* bound where *total* belongs | `shows hardware details when hardware data is available` |
+| 3 | `api.ts` — `api.use(authMiddleware)` removed, the header renamed, the `Bearer` prefix dropped | the client test, each time. Was green |
+| 4 | the customer repository's tenant clause dropped | tenant isolation, and `organization`'s own proof |
+| 5 | log-pull answers 200 with an empty body where it should refuse | `TestATechnicianWithoutElevatedPermissionCannotPullALog` |
+| 6 | enrolment stops counting a token's uses | `TestAnExhaustedEnrolmentTokenIsRefused` — the spent token enrolled a second machine |
+| 7 | `in_maintenance` inverted | `gate_defaults_to_active`, `gate_set_toggles_state`, `gate_clones_share_state` |
+| 8 | `rules.StagePopulation` ignores the stage percentage | the rollout test — a canary reaching 105 of 200. Was green |
+| 9 | `redact_log_line` stops recognising `Bearer` | `redact_log_line_strips_every_secret_shape` |
+| 10 | `alerts/evidence.rs` — the shrink ladder's order and its halving | the order-of-sacrifice tests. Was green |
+| — | `AuthGuard`'s rehydration effect deleted, and its condition weakened | the guard's tests, both times. Was green |
 
-Still to run: **#1** `format-bytes`, **#2** disk free/total, **#5** log-pull
-authorisation, **#6** enrolment token use count, **#7** maintenance window,
-**#9** `redact_log_line`.
+**A filtered run is not the suite.** #9 first read green under
+`cargo test --package mesh-agent-core redact`, which matched two tests and
+neither of them the one that catches it — `redact_log_line_strips_every_secret_shape`
+lives in `mesh-agent`, not in `mesh-agent-core`. The workspace run found it
+immediately. A breakage check narrowed by package or by name filter can report
+a gap that is not there, which is the same error as trusting a green it did not
+earn.
 
 ### What the store work found
 
@@ -109,14 +118,66 @@ with a *completed* invocation is a different question and is already held.
 
 ### What is left
 
-- **PR 3 (iii), remainder.** `mesh-agent-core/src/discovery/ports.rs` (9 missed,
-  all of them the live `/proc` reader) and `connection.rs` (7 — the frame-size
-  boundary, the backoff's shift, the governor's first-flap exponent, and three
-  in `reconnect_with_backoff`, which draws from the process RNG).
-- **PR 4.** The thirty deletions in §4.1, verified file by file.
-- **PR 5.** The four decorative styling assertions, the `DeviceDetail.test.tsx`
-  split, the `phases.md` Completed row, the ADR and its `decisions.md` row, and
-  archiving this plan.
+**PR 3 (iii), remainder — done.** Measured on this tree with `cargo mutants
+--package mesh-agent-core --file crates/mesh-agent-core/src/discovery/ports.rs
+--file crates/mesh-agent-core/src/connection.rs`: **17 missed, 33 caught, one
+timeout** before; **2 missed, 40 caught, no timeout** after.
+
+`discovery/ports.rs` — **9 missed, all one thing**, and the plan's triage held.
+`collect_ports`, `collect_ports_linux` and `build_inode_proc_map` read the live
+`/proc` filesystem, so they answer with whatever that machine is listening on; a
+container answers with nothing, which is what the replacement mutants answer
+too. They are named in `exclude_re` beside the journald reader with the reason.
+What the module does with *parsed* rows — `parse_proc_net`, `resolve_ports`,
+`hex_local_port` — is pure and already held.
+
+`connection.rs` — **8 missed, not 7, and six of them closable.** Four are the
+ones the triage named: the frame-size cap read as exclusive, the backoff
+ceiling's shift, the governor's first-flap exponent, and the retry loop that
+never waits. Each was hand-applied to the real code and turns a named test red.
+
+The eighth was not in the triage and is the more interesting one.
+`attempt < max_attempts` read as `<=` was **missed**, even though
+`reconnect_backoff_does_not_sleep_after_last_attempt` exists to pin exactly that
+comparison. Its budget was `elapsed < 500ms` against a delay drawn uniformly
+from `[0, 1s]` — so it caught that mutant about half the time and the mutation
+run drew the other half. It runs on paused time now and asserts an exact zero,
+which is what the real code does. **A test written to kill a named mutant is
+worth measuring against it; this one had been passing on a coin flip since it
+was written.**
+
+The timeout was the same shape. `AsyncControlStream::write_all` replaced with
+`Ok(())` left `async_control_stream_write_all_actually_writes` waiting forever
+for bytes that were never sent, which cargo-mutants scores as neither a kill nor
+a survivor after burning the full 20-second leash. The writer is dropped before
+the peer reads now, so the missing write reads back as end-of-stream and fails
+in 0.00s.
+
+The two that remain are the `attempt - 1` pair in `reconnect_with_backoff`, and
+they are recorded in `mutants.toml` rather than tested. Both change only the
+*distribution* of a delay drawn from `rand::rng()` inside the function: over
+eight attempts the real sum averages 45s against the mutant's 74s with an 18s
+spread either side, so a bound tight enough to separate them fails roughly one
+honest run in six. The only way to pin them is an RNG the production signature
+does not take, which §5's rule 4 forbids.
+
+**PR 4.** The thirty deletions in §4.1, verified file by file.
+
+**PR 5.** The four decorative styling assertions, the `DeviceDetail.test.tsx`
+split, the `phases.md` Completed row, the ADR and its `decisions.md` row, and
+archiving this plan.
+
+### How to pick this up
+
+The mutation run is the work list, not the nightly artifact — the nightly is
+days stale and its denominator moved when the bake-off modules came out of
+scope. For each file: run `cargo mutants --package <crate> --file <path>` from
+`agent/` with `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden` set, read
+`mutants.out/missed.txt`, triage every entry into *equivalent*, *host seam* or
+*real gap*, hand-apply each real one to confirm the new test goes red, then
+re-run the same command and require the missed count to fall. Two runs at once
+is fine — they build in separate temp trees — but do not start one while the
+gauntlet is running.
 
 ## Context
 
