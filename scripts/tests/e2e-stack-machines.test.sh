@@ -265,6 +265,42 @@ else
     fail "the name is not pointed at the server pod, so the QUIC packets reach nothing"
   fi
 
+  # Enrolment and QUIC are two addresses, aimed independently. The QUIC address
+  # is the name on the certificate and stays the short one; the enrolment URL is
+  # plain HTTP to the Service and defaults to the same short name here, which is
+  # what the staging browser suite uses. Naming it separately is what lets the
+  # network drill send enrolment to the fully-qualified Service name while the
+  # certificate's name is pointed at its link shaper — an /etc/hosts entry for
+  # the short name does not intercept the qualified form.
+  enroll_url="$(grep -A1 'name: OPENGATE_ENROLL_URL' <<<"$POD_MANIFEST" | sed -n 's/^ *value: //p')"
+  if [ "$enroll_url" = "http://rel-server:8080" ]; then
+    pass "a machine enrols through the server's in-cluster name by default"
+  else
+    fail "the default enrolment URL is '$enroll_url', not the server's in-cluster name"
+  fi
+
+  OVERRIDDEN_MANIFEST="$(
+    MACHINE=agent-a \
+      RELEASE=rel \
+      NODE_ARCH=arm64 \
+      SERVER_POD_IP=203.0.113.1 \
+      ENROLMENT_SECRET=secret-name \
+      OPENGATE_ENROLL_URL=http://rel-server.ns.svc.cluster.local:8080 \
+      "$MACHINE_POD" 2>/dev/null || true
+  )"
+  overridden_enroll="$(grep -A1 'name: OPENGATE_ENROLL_URL' <<<"$OVERRIDDEN_MANIFEST" | sed -n 's/^ *value: //p')"
+  if [ "$overridden_enroll" = "http://rel-server.ns.svc.cluster.local:8080" ]; then
+    pass "the enrolment URL can be aimed somewhere other than the QUIC address"
+  else
+    fail "the enrolment URL ignored the address it was given ('$overridden_enroll')"
+  fi
+
+  if grep -qF 'value: rel-server:9090' <<<"$OVERRIDDEN_MANIFEST"; then
+    pass "aiming enrolment elsewhere leaves the certificate's name on the QUIC address"
+  else
+    fail "aiming enrolment elsewhere moved the QUIC address off the name the certificate carries"
+  fi
+
   # The pod's name is its hostname, which is what the specs look a machine up by.
   if grep -qE '^  name: agent-a$' <<<"$POD_MANIFEST"; then
     pass "a staging machine's pod is named for the machine the specs ask for"

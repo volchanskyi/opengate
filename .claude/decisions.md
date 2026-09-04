@@ -61,7 +61,7 @@
 | 052 | Local TSDB build — tiered rollups behind a durable watermark, sized to a fixed on-disk cap | ES WS-14b | Accepted | [ADR-052](../docs/adr/ADR-052-edge-sentinel-local-tsdb-build.md) |
 | 053 | Declarative threshold rules evaluated on the device beside the anomaly detector, with hysteresis and a sustain window | ES WS-19 | Accepted | [ADR-053](../docs/adr/ADR-053-edge-sentinel-threshold-alerts.md) |
 | 054 | Right-to-be-forgotten erasure — a tombstone deny-list, a purge state machine, and a reconciliation sweep | ES WS-20 | Accepted | [ADR-054](../docs/adr/ADR-054-edge-sentinel-data-lifecycle-erasure.md) |
-| 055 | No fault-injection code in the shipped binary; faults are injected from outside the process | FI1 | Accepted | [ADR-055](../docs/adr/ADR-055-fault-injection-mechanism.md) |
+| 055 | No fault-injection code in the shipped binary; faults come from outside the process, and the machine-facing network path from an unprivileged in-path link shaper | FI1 | Accepted | [ADR-055](../docs/adr/ADR-055-fault-injection-mechanism.md) |
 | 056 | Maintenance mode is a server-authoritative per-device desired state, and edge collectors are always on | — | Accepted | [ADR-056](../docs/adr/ADR-056-device-maintenance-mode.md) |
 | 057 | Host metrics stream live over the existing control message; host system logs are served on demand beside them | — | Accepted | [ADR-057](../docs/adr/ADR-057-live-host-metric-streaming-and-system-logs.md) |
 | 058 | Telemetry persists through a coalescing queue, and the fleet-health badge reads a bounded lookback | — | Accepted | [ADR-058](../docs/adr/ADR-058-telemetry-persist-coalescing-and-badge-lookback.md) |
