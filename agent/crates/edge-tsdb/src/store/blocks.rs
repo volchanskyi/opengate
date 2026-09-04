@@ -104,20 +104,15 @@ pub(super) fn read_stored_version(db: &Database) -> Result<Option<u64>> {
     }
 }
 
-/// Run any migrations from `from` (a fresh store when `None`) up to
-/// [`CURRENT_FORMAT`], then stamp the current version — all in one transaction so
-/// an interrupted upgrade never leaves a half-migrated store.
-pub(super) fn migrate_and_stamp(db: &Database, from: Option<u64>) -> Result<()> {
+/// Bring a store up to [`CURRENT_FORMAT`] and stamp it, in one transaction so an
+/// interrupted upgrade never leaves a half-migrated store. Every format this
+/// build reads carries the same self-describing block layout — a block names its
+/// own codec and scale — so bringing one forward is the stamp and nothing else.
+/// The stamp is what an older agent reads to refuse a store it cannot follow.
+pub(super) fn stamp_current_format(db: &Database) -> Result<()> {
     let wt = db.begin_write().map_err(re)?;
     {
         let mut meta = wt.open_table(META).map_err(re)?;
-        let mut v = from.unwrap_or(CURRENT_FORMAT);
-        while v < CURRENT_FORMAT {
-            // v → v+1 migration steps. The current sole format is 1; a store
-            // stamped 0 has an identical, self-describing block layout, so the
-            // step is a metadata re-stamp with no data rewrite.
-            v += 1;
-        }
         meta.insert(META_VERSION, &CURRENT_FORMAT).map_err(re)?;
     }
     wt.commit().map_err(re)?;
@@ -481,4 +476,61 @@ fn decode_tier_deflate(bytes: &[u8]) -> Result<Vec<StoredTierPoint>> {
 #[cfg(not(feature = "cold-deflate"))]
 fn decode_tier_deflate(_bytes: &[u8]) -> Result<Vec<StoredTierPoint>> {
     Err(TsdbError::CorruptBlock("deflate feature disabled"))
+}
+
+#[cfg(all(test, feature = "cold-deflate"))]
+mod tests {
+    use super::*;
+
+    /// Cold-tier compaction compresses the blocks a series has finished with and
+    /// leaves the one it is still writing into alone. Compressing that one buys
+    /// nothing — the next commit merges into it and has to write it back out —
+    /// and the agent pays for it out of a CPU budget under one per cent.
+    #[test]
+    fn compaction_compresses_the_finished_blocks_and_not_the_open_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::create(dir.path().join("blocks.redb")).unwrap();
+        let mut block = vec![TIER_PLAIN];
+        block.extend(std::iter::repeat_n(0u8, 4_000));
+        let mut logical = block.len() as u64 * 3;
+
+        let wt = db.begin_write().unwrap();
+        {
+            let mut t = wt.open_table(T1).unwrap();
+            for key in 0i64..3 {
+                t.insert((7u32, key), block.as_slice()).unwrap();
+            }
+        }
+        wt.commit().unwrap();
+
+        let wt = db.begin_write().unwrap();
+        {
+            let mut t = wt.open_table(T1).unwrap();
+            deflate_cold_blocks(&mut t, &mut logical).unwrap();
+        }
+        wt.commit().unwrap();
+
+        let rt = db.begin_read().unwrap();
+        let t = rt.open_table(T1).unwrap();
+        let tag = |key: i64| t.get((7u32, key)).unwrap().unwrap().value()[0];
+        assert_eq!(
+            tag(0),
+            TIER_DEFLATE,
+            "a finished block was left uncompressed"
+        );
+        assert_eq!(
+            tag(1),
+            TIER_DEFLATE,
+            "a finished block was left uncompressed"
+        );
+        assert_eq!(
+            tag(2),
+            TIER_PLAIN,
+            "the block still being written was compressed"
+        );
+        assert!(
+            logical < block.len() as u64 * 3,
+            "compaction reclaimed nothing"
+        );
+    }
 }

@@ -36,9 +36,9 @@ use crate::tier::TierPoint;
 #[cfg(feature = "cold-deflate")]
 use blocks::deflate_cold_blocks;
 use blocks::{
-    evict_blocks, map_durability, migrate_and_stamp, read_raw, read_stored_version, read_tier,
-    read_tier_span, scan_logical, write_all, BlockTable, Cand, OpenSeries, CURRENT_FORMAT, CURSOR,
-    T0, T0_BLOCK_SAMPLES, T1, T2,
+    evict_blocks, map_durability, read_raw, read_stored_version, read_tier, read_tier_span,
+    scan_logical, stamp_current_format, write_all, BlockTable, Cand, OpenSeries, CURRENT_FORMAT,
+    CURSOR, T0, T0_BLOCK_SAMPLES, T1, T2,
 };
 
 /// The two downsampled rollup tiers the store serves alongside T0 raw.
@@ -89,7 +89,7 @@ impl LocalTsdb {
             });
         }
         if stored.is_none_or(|v| v < CURRENT_FORMAT) {
-            migrate_and_stamp(&db, stored)?;
+            stamp_current_format(&db)?;
         }
 
         let logical_bytes = scan_logical(&db)?;
@@ -358,7 +358,7 @@ impl TsdbSnapshot {
 #[cfg(test)]
 mod tests {
     use super::blocks::{META, META_VERSION};
-    use super::{LocalTsdb, CURRENT_FORMAT};
+    use super::{read_stored_version, LocalTsdb, CURRENT_FORMAT, T0_BLOCK_SAMPLES};
     use crate::config::{Durability, TsdbConfig};
     use crate::error::TsdbError;
     use crate::sample::Sample;
@@ -392,6 +392,56 @@ mod tests {
         assert_eq!(db.format_version(), CURRENT_FORMAT);
         // The WS-15 backlog is never orphaned by a migration.
         assert_eq!(db.range_raw(0, i64::MIN, i64::MAX).unwrap().len(), 100);
+    }
+
+    /// Opening a store leaves the format it now holds written on it — a fresh
+    /// store and one an earlier agent stamped alike. That number is the whole
+    /// mechanism: an agent that predates this format reads it and declines the
+    /// store rather than reading a technician's history through the wrong
+    /// layout.
+    #[test]
+    fn an_opened_store_is_left_stamped_with_the_format_it_holds() {
+        let fresh = tempfile::tempdir().unwrap();
+        let db = LocalTsdb::open(fresh.path(), TsdbConfig::default()).unwrap();
+        assert_eq!(
+            read_stored_version(&db.db).unwrap(),
+            Some(CURRENT_FORMAT),
+            "a new store carries no format stamp"
+        );
+
+        let upgraded = tempfile::tempdir().unwrap();
+        stamp_version(upgraded.path(), CURRENT_FORMAT - 1);
+        let db = LocalTsdb::open(upgraded.path(), TsdbConfig::default()).unwrap();
+        assert_eq!(
+            read_stored_version(&db.db).unwrap(),
+            Some(CURRENT_FORMAT),
+            "an upgraded store still claims the format it was written in"
+        );
+    }
+
+    /// A series whose samples have all been written keeps nothing back. The
+    /// buffers are per-series and an estate machine reports dozens of vitals;
+    /// holding an entry for every series that has ever reported is how a
+    /// long-running agent's memory grows without anything counting it.
+    #[test]
+    fn a_series_that_hands_over_everything_it_buffered_keeps_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+        for i in 0..T0_BLOCK_SAMPLES as i64 {
+            db.append(0, Sample::new(1_000 + i, i as f64), false)
+                .unwrap();
+        }
+        assert!(!db.open.is_empty(), "nothing was buffered to begin with");
+
+        db.commit(Durability::Full).unwrap();
+        assert!(
+            db.open.is_empty(),
+            "a fully-written series is still holding a buffer"
+        );
+        assert_eq!(
+            db.range_raw(0, i64::MIN, i64::MAX).unwrap().len(),
+            T0_BLOCK_SAMPLES
+        );
     }
 
     #[test]

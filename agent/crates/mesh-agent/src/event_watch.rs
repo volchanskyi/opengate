@@ -376,4 +376,72 @@ mod tests {
         assert!(sink.drain().is_empty());
         assert_eq!(watch.undated_records, 0);
     }
+
+    /// Runs `f` with the watch's own log lines captured, so what it says about
+    /// its losses can be read back. The subscriber is thread-local, so a test
+    /// reads only its own lines.
+    fn watch_log_lines(f: impl FnOnce()) -> String {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone)]
+        struct Lines(Arc<Mutex<Vec<u8>>>);
+        impl Write for Lines {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let lines = Lines(Arc::new(Mutex::new(Vec::new())));
+        let writer = lines.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        let captured = lines.0.lock().expect("log buffer").clone();
+        String::from_utf8_lossy(&captured).into_owned()
+    }
+
+    /// A device losing records says so on its own log line with the running
+    /// count, and a device losing nothing stays quiet. Both halves matter: a
+    /// watch that never says it is losing records is indistinguishable from one
+    /// that is not, and a watch that says it always is buries the machine that
+    /// really is among the ones that are fine.
+    #[test]
+    fn a_watch_reports_what_it_lost_and_stays_quiet_when_it_lost_nothing() {
+        let sink = AlertSink::default();
+        let mut watch = EventWatch::new(sink.clone(), START);
+
+        let quiet = watch_log_lines(|| watch.ingest(&[], false, START + MICROS_PER_SEC));
+        assert!(
+            !quiet.contains("losing records"),
+            "a watch that lost nothing raised the alarm: {quiet}"
+        );
+
+        let lossy = watch_log_lines(|| {
+            watch.ingest(
+                &[entry(
+                    "",
+                    "ERROR",
+                    "kernel",
+                    "a record with no readable time",
+                )],
+                false,
+                START + 2 * MICROS_PER_SEC,
+            );
+        });
+        assert!(
+            lossy.contains("losing records"),
+            "a lost record went unreported: {lossy}"
+        );
+        assert!(
+            lossy.contains("undated_records=1"),
+            "the line does not carry the count: {lossy}"
+        );
+    }
 }

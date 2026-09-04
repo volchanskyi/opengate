@@ -351,3 +351,170 @@ fn purge_clears_the_entire_store() {
         .is_empty());
     assert_eq!(db.cursor(0).unwrap(), None);
 }
+
+/// The sampler commits on its own cadence, and the store must not pay a whole
+/// block for each one: buffered samples keep accumulating into the same block
+/// until it seals. A machine committing every second otherwise writes 86,400
+/// one-sample blocks a day, blows through its disk cap on block headers alone,
+/// and evicts the history a technician came for.
+#[test]
+fn committing_every_sample_still_packs_one_block() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = LocalTsdb::open(
+        dir.path(),
+        TsdbConfig {
+            default_scale: Some(10),
+            ..TsdbConfig::default()
+        },
+    )
+    .unwrap();
+    for i in 0..600 {
+        db.append(
+            0,
+            Sample::new(1_000 + i, 40.0 + (i % 97) as f64 * 0.1),
+            false,
+        )
+        .unwrap();
+        db.commit(Durability::None).unwrap();
+    }
+
+    assert_eq!(db.range_raw(0, i64::MIN, i64::MAX).unwrap().len(), 600);
+    let per_sample = db.logical_bytes() as f64 / 600.0;
+    assert!(
+        per_sample < 4.0,
+        "a block per commit: {per_sample:.3} B/sample"
+    );
+}
+
+/// Eviction stops the moment the store is back under its cap. Every tier's
+/// oldest block is a candidate, so a machine that has filled its allowance keeps
+/// as much history as the allowance holds rather than throwing away raw seconds
+/// it could have kept.
+#[test]
+fn eviction_gives_up_no_more_history_than_the_cap_demands() {
+    let start = 1_700_000_000;
+    let data = long_series(start, 30);
+    let cap = 60 * 1024;
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = LocalTsdb::open(
+        dir.path(),
+        TsdbConfig {
+            cap_bytes: cap,
+            host_free_fraction: 0.0,
+            default_scale: Some(10),
+        },
+    )
+    .unwrap();
+    for (i, s) in data.iter().enumerate() {
+        db.append(0, *s, false).unwrap();
+        if (i + 1) % (3 * 3_600) == 0 {
+            db.commit(Durability::Full).unwrap();
+        }
+    }
+    db.commit(Durability::Full).unwrap();
+
+    assert!(db.logical_bytes() <= cap);
+    assert!(
+        db.logical_bytes() > cap / 4 * 3,
+        "evicted far past the cap, losing history it could have kept: {} of {cap}",
+        db.logical_bytes()
+    );
+    // The file the cap is really about tracks the allowance, not the history
+    // written through it: redb reuses the pages eviction frees.
+    let file = db.size_on_disk().unwrap();
+    assert!(
+        file > db.logical_bytes() && file < 20 * cap,
+        "on-disk file untracked by the cap: {file} against {cap}"
+    );
+}
+
+/// A cap smaller than a single block cannot be honoured, and the store answers
+/// by keeping the block it is writing into. A machine down to its last megabyte
+/// still records what is happening right now — the reading a technician is
+/// watching for is the one it must not drop.
+#[test]
+fn the_block_being_written_survives_a_cap_that_cannot_hold_it() {
+    let start = 1_700_000_000;
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = LocalTsdb::open(
+        dir.path(),
+        TsdbConfig {
+            cap_bytes: 1,
+            host_free_fraction: 0.0,
+            default_scale: Some(10),
+        },
+    )
+    .unwrap();
+    for s in long_series(start, 4) {
+        db.append(0, s, false).unwrap();
+    }
+    db.commit(Durability::Full).unwrap();
+
+    let kept = db.range_raw(0, i64::MIN, i64::MAX).unwrap();
+    assert!(
+        !kept.is_empty(),
+        "live sampling was evicted along with the history"
+    );
+    let (newest, _) = kept.last().unwrap();
+    assert_eq!(
+        newest.ts,
+        start + 4 * 3_600 - 1,
+        "the retained block is not the one being written into"
+    );
+}
+
+/// A restarted agent picks its footprint back up off the disk. Without it the
+/// store believes it holds nothing, and a machine that was already at its cap
+/// grows past it until enough new samples have been written to notice.
+#[test]
+fn a_reopened_store_remembers_how_much_it_holds() {
+    let start = 1_700_000_000;
+    let dir = tempfile::tempdir().unwrap();
+    let held;
+    {
+        let mut db = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+        for s in long_series(start, 2) {
+            db.append(0, s, false).unwrap();
+        }
+        db.commit(Durability::Full).unwrap();
+        held = db.logical_bytes();
+        assert!(held > 0);
+    }
+
+    let reopened = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+    assert_eq!(
+        reopened.logical_bytes(),
+        held,
+        "the store forgot its footprint across a restart"
+    );
+}
+
+/// Fixed-point earns its place where float32 cannot reach: free space on a
+/// half-terabyte volume, reported in megabytes to two decimals, is past the
+/// magnitude where a 32-bit float can still separate one centi-step from the
+/// next. The per-metric scale is what keeps the reading exact — without it a
+/// technician watching a disk fill sees it move in steps of three hundredths.
+#[test]
+fn a_large_gauge_keeps_centi_precision_only_under_its_scale() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+    db.set_scale(0, 100);
+    let samples: Vec<Sample> = (0..300)
+        .map(|i| Sample::new(1_000 + i, 500_000.0 + (i % 240) as f64 * 0.01))
+        .collect();
+    for s in &samples {
+        db.append(0, *s, false).unwrap();
+    }
+    db.commit(Durability::Full).unwrap();
+
+    let got = db.range_raw(0, i64::MIN, i64::MAX).unwrap();
+    assert_eq!(got.len(), samples.len());
+    for ((read, _), want) in got.iter().zip(&samples) {
+        assert_eq!(
+            (read.value * 100.0).round() as i64,
+            (want.value * 100.0).round() as i64,
+            "centi-precision lost at {}",
+            want.ts
+        );
+    }
+}

@@ -1,5 +1,123 @@
 # Test-Value Program — research findings and plan
 
+## Status — 2026-09-04
+
+Six commits on `dev`, all pushed, and a seventh in the working tree. PR 1, PR 2
+and PR 3 parts (i), (ii) and most of (iii) are done; the last two (iii) files,
+PR 4 and PR 5 are not.
+
+| Landed | Commit | What |
+|---|---|---|
+| The rule and its enforcement (PR 1) | `b55078a4` | `.claude/rules/test-value.md`, `pretooluse-test-value-guard.sh`, the shared analyser `scripts/test-value-check.sh`, the repo sweep `scripts/tests/test-value.test.sh`, `CLAUDE.md` row, `docs/infrastructure/Testing.md` section |
+| The security fixes and the new gate (PR 2) | `14f0e6a1` | `api.test.ts` rewritten, `alert_rules_rollout_test.go` de-self-verified, `AuthGuard` rehydration covered, the repository-level tenant-deny gate, `safe-url.ts` |
+| Rust scope + its guard (PR 3 i, ii) | `779ede88` | nine bake-off modules out of the mutation scope, `mesh-agent/tests/noship_test.rs`, shard map and workflow updated, a new guard against a shard naming a carved source |
+| Rust gaps, first half (PR 3 iii) | `cb0c3290` | the `evidence.rs` shrink ladder and what a retro finding says |
+| Rust gaps, the store and the log reader (PR 3 iii) | working tree | `edge-tsdb`'s shipping store and block codec, `mesh-agent`'s journald batch cap and the watch's loss report |
+
+Two commits landed alongside the program, for defects it ran into rather than
+ones it went looking for:
+
+| Commit | What |
+|---|---|
+| `dc9fadc8` | the `make e2e` smoke check asked the exposition for a labelled counter that publishes nothing until a request has been counted |
+| `41a132db` | three red gates: `cargo install` without `--locked` rebuilding cargo-audit from an unresolved graph, the failure notifier unable to read a log carrying terminal colour, and the rebuilt-machine acceptance test racing its own subject |
+
+### What the work changed about the plan
+
+**§4.2(d) was wrong about the deny tests, right about the gate.** All fourteen
+packages that open a tenant-scoped transaction already prove they refuse another
+customer's rows — `organization`, `lifecycle` and `settings` included. No two
+proofs are named alike, which is why nothing was checking the set was complete.
+The gate names each package's proof and holds the list against the tree in both
+directions; no new deny test was needed.
+
+**§4.2(e) understated `safe-url.ts`.** Removing the `.trim()` and the empty
+check was right, and next to them was a live hole: `/\host` leaves the app
+origin exactly as `//host` does, because the URL parser reads a backslash as a
+slash for every scheme a browser follows. Both leading pairs are refused now.
+
+**§4.2(f)'s `RetroPlan::for_rule` boundary arithmetic is covered by one case,
+not two.** A windowed rule now resumes across its window as well as its sustain.
+A two-term rule whose widest window exceeds the chunk span makes no progress on
+resume — but that combination is unreachable (the catalogue bounds a rule's
+sustain at an hour and its cost at an hour of readings, and the shipped budget's
+chunk covers thirteen), so testing it would have been testing a configuration
+the product refuses.
+
+**PR 1's allowlist emptied in PR 2, not PR 5.** The exemption was deleted in the
+same commit as the defect it covered, so the sweep has asserted zero since.
+
+**The Rust denominator moved up, not down.** On shipping code the leg reads
+1,912 caught against 238 missed — 88.9% against the 88.0% the nightly reported —
+so `mutation-summarize.sh`'s drop detector sees a rise. `edge-tsdb`'s mutant
+count fell from 945 to 641.
+
+### Measured after each change
+
+| File | Missed before | Missed after |
+|---|---|---|
+| `web/src/lib/api.ts` | every mutant unreached | 0 of 7 |
+| `web/src/lib/safe-url.ts` | 4 | 1, equivalent (an explicit `return undefined` in a `catch` that ends the function) |
+| `web/src/features/auth/AuthGuard.tsx` | 4 | 1, equivalent (the effect's dependency array) |
+| `alerts/evidence.rs` | 16 | 1, equivalent and recorded in `mutants.toml` |
+| `edge-tsdb` store + `compact.rs` | 33 | 11, every one equivalent and recorded in `mutants.toml` |
+| `mesh-agent` `host_logs.rs` + `event_watch.rs` | 23 | 0 (10 of the 23 carved out as the journald subprocess boundary) |
+
+### Hand-breakages verified so far
+
+Numbering follows §7.1. Each was broken in the real code, the suite run, and the
+code reverted.
+
+- **#3** `api.ts` — removing `api.use(authMiddleware)`, renaming the header and
+  dropping the `Bearer` prefix each turn the client test red. Was green.
+- **#4** the customer repository's tenant clause — dropping it makes one
+  customer's records readable from another and turns `organization`'s proof red.
+- **#8** `rules.StagePopulation` — a canary reaching 105 of 200 machines now
+  fails. Under the old band it passed.
+- **#10** `alerts/evidence.rs` — every rung of the shrink ladder now has a case
+  that fails when its order or its halving changes.
+- Rehydration — deleting `AuthGuard`'s effect, and weakening its condition, both
+  turn the guard's tests red. Was green.
+
+Still to run: **#1** `format-bytes`, **#2** disk free/total, **#5** log-pull
+authorisation, **#6** enrolment token use count, **#7** maintenance window,
+**#9** `redact_log_line`.
+
+### What the store work found
+
+**`set_scale` is not a precision guarantee, and a test that assumed it was
+failed.** The first shape of the large-gauge test asserted that a metric stored
+at ×100 comes back exact to a hundredth. It does not: `select_value_codec` keeps
+whichever candidate encodes *smallest*, so a scale that costs bytes is dropped
+and the reading comes back float32-lossy. That is the documented contract, so
+the test was retuned to the regime where fixed-point is both smaller and exact —
+a large gauge with centi steps — rather than left asserting a promise the store
+does not make. Worth knowing before anything else relies on a scale.
+
+**The migration loop wrote a variable nothing read.** `migrate_and_stamp` ran
+`while v < CURRENT_FORMAT { v += 1 }` and then stamped the constant, so `v` was
+inert: three unkillable mutants sitting on a placeholder. It is
+`stamp_current_format` now, which is what it did. Same class as §4.2(e) —
+redundant production code, not a missing test.
+
+**The journald reader is a subprocess boundary, and ten mutants live behind
+it.** Everything reached through `run_journalctl` answers with whatever the
+host's journal holds — empty in a container, and that machine's real log on a
+developer box, which no assertion can name. Those are carved out by function
+name in `mutants.toml` with the reason written beside them. What the reader does
+with a *completed* invocation is a different question and is already held.
+
+### What is left
+
+- **PR 3 (iii), remainder.** `mesh-agent-core/src/discovery/ports.rs` (9 missed,
+  all of them the live `/proc` reader) and `connection.rs` (7 — the frame-size
+  boundary, the backoff's shift, the governor's first-flap exponent, and three
+  in `reconnect_with_backoff`, which draws from the process RNG).
+- **PR 4.** The thirty deletions in §4.1, verified file by file.
+- **PR 5.** The four decorative styling assertions, the `DeviceDetail.test.tsx`
+  split, the `phases.md` Completed row, the ADR and its `decisions.md` row, and
+  archiving this plan.
+
 ## Context
 
 The brief: cut unit-test maintenance burden, prefer behaviour-driven journeys,

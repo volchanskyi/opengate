@@ -74,11 +74,31 @@ exclude_globs = [
     "crates/edge-tsdb/src/substrate.rs",
 ]
 
-# Skip `restore_selinux_context` — the only mutants here are guards on
-# `restorecon` exit status / error kinds, which require a real privileged
-# subprocess to test. Verified manually on Fedora during the migration.
+# Two subprocess boundaries, each named by the function that owns it:
+#
+#   * `restore_selinux_context` — the only mutants here are guards on
+#     `restorecon` exit status / error kinds, which require a real privileged
+#     subprocess to test. Verified manually on Fedora during the migration.
+#   * the journald reader in `mesh-agent/src/host_logs.rs`, and the poll that
+#     drives it. `run_journalctl` spawns a subprocess, so everything that goes
+#     through it — `collect_journald`, `list_journald_units`, the two dispatchers
+#     `collect_host_logs` and `list_units` above them, and `poll_once`, which is
+#     the watch's one call into the reader — answers with whatever the host's
+#     journal holds. A container has no journalctl at all and every one of these
+#     returns empty there, which is what the replacement mutants also return; a
+#     developer machine with systemd answers with that machine's real log, which
+#     no assertion can name. What the reader does with a completed invocation is
+#     a different question and is tested: `entries_from_exit`, `units_from_exit`,
+#     `read_journald_lines`, `build_journald_args`, `parse_journald_json` and
+#     `batch_saturated` are all pure and all held.
 exclude_re = [
     "restore_selinux_context",
+    "collect_host_logs",
+    "list_units",
+    "run_journalctl",
+    "collect_journald",
+    "list_journald_units",
+    "poll_once",
 ]
 
 # Equivalent mutant, deferred — NOT excluded (no per-match-arm exclusion
@@ -100,3 +120,45 @@ exclude_re = [
 # identical AlertEvidence and identical bytes, so no assertion can separate
 # them. The rest of that ladder is held by the order-of-sacrifice tests in
 # mesh-agent-core/tests/alert_evidence_test.rs.
+
+# Equivalent mutants in the on-device store, not excluded (cargo-mutants has no
+# per-expression exclusion). Each is a boundary where both answers are the same
+# answer, and the run that found them is the run that closed the eleven real
+# gaps beside them — the store's missed count went 33 → 11 and every survivor is
+# on this list:
+#
+#   * compact.rs `bytes.len() < 21` widened to `<=`. Twenty-one bytes is the
+#     header and nothing else, so the varint read immediately after it fails and
+#     hands back the same CorruptBlock either way. Its `< 8` sibling in
+#     `decode_fixed_dod` is the same story — eight bytes is the scale with no
+#     values behind it. The `< 8` → `== 8` mutant beside it IS killed: below
+#     eight the store must refuse a truncated block rather than index past its
+#     end and take the agent down.
+#   * compact.rs `s.value.abs() < INT_SAFE` widened to `<=`. Two to the
+#     fifty-third exactly is still an integer an i64 holds, so the lossless
+#     integer codec encodes it correctly under either comparison.
+#   * compact.rs `fixed.len() < best.len()` widened to `<=`. On a tie the two
+#     candidates are the same size and the fixed-point one is exact to the scale
+#     the caller asked for, so nothing a reader can see changes.
+#   * compact.rs `b | 0x80` replaced with `b ^ 0x80` in `put_uvarint`. `b` is
+#     masked to seven bits a line earlier, so its top bit is already clear and
+#     the two operators agree on every input.
+#   * store/mod.rs `format_version` replaced with the constant `1`.
+#     CURRENT_FORMAT is 1 and `open` sets the field from it, so the constant and
+#     the field are the same number until a second format exists.
+#   * store/mod.rs `v < CURRENT_FORMAT` widened to `<=` in `open`. Re-stamping a
+#     store already at the current format writes the number it already carries.
+#     The `==` and `>` mutants on that comparison ARE killed, by the store left
+#     carrying the format it holds.
+#   * store/mod.rs the second `||` in `commit`'s retain guard replaced with
+#     `&&`. It separates the sealed blocks from the unrolled samples, and
+#     `write_all` empties both before the guard runs, so the two terms are never
+#     unequal when it is evaluated. The first `||` separates the tail from those
+#     two and IS killed, by the store that packs one block across many commits.
+#   * store/blocks.rs `newv.len() < val.len()` widened to `<=` in `deflate_one`.
+#     Writing a block back at exactly its own length reclaims nothing and
+#     changes no read.
+#   * store/blocks.rs `decode_tier_deflate`, two return replacements. They land
+#     on the `#[cfg(not(feature = "cold-deflate"))]` arm, which the build
+#     cargo-mutants runs does not compile, so nothing links them. The compiled
+#     arm's own mutants are killed by the cold-tier read-back.
