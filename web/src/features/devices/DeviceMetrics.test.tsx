@@ -179,12 +179,6 @@ describe('DeviceMetrics', () => {
     expect(screen.queryByText('View logs for this window')).toBeNull();
   });
 
-  it('the view-logs button uses the Restart-Agent yellow palette', () => {
-    resetStore({ metrics: sampleMetrics });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} onViewLogs={vi.fn()} />);
-    expect(screen.getByText('View logs for this window')).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700');
-  });
-
   it('shows a loading state while the first metrics window is in flight', () => {
     resetStore({ metrics: null, metricsLoading: true });
     render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);

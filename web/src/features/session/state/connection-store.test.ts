@@ -113,14 +113,6 @@ describe('connection-store', () => {
     vi.restoreAllMocks();
   });
 
-  it('has correct initial state', () => {
-    const state = useConnectionStore.getState();
-    expect(state.state).toBe('disconnected');
-    expect(state.token).toBeNull();
-    expect(state.error).toBeNull();
-    expect(state.transport).toBeNull();
-  });
-
   it('connect creates transport and sets token', () => {
     const { connect } = useConnectionStore.getState();
     connect('test-token', 'ws://host/relay', 'jwt');

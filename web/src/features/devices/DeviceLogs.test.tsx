@@ -155,19 +155,14 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ offset: 0 }));
   });
 
-  it('paginator arrows keep white glyphs on yellow in both states — no grey fade', () => {
-    // A single page disables both arrows, which is the state an operator sees
-    // most. The disabled treatment darkens the yellow instead of fading the
-    // whole button, so the chevrons (stroke=currentColor) stay white rather
-    // than washing out to grey.
+  it('a single page of logs leaves both paginator arrows disabled', () => {
+    // The state an operator sees most. Next disabled on `has_more: false` is
+    // asserted nowhere else in this file.
     setAgentLogs({ ...sampleLogs, has_more: false, total: 3 });
     render(<DeviceLogs deviceId="d1" />);
 
     for (const name of ['Previous page', 'Next page']) {
-      const arrow = screen.getByRole('button', { name });
-      expect(arrow).toBeDisabled();
-      expect(arrow).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700', 'text-white', 'disabled:bg-yellow-800');
-      expect(arrow.className).not.toContain('opacity');
+      expect(screen.getByRole('button', { name })).toBeDisabled();
     }
   });
 

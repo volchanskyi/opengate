@@ -13,13 +13,6 @@ describe('file-store', () => {
     });
   });
 
-  it('has correct initial state', () => {
-    const state = useFileStore.getState();
-    expect(state.currentPath).toBe('/');
-    expect(state.entries).toEqual([]);
-    expect(state.isLoading).toBe(false);
-  });
-
   it('setEntries updates entries and path AND clears isLoading', () => {
     // Seed isLoading true to prove the call resets it. Kills BooleanLiteral
     // mutant on `isLoading: false` inside setEntries.

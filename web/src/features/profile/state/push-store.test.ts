@@ -83,13 +83,6 @@ describe('push store', () => {
     expect(usePushStore.getState().isSubscribed).toBe(true);
   });
 
-  it('initial state', () => {
-    const fresh = usePushStore.getState();
-    expect(fresh.vapidKey).toBeNull();
-    expect(fresh.isSubscribed).toBe(false);
-    expect(fresh.error).toBeNull();
-  });
-
   describe('syncSubscriptionStatus capability gate', () => {
     const origNavigator = globalThis.navigator;
     const origPushManager = (globalThis as { PushManager?: unknown }).PushManager;

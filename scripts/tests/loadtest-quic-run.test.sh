@@ -153,15 +153,12 @@ else
   fail "a malformed agent line is not a measurement"
 fi
 
-# The runner is started in the background while the operator-side generator runs
-# beside it, so the shell that launched it has exited by the time it finishes and
-# its exit code has nowhere to be returned to. The verdict is written down.
+# The verdict is the runner's own exit code, and the caller waits on it, so
+# there is nothing to leave beside the output for somebody else to read.
 run_case 0 "$COMPLETE_RUN"
-assert_eq "a clean run records its verdict on disk" "0" "$(cat "$WORK/quic.txt.status" 2>/dev/null)"
-run_case 1 "$PARTIAL_RUN"
-assert_eq "a partial fleet records its verdict on disk" "1" "$(cat "$WORK/quic.txt.status" 2>/dev/null)"
+assert_no_file "a clean run leaves no verdict file beside its output" "$WORK/quic.txt.status"
 run_case 2 "$ABORTED"
-assert_eq "an aborted harness records its verdict on disk" "2" "$(cat "$WORK/quic.txt.status" 2>/dev/null)"
+assert_no_file "an aborted harness leaves no verdict file beside its output" "$WORK/quic.txt.status"
 
 # Usage errors are refused rather than silently running nothing.
 STATUS=0

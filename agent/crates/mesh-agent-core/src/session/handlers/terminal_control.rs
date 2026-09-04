@@ -72,10 +72,4 @@ mod tests {
         TerminalControlHandler::handle_resize(Some(&term), u16::MAX, u16::MAX);
         assert_eq!(resize_rx.try_recv().unwrap(), (u16::MAX, u16::MAX));
     }
-
-    #[test]
-    fn terminal_control_handler_implements_control_message_handler() {
-        fn assert_impl<T: ControlMessageHandler>() {}
-        assert_impl::<TerminalControlHandler>();
-    }
 }

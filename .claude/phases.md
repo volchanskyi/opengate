@@ -7,6 +7,7 @@
 
 | Phase | Summary | Version | Plan |
 |-------|---------|---------|------|
+| Test-value program | A test asserts on the code that ships, and assertion shape is not evidence of value — grading by shape inverted the correlation. The rule and its guard, four defects the census exposed, the Rust blind spots, and 31 tests that could not fail. [ADR-098](../docs/adr/ADR-098-a-test-asserts-on-the-code-that-ships.md). | — | [test-value-program.md](plans/archive/test-value-program.md) |
 | The relay session leak, and a load run that can see its target die | A handler parked on a hijacked request context stranded two goroutines per session until staging hit its memory limit. Fixed it, and closed the gate classes that were blind to it. [ADR-093](../docs/adr/ADR-093-a-relay-session-lifetime-is-owned-by-the-relay.md), [ADR-094](../docs/adr/ADR-094-a-run-records-what-its-target-was-holding.md), [ADR-095](../docs/adr/ADR-095-the-server-has-two-listeners.md), [ADR-096](../docs/adr/ADR-096-a-counter-of-a-resource-is-not-a-measurement-of-it.md). | — | [relay-session-leak-and-loadtest-target-health.md](plans/archive/relay-session-leak-and-loadtest-target-health.md) |
 | Three tech-debt paydowns: a benchmark measuring its own harness, a JS budget crowded by one lazy engine, a retention period nothing swept | Re-cut the handshake benchmark onto a scripted stream and cached the CA hash, gave the terminal engine its own budget beside charts, and swept alerts, evidence and closed rooms at a year. [ADR-088](../docs/adr/ADR-088-a-gate-measures-the-system-not-its-own-harness.md), [ADR-089](../docs/adr/ADR-089-the-declared-retention-period-is-the-one-the-tables-observe.md). | — | — |
 | Agent key permissions + server-side resumption evidence | The agent creates its key `0600` and data directory `0700` at every site, repairing one the installer left `0755`, and the installer writes its unit `0600`. The server counts each connection's `DidResume`; a production reconnect was observed resuming on the fast path. [ADR-037](../docs/adr/ADR-037-client-first-fast-path-reconnect.md). | — | [td-agent-key-perms-and-resumption-evidence.md](plans/archive/td-agent-key-perms-and-resumption-evidence.md) |
@@ -187,4 +188,3 @@
 
 | Phase | Summary | Version | Plan |
 |-------|---------|---------|------|
-| Test-value program | A test asserts on the code that ships: the rule, its write-time guard and repo sweep, the four defects the census exposed, the Rust blind spots, and the thirty tests that cannot fail. | — | — |

@@ -26,10 +26,10 @@
 # Output that does not carry the harness's own results block is discarded for
 # the same reason, whatever the exit code said.
 #
-# The verdict is also written to `<output-path>.status`, because this runs in
-# the background while the operator-side generator runs beside it: the shell
-# that started it has exited by the time it finishes, so its exit code has
-# nowhere to be returned to. A caller waits by watching for that file.
+# The verdict is this script's own exit code. The fleet is held by the cluster
+# rather than by a stream this runner owns, so the command wrapped here is the
+# one that reads that fleet's account of itself back out of the pod
+# (scripts/loadtest-quic-incluster.sh collect), and the caller waits on it.
 #
 # Usage: loadtest-quic-run.sh <output-path> -- <harness command...>
 set -euo pipefail
@@ -71,10 +71,6 @@ main() {
   fi
   shift
 
-  local status_file="$output.status"
-  # A verdict left by an earlier attempt would otherwise be read as this run's.
-  rm -f "$status_file"
-
   local status=0
   "$@" >"$output" 2>&1 || status=$?
   cat "$output"
@@ -82,25 +78,21 @@ main() {
   if [ "$status" = "$QUIC_MEASURED_NOTHING" ]; then
     rm -f "$output"
     echo "::error::the QUIC harness finished and measured nothing; its output is discarded so a run that connected nobody does not enter the trend." >&2
-    printf '%s\n' "$status" >"$status_file"
     return "$status"
   fi
 
   if [ "$status" -ne 0 ] && [ "$status" -ne "$QUIC_AGENT_FAILURES" ]; then
     rm -f "$output"
     echo "::warning::QUIC harness aborted (exit $status); its output is discarded so the aborted run does not enter the trend." >&2
-    printf '%s\n' "$status" >"$status_file"
     return "$status"
   fi
 
   if ! measured "$output"; then
     rm -f "$output"
     echo "::error::QUIC harness produced no results block; the run measured nothing and its output is discarded." >&2
-    printf '2\n' >"$status_file"
     return 2
   fi
 
-  printf '%s\n' "$status" >"$status_file"
   return "$status"
 }
 

@@ -994,10 +994,23 @@ Every address the harness dials goes through one allowlist — the configured
 target and the relay URL that arrives inside a session request alike — so a field
 on the wire cannot send a generator somewhere the run is forbidden to go.
 
+Against staging the harness is launched detached inside its own cluster pod
+through [`scripts/loadtest-quic-incluster.sh`](../../scripts/loadtest-quic-incluster.sh),
+so the fleet is held by the pod rather than by a stream reaching it from the
+runner. The launch is a call that returns in a moment and every later question —
+is it offering a fleet, what did it decide, what did it print — is a fresh call
+that can be asked again. The start returns only once the harness has announced
+its fleet, which is why a fleet that never came up is reported by the step that
+launched it rather than by a scenario four minutes later; a launch the API server
+never got to the kubelet is made again, and one that reached the pod never is,
+because a second harness would build a second fixture over the first one's names.
+See [ADR-099](../adr/ADR-099-a-fleet-is-held-by-the-cluster-not-by-a-stream.md).
+
 [`scripts/loadtest-quic-run.sh`](../../scripts/loadtest-quic-run.sh) applies the
-same keep-or-discard rule the k6 half has: a fleet that half connected is a
-measurement and its error rate is the finding, while a harness that could not
-start describes its own failure and its output is discarded.
+same keep-or-discard rule the k6 half has to what that read-back returns: a fleet
+that half connected is a measurement and its error rate is the finding, while a
+harness that could not start describes its own failure and its output is
+discarded.
 
 [`scripts/loadtest-run-completeness.sh`](../../scripts/loadtest-run-completeness.sh)
 then names which scenarios produced rows and which did not, and returns the

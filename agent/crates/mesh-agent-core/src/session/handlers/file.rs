@@ -156,10 +156,4 @@ mod tests {
         ));
         drop(frame_tx);
     }
-
-    #[test]
-    fn file_handler_implements_control_message_handler() {
-        fn assert_impl<T: ControlMessageHandler>() {}
-        assert_impl::<FileHandler>();
-    }
 }
