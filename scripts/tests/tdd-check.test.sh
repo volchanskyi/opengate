@@ -166,6 +166,111 @@ echo "package x" >server/tests/integration/x.go
 assert_ok "tests/ directory file counts" "$TDD_CHECK" has-test-change
 cleanup_repo
 
+# The branch-vs-base distinction matters for the four cases below: they are
+# about a file that already exists on dev and gains something on the branch, so
+# the file is seeded on the base and the branch carries only the change under
+# test. A file created on the branch has its whole content in the diff, which
+# includes its production code, and is a source change however it ends.
+seed_on_base() {
+  git add "$1"
+  git commit --quiet -m "seed $1"
+  git checkout --quiet -b feat/inline
+}
+
+# 9. A Rust file whose whole branch change is inside its inline
+#    `#[cfg(test)] mod tests` is a test change, even though its path is a source
+#    path. Rust keeps a module's unit tests in the file they cover, so a branch
+#    that adds nothing but tests to one has no test-shaped path anywhere in it.
+make_repo
+git checkout --quiet dev
+mkdir -p agent/src
+cat >agent/src/thing.rs <<'RS'
+pub fn double(n: u32) -> u32 {
+    n * 2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doubles() {
+        assert_eq!(double(2), 4);
+    }
+}
+RS
+seed_on_base agent/src/thing.rs
+python3 - <<'PYEOF'
+import pathlib
+
+p = pathlib.Path("agent/src/thing.rs")
+p.write_text(
+    p.read_text().replace(
+        "    #[test]\n    fn doubles() {",
+        "    #[test]\n    fn doubles_zero() {\n        assert_eq!(double(0), 0);\n    }\n\n"
+        "    #[test]\n    fn doubles() {",
+    )
+)
+PYEOF
+assert_ok "a branch change inside a Rust inline test module counts" "$TDD_CHECK" has-test-change
+cleanup_repo
+
+# 10. The same file changed above its test module as well is a source change.
+#     The exemption is for a change that is test code and nothing else.
+make_repo
+git checkout --quiet dev
+mkdir -p agent/src
+cat >agent/src/thing.rs <<'RS'
+pub fn double(n: u32) -> u32 {
+    n * 2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doubles() {
+        assert_eq!(double(2), 4);
+    }
+}
+RS
+seed_on_base agent/src/thing.rs
+python3 - <<'PYEOF'
+import pathlib
+
+p = pathlib.Path("agent/src/thing.rs")
+s = p.read_text().replace("    n * 2", "    n.wrapping_mul(2)")
+s = s.replace(
+    "        assert_eq!(double(2), 4);",
+    "        assert_eq!(double(2), 4);\n        assert_eq!(double(3), 6);",
+)
+p.write_text(s)
+PYEOF
+assert_fail "a Rust file changed above its test module does not count" "$TDD_CHECK" has-test-change
+cleanup_repo
+
+# 11. A Rust file with no inline test module in it is a source change.
+make_repo
+git checkout --quiet dev
+mkdir -p agent/src
+printf 'pub fn one() -> u32 {\n    1\n}\n' >agent/src/plain.rs
+seed_on_base agent/src/plain.rs
+printf '\npub fn two() -> u32 {\n    2\n}\n' >>agent/src/plain.rs
+assert_fail "a Rust file with no inline test module does not count" "$TDD_CHECK" has-test-change
+cleanup_repo
+
+# 12. The exemption is Rust's alone. Go keeps its tests in a file of their own,
+#     so a Go source file has no inline block to be judged by.
+make_repo
+git checkout --quiet dev
+mkdir -p server/internal/api
+printf 'package api\n\nfunc One() int { return 1 }\n' >server/internal/api/one.go
+seed_on_base server/internal/api/one.go
+printf '\nfunc Two() int { return 2 }\n' >>server/internal/api/one.go
+assert_fail "a Go source change is not excused by any inline block" "$TDD_CHECK" has-test-change
+cleanup_repo
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

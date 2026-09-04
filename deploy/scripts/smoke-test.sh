@@ -148,12 +148,21 @@ edge_answered() {
   [[ "$1" =~ ^[1-5][0-9][0-9]$ ]]
 }
 
+# answered_200 WHAT — did the last request come back 200, and if not, what did
+# it come back as? A check with several ways to fail that reports one word costs
+# a whole run to tell apart afterwards.
+answered_200() {
+  [[ "$RESPONSE_STATUS" == "200" ]] && return 0
+  log "  $1 answered ${RESPONSE_STATUS:-nothing}, ${#RESPONSE_BODY} bytes"
+  return 1
+}
+
 # --- Health check (both modes) ------------------------------------------------
 
 test_health() {
   http_get "${BASE_URL}/api/v1/health"
   [[ "$RESPONSE_STATUS" == "200" ]] || return 1
-  echo "$RESPONSE_BODY" | grep -q '"status"' || return 1
+  grep -q '"status"' <<<"$RESPONSE_BODY" || return 1
 }
 
 check "GET /api/v1/health returns 200" test_health
@@ -173,17 +182,31 @@ check "GET /api/v1/health returns 200" test_health
 # the namespace: a gauge is published from the moment it is registered. That the
 # request counter rises with traffic is asserted where it can be asserted
 # deterministically, in the metrics middleware's own test.
+#
+# Each arm says what it saw. A check with three ways to fail that reports one
+# word costs a whole run to tell apart afterwards: a 500 from the exposition, a
+# registry carrying nothing of ours, and a body that never arrived are three
+# different faults with three different owners, and "FAIL" names none of them.
 test_metrics() {
   http_get "${METRICS_BASE_URL}/metrics"
-  [[ "$RESPONSE_STATUS" == "200" ]] || return 1
-  echo "$RESPONSE_BODY" | grep -q '^# HELP ' || return 1
-  echo "$RESPONSE_BODY" | grep -q '^opengate_' || return 1
+  answered_200 "${METRICS_BASE_URL}/metrics" || return 1
+  if ! grep -q '^# HELP ' <<<"$RESPONSE_BODY"; then
+    log "  the exposition carried no '# HELP' line in ${#RESPONSE_BODY} bytes"
+    return 1
+  fi
+  if ! grep -q '^opengate_' <<<"$RESPONSE_BODY"; then
+    log "  the exposition carried no opengate_ series in ${#RESPONSE_BODY} bytes"
+    return 1
+  fi
 }
 
 test_profiler() {
   http_get "${METRICS_BASE_URL}/debug/pprof/"
-  [[ "$RESPONSE_STATUS" == "200" ]] || return 1
-  echo "$RESPONSE_BODY" | grep -q 'Types of profiles available' || return 1
+  answered_200 "${METRICS_BASE_URL}/debug/pprof/" || return 1
+  if ! grep -q 'Types of profiles available' <<<"$RESPONSE_BODY"; then
+    log "  the profiler index was not what answered, in ${#RESPONSE_BODY} bytes"
+    return 1
+  fi
 }
 
 # Whatever the edge answers with — the SPA fallback, or a 404 — the one thing it
@@ -193,10 +216,10 @@ test_profiler() {
 test_metrics_off_the_edge() {
   http_get "${BASE_URL}/metrics"
   edge_answered "$RESPONSE_STATUS" || return 1
-  if echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total'; then
+  if grep -q 'opengate_http_requests_total' <<<"$RESPONSE_BODY"; then
     return 1
   fi
-  if echo "$RESPONSE_BODY" | grep -q '^# HELP '; then
+  if grep -q '^# HELP ' <<<"$RESPONSE_BODY"; then
     return 1
   fi
   return 0
@@ -205,7 +228,7 @@ test_metrics_off_the_edge() {
 test_profiler_off_the_edge() {
   http_get "${BASE_URL}/debug/pprof/"
   edge_answered "$RESPONSE_STATUS" || return 1
-  if echo "$RESPONSE_BODY" | grep -q 'Types of profiles available'; then
+  if grep -q 'Types of profiles available' <<<"$RESPONSE_BODY"; then
     return 1
   fi
   return 0
@@ -224,7 +247,7 @@ fi
 test_web_index() {
   http_get "${BASE_URL}/"
   [[ "$RESPONSE_STATUS" == "200" ]] || return 1
-  echo "$RESPONSE_BODY" | grep -q '<div id="root">' || return 1
+  grep -q '<div id="root">' <<<"$RESPONSE_BODY" || return 1
 }
 
 check "GET / returns 200 with index.html" test_web_index
@@ -265,7 +288,7 @@ if [[ "$MODE" == "local" || "$MODE" == "staging" ]]; then
     [[ "$RESPONSE_STATUS" == "201" ]] || return 1
 
     # Extract JWT token for subsequent tests
-    JWT=$(echo "$RESPONSE_BODY" | grep -oP '"token"\s*:\s*"\K[^"]+' || echo "")
+    JWT=$(grep -oP '"token"\s*:\s*"\K[^"]+' <<<"$RESPONSE_BODY" || echo "")
     [[ -n "$JWT" ]] || return 1
     export JWT
   }
