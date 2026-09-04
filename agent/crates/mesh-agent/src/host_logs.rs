@@ -647,4 +647,33 @@ mod tests {
         assert_eq!(entries[0].target, "nginx.service");
         assert_eq!(entries[1].message, "handled request in 4ms");
     }
+
+    /// A batch that came back at the reader's own line cap is the newest records
+    /// of its window and nothing older, so records fell off its old end and how
+    /// many is not knowable. A batch under the cap is the whole window. The
+    /// system-event watch reads a window rather than a page, so this is the only
+    /// thing that tells it a device is losing records faster than it reads them.
+    #[test]
+    fn only_a_batch_at_the_readers_cap_has_lost_records() {
+        let batch = |n: usize| -> Vec<LogEntry> {
+            (0..n)
+                .map(|i| LogEntry {
+                    timestamp: "2026-09-04T09:00:00.000000Z".to_string(),
+                    level: "INFO".to_string(),
+                    target: "cron.service".to_string(),
+                    message: format!("record {i}"),
+                })
+                .collect()
+        };
+
+        assert!(
+            batch_saturated(&batch(MAX_HOST_LINES)),
+            "a batch at the cap lost the older end of its window"
+        );
+        assert!(
+            !batch_saturated(&batch(MAX_HOST_LINES - 1)),
+            "a batch under the cap is the whole window"
+        );
+        assert!(!batch_saturated(&batch(0)), "a quiet window lost nothing");
+    }
 }
