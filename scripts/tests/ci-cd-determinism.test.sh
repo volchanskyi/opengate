@@ -149,6 +149,84 @@ else
   fail "cargo install without --locked re-resolves the tool's whole graph every run:$install_bad"
 fi
 
+# --- a read is spelled as a read ---------------------------------------------
+#
+# `gh api` chooses its own HTTP method: GET normally, and POST the moment any
+# field flag is present. So a read that narrows its result with `-f`/`-F` is
+# silently posted, and every list endpoint answers a POST with `404 Not Found` —
+# which reads as "the workflow does not exist" rather than "you asked wrongly".
+# Under `set -euo pipefail` the step then dies on a message about the wrong
+# thing, and the shapes around it are built to treat an absent run as a reason
+# to stand down quietly.
+#
+# The nightly drill lost a whole night's measurement to this: its search for the
+# image build that carries the agent binary was a POST, the 404 killed the step,
+# and the run reported no machine to measure. So every `gh api` that passes a
+# field flag states its method rather than letting the tool infer one.
+#
+# This file is the one place excluded, because it necessarily carries the
+# pattern it matches: its own matcher strings and the prose above are not calls.
+# Counting them would let the sweep satisfy its own tripwire by reading itself,
+# which is the absence-shaped check this rule warns about.
+SELF="scripts/tests/ci-cd-determinism.test.sh"
+GH_SOURCES=()
+while IFS= read -r f; do
+  [ "$f" = "$SELF" ] || GH_SOURCES+=("$REPO_ROOT/$f")
+done < <(
+  {
+    git -C "$REPO_ROOT" ls-files '.github/workflows/*.yml'
+    git -C "$REPO_ROOT" ls-files '*.sh'
+  } | sort -u
+)
+
+gh_bad=""
+gh_seen=0
+gh_fielded=0
+for f in "${GH_SOURCES[@]}"; do
+  [ -f "$f" ] || continue
+  grep -qF 'gh api' "$f" || continue
+  # Join backslash continuations so a wrapped invocation is judged whole.
+  while IFS= read -r entry; do
+    where="${entry%%$'\t'*}"
+    cmd="${entry#*$'\t'}"
+    case "$cmd" in
+      *'gh api'*) ;;
+      *) continue ;;
+    esac
+    # Prose about the tool is not a call to it.
+    case "$cmd" in
+      '#'*) continue ;;
+    esac
+    gh_seen=$((gh_seen + 1))
+    # A field flag is what flips the inferred method to POST.
+    printf '%s' "$cmd" \
+      | grep -qE '(^|[[:space:]])(-f|-F|--field|--raw-field)([[:space:]=])' || continue
+    gh_fielded=$((gh_fielded + 1))
+    case "$cmd" in
+      *'-X '* | *'--method '*) ;;
+      *) gh_bad="$gh_bad"$'\n'"      $where" ;;
+    esac
+  done < <(awk '
+    {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      buf = buf (buf == "" ? "" : " ") line
+      if (line ~ /\\$/) { sub(/\\$/, "", buf); next }
+      print FILENAME ":" FNR "\t" buf
+      buf = ""
+    }
+    END { if (buf != "") print FILENAME ":" FNR "\t" buf }
+  ' "$f" | sed "s#^$REPO_ROOT/##")
+done
+
+if [ "$gh_seen" -eq 0 ]; then
+  fail "the gh api sweep reached no call at all, so it is asserting an absence it never tested"
+elif [ -z "$gh_bad" ]; then
+  pass "of $gh_seen gh api calls, the $gh_fielded passing a field flag state their HTTP method"
+else
+  fail "gh api infers POST from a field flag, and a list endpoint answers a POST with 404:$gh_bad"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

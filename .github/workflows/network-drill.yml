@@ -172,7 +172,7 @@ jobs:
           set -euo pipefail
           ARTIFACT="mesh-agent-${AGENT_TARGET}"
           SINCE="$(date -u -d '21 days ago' +%Y-%m-%d)"
-          RUN_ID="$(gh api --paginate \
+          RUN_ID="$(gh api -X GET --paginate \
             "/repos/$REPO/actions/workflows/build-image.yml/runs" \
             -f "created=>=$SINCE" -f "branch=main" -f "status=success" -F per_page=100 \
             --jq '[.workflow_runs[].id] | first // empty')"

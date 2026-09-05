@@ -117,6 +117,40 @@ lockfile the tool's own authors tested — the only build there is evidence
 about. [`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
 holds all of them to it.
 
+### A read is spelled as a read
+
+The rules above are about a step whose work was refused. This one is about a
+step that was never the step anybody wrote, because the tool picked a different
+one — and the error it comes back with describes the wrong thing entirely.
+
+`gh api` chooses its own request method: a plain read normally, and a write the
+moment any `-f`, `-F`, `--field` or `--raw-field` is present. Those flags are
+also how a read narrows what it asks for, so the ordinary act of filtering a
+listing turns it into a write against an address that only answers reads. Every
+such address answers with `404 Not Found`, which reads as *that workflow does
+not exist* rather than *you asked the wrong way*. Under `set -euo pipefail` the
+step then dies pointing at the wrong thing, and the shapes built around these
+calls make it worse: a run that cannot be found is exactly the condition they
+are written to treat as a reason to stand down quietly.
+
+The nightly link drill lost a night to it. Its search for the image build
+carrying the machine binary passed three filters, so it was posted, so it was
+refused, so the step reported no machine to measure — on a repository where that
+build had succeeded hours earlier and its binary was sitting in the artifact
+store the whole time. The same call sits on the deploy's manual path, where it
+had never yet been asked.
+
+So every `gh api` that passes a field flag states its method rather than letting
+the tool infer one, and
+[`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
+holds all of them to it — reading each invocation whole, across the line
+continuations they are written over, and counting what it reached so a sweep
+that matched nothing fails instead of passing.
+
+The generalisation is the one worth carrying: **where a tool infers a verb from
+the arguments, the verb is written down.** An inferred verb is a decision nobody
+recorded, and it surfaces as an error about the noun.
+
 ### An exemption is re-earned
 
 The list of workflows that may not cache is a statement about tokens, not about
