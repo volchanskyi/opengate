@@ -276,7 +276,21 @@ func (s *Shaper) after(delay time.Duration, write func()) {
 		write()
 		return
 	}
+	// Joining the group under the lock the teardown takes is what makes the
+	// group mean what it says. A datagram either joins before Close reads the
+	// group, or arrives to find the link already down and is not carried: a
+	// datagram that joined afterwards would be one Close had already finished
+	// waiting for.
+	s.mu.Lock()
+	select {
+	case <-s.closed:
+		s.mu.Unlock()
+		return
+	default:
+	}
 	s.inFlight.Add(1)
+	s.mu.Unlock()
+
 	time.AfterFunc(delay, func() {
 		defer s.inFlight.Done()
 		select {
@@ -341,9 +355,13 @@ func (s *Shaper) reap() {
 // Close stops the shaper and releases every socket it holds.
 func (s *Shaper) Close() {
 	s.closeOnce.Do(func() {
-		close(s.closed)
 		_ = s.listener.Close()
+		// Saying the link is down and releasing its sockets happen under one
+		// hold of the lock, so a forward already in progress has either joined
+		// the in-flight group or is refused by it. The wait is outside the
+		// lock because joining takes that same lock.
 		s.mu.Lock()
+		close(s.closed)
 		for key, m := range s.mappings {
 			_ = m.conn.Close()
 			delete(s.mappings, key)

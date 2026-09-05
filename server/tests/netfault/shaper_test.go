@@ -20,12 +20,10 @@ func TestShaperAccountsForEveryDatagramItHandles(t *testing.T) {
 	_, err := exchange(t, conn, "one")
 	require.NoError(t, err)
 
-	clear := shaper.Counters()
+	clear := awaitForwarded(t, shaper, 1, 1)
 	assert.Equal(t, int64(1), clear.ToServer.In)
-	assert.Equal(t, int64(1), clear.ToServer.Out)
 	assert.Zero(t, clear.ToServer.Dropped)
 	assert.Equal(t, int64(1), clear.ToMachine.In)
-	assert.Equal(t, int64(1), clear.ToMachine.Out)
 
 	require.NoError(t, shaper.SetProfile(Profile{Blackhole: true}))
 	_, err = conn.Write([]byte("two"))
@@ -76,6 +74,35 @@ func TestCloseWaitsForWhatIsStillOnTheWire(t *testing.T) {
 
 	shaper.Close()
 	shaper.Close() // closing twice is what a failed run's teardown does
+}
+
+// Teardown lands while the link is still carrying traffic, which is what a
+// failed run's teardown actually does: the machines are not asked to stop
+// first. Closing has to be safe against the forwarder still running, or the
+// instrument reports a race in a drill that found nothing wrong with the
+// product.
+func TestCloseIsSafeWhileTheLinkIsStillCarryingTraffic(t *testing.T) {
+	t.Parallel()
+	shaper, addr, _ := startShaper(t, 1)
+	conn := machine(t, addr)
+	// A delay is what leaves a datagram on the wire for the teardown to have
+	// something to wait for.
+	require.NoError(t, shaper.SetProfile(Profile{DelayEachWay: 50 * time.Millisecond}))
+
+	sent := make(chan struct{})
+	go func() {
+		defer close(sent)
+		for range 2000 {
+			if _, err := conn.Write([]byte("carry")); err != nil {
+				return
+			}
+		}
+	}()
+
+	require.Eventually(t, func() bool { return shaper.Counters().ToServer.In > 0 },
+		readDeadline, time.Microsecond, "nothing reached the shaper")
+	shaper.Close()
+	<-sent
 }
 
 // A shaper that cannot be stood up says so. The alternative is a drill that
