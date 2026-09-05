@@ -115,6 +115,7 @@ func TestDelayedDatagramsStillArrive(t *testing.T) {
 	// Both ways are delayed, so the round trip carries two of them.
 	assert.GreaterOrEqual(t, time.Since(sent), 100*time.Millisecond,
 		"the round trip was quicker than the delay applied to each half of it")
-	assert.Equal(t, int64(1), shaper.Counters().ToServer.Out,
-		"a delayed datagram was not counted once it was forwarded")
+	// A datagram held by the delay is still a datagram the shaper forwarded, so
+	// it lands in the forwarded count like any other.
+	awaitForwarded(t, shaper, 1, 1)
 }

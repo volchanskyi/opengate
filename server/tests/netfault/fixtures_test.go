@@ -113,3 +113,24 @@ func exchange(t *testing.T, conn *net.UDPConn, payload string) (string, error) {
 	}
 	return string(buf[:n]), nil
 }
+
+// awaitForwarded is the assertion that the shaper counted what it forwarded,
+// each way, and it returns the settled counters so the caller can go on to read
+// the rest of them.
+//
+// It waits rather than reading once because the forwarded count is recorded
+// after the write that forwarded the datagram. A test holding the reply is
+// downstream of both of those writes, so it can reach the counters before the
+// shaper has written them down — the counts are not wrong, they are not there
+// yet. Reading once asserts which goroutine the scheduler ran next; waiting
+// asserts the shaper.
+func awaitForwarded(t *testing.T, shaper *Shaper, toServer, toMachine int64) Counters {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		got := shaper.Counters()
+		return got.ToServer.Out == toServer && got.ToMachine.Out == toMachine
+	}, readDeadline, time.Millisecond,
+		"the shaper did not count what it forwarded: want %d to the server and %d to the machine",
+		toServer, toMachine)
+	return shaper.Counters()
+}
