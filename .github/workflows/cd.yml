@@ -263,7 +263,7 @@ jobs:
             SINCE="$(date -u -d '21 days ago' +%Y-%m-%d)"
             # Read to the end before narrowing: a pipe closed early takes gh
             # down with it, and pipefail would read that as "no such run".
-            MATCHES="$(gh api --paginate \
+            MATCHES="$(gh api -X GET --paginate \
               "/repos/$REPO/actions/workflows/build-image.yml/runs" \
               -f "created=>=$SINCE" -F per_page=100 \
               --jq "[.workflow_runs[] | select(.head_sha | startswith(\"$SHORT_SHA\")) | .id] | first // empty")"

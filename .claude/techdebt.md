@@ -5,7 +5,9 @@
 
 ## Severity: Medium
 
-### The go mutation score has not recovered from the rules and alerts surface
+### The mutation score has not recovered from the rules and alerts surface
+
+Two legs, one cause and one way to pay it down, so they are one entry.
 
 The go leg reads 85.5 against the 88.2 it carried before that surface landed.
 The nightly is green — the check in
@@ -27,8 +29,9 @@ rather than in one pass. Take the shards covering the rules and alerts code,
 kill what a test can kill, and carve out what the run proves equivalent with the
 reason written next to it. A file's survivor list is the unit of work — reading
 it off a local run costs less than a nightly and names the assertions that are
-missing. The trigger is the leg reaching 88.2 on its own rather than that figure
-being moved down to meet it.
+missing. The trigger is go reaching 88.2 and web holding a margin it is not one
+bad night from losing, both on their own rather than by moving either figure
+down to meet the score.
 
 ### The two larger fleets have not been built on staging
 
