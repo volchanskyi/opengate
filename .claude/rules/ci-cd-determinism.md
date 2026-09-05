@@ -151,6 +151,42 @@ The generalisation is the one worth carrying: **where a tool infers a verb from
 the arguments, the verb is written down.** An inferred verb is a decision nobody
 recorded, and it surfaces as an error about the noun.
 
+### An input a script refuses to run without is named where it is called
+
+The section above is about a caller that left the verb to the tool. This one is
+about a caller that left an input to nobody at all — and it is the harder half,
+because the script says plainly what it needs and the saying is what nothing
+reads.
+
+[`loadtest-quic-incluster.sh`](../../scripts/loadtest-quic-incluster.sh) launches
+the fleet harness into the pod named in `LOADTEST_POD`, documents it as required
+and refuses without it. The nightly link drill stands up several pods and holds
+this one in `FLEET_POD`, a name the shim has never heard of, so the call was
+refused at its first line. The drill had started the machine, the shaper and the
+probe, minted its credentials and waited for the machine to come online — twelve
+steps of setup — and then measured nothing, on a cluster where every piece it
+needed was already up and answering.
+
+The refusal was loud and immediate, which is what makes the shape worth a rule
+rather than a fix: nothing about it was subtle at run time, and it still cost two
+nights, because the only place it could be discovered was a scheduled run against
+a live cluster. A name is checkable from the text alone, and it was checked by
+nothing.
+
+So a workflow step that calls a script names every input that script refuses to
+run without, and
+[`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
+sweeps for it: the required inputs are read off each script — the `:?` refusals
+the shell itself makes, and the `(required)` entries in the script's own
+Environment header — and looked for in the calling job together with the
+workflow-level `env` that job inherits, which is the scope a name can actually
+reach, since `$GITHUB_ENV` does not cross a job boundary. Like the sweep above it
+counts the calls it reached, so a sweep that matched nothing fails.
+
+The generalisation: **a contract stated in one file and satisfied in another is
+checked in neither unless something is made to read both.** Where the two are
+text, that something is a sweep, and it costs less than one night of a nightly.
+
 ### An exemption is re-earned
 
 The list of workflows that may not cache is a statement about tokens, not about
