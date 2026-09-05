@@ -367,7 +367,10 @@ jobs:
           kubectl -n "$NAMESPACE" exec "$FLEET_POD" -- chmod 0755 /tmp/loadtest
 
           # The fleet is held for the whole drill, so every scenario has the herd
-          # in place rather than standing one up per scenario.
+          # in place rather than standing one up per scenario. The harness is
+          # launched into the pod named in LOADTEST_POD, which is this drill's
+          # fleet pod.
+          LOADTEST_POD="$FLEET_POD" \
           scripts/loadtest-quic-incluster.sh start -- \
             /tmp/loadtest \
               -agents="$DRILL_FLEET_AGENTS" \

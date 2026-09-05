@@ -227,6 +227,77 @@ else
   fail "gh api infers POST from a field flag, and a list endpoint answers a POST with 404:$gh_bad"
 fi
 
+# --- an input a script refuses to run without is named where it is called -----
+#
+# A script that documents an input as required, or refuses to start without one,
+# holds a contract with every workflow that calls it, and nothing was reading
+# that contract. `scripts/loadtest-quic-incluster.sh` works through the pod named
+# in LOADTEST_POD. The nightly drill calls it holding its pod in FLEET_POD — a
+# name the shim has never heard of — so the call was refused where it stood: no
+# fleet started, the drill measured nothing, and the whole of it surfaced two
+# hours into a nightly instead of in the commit that wrote the call.
+#
+# This is the same shape as the `gh api` verb above. There, a tool inferred a
+# verb nobody wrote down; here, a caller assumed a name nobody checked. Both are
+# decisions made at a distance from the text that carries them, and both come
+# back as an error about something else.
+#
+# The name has to be reachable from the call, so the scope searched is the
+# calling job plus the workflow-level env every job inherits. $GITHUB_ENV does
+# not cross a job boundary and neither does this check.
+required_env_of() {
+  {
+    # The refusal the shell itself makes: `: "${VAR:?…}"`.
+    grep -oE '^: *"\$\{[A-Z][A-Z0-9_]*:\?' "$1" | grep -oE '[A-Z][A-Z0-9_]*' || true
+    # The script's own account of itself, in its Environment header.
+    grep -E '^#[[:space:]]+[A-Z][A-Z0-9_]*([[:space:]]|$).*\(required\)' "$1" \
+      | grep -oE '^#[[:space:]]+[A-Z][A-Z0-9_]*' | grep -oE '[A-Z][A-Z0-9_]*' || true
+  } | sort -u
+}
+
+# The calling job's text, with the workflow-level env prepended.
+calling_scope() {
+  awk -v want="$2" '
+    /^jobs:[[:space:]]*$/ { injobs = 1; next }
+    !injobs { pre = pre $0 "\n"; next }
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      if (block != "" && index(block, want)) out = out block
+      block = ""
+    }
+    { block = block $0 "\n" }
+    END {
+      if (block != "" && index(block, want)) out = out block
+      printf "%s%s", pre, out
+    }
+  ' "$1"
+}
+
+env_bad=""
+env_calls=0
+while IFS= read -r script; do
+  case "$script" in scripts/tests/*) continue ;; esac
+  vars="$(required_env_of "$REPO_ROOT/$script" || true)"
+  [ -n "$vars" ] || continue
+  for wf in "$WORKFLOWS"/*.yml; do
+    # A mention in a comment is not a call.
+    grep -vE '^[[:space:]]*#' "$wf" | grep -qF "$script" || continue
+    env_calls=$((env_calls + 1))
+    scope="$(calling_scope "$wf" "$script")"
+    for var in $vars; do
+      grep -qE "(^|[^A-Z0-9_])${var}[=:]" <<<"$scope" && continue
+      env_bad="$env_bad"$'\n'"      $(basename "$wf") calls $script without $var"
+    done
+  done
+done < <(git -C "$REPO_ROOT" ls-files '*.sh')
+
+if [ "$env_calls" -eq 0 ]; then
+  fail "the required-input sweep reached no call at all, so it is asserting an absence it never tested"
+elif [ -z "$env_bad" ]; then
+  pass "each of $env_calls workflow calls names every input its script refuses to run without"
+else
+  fail "a script refuses to run without an input its caller never names:$env_bad"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
