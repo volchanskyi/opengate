@@ -44,7 +44,11 @@ func TestFixtureCountsDescribeWhatWasActuallyCreated(t *testing.T) {
 	assert.Equal(t, len(fleet.plan.Customers), counts.Customers)
 	assert.Equal(t, fleet.plan.Sites, counts.Sites)
 	assert.Equal(t, len(fleet.plan.Users), counts.Users)
-	assert.Equal(t, fleet.plan.Devices, counts.Devices)
+	// The plan under its own name. The machines themselves arrive by enrolling,
+	// which happens after the fixture is built, so the fleet that exists is
+	// counted by whoever counted the arrivals rather than claimed here.
+	assert.Equal(t, fleet.plan.Devices, counts.PlannedDevices)
+	assert.Zero(t, counts.Devices, "a fixture that has built no machines has none")
 	assert.Equal(t, 1, counts.Tenants, "there is no way to ask for a second tenant yet")
 }
 

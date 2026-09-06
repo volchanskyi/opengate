@@ -26,14 +26,14 @@ func validRunInputs() RunInputs {
 		},
 		ExpectedScenarios: []string{"api-baseline", "concurrent-agents", "relay-throughput", "quic-agents"},
 		ProducedScenarios: []string{"api-baseline", "concurrent-agents", "relay-throughput", "quic-agents"},
-		Headroom:          Headroom{CPUHeadroomPercent: 60, MemoryUsedPercent: 45},
+		Headroom:          Headroom{Measured: true, CPUHeadroomPercent: 60, MemoryUsedPercent: 45},
 		Phases: []PhaseResult{{
-			Name:                      "steady",
-			StartedAt:                 start,
-			FinishedAt:                start.Add(time.Minute),
-			OfferedArrivalsPerSecond:  5,
-			AchievedArrivalsPerSecond: 4.9,
-			ErrorRate:                 0.001,
+			Name:                           "steady",
+			StartedAt:                      start,
+			FinishedAt:                     start.Add(time.Minute),
+			OfferedAgentArrivalsPerSecond:  5,
+			AchievedAgentArrivalsPerSecond: 4.9,
+			ErrorRate:                      0.001,
 		}},
 	}
 }
@@ -96,7 +96,7 @@ func TestARunThatDidNotMeasureTheSystemIsInvalid(t *testing.T) {
 		},
 		{
 			name:   "the load was never offered",
-			mutate: func(in *RunInputs) { in.Phases[0].AchievedArrivalsPerSecond = 1.0 },
+			mutate: func(in *RunInputs) { in.Phases[0].AchievedAgentArrivalsPerSecond = 1.0 },
 			reason: "offered",
 		},
 		{

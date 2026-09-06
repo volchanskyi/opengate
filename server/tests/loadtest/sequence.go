@@ -23,6 +23,44 @@ import (
 // both climbs rather than one climb and one step.
 const rampSteps = 10
 
+// FleetOutcomes is the running tally of what a fleet's machines have seen. It
+// is cumulative rather than per-phase because a machine reports once, when its
+// own life ends, and a phase is the difference between two readings of it.
+type FleetOutcomes struct {
+	// Arrived is machines that connected, handshook and registered.
+	Arrived int64
+	// Failed is machines that did not, for any reason.
+	Failed int64
+	// Severed is machines whose held connection went away underneath them,
+	// which is the only detector of a fleet cut off mid-run.
+	Severed int64
+	// Rejected is refusals the server made on purpose — a spent credential, a
+	// rate past a declared ceiling. Counting those as faults makes a correctly
+	// enforced limit look like a defect and buries the real ones.
+	Rejected int64
+}
+
+// Attempted is how many machines produced an outcome either way.
+func (o FleetOutcomes) Attempted() int64 { return o.Arrived + o.Failed }
+
+// Since is what happened between an earlier reading and this one.
+func (o FleetOutcomes) Since(earlier FleetOutcomes) FleetOutcomes {
+	return FleetOutcomes{
+		Arrived:  o.Arrived - earlier.Arrived,
+		Failed:   o.Failed - earlier.Failed,
+		Severed:  o.Severed - earlier.Severed,
+		Rejected: o.Rejected - earlier.Rejected,
+	}
+}
+
+// ErrorRate is the share of attempted machines that did not arrive.
+func (o FleetOutcomes) ErrorRate() float64 {
+	if o.Attempted() <= 0 {
+		return 0
+	}
+	return float64(o.Failed) / float64(o.Attempted())
+}
+
 // Fleet is whatever holds machines connected during a run.
 type Fleet interface {
 	// HoldConnected asks for exactly this many machines to be connected. The
@@ -32,8 +70,17 @@ type Fleet interface {
 	// Connected is how many are actually connected now, which is not always what
 	// was asked for — and the difference is the finding.
 	Connected() int
-	// SampleLatency is the round trip a machine is currently seeing.
-	SampleLatency() time.Duration
+	// ProbeLatency is a round trip taken now: a machine that connects,
+	// handshakes and registers while the phase is at its level.
+	//
+	// It is a fresh arrival rather than a reading off a machine already
+	// connected because the control stream has no reply to a heartbeat, so a
+	// connect-handshake-register is the only live round trip the machine side
+	// has. Zero is a round trip that could not be taken, which is absent rather
+	// than instant.
+	ProbeLatency() time.Duration
+	// Outcomes is what the fleet's machines have seen so far.
+	Outcomes() FleetOutcomes
 }
 
 // Clock is time, so a run can be walked without waiting for one.
@@ -63,6 +110,11 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, 
 		step = phase.Duration.Duration
 	}
 
+	// The tally the phase's own outcomes are the difference from. A machine
+	// reports once, when its life ends, so a phase can only be told apart from
+	// the run around it by bracketing it.
+	began := fleet.Outcomes()
+
 	var samples []time.Duration
 	elapsed := time.Duration(0)
 	for i := 1; i <= rampSteps; i++ {
@@ -70,7 +122,12 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, 
 		if err := fleet.HoldConnected(elapsed, target); err != nil {
 			return PhaseResult{}, err
 		}
-		samples = append(samples, fleet.SampleLatency())
+		// A live round trip at each step of the climb, so the phase's tail is
+		// measured over the phase rather than read off whichever machine
+		// happened to finish last — which in a profiled run is none of them.
+		if sample := fleet.ProbeLatency(); sample > 0 {
+			samples = append(samples, sample)
+		}
 		clock.Sleep(step)
 		elapsed += step
 	}
@@ -81,18 +138,40 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, 
 		clock.Sleep(remainder)
 	}
 
+	saw := fleet.Outcomes().Since(began)
+	seconds := phase.Duration.Duration.Seconds()
+
 	return PhaseResult{
-		Name:                      phase.Name,
-		StartedAt:                 startedAt,
-		FinishedAt:                startedAt.Add(phase.Duration.Duration),
-		OfferedArrivalsPerSecond:  phase.OperatorArrivalsPerSecond,
-		AchievedArrivalsPerSecond: phase.OperatorArrivalsPerSecond,
-		OfferedConnectedAgents:    phase.ConnectedAgents,
-		AchievedConnectedAgents:   fleet.Connected(),
-		LatencyP50Ms:              millis(percentile(samples, 50)),
-		LatencyP95Ms:              millis(percentile(samples, 95)),
-		LatencyP99Ms:              millis(percentile(samples, 99)),
+		Name:       phase.Name,
+		StartedAt:  startedAt,
+		FinishedAt: startedAt.Add(phase.Duration.Duration),
+		// What the phase's own climb asked for, against what turned up. The
+		// climb is the offer: a phase going from four hundred machines to five
+		// hundred over a minute is offering a hundred arrivals in that minute,
+		// and a phase that winds down offers none.
+		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(max(phase.ConnectedAgents-from, 0)), seconds),
+		AchievedAgentArrivalsPerSecond: ratePerSecond(saw.Arrived, seconds),
+		// The profile's technician figure travels; nothing here offers it, so
+		// its achieved half stays absent.
+		OfferedOperatorArrivalsPerSecond: phase.OperatorArrivalsPerSecond,
+		OfferedConnectedAgents:           phase.ConnectedAgents,
+		AchievedConnectedAgents:          fleet.Connected(),
+		LatencyP50Ms:                     millis(percentile(samples, 50)),
+		LatencyP95Ms:                     millis(percentile(samples, 95)),
+		LatencyP99Ms:                     millis(percentile(samples, 99)),
+		ErrorRate:                        saw.ErrorRate(),
+		ExpectedRejections:               saw.Rejected,
+		Faults:                           saw.Severed,
 	}, nil
+}
+
+// ratePerSecond is a count over a window, or zero for a window with no length —
+// a rate over no time is not a fast run.
+func ratePerSecond(count int64, seconds float64) float64 {
+	if seconds <= 0 {
+		return 0
+	}
+	return float64(count) / seconds
 }
 
 // levelAt is how many machines are connected at step i of n, climbing from one

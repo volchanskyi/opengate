@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // How a run offers its load, and what it builds before the clock starts.
@@ -76,10 +78,12 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 		return runFlat(agents, agentPlan, credentials, addr, opts), nil
 	}
 
-	fleet := NewQUICFleet(func(ctx context.Context, index int) agentResult {
-		plan := agentPlan[index%len(agentPlan)]
-		return runAgentWithContext(ctx, credentials, addr, plan, opts)
-	})
+	fleet := NewQUICFleetWithProbe(
+		func(ctx context.Context, index int) agentResult {
+			plan := agentPlan[index%len(agentPlan)]
+			return runAgentWithContext(ctx, credentials, addr, plan, opts)
+		},
+		phaseProbe(agentPlan, credentials, addr, opts))
 
 	results, phases, err := runProfile(profile, fleet, NewRealClock(), LocalNodeReading)
 	if err != nil {
@@ -122,6 +126,77 @@ func runFlat(agents int, agentPlan []tenantAgent, credentials agentCredentials,
 	}
 	wg.Wait()
 	return results
+}
+
+// phaseProbe is one live round trip through the machine side: connect,
+// handshake, register, hang up.
+//
+// It is what a phase's latency figure is. The figure used to be the last
+// finished machine's connect time, and in a profiled run no machine finishes
+// while the walk is running — so every phase of every profiled bundle carried
+// no latency at all, under a field that is omitted when empty and complained
+// about by nothing.
+//
+// The probe holds nothing: its options carry no hold and no sessions, so it
+// arrives, is counted where the server counts arrivals, and leaves. That is
+// deliberate — the round trip being timed is the one a machine coming back
+// after an outage actually makes.
+func phaseProbe(agentPlan []tenantAgent, credentials agentCredentials, addr string, opts loadOptions) ProbeRoundTrip {
+	if len(agentPlan) == 0 {
+		return nil
+	}
+	probeOpts := opts
+	probeOpts.holdFor = 0
+	probeOpts.relaySessions = false
+	probeOpts.defaultTelemetry = false
+	probeOpts.metricWindows = 0
+	probeOpts.backfillBatches = 0
+	probeOpts.answerLogPulls = false
+
+	var next atomic.Int64
+	return func(ctx context.Context) (time.Duration, error) {
+		// Its own hostname, so a probe is never mistaken for one of the machines
+		// the phase is holding and never takes a held machine's place.
+		plan := tenantAgent{
+			tenantIndex: agentPlan[0].tenantIndex,
+			agentIndex:  agentPlan[0].agentIndex,
+			hostname:    fmt.Sprintf("%s-probe-%d", agentPlan[0].hostname, next.Add(1)),
+		}
+		result := runAgentWithContext(ctx, credentials, addr, plan, probeOpts)
+		if result.err != nil {
+			return 0, result.err
+		}
+		return result.connectDur + result.handshakeDur + result.registerDur, nil
+	}
+}
+
+// readJourneys carries the technician-side screens this night timed into the
+// evidence. A run given no export has no journeys rather than empty ones.
+func readJourneys(path string) []JourneyResult {
+	if path == "" {
+		return nil
+	}
+	journeys, err := LoadJourneys(path)
+	if err != nil {
+		fmt.Printf("::warning::could not read the journeys this night timed: %v\n", err)
+		return nil
+	}
+	return journeys
+}
+
+// readFixtureWeight carries what the fleet cost on disk into the evidence. A
+// run that weighed nothing reports nothing rather than zero, because zero bytes
+// is the emptiest fixture ever built.
+func readFixtureWeight(path string) *FixtureWeight {
+	if path == "" {
+		return nil
+	}
+	weight, err := LoadFixtureWeight(path)
+	if err != nil {
+		fmt.Printf("::warning::could not read what the fleet weighed: %v\n", err)
+		return nil
+	}
+	return &weight
 }
 
 // readServerRegistration asks the server how long registration actually took. A

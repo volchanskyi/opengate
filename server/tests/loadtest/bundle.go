@@ -22,7 +22,13 @@ import (
 // bundleSchemaVersion is the shape of the document below. It travels inside the
 // document because a trend that silently spans two meanings of a field is worse
 // than one with a gap in it.
-const bundleSchemaVersion = 1
+//
+// Version 2 separates the two sides of the arrival rate. A phase used to carry
+// one pair of arrival fields whose offered half was technician load and whose
+// achieved half was the same figure copied across, which made the pair
+// unreadable in both directions: the units belonged to a generator this process
+// does not drive, and the ratio between them was one by construction.
+const bundleSchemaVersion = 2
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -47,10 +53,14 @@ type RunIdentity struct {
 type Fingerprint struct {
 	Kind        string `json:"kind"`
 	Description string `json:"description"`
-	CPUs        int    `json:"cpus"`
-	MemoryBytes int64  `json:"memory_bytes"`
-	// DiskBytes is stated where it is known; a volume run's whole finding is
-	// about it.
+	// CPUs is fractional because a container's share of a machine is. The
+	// scaling sweep's whole subject is this number, and half a processor is one
+	// of its rungs.
+	CPUs        float64 `json:"cpus"`
+	MemoryBytes int64   `json:"memory_bytes"`
+	// DiskBytes is the room this side has, which for a machine that builds a
+	// stack and a fixture on it is what is free rather than how big the
+	// partition is. Zero means it was not measured.
 	DiskBytes int64  `json:"disk_bytes,omitempty"`
 	Arch      string `json:"arch,omitempty"`
 }
@@ -63,7 +73,12 @@ type FixtureCounts struct {
 	Customers int         `json:"customers"`
 	Sites     int         `json:"sites"`
 	Users     int         `json:"users"`
-	Devices   int         `json:"devices"`
+	// Devices is the fleet that exists: the machines that enrolled. PlannedDevices
+	// is what the plan asked for, and the two are different numbers — a bundle
+	// reported two thousand machines while the database, weighed in the same
+	// job, held five hundred.
+	Devices        int `json:"devices"`
+	PlannedDevices int `json:"planned_devices,omitempty"`
 	// DatabaseBytes and TelemetrySeries are filled by a run that weighed the
 	// fixture. Zero means it was not measured, which is different from empty.
 	DatabaseBytes   int64 `json:"database_bytes,omitempty"`
@@ -76,14 +91,26 @@ type PhaseResult struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
 
-	// Offered is what the profile asked for; achieved is what arrived. They are
-	// separate fields because collapsing them hides the one case the validity
-	// rule exists for — a generator that could not produce the load reads
-	// exactly like a system that could not absorb it.
-	OfferedArrivalsPerSecond  float64 `json:"offered_arrivals_per_second"`
-	AchievedArrivalsPerSecond float64 `json:"achieved_arrivals_per_second"`
-	OfferedConnectedAgents    int     `json:"offered_connected_agents"`
-	AchievedConnectedAgents   int     `json:"achieved_connected_agents"`
+	// The machine side of the arrival rate: what the phase's own climb asked
+	// for, and what the fleet delivered. Both are the harness's to state,
+	// because it is the process that dials machines.
+	//
+	// They are separate fields because collapsing them hides the one case the
+	// validity rule exists for — a generator that could not produce the load
+	// reads exactly like a system that could not absorb it. Restating the
+	// offered figure as the achieved one is that collapse wearing both names.
+	OfferedAgentArrivalsPerSecond  float64 `json:"offered_agent_arrivals_per_second"`
+	AchievedAgentArrivalsPerSecond float64 `json:"achieved_agent_arrivals_per_second"`
+
+	// The technician side. The profile declares it and a browser-side generator
+	// offers it, so this process carries what was asked for and leaves the
+	// achieved half absent rather than inventing it — an absent figure is
+	// readable, and a copied one is not.
+	OfferedOperatorArrivalsPerSecond  float64  `json:"offered_operator_arrivals_per_second"`
+	AchievedOperatorArrivalsPerSecond *float64 `json:"achieved_operator_arrivals_per_second,omitempty"`
+
+	OfferedConnectedAgents  int `json:"offered_connected_agents"`
+	AchievedConnectedAgents int `json:"achieved_connected_agents"`
 
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`
@@ -98,14 +125,20 @@ type PhaseResult struct {
 	Faults             int64 `json:"faults"`
 }
 
-// AchievedFraction is how much of the offered arrival rate actually arrived. A
-// phase that offered nothing counts as fully achieved: there was nothing to
-// fall short of.
+// AchievedFraction is how much of the offered arrival rate actually arrived.
+//
+// It reads the technician side when something measured it and the machine side
+// otherwise, because those are the two ways a run offers arrivals and a phase
+// carries whichever of them it drove. A phase that offered nothing counts as
+// fully achieved: there was nothing to fall short of.
 func (p PhaseResult) AchievedFraction() float64 {
-	if p.OfferedArrivalsPerSecond <= 0 {
+	if p.AchievedOperatorArrivalsPerSecond != nil && p.OfferedOperatorArrivalsPerSecond > 0 {
+		return *p.AchievedOperatorArrivalsPerSecond / p.OfferedOperatorArrivalsPerSecond
+	}
+	if p.OfferedAgentArrivalsPerSecond <= 0 {
 		return 1
 	}
-	return p.AchievedArrivalsPerSecond / p.OfferedArrivalsPerSecond
+	return p.AchievedAgentArrivalsPerSecond / p.OfferedAgentArrivalsPerSecond
 }
 
 // JourneyResult is one operator journey's account of itself, so a slow run can
@@ -130,6 +163,12 @@ type Observation struct {
 // Headroom is what the generator had left. A run measured from a saturated
 // generator is measuring the generator.
 type Headroom struct {
+	// Measured says the figures below came from somewhere. False is a run that
+	// never looked, and a reading nobody took is not a reading of plenty: the
+	// field was written as 100% free and 0% used on every run ever recorded,
+	// which is what kept the saturation rule from ever firing.
+	Measured bool `json:"measured"`
+
 	CPUHeadroomPercent float64 `json:"cpu_headroom_percent"`
 	MemoryUsedPercent  float64 `json:"memory_used_percent"`
 }
@@ -195,8 +234,10 @@ func (b *Bundle) validateRun() []error {
 	if b.Run.ID == "" {
 		problems = append(problems, errors.New("run.id is empty"))
 	}
-	if b.Run.Commit == "" {
-		problems = append(problems, errors.New("run.commit is empty — a measurement with no source revision cannot be attributed"))
+	if b.Run.Commit == "" || b.Run.Commit == unknownCommit {
+		problems = append(problems, fmt.Errorf(
+			"run.commit is %q — a measurement with no source revision cannot be attributed to the code that produced it",
+			b.Run.Commit))
 	}
 	if b.Run.ProfileName == "" {
 		problems = append(problems, errors.New("run.profile_name is empty"))
@@ -213,6 +254,17 @@ func (b *Bundle) validateRun() []error {
 	return problems
 }
 
+// minPlausibleMemoryBytes is the floor below which a memory figure is a
+// placeholder rather than a reading.
+//
+// It is a mebibyte, which no machine or container this repository runs anything
+// on could be limited to and which every real reading clears by three orders of
+// magnitude. The number it exists to refuse is one byte: both fingerprints were
+// written as one processor and one byte of memory on every run, so four bundles
+// from a sweep whose only subject was the processor count reported identical
+// hardware and every latency figure beside them was uninterpretable.
+const minPlausibleMemoryBytes = 1 << 20
+
 func validateFingerprint(field string, f Fingerprint) []error {
 	var problems []error
 	if f.Kind == "" || f.Description == "" {
@@ -221,8 +273,10 @@ func validateFingerprint(field string, f Fingerprint) []error {
 	if f.CPUs <= 0 {
 		problems = append(problems, fmt.Errorf("%s fingerprint reports no processor count", field))
 	}
-	if f.MemoryBytes <= 0 {
-		problems = append(problems, fmt.Errorf("%s fingerprint reports no memory", field))
+	if f.MemoryBytes < minPlausibleMemoryBytes {
+		problems = append(problems, fmt.Errorf(
+			"%s fingerprint reports %d bytes of memory, which is below the %d-byte floor a real reading clears — a latency figure is a property of the pair, so a placeholder here makes every number beside it unreadable",
+			field, f.MemoryBytes, minPlausibleMemoryBytes))
 	}
 	return problems
 }

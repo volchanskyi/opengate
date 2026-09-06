@@ -37,6 +37,16 @@ permissions:
 env:
   COMPOSE_FILE: deploy/docker-compose.perf.yml
   PERF_BUNDLE_DIR: perf-bundles
+  # What the system under test is capped at. It is declared here rather than
+  # left to the compose file's own default because the harness records it as the
+  # target's fingerprint, and a fingerprint that disagrees with the container it
+  # describes is worse than no fingerprint: every latency figure in the bundle
+  # is a property of that pair.
+  PERF_SERVER_MEMORY: 1g
+  PERF_SERVER_MEMORY_BYTES: '1073741824'
+  # The processor share the volume family holds constant while it varies the
+  # data. The scaling family overrides it per leg — that is its whole subject.
+  PERF_SERVER_CPUS: '1.0'
 
 jobs:
   # The sweep's points are stated rather than assumed: a comparison between
@@ -66,16 +76,18 @@ jobs:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # The disk column is the free one, not the partition's size. A runner's
+      # root filesystem is 144 GiB and roughly 14 GB of that is room a job can
+      # use, the rest being the preinstalled toolchain — so the one figure ever
+      # taken to answer "does this fixture fit" reported ten times the number
+      # that binds. The harness reads all three itself and puts them in the
+      # bundle; these are printed so a run's log says what it was measured on.
       - name: Record what this runner actually is
         run: |
           set -euo pipefail
-          # Step 8's own finding: the runner's shape was never measured, so it
-          # is measured here and travels in the bundle rather than being assumed.
-          {
-            echo "PERF_RUNNER_CPUS=$(nproc)"
-            echo "PERF_RUNNER_MEMORY_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
-            echo "PERF_RUNNER_DISK_KB=$(df -k --output=size / | tail -n1 | tr -d ' ')"
-          } >>"$GITHUB_ENV"
+          printf 'processors: %s\n' "$(nproc)"
+          printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+          printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
 
       - name: Bring the performance stack up
         env:
@@ -113,6 +125,10 @@ jobs:
               -default-telemetry \
               -hold=3m \
               -profile=load/profiles/scaling.yaml \
+              -commit="$GITHUB_SHA" \
+              -target-cpus="${{ matrix.cpus }}" \
+              -target-memory-bytes="$PERF_SERVER_MEMORY_BYTES" \
+              -target-description="compose stack, ${{ matrix.cpus }} processors" \
               -enroll-url=http://127.0.0.1:8080 \
               -metrics-url=http://127.0.0.1:8081 \
               -fixture-account=perf-admin@opengate-loadtest.invalid \
@@ -203,6 +219,10 @@ jobs:
               -default-telemetry \
               -hold=3m \
               -profile=load/profiles/volume.yaml \
+              -commit="$GITHUB_SHA" \
+              -target-cpus="$PERF_SERVER_CPUS" \
+              -target-memory-bytes="$PERF_SERVER_MEMORY_BYTES" \
+              -target-description="compose stack, $PERF_SERVER_CPUS processors" \
               -enroll-url=http://127.0.0.1:8080 \
               -metrics-url=http://127.0.0.1:8081 \
               -fixture-account=perf-admin@opengate-loadtest.invalid \
@@ -221,13 +241,19 @@ jobs:
         if: always()
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/volume/bundle.json"
 
-      - name: Weigh what the fleet actually cost
+      # The volume family's whole finding is this number, and it was written into
+      # a file beside the bundle that nothing downstream opened. Folding it in is
+      # what puts it where a reader looks after the metrics store has forgotten
+      # the night.
+      - name: Weigh what the fleet actually cost, and fold it into the evidence
         if: always()
         run: |
           set -euo pipefail
           bash scripts/perf-weigh-fixture.sh weigh "$PERF_BASELINE_BYTES" \
             "$PERF_BUNDLE_DIR/fixture-weight.json"
           cat "$PERF_BUNDLE_DIR/fixture-weight.json"
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/volume/bundle.json" \
+            --weight "$PERF_BUNDLE_DIR/fixture-weight.json"
 
       - name: Tear the stack down
         if: always()

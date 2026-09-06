@@ -102,6 +102,12 @@ func run() int {
 	fixtureSize := flag.String("fixture-size", "", "fleet to build before the run: small, large or lopsided; empty takes the profile's own")
 	fixtureSeed := flag.Uint64("fixture-seed", 1, "the seed the fleet is derived from, so the same seed reproduces the same fleet")
 	fixtureBootstrap := flag.Bool("fixture-bootstrap", false, "the environment starts empty, so register the administrator instead of signing in as one")
+	targetCPUs := flag.String("target-cpus", "", "the processor share the system under test is capped at, which this process cannot see and whoever started it knows")
+	targetMemory := flag.String("target-memory-bytes", "", "the memory the system under test is capped at, in bytes")
+	targetDescription := flag.String("target-description", "", "what the system under test is, in words a later reader can interpret the run by")
+	commit := flag.String("commit", "", "the source revision this run measures; a run inside a pod inherits none, so it is passed in")
+	journeysPath := flag.String("journeys", "", "the technician-side generator's export, whose named journeys travel into this run's evidence")
+	fixtureWeightPath := flag.String("fixture-weight", "", "the weighing of the fleet on disk, which is the volume family's whole finding")
 	flag.Parse()
 
 	// Production is never a target, and the way a generator ends up pointed at
@@ -186,6 +192,11 @@ func run() int {
 	results, phases := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts)
 	totalDur := time.Since(start)
 
+	// What the generator had left, read while the load it produced is still the
+	// most recent thing this machine did. Taken after the fleet is wound down it
+	// would describe an idle box, which is the reading that cannot fail.
+	generatorHeadroom := ReadGeneratorHeadroom()
+
 	// And what it is holding once the fleet is wound down and it has stopped
 	// putting things back.
 	targetAtEnd := readSettledTargetHealth(*metricsURL)
@@ -203,15 +214,24 @@ func run() int {
 	// system. A run that reports its own outcome only into a file nobody reads
 	// is the shape a green shard on a sweep that connected nobody came from.
 	bundle := buildRunBundle(runBundleInputs{
-		Profile:      profile,
-		Results:      results,
-		StartedAt:    start,
-		Total:        totalDur,
-		AgentCount:   *agents,
-		Target:       *addr,
-		Phases:       phases,
-		Registration: registration,
-		Fixture:      fixture,
+		Profile:    profile,
+		Results:    results,
+		StartedAt:  start,
+		Total:      totalDur,
+		AgentCount: *agents,
+		Target:     *addr,
+		Commit:     *commit,
+		// Both sides of the measurement. The target's limits belong to whoever
+		// started it; the generator is this machine and is read here, including
+		// the disk room it actually has rather than the size of its partition.
+		TargetShape:    ParseFingerprintFlags("system-under-test", *targetDescription, *targetCPUs, *targetMemory),
+		GeneratorShape: ReadGeneratorShape("server/tests/loadtest"),
+		Headroom:       generatorHeadroom,
+		Journeys:       readJourneys(*journeysPath),
+		FixtureWeight:  readFixtureWeight(*fixtureWeightPath),
+		Phases:         phases,
+		Registration:   registration,
+		Fixture:        fixture,
 		Conservation: TargetConservation{
 			Start: targetAtStart,
 			End:   targetAtEnd,

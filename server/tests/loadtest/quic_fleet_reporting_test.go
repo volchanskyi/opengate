@@ -96,13 +96,13 @@ func TestFleetReportsWhatArrivedAndWhatDidNot(t *testing.T) {
 		}
 	})
 
-	t.Run("no latency before anything connects", func(t *testing.T) {
+	t.Run("no round trip is taken by a fleet with no prober", func(t *testing.T) {
 		fleet := NewQUICFleet(func(ctx context.Context, _ int) agentResult {
 			<-ctx.Done()
 			return agentResult{}
 		})
 		defer fleet.Stop()
 
-		assert.Zero(t, fleet.SampleLatency())
+		assert.Zero(t, fleet.ProbeLatency())
 	})
 }

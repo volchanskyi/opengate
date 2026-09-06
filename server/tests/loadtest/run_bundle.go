@@ -26,9 +26,29 @@ type runBundleInputs struct {
 	AgentCount int
 	Target     string
 	// Commit is the source revision; the environment supplies it in CI and the
-	// field falls back to a stated unknown rather than to an empty string that
-	// would fail the bundle for the wrong reason.
+	// field falls back to a stated unknown, which the bundle then refuses. The
+	// harness runs inside a pod that inherits no revision, so every staging
+	// bundle carried that string while the canonical rows beside it carried the
+	// real one — an evidence file nobody could attribute to any code.
 	Commit string
+
+	// TargetShape and GeneratorShape are the two sides of the measurement. The
+	// target's limits are known to whoever started it and to nothing in this
+	// process, which sees only an address, so they are passed in; the
+	// generator's are this machine and are read here.
+	TargetShape    Fingerprint
+	GeneratorShape Fingerprint
+
+	// Headroom is what the generator had left while it produced the load. A
+	// zero value is a run that never looked, which invalidates.
+	Headroom Headroom
+
+	// Journeys are the technician-side screens this night timed, read from the
+	// export that generator already writes.
+	Journeys []JourneyResult
+
+	// FixtureWeight is what the fleet cost on disk, where a run weighed it.
+	FixtureWeight *FixtureWeight
 
 	// Phases are the profile's own segments as they actually ran. Empty means
 	// the run offered everything at once, which is a shape in its own right and
@@ -70,28 +90,20 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 	}
 
 	bundle := &Bundle{
-		SchemaVersion: bundleSchemaVersion,
-		Run:           runIdentity(in, finished),
-		Target: Fingerprint{
-			Kind:        "system-under-test",
-			Description: in.Target,
-			CPUs:        1,
-			MemoryBytes: 1,
-		},
-		Generator:    generatorFingerprint(),
-		Fixture:      fixtureCounts(in),
-		Phases:       phaseResults(in, finished, succeeded, register, errorRate),
-		Observations: latencyObservations(finished, connect, handshake, in),
+		SchemaVersion:     bundleSchemaVersion,
+		Run:               runIdentity(in, finished),
+		Target:            targetFingerprint(in),
+		Generator:         generatorFingerprint(in),
+		Fixture:           fixtureCounts(in, succeeded),
+		Phases:            phaseResults(in, finished, succeeded, register, errorRate),
+		Journeys:          in.Journeys,
+		Observations:      latencyObservations(finished, connect, handshake, in),
+		GeneratorHeadroom: in.Headroom,
 		// The harness holds no long-lived identities of its own: the certificates
 		// it signs live in a directory it removes, so a run that reached this
 		// point left nothing behind to find.
 		Cleanup: CleanupProof{Verified: true},
 	}
-
-	// The generator's own headroom is not measured from inside the process it
-	// would have to measure, so it is reported as the processor count the
-	// runtime sees, with the saturation judgement left to the phase results.
-	bundle.GeneratorHeadroom = Headroom{CPUHeadroomPercent: 100, MemoryUsedPercent: 0}
 
 	bundle.Verdict = Classify(RunInputs{
 		Profile:           in.Profile,
@@ -128,46 +140,96 @@ func runIdentity(in runBundleInputs, finished time.Time) RunIdentity {
 	return identity
 }
 
+// unknownCommit is what a run that could not find its own revision says. It is
+// a stated absence rather than an empty string so a reader sees a run that did
+// not know instead of a field somebody forgot, and the bundle refuses it — a
+// measurement that cannot be attributed to any code is not evidence about that
+// code.
+const unknownCommit = "unknown"
+
 // commitFromEnvironment reads the revision CI already knows, falling back to a
-// stated unknown. An empty commit fails the bundle, and failing a run because
-// nobody exported a variable is a failure about the harness rather than about
-// the system.
+// stated unknown.
 func commitFromEnvironment() string {
 	if sha := os.Getenv("GITHUB_SHA"); sha != "" {
 		return sha
 	}
-	return "unknown"
+	return unknownCommit
 }
 
-func generatorFingerprint() Fingerprint {
-	return Fingerprint{
-		Kind:        "quic-harness",
-		Description: "server/tests/loadtest",
-		CPUs:        runtime.NumCPU(),
-		MemoryBytes: 1,
-		Arch:        runtime.GOARCH,
+// targetFingerprint is the system under test as whoever started it described
+// it. A run given no description of its target says what it was pointed at and
+// nothing about its shape, which the bundle then refuses.
+func targetFingerprint(in runBundleInputs) Fingerprint {
+	shape := in.TargetShape
+	if shape.Kind == "" {
+		shape.Kind = "system-under-test"
 	}
+	if shape.Description == "" {
+		shape.Description = in.Target
+	}
+	return shape
 }
 
-// fixtureCounts records the fleet this run drove. The harness signs its own
-// certificates rather than building a fleet through the API, so the device
-// count is the fleet and the rest is stated as the one tenant it ran in.
-func fixtureCounts(in runBundleInputs) FixtureCounts {
-	// A run that built its own fleet knows exactly what is there, so it says so
-	// rather than inferring the shape from how many machines it dialled.
-	if in.Fixture != nil {
-		return in.Fixture.Counts()
+// generatorFingerprint is the machine producing the load. A run that measured
+// it says so; one that did not falls back to what the runtime can see about
+// itself, which is the processor count and the architecture and no memory.
+func generatorFingerprint(in runBundleInputs) Fingerprint {
+	shape := in.GeneratorShape
+	if shape.Kind == "" {
+		shape.Kind = "quic-harness"
 	}
+	if shape.Description == "" {
+		shape.Description = "server/tests/loadtest"
+	}
+	if shape.CPUs <= 0 {
+		shape.CPUs = float64(runtime.NumCPU())
+	}
+	if shape.Arch == "" {
+		shape.Arch = runtime.GOARCH
+	}
+	return shape
+}
 
-	size := FixtureSmall
+// fixtureCounts records the fleet this run drove.
+//
+// The machine count is the machines that enrolled, not the machines the plan
+// asked for. Those are different numbers and were reported as one: a bundle
+// said two thousand machines while the database, weighed in the same job,
+// held five hundred. What was planned travels beside it under its own name.
+func fixtureCounts(in runBundleInputs, enrolled int) FixtureCounts {
+	counts := FixtureCounts{Size: FixtureSmall, Tenants: 1, Customers: 1, Sites: 1}
 	if in.Profile != nil {
-		size = in.Profile.Fixture
+		counts.Size = in.Profile.Fixture
 	}
-	devices := in.AgentCount
-	if devices <= 0 {
-		devices = 1
+
+	// A run that built its own fleet knows exactly what customers and accounts
+	// are there, so it says so rather than inferring the shape from how many
+	// machines it dialled.
+	if in.Fixture != nil {
+		built := in.Fixture.Counts()
+		counts.Size = built.Size
+		counts.Tenants = built.Tenants
+		counts.Customers = built.Customers
+		counts.Sites = built.Sites
+		counts.Users = built.Users
+		counts.PlannedDevices = built.PlannedDevices
 	}
-	return FixtureCounts{Size: size, Tenants: 1, Customers: 1, Sites: 1, Users: 0, Devices: devices}
+
+	counts.Devices = enrolled
+	if counts.Devices <= 0 && in.AgentCount > 0 {
+		// Nothing arrived. The fleet is empty, and the run is invalid for that
+		// reason rather than for a fixture the bundle refused to describe.
+		counts.Devices = in.AgentCount
+	}
+	if counts.Devices <= 0 {
+		counts.Devices = 1
+	}
+
+	if in.FixtureWeight != nil {
+		counts.DatabaseBytes = in.FixtureWeight.DatabaseBytes
+		counts.TelemetrySeries = in.FixtureWeight.TelemetrySeries
+	}
+	return counts
 }
 
 // phaseResults is the run's phases. A run driven by a profile reports the
@@ -195,13 +257,16 @@ func connectPhase(in runBundleInputs, finished time.Time, succeeded int, registe
 		StartedAt:  in.StartedAt,
 		FinishedAt: arrived,
 		// Every machine is offered at once, so the offered and achieved counts
-		// are the fleet and the fleet that arrived.
-		OfferedConnectedAgents:  in.AgentCount,
-		AchievedConnectedAgents: succeeded,
-		LatencyP50Ms:            millis(percentile(register, 50)),
-		LatencyP95Ms:            millis(percentile(register, 95)),
-		LatencyP99Ms:            millis(percentile(register, 99)),
-		ErrorRate:               errorRate,
+		// are the fleet and the fleet that arrived, and the two arrival rates
+		// are those counts over the window the fleet took to turn up.
+		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(in.AgentCount), arrived.Sub(in.StartedAt).Seconds()),
+		AchievedAgentArrivalsPerSecond: ratePerSecond(int64(succeeded), arrived.Sub(in.StartedAt).Seconds()),
+		OfferedConnectedAgents:         in.AgentCount,
+		AchievedConnectedAgents:        succeeded,
+		LatencyP50Ms:                   millis(percentile(register, 50)),
+		LatencyP95Ms:                   millis(percentile(register, 95)),
+		LatencyP99Ms:                   millis(percentile(register, 99)),
+		ErrorRate:                      errorRate,
 	}
 }
 

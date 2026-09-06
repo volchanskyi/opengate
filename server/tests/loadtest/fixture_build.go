@@ -106,16 +106,22 @@ func (b BuiltFixture) CleanupManifest() FixtureCleanupManifest {
 }
 
 // Counts is this fixture in the shape a bundle records it.
+//
+// The machine count it can state is the planned one: the machines themselves
+// arrive by enrolling, which happens after this and may fall short. Reporting
+// the plan as the fleet is how a bundle came to say two thousand machines while
+// the database, weighed in the same job, held five hundred — so the fleet that
+// exists is filled in by whoever counted the arrivals.
 func (b BuiltFixture) Counts() FixtureCounts {
 	return FixtureCounts{
 		Size: b.Size,
 		// One. Load identities live in the default tenant because no interface
 		// asks for a second one; the debt register carries that and its trigger.
-		Tenants:   1,
-		Customers: len(b.Customers),
-		Sites:     b.Sites,
-		Users:     len(b.Users),
-		Devices:   b.PlannedDevices,
+		Tenants:        1,
+		Customers:      len(b.Customers),
+		Sites:          b.Sites,
+		Users:          len(b.Users),
+		PlannedDevices: b.PlannedDevices,
 	}
 }
 

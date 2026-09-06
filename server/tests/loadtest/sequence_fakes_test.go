@@ -13,6 +13,7 @@ type recordingFleet struct {
 	steps     []fleetStep
 	failAfter int
 	latency   time.Duration
+	outcomes  FleetOutcomes
 }
 
 type fleetStep struct {
@@ -25,18 +26,26 @@ func (f *recordingFleet) HoldConnected(elapsed time.Duration, target int) error 
 		return errors.New("the fleet stopped answering")
 	}
 	f.steps = append(f.steps, fleetStep{at: elapsed, target: target})
+	// Whatever the level climbed by is what turned up, so a fleet that is asked
+	// for more machines reports more arrivals and one that winds down reports
+	// none.
+	if target > f.connected {
+		f.outcomes.Arrived += int64(target - f.connected)
+	}
 	f.connected = target
 	return nil
 }
 
 func (f *recordingFleet) Connected() int { return f.connected }
 
-func (f *recordingFleet) SampleLatency() time.Duration {
+func (f *recordingFleet) ProbeLatency() time.Duration {
 	if f.latency == 0 {
 		return 20 * time.Millisecond
 	}
 	return f.latency
 }
+
+func (f *recordingFleet) Outcomes() FleetOutcomes { return f.outcomes }
 
 // alwaysRoomToRun is a machine with plenty left, so these cases exercise the
 // walk rather than the guard beside it.

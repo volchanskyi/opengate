@@ -22,7 +22,11 @@ func TestOfferedLoadIsRecordedBesideAchievedLoad(t *testing.T) {
 	// slow are the same reading.
 	assert.Equal(t, 500, results[1].OfferedConnectedAgents)
 	assert.Equal(t, 500, results[1].AchievedConnectedAgents)
-	assert.InDelta(t, 5.0, results[1].OfferedArrivalsPerSecond, 0.001)
+	// The phase climbs 250 machines over five minutes, which is the machine-side
+	// rate it offered; the technician figure the profile declares travels beside
+	// it under its own name because nothing in this process offers it.
+	assert.InDelta(t, 250.0/300.0, results[1].OfferedAgentArrivalsPerSecond, 0.001)
+	assert.InDelta(t, 5.0, results[1].OfferedOperatorArrivalsPerSecond, 0.001)
 }
 
 func TestPhaseBoundariesAreRecorded(t *testing.T) {

@@ -150,12 +150,19 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 			"scenario %q produced rows the profile never asked for", scenario))
 	}
 
-	if in.Headroom.CPUHeadroomPercent < minGeneratorCPUHeadroomPercent {
+	// A reading nobody took is not a reading of plenty. The figures below were
+	// written as 100% free and 0% used on every run ever recorded, so the two
+	// rules after this one described a generator nobody had looked at.
+	if !in.Headroom.Measured {
+		reasons = append(reasons,
+			"the generator was not measured, and a run that cannot say how much room its own generator had cannot say what its numbers are about")
+	}
+	if in.Headroom.Measured && in.Headroom.CPUHeadroomPercent < minGeneratorCPUHeadroomPercent {
 		reasons = append(reasons, fmt.Sprintf(
 			"generator had %.1f%% processor headroom (floor %.0f%%), so the run measured the generator",
 			in.Headroom.CPUHeadroomPercent, minGeneratorCPUHeadroomPercent))
 	}
-	if in.Headroom.MemoryUsedPercent > maxGeneratorMemoryUsedPercent {
+	if in.Headroom.Measured && in.Headroom.MemoryUsedPercent > maxGeneratorMemoryUsedPercent {
 		reasons = append(reasons, fmt.Sprintf(
 			"generator memory reached %.1f%% (ceiling %.0f%%), so the run measured the generator",
 			in.Headroom.MemoryUsedPercent, maxGeneratorMemoryUsedPercent))
