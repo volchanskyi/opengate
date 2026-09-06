@@ -173,7 +173,9 @@ func TestWSConn_WriteFailsAgainstAPeerThatNeverReads(t *testing.T) {
 	srv := wsSilentServer(t)
 	defer srv.Close()
 
-	stalled, elapsed := writeUntilError(t, srv.URL)
+	// A budget far below any real one, so the stall ends inside the assertion
+	// below rather than inside the shipped 30 seconds.
+	stalled, elapsed := writeUntilError(t, srv.URL, 250*time.Millisecond)
 	require.Error(t, stalled, "a write to a peer that never reads must not block indefinitely")
 	assert.Lessf(t, elapsed, 10*time.Second,
 		"the write must end on its own deadline rather than on the test's patience; took %s", elapsed)
@@ -183,9 +185,18 @@ func TestWSConn_WriteFailsAgainstAPeerThatNeverReads(t *testing.T) {
 	// has to be a drain rather than the echo server — an echo whose replies
 	// nobody reads fills its own buffers, stops reading, and stalls exactly
 	// like the silent peer.
+	//
+	// It runs against the budget the relay actually ships, not the shortened
+	// one above. The two arms want opposite things of that number — the stall
+	// has to trip it and the drain must not — so a single value has to be both
+	// shorter than the test's patience and longer than a real megabyte write,
+	// and on a loaded machine those meet: at 250ms this arm failed on a runner
+	// carrying twenty-six other jobs, reporting a peer that was draining
+	// perfectly well as one that had been cut off. What the drain arm is for is
+	// the shipped budget, so that is the budget it is given.
 	drain := wsDrainServer(t)
 	defer drain.Close()
-	drained, _ := writeUntilError(t, drain.URL)
+	drained, _ := writeUntilError(t, drain.URL, relayWriteTimeout)
 	assert.NoError(t, drained, "a peer that drains must not be cut off by the write budget")
 }
 
@@ -199,12 +210,12 @@ func TestWSConn_WriteFailsAgainstAPeerThatNeverReads(t *testing.T) {
 // returns names the closed socket rather than the deadline that closed it. What
 // is being asserted is that the write ends at all, which without a budget it
 // does not.
-func writeUntilError(t *testing.T, serverURL string) (error, time.Duration) {
+func writeUntilError(t *testing.T, serverURL string, budget time.Duration) (error, time.Duration) {
 	t.Helper()
 	rawConn, _, err := websocket.Dial(context.Background(), "ws"+strings.TrimPrefix(serverURL, "http"), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { rawConn.CloseNow() })
-	conn := newWSConn(rawConn, "test", 250*time.Millisecond)
+	conn := newWSConn(rawConn, "test", budget)
 
 	frame := make([]byte, 1<<20)
 	start := time.Now()

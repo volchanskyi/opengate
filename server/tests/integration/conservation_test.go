@@ -32,11 +32,23 @@ import (
 // operations, and asserts the line through those points is flat.
 
 // conservationPoints are the completed-session counts the slope is fitted
-// through, cumulative against one server and one connected machine. Three
-// points, because two cannot tell a slope from a single noisy reading. Small
-// ones, because each session is an API call, a control-stream round trip and
-// two real WebSocket dials.
-var conservationPoints = []int{4, 8, 16}
+// through, cumulative against one server and one connected machine.
+//
+// They are spread wide and spaced evenly, and both of those are load-bearing.
+// A least-squares fit answers a one-off allocation the same way it answers a
+// per-session one, and how loudly it does so is (x_last - x_mean) / Σ(x - x_mean)²
+// — the leverage the furthest point carries. Through 4, 8 and 16 that is 0.089
+// per byte, so a single 90 KB allocation arriving late in the run — one pool
+// connection, one map resize, one goroutine stack — is reported as 8 KB
+// retained per session, which is most of the budget below spent on something no
+// session owns. Through 10 to 50 by tens it is 0.020, so the same 90 KB reads
+// as 1.8 KB per session.
+//
+// Widening costs almost nothing: a session is an API call, a control-stream
+// round trip and two real WebSocket dials, and going from 16 sessions to 50
+// adds under a second. It costs no detection either — a real leak is a slope,
+// and a slope is what it stays at any spacing.
+var conservationPoints = []int{10, 20, 30, 40, 50}
 
 // goroutineSlopeTolerance is the goroutines-per-completed-session the fit may
 // carry. The defect that motivated this file retained two per session — one
@@ -46,9 +58,14 @@ const goroutineSlopeTolerance = 0.5
 
 // heapSlopeTolerance is the retained bytes per completed session the fit may
 // carry. Driven through this harness, the same defect retained 34 KiB per
-// session; a fixed server retains 1.8 KiB, which is the connection pool and the
-// query cache growing rather than anything a session owns. 8 KiB sits between
-// them with room on both sides.
+// session; a fixed server reads between 1.2 and 2.0 KiB over repeated runs,
+// which is the connection pool and the query cache growing rather than anything
+// a session owns. 8 KiB sits between them with room on both sides.
+//
+// The spread is the number to watch rather than the mean, because it is what a
+// loaded machine widens. It is the point spacing above that holds it: through
+// 4, 8 and 16 the same server read 1.2 to 2.9 KiB on an idle workstation and
+// 8.8 KiB on a CI runner carrying twenty-six other jobs.
 const heapSlopeTolerance = 8 << 10
 
 // TestRelaySessionsConserveGoroutinesAndHeap drives complete relay sessions

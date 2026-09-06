@@ -31,6 +31,10 @@ type QUICFleet struct {
 	// arrived is removed exactly rather than by dropping whichever entry
 	// happens to be last.
 	running map[int]context.CancelFunc
+	// order is the level: every machine the run has asked for and not yet wound
+	// down, in the order it was asked for. A machine that never arrived keeps
+	// its place here after leaving running, which is what stops the next step
+	// of a ramp from dialling a replacement for it.
 	order   []int
 	next    int
 	results []agentResult
@@ -51,6 +55,9 @@ func (f *QUICFleet) HoldConnected(_ time.Duration, target int) error {
 		target = 0
 	}
 
+	// The level the run last asked for, which is not the same as how many
+	// machines are connected: the difference between those two is the finding,
+	// and topping it back up would be the harness quietly closing it.
 	f.mu.Lock()
 	current := len(f.order)
 	f.mu.Unlock()
@@ -86,10 +93,15 @@ func (f *QUICFleet) startOne() {
 			f.latency = result.connectDur
 		}
 		if result.err != nil {
-			// A machine that never connected is not one of the connected. It
-			// leaves the level and stays in the results, because the gap between
-			// what was asked for and what arrived is the finding.
-			f.forgetLocked(index)
+			// A machine that never connected is not one of the connected, and
+			// the gap between what was asked for and what arrived is the
+			// finding. It keeps its place in the level so that the rest of the
+			// ramp asks for the level it was going to ask for anyway: a fleet
+			// that replaced it would dial again at every remaining step, report
+			// the same refusal once per step under a new machine each time, and
+			// end a phase having tried some number of machines that is a
+			// property of the scheduler rather than of the profile.
+			delete(f.running, index)
 		}
 		f.mu.Unlock()
 		cancel()
@@ -113,11 +125,11 @@ func (f *QUICFleet) stopOne() {
 	}
 }
 
-// forgetLocked drops one machine from the level. The caller holds the lock.
+// forgetLocked drops one machine from the level and from the connected. The
+// caller holds the lock. A machine that never arrived has already left the
+// connected, and winding the level down past it still has to take it out of the
+// level — otherwise the subtraction lands on a machine that is carrying load.
 func (f *QUICFleet) forgetLocked(index int) {
-	if _, ok := f.running[index]; !ok {
-		return
-	}
 	delete(f.running, index)
 	for i, candidate := range f.order {
 		if candidate == index {
