@@ -189,3 +189,4 @@
 
 | Phase | Summary | Version | Plan |
 |-------|---------|---------|------|
+| Performance Depth WS1: Make the dead measurements real | Every bundle field became a reading or an absence. [ADR-100](../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md). | — | `performance-testing-depth-repair.md` |

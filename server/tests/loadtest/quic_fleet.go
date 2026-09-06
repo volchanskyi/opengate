@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -22,9 +23,18 @@ import (
 // cancelled, or earlier if the machine could not connect at all.
 type StartAgent func(ctx context.Context, index int) agentResult
 
+// ProbeRoundTrip dials one machine, takes it all the way to registered, and
+// hangs up — reporting how long that took.
+//
+// It is a whole arrival rather than a message on a connection already open
+// because the control stream has no reply to a heartbeat: there is nothing on
+// the machine side to time a round trip against except making a new one.
+type ProbeRoundTrip func(ctx context.Context) (time.Duration, error)
+
 // QUICFleet holds a number of machines connected.
 type QUICFleet struct {
 	start StartAgent
+	probe ProbeRoundTrip
 
 	mu sync.Mutex
 	// running is keyed by the machine's own index, so a machine that never
@@ -38,14 +48,23 @@ type QUICFleet struct {
 	order   []int
 	next    int
 	results []agentResult
-	latency time.Duration
+	// outcomes is what the machines have seen, tallied as each one ends. It is
+	// cumulative because a phase is the difference between two readings of it.
+	outcomes FleetOutcomes
 
 	wg sync.WaitGroup
 }
 
-// NewQUICFleet builds a fleet that starts machines with the given function.
+// NewQUICFleet builds a fleet that starts machines with the given function and
+// takes no round trips of its own.
 func NewQUICFleet(start StartAgent) *QUICFleet {
-	return &QUICFleet{start: start, running: map[int]context.CancelFunc{}}
+	return NewQUICFleetWithProbe(start, nil)
+}
+
+// NewQUICFleetWithProbe builds a fleet that can also take a live round trip
+// while it holds its level.
+func NewQUICFleetWithProbe(start StartAgent, probe ProbeRoundTrip) *QUICFleet {
+	return &QUICFleet{start: start, probe: probe, running: map[int]context.CancelFunc{}}
 }
 
 // HoldConnected brings the fleet to the level asked for, adding machines or
@@ -89,20 +108,20 @@ func (f *QUICFleet) startOne() {
 
 		f.mu.Lock()
 		f.results = append(f.results, result)
-		if result.err == nil && result.connectDur > 0 {
-			f.latency = result.connectDur
-		}
-		if result.err != nil {
-			// A machine that never connected is not one of the connected, and
-			// the gap between what was asked for and what arrived is the
-			// finding. It keeps its place in the level so that the rest of the
-			// ramp asks for the level it was going to ask for anyway: a fleet
-			// that replaced it would dial again at every remaining step, report
-			// the same refusal once per step under a new machine each time, and
-			// end a phase having tried some number of machines that is a
-			// property of the scheduler rather than of the profile.
-			delete(f.running, index)
-		}
+		f.tallyLocked(result)
+		// A machine that has ended is not one of the connected, whichever way it
+		// ended. Removing only the ones that errored made the count a count of
+		// machines started: a machine that finished its hold normally stayed
+		// counted for the life of the run, and a bundle reporting five hundred
+		// connected was reporting five hundred once dialled.
+		//
+		// It keeps its place in the level so that the rest of the ramp asks for
+		// the level it was going to ask for anyway: a fleet that replaced it
+		// would dial again at every remaining step, report the same outcome once
+		// per step under a new machine each time, and end a phase having tried
+		// some number of machines that is a property of the scheduler rather
+		// than of the profile.
+		delete(f.running, index)
 		f.mu.Unlock()
 		cancel()
 	}()
@@ -139,6 +158,25 @@ func (f *QUICFleet) forgetLocked(index int) {
 	}
 }
 
+// tallyLocked records one machine's outcome. The caller holds the lock.
+//
+// A refusal the server made on purpose is held apart from a fault: counting a
+// correctly enforced limit as a defect makes the limit look broken and buries
+// the real failures underneath it.
+func (f *QUICFleet) tallyLocked(result agentResult) {
+	if result.err == nil {
+		f.outcomes.Arrived++
+		return
+	}
+	f.outcomes.Failed++
+	if errors.Is(result.err, ErrHeldPeerGone) {
+		f.outcomes.Severed++
+	}
+	if errors.Is(result.err, ErrEnrollmentRefused) {
+		f.outcomes.Rejected++
+	}
+}
+
 // Connected is how many machines are actually up.
 func (f *QUICFleet) Connected() int {
 	f.mu.Lock()
@@ -146,12 +184,33 @@ func (f *QUICFleet) Connected() int {
 	return len(f.running)
 }
 
-// SampleLatency is the most recent connect time a machine reported, or zero
-// before any has.
-func (f *QUICFleet) SampleLatency() time.Duration {
+// Outcomes is what this fleet's machines have seen so far.
+func (f *QUICFleet) Outcomes() FleetOutcomes {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.latency
+	return f.outcomes
+}
+
+// probeBudget bounds one round trip, so a phase whose target has stopped
+// answering is not held up by the measurement of it.
+const probeBudget = 30 * time.Second
+
+// ProbeLatency takes a live round trip now.
+//
+// A fleet with no prober, or one whose round trip could not be taken, reports
+// zero — which the phase reads as no sample rather than as an instant one.
+func (f *QUICFleet) ProbeLatency() time.Duration {
+	if f.probe == nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), probeBudget)
+	defer cancel()
+
+	elapsed, err := f.probe(ctx)
+	if err != nil {
+		return 0
+	}
+	return elapsed
 }
 
 // Results is every machine's outcome, including the ones that never arrived.

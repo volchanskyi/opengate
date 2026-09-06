@@ -108,6 +108,19 @@ jobs:
             -o jsonpath='{.spec.nodeName}')"
           LOADTEST_GOARCH="$(kubectl get node "$SERVER_NODE" \
             -o jsonpath='{.status.nodeInfo.architecture}')"
+          # The two sides of the measurement are both recorded, because a
+          # latency figure is a property of the pair. The target's own limits
+          # are known to the cluster and to nothing inside the harness, which
+          # sees a network address — so they are read off the running container
+          # here and handed in. A run that recorded one processor and one byte
+          # of memory recorded a placeholder, and every number beside it was
+          # uninterpretable.
+          LOADTEST_TARGET_CPUS="$(kubectl -n "$NAMESPACE" get pod "$SERVER_POD" \
+            -o jsonpath='{.spec.containers[?(@.name=="server")].resources.limits.cpu}')"
+          LOADTEST_TARGET_MEMORY="$(kubectl -n "$NAMESPACE" get pod "$SERVER_POD" \
+            -o jsonpath='{.spec.containers[?(@.name=="server")].resources.limits.memory}')"
+          test -n "$LOADTEST_TARGET_CPUS"
+          test -n "$LOADTEST_TARGET_MEMORY"
           case "$LOADTEST_GOARCH" in
             amd64|arm64) ;;
             *) echo "::error::Unsupported OKE node architecture: $LOADTEST_GOARCH"; exit 1 ;;
@@ -127,6 +140,12 @@ jobs:
             # port would find the SPA fallback instead, and record a target it
             # never measured.
             echo "LOADTEST_METRICS_URL=http://${RELEASE}-server:8081"
+            # In the units the harness records: a processor share as a fraction,
+            # memory as bytes. The cluster states both in its own notation, and
+            # a bundle carrying "250m" in a number field carries nothing.
+            echo "LOADTEST_TARGET_CPUS=$(scripts/k8s-quantity.sh cpu "$LOADTEST_TARGET_CPUS")"
+            echo "LOADTEST_TARGET_MEMORY_BYTES=$(scripts/k8s-quantity.sh memory "$LOADTEST_TARGET_MEMORY")"
+            echo "LOADTEST_TARGET_DESCRIPTION=${RELEASE}-server, ${LOADTEST_TARGET_CPUS} / ${LOADTEST_TARGET_MEMORY} on ${LOADTEST_GOARCH}"
           } >>"$GITHUB_ENV"
 
       # --- Both generators run beside the server -----------------------------
@@ -259,6 +278,10 @@ jobs:
               -fixture-seed="$GITHUB_RUN_ID" \
               -relay-sessions \
               -hold="$LOADTEST_HOLD" \
+              -commit="$GITHUB_SHA" \
+              -target-cpus="$LOADTEST_TARGET_CPUS" \
+              -target-memory-bytes="$LOADTEST_TARGET_MEMORY_BYTES" \
+              -target-description="$LOADTEST_TARGET_DESCRIPTION" \
               -bundle=/tmp/loadtest-bundle
 
       - name: Run k6 API baseline
@@ -306,6 +329,17 @@ jobs:
           kubectl -n "$NAMESPACE" cp "$LOADTEST_POD:/tmp/loadtest-bundle/bundle.json" \
             loadtest-bundle/quic-agents.json 2>/dev/null \
             || echo "::warning::the QUIC harness wrote no evidence bundle"
+
+          # The screens this night timed are measured by the browser-side
+          # generator, in a different pod, so they reach the evidence here or
+          # nowhere. The bundle is the artifact that outlives the metrics
+          # store's thirty days, and it carried a null under a field naming the
+          # three journeys that were being published into the trend all along.
+          if [ -s loadtest-bundle/quic-agents.json ] \
+            && [ -s "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json" ]; then
+            scripts/loadtest-bundle-merge.sh loadtest-bundle/quic-agents.json \
+              --journeys "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json"
+          fi
 
       # A run leaves nothing behind: the pod, the local build, and the token it
       # was given all go, whatever the run's verdict was.

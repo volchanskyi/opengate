@@ -25,13 +25,9 @@ func harnessResults() []agentResult {
 // below differs only in the run it describes.
 func bundleFrom(t *testing.T, results []agentResult, withProfile bool) *Bundle {
 	t.Helper()
-	in := runBundleInputs{
-		Results:    results,
-		StartedAt:  time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC),
-		Total:      3 * time.Second,
-		AgentCount: len(results),
-		Target:     "opengate-staging-server:9090",
-	}
+	in := measuredRun()
+	in.Results = results
+	in.AgentCount = len(results)
 	if withProfile {
 		p, err := ParseProfile([]byte(minimalProfile))
 		require.NoError(t, err)
@@ -116,16 +112,10 @@ func TestABundleCarriesTheServersOwnRegistrationFigure(t *testing.T) {
 
 // The phases a run walked are the phases it reports.
 func TestABundleReportsTheProfilesOwnPhases(t *testing.T) {
-	in := runBundleInputs{
-		Results:    harnessResults(),
-		StartedAt:  time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC),
-		Total:      3 * time.Second,
-		AgentCount: 3,
-		Target:     "opengate-staging-server:9090",
-		Phases: []PhaseResult{
-			{Name: "ramp", StartedAt: time.Now(), FinishedAt: time.Now().Add(time.Minute), AchievedConnectedAgents: 250},
-			{Name: "steady", StartedAt: time.Now(), FinishedAt: time.Now().Add(time.Minute), AchievedConnectedAgents: 500},
-		},
+	in := measuredRun()
+	in.Phases = []PhaseResult{
+		{Name: "ramp", StartedAt: time.Now(), FinishedAt: time.Now().Add(time.Minute), AchievedConnectedAgents: 250},
+		{Name: "steady", StartedAt: time.Now(), FinishedAt: time.Now().Add(time.Minute), AchievedConnectedAgents: 500},
 	}
 	bundle := buildRunBundle(in)
 
@@ -147,19 +137,15 @@ func TestABundleCountsTheFixtureTheRunBuilt(t *testing.T) {
 		PlannedDevices: plan.Devices,
 	}
 
-	bundle := buildRunBundle(runBundleInputs{
-		Results:    harnessResults(),
-		StartedAt:  time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC),
-		Total:      time.Second,
-		AgentCount: 3,
-		Target:     "opengate-staging-server:9090",
-		Fixture:    &built,
-	})
+	in := measuredRun()
+	in.Fixture = &built
+	bundle := buildRunBundle(in)
 
 	assert.Equal(t, FixtureLarge, bundle.Fixture.Size)
 	assert.Equal(t, 2, bundle.Fixture.Customers)
 	assert.Equal(t, 9, bundle.Fixture.Sites)
-	assert.Equal(t, plan.Devices, bundle.Fixture.Devices)
+	assert.Equal(t, 2, bundle.Fixture.Users)
+	assert.Equal(t, plan.Devices, bundle.Fixture.PlannedDevices)
 }
 
 // observedSeries is the set of series a bundle carries.
@@ -190,14 +176,10 @@ func TestWriteRunBundlePutsTheEvidenceOnDisk(t *testing.T) {
 	p, err := ParseProfile([]byte(minimalProfile))
 	require.NoError(t, err)
 
-	require.NoError(t, writeRunBundle(buildRunBundle(runBundleInputs{
-		Profile:    p,
-		Results:    harnessResults(),
-		StartedAt:  time.Now(),
-		Total:      time.Second,
-		AgentCount: 3,
-		Target:     "opengate-staging-server:9090",
-	}), dir))
+	in := measuredRun()
+	in.Profile = p
+	in.StartedAt = time.Now()
+	require.NoError(t, writeRunBundle(buildRunBundle(in), dir))
 
 	read, err := LoadBundle(filepath.Join(dir, "bundle.json"))
 	require.NoError(t, err)

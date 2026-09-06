@@ -23,7 +23,7 @@ func classifyWithTarget(target TargetConservation) Verdict {
 	return Classify(RunInputs{
 		ExpectedScenarios: []string{"quic-agents"},
 		ProducedScenarios: []string{"quic-agents"},
-		Headroom:          Headroom{CPUHeadroomPercent: 100},
+		Headroom:          Headroom{Measured: true, CPUHeadroomPercent: 100},
 		Phases:            []PhaseResult{{Name: "connect"}},
 		Target:            target,
 	})

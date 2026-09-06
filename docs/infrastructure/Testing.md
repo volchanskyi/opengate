@@ -816,6 +816,29 @@ authoritative and the dashboard is a view of it; a bundle missing a mandatory
 section fails the run rather than entering the trend as a thinner version of a
 real one.
 
+Every field in it is a reading or is absent, which is what
+[ADR-100](../adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md) settles
+and what the validation enforces. Both sides of the measurement are recorded
+because a latency figure is a property of the pair: the target's own limits are
+handed in by whoever started it — the sweep's matrix value, or the cluster's own
+container spec through
+[`k8s-quantity.sh`](../../scripts/k8s-quantity.sh) — and the generator reads
+itself, including how much room it had left. A generator nobody measured
+invalidates the run.
+
+The arrival rate is two pairs, not one, because two processes offer arrivals. The
+machine side is the harness's own and is measured from the fleet; the technician
+side is the profile's declaration, and its achieved half stays absent until a
+browser-side generator fills it. A phase's latency is a live round trip taken
+during the phase — a machine that connects, handshakes, registers and hangs up —
+because the control stream has no reply to a heartbeat.
+
+Two of a bundle's readings are taken by steps outside the harness: the fleet's
+weight on disk, read from the database once the fleet exists, and the technician
+journeys, timed in another pod.
+[`loadtest-bundle-merge.sh`](../../scripts/loadtest-bundle-merge.sh) folds those
+into the bundle and fails when there is nothing to fold.
+
 Both schemas, their validation and the verdict rules live in
 [`server/tests/loadtest/`](../../server/tests/loadtest) and are exercised by that
 package's tests.

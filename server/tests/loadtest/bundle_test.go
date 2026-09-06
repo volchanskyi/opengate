@@ -35,30 +35,32 @@ func completeBundle() *Bundle {
 		Target: Fingerprint{
 			Kind:        "staging",
 			Description: "opengate-staging-server",
-			CPUs:        2,
-			MemoryBytes: 9_874_911_232,
+			CPUs:        0.25,
+			MemoryBytes: 402_653_184,
 		},
 		Generator: Fingerprint{
 			Kind:        "in-cluster-pod",
 			Description: "k6 v1.6.1",
 			CPUs:        1,
-			MemoryBytes: 402_653_184,
+			MemoryBytes: 2_147_483_648,
+			DiskBytes:   15_032_385_536,
 		},
 		Fixture: FixtureCounts{
 			Size: FixtureSmall, Tenants: 1, Customers: 5, Sites: 10,
 			Users: 20, Devices: 500,
 		},
 		Phases: []PhaseResult{{
-			Name:                      "steady",
-			StartedAt:                 start,
-			FinishedAt:                start.Add(5 * time.Minute),
-			OfferedArrivalsPerSecond:  5,
-			AchievedArrivalsPerSecond: 4.9,
-			OfferedConnectedAgents:    500,
-			AchievedConnectedAgents:   500,
-			ErrorRate:                 0.001,
-			ExpectedRejections:        12,
-			Faults:                    0,
+			Name:                             "steady",
+			StartedAt:                        start,
+			FinishedAt:                       start.Add(5 * time.Minute),
+			OfferedAgentArrivalsPerSecond:    5,
+			AchievedAgentArrivalsPerSecond:   4.9,
+			OfferedOperatorArrivalsPerSecond: 5,
+			OfferedConnectedAgents:           500,
+			AchievedConnectedAgents:          500,
+			ErrorRate:                        0.001,
+			ExpectedRejections:               12,
+			Faults:                           0,
 		}},
 		Journeys: []JourneyResult{{
 			Name: "device-list", Requests: 1200, ErrorRate: 0, LatencyP95Ms: 88,
@@ -66,7 +68,7 @@ func completeBundle() *Bundle {
 		Observations: []Observation{{
 			At: start.Add(time.Minute), Series: "agents_connected", Value: 500,
 		}},
-		GeneratorHeadroom: Headroom{CPUHeadroomPercent: 55, MemoryUsedPercent: 40},
+		GeneratorHeadroom: Headroom{Measured: true, CPUHeadroomPercent: 55, MemoryUsedPercent: 40},
 		Cleanup:           CleanupProof{Verified: true, OrphanUsers: 0, OrphanDevices: 0, OrphanTenants: 0},
 		Verdict:           Verdict{Result: ResultValid},
 	}
@@ -118,12 +120,27 @@ func TestBundleRefusesAMissingMandatorySection(t *testing.T) {
 // that could not absorb it.
 func TestBundleKeepsOfferedAndAchievedApart(t *testing.T) {
 	b := completeBundle()
-	b.Phases[0].AchievedArrivalsPerSecond = 2.0
+	b.Phases[0].AchievedAgentArrivalsPerSecond = 2.0
 
 	require.NoError(t, b.Validate())
-	assert.InDelta(t, 5.0, b.Phases[0].OfferedArrivalsPerSecond, 0)
-	assert.InDelta(t, 2.0, b.Phases[0].AchievedArrivalsPerSecond, 0)
+	assert.InDelta(t, 5.0, b.Phases[0].OfferedAgentArrivalsPerSecond, 0)
+	assert.InDelta(t, 2.0, b.Phases[0].AchievedAgentArrivalsPerSecond, 0)
 	assert.Less(t, b.Phases[0].AchievedFraction(), 0.5)
+}
+
+// The two sides of the arrival rate are separate because they are driven by
+// separate processes. A phase whose technician half was measured is read on
+// that half; one whose was not falls back to the machines it did drive, rather
+// than reporting an attainment nothing observed.
+func TestAttainmentReadsWhicheverSideWasMeasured(t *testing.T) {
+	b := completeBundle()
+	assert.InDelta(t, 0.98, b.Phases[0].AchievedFraction(), 0.001,
+		"with no technician reading, the machines the phase drove are the attainment")
+
+	measured := 1.0
+	b.Phases[0].AchievedOperatorArrivalsPerSecond = &measured
+	assert.InDelta(t, 0.2, b.Phases[0].AchievedFraction(), 0.001,
+		"a measured technician rate is what the phase offered and is read first")
 }
 
 // An expected rejection is the system working. Counting it as a fault makes a

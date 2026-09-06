@@ -123,6 +123,15 @@ func signingRequest(opts EnrollOptions) (*ecdsa.PrivateKey, []byte, error) {
 	return key, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}), nil
 }
 
+// ErrEnrollmentRefused is the server declining to issue a certificate: a spent
+// credential, an expired one, a rate past a ceiling it enforces on purpose.
+//
+// It is named so a run can tell a limit working from a limit broken. A fleet
+// refused at a declared ceiling and a fleet that could not reach the server look
+// identical in a failure count, and only one of them is a finding about the
+// system.
+var ErrEnrollmentRefused = errors.New("enrollment refused")
+
 func postEnrollment(ctx context.Context, opts EnrollOptions, csrPEM []byte) (*enrollResponse, error) {
 	body, err := json.Marshal(map[string]string{"csr_pem": string(csrPEM)})
 	if err != nil {
@@ -147,7 +156,7 @@ func postEnrollment(ctx context.Context, opts EnrollOptions, csrPEM []byte) (*en
 
 	if resp.StatusCode != http.StatusOK {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("enrollment refused with %d: %s", resp.StatusCode, bytes.TrimSpace(detail))
+		return nil, fmt.Errorf("%w with %d: %s", ErrEnrollmentRefused, resp.StatusCode, bytes.TrimSpace(detail))
 	}
 
 	var decoded enrollResponse
