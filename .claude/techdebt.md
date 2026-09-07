@@ -157,6 +157,111 @@ the relay scenario say which of the two it hit when the fleet read comes back
 empty: a fleet that never arrived, or one the server forgot. Fix what that
 names.
 
+### The network drill's herd is gone before the scenario that needs it measures
+
+The nightly link drill starts twenty simulated machines so its thin-uplink
+scenario measures a site catching up as a herd rather than as one machine alone:
+twenty in one customer against the four concurrent drains the server admits per
+customer, so four drain and sixteen queue. What that scenario publishes —
+`netdrill_live_staleness_max_seconds` — is how stale a technician's live reading
+of one machine gets while the queue behind it drains.
+
+The simulated machines reach the server through the same shaper the real one
+does, so every impairment reaches them too, and the first two scenarios both
+blackhole the link for three minutes. The load harness dials once
+([`agent.go`](../server/tests/loadtest/agent.go)) with a thirty-second idle
+timeout and carries no reconnect — correct for a load generator, and not a thing
+that survives an outage. Half a minute into the first blackhole every simulated
+connection is gone, and none of them comes back. The catch-up the scenario then
+measures happens on an uncontended link with one machine on it.
+
+Neither half of the drill says so. Every row the scenario emits is about the real
+machine, so nothing reads how much of the herd is left; and the harness's own
+verdict — twenty agents returning errors is exactly what it reports — goes to a
+file inside the fleet pod that nothing reads, because the drill calls only
+`start` and never `collect`
+([`loadtest-quic-incluster.sh`](../scripts/loadtest-quic-incluster.sh)). The pod
+is deleted in teardown.
+
+The cost lands on the trend rather than on the night. Staleness is one of the
+metrics
+[`network-drill-regression-check.sh`](../scripts/network-drill-regression-check.sh)
+checks for window growth, so an uncontended reading becomes the baseline that a
+night with a real herd is measured against — and the night that fixes the fleet
+is the night that reads as the regression.
+
+Run 33945139320 is the first complete night, and it measures exactly this. The
+same blackhole ran twice for the same three minutes: the first drew 401 dropped
+datagrams out of the population behind the link, the second drew 42. The healthy
+minute before the first blackhole carried 231 datagrams to the server; the third
+scenario's whole four-minute window carried 18, which is one machine's
+heartbeat. So the three scenarios after the first ran against a fleet of one, and
+the thin-uplink scenario published its staleness figure — 55 seconds — off an
+uncontended link.
+
+The shaper's own `machines` field went on reading 21 for another ten minutes,
+because that field is its idle-mapping expiry rather than a count of live
+machines, and first read 1 twenty minutes after the herd had left. Reading it as
+the herd is therefore not the fix; reading what the harness reports is.
+
+That tenfold fall between the first blackhole and the second now reaches the
+trend, because each scenario's drop rows carry its own figure
+([ADR-102](../docs/adr/ADR-102-a-drill-reading-is-the-scenarios-own-or-it-is-not-a-reading.md)). It is
+a fingerprint to read after the fact, not a reading of the herd: it says the
+population behind the link thinned, and it says so only once a night has already
+been measured against a fleet that was not there.
+
+**Pay-down trigger:** answer first whether the herd is meant to survive an
+outage — a reconnect in the load harness, or a fleet stood up again between
+scenarios — because that decides whether the scenario's number is recoverable as
+written or whether the scenario has to be built around a herd that is not
+expected to survive a blackhole. Then the two cheap halves in the same pass: the
+scenario reads the herd it claims to be measuring against and goes inconclusive
+without it, and the drill collects the harness's verdict into the evidence
+bundle beside the rest.
+
+### The drill's reconnect figure is its own phase clock and cannot reach its floor
+
+`netdrill_reconnect_seconds` read 13 in both scenarios that measure it in run
+33945139320, and the machine's log says why rather than saying the product is
+steady. The agent's QUIC idle timeout is 90 seconds and so is the establish
+timeout on a connect that cannot complete
+([`main.rs`](../agent/crates/mesh-agent/src/main.rs)), and the drill's blackhole
+is 180. So the shape repeats exactly: the machine notices the loss at its idle
+timeout, spends the next 90 seconds inside one doomed establish, and the link is
+restored partway through it. Restored at 04:45:31, the first attempt expired at
+04:45:42, connected at 04:45:43 — the reconnect itself cost under a second, and
+the 13 is the tail of the attempt it interrupted. The second scenario reproduces
+the figure to the second for the same arithmetic.
+
+What that costs is the threshold. Full-jitter backoff caps at 30 seconds
+([`connection.rs`](../agent/crates/mesh-agent-core/src/connection.rs)) and the
+establish timeout is 90, so the worst this scenario can produce is around 120 —
+which is the floor
+[`network-drill-regression-check.sh`](../scripts/network-drill-regression-check.sh)
+holds it to. A measurement that cannot reach its own threshold is not gating
+anything, and the window comparison inherits the same problem: a figure this
+tightly determined by the phase clock has no spread for a median to be
+meaningful about.
+
+The absence is the smaller second leg. `wait_until_online` deliberately returns
+nothing when the machine never comes back, so that a machine which never
+returned is not recorded as having taken exactly as long as the drill was
+willing to wait, and `emit` skips an empty value. The first scenario does not
+guard on that as the second does, so the worst outcome the scenario exists to
+find would publish no reconnect row at all. The night still reds, because that
+scenario's gap-fill ratio falls to zero and that floor does fire — which is why
+this is a hole in the metric rather than a false green, and why the reconnect
+floor has never been the thing that would catch a reconnect failure.
+
+**Pay-down trigger:** vary the outage length so it stops being a whole number of
+the agent's own timeouts, and take the reconnect figure from the machine's own
+account of when it reconnected rather than from a five-second poll of a status
+the server writes. Then set the floor against what the varied runs actually
+produce. Guard the first scenario's empty reading the way the second one is
+guarded, in the same pass.
+
+
 ## Severity: Low
 
 ### The Chat tab is unreachable from any machine the browser stack can run

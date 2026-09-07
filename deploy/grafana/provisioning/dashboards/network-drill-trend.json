@@ -266,7 +266,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "{__name__=~\"netdrill_shaper_dropped_to_(server|machine)_total\",env=\"ci\"}",
+          "expr": "{__name__=~\"netdrill_shaper_dropped_to_(server|machine)\",env=\"ci\"}",
           "legendFormat": "{{scenario}} {{__name__}}",
           "refId": "A"
         }

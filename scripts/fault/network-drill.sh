@@ -129,13 +129,50 @@ rebind() {
 
 # counters records what the shaper has done with the datagrams it handled, at
 # one phase boundary, and prints it. The runner reads these to know a scenario
-# ran at all.
+# ran at all. A boundary it could not read is refused rather than answered.
 counters() {
   local phase="$1" body
-  body="$(probe_curl "$SHAPER_URL/counters")" \
-    || inconclusive "the shaper stopped answering at the $phase boundary"
+  body="$(probe_curl "$SHAPER_URL/counters")" || return 1
   printf '%s\n' "$body" >"$EVIDENCE_DIR/${SCENARIO}-counters-${phase}.json"
   printf '%s\n' "$body"
+}
+
+# The reading at one phase boundary, left in COUNTERS for the scenario to use.
+#
+# It is assigned here, in the scenario's own shell, rather than inside a command
+# substitution at the point of use. A substitution runs in a subshell, and
+# ending the scenario from inside one ends only that subshell: the run would
+# carry on with an empty reading and decide the phase on it.
+COUNTERS=""
+read_counters() {
+  local phase="$1"
+  COUNTERS="$(counters "$phase")" \
+    || inconclusive "the shaper stopped answering at the $phase boundary"
+}
+
+# The shaper counts for the life of its process and its control endpoint offers
+# no reset, so every reading it gives is a running total across every scenario
+# that ran before this one. What a scenario has to say about the link is what
+# changed while it held it, so each scenario opens by recording where the totals
+# stood and measures everything it publishes from there.
+OPENING_DROPPED_TO_SERVER=0
+OPENING_DROPPED_TO_MACHINE=0
+
+open_counters() {
+  read_counters baseline
+  OPENING_DROPPED_TO_SERVER="$(jq -r '.to_server.dropped // 0' <<<"$COUNTERS")"
+  OPENING_DROPPED_TO_MACHINE="$(jq -r '.to_machine.dropped // 0' <<<"$COUNTERS")"
+}
+
+# What the shaper dropped in one direction while this scenario held the link.
+dropped_since_opening() {
+  local body="$1" direction="$2" opening now
+  case "$direction" in
+    to_server) opening="$OPENING_DROPPED_TO_SERVER" ;;
+    *) opening="$OPENING_DROPPED_TO_MACHINE" ;;
+  esac
+  now="$(jq -r ".${direction}.dropped // 0" <<<"$body")"
+  printf '%s\n' "$((${now:-0} - ${opening:-0}))"
 }
 
 api_get() {
@@ -151,8 +188,26 @@ device_row() {
   jq -e --arg id "$DEVICE_ID" '.[] | select(.id == $id)' <<<"$body"
 }
 
+# What a status reading is when the drill could not take one. No machine is
+# ever in this state: it says the drill failed to observe, which is a different
+# thing from the machine having moved, and every caller treats it that way.
+UNREADABLE_STATUS="unreadable"
+
+# The machine's status as a technician's device list shows it, or
+# UNREADABLE_STATUS when the drill could not read it. A request that did not
+# land, a machine missing from the list, and a reply with nothing in it are all
+# the drill failing to observe the machine. None of them is a machine that went
+# offline, and every comparison here is against "online", so answering with any
+# of them as though it were a status reports a failed read as a failed product.
 device_status() {
-  device_row | jq -r '.status' 2>/dev/null || printf 'unknown\n'
+  local body status
+  body="$(device_row)" || {
+    printf '%s\n' "$UNREADABLE_STATUS"
+    return 0
+  }
+  status="$(jq -r '.status // empty' <<<"$body" 2>/dev/null)" || status=""
+  [ -n "$status" ] || status="$UNREADABLE_STATUS"
+  printf '%s\n' "$status"
 }
 
 device_last_seen_epoch() {
@@ -192,22 +247,24 @@ emit() {
     >>"$PENDING_ROWS"
 }
 
-# The shaper's own account of the phase, carried into the trend so a night whose
-# numbers look odd can be read against what the link actually did.
+# The shaper's own account of what this scenario did to the link, carried into
+# the trend so a night whose numbers look odd can be read against it.
 emit_shaper_counters() {
   local body="$1"
-  emit netdrill_shaper_dropped_to_server_total link "$(jq -r '.to_server.dropped' <<<"$body")"
-  emit netdrill_shaper_dropped_to_machine_total link "$(jq -r '.to_machine.dropped' <<<"$body")"
+  emit netdrill_shaper_dropped_to_server link "$(dropped_since_opening "$body" to_server)"
+  emit netdrill_shaper_dropped_to_machine link "$(dropped_since_opening "$body" to_machine)"
 }
 
 # A scenario whose drop count does not match its instruction did not run. This
 # is the check that separates "the machine coped with an outage" from "the
-# outage never happened and the machine had nothing to cope with".
+# outage never happened and the machine had nothing to cope with", so what it
+# asks about is what this scenario dropped: a total left on the clock by an
+# earlier scenario's outage is not evidence that this one's fault reached the
+# link.
 require_dropped() {
-  local body="$1" dropped
-  dropped="$(jq -r '.to_server.dropped // 0' <<<"$body")"
-  [ "${dropped:-0}" -gt 0 ] \
-    || inconclusive "the shaper's counters record no dropped datagram, so the fault it was told to apply did not reach the link"
+  local body="$1"
+  [ "$(dropped_since_opening "$body" to_server)" -gt 0 ] \
+    || inconclusive "the shaper dropped nothing toward the server while this scenario held the link, so the fault it was told to apply did not reach it"
 }
 
 # publish is the only writer of the measurements file, and it runs once, at the
@@ -249,19 +306,21 @@ run_s1() {
   local dark_from dark_to restored online_at ratio filled_at
 
   impair "$PASS_THROUGH"
-  counters baseline >/dev/null
+  open_counters
   hold "$BASELINE_SECONDS"
 
   dark_from="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   impair "$BLACKHOLE"
   hold "$FAULT_SECONDS"
-  require_dropped "$(counters fault)"
+  read_counters fault
+  require_dropped "$COUNTERS"
   dark_to="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   impair "$PASS_THROUGH"
   restored="$(date +%s)"
 
-  online_at="$(wait_until_online "$restored" "$RECOVERY_SECONDS")"
+  online_at="$(wait_until_online "$restored" "$RECOVERY_SECONDS")" \
+    || inconclusive "the drill never read the machine's status while waiting for it to come back"
   emit netdrill_reconnect_seconds real "$online_at"
 
   filled_at="$(wait_until_filled "$restored" "$dark_from" "$dark_to" "$RECOVERY_SECONDS")"
@@ -270,7 +329,8 @@ run_s1() {
   ratio="$(gap_fill_ratio "$dark_from" "$dark_to" || echo 0)"
   emit netdrill_gap_fill_ratio real "$ratio"
 
-  emit_shaper_counters "$(counters recovery)"
+  read_counters recovery
+  emit_shaper_counters "$COUNTERS"
   publish
 }
 
@@ -279,14 +339,15 @@ run_s1() {
 # one that measures a catch-up batch sitting ahead of the next heartbeat on the
 # one ordered stream the machine sends everything over.
 run_s2() {
-  local restored back staleness transitions
+  local restored back staleness transitions watched
 
   impair "$PASS_THROUGH"
-  counters baseline >/dev/null
+  open_counters
 
   impair "$BLACKHOLE"
   hold "$FAULT_SECONDS"
-  require_dropped "$(counters fault)"
+  read_counters fault
+  require_dropped "$COUNTERS"
 
   impair "$THIN_UPLINK"
   restored="$(date +%s)"
@@ -296,15 +357,19 @@ run_s2() {
   # every night, whatever the uplink did afterwards — and the question this
   # scenario asks is whether live monitoring stays usable *while the site
   # catches up*.
-  back="$(wait_until_online "$restored" "$RECOVERY_SECONDS")"
+  back="$(wait_until_online "$restored" "$RECOVERY_SECONDS")" \
+    || inconclusive "the drill never read the machine's status while waiting for it to come back over the thin uplink"
   emit netdrill_reconnect_seconds real "$back"
   [ -n "$back" ] || inconclusive "the machine never came back over the thin uplink, so there was no catch-up to watch"
 
-  read -r staleness transitions <<<"$(watch_liveness "$((RECOVERY_SECONDS - back))")"
+  watched="$(watch_liveness "$((RECOVERY_SECONDS - back))")" \
+    || inconclusive "the drill never read the machine's status while the site caught up"
+  read -r staleness transitions <<<"$watched"
   emit netdrill_live_staleness_max_seconds real "$staleness"
   emit netdrill_offline_transitions real "$transitions"
 
-  emit_shaper_counters "$(counters recovery)"
+  read_counters recovery
+  emit_shaper_counters "$COUNTERS"
   impair "$PASS_THROUGH"
   publish
 }
@@ -313,21 +378,25 @@ run_s2() {
 # keeps its connection and loses a fifth of what it sends; the question is
 # whether it holds the connection or churns.
 run_s3() {
-  local staleness transitions
+  local staleness transitions watched
 
   impair "$PASS_THROUGH"
-  counters baseline >/dev/null
+  open_counters
   hold "$BASELINE_SECONDS"
 
   impair "$ONE_WAY_LOSS"
-  read -r staleness transitions <<<"$(watch_liveness "$FAULT_SECONDS")"
-  require_dropped "$(counters fault)"
+  watched="$(watch_liveness "$FAULT_SECONDS")" \
+    || inconclusive "the drill never read the machine's status while the link was lossy"
+  read -r staleness transitions <<<"$watched"
+  read_counters fault
+  require_dropped "$COUNTERS"
   emit netdrill_offline_transitions real "$transitions"
   emit netdrill_live_staleness_max_seconds real "$staleness"
 
   impair "$PASS_THROUGH"
   hold "$RECOVERY_SECONDS"
-  emit_shaper_counters "$(counters recovery)"
+  read_counters recovery
+  emit_shaper_counters "$COUNTERS"
   publish
 }
 
@@ -340,23 +409,32 @@ run_s3() {
 # and reconnection are both recorded, and a failure reads as "the migration did
 # not happen" rather than "the link broke".
 run_s4() {
-  local before after survived reconnected transitions
+  local before after survived reconnected transitions watched
 
   impair "$PASS_THROUGH"
-  counters baseline >/dev/null
+  open_counters
   hold "$BASELINE_SECONDS"
 
   impair "$SATELLITE"
   hold "$FAULT_SECONDS"
-  counters fault >/dev/null
+  read_counters fault
 
+  # Both verdicts below are decided by comparing these two readings against
+  # "online", so a reading the drill could not take would publish a migration
+  # that failed on the strength of a request that did not arrive.
   before="$(device_status)"
+  [ "$before" != "$UNREADABLE_STATUS" ] \
+    || inconclusive "the drill could not read the machine's status before the address change"
   rebind
   # The window is watched rather than waited out. A machine that dropped and
   # reconnected inside it is online at both ends of a wait, which is exactly
   # the reading that would report a failed migration as a successful one.
-  read -r _ transitions <<<"$(watch_liveness "$RECOVERY_SECONDS")"
+  watched="$(watch_liveness "$RECOVERY_SECONDS")" \
+    || inconclusive "the drill never read the machine's status after the address change"
+  read -r _ transitions <<<"$watched"
   after="$(device_status)"
+  [ "$after" != "$UNREADABLE_STATUS" ] \
+    || inconclusive "the drill could not read the machine's status after the address change"
 
   # The session survived if the machine never left. It reconnected if it did
   # leave and came back inside the window.
@@ -369,7 +447,8 @@ run_s4() {
   emit netdrill_reconnected_after_rebind real "$reconnected"
 
   impair "$PASS_THROUGH"
-  emit_shaper_counters "$(counters recovery)"
+  read_counters recovery
+  emit_shaper_counters "$COUNTERS"
   publish
 }
 
@@ -379,18 +458,26 @@ run_s4() {
 # if it did not come back inside the budget. Nothing, rather than the budget:
 # a machine that never returned did not take exactly as long as the drill was
 # willing to wait.
+#
+# Refuses — rather than answering "not back" — when it never once read the
+# machine's status. A poll that could not see the machine has found nothing out
+# about whether it returned, and answering would report the drill's own blind
+# spot as the machine failing to come back.
 wait_until_online() {
-  local from="$1" budget="$2" deadline now
+  local from="$1" budget="$2" deadline now status readings=0
   deadline=$((from + budget))
   while :; do
     now="$(date +%s)"
-    if [ "$(device_status)" = "online" ]; then
+    status="$(device_status)"
+    [ "$status" = "$UNREADABLE_STATUS" ] || readings=$((readings + 1))
+    if [ "$status" = "online" ]; then
       printf '%s\n' "$((now - from))"
       return 0
     fi
-    [ "$now" -ge "$deadline" ] && return 0
+    [ "$now" -ge "$deadline" ] && break
     hold "$POLL_SECONDS"
   done
+  [ "$readings" -gt 0 ]
 }
 
 # How long after the link was restored the hole in the machine's charts was
@@ -416,16 +503,26 @@ wait_until_filled() {
 # Staleness is measured against the machine's own last_seen rather than against
 # a scrape: it is the age of the newest thing the server has heard from that
 # machine, which is exactly what a technician watching the site is looking at.
+#
+# Refuses, as the poll above does, when it never read the machine's status:
+# a window of readings nobody could take reports no staleness and no crossing
+# of the offline line, which is indistinguishable from a machine that behaved.
 watch_liveness() {
-  local budget="$1" deadline now seen worst=0 transitions=0 previous="online" status age
+  local budget="$1" deadline now seen worst=0 transitions=0 previous="online" status age readings=0
   deadline=$(($(date +%s) + budget))
   while :; do
     now="$(date +%s)"
     status="$(device_status)"
-    if [ "$status" != "online" ]; then
-      [ "$previous" = "online" ] && transitions=$((transitions + 1))
+    # A reading the drill could not take places the machine nowhere: it neither
+    # crosses the offline line nor clears it, so it is not a sample and the last
+    # real reading still stands.
+    if [ "$status" != "$UNREADABLE_STATUS" ]; then
+      readings=$((readings + 1))
+      if [ "$status" != "online" ] && [ "$previous" = "online" ]; then
+        transitions=$((transitions + 1))
+      fi
+      previous="$status"
     fi
-    previous="$status"
 
     if seen="$(device_last_seen_epoch)"; then
       age=$((now - seen))
@@ -436,6 +533,7 @@ watch_liveness() {
     hold "$POLL_SECONDS"
   done
   printf '%s %s\n' "$worst" "$transitions"
+  [ "$readings" -gt 0 ]
 }
 
 # --- what to run --------------------------------------------------------------

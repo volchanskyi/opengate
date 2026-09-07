@@ -153,9 +153,15 @@ idle timeout. Only the pair tells them apart.
 ### What the drill is held to
 
 - **A scenario that could not observe the system emits nothing.** A dead or
-  unreachable shaper, a refused impairment, or a drop count that disagrees with
-  the impairment commanded all end the scenario with no row at all. Rows of
-  zeroes pull a window median down, and one bad night would quietly cost two.
+  unreachable shaper, a refused impairment, a status the drill could not read,
+  and a drop count that disagrees with the impairment commanded all end the
+  scenario with no row at all. Rows of zeroes pull a window median down, and one
+  bad night would quietly cost two.
+- **Every figure is the scenario's own.** The shaper counts for the life of its
+  process, so each scenario records where the totals stood when it opened and
+  measures from there — both the rows it publishes about the link and the check
+  that proves its fault reached the link at all
+  ([ADR-102](../adr/ADR-102-a-drill-reading-is-the-scenarios-own-or-it-is-not-a-reading.md)).
 - **No privilege of any kind.** No node agent, no runtime socket, no added
   capability, no root.
 - **Staging only.** The runner refuses any namespace but `opengate-staging`, and
