@@ -35,52 +35,233 @@ safety:
   max_node_memory_percent: 90
   max_error_rate: 0.01
 
+# Every number a night is judged against, and every measurement deliberately
+# left without one. This is the only home for both.
+#
+# They used to live in two places. scripts/loadtest-regression-check.sh kept a
+# set of "something has collapsed" limits keyed by the same source/scenario/phase
+# triple these rows name, and this file kept its own — with different values for
+# the same measurement, one enforced and one read by nothing. An edit to either
+# did not do what it said.
+#
+# Two kinds of row sit here and they are different statements:
+#
+#   * a row that fails the night. It is loose on purpose, because the fortnight
+#     comparison beside it has a blind spot — a product that gets slowly worse
+#     drags its own window median down and nothing ever fires. These are the
+#     floor under that slide.
+#   * a row that only reports. It is a target somebody has committed to and is
+#     watching before enforcing. A number that fires on the measurement's own
+#     noise teaches everyone to ignore it, so it earns enforcement by holding.
+#
+# A measurement carries at most one of the first kind per direction, which the
+# schema enforces. What it must not do is carry neither of them and no entry in
+# `ungated:` either: the limits this list replaced had a catch-all that held
+# anything unlisted to a default, and a list with no catch-all can therefore
+# lose protection while looking like consolidation. Every measurement the
+# summarizer emits appears below, one way or the other, and a shell test holds
+# that in both directions.
+
 gates:
-  # The single API mark, tightened from 200 ms. It stays advisory until fresh
-  # runs show the spread has narrowed now that the generator and the target hold
-  # separate allocations — a number that fires on the measurement's own noise
-  # teaches everyone to ignore it.
+  # --- the technician's own requests ------------------------------------------
+  #
+  # One number for the whole interface distinguished nothing: a technician waits
+  # differently for a glance at a fleet, for one machine's page, and for an
+  # instruction they have deliberately sent. Each is timed on its own below.
+
+  - series: k6/api-baseline/http
+    metric: latency_p50_ms
+    max: 200
+    blocking: true
+  - series: k6/api-baseline/http
+    metric: latency_p95_ms
+    max: 200
+    blocking: true
+  # The target, tightened from the limit above and still watched rather than
+  # enforced until fresh nights show the spread has narrowed now that the
+  # generator and the target hold separate allocations.
   - series: k6/api-baseline/http
     metric: latency_p95_ms
     max: 100
     blocking: false
   - series: k6/api-baseline/http
+    metric: latency_p99_ms
+    max: 400
+    blocking: false
+  - series: k6/api-baseline/http
+    metric: rps
+    min: 5
+    blocking: true
+  - series: k6/api-baseline/http
     metric: error_rate
     max: 0.01
+    blocking: true
+
+  # A glance at a fleet.
+  - series: k6/api-baseline/device_list
+    metric: latency_p95_ms
+    max: 300
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p99_ms
+    max: 2000
+    blocking: false
+
+  # One machine's page, which fans out to its inventory, its history and its
+  # readings.
+  - series: k6/api-baseline/device_detail
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p99_ms
+    max: 2000
+    blocking: false
+
+  # The server accepting the instruction, not the machine carrying it out.
+  - series: k6/api-baseline/command_accept
+    metric: latency_p95_ms
+    max: 1000
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p99_ms
+    max: 2000
+    blocking: false
+
+  # --- the same requests with a fleet arriving underneath them -----------------
+  - series: k6/concurrent-agents/http
+    metric: latency_p50_ms
+    max: 500
+    blocking: true
+  - series: k6/concurrent-agents/http
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: k6/concurrent-agents/http
+    metric: latency_p99_ms
+    max: 500
+    blocking: false
+  - series: k6/concurrent-agents/http
+    metric: rps
+    min: 5
+    blocking: true
+  - series: k6/concurrent-agents/http
+    metric: error_rate
+    max: 0.001
+    blocking: true
+
+  # --- a remote session, and the requests that open one ------------------------
+  - series: k6/relay-throughput/http
+    metric: latency_p50_ms
+    max: 500
+    blocking: true
+  - series: k6/relay-throughput/http
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: k6/relay-throughput/http
+    metric: latency_p99_ms
+    max: 1000
+    blocking: false
+  - series: k6/relay-throughput/http
+    metric: rps
+    min: 5
+    blocking: true
+  - series: k6/relay-throughput/http
+    metric: error_rate
+    max: 0.01
+    blocking: true
+
+  # A keystroke coming back, across three hops and two upgrades.
+  - series: k6/relay-throughput/relay
+    metric: latency_p50_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 400
+    blocking: true
+  # Past this a session stops feeling like a conversation. Watched rather than
+  # enforced until fresh nights show the relay path holds it.
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 150
+    blocking: false
+  - series: k6/relay-throughput/relay
+    metric: latency_p99_ms
+    max: 700
+    blocking: false
+  - series: k6/relay-throughput/relay
+    metric: rps
+    min: 0.25
+    blocking: true
+
+  # --- a machine arriving ------------------------------------------------------
+  - series: quic/quic-agents/connect
+    metric: latency_p50_ms
+    max: 800
+    blocking: true
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
+    max: 2000
+    blocking: true
+  - series: quic/quic-agents/connect
+    metric: latency_p99_ms
+    max: 2000
+    blocking: false
+
+  - series: quic/quic-agents/handshake
+    metric: latency_p50_ms
+    max: 400
+    blocking: true
+  - series: quic/quic-agents/handshake
+    metric: latency_p95_ms
+    max: 1500
+    blocking: true
+  - series: quic/quic-agents/handshake
+    metric: latency_p99_ms
+    max: 2000
+    blocking: false
+
+  # The server's own figure, measured where the device row lands rather than at
+  # this generator's send buffer.
+  - series: quic/quic-agents/register
+    metric: latency_p50_ms
+    max: 100
     blocking: true
   - series: quic/quic-agents/register
     metric: latency_p95_ms
     max: 500
     blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p99_ms
+    max: 1000
+    blocking: false
+
+  - series: quic/quic-agents/aggregate
+    metric: rps
+    min: 50
+    blocking: true
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0
     blocking: true
-  # One number for the whole interface distinguished nothing: a technician
-  # waits differently for a glance at a fleet, for one machine's page, and for
-  # an instruction they have deliberately sent. Each is now timed on its own and
-  # carries the mark that suits it.
+
+# Measurements this profile has looked at and deliberately left alone. An entry
+# here is a decision; a measurement in neither list is nobody having decided,
+# and the two read identically from the outside.
+ungated:
+  # A screen's middle case cannot cross a limit its tail is already held under:
+  # half the requests are at or below the figure the 95th percentile reports, so
+  # a ceiling above that one can never fire. The catch-all these three inherited
+  # put them at 1000 ms while their tails are held to 300, 500 and 1000, which
+  # is a limit that has never been able to fire and never will.
   - series: k6/api-baseline/device_list
-    metric: latency_p95_ms
-    max: 300
-    blocking: true
-  # One machine's page fans out to its inventory, its history and its readings.
+    metric: latency_p50_ms
+    reason: the tail is held to 300 ms, so a middle-case ceiling above that can never fire
   - series: k6/api-baseline/device_detail
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
-  # The mark is the server accepting the instruction, not the machine carrying
-  # it out.
+    metric: latency_p50_ms
+    reason: the tail is held to 500 ms, so a middle-case ceiling above that can never fire
   - series: k6/api-baseline/command_accept
-    metric: latency_p95_ms
-    max: 1000
-    blocking: true
-  # A keystroke coming back. Past this a session stops feeling like a
-  # conversation. It is advisory until fresh nights show the relay path holds
-  # it: the measured figure the k6 threshold uses is 400ms across three hops and
-  # two upgrades, and a mark that fires every night teaches everyone to ignore
-  # it.
-  - series: k6/relay-throughput/relay
-    metric: latency_p95_ms
-    max: 150
-    blocking: false
+    metric: latency_p50_ms
+    reason: the tail is held to 1000 ms, so a middle-case ceiling above that can never fire

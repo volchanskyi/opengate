@@ -27,74 +27,6 @@ import (
 // does not know are the ones that changed what the run did.
 const profileSchemaVersion = 1
 
-// Family is which question a run is asking. The venue, the shape of the load
-// and how the verdict reads all follow from it.
-type Family string
-
-const (
-	// FamilyNormal is the everyday shape: the load the system is expected to
-	// carry, run to prove it still carries it.
-	FamilyNormal Family = "normal"
-	// FamilyPeak is the busiest ordinary hour rather than an exceptional one.
-	FamilyPeak Family = "peak"
-	// FamilySpike is a step change with no ramp — a site coming back after an
-	// outage, a rollout that restarts a fleet at once.
-	FamilySpike Family = "spike"
-	// FamilySoak holds a steady load long enough for what leaks to show.
-	FamilySoak Family = "soak"
-	// FamilyBreakpoint raises load until something gives, and reports what.
-	FamilyBreakpoint Family = "breakpoint"
-	// FamilyVolume holds load constant and varies how much data is already
-	// there, which is the only way to separate the two.
-	FamilyVolume Family = "volume"
-	// FamilyScaling holds load and data constant and varies the resources, so
-	// the answer is a shape rather than a single point.
-	FamilyScaling Family = "scaling"
-)
-
-var families = []Family{
-	FamilyNormal, FamilyPeak, FamilySpike, FamilySoak,
-	FamilyBreakpoint, FamilyVolume, FamilyScaling,
-}
-
-// Families returns every family a profile may declare.
-func Families() []Family { return append([]Family(nil), families...) }
-
-// Environment is the class of system under test. Production is not a member,
-// which is what makes "production is never a target" a property of the type
-// rather than of a reviewer's attention.
-type Environment string
-
-const (
-	// EnvStaging is the shared staging namespace.
-	EnvStaging Environment = "staging"
-	// EnvRunner is a disposable stack a CI runner brings up and throws away.
-	EnvRunner Environment = "runner"
-)
-
-var environments = []Environment{EnvStaging, EnvRunner}
-
-// Environments returns every environment class a profile may declare.
-func Environments() []Environment { return append([]Environment(nil), environments...) }
-
-// FixtureSize names one of the three committed fleet shapes.
-type FixtureSize string
-
-const (
-	// FixtureSmall is the committed reference fleet.
-	FixtureSmall FixtureSize = "small"
-	// FixtureLarge is four times the reference fleet.
-	FixtureLarge FixtureSize = "large"
-	// FixtureLopsided is the large fleet with one customer holding most of it,
-	// which is the shape a tenant-scoped read is actually asked to answer.
-	FixtureLopsided FixtureSize = "lopsided"
-)
-
-var fixtureSizes = []FixtureSize{FixtureSmall, FixtureLarge, FixtureLopsided}
-
-// FixtureSizes returns every fixture size a profile may declare.
-func FixtureSizes() []FixtureSize { return append([]FixtureSize(nil), fixtureSizes...) }
-
 // Duration is a YAML duration that insists on a unit. A bare number reads as
 // seconds to one person and milliseconds to another, and a phase whose length
 // depends on who wrote it is a run nobody can reproduce.
@@ -130,7 +62,10 @@ type Phase struct {
 	// ConnectedAgents is how many machines are held connected through the
 	// phase, which is a level rather than a rate.
 	ConnectedAgents int `yaml:"connected_agents"`
-	// Sessions is how many live remote sessions run concurrently.
+	// Sessions is how many live remote sessions run concurrently. Like the
+	// arrival rate above it is a technician-side number: opening a session is
+	// the browser's side of the wire, so the machine-side harness carries this
+	// into the run's evidence as an offer and never as an achievement.
 	Sessions int `yaml:"sessions"`
 }
 
@@ -149,21 +84,6 @@ type Safety struct {
 	MaxErrorRate float64 `yaml:"max_error_rate"`
 }
 
-// Gate is one rule the bundle is read against. It never reads live state and
-// never changes the workload.
-type Gate struct {
-	// Series is a source/scenario/phase triple, matching the trend rows.
-	Series string `yaml:"series"`
-	Metric string `yaml:"metric"`
-	// Max and Min are pointers so "no ceiling" is distinguishable from zero.
-	Max *float64 `yaml:"max"`
-	Min *float64 `yaml:"min"`
-	// Blocking says whether a breach fails the run or is reported as a
-	// finding. A newly tightened mark stays advisory until fresh runs show the
-	// spread it is measured against has narrowed.
-	Blocking bool `yaml:"blocking"`
-}
-
 // Profile is one runnable configuration.
 type Profile struct {
 	SchemaVersion int         `yaml:"schema_version"`
@@ -174,6 +94,10 @@ type Profile struct {
 	Phases        []Phase     `yaml:"phases"`
 	Safety        Safety      `yaml:"safety"`
 	Gates         []Gate      `yaml:"gates"`
+	// Ungated names the measurements this profile has deliberately left without
+	// a limit. A measurement that appears in neither list is one nobody has
+	// ruled on, which is the state this pair exists to make visible.
+	Ungated []Ungated `yaml:"ungated"`
 }
 
 // TotalDuration is how long the phases run for, end to end.
@@ -253,23 +177,9 @@ func (p *Profile) Validate() error {
 	problems = append(problems, p.validatePhases()...)
 	problems = append(problems, p.validateSafety()...)
 	problems = append(problems, p.validateGates()...)
+	problems = append(problems, p.validateUngated()...)
 
 	return errors.Join(problems...)
-}
-
-func (p *Profile) validateVocabularies() []error {
-	var problems []error
-	if !containsValue(families, p.Family) {
-		problems = append(problems, fmt.Errorf("family %q is not one of %v", p.Family, families))
-	}
-	if !containsValue(environments, p.Environment) {
-		problems = append(problems, fmt.Errorf("environment %q is not one of %v — production is not a target",
-			p.Environment, environments))
-	}
-	if !containsValue(fixtureSizes, p.Fixture) {
-		problems = append(problems, fmt.Errorf("fixture %q is not one of %v", p.Fixture, fixtureSizes))
-	}
-	return problems
 }
 
 func (p *Profile) validatePhases() []error {
@@ -337,31 +247,4 @@ func (p *Profile) validateProcessorCeiling() []error {
 			p.Safety.MaxNodeCPUPercent)}
 	}
 	return nil
-}
-
-func (p *Profile) validateGates() []error {
-	var problems []error
-	for i, gate := range p.Gates {
-		if gate.Series == "" {
-			problems = append(problems, fmt.Errorf("gate %d names no series", i))
-		}
-		if gate.Metric == "" {
-			problems = append(problems, fmt.Errorf("gate %d names no metric", i))
-		}
-		if gate.Max == nil && gate.Min == nil {
-			problems = append(problems, fmt.Errorf("gate %d (%s) declares neither max or min, so nothing can breach it",
-				i, gate.Series))
-		}
-	}
-	return problems
-}
-
-// containsValue reports whether a vocabulary holds a value.
-func containsValue[T comparable](vocabulary []T, value T) bool {
-	for _, candidate := range vocabulary {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
 }

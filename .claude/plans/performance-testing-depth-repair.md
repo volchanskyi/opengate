@@ -10,6 +10,118 @@ the workflow run records, the uploaded evidence bundles, the k6 exports, the
 live cluster, the live Oracle account, the live server's own exposition, and the
 code. Nothing in it is inferred.
 
+## 0. Progress
+
+Updated 2026-09-07. Each workstream lands as one commit.
+
+| WS | State | Where it is |
+|---|---|---|
+| WS0 | **Part-done** | Staging's first rung answered: it cannot hold 250. The rest waits on WS3; the throwaway ladder is blocked on D38 |
+| WS1 | **Done** | `2292438c`, pushed. [ADR-100](../../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md) |
+| WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
+| WS3 | Not started | |
+| WS4 | Not started | Blocks the throwaway half of WS0 |
+| WS5 | Not started | |
+| WS6 | Not started | |
+
+### WS0, as far as it went
+
+The two ladders are not equally available, and the reason is a new defect.
+
+**The staging ladder runs today.** [`load-test.yml`](../../.github/workflows/load-test.yml)
+passes no `-profile`, so the harness takes the `runFlat` path and `-agents` is
+the fleet.
+
+**The 250-machine rung answered on the first attempt, and the answer is that
+staging cannot hold 250.** Run
+[34069847528](https://github.com/volchanskyi/opengate/actions/runs/34069847528),
+2026-09-07, came back `invalid` for two reasons the harness stated itself:
+
+```
+generator had 0.0% processor headroom (floor 20%), so the run measured the generator
+enroll soak-t0-a62: enrollment refused with 429: {"error":"rate limit exceeded"}
+```
+
+Both are figures that could not have existed a day earlier, which is §5's own
+test of whether WS1 worked. The headroom was a hardcoded 100 on every run ever
+recorded and could not fire; it is now a reading, and the first reading it took
+invalidated a run. The bundle carried
+`"commit": "2292438cee297ef887739ab65aa4d031a738011b"` rather than `unknown`.
+
+The refusals are D30 arriving on schedule: every machine a run starts enrols
+afresh, so 250 arrivals are 250 enrolment requests against a ceiling the server
+enforces on purpose. WS1's `ErrEnrollmentRefused` counts those apart from faults;
+WS3's enrol-once is what stops them being produced at all.
+
+**A caveat on the headroom figure, stated so it is not over-read.** Inside a pod,
+`LocalNodeReading` reads `/proc/loadavg`, which is not namespaced, against
+`runtime.NumCPU()`. So the reading is the *node's* run queue, not the pod's. On a
+node with 350 unreserved millicores and production beside it, 0% is a true and
+meaningful reading of a real condition — and it is exactly the condition Decision
+1 moves the generator off the cluster to escape. But the field is named for the
+generator and in this venue describes the node, and something should either
+narrow the reading to the pod's own cgroup or rename what it claims.
+
+So the ladder has its first rung's answer: **the largest fleet staging holds is
+below 250**, on the pod as currently sized. The 500 and 1,000 rungs are not worth
+dispatching until §2's Decision on the generator pod's reservation lands — the
+pod reserves 100 millicores and 128 MB today and bursts to 400 and 384 MB — and
+until D30's enrol-once removes the refusals, which otherwise cap every rung at
+the enrolment ceiling rather than at anything about capacity.
+
+**D38 — `-agents` sizes nothing in a profiled run, and the perf-stack is
+profiled.** `runWorkload` hands the profile straight to the phase walk, whose
+level is `phase.ConnectedAgents`; `-agents` survives only as the length of the
+hostname plan, which the fleet indexes modulo. So
+[`perf-stack.yml`](../../.github/workflows/perf-stack.yml)'s `agents` input, its
+default of 500 and any dispatch value are read by nothing that decides how many
+machines connect. Dispatching the throwaway ladder at 2,000 or 8,000 today
+connects 500.
+
+It is also the third term in D18's confusion. The 2026-09-05 volume bundle said
+`devices: 2000` because the *fixture* planned that many, while `fixture-weight.json`
+counted 500 because the *profile* connected that many, and `-agents=500` sat
+between them meaning neither. WS1 split the first two apart; this is the third.
+
+Decision 8 already calls for the volume legs to differ in machines actually
+enrolled, so the fix belongs in WS4 — and until it lands, the throwaway ladder
+cannot measure the thing it exists to measure.
+
+### What WS1 and WS2 changed that later workstreams should know
+
+- Bundle schema is **2**. The arrival pair split by side, so
+  `offered_agent_arrivals_per_second` and `achieved_agent_arrivals_per_second`
+  are the machine half and `offered_operator_arrivals_per_second` is the
+  technician declaration, whose achieved half stays absent until WS5's k6
+  projection fills it. `offered_sessions` travels the same way.
+- `Fingerprint.CPUs` is fractional, and `Bundle.Validate()` refuses a memory
+  figure below a mebibyte or a revision of `unknown`.
+- An unmeasured generator invalidates a run, which is what makes Decision 2's
+  top rung self-policing. Anything that starts a run has to pass
+  `-target-cpus`, `-target-memory-bytes` and `-commit` or the bundle is refused.
+- Every number a night is judged by lives in `load/profiles/`, and
+  [`loadtest-regression-check.sh`](../../scripts/loadtest-regression-check.sh)
+  holds none. WS5's re-basing is therefore one pass through the profiles.
+- A measurement carries at most one blocking gate per direction, and every
+  measurement the summarizer emits is either limited or named in the profile's
+  `ungated:` list with a reason. Both directions are held by
+  [`loadtest-gate-series.test.sh`](../../scripts/tests/loadtest-gate-series.test.sh);
+  a new emitted series fails it until somebody rules on it.
+- [`loadtest-gate-venue.test.sh`](../../scripts/tests/loadtest-gate-venue.test.sh)
+  reads which generators each workflow starts, so WS5 adding a k6 leg to the
+  perf-stack makes `k6/...` limits legal there without the check being edited.
+- The runner profiles gained machine-side limits and **nothing evaluates them
+  yet** — the perf-stack has no summarizer and no publish job. That consumer is
+  WS4's, and it is the same gap D12 names.
+
+### Two findings the work turned up
+
+- The gate-series fixture had never carried the journey metrics, so three
+  limits on the technician journeys had never been exercised by anything.
+- Three journey `latency_p50_ms` limits, inherited from a catch-all at 1000 ms
+  while their tails are held to 300, 500 and 1000, can never fire. They are now
+  declared unlimited with that as their reason.
+
 ## 1. Confirmed state
 
 ### 1.1 How long the nightlies actually apply load

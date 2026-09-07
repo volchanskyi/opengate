@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# Every gate row must be reachable.
+# Every limit reaches a measurement, and every measurement reaches a decision.
 #
-# scripts/loadtest-regression-check.sh names its ceilings and floors by
-# source/scenario/phase. A row only reaches the gate if
-# scripts/loadtest-summarize.sh actually emits that triple from the exports the
-# pinned k6 and the QUIC harness write. Those two files have no dependency on
-# each other, so a series can be gated by three ceilings while the extraction
-# never produces it — a threshold on a series that never arrives reads as a
-# passing gate forever.
+# load/profiles/normal.yaml names its limits by source/scenario/phase. A row only
+# reaches one if scripts/loadtest-summarize.sh actually emits that triple from
+# the exports the pinned k6 and the QUIC harness write. Those files have no
+# dependency on each other, so a measurement can carry three limits while the
+# extraction never produces it — and a limit on a measurement that never arrives
+# reads as a passing limit forever.
 #
-# This test closes that: it reads every triple out of the regression check's own
-# case statements and asserts the summarizer produces each one, using the
-# **pinned k6 version's** output shape rather than a hand-written schema.
+# The other direction is the one that opens up when limits are consolidated. The
+# set this profile took over had a catch-all: anything nobody listed was held to
+# a default automatically. A profile has no catch-all, so a measurement that is
+# neither limited nor declared unlimited is one nobody ruled on — which looks
+# from the outside exactly like one deliberately left alone. Losing protection
+# that way looks like tidying up, so both directions are checked here.
+#
+# The fixtures are the **pinned k6 version's** output shape rather than a
+# hand-written schema, so a version bump that changes the export reaches this
+# file.
 #
 # Run: ./scripts/tests/loadtest-gate-series.test.sh
 set -euo pipefail
@@ -19,8 +25,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SUMMARIZE="$REPO_ROOT/scripts/loadtest-summarize.sh"
-CHECK="$REPO_ROOT/scripts/loadtest-regression-check.sh"
+PROFILE="$REPO_ROOT/load/profiles/normal.yaml"
 WORKFLOW="$REPO_ROOT/.github/workflows/load-test.yml"
+# shellcheck source=scripts/lib/loadtest-profile.sh
+. "$REPO_ROOT/scripts/lib/loadtest-profile.sh"
 
 PASS=0
 FAIL=0
@@ -37,7 +45,7 @@ fail() {
 
 echo "loadtest gate-series reachability:"
 
-for f in "$SUMMARIZE" "$CHECK" "$WORKFLOW"; do
+for f in "$SUMMARIZE" "$PROFILE" "$WORKFLOW"; do
   if [ ! -f "$f" ]; then
     fail "missing file: $f"
     printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
@@ -45,16 +53,31 @@ for f in "$SUMMARIZE" "$CHECK" "$WORKFLOW"; do
   fi
 done
 
-# gated_series — every source/scenario/phase the regression check names in a
-# case label. Labels carry an optional trailing metric segment
-# (k6/api-baseline/http/* or quic/quic-agents/register/latency_p50_ms); only the
-# first three segments identify a series. The `*)` default arms carry no series
-# and are skipped by the anchored match.
+# gated_series — every source/scenario/phase the profile names a limit for.
 gated_series() {
-  grep -oE '^[[:space:]]*(k6|quic)/[a-z0-9-]+/[a-z0-9]+(/[a-z0-9_()*]+)?\)' "$CHECK" \
-    | tr -d ' )' \
-    | cut -d/ -f1-3 \
-    | sort -u
+  profile_gates "$PROFILE" | jq -r '.[].series' | sort -u
+}
+
+# decided_measurements — every series|metric the profile has ruled on, either by
+# limiting it or by declaring it deliberately unlimited.
+decided_measurements() {
+  {
+    profile_gates "$PROFILE" | jq -r '.[] | "\(.series)|\(.metric)"'
+    profile_ungated "$PROFILE" | jq -r '.[] | "\(.series)|\(.metric)"'
+  } | sort -u
+}
+
+# emitted_measurements — every series|metric the extraction actually produces
+# from the fixtures below. The metric keys that carry no number are dropped by
+# the summarizer, so what is left is what a limit could ever read.
+emitted_measurements() {
+  jq -r '
+    .[]
+    | . as $row
+    | ["latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "rps", "error_rate"][]
+    | select($row[.] != null)
+    | "\($row.source)/\($row.scenario)/\($row.phase)|\(.)"
+  ' <<<"$1" | sort -u
 }
 
 # The fixtures below are the shapes the pinned toolchain writes: k6 v1.x puts a
@@ -81,7 +104,22 @@ k6_export() {
 JSON
 }
 
-k6_export >"$WORK/k6/api-baseline.json"
+# The technician journeys are timed by api-baseline alone, and each carries its
+# own limit. They were absent from this fixture while three limits named them,
+# so nothing here had ever read one.
+k6_export ',
+    "journey_device_list_ms": {
+      "avg": 45.0, "min": 12.0, "med": 40.0,
+      "p(50)": 40.0, "p(95)": 88.0, "p(99)": 120.0, "max": 150.0
+    },
+    "journey_device_detail_ms": {
+      "avg": 70.0, "min": 20.0, "med": 60.0,
+      "p(50)": 60.0, "p(95)": 140.0, "p(99)": 200.0, "max": 260.0
+    },
+    "journey_command_accept_ms": {
+      "avg": 110.0, "min": 30.0, "med": 95.0,
+      "p(50)": 95.0, "p(95)": 240.0, "p(99)": 400.0, "max": 520.0
+    }' >"$WORK/k6/api-baseline.json"
 k6_export >"$WORK/k6/concurrent-agents.json"
 k6_export ',
     "relay_msg_latency_ms": {
@@ -123,9 +161,41 @@ while IFS= read -r series; do
 done < <(gated_series)
 
 if [ "$gated_count" -ge 8 ]; then
-  pass "regression check names at least the eight known series ($gated_count)"
+  pass "the profile names at least the eight known series ($gated_count)"
 else
-  fail "expected >= 8 gated series, found $gated_count — did the case labels change shape?"
+  fail "expected >= 8 gated series, found $gated_count — did the profile's gates change shape?"
+fi
+
+# The other direction. A measurement the extraction produces and the profile has
+# not ruled on is one nobody decided about, and it reads from the outside
+# exactly like one deliberately left alone.
+undecided=""
+decided="$(decided_measurements)"
+while IFS= read -r measurement; do
+  [ -n "$measurement" ] || continue
+  grep -qxF "$measurement" <<<"$decided" || undecided="$undecided $measurement"
+done < <(emitted_measurements "$ROWS")
+
+if [ -z "$undecided" ]; then
+  pass "every measurement the extraction produces carries a decision"
+else
+  fail "measurements nobody ruled on (limit them, or declare them ungated with a reason):$undecided"
+fi
+
+# And a decision about a measurement that never arrives is a decision about
+# nothing — the same absence the reachability check above covers, reached from
+# the metric rather than the series.
+emitted="$(emitted_measurements "$ROWS")"
+phantom=""
+while IFS= read -r measurement; do
+  [ -n "$measurement" ] || continue
+  grep -qxF "$measurement" <<<"$emitted" || phantom="$phantom $measurement"
+done < <(decided_measurements)
+
+if [ -z "$phantom" ]; then
+  pass "every decision the profile records names a measurement that arrives"
+else
+  fail "decisions about measurements the extraction never produces:$phantom"
 fi
 
 # Every gated series must also carry the statistics its ceilings read. A row

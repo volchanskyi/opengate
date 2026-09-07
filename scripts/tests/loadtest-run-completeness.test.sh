@@ -194,6 +194,43 @@ assert_eq "an absent bundle leaves the night valid" "valid" "$(jq -r '.result' "
 assert_eq "an absent bundle records no findings about the target" "0" \
   "$(jq '.target_findings | length' "$WORK/completeness.json")"
 
+# --- The profile's own limits -------------------------------------------------
+#
+# Those limits had never been read by anything: the schema checked each was
+# well-formed and then no code consumed one, so every number in all seven
+# profiles was decoration — including the ones marked as failing the run. A
+# breach is a finding about the system, so the night fails and its rows still
+# enter the trend, which is the treatment a leaking target already gets.
+
+run_check_with_gates() {
+  STATUS=0
+  LOADTEST_K6_SUMMARY_DIR="$WORK/k6" GITHUB_SHA="deadbeef" \
+    LOADTEST_GATE_BREACHES="$WORK/gates.json" \
+    "$CHECK" "$WORK/summary.json" "$WORK/completeness.json" >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
+}
+
+rm -f "$WORK/k6"/*.thresholds "$WORK/bundle.json"
+rows api-baseline concurrent-agents relay-throughput quic-agents
+
+jq -n '["k6/api-baseline/http latency_p95_ms is 260, past the 200 it is held to"]' >"$WORK/gates.json"
+run_check_with_gates
+assert_eq "a breached limit fails the night" "failed" "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "and the breach travels with the night" "1" \
+  "$(jq '.gate_breaches | length' "$WORK/completeness.json")"
+
+jq -n '[]' >"$WORK/gates.json"
+run_check_with_gates
+assert_eq "no breach leaves the night valid" "valid" "$(jq -r '.result' "$WORK/completeness.json")"
+
+# A file nobody wrote is silence rather than a pass. The step that reads the
+# limits fails loudly on its own account; this one has its own reasons to fail a
+# night and does not invent one here.
+rm -f "$WORK/gates.json"
+run_check_with_gates
+assert_eq "an unwritten breach file leaves the night valid" "valid" \
+  "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "and records no breaches" "0" "$(jq '.gate_breaches | length' "$WORK/completeness.json")"
+
 # A missing summary is a setup defect, not a verdict about the system.
 STATUS=0
 "$CHECK" "$WORK/nope.json" >/dev/null 2>&1 || STATUS=$?

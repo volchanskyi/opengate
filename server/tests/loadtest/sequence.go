@@ -154,6 +154,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, 
 		// The profile's technician figure travels; nothing here offers it, so
 		// its achieved half stays absent.
 		OfferedOperatorArrivalsPerSecond: phase.OperatorArrivalsPerSecond,
+		OfferedSessions:                  phase.Sessions,
 		OfferedConnectedAgents:           phase.ConnectedAgents,
 		AchievedConnectedAgents:          fleet.Connected(),
 		LatencyP50Ms:                     millis(percentile(samples, 50)),

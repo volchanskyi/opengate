@@ -24,6 +24,8 @@
 #                                carries what the target was holding either side
 #                                of the run (default: the path the workflow
 #                                collects it to)
+#   LOADTEST_GATE_BREACHES       the limits the profile declared and this night
+#                                crossed, written by loadtest-gate-check.sh
 #
 # Usage: loadtest-run-completeness.sh <loadtest-summary.json> [completeness.json]
 set -euo pipefail
@@ -41,6 +43,14 @@ MAX_ERROR_RATE="${LOADTEST_MAX_ERROR_RATE:-0.25}"
 # underneath it, and whether it gave back what it took — read from the target's
 # process families rather than from any count the target maintains about itself.
 BUNDLE="${LOADTEST_BUNDLE:-loadtest-bundle/quic-agents.json}"
+
+# Where the profile's own limits were read against tonight's rows. Those limits
+# had never been read by anything: the schema checked each was well-formed and
+# then no code consumed one, so every number in all seven profiles was
+# decoration — including the ones marked as failing the run. A breach is a
+# finding about the system, so it fails the night and the rows still enter the
+# trend, which is the same treatment a leaking target gets.
+GATE_BREACHES="${LOADTEST_GATE_BREACHES:-loadtest-gate-breaches.json}"
 
 usage() {
   echo "usage: $0 <loadtest-summary.json> [completeness.json]" >&2
@@ -89,6 +99,17 @@ target_verdict() {
   jq -r '.verdict.result // empty' "$BUNDLE" 2>/dev/null || true
 }
 
+# gate_breaches is every limit the profile declared and this night crossed.
+#
+# A file nobody wrote is silence rather than a pass, for the same cause the
+# bundle reader beside this one gives: the check may not have run at all, and a
+# gate that answers yes when it could not ask is the false green this repository
+# rules against. The step that runs it fails loudly on its own account.
+gate_breaches() {
+  [ -s "$GATE_BREACHES" ] || return 0
+  jq -r '.[]? // empty' "$GATE_BREACHES" 2>/dev/null || true
+}
+
 # target_findings is why, in the harness's own words, so the reason travels with
 # the night rather than living only in a workflow log.
 target_findings() {
@@ -111,7 +132,7 @@ main() {
   fi
 
   local expected produced missing unexpected unmeasured breached result
-  local target_result findings
+  local target_result findings gates
   expected="$(printf '%s\n' "${LOADTEST_EXPECTED_SCENARIOS:-$DEFAULT_EXPECTED}" | tr ' ' '\n' | sed '/^$/d' | sort -u)"
   produced="$(produced_scenarios "$summary")"
   missing="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$produced"))"
@@ -121,6 +142,7 @@ main() {
 
   target_result="$(target_verdict)"
   findings="$(target_findings)"
+  gates="$(gate_breaches)"
 
   # The target's own two outcomes fold in on the same doctrine the rest of this
   # file follows: a process that was replaced means the numbers describe two
@@ -130,7 +152,7 @@ main() {
   result="valid"
   if [ -n "$missing" ] || [ -n "$unexpected" ] || [ -n "$unmeasured" ] || [ "$target_result" = "invalid" ]; then
     result="invalid"
-  elif [ -n "$breached" ] || [ "$target_result" = "failed" ]; then
+  elif [ -n "$breached" ] || [ -n "$gates" ] || [ "$target_result" = "failed" ]; then
     result="failed"
   fi
 
@@ -145,6 +167,7 @@ main() {
     --argjson unmeasured "$(printf '%s\n' "$unmeasured" | jq -Rn '[inputs | select(length > 0)]')" \
     --argjson breached "$(printf '%s\n' "$breached" | jq -Rn '[inputs | select(length > 0)]')" \
     --argjson target_findings "$(printf '%s\n' "$findings" | jq -Rn '[inputs | select(length > 0)]')" \
+    --argjson gate_breaches "$(printf '%s\n' "$gates" | jq -Rn '[inputs | select(length > 0)]')" \
     '{
       result: $result,
       commit: $commit,
@@ -155,6 +178,7 @@ main() {
       unexpected_scenarios: $unexpected,
       unmeasured_scenarios: $unmeasured,
       threshold_breaches: $breached,
+      gate_breaches: $gate_breaches,
       target_findings: $target_findings
     }' >"$out"
 

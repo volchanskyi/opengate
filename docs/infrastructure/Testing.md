@@ -795,8 +795,22 @@ A run reads one profile and writes one evidence bundle.
 
 **Profiles** live in [`load/profiles/`](../../load/profiles) and are versioned.
 Each declares its family, the environment class it runs in, the fixture it needs,
-an ordered phase list, the safety limits that stop it, and the gates its results
-are read against. The environment vocabulary has no production member, which is
+an ordered phase list, the safety limits that stop it, and the numbers its
+results are read against.
+
+Those numbers live in the profile and nowhere else, which
+[ADR-101](../adr/ADR-101-one-measurement-one-limit-one-file.md) settles. A
+measurement carries at most one limit that fails a night, per direction, and any
+number of marks that only report — a floor under a collapse and a target
+somebody is watching before enforcing are different statements, and a profile
+that collapsed them would lose whichever it dropped. Every measurement the
+extraction produces is either limited or named in the profile's `ungated:` list
+with a stated reason, because the limits the profile took over had a catch-all
+and a list without one can lose protection while looking like consolidation.
+[`loadtest-gate-check.sh`](../../scripts/loadtest-gate-check.sh) reads them in
+the publish step, where the browser-side and machine-side rows have been joined;
+[`loadtest-regression-check.sh`](../../scripts/loadtest-regression-check.sh)
+keeps the fortnight comparison and holds no numbers of its own. The environment vocabulary has no production member, which is
 what makes "production is never a target" a property of the schema rather than of
 a reviewer's attention.
 

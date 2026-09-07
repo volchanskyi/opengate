@@ -112,6 +112,14 @@ type PhaseResult struct {
 	OfferedConnectedAgents  int `json:"offered_connected_agents"`
 	AchievedConnectedAgents int `json:"achieved_connected_agents"`
 
+	// Concurrent remote sessions, which are the technician's side of the wire
+	// for the same reason the arrival rate above is. A profile declared five of
+	// them and ran zero, and nothing said so; what was asked for now travels,
+	// and the achieved half stays absent until a browser-side generator opens
+	// them.
+	OfferedSessions  int  `json:"offered_sessions"`
+	AchievedSessions *int `json:"achieved_sessions,omitempty"`
+
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`
 	LatencyP99Ms float64 `json:"latency_p99_ms,omitempty"`

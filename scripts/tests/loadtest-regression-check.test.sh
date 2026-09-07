@@ -151,20 +151,37 @@ out="$(VM_PROFILE=empty run_check "$WORK/cold-start-under-ceiling.json" 2>&1)" |
 assert_eq "cold-start under absolute ceiling stays green" "0" "$rc"
 assert_not_contains "cold-start under ceiling has no regression alert" "REGRESSION_ALERT:" "$out"
 
+# A cold window means this file has nothing to compare against, and it says so
+# by saying nothing. The absolute limits that used to live here are the
+# profile's now, read by scripts/loadtest-gate-check.sh, whose own tests cover a
+# collapse against them — and that check reads no window at all, so it is
+# exactly as awake on the first night of a series as on the hundredth.
+#
+# The two must not both hold numbers. They did, for the same measurement, with
+# different values: 200 in this file and 100 in the profile, one enforced and
+# one read by nothing, so an edit to either did not do what it said.
 write_summary "$WORK/cold-start-over-ceiling.json" '[
   {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":250,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(VM_PROFILE=empty run_check "$WORK/cold-start-over-ceiling.json" 2>&1)" || rc=$?
-assert_eq "cold-start over absolute ceiling exits 1" "1" "$rc"
-assert_contains "cold-start over ceiling alert names ceiling" "absolute ceiling" "$out"
+assert_eq "a cold window is compared against nothing here" "0" "$rc"
+assert_not_contains "and no alert is invented from a window that does not exist" "REGRESSION_ALERT:" "$out"
+
+# The numbers are gone from this file, in both directions. A copy left behind
+# would be the second home this consolidation exists to close.
+if grep -qE '^[[:space:]]*(latency_abs_ceiling|p99_abs_ceiling|rps_abs_floor|error_rate_ceiling)\(\)' "$CHECK"; then
+  fail "this file still holds absolute limits — the profile is their only home"
+else
+  pass "this file holds method and no numbers"
+fi
 
 write_summary "$WORK/fail-open.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":700,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(KUBECTL_STATUS=19 run_check "$WORK/fail-open.json" 2>&1)" || rc=$?
-assert_eq "VM transport failure is fail-open under absolute ceiling" "0" "$rc"
+assert_eq "a store this cannot reach reports nothing rather than guessing" "0" "$rc"
 assert_not_contains "transport failure has no regression alert" "REGRESSION_ALERT:" "$out"
 
 write_summary "$WORK/nulls.json" '[
@@ -194,18 +211,18 @@ write_summary "$WORK/rewritten-workload.json" '[
 ]'
 rc=0
 out="$(run_check "$WORK/rewritten-workload.json" 2>&1)" || rc=$?
-assert_eq "a rewritten workload clears its predecessor's window" "1" "$rc"
-assert_contains "the absolute ceiling is what judges it" "absolute ceiling" "$out"
+assert_eq "a rewritten workload is compared against nothing here" "0" "$rc"
 assert_not_contains "the replaced workload's median is not used" "window median" "$out"
 
-# A latency well inside the absolute ceiling passes on a workload with no
-# history, which is the cold start the sample-count guard already exists for.
+# The same, well inside what the profile holds it to. Both nights are silent
+# here for the same reason — there is no window — and it is the profile's limits
+# that tell them apart.
 write_summary "$WORK/rewritten-ok.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":300,"workload":"rewritten","commit":"deadbeef","env":"ci"}
 ]'
 rc=0
 out="$(run_check "$WORK/rewritten-ok.json" 2>&1)" || rc=$?
-assert_eq "a new workload inside the ceiling passes" "0" "$rc"
+assert_eq "a new workload with no history passes" "0" "$rc"
 
 # The same figure under the workload the window was built from is still judged
 # against that window, so the keying narrows nothing it should not.

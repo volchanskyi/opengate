@@ -33,7 +33,17 @@ safety:
   max_error_rate: 0.01
 
 gates:
-  - series: k6/api-baseline/http
+  # This family runs on a throwaway machine with no browser-side generator on
+  # it, so a limit naming a browser-side measurement could never be read here.
+  #
+  # The write path is what more data slows, and registration is the write this
+  # venue times — the server's own figure, taken where the device row lands
+  # rather than at the generator's send buffer.
+  - series: quic/quic-agents/aggregate
     metric: error_rate
-    max: 0.01
+    max: 0
+    blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 500
     blocking: true
