@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.96.2] - 2026-09-07
+
+### Fixed
+- **ci:** one pinned version, one honest assertion
+- **fault:** a drill measures a herd that is there
+
 ## [v0.96.1] - 2026-09-07
 
 ### Fixed
