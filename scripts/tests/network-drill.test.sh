@@ -80,10 +80,25 @@ for arg in "$@"; do
   case "$arg" in http://*) url="$arg" ;; esac
 done
 
+# The shaper's counters answer one line of the fixture per read, in order, so
+# a case can put the runner in front of a link whose totals move — or fail to
+# move — between one phase boundary and the next. A read past the end of the
+# fixture answers its last line.
+counters_line() {
+  local n=1 file="${MOCK_COUNTERS_FILE:-/dev/null}" line
+  if [ -n "${MOCK_COUNTERS_READS:-}" ]; then
+    n=$(($(cat "$MOCK_COUNTERS_READS" 2>/dev/null || echo 0) + 1))
+    printf '%s' "$n" >"$MOCK_COUNTERS_READS"
+  fi
+  line="$(sed -n "${n}p" "$file" 2>/dev/null)"
+  [ -n "$line" ] || line="$(tail -1 "$file" 2>/dev/null)"
+  printf '%s\n' "$line"
+}
+
 case "$url" in
-  *"/impair") cat "${MOCK_COUNTERS_FILE:-/dev/null}"; exit "${MOCK_IMPAIR_RC:-0}" ;;
-  *"/rebind") cat "${MOCK_COUNTERS_FILE:-/dev/null}"; exit "${MOCK_REBIND_RC:-0}" ;;
-  *"/counters") cat "${MOCK_COUNTERS_FILE:-/dev/null}"; exit "${MOCK_COUNTERS_RC:-0}" ;;
+  *"/impair") tail -1 "${MOCK_COUNTERS_FILE:-/dev/null}" 2>/dev/null; exit "${MOCK_IMPAIR_RC:-0}" ;;
+  *"/rebind") tail -1 "${MOCK_COUNTERS_FILE:-/dev/null}" 2>/dev/null; exit "${MOCK_REBIND_RC:-0}" ;;
+  *"/counters") counters_line; exit "${MOCK_COUNTERS_RC:-0}" ;;
   *"/healthz") exit "${MOCK_HEALTH_RC:-0}" ;;
   # The chart endpoint's own path contains /devices, so it is matched first.
   *"/metrics?"*) cat "${MOCK_METRICS_FILE:-/dev/null}"; exit "${MOCK_METRICS_RC:-0}" ;;
@@ -130,15 +145,37 @@ holed_window() {
   printf '%s\n' "$WORK/metrics-holed.json"
 }
 
+# The shaper counts for the life of its process and its control endpoint offers
+# no reset, so a scenario never opens on zero — it opens wherever the scenarios
+# before it left the totals. Every fixture therefore starts from a total this
+# scenario did not earn, which is what makes the whole suite say something
+# about the figure the runner publishes: the number a case names is what this
+# scenario's own fault dropped, and nothing else.
+COUNTERS_INHERITED_DROPS=400
+# The direction toward the machine inherits a total of its own and never moves
+# in these fixtures, so a subtraction missing on that side is visible: it would
+# publish this number instead of nothing.
+COUNTERS_INHERITED_DROPS_TO_MACHINE=387
+
+counters_json() {
+  local dropped="$1" blackhole="$2"
+  printf '{"to_server":{"in":1000,"out":%s,"dropped":%s},"to_machine":{"in":900,"out":%s,"dropped":%s},"machines":21,"rebinds":0,"seed":7,"profile":{"blackhole":%s,"loss_to_server":0,"loss_to_machine":0,"delay_each_way_ms":0,"rate_bits_per_sec":0,"max_queue_ms":0}}\n' \
+    "$((1000 - dropped))" "$dropped" \
+    "$((900 - COUNTERS_INHERITED_DROPS_TO_MACHINE))" "$COUNTERS_INHERITED_DROPS_TO_MACHINE" \
+    "$blackhole"
+}
+
+# One fixture, three readings: where the totals stood when the scenario opened,
+# and where they stood at its fault and recovery boundaries.
 counters_file() {
   local to_server_dropped="$1" blackhole="${2:-false}"
-  cat >"$WORK/counters.json" <<JSON
-{"to_server":{"in":100,"out":$((100 - to_server_dropped)),"dropped":$to_server_dropped},
- "to_machine":{"in":90,"out":90,"dropped":0},
- "machines":21,"rebinds":0,"seed":7,
- "profile":{"blackhole":$blackhole,"loss_to_server":0,"loss_to_machine":0,
-            "delay_each_way_ms":0,"rate_bits_per_sec":0,"max_queue_ms":0}}
-JSON
+  local opening="$COUNTERS_INHERITED_DROPS"
+  local closing=$((opening + to_server_dropped))
+  {
+    counters_json "$opening" "$blackhole"
+    counters_json "$closing" "$blackhole"
+    counters_json "$closing" "$blackhole"
+  } >"$WORK/counters.json"
   printf '%s\n' "$WORK/counters.json"
 }
 
@@ -164,6 +201,7 @@ run_drill() {
     NETDRILL_RECOVERY_SECONDS=1 \
     NETDRILL_POLL_SECONDS=0 \
     KUBECTL_ARGS="$WORK/kubectl-args.txt" \
+    MOCK_COUNTERS_READS="$WORK/counters-reads" \
     "$@" \
     "$RUNNER" "$scenario" 2>&1
 }
@@ -173,7 +211,8 @@ row_count() {
 }
 
 reset_run() {
-  rm -rf "$WORK/evidence" "$WORK/measurements.jsonl" "$WORK/kubectl-args.txt"
+  rm -rf "$WORK/evidence" "$WORK/measurements.jsonl" "$WORK/kubectl-args.txt" \
+    "$WORK/counters-reads"
   : >"$WORK/kubectl-args.txt"
 }
 
@@ -225,6 +264,10 @@ out="$(run_drill s1 \
 assert_contains "a blackhole that dropped nothing did not run" "inconclusive" "$out"
 assert_eq "a scenario whose counters disagree with its instruction emits no row" "0" \
   "$(row_count)"
+# The totals it opened on are high and stay high; what did not move is the only
+# thing that says whether this scenario's own fault reached the link.
+assert_contains "a total inherited from an earlier scenario is not proof of this one's fault" \
+  "inconclusive" "$out"
 
 echo "== network-drill.sh: S1, the site goes dark and comes back =="
 
@@ -239,9 +282,9 @@ assert_contains "S1 measures how long the machine took to come back" '"netdrill_
 assert_contains "S1 measures how much of the hole was filled" '"netdrill_gap_fill_ratio"' "$rows"
 assert_contains "S1 measures how long the fill took" '"netdrill_backfill_complete_seconds"' "$rows"
 assert_contains "S1 carries what the link discarded toward the server" \
-  '"netdrill_shaper_dropped_to_server_total"' "$rows"
+  '"netdrill_shaper_dropped_to_server"' "$rows"
 assert_contains "S1 carries what the link discarded toward the machine" \
-  '"netdrill_shaper_dropped_to_machine_total"' "$rows"
+  '"netdrill_shaper_dropped_to_machine"' "$rows"
 # The shaper's drops belong to the link, not to either machine on it.
 assert_contains "the link's own drops are attributed to the link" '"victim":"link"' "$rows"
 assert_contains "every row names the scenario" '"scenario":"s1"' "$rows"
@@ -322,6 +365,68 @@ assert_contains "S2 measures when the machine came back before watching it" \
   '"netdrill_reconnect_seconds"' "$rows"
 assert_contains "S2 measures whether a machine went offline while catching up" \
   '"netdrill_offline_transitions"' "$rows"
+
+echo "== network-drill.sh: a reading the drill could not take =="
+
+# A request that did not land is the drill failing to observe the machine. It
+# is not a machine that went offline, and a scenario that never once read the
+# status has found out nothing about where the machine was.
+reset_run
+out="$(run_drill s3 \
+  MOCK_DEVICES_RC=1 \
+  MOCK_DEVICES_FILE="$(online_device)" MOCK_METRICS_FILE="$(full_window)" \
+  MOCK_COUNTERS_FILE="$(counters_file 20)" || echo "EXIT=$?")"
+assert_contains "a status the drill could not read is not a machine that dropped" \
+  "inconclusive" "$out"
+assert_contains "the unreadable run exits 2, as any inconclusive one does" "EXIT=2" "$out"
+assert_eq "a scenario that never read the machine's status emits no row" "0" \
+  "$(row_count)"
+
+# The same failure wearing different clothes: the request lands and the reply
+# has nothing in it. jq answers empty input with no output and a zero exit, so
+# nothing in the pipeline fails — and an empty status must still not read as a
+# machine that went dark.
+reset_run
+: >"$WORK/devices-empty.json"
+out="$(run_drill s3 \
+  MOCK_DEVICES_FILE="$WORK/devices-empty.json" MOCK_METRICS_FILE="$(full_window)" \
+  MOCK_COUNTERS_FILE="$(counters_file 20)" || echo "EXIT=$?")"
+assert_contains "a reply with nothing in it is inconclusive too" "inconclusive" "$out"
+assert_eq "an empty reply emits no row" "0" "$(row_count)"
+
+# S4 decides whether the session survived from the status either side of the
+# address change, so a reading it could not take must not be published as a
+# migration that failed.
+reset_run
+out="$(run_drill s4 \
+  MOCK_DEVICES_RC=1 \
+  MOCK_DEVICES_FILE="$(online_device)" MOCK_METRICS_FILE="$(full_window)" \
+  MOCK_COUNTERS_FILE="$(counters_file 0)" || echo "EXIT=$?")"
+assert_contains "S4 will not call a migration failed on a status it could not read" \
+  "inconclusive" "$out"
+assert_eq "S4 publishes no survival verdict it could not observe" "0" \
+  "$(row_count)"
+
+echo "== network-drill.sh: the drop count is this scenario's own =="
+
+# What each scenario publishes about the link is what changed while it held it.
+# Publishing the running total puts an earlier scenario's outage into this
+# one's row, under this one's name.
+reset_run
+out="$(run_drill s1 \
+  MOCK_DEVICES_FILE="$(online_device)" MOCK_METRICS_FILE="$(full_window)" \
+  MOCK_COUNTERS_FILE="$(counters_file 40)")"
+dropped_to_server="$(jq -r 'select(.metric == "netdrill_shaper_dropped_to_server") | .value' \
+  "$WORK/measurements.jsonl")"
+dropped_to_machine="$(jq -r 'select(.metric == "netdrill_shaper_dropped_to_machine") | .value' \
+  "$WORK/measurements.jsonl")"
+assert_eq "the drops toward the server are this scenario's own, not the running total" \
+  "40" "$dropped_to_server"
+# Nothing was dropped toward the machine while this scenario held the link, and
+# a scenario that dropped nothing in a direction says so rather than repeating
+# what the clock stood at.
+assert_eq "a direction this scenario did not disturb publishes nothing dropped" \
+  "0" "$dropped_to_machine"
 
 echo "== network-drill.sh: the link is left clear =="
 
