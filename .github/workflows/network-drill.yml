@@ -40,6 +40,10 @@ env:
   # concurrent drains the server admits per customer — four draining, sixteen
   # deferred — which is the herd behaviour the thin-uplink scenario is about.
   DRILL_FLEET_AGENTS: "20"
+  # The herd carries a name of its own. Sharing the load run's leaves the drill
+  # unable to count its own twenty, and leaves them to be swept the next morning
+  # by a cleanup that belongs to another workflow.
+  DRILL_FLEET_PREFIX: netdrill-fleet
 
 permissions:
   contents: read
@@ -47,7 +51,7 @@ permissions:
 jobs:
   network-drill:
     name: Network drill (four scenarios, two victims)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Twenty-four minutes of scenarios plus setup, teardown, and room for a wait
     # on the namespace lease behind a staging deploy.
     timeout-minutes: 60
@@ -63,6 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-pinned-tools
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
@@ -370,6 +375,15 @@ jobs:
           # in place rather than standing one up per scenario. The harness is
           # launched into the pod named in LOADTEST_POD, which is this drill's
           # fleet pod.
+          # The switches below are what make these machines a site rather than a
+          # load generator, and they are the drill's alone: a load run measuring
+          # what the server carries wants a severance reported and a deferral
+          # shed, not repaired and queued through.
+          #
+          # The stay covers all four scenarios with room to spare. Twenty-five
+          # minutes did not: the scenarios take about twenty-four and a half and
+          # the herd starts two minutes ahead of them, so its time ran out inside
+          # the last one.
           LOADTEST_POD="$FLEET_POD" \
           scripts/loadtest-quic-incluster.sh start -- \
             /tmp/loadtest \
@@ -377,10 +391,13 @@ jobs:
               -addr="${RELEASE}-server:9090" \
               -enroll-url="$DRILL_ENROLL_URL" \
               -enroll-token="$DRILL_ENROLMENT_TOKEN" \
+              -hostname-prefix="$DRILL_FLEET_PREFIX" \
+              -reconnect \
+              -retry-deferred \
               -default-telemetry \
               -backfill-batches=4 \
               -backfill-samples=1000 \
-              -hold=25m
+              -hold=35m
 
       - name: Run the scenarios
         id: scenarios
@@ -399,6 +416,9 @@ jobs:
             SHAPER_URL="$SHAPER_URL" \
             SERVER_URL="$DRILL_API_URL" \
             DEVICE_ID="$DEVICE_ID" \
+            MACHINE_POD="$MACHINE_POD" \
+            FLEET_PREFIX="$DRILL_FLEET_PREFIX" \
+            SHAPER_SEED="$SHAPER_SEED" \
             API_TOKEN="$DRILL_API_TOKEN" \
             EVIDENCE_DIR="$DRILL_EVIDENCE" \
             MEASUREMENTS_FILE="$DRILL_MEASUREMENTS" \
@@ -418,6 +438,25 @@ jobs:
             fi
           done
           echo "inconclusive=$inconclusive" >>"$GITHUB_OUTPUT"
+
+      # What the herd itself decided. It is written to a file inside the fleet
+      # pod, and the pod's own output carries nothing — so a drill that never
+      # asked for it had no account of its herd at all, while every row it
+      # published was about the one machine in front of it.
+      #
+      # The harness's verdict is evidence rather than a gate: twenty machines
+      # reporting a severance is what a drill that blackholes their link is
+      # supposed to produce. It is read for the count, not the exit code.
+      - name: Read the herd's own verdict
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p "$DRILL_EVIDENCE"
+          [ -n "${FLEET_POD:-}" ] || exit 0
+          LOADTEST_POD="$FLEET_POD" \
+            scripts/loadtest-quic-incluster.sh collect \
+            >"$DRILL_EVIDENCE/fleet-verdict.txt" 2>&1 || true
+          tail -30 "$DRILL_EVIDENCE/fleet-verdict.txt" || true
 
       - name: Collect the evidence
         if: always()
@@ -467,6 +506,48 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # A drill that removes its pods and leaves its machines has cleaned up the
+      # half that is visible. The twenty-one rows it enrolled are removed here,
+      # through the same call a technician's delete uses and with the credential
+      # the run already holds — before the probe pod goes, because every request
+      # travels through it.
+      #
+      # Nothing else was removing them: the herd used to be swept the next
+      # morning by the load run's cleanup, which selects on a name the drill
+      # merely happened to share, and the real machine matched no sweep at all.
+      - name: Remove every machine the drill enrolled
+        if: always()
+        run: |
+          set -uo pipefail
+          if [ -z "${PROBE_POD:-}" ] || [ -z "${DRILL_API_TOKEN:-}" ]; then
+            echo "no in-cluster client or credential; the machines are left for the next deploy's reset"
+            exit 0
+          fi
+          probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
+
+          MINE="$(probe "$DRILL_API_URL/api/v1/devices" \
+            -H "Authorization: Bearer $DRILL_API_TOKEN" \
+            | jq -r --arg p "${DRILL_FLEET_PREFIX}-" --arg m "${MACHINE_POD:-}" \
+                '.[] | select((.hostname // "") | startswith($p) or . == $m) | .id' || true)"
+
+          REMOVED=0
+          for id in $MINE; do
+            probe -o /dev/null -X DELETE "$DRILL_API_URL/api/v1/devices/$id" \
+              -H "Authorization: Bearer $DRILL_API_TOKEN" >/dev/null 2>&1 \
+              && REMOVED=$((REMOVED + 1))
+          done
+          echo "removed $REMOVED machine(s) the drill enrolled"
+
+          LEFT="$(probe "$DRILL_API_URL/api/v1/devices" \
+            -H "Authorization: Bearer $DRILL_API_TOKEN" \
+            | jq -r --arg p "${DRILL_FLEET_PREFIX}-" --arg m "${MACHINE_POD:-}" \
+                '[ .[] | select((.hostname // "") | startswith($p) or . == $m) ] | length' || echo unknown)"
+          if [ "$LEFT" != "0" ]; then
+            echo "::warning::the drill left ${LEFT} of its machines behind"
+          else
+            echo "the drill left none of its machines behind"
+          fi
+
       - name: Remove every pod the drill created, and prove none remains
         if: always()
         run: |
@@ -496,7 +577,7 @@ jobs:
     name: Publish the network-drill trend
     needs: [network-drill]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # This job's result is the observability environment's deployment status, so
     # it reports only whether the trend was collected and published. The
@@ -510,6 +591,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-pinned-tools
       - name: OCI + kubeconfig setup
         uses: ./.github/actions/oci-kube-setup
         with:
@@ -617,7 +699,7 @@ jobs:
     name: Network-drill regression gate
     needs: [publish]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

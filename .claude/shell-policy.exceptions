@@ -7,6 +7,7 @@ library	scripts/lib/vm-query.sh	-	Read-back query functions inherit the sourcing
 library	scripts/lib/postgres-prereq.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
 library	scripts/lib/victoriametrics-prereq.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
 library	scripts/lib/toolchain-parity.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
+library	scripts/lib/tool-versions.sh	-	The pinned-version table is sourced by the install scripts, the gauntlet prereq and the parity test.
 library	scripts/lib/mutation-shards.sh	-	Go mutation shard split sourced by the Makefile and the mutation-workflow test.
 library	scripts/lib/loadtest-profile.sh	-	Profile readers are sourced by the gate check, the regression check and their tests.
 aggregate	.claude/hooks/git-post-commit.sh	-	Best-effort post-commit automation must report failures without failing the commit.

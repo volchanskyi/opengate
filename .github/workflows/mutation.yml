@@ -49,7 +49,7 @@ jobs:
   # -----------------------------------------------------------------------------
   shard-budget:
     name: Shard budget
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -216,7 +216,7 @@ jobs:
           - { language: go, shard: go-relay-signaling }
           - { language: go, shard: go-observability-harness }
           - { language: go, shard: go-composition-root }
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 90min is a flat safety cap, not a target. Every shard is sized against its
     # own measured per-mutant cost and the leash its non-terminating mutants hold
     # (scripts/lib/mutation-shards.sh), and the shard-budget job above refuses a
@@ -325,7 +325,7 @@ jobs:
         # The build profile is `mutants` (agent/.cargo/mutants.toml): the test
         # profile without debug info, which is most of the per-mutant rebuild and
         # which nothing here reads.
-        # --jobs 4 matches the ubuntu-latest 4-vCPU public-runner spec
+        # --jobs 4 matches the ubuntu-24.04 4-vCPU public-runner spec
         # (https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners).
         # --no-shuffle for deterministic ordering when comparing runs.
         # --annotations none suppresses per-mutant GitHub Actions warning
@@ -457,7 +457,7 @@ jobs:
     name: Publish results + alert on regression
     needs: mutation
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # The `observability` environment scopes the Telegram alert secrets
     # (DEPLOY_TELEGRAM_BOT_TOKEN / DEPLOY_TELEGRAM_CHAT_ID) to unattended
@@ -484,6 +484,7 @@ jobs:
           # in-repo JSONL trend file.
           fetch-depth: 1
 
+      - uses: ./.github/actions/setup-pinned-tools
       - name: Download all matrix artifacts
         uses: actions/download-artifact@v8
         with:
@@ -731,7 +732,7 @@ jobs:
     name: Mutation score gate
     needs: [publish]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

@@ -183,5 +183,43 @@ toolchain_parity_check() {
     drift=1
   fi
 
+  # --- the pinned tools: what this machine will actually resolve ----------
+  #
+  # The three above float, so the question there is whether the workstation has
+  # kept up. These do not float: scripts/lib/tool-versions.sh names one version
+  # and both sides install it, so the question is only whether this machine is
+  # running what it installed. It can fail to be — an older copy earlier on
+  # PATH, or an installer that has never been run here — and the symptom is a
+  # gauntlet judging the repository with a tool CI will not use.
+  if ! toolchain_pinned_tools_check "$root"; then
+    drift=1
+  fi
+
   return "$drift"
+}
+
+# toolchain_pinned_tools_check ROOT — 0 when every manifest-pinned tool this
+# machine resolves is the pinned one. Reports each mismatch with the one command
+# that fixes it.
+toolchain_pinned_tools_check() {
+  local root="$1" bad=0
+  # shellcheck source=tool-versions.sh
+  . "$root/scripts/lib/tool-versions.sh"
+
+  _pinned_tool_check() { # human name, wanted, actual
+    local name="$1" want="$2" got="$3"
+    [ "$want" = "$got" ] && return 0
+    echo "✗ $name is ${got:-missing}, but scripts/lib/tool-versions.sh pins $want." >&2
+    echo "    scripts/install-shell-tools.sh   # then ensure ~/.local/bin precedes /usr/bin" >&2
+    bad=1
+  }
+
+  _pinned_tool_check jq "$TOOL_VERSION_JQ" \
+    "$(jq --version 2>/dev/null | sed 's/^jq-//')"
+  _pinned_tool_check ShellCheck "$TOOL_VERSION_SHELLCHECK" \
+    "$(shellcheck --version 2>/dev/null | awk '/^version:/ { print $2 }')"
+  _pinned_tool_check shfmt "$TOOL_VERSION_SHFMT" \
+    "$(shfmt --version 2>/dev/null | sed 's/^v//')"
+
+  return "$bad"
 }

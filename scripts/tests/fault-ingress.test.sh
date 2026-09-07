@@ -46,11 +46,11 @@ assert_ne() {
 }
 assert_contains() {
   local name="$1" needle="$2" haystack="$3"
-  if printf '%s\n' "$haystack" | grep -qF "$needle"; then pass "$name"; else fail "$name (missing [$needle])"; fi
+  if grep -qF "$needle" <<<"$haystack"; then pass "$name"; else fail "$name (missing [$needle])"; fi
 }
 assert_not_contains() {
   local name="$1" needle="$2" haystack="$3"
-  if printf '%s\n' "$haystack" | grep -qF "$needle"; then fail "$name (unexpected [$needle])"; else pass "$name"; fi
+  if grep -qF "$needle" <<<"$haystack"; then fail "$name (unexpected [$needle])"; else pass "$name"; fi
 }
 
 WORK="$(mktemp -d)"

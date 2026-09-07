@@ -28,20 +28,19 @@ cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 # `-`-prefixed words never reaches the verb and the guard would silently no-op
 # on exactly the form that most needs catching. Requiring an option lead keeps
 # `git log --grep=push` from matching.
-if ! printf '%s' "$cmd" \
-  | grep -qE '\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?)*push\b'; then
+if ! grep -qE "$(git_verb_re push)" <<<"$cmd"; then
   exit 0
 fi
 
 # 1 & 2. Target = main?
 # Patterns that indicate main as the destination ref or refspec.
 targets_main=false
-if printf '%s' "$cmd" | grep -qE '\bgit[[:space:]].*push\b[^|;&]*\bmain\b'; then
+if grep -qE '\bgit[[:space:]].*push\b[^|;&]*\bmain\b' <<<"$cmd"; then
   targets_main=true
 fi
 
 if [ "$targets_main" = "true" ]; then
-  if printf '%s' "$cmd" | grep -qE -- '--force(-with-lease)?\b|[[:space:]]-f\b'; then
+  if grep -qE -- '--force(-with-lease)?\b|[[:space:]]-f\b' <<<"$cmd"; then
     block git-push-no-force-main "git push refused: force-push to main is never allowed. Remove --force / -f."
   fi
   block git-push-no-main "git push refused: target is main. .claude/rules/git.md: main updates only via the auto-merge CI job. Push to dev instead."

@@ -17,7 +17,7 @@ permissions:
 jobs:
   run:
     name: Run ${{ matrix.lang }} benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -107,7 +107,7 @@ jobs:
     name: Publish benchmark trend
     needs: [run]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     # This job's result is the observability environment's deployment status, so
     # it reports only whether the trend was collected and published. The
@@ -122,6 +122,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-pinned-tools
       - name: Download Go benchmark results
         uses: actions/download-artifact@v8
         with:
@@ -299,7 +300,7 @@ jobs:
     name: Benchmark regression gate
     needs: [publish]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

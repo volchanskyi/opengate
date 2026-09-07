@@ -137,12 +137,21 @@ backfill engine. The **simulated fleet** is twenty agents from
 [`tests/loadtest`](../../server/tests/loadtest) — enough, in one tenant, to
 queue against the concurrent drains the server admits per customer.
 
+The fleet stands in for a site rather than generating load, so the drill starts
+it with three switches the load run leaves off: it comes back after its
+connection breaks, it asks again when the server tells it to wait for a
+catch-up slot, and it carries a name of the drill's own. A load run wants the
+opposite of the first two — a severance reported and a deferral shed, because
+those are the things it is measuring — and the third is what lets the drill
+count its own machines and remove them afterwards
+([ADR-103](../adr/ADR-103-a-drill-measures-a-herd-that-is-there.md)).
+
 Every scenario is three phases: baseline, fault, recovery.
 
 | Scenario | The fault | What is measured |
 |---|---|---|
-| S1 | the site goes dark, and comes back on a healthy link | how long the machine took to come back on its own, and how much of the hole its absence left in the customer's charts filled in |
-| S2 | the same outage, recovered over a 2 Mbit/s uplink shared by every machine | the worst staleness of the live readings while the site catches up, and whether any machine lost its connection doing it |
+| S1 | the site goes dark for a length drawn from the run's own seed, and comes back on a healthy link | whether the machine came back on its own, how long the site waited and how long the reconnect itself took, and how much of the hole its absence left in the customer's charts filled in |
+| S2 | the same outage, recovered over a 2 Mbit/s uplink shared by every machine | the worst staleness of the live readings while the site catches up, how much of the herd was behind the link while it did, and whether any machine lost its connection doing it |
 | S3 | the connection stays up and a fifth of what the machine sends is lost | whether the machine holds its connection or churns |
 | S4 | a third of a second each way, then the machine returns on a new address | whether the session survives the new address, and — recorded separately — whether the machine reconnected instead |
 
@@ -150,13 +159,27 @@ S4's two numbers are recorded together on purpose. A migration that does not
 happen and a link that breaks look identical from the outside: both end at the
 idle timeout. Only the pair tells them apart.
 
+S1's reconnect numbers are a pair for a related reason. What a site waits
+through is measured from the moment the link is handed back to the moment the
+machine is registered again, and most of that figure is where in its own timeout
+cycle the machine happened to meet the restored link — so the reconnect the
+machine itself performed is published beside it, measured from its last failed
+attempt. Both come from the machine's own log, read on its own clock, and the
+outage varies in length so the first has somewhere to land other than the same
+value every night.
+
 ### What the drill is held to
 
 - **A scenario that could not observe the system emits nothing.** A dead or
   unreachable shaper, a refused impairment, a status the drill could not read,
-  and a drop count that disagrees with the impairment commanded all end the
-  scenario with no row at all. Rows of zeroes pull a window median down, and one
-  bad night would quietly cost two.
+  a drop count that disagrees with the impairment commanded, and — for the
+  thin-uplink scenario — a herd that is not behind the link all end the scenario
+  with no row at all. Rows of zeroes pull a window median down, and one bad
+  night would quietly cost two.
+- **A machine that never came back is a reading, not an absence.** Every
+  scenario that takes a machine offline publishes whether it returned, so the
+  worst outcome those scenarios exist to find is a number the floors catch
+  rather than a row that is simply missing.
 - **Every figure is the scenario's own.** The shaper counts for the life of its
   process, so each scenario records where the totals stood when it opened and
   measures from there — both the rows it publishes about the link and the check
@@ -197,7 +220,7 @@ Executor legend: **H** = Go harness (in-process) · **IG** = ingress annotations
 | Edge 504 | IG | The proxy read timeout is shorter than the backend takes; public client times out; cleanup restores `2xx`. | on restore |
 | Pod deletion | RUN | Replacement pod ready within the **120 s** SLO; clients reconnect. | **≤ 120 s** |
 | Bad rollout | RUN | Rollout fails readiness; Helm rollback restores the prior image healthy. | ≤ 180 s rollback |
-| Machine outage, healthy recovery (S1) | ND | The machine comes back unaided and the hole in its charts fills to at least 95 %. | **≤ 120 s** to reconnect |
+| Machine outage, healthy recovery (S1) | ND | The machine comes back unaided and the hole in its charts fills to at least 95 %. | **≤ 120 s** for the site to be watching it again, **≤ 35 s** for the reconnect itself |
 | Machine outage, thin-uplink recovery (S2) | ND | Live readings stay fresh while the site catches up; no machine loses its connection. | ≤ 90 s staleness |
 | One-way packet loss (S3) | ND | The machine holds its connection; no offline transition, no flap. | n/a — held throughout |
 | Satellite delay and re-addressing (S4) | ND | The connection stays open at 300 ms each way, and the session survives the machine returning on a new address. | ≤ 90 s after the change |

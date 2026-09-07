@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"testing"
 	"time"
@@ -79,7 +80,7 @@ func TestDefaultTelemetryFrames(t *testing.T) {
 // This is the layout the harness actually runs, so it is the one under test.
 func TestPlanAgents(t *testing.T) {
 	const tenants, perTenant = 5, 100
-	agents := planAgents(tenants*perTenant, tenants)
+	agents := planAgents(tenants*perTenant, tenants, defaultHostnamePrefix)
 	require.Len(t, agents, tenants*perTenant)
 
 	seenTenant := map[int]int{}
@@ -99,7 +100,7 @@ func TestPlanAgents(t *testing.T) {
 	}
 
 	// The partition is deterministic: a second call is identical.
-	assert.Equal(t, agents, planAgents(tenants*perTenant, tenants))
+	assert.Equal(t, agents, planAgents(tenants*perTenant, tenants, defaultHostnamePrefix))
 }
 
 // TestBuildBackfillBatch builds a tiered reconnect-backfill batch with the
@@ -148,7 +149,7 @@ func TestBackfillStormRoundTrip(t *testing.T) {
 	stream := &pipeStream{r: &serverToAgent, w: &agentToServer}
 	opts := loadOptions{backfillBatches: batches, backfillSamplesPerBatch: 10}
 
-	sent, err := drainBackfill(codec, stream, opts)
+	sent, err := drainBackfill(context.Background(), codec, stream, opts)
 	require.NoError(t, err)
 	assert.Equal(t, batches, sent, "all batches drain under a live grant")
 
@@ -175,7 +176,7 @@ func TestBackfillStormDeferIsNotAnError(t *testing.T) {
 	var agentToServer bytes.Buffer
 	stream := &pipeStream{r: &serverToAgent, w: &agentToServer}
 
-	sent, err := drainBackfill(codec, stream, loadOptions{backfillBatches: 3, backfillSamplesPerBatch: 10})
+	sent, err := drainBackfill(context.Background(), codec, stream, loadOptions{backfillBatches: 3, backfillSamplesPerBatch: 10})
 	require.NoError(t, err)
 	assert.Zero(t, sent, "a deferred storm drains nothing")
 }

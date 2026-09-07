@@ -102,7 +102,7 @@ assert_exit() {
 }
 assert_stderr_contains() {
   local name="$1" needle="$2"
-  if printf '%s' "$HOOK_STDERR" | grep -qF "$needle"; then
+  if grep -qF "$needle" <<<"$HOOK_STDERR"; then
     pass "$name (stderr ~ '$needle')"
   else
     fail "$name (stderr missing '$needle'; got: $(printf '%s' "$HOOK_STDERR" | head -1))"
@@ -877,6 +877,57 @@ if [ "$(cat .claude/.markers/refactor.head 2>/dev/null || echo none)" = "$head" 
   pass "auto-push: marker re-pointed to post-rebase HEAD"
 else fail "auto-push: marker stale after rebase"; fi
 cleanup_repo
+
+# -------------------------------------------------------------------
+# The git verb pattern is one pattern
+# -------------------------------------------------------------------
+# Five hooks ask whether a Bash command carries a git verb, and the answer had
+# drifted: three matched `git -c key=value <verb>` while two stopped at the
+# first `-c`, under a comment saying they used the same pattern as the commit
+# guard. So the pen-test gate and the settings rebalancer stood down on exactly
+# the form the commit guard was strengthened to catch. These cases hold the one
+# shared definition to both halves, and the sweep below refuses a sixth copy.
+# shellcheck source=../../.claude/hooks/lib/common.sh
+source "$HOOKS_DIR/lib/common.sh"
+
+verb_case() { # verb, command, want
+  local got
+  if grep -qE "$(git_verb_re "$1")" <<<"$2"; then got=DETECTED; else got=ignored; fi
+  if [ "$got" = "$3" ]; then
+    pass "verb pattern: [$2] -> $got"
+  else fail "verb pattern: [$2] -> $got (want $3)"; fi
+}
+
+verb_case commit 'git commit -m x' DETECTED
+verb_case commit 'git -c core.hooksPath=/dev/null commit -m x' DETECTED
+verb_case commit 'git -c a=b -c c=d commit' DETECTED
+verb_case commit 'git -C /repo commit -m x' DETECTED
+verb_case commit 'git status' ignored
+verb_case commit 'git log --grep=commit' ignored
+verb_case push 'git push origin dev' DETECTED
+verb_case push 'git -c color.ui=false push origin dev' DETECTED
+verb_case push 'git status' ignored
+verb_case push 'git log --grep=push' ignored
+
+# A hook that spells the pattern out again is a copy free to drift, which is the
+# defect these cases exist to close. The count keeps a sweep that reached no
+# hook at all from reporting clean.
+verb_copies=""
+verb_hooks=0
+for hook in "$HOOKS_DIR"/*.sh; do
+  verb_hooks=$((verb_hooks + 1))
+  # The tell is the option-skipping group, not the word `git`: the push guard
+  # also asks, separately and legitimately, whether a push names main.
+  grep -qF '(-[^[:space:]]+[[:space:]]+' "$hook" \
+    && verb_copies="$verb_copies $(basename "$hook")"
+done
+if [ "$verb_hooks" -eq 0 ]; then
+  fail "verb pattern: the sweep read no hooks at all"
+elif [ -n "$verb_copies" ]; then
+  fail "verb pattern: spelled out again in$verb_copies — call git_verb_re instead"
+else
+  pass "verb pattern: no hook carries a copy of its own ($verb_hooks read)"
+fi
 
 # -------------------------------------------------------------------
 # Summary

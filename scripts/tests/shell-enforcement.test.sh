@@ -48,9 +48,17 @@ assert_file_contains \
   "gauntlet runs the canonical shell check" \
   "$GAUNTLET" \
   'run_check "shell-check" -- make shell-check'
+# CI provisions through the composite action so every job that needs a pinned
+# tool asks for it the same way. Both halves are asserted: the workflow reaches
+# the action, and the action reaches the installer — checking only one of them
+# passes on a chain that has come apart in the middle.
 assert_file_contains \
   "CI provisions pinned shell tools" \
   "$CI_WORKFLOW" \
+  './.github/actions/setup-pinned-tools'
+assert_file_contains \
+  "the pinned-tools action runs the installer" \
+  "$REPO_ROOT/.github/actions/setup-pinned-tools/action.yml" \
   'scripts/install-shell-tools.sh'
 assert_file_contains \
   "CI runs the canonical shell check" \

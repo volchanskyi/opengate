@@ -129,3 +129,19 @@ _fail_closed_handler() {
 enable_fail_closed_hook() {
   trap _fail_closed_handler ERR
 }
+
+# Whether a Bash command carries a given git verb ("commit", "push").
+#
+# Pre-verb tokens are options, each optionally followed by its own value word:
+# `-c` takes its value as a SEPARATE token, so a pattern that skips only
+# `-`-prefixed words never reaches the verb, and the guard silently no-ops on
+# exactly the form that most needs catching. Requiring an option lead keeps
+# `git log --grep=…` from matching.
+#
+# It lives here because five hooks ask this question and the answer had drifted:
+# three carried the form above while two carried one that stops at the first
+# `-c`, under a comment claiming they were the same pattern. One definition is
+# what keeps them so.
+git_verb_re() {
+  printf '\\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?)*%s\\b' "$1"
+}

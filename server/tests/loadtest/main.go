@@ -51,6 +51,14 @@ type agentResult struct {
 	// measure the hold.
 	arrivedAt time.Time
 
+	// redials is how many times this machine dialled again after losing its
+	// connection, and reconnected how many of those got it back. They are the
+	// harness's own account of how much of a fleet an outage took, which is the
+	// only account there is: every other number a drill publishes is about the
+	// machine it is measuring, not about the herd behind it.
+	redials     int
+	reconnected int
+
 	err error
 }
 
@@ -91,6 +99,9 @@ func run() int {
 	backfillBatches := flag.Int("backfill-batches", 0, "reconnect-storm backfill batches each agent drains after register")
 	backfillSamples := flag.Int("backfill-samples", 100, "pre-rolled samples per backfill batch")
 	holdFor := flag.Duration("hold", 0, "keep every agent connected for this long after its traffic, so a generator on the other side has machines to open sessions against")
+	reconnect := flag.Bool("reconnect", false, "keep a machine in the run after its connection breaks, so a fleet behind a link that goes dark is still there when the link returns; off measures the server and reports a severance instead of repairing it")
+	retryDeferred := flag.Bool("retry-deferred", false, "ask again when the server tells a machine to wait for a catch-up slot, as a shipped agent does; off sheds the load so the deferral path is measured rather than queued through")
+	hostnamePrefix := flag.String("hostname-prefix", defaultHostnamePrefix, "the name this run's machines carry, so a run can count and remove its own")
 	relaySessions := flag.Bool("relay-sessions", false, "answer SessionRequest by joining the machine side of the relay and echoing, so the browser side can time a real round trip")
 	profilePath := flag.String("profile", "", "load/profiles/<name>.yaml declaring the phases, safety limits and gates")
 	bundleDir := flag.String("bundle", "", "directory to write this run's evidence bundle into")
@@ -138,11 +149,13 @@ func run() int {
 		backfillBatches:         *backfillBatches,
 		backfillSamplesPerBatch: *backfillSamples,
 		holdFor:                 *holdFor,
+		reconnect:               *reconnect,
+		retryDeferred:           *retryDeferred,
 		relaySessions:           *relaySessions,
 	}
 
 	tenants := max(*tenantFlag, 1)
-	agentPlan := planAgents(*agents, tenants)
+	agentPlan := planAgents(*agents, tenants, *hostnamePrefix)
 
 	dir := *dataDir
 	if dir == "" && *enrollURL == "" {
@@ -365,17 +378,29 @@ func printErrorSamples(results []agentResult) {
 	}
 }
 
+// defaultHostnamePrefix is the name a load run's machines carry. Its cleanup
+// selects on it, so it is not a thing to change casually — a run whose machines
+// are named something else leaves every one of them behind.
+const defaultHostnamePrefix = "soak"
+
 // planAgents lays out n agents across tenants cohorts deterministically, so a
 // soak run is reproducible: tenant index cycles round-robin and each hostname
 // carries its tenant + agent index.
-func planAgents(n, tenants int) []tenantAgent {
+//
+// The prefix is the run's own, because two runs sharing a name cannot be told
+// apart afterwards: neither can count its own machines while they are up, and
+// neither can remove them without removing the other's.
+func planAgents(n, tenants int, prefix string) []tenantAgent {
+	if prefix == "" {
+		prefix = defaultHostnamePrefix
+	}
 	plan := make([]tenantAgent, n)
 	for i := 0; i < n; i++ {
 		tenant := i % tenants
 		plan[i] = tenantAgent{
 			tenantIndex: tenant,
 			agentIndex:  i,
-			hostname:    fmt.Sprintf("soak-t%d-a%d", tenant, i),
+			hostname:    fmt.Sprintf("%s-t%d-a%d", prefix, tenant, i),
 		}
 	}
 	return plan

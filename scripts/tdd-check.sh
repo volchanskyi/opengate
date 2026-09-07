@@ -121,7 +121,7 @@ has_test_change() {
   } | sort -u | grep -v '^$' || true)
 
   [ -n "$files" ] || return 1
-  if printf '%s\n' "$files" | grep -qE "$TEST_RE"; then
+  if grep -qE "$TEST_RE" <<<"$files"; then
     return 0
   fi
 

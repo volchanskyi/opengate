@@ -272,7 +272,7 @@ if [ -f "$SHARDS_LIB" ]; then
       || rust_args_bad="$rust_args_bad [$shard:not-package-scoped]"
     [ "${shard_args[1]}" = "$(mutation_rust_shard_package "$shard")" ] \
       || rust_args_bad="$rust_args_bad [$shard:wrong-package]"
-    printf '%s\n' "${shard_args[@]}" | grep -q -- '--workspace' \
+    grep -q -- '--workspace' <<<"$(printf '%s\n' "${shard_args[@]}")" \
       && rust_args_bad="$rust_args_bad [$shard:workspace-wide]"
     if [ "$(mutation_rust_shard_units "$shard")" = "rest" ]; then
       # A catch-all with siblings must exclude every one of their globs.
@@ -282,13 +282,13 @@ if [ -f "$SHARDS_LIB" ]; then
         other_units="$(mutation_rust_shard_units "$other")"
         [ "$other_units" = "rest" ] && continue
         for unit in $other_units; do
-          printf '%s\n' "${shard_args[@]}" | grep -qxF "$(mutation_rust_shard_glob "$unit")" \
+          grep -qxF "$(mutation_rust_shard_glob "$unit")" <<<"$(printf '%s\n' "${shard_args[@]}")" \
             || rust_args_bad="$rust_args_bad [$shard:missing-exclude:$unit]"
         done
       done
     else
       for unit in $(mutation_rust_shard_units "$shard"); do
-        printf '%s\n' "${shard_args[@]}" | grep -qxF "$(mutation_rust_shard_glob "$unit")" \
+        grep -qxF "$(mutation_rust_shard_glob "$unit")" <<<"$(printf '%s\n' "${shard_args[@]}")" \
           || rust_args_bad="$rust_args_bad [$shard:missing-file:$unit]"
       done
     fi
@@ -355,7 +355,7 @@ if [ -f "$SHARDS_LIB" ]; then
   while IFS= read -r source; do
     rel="${source#"$REPO_ROOT/server/"}"
     global=0
-    if printf '%s\n' "$rel" | grep -qE "$(mutation_go_global_excludes)"; then
+    if grep -qE "$(mutation_go_global_excludes)" <<<"$rel"; then
       global=1
     fi
 
@@ -378,14 +378,14 @@ if [ -f "$SHARDS_LIB" ]; then
     for shard in "${go_shards[@]}"; do
       excl="${shard_regex[$shard]}"
       if [ "$global" -eq 1 ]; then
-        printf '%s\n' "$rel" | grep -qE "$excl" \
+        grep -qE "$excl" <<<"$rel" \
           || regex_bad="$regex_bad [$shard:$rel:global-not-excluded]"
       elif [ "$shard" = "$owner" ]; then
-        if printf '%s\n' "$rel" | grep -qE "$excl"; then
+        if grep -qE "$excl" <<<"$rel"; then
           regex_bad="$regex_bad [$shard:$rel:own-source-excluded]"
         fi
       else
-        printf '%s\n' "$rel" | grep -qE "$excl" \
+        grep -qE "$excl" <<<"$rel" \
           || regex_bad="$regex_bad [$shard:$rel:other-source-not-excluded]"
       fi
     done
@@ -416,7 +416,7 @@ if [ -f "$SHARDS_LIB" ]; then
       || loadtest_bad="$loadtest_bad [$f:owners=$owners:$owner]"
   done
   if [ -z "$loadtest_bad" ] \
-    && printf 'tests/loadtest/main.go\n' | grep -qE "$(mutation_go_global_excludes)"; then
+    && grep -qE "$(mutation_go_global_excludes)" <<<'tests/loadtest/main.go'; then
     pass "loadtest helpers mutate once in go-observability-harness while main.go stays excluded"
   else
     fail "loadtest mutation ownership is wrong:$loadtest_bad"
@@ -566,8 +566,8 @@ if [ -f "$SHARDS_LIB" ]; then
   # into the step summary, and the default shell does not set pipefail, so
   # without it the step reports tee's success and an OVER shard passes green.
   budget_step="$(sed -n '/Project every shard against the job cap/,/^$/p' "$WORKFLOW")"
-  if printf '%s' "$budget_step" | grep -q 'mutation-shard-budget.sh' \
-    && printf '%s' "$budget_step" | grep -q 'set -o pipefail'; then
+  if grep -q 'mutation-shard-budget.sh' <<<"$budget_step" \
+    && grep -q 'set -o pipefail' <<<"$budget_step"; then
     pass "the shard-budget step fails when the projection is refused"
   else
     fail "the shard-budget step must set pipefail around mutation-shard-budget.sh"
@@ -584,7 +584,7 @@ if [ -f "$SHARDS_LIB" ]; then
     'Run gremlins (shard' \
     'Run stryker'; do
     step="$(sed -n "/${tool_step}/,/^      - /p" "$WORKFLOW")"
-    if printf '%s' "$step" | grep -q 'assert-mutation-report.sh'; then
+    if grep -q 'assert-mutation-report.sh' <<<"$step"; then
       pass "the ${tool_step%% (shard*} step reads its own report back"
     else
       fail "the ${tool_step%% (shard*} step must read its report back, not leave it to the upload"
@@ -595,8 +595,8 @@ if [ -f "$SHARDS_LIB" ]; then
   # comes from a coverage run, and an uncovered mutant is a mutant the
   # projection cannot see.
   budget_job="$(sed -n '/^  shard-budget:/,/^  mutation:/p' "$WORKFLOW")"
-  if printf '%s' "$budget_job" | grep -q 'POSTGRES_TEST_URL' \
-    && printf '%s' "$budget_job" | grep -q 'gremlins'; then
+  if grep -q 'POSTGRES_TEST_URL' <<<"$budget_job" \
+    && grep -q 'gremlins' <<<"$budget_job"; then
     pass "the shard-budget job counts Go mutants against a real Postgres"
   else
     fail "the shard-budget job must install gremlins and give it POSTGRES_TEST_URL"
@@ -804,8 +804,8 @@ if [ -x "$SUMMARIZE" ]; then
   out="$(RUST_OUTCOMES="$tmp/rust.json" WEB_REPORT="$tmp/web.json" GO_REPORT="$tmp/NOPE.json" \
     HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
   if [ "$code" = "2" ] \
-    && printf '%s\n' "$out" | grep -q 'missing:' \
-    && ! printf '%s\n' "$out" | grep -q 'invalid JSON'; then
+    && grep -q 'missing:' <<<"$out" \
+    && ! grep -q 'invalid JSON' <<<"$out"; then
     pass "summarizer reports a single clear error on missing input (exit 2, no jq noise)"
   else
     fail "summarizer must emit one clear error on missing input and exit 2 (got code=$code, out=$out)"
@@ -839,9 +839,9 @@ if [ -x "$SUMMARIZE" ]; then
   out="$(RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" WEB_REPORT="$tmp/web.json" \
     HISTORY_FILE="$tmp/hist-drop.jsonl" "$SUMMARIZE" 2>&1)" || code=$?
   if [ "$code" = "1" ] \
-    && printf '%s\n' "$out" | grep -q '(drop > 2pp)' \
-    && printf '%s\n' "$out" | grep -q 'WEB:' \
-    && ! printf '%s\n' "$out" | grep -q 'below 85% floor'; then
+    && grep -q '(drop > 2pp)' <<<"$out" \
+    && grep -q 'WEB:' <<<"$out" \
+    && ! grep -q 'below 85% floor' <<<"$out"; then
     pass "drop-rule fires on a >2pp fall from the restored baseline (above the floor)"
   else
     fail "drop-rule must fire (exit 1, '(drop > 2pp)') on a >2pp baseline fall (code=$code, out=$out)"
@@ -862,7 +862,7 @@ if [ -x "$SUMMARIZE" ]; then
   # scheduled MAIN run, previously mislabeled 'dev').
   out="$(GITHUB_REF_NAME=main RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
     WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/hist-drop.jsonl" "$SUMMARIZE" 2>&1)" || true
-  if printf '%s\n' "$out" | grep -q 'regression on main'; then
+  if grep -q 'regression on main' <<<"$out"; then
     pass "alert branch label derives from GITHUB_REF_NAME"
   else
     fail "alert header must say 'regression on main' when GITHUB_REF_NAME=main (out=$out)"
@@ -870,7 +870,7 @@ if [ -x "$SUMMARIZE" ]; then
 
   out="$(env -u GITHUB_REF_NAME RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
     WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/hist-drop.jsonl" "$SUMMARIZE" 2>&1)" || true
-  if printf '%s\n' "$out" | grep -q 'regression on dev'; then
+  if grep -q 'regression on dev' <<<"$out"; then
     pass "alert branch label falls back to dev when GITHUB_REF_NAME is unset"
   else
     fail "alert header must fall back to 'regression on dev' when GITHUB_REF_NAME is unset (out=$out)"

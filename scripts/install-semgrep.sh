@@ -15,9 +15,12 @@
 set -euo pipefail
 
 # Exact pin — treat upgrades like any other dependency (staged through dev).
-# Keep in sync with scripts/pentest-review.sh's SEMGREP_VERSION assertion and
-# the ci.yml pentest-review job.
-SEMGREP_VERSION="1.108.0"
+# The version comes from the manifest so the workstation and CI cannot be on
+# different ones; scripts/pentest-review.sh asserts what this installed.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/tool-versions.sh
+. "$SCRIPT_DIR/lib/tool-versions.sh"
+SEMGREP_VERSION="$TOOL_VERSION_SEMGREP"
 
 # pkg_resources fix (the actual cause of the CI install failure, runs
 # 26697942185 + 26703402241): semgrep 1.108.0 transitively imports

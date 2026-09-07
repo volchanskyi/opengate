@@ -35,7 +35,7 @@ assert_eq() {
 }
 assert_contains() {
   local name="$1" haystack="$2" needle="$3"
-  if printf '%s' "$haystack" | grep -qF -- "$needle"; then pass "$name"; else
+  if grep -qF -- "$needle" <<<"$haystack"; then pass "$name"; else
     fail "$name (missing [$needle] in: $haystack)"
   fi
 }

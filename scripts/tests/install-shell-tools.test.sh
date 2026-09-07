@@ -48,11 +48,36 @@ else
   fail "installer exists and is executable"
 fi
 
-if grep -q 'SHELLCHECK_VERSION="0.11.0"' "$INSTALLER" 2>/dev/null \
-  && grep -q 'SHFMT_VERSION="3.13.1"' "$INSTALLER" 2>/dev/null; then
-  pass "tool versions are pinned"
+# The installer takes its versions from the manifest rather than spelling them
+# out, so the workstation and CI cannot provision different ones. Asserting the
+# literal here would put the version back in a second file — which is the defect
+# the manifest exists to close.
+# shellcheck source=../lib/tool-versions.sh
+. "$REPO_ROOT/scripts/lib/tool-versions.sh"
+
+if grep -q 'lib/tool-versions.sh' "$INSTALLER" 2>/dev/null; then
+  pass "the installer reads the version manifest"
 else
-  fail "tool versions are pinned"
+  fail "the installer reads the version manifest"
+fi
+
+for tool in SHELLCHECK SHFMT JQ; do
+  want="$(tool_version "$tool")"
+  if [ -n "$want" ]; then
+    pass "the manifest pins $tool at $want"
+  else
+    fail "the manifest pins $tool"
+  fi
+done
+
+# jq is provisioned here for the same reason the gates' tools are: 33 scripts
+# read JSON with it, and the runner image's copy and the workstation's had
+# disagreed about how a number renders.
+if grep -q 'JQ_VERSION' "$INSTALLER" 2>/dev/null \
+  && grep -q 'jq_version_of' "$INSTALLER" 2>/dev/null; then
+  pass "the installer provisions jq and reads back what it installed"
+else
+  fail "the installer provisions jq and reads back what it installed"
 fi
 
 if [ -x "$INSTALLER" ]; then

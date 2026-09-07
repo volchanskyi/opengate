@@ -96,7 +96,7 @@ sdup_changed_files() {
 # files anchor the settle wait below (a brand-new file legitimately has none).
 sdup_existed_at_base() {
   if [ -n "${DUP_ANCHORS_OVERRIDE+x}" ]; then # set, possibly empty
-    [ -n "$DUP_ANCHORS_OVERRIDE" ] && printf '%s\n' "$DUP_ANCHORS_OVERRIDE" | grep -qxF "$1"
+    [ -n "$DUP_ANCHORS_OVERRIDE" ] && grep -qxF "$1" <<<"$DUP_ANCHORS_OVERRIDE"
     return
   fi
   git cat-file -e "$DUP_BASE:$1" 2>/dev/null

@@ -32,18 +32,17 @@ cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 # SEPARATE token (`git -c core.hooksPath=… commit`), so skipping only
 # `-`-prefixed words never reaches the verb and the gauntlet would silently not
 # run. Requiring an option lead keeps `git log --grep=commit` from matching.
-if ! printf '%s' "$cmd" \
-  | grep -qE '\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?)*commit\b'; then
+if ! grep -qE "$(git_verb_re commit)" <<<"$cmd"; then
   exit 0
 fi
 
 # 1. Co-Authored-By.
-if printf '%s' "$cmd" | grep -qiF 'Co-Authored-By'; then
+if grep -qiF 'Co-Authored-By' <<<"$cmd"; then
   block git-no-co-authored-by "git commit refused: message contains Co-Authored-By. .claude/rules/git.md requires no trailers. Remove it and re-issue."
 fi
 
 # 2. --no-verify.
-if printf '%s' "$cmd" | grep -qE -- '--no-verify\b'; then
+if grep -qE -- '--no-verify\b' <<<"$cmd"; then
   block git-no-verify "git commit refused: --no-verify disabled. Fix the underlying hook failure or remove the flag."
 fi
 

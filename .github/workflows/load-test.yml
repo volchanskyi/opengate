@@ -56,7 +56,7 @@ permissions:
 jobs:
   load-test:
     name: Load Tests (k6 + QUIC)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The in-cluster k6 and QUIC runs finish in well under 15 minutes; this
     # bounds a staging pod that never goes Ready or a scenario that wedges.
     # Room for the wait on the namespace lease as well as the run itself: a
@@ -475,7 +475,7 @@ jobs:
     name: Publish load-test trend
     needs: [load-test]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # This job's result is the observability environment's deployment status, so
     # it reports only whether the trend was collected and published. The
@@ -489,6 +489,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-pinned-tools
       - name: OCI + kubeconfig setup
         uses: ./.github/actions/oci-kube-setup
         with:
@@ -651,7 +652,7 @@ jobs:
     name: Load-test regression gate
     needs: [publish]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read

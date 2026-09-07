@@ -34,7 +34,16 @@ RECONNECT_REL_TOL=2.0
 STALENESS_REL_TOL=2.0
 
 # The floors. Each is the product behaviour a customer would notice losing.
+#
+# The reconnect floor is the worst healthy behaviour can produce — a
+# ninety-second establish that cannot finish plus a thirty-second backoff cap —
+# because the figure it holds is what a site waits through, and most of that
+# figure is where in its own cycle the machine met the restored link. The
+# attempt floor beside it holds the part that carries none of that luck: what
+# the machine spent once it tried again, which is the backoff cap plus an
+# establish margin.
 FLOOR_RECONNECT_SECONDS=120
+FLOOR_RECONNECT_ATTEMPT_SECONDS=35
 FLOOR_GAP_FILL_RATIO=0.95
 FLOOR_OFFLINE_TRANSITIONS=0
 
@@ -95,6 +104,14 @@ check_floor() {
       num_gt "$current" "$FLOOR_RECONNECT_SECONDS" \
         && REGRESSIONS+=("${scenario}/${victim} ${metric}: ${current}s against a floor of ${FLOOR_RECONNECT_SECONDS}s — a machine that goes dark has to come back on its own")
       ;;
+    netdrill_reconnect_attempt_seconds)
+      num_gt "$current" "$FLOOR_RECONNECT_ATTEMPT_SECONDS" \
+        && REGRESSIONS+=("${scenario}/${victim} ${metric}: ${current}s against a floor of ${FLOOR_RECONNECT_ATTEMPT_SECONDS}s — the reconnect itself is slow, whatever the outage happened to interrupt")
+      ;;
+    netdrill_reconnected)
+      num_lt "$current" 1 \
+        && REGRESSIONS+=("${scenario}/${victim} ${metric}: the machine never came back inside the recovery window — a site that goes dark has to return on its own")
+      ;;
     netdrill_gap_fill_ratio)
       num_lt "$current" "$FLOOR_GAP_FILL_RATIO" \
         && REGRESSIONS+=("${scenario}/${victim} ${metric}: ${current} against a floor of ${FLOOR_GAP_FILL_RATIO} — the hole the outage left in the customer's charts did not fill")
@@ -122,6 +139,7 @@ while IFS=$'\t' read -r metric scenario victim value; do
   [ -n "$metric" ] || continue
   case "$metric" in
     netdrill_reconnect_seconds) check_window_growth "$metric" "$scenario" "$victim" "$value" "$RECONNECT_REL_TOL" ;;
+    netdrill_reconnect_attempt_seconds) check_window_growth "$metric" "$scenario" "$victim" "$value" "$RECONNECT_REL_TOL" ;;
     netdrill_live_staleness_max_seconds) check_window_growth "$metric" "$scenario" "$victim" "$value" "$STALENESS_REL_TOL" ;;
   esac
   check_floor "$metric" "$scenario" "$victim" "$value"

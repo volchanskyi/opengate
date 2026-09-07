@@ -177,7 +177,7 @@ srat_fetch_hotspots() {
 # this change touched. Scoping is what keeps somebody else's finding from
 # failing a commit that did not cause it.
 srat_touched() {
-  [ -n "$2" ] && printf '%s\n' "$2" | grep -qxF "$1"
+  [ -n "$2" ] && grep -qxF "$1" <<<"$2"
 }
 
 srat_main() {

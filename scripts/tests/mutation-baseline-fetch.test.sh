@@ -50,19 +50,19 @@ emit() {
 }
 case "${VM_FETCH_FIXTURE:-full}" in
   full)
-    if printf '%s' "$args" | grep -q 'language="rust"'; then
+    if grep -q 'language="rust"' <<<"$args"; then
       emit rust older 92.0 1000
       emit rust newer 91.5 2000
-    elif printf '%s' "$args" | grep -q 'language="go"'; then
+    elif grep -q 'language="go"' <<<"$args"; then
       emit go newer 88.25 2000
-    elif printf '%s' "$args" | grep -q 'language="web"'; then
+    elif grep -q 'language="web"' <<<"$args"; then
       emit web older 85.75 1000
       emit web newer 84.5 2000
     fi
     ;;
   partial)
     # Only rust has any prior sample; go/web return nothing.
-    if printf '%s' "$args" | grep -q 'language="rust"'; then
+    if grep -q 'language="rust"' <<<"$args"; then
       emit rust newer 90.0 2000
     fi
     ;;

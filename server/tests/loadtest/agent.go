@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha512"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"time"
@@ -28,6 +29,11 @@ func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts 
 // context rather than by a budget of its own. A fleet walking a profile decides
 // when each machine leaves, and a machine that closed because the run wound it
 // down is not one the server dropped.
+//
+// The credential is obtained once and every connection made with it, because a
+// machine that comes back after an outage is the same machine — the server
+// knows it by its certificate, and re-enrolling would put a second machine in
+// the customer's list every time a link flapped.
 func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr string,
 	plan tenantAgent, opts loadOptions,
 ) agentResult {
@@ -36,6 +42,24 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 		return agentResult{err: err}
 	}
 
+	// The stay is measured from here rather than per connection, so a machine
+	// that spends three minutes of it behind a dark link leaves when the run
+	// says so rather than three minutes late.
+	leaveAt := time.Now().Add(opts.holdFor)
+
+	return persistThrough(ctx, opts, func(ctx context.Context) agentResult {
+		thisConnection := opts
+		thisConnection.holdFor = time.Until(leaveAt)
+		return serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection)
+	})
+}
+
+// serveOneConnection is one machine on one connection: dial, handshake,
+// register, do its traffic, and stay until the connection breaks or the run
+// ends. Coming back afterwards is persistThrough's decision, not this one's.
+func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
+	plan tenantAgent, opts loadOptions,
+) agentResult {
 	// Connect.
 	t0 := time.Now()
 	conn, err := quic.DialAddr(ctx, addr, tlsConfig, &quic.Config{
@@ -74,7 +98,7 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 	// fleet arriving.
 	res.arrivedAt = time.Now()
 
-	if err := runSoakTraffic(codec, stream, opts); err != nil {
+	if err := runSoakTraffic(ctx, codec, stream, opts); err != nil {
 		res.err = err
 		return res
 	}

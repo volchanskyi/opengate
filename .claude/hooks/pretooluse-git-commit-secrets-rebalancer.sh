@@ -31,8 +31,8 @@ parse_input_fields tool_name tool_input.command
 cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 [ -n "$cmd" ] || exit 0
 
-# Filter: command must include a `git commit` verb (same pattern as commit-guard).
-if ! printf '%s' "$cmd" | grep -qE '\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+)*commit\b'; then
+# Filter: the command must carry the commit verb, by the one shared pattern.
+if ! grep -qE "$(git_verb_re commit)" <<<"$cmd"; then
   exit 0
 fi
 

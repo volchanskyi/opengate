@@ -54,8 +54,7 @@ should_clean=false
 # followed by its own value word — `-c` takes its value as a SEPARATE token
 # (`git -c color.ui=false push`), so matching only `-`-prefixed tokens misses
 # that form. Requiring an option lead keeps `git log --grep=push` from matching.
-if printf '%s' "$cmd" \
-  | grep -qE '\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?)*push\b'; then
+if grep -qE "$(git_verb_re push)" <<<"$cmd"; then
   should_clean=true
 fi
 

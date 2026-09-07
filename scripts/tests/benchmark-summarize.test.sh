@@ -96,10 +96,10 @@ s() { printf '{"metric":{"benchmark":"%s","lang":"%s"},"value":[2000,"%s"]}' "$1
 case "${VM_PROFILE:-full}" in
   empty) ;;
   *)
-    if printf '%s' "$args" | grep -q 'count_over_time'; then
+    if grep -q 'count_over_time' <<<"$args"; then
       # ${VM_COUNT:-10} runs per series — < NS_MIN_WINDOW_SAMPLES forces cold-start.
       vec "$(s BenchmarkEncodeFrame go "${VM_COUNT:-10}"),$(s BenchmarkDecodeFrame go "${VM_COUNT:-10}"),$(s encode_frame rust "${VM_COUNT:-10}")"
-    elif printf '%s' "$args" | grep -q 'median_over_time'; then
+    elif grep -q 'median_over_time' <<<"$args"; then
       vec "$(s BenchmarkEncodeFrame go 123),$(s BenchmarkDecodeFrame go 245),$(s encode_frame rust 987)"
     fi
     ;;
@@ -178,7 +178,7 @@ write_go_ns 200
 if OUT="$(run_ns_gate 2>&1)"; then
   fail "ns/op over the window band should fail red"
 else
-  if printf '%s\n' "$OUT" | grep -q '^REGRESSION_ALERT:.*ns_op'; then
+  if grep -q '^REGRESSION_ALERT:.*ns_op' <<<"$OUT"; then
     pass "ns/op over window median×1.5 reds and alerts (relative rule)"
   else
     fail "ns/op window regression should emit an ns_op alert (got: $OUT)"

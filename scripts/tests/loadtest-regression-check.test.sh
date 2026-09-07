@@ -28,11 +28,11 @@ assert_eq() {
 }
 assert_contains() {
   local name="$1" needle="$2" haystack="$3"
-  if printf '%s\n' "$haystack" | grep -qF "$needle"; then pass "$name"; else fail "$name (missing [$needle])"; fi
+  if grep -qF "$needle" <<<"$haystack"; then pass "$name"; else fail "$name (missing [$needle])"; fi
 }
 assert_not_contains() {
   local name="$1" needle="$2" haystack="$3"
-  if printf '%s\n' "$haystack" | grep -qF "$needle"; then fail "$name (unexpected [$needle])"; else pass "$name"; fi
+  if grep -qF "$needle" <<<"$haystack"; then fail "$name (unexpected [$needle])"; else pass "$name"; fi
 }
 
 WORK="$(mktemp -d)"
@@ -51,20 +51,20 @@ case "${VM_PROFILE:-seeded}" in
   empty) ;;
   invalid) printf '%s\n' 'not-json' ;;
   seeded)
-    if printf '%s' "$args" | grep -q '/api/v1/export'; then
+    if grep -q '/api/v1/export' <<<"$args"; then
       # Previous error_rate sample for the exact source/scenario/phase selector.
       printf '%s\n' '{"metric":{"__name__":"loadtest_error_rate","source":"quic","scenario":"quic-agents","phase":"aggregate","commit":"older","env":"ci"},"values":[0.001],"timestamps":[1000]}'
-    elif printf '%s' "$args" | grep -q 'count_over_time'; then
+    elif grep -q 'count_over_time' <<<"$args"; then
       vec "$(s quic quic-agents connect 10),$(s quic quic-agents aggregate 10),$(s k6 api-baseline http 10),$(s k6 concurrent-agents http 10)"
-    elif printf '%s' "$args" | grep -q 'loadtest_latency_p95_ms'; then
+    elif grep -q 'loadtest_latency_p95_ms' <<<"$args"; then
       vec "$(s quic quic-agents connect 200),$(s k6 api-baseline http 100)"
-    elif printf '%s' "$args" | grep -q 'loadtest_latency_p50_ms'; then
+    elif grep -q 'loadtest_latency_p50_ms' <<<"$args"; then
       vec "$(s quic quic-agents connect 100),$(s k6 api-baseline http 50)"
-    elif printf '%s' "$args" | grep -q 'loadtest_latency_p99_ms'; then
+    elif grep -q 'loadtest_latency_p99_ms' <<<"$args"; then
       vec "$(s quic quic-agents connect 300),$(s k6 api-baseline http 150)"
-    elif printf '%s' "$args" | grep -q 'loadtest_rps'; then
+    elif grep -q 'loadtest_rps' <<<"$args"; then
       vec "$(s quic quic-agents aggregate 200),$(s k6 concurrent-agents http 30)"
-    elif printf '%s' "$args" | grep -q 'loadtest_error_rate'; then
+    elif grep -q 'loadtest_error_rate' <<<"$args"; then
       vec "$(s quic quic-agents aggregate 0),$(s k6 api-baseline http 0)"
     fi
     ;;

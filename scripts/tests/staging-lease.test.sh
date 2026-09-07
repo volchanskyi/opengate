@@ -78,7 +78,7 @@ check_stamps() {
   local src="$1" name value
   for name in acquireTime renewTime; do
     value="$(field "$name" "$src")"
-    if ! printf '%s' "$value" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$'; then
+    if ! grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$' <<<"$value"; then
       echo "Error from server (BadRequest): Lease in version \"v1\" cannot be handled as a Lease: parsing time \"$value\" as \"2006-01-02T15:04:05.000000Z07:00\"" >&2
       exit 1
     fi
@@ -208,8 +208,8 @@ fi
 # The stamp is the whole object's admission ticket: a Lease whose times are not
 # MicroTime is refused at decode, so nothing about holders is ever reached.
 stamp_written="$(sed -n 's/^ *renewTime: "\(.*\)"$/\1/p' "$WORKDIR_IN" | head -1)"
-if printf '%s' "$stamp_written" \
-  | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$'; then
+if grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$' \
+  <<<"$stamp_written"; then
   pass "the claim it writes carries a timestamp the API accepts"
 else
   fail "the claim it writes carries a timestamp the API accepts (got=[$stamp_written])"
@@ -288,8 +288,8 @@ if out="$(FAKE_CREATE_TAKEN=1 timeout 20 env \
   STAGING_LEASE_POLL_SECONDS=1 \
   "$LEASE" acquire cd-7 2>&1)"; then
   fail "losing the create race waits rather than ending the run"
-elif printf '%s' "$out" | grep -q 'waiting' \
-  && printf '%s' "$out" | grep -q 'did not free within'; then
+elif grep -q 'waiting' <<<"$out" \
+  && grep -q 'did not free within' <<<"$out"; then
   pass "losing the create race waits rather than ending the run"
 else
   fail "losing the create race waits rather than ending the run (got=[$out])"
@@ -314,7 +314,7 @@ elif [ "$(($(date -u +%s) - started))" -ge 10 ]; then
 else
   pass "a create refused for anything but a lost race stops rather than waiting"
 fi
-if printf '%s' "$out" | grep -qi 'forbidden'; then
+if grep -qi 'forbidden' <<<"$out"; then
   pass "the server's reason for refusing the create is reported"
 else
   fail "the server's reason for refusing the create is reported (got=[$out])"
@@ -359,7 +359,7 @@ elif [ "$(($(date -u +%s) - started))" -ge 10 ]; then
 else
   pass "a create refused NotFound stops rather than waiting on a phantom holder"
 fi
-if printf '%s' "$out" | grep -qi 'namespaces' && ! printf '%s' "$out" | grep -q 'held by another run'; then
+if grep -qi 'namespaces' <<<"$out" && ! grep -q 'held by another run' <<<"$out"; then
   pass "the missing namespace is named rather than reported as contention"
 else
   fail "the missing namespace is named rather than reported as contention (got=[$out])"
@@ -385,8 +385,8 @@ if out="$(FAKE_CREATE_TAKEN=1 timeout 20 env \
   FAKE_VANISH_AFTER=1 \
   "$LEASE" acquire cd-9 2>&1)"; then
   fail "a holder that has gone is not still named once the claim is gone"
-elif printf '%s' "$out" | grep -q 'held by other-run; waiting' \
-  && ! printf '%s' "$out" | tail -1 | grep -q 'other-run'; then
+elif grep -q 'held by other-run; waiting' <<<"$out" \
+  && ! grep -q 'other-run' <<<"$(tail -1 <<<"$out")"; then
   pass "a holder that has gone is not still named once the claim is gone"
 else
   fail "a holder that has gone is not still named once the claim is gone (got=[$out])"
@@ -405,8 +405,8 @@ rm -f "$STATE"
 seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 if out="$(FAKE_NOISY_STDERR=1 run_lease acquire cd-10 2>&1)"; then
   fail "a warning on stderr does not become the first line of the lease"
-elif printf '%s' "$out" | grep -q 'held by other-run' \
-  && ! printf '%s' "$out" | grep -qi 'parse error'; then
+elif grep -q 'held by other-run' <<<"$out" \
+  && ! grep -qi 'parse error' <<<"$out"; then
   pass "a warning on stderr does not become the first line of the lease"
 else
   fail "a warning on stderr does not become the first line of the lease (got=[$out])"

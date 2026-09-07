@@ -20,10 +20,22 @@ not alter the full-repository result.
 
 ## Tooling Policy
 
-[`scripts/install-shell-tools.sh`](../../scripts/install-shell-tools.sh) owns the
-tool versions, release assets, and checksums. Provisioning is separate from
-validation: checks perform no network access and fail when the exact tools are
-unavailable.
+[`scripts/lib/tool-versions.sh`](../../scripts/lib/tool-versions.sh) is the one
+place a tool version is written down.
+[`scripts/install-shell-tools.sh`](../../scripts/install-shell-tools.sh) reads it
+and owns the release assets and checksums, provisioning ShellCheck, shfmt and jq.
+CI runs the same script through
+[`.github/actions/setup-pinned-tools`](../../.github/actions/setup-pinned-tools),
+so a workstation and a runner cannot be on different tools. Provisioning is
+separate from validation: checks perform no network access and fail when the
+exact tools are unavailable.
+
+Both directions are held to the manifest.
+[`tool-version-parity.test.sh`](../../scripts/tests/tool-version-parity.test.sh)
+reads the workflows — every version literal, every install that names no version,
+and the runner image itself — while the gauntlet's prerequisite phase
+([`toolchain-parity.sh`](../../scripts/lib/toolchain-parity.sh)) checks what this
+machine actually resolves on its PATH.
 
 - ShellCheck behavior is configured in [`.shellcheckrc`](../../.shellcheckrc).
 - shfmt behavior is configured by the Bash section of
