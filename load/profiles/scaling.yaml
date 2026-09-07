@@ -33,7 +33,24 @@ safety:
   max_error_rate: 0.01
 
 gates:
-  - series: k6/api-baseline/http
+  # This sweep runs on a throwaway machine with no browser-side generator on it,
+  # so a limit naming a browser-side measurement could never be read here. What
+  # this venue produces is the machine side, and these are limits on that.
+  #
+  # There is deliberately no latency limit that varies with the rung. The whole
+  # subject of this family is how the curve moves with the processor count, and a
+  # per-rung number would be the answer written down in advance. What every rung
+  # owes equally is that its machines arrived at all: a leg where they did not
+  # measured nothing, and an unmeasured leg silently flattens the curve it is
+  # part of.
+  - series: quic/quic-agents/aggregate
     metric: error_rate
-    max: 0.01
+    max: 0
+    blocking: true
+  # Loose enough that the bottom rung clears it — half a processor connected a
+  # fleet at 55 ms — so this fires on a leg that has stopped working rather than
+  # on the slow end of the shape being measured.
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
+    max: 2000
     blocking: true

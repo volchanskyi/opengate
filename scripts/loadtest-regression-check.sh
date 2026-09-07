@@ -54,62 +54,20 @@ vm_metric_name() {
   esac
 }
 
-# Backstops for a collapse the window rule cannot see (a cold series, or a
-# degradation that drifted the median with it). Each is about twice the widest
-# value the series reached over the calibration window, so it fires on a genuine
-# break rather than on the spread the shared cluster produces on its own.
-latency_abs_ceiling() {
-  local source="$1" scenario="$2" phase="$3" metric="$4"
-  case "$source/$scenario/$phase/$metric" in
-    k6/api-baseline/http/*) printf '%s\n' "200" ;;
-    k6/concurrent-agents/http/*) printf '%s\n' "500" ;;
-    k6/relay-throughput/relay/*) printf '%s\n' "400" ;;
-    k6/relay-throughput/http/*) printf '%s\n' "500" ;;
-    quic/quic-agents/connect/latency_p50_ms) printf '%s\n' "800" ;;
-    quic/quic-agents/connect/latency_p95_ms) printf '%s\n' "2000" ;;
-    quic/quic-agents/handshake/latency_p50_ms) printf '%s\n' "400" ;;
-    quic/quic-agents/handshake/latency_p95_ms) printf '%s\n' "1500" ;;
-    quic/quic-agents/register/latency_p50_ms) printf '%s\n' "100" ;;
-    quic/quic-agents/register/latency_p95_ms) printf '%s\n' "500" ;;
-    *) printf '%s\n' "1000" ;;
-  esac
-}
-
-p99_abs_ceiling() {
-  local source="$1" scenario="$2" phase="$3"
-  case "$source/$scenario/$phase" in
-    k6/api-baseline/http) printf '%s\n' "400" ;;
-    k6/concurrent-agents/http) printf '%s\n' "500" ;;
-    k6/relay-throughput/relay) printf '%s\n' "700" ;;
-    k6/relay-throughput/http) printf '%s\n' "1000" ;;
-    quic/quic-agents/connect) printf '%s\n' "2000" ;;
-    quic/quic-agents/handshake) printf '%s\n' "2000" ;;
-    quic/quic-agents/register) printf '%s\n' "1000" ;;
-    *) printf '%s\n' "2000" ;;
-  esac
-}
-
-rps_abs_floor() {
-  local source="$1" scenario="$2" phase="$3"
-  case "$source/$scenario/$phase" in
-    quic/quic-agents/aggregate) printf '%s\n' "50" ;;
-    k6/api-baseline/http) printf '%s\n' "5" ;;
-    k6/concurrent-agents/http) printf '%s\n' "5" ;;
-    k6/relay-throughput/http) printf '%s\n' "5" ;;
-    k6/relay-throughput/relay) printf '%s\n' "0.25" ;;
-    *) printf '%s\n' "" ;;
-  esac
-}
-
-error_rate_ceiling() {
-  local source="$1" scenario="$2" phase="$3"
-  case "$source/$scenario/$phase" in
-    k6/api-baseline/http) printf '%s\n' "0.01" ;;
-    k6/concurrent-agents/http) printf '%s\n' "0.001" ;;
-    quic/quic-agents/aggregate) printf '%s\n' "0" ;;
-    *) printf '%s\n' "0.01" ;;
-  esac
-}
+# The absolute limits this file used to hold now live in the profile, beside the
+# phases they judge, and are read by scripts/loadtest-gate-check.sh.
+#
+# They were here and there at once, keyed by the same source/scenario/phase
+# triple, with different values for the same measurement — 200 in this file and
+# 100 in the profile, one enforced and one read by nothing. An edit to either
+# did not do what it said, which is a worse failure than either number being
+# wrong.
+#
+# What stays here is the method: tonight against a typical night from the last
+# fortnight, with tolerances wide enough to clear the spread a shared cluster
+# produces on its own. That comparison has a blind spot by construction — a
+# product that gets slowly worse drags its own window median down with it — and
+# the profile's limits are the floor under that slide.
 
 num_gt() {
   awk -v a="$1" -v b="$2" 'BEGIN { exit !(a > b) }'
@@ -223,7 +181,7 @@ previous_error_rate() {
 latency_regression_line() {
   local source="$1" scenario="$2" phase="$3" metric="$4" current="$5" p99="$6" window="$7" workload="$8"
   local series="${source}/${scenario}/${phase}"
-  local entry count median threshold ceiling detail
+  local entry count median threshold detail
   entry="$(window_entry "$window" "$metric" "$source" "$scenario" "$phase" "$workload")"
   count="$(jq -r '.count // 0' <<<"$entry")"
   median="$(jq -r '.median // empty' <<<"$entry")"
@@ -241,21 +199,12 @@ latency_regression_line() {
     fi
   fi
 
-  ceiling="$(latency_abs_ceiling "$source" "$scenario" "$phase" "$metric")"
-  if [ -n "$ceiling" ] && num_gt "$current" "$ceiling"; then
-    detail="${series} ${metric}: ${ceiling} -> ${current} (absolute ceiling"
-    if [ -n "$p99" ]; then
-      detail="${detail}; p99=${p99} advisory-only"
-    fi
-    detail="${detail})"
-    printf '%s\n' "$detail"
-  fi
 }
 
 rps_regression_line() {
   local source="$1" scenario="$2" phase="$3" current="$4" window="$5" workload="$6"
   local series="${source}/${scenario}/${phase}"
-  local entry count median threshold floor
+  local entry count median threshold
   entry="$(window_entry "$window" rps "$source" "$scenario" "$phase" "$workload")"
   count="$(jq -r '.count // 0' <<<"$entry")"
   median="$(jq -r '.median // empty' <<<"$entry")"
@@ -268,22 +217,12 @@ rps_regression_line() {
     fi
   fi
 
-  floor="$(rps_abs_floor "$source" "$scenario" "$phase")"
-  if [ -n "$floor" ] && num_pos "$floor" && num_lt "$current" "$floor"; then
-    printf '%s\n' "${series} rps: ${floor} -> ${current} (absolute floor)"
-  fi
 }
 
 error_rate_regression_line() {
   local source="$1" scenario="$2" phase="$3" current="$4" workload="$5"
   local series="${source}/${scenario}/${phase}"
-  local ceiling prev threshold
-  ceiling="$(error_rate_ceiling "$source" "$scenario" "$phase")"
-  if [ -n "$ceiling" ] && num_gt "$current" "$ceiling"; then
-    printf '%s\n' "${series} error_rate: ${ceiling} -> ${current} (absolute ceiling)"
-    return
-  fi
-
+  local prev threshold
   prev="$(previous_error_rate "$source" "$scenario" "$phase" "$workload")"
   if [ -n "$prev" ] && num_pos "$prev"; then
     threshold="$(mul "$prev" "$(awk -v tol="$ERROR_RATE_REL_TOL" 'BEGIN { printf "%.6f", 1 + tol }')")"
@@ -296,7 +235,7 @@ error_rate_regression_line() {
 p99_advisory_line() {
   local source="$1" scenario="$2" phase="$3" current="$4" window="$5" workload="$6"
   local series="${source}/${scenario}/${phase}"
-  local entry count median threshold ceiling
+  local entry count median threshold
   entry="$(window_entry "$window" latency_p99_ms "$source" "$scenario" "$phase" "$workload")"
   count="$(jq -r '.count // 0' <<<"$entry")"
   median="$(jq -r '.median // empty' <<<"$entry")"
@@ -309,10 +248,6 @@ p99_advisory_line() {
     fi
   fi
 
-  ceiling="$(p99_abs_ceiling "$source" "$scenario" "$phase")"
-  if [ -n "$ceiling" ] && num_gt "$current" "$ceiling"; then
-    printf '%s\n' "${series} latency_p99_ms: ${ceiling} -> ${current} (advisory-only ceiling)"
-  fi
 }
 
 regression_check() {

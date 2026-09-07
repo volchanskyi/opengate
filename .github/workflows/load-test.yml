@@ -46,6 +46,9 @@ env:
   # seeds it and no cleanup removes it, so it is still there on the night after
   # a cleanup that finally worked.
   LOADTEST_SERVICE_ACCOUNT: opengate-service@service.invalid
+  # The profile this night is judged against. It declares every number the
+  # night's rows are read against, and it is the only place those numbers live.
+  LOADTEST_PROFILE: load/profiles/normal.yaml
 
 permissions:
   contents: read
@@ -393,6 +396,36 @@ jobs:
           cp "$LOADTEST_K6_SUMMARY_DIR"/*.json loadtest-k6-raw/ 2>/dev/null || true
           cp "$LOADTEST_K6_SUMMARY_DIR"/*.thresholds loadtest-k6-raw/ 2>/dev/null || true
 
+      # The profile's own limits, read against the rows the step above produced.
+      #
+      # They had been read by nothing: the schema checked each was well-formed
+      # and no code consumed one, so every number in all seven profiles was
+      # decoration — including the ones marked as failing the run. They could
+      # not be read inside the harness either, which holds phases and machines
+      # and no browser-side row at all, and twelve of the sixteen name a
+      # browser-side measurement. Here both halves of the night are in one file,
+      # which is the first place both exist.
+      #
+      # The breach file is what the completeness step folds into the night's
+      # verdict; a breach is a finding about the system, so the night fails and
+      # its rows still enter the trend. This step's own exit is not the gate —
+      # that would fail the collection job for a finding about the target — but
+      # it must fail loudly when it could not read the limits at all, which is
+      # what exit 2 means.
+      - name: Read the profile's limits against tonight's rows
+        if: always()
+        run: |
+          set -euo pipefail
+          set +e
+          scripts/loadtest-gate-check.sh "$LOADTEST_PROFILE" \
+            loadtest-summary.json loadtest-gate-breaches.json
+          GATE_STATUS=$?
+          set -e
+          if [ "$GATE_STATUS" -ge 2 ]; then
+            echo "::error::the profile's limits could not be read, which is not the same as no limit being breached."
+            exit "$GATE_STATUS"
+          fi
+
       # Reads the canonical rows the step above produced, so it runs after it.
       - name: Record run completeness
         if: always()
@@ -401,6 +434,7 @@ jobs:
           set +e
           LOADTEST_K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
             LOADTEST_BUNDLE=loadtest-bundle/quic-agents.json \
+            LOADTEST_GATE_BREACHES=loadtest-gate-breaches.json \
             scripts/loadtest-run-completeness.sh loadtest-summary.json loadtest-completeness.json
           COMPLETENESS_STATUS=$?
           set -e
@@ -422,6 +456,7 @@ jobs:
           path: |
             loadtest-summary.json
             loadtest-completeness.json
+            loadtest-gate-breaches.json
             loadtest-cleanup.json
             loadtest-k6-raw
             loadtest-bundle

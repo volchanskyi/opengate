@@ -190,3 +190,4 @@
 | Phase | Summary | Version | Plan |
 |-------|---------|---------|------|
 | Performance Depth WS1: Make the dead measurements real | Every bundle field became a reading or an absence. [ADR-100](../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md). | — | `performance-testing-depth-repair.md` |
+| Performance Depth WS2: Evaluate the limits where both halves exist | The profile became the only home for the numbers a night is judged by. [ADR-101](../docs/adr/ADR-101-one-measurement-one-limit-one-file.md). | — | `performance-testing-depth-repair.md` |
