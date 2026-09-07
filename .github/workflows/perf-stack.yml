@@ -54,7 +54,7 @@ jobs:
   # numbers they produced.
   scaling:
     name: Scaling sweep (${{ matrix.cpus }} processors)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -170,7 +170,7 @@ jobs:
   # Until it exists, no storage decision is made either way.
   volume:
     name: Volume family (weigh the fixture, then load it)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7

@@ -97,7 +97,7 @@ fi
 
 echo "vm_ensure_up — an unreachable instance is reported, never passed over:"
 OUT="$(VM_PREREQ_START_CMD=false vm_ensure_up 127.0.0.1 "$TEST_PORT" 1 2>&1 || true)"
-if printf '%s' "$OUT" | grep -q "unreachable"; then
+if grep -q "unreachable" <<<"$OUT"; then
   pass "vm_ensure_up says an unreachable instance is unreachable"
 else
   fail "vm_ensure_up said nothing about an unreachable instance: [$OUT]"

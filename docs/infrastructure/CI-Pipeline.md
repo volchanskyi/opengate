@@ -128,6 +128,17 @@ command that closes it. Go is the one pin that does not float —
 holds every exact `go-version` in the workflows equal to `go.mod`, and
 `GOTOOLCHAIN=auto` makes a local `go` re-exec into that same version.
 
+Everything that is not a language toolchain is pinned outright, in
+[`tool-versions.sh`](../../scripts/lib/tool-versions.sh): the linters and
+scanners, the mutation tools, the runner image each job names, and the jq the
+scripts read JSON with. The install scripts provision from that manifest and CI
+runs the same scripts through
+[`setup-pinned-tools`](../../.github/actions/setup-pinned-tools), so neither side
+can be on a tool the other is not.
+[`tool-version-parity.test.sh`](../../scripts/tests/tool-version-parity.test.sh)
+holds every workflow copy equal to the manifest and refuses an install that names
+no version at all.
+
 ### OpenAPI Codegen Sync
 
 The `go-lint` job verifies that generated Go code from the OpenAPI spec is up to date. It runs `go generate ./internal/api/` and then `git diff --exit-code` — if the generated output differs from what is committed, the job fails. This can also be checked locally via `make verify-codegen`.

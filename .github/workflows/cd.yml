@@ -30,7 +30,7 @@ jobs:
   # to run at all (ADR-025 pre-flight check).
   resolve-tag:
     name: Resolve image tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -173,7 +173,7 @@ jobs:
     name: Deploy staging
     needs: resolve-tag
     if: needs.resolve-tag.outputs.should_skip_staging != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     # Bounded below the lease it holds, so the job cannot outlive its own claim
     # and have it taken over while it is still writing to the namespace.
@@ -189,6 +189,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-pinned-tools
       # No cache half: this workflow's token carries read scope only, so the
       # save that follows a restore is refused while its step reports success.
       - uses: actions/setup-node@v7
@@ -565,7 +566,7 @@ jobs:
       needs.deploy-staging-k8s.result == 'success' &&
       (needs.staging-fault-drills.result == 'success' ||
        needs.staging-fault-drills.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     env:
       IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
@@ -661,7 +662,7 @@ jobs:
     name: Create failure issue
     needs: [resolve-tag, deploy-staging-k8s, staging-fault-drills, deploy-production-k8s]
     if: failure()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:

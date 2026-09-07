@@ -12,7 +12,7 @@ permissions: {}
 jobs:
   rust-lint:
     name: Rust Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -39,8 +39,8 @@ jobs:
           key: arch-lint-tools-${{ runner.os }}-v1
       - name: Install cargo-deny + cargo-modules (if not cached)
         run: |
-          command -v cargo-deny    || cargo install --locked cargo-deny
-          command -v cargo-modules || cargo install --locked cargo-modules
+          command -v cargo-deny    || cargo install --locked cargo-deny@0.19.6
+          command -v cargo-modules || cargo install --locked cargo-modules@0.26.0
       - name: cargo-deny check
         run: cargo-deny check --hide-inclusion-graph
       - name: cargo modules snapshot diff
@@ -55,7 +55,7 @@ jobs:
 
   rust-test:
     name: Rust Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -150,7 +150,7 @@ jobs:
 
   go-lint:
     name: Go Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -182,7 +182,7 @@ jobs:
 
   go-unit:
     name: Go Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -204,6 +204,7 @@ jobs:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pinned-tools
       - uses: ./.github/actions/docker-hub-mirror
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -271,7 +272,7 @@ jobs:
 
   go-integration:
     name: Go Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
@@ -292,6 +293,7 @@ jobs:
       VICTORIAMETRICS_TEST_URL: http://127.0.0.1:8428
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pinned-tools
       - uses: ./.github/actions/docker-hub-mirror
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -349,7 +351,7 @@ jobs:
   golden:
     name: Golden File Verification (bidirectional)
     needs: [rust-test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -378,7 +380,7 @@ jobs:
 
   web-lint:
     name: Web Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -387,6 +389,7 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pinned-tools
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -426,7 +429,7 @@ jobs:
 
   web-unit:
     name: Web Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -485,7 +488,7 @@ jobs:
 
   web-integration:
     name: Web Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -526,7 +529,7 @@ jobs:
 
   web-bundle-size:
     name: Bundle Size Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -571,7 +574,7 @@ jobs:
 
   agent-binary:
     name: Agent Binary (browser stack)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
@@ -612,7 +615,7 @@ jobs:
     # alongside the unit failures instead of after them, cutting the
     # critical path roughly in half on PRs that touch web code.
     needs: [agent-binary]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions:
       contents: read
@@ -713,7 +716,7 @@ jobs:
     name: Deploy API Docs
     needs: [web-unit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     concurrency:
       group: gh-pages-deploy
@@ -746,7 +749,7 @@ jobs:
 
   config-lint:
     name: Config Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -755,10 +758,7 @@ jobs:
         with:
           fetch-depth: 0  # gitleaks scans git history
 
-      - name: Install pinned shell tools
-        run: |
-          scripts/install-shell-tools.sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-pinned-tools
       - name: Run shell quality gates
         run: |
           make shell-check
@@ -826,7 +826,7 @@ jobs:
       # L4 — Built-in policy scanning across terraform/dockerfile/github_actions/helm.
       # Baseline at .checkov.baseline pins the currently-accepted findings; see ADR-015.
       - name: Install checkov
-        run: pipx install checkov
+        run: pipx install checkov==3.3.16
       - name: Run checkov
         run: make iac-policy
 
@@ -836,7 +836,7 @@ jobs:
         run: make lint-k8s
 
       # YAML lint (deploy configs)
-      - run: pip install --user yamllint
+      - run: pip install --user yamllint==1.38.0
       - run: yamllint -c .yamllint.yml deploy/
 
       # Terraform format + validate. Pin to 1.9.x — `expect_failures` for
@@ -920,7 +920,7 @@ jobs:
 
   codeql-go:
     name: CodeQL Go
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -942,7 +942,7 @@ jobs:
 
   codeql-js:
     name: CodeQL TypeScript
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -959,7 +959,7 @@ jobs:
 
   codeql-rust:
     name: CodeQL Rust
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -978,7 +978,7 @@ jobs:
 
   security-audit:
     name: Security Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1055,7 +1055,7 @@ jobs:
 
   pentest-review:
     name: Pen-Test Gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1092,7 +1092,7 @@ jobs:
 
   sonarcloud:
     name: SonarCloud Analysis
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1195,7 +1195,7 @@ jobs:
     # commits complete in ~10s without paying for `terraform init`. That keeps
     # this safe to be a `needs:` of `merge-to-main` for every push.
     name: IaC plan + destroy-blocklist gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1421,7 +1421,7 @@ jobs:
       - web-bundle-size
       - iac-gate
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
       merged: ${{ steps.merge.outputs.merged }}
@@ -1490,7 +1490,7 @@ jobs:
     name: Auto-tag release
     needs: [merge-to-main]
     if: needs.merge-to-main.outputs.merged == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     concurrency:
       group: auto-tag
@@ -1668,7 +1668,7 @@ jobs:
     if: >-
       failure()
       && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read

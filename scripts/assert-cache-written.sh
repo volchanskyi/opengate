@@ -34,7 +34,7 @@ if ! KEYS="$(gh api --paginate "/repos/$REPO/actions/caches" --jq '.actions_cach
   exit 1
 fi
 
-if printf '%s\n' "$KEYS" | grep -qF -- "$FRAGMENT"; then
+if grep -qF -- "$FRAGMENT" <<<"$KEYS"; then
   echo "assert-cache-written: a cache key carries '$FRAGMENT'"
   exit 0
 fi

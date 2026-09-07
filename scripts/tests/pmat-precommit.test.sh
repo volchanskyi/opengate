@@ -54,7 +54,7 @@ esac
 path=""
 while [ $# -gt 0 ]; do [ "$1" = "-p" ] && path="${2:-}"; shift; done
 echo "🔍 Checking quality thresholds..."   # banner, like the real tool
-if [ -n "${STUB_FAIL_SUBSTR:-}" ] && printf '%s' "$path" | grep -q "$STUB_FAIL_SUBSTR"; then
+if [ -n "${STUB_FAIL_SUBSTR:-}" ] && grep -q "$STUB_FAIL_SUBSTR" <<<"$path"; then
   printf '{"passed":false,"violations":[{"path":"%s","new_grade":"C","new_score":64.8}],"message":"fail"}\n' "$path"
   exit 3
 fi

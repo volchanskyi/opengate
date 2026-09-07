@@ -32,7 +32,7 @@ cat >"$bin_dir/kubectl" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
 printf '%s\n' "$*" >"$KUBECTL_ARGS"
-if printf '%s' "$*" | grep -q '/api/v1/query'; then
+if grep -q '/api/v1/query' <<<"$*"; then
   case "${VM_WINDOW_FIXTURE:-vector}" in
     vector)
       cat <<'JSON'
@@ -121,8 +121,8 @@ echo "vm-query window mode:"
 
 if output="$(run_lib vm_query_window 'quantile(0.5, latency_ms[1h])')" \
   && [ "$(printf '%s\n' "$output" | grep -c .)" = "2" ] \
-  && printf '%s\n' "$output" | grep -qP '^phase=steady,scenario=login,source=edge\t12\.5$' \
-  && printf '%s\n' "$output" | grep -qP '^phase=steady,scenario=login,source=central\t9$' \
+  && grep -qP '^phase=steady,scenario=login,source=edge\t12\.5$' <<<"$output" \
+  && grep -qP '^phase=steady,scenario=login,source=central\t9$' <<<"$output" \
   && grep -qF 'http://private-vm.observability.svc:8428/api/v1/query' "$TMP_ROOT/kubectl.args" \
   && grep -qF 'quantile(0.5, latency_ms[1h])' "$TMP_ROOT/kubectl.args"; then
   pass "window returns per-series values keyed by sorted labels"

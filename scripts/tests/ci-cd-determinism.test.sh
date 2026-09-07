@@ -199,8 +199,8 @@ for f in "${GH_SOURCES[@]}"; do
     esac
     gh_seen=$((gh_seen + 1))
     # A field flag is what flips the inferred method to POST.
-    printf '%s' "$cmd" \
-      | grep -qE '(^|[[:space:]])(-f|-F|--field|--raw-field)([[:space:]=])' || continue
+    grep -qE '(^|[[:space:]])(-f|-F|--field|--raw-field)([[:space:]=])' \
+      <<<"$cmd" || continue
     gh_fielded=$((gh_fielded + 1))
     case "$cmd" in
       *'-X '* | *'--method '*) ;;

@@ -32,7 +32,7 @@ env:
 jobs:
   pmat-trend:
     name: PMAT trend + alert on regression
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40  # cold `cargo install pmat` compiles from source; cached thereafter
     # The observability environment scopes the Telegram + OCI secrets to
     # unattended alerting workflows (identical to mutation.yml's publish job).
@@ -44,6 +44,7 @@ jobs:
         with:
           fetch-depth: 1
 
+      - uses: ./.github/actions/setup-pinned-tools
       # -- Install pmat (exact pin), caching the compiled binary by version ----
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:

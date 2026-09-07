@@ -67,7 +67,7 @@ read_lease() {
     printf '%s' "$out"
     return 0
   fi
-  if printf '%s' "$err" | grep -qi 'not found'; then
+  if grep -qi 'not found' <<<"$err"; then
     return 0
   fi
   echo "staging-lease: reading the lease failed: $err" >&2
@@ -118,11 +118,11 @@ lease_is_expired() {
 # Every other refusal — a manifest the API will not decode, a credential without
 # the rights — is this run's own fault and ends it with the server's own words.
 create_lost_race() {
-  printf '%s' "$1" | grep -qiE 'alreadyexists|already exists'
+  grep -qiE 'alreadyexists|already exists' <<<"$1"
 }
 
 replace_lost_race() {
-  printf '%s' "$1" | grep -qiE 'conflict|notfound|not found'
+  grep -qiE 'conflict|notfound|not found' <<<"$1"
 }
 
 acquire() {

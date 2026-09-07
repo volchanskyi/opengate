@@ -61,7 +61,7 @@ esac
 
 [ -n "$new_content" ] || exit 0
 
-if printf '%s' "$new_content" | grep -qE "$pattern"; then
+if grep -qE "$pattern" <<<"$new_content"; then
   block test-skip "Write/Edit refused: introduces ${label} in $path. Tests must always run deterministically — no silent skips (.claude/rules/tests-determinism.md). Provision the dependency instead (e.g. internal/testpg auto-starts Postgres); for a focus marker, remove it."
 fi
 

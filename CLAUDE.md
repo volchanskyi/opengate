@@ -33,10 +33,12 @@ After completing significant work, update [`phases.md`](.claude/phases.md), [`te
 | [`rules/tdd.md`](.claude/rules/tdd.md) | write failing test before source code | `pretooluse-tdd-gate.sh`, `pretooluse-bash-source-write-guard.sh` |
 | [`rules/tests-determinism.md`](.claude/rules/tests-determinism.md) | tests always run — no silent skips (Go/web/Rust) | `pretooluse-test-skip-guard.sh` |
 | [`rules/test-value.md`](.claude/rules/test-value.md) | a test asserts on the code that ships, and restores what it patches | `pretooluse-test-value-guard.sh`, `test-value.test.sh` |
+| [`rules/assertion-determinism.md`](.claude/rules/assertion-determinism.md) | an assertion is not a pipeline — a match lost to `SIGPIPE` reads as a pass | `pipefail-sigpipe.test.sh` |
 | [`rules/precommit-refactor.md`](.claude/rules/precommit-refactor.md) | `/precommit` before commit; `/refactor` before push | commit/push guards via marker files |
 | [`rules/sonarcloud.md`](.claude/rules/sonarcloud.md) | quality-gate workflow; no suppressions without approval | `pretooluse-write-guard.sh` |
 | [`rules/coverage-exclusions.md`](.claude/rules/coverage-exclusions.md) | exclusions/suppressions are a last resort; per-entry justification, no directory globs | `sonar-coverage-exclusion-guard.sh` |
 | [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, ADR mutability + archived-plan-link rule | `pretooluse-write-guard.sh` |
+| [`rules/tool-versions.md`](.claude/rules/tool-versions.md) | one version, written down once — local and CI provision from the same manifest | `tool-version-parity.test.sh`, `toolchain-parity.sh` |
 | [`rules/cache-hygiene.md`](.claude/rules/cache-hygiene.md) | reclaim local build caches after every push | `post-push-clean-caches.sh`, `posttooluse-cache-clean.sh` |
 | [`rules/ci-cd-determinism.md`](.claude/rules/ci-cd-determinism.md) | a CI/CD step whose work was refused must not report success | `ci-cd-determinism.test.sh`, `assert-cache-written.sh` |
 | [`rules/docs-live-state.md`](.claude/rules/docs-live-state.md) | docs and comments describe live state only; the three-tree seam | `docs-live-state.test.sh`, `docs-seam.test.sh` |

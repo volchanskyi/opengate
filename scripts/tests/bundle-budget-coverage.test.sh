@@ -77,12 +77,12 @@ else
 fi
 
 for chunk in $named_chunks; do
-  if printf '%s\n' "$budgeted" | grep -qxF "$chunk"; then
+  if grep -qxF "$chunk" <<<"$budgeted"; then
     pass "the $chunk chunk carries its own budget"
   else
     fail "the $chunk chunk is split out but budgeted by nothing"
   fi
-  if printf '%s\n' "$excluded" | grep -qxF "$chunk"; then
+  if grep -qxF "$chunk" <<<"$excluded"; then
     pass "the $chunk chunk is subtracted from the whole-app total"
   else
     fail "the $chunk chunk is budgeted separately but still inside the app total — it would be counted twice"
@@ -90,7 +90,7 @@ for chunk in $named_chunks; do
 done
 
 for chunk in $excluded; do
-  if printf '%s\n' "$named_chunks" | grep -qxF "$chunk"; then
+  if grep -qxF "$chunk" <<<"$named_chunks"; then
     continue
   fi
   fail "the app total subtracts $chunk, which vite never splits out"

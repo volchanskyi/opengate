@@ -29,7 +29,7 @@ env:
 jobs:
   drift:
     name: Refresh-only plan + alert
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # See mutation.yml for the rationale on the `observability` environment.
     # This job needs DEPLOY_TELEGRAM_BOT_TOKEN / DEPLOY_TELEGRAM_CHAT_ID to
@@ -40,6 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-pinned-tools
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}

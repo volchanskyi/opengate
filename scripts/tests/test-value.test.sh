@@ -100,7 +100,7 @@ assert_check() {
 
 assert_check_stderr() {
   local name="$1" needle="$2"
-  if printf '%s' "$CHECK_STDERR" | grep -qF "$needle"; then
+  if grep -qF "$needle" <<<"$CHECK_STDERR"; then
     pass "$name"
   else
     fail "$name (stderr missing '$needle'; got: $(printf '%s' "$CHECK_STDERR" | head -1))"
@@ -351,7 +351,7 @@ print(json.dumps({"file_path": "web/src/lib/client.test.ts", "content": sys.argv
 ' "$copied")")"
 run_hook "$envelope"
 assert_hook "Write of a test that copies the module it is named for: BLOCK" 2
-if printf '%s' "$HOOK_STDERR" | grep -qF "test-value.md"; then
+if grep -qF "test-value.md" <<<"$HOOK_STDERR"; then
   pass "hook refusal cites the rule"
 else
   fail "hook refusal does not cite the rule (got: $(printf '%s' "$HOOK_STDERR" | head -1))"

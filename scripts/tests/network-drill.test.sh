@@ -38,13 +38,26 @@ assert_eq() {
   local name="$1" want="$2" got="$3"
   if [ "$want" = "$got" ]; then pass "$name"; else fail "$name (want=[$want] got=[$got])"; fi
 }
+# A measurement is a number, and how a number is rendered depends on the jq that
+# rendered it: 1.6 canonicalises the 17.700 the drill wrote down to 17.7, and
+# 1.7 keeps the literal. Comparing the rendering asserts on whichever jq the
+# machine happens to carry — green on a workstation, red on a runner. Comparing
+# the value asserts on the drill, which is what these cases are about.
+assert_num_eq() {
+  local name="$1" want="$2" got="$3"
+  if [ -n "$got" ] && awk -v a="$want" -v b="$got" 'BEGIN { exit !(a + 0 == b + 0) }'; then
+    pass "$name"
+  else
+    fail "$name (want=[$want] got=[$got])"
+  fi
+}
 assert_contains() {
   local name="$1" needle="$2" haystack="$3"
-  if printf '%s\n' "$haystack" | grep -qF -- "$needle"; then pass "$name"; else fail "$name (missing [$needle])"; fi
+  if grep -qF -- "$needle" <<<"$haystack"; then pass "$name"; else fail "$name (missing [$needle])"; fi
 }
 assert_lacks() {
   local name="$1" needle="$2" haystack="$3"
-  if printf '%s\n' "$haystack" | grep -qF -- "$needle"; then fail "$name (unexpected [$needle])"; else pass "$name"; fi
+  if grep -qF -- "$needle" <<<"$haystack"; then fail "$name (unexpected [$needle])"; else pass "$name"; fi
 }
 
 for f in "$RUNNER" "$POD_MANIFEST" "$SUMMARIZE" "$VM_PUSH" "$REGRESSION"; do
@@ -495,12 +508,12 @@ dropped_to_server="$(jq -r 'select(.metric == "netdrill_shaper_dropped_to_server
   "$WORK/measurements.jsonl")"
 dropped_to_machine="$(jq -r 'select(.metric == "netdrill_shaper_dropped_to_machine") | .value' \
   "$WORK/measurements.jsonl")"
-assert_eq "the drops toward the server are this scenario's own, not the running total" \
+assert_num_eq "the drops toward the server are this scenario's own, not the running total" \
   "40" "$dropped_to_server"
 # Nothing was dropped toward the machine while this scenario held the link, and
 # a scenario that dropped nothing in a direction says so rather than repeating
 # what the clock stood at.
-assert_eq "a direction this scenario did not disturb publishes nothing dropped" \
+assert_num_eq "a direction this scenario did not disturb publishes nothing dropped" \
   "0" "$dropped_to_machine"
 
 echo "== network-drill.sh: the link is left clear =="
@@ -625,19 +638,21 @@ out="$(run_drill s1 \
 rows="$(cat "$WORK/measurements.jsonl")"
 
 reconnect_value() {
-  jq -r --arg m "$1" --arg s "$2" 'select(.metric == $m and .scenario == $s) | .value' \
-    "$WORK/measurements.jsonl" | head -1
+  local all
+  all="$(jq -r --arg m "$1" --arg s "$2" 'select(.metric == $m and .scenario == $s) | .value' \
+    "$WORK/measurements.jsonl")"
+  head -1 <<<"$all"
 }
 
 # 17.7 seconds is what the site waited through; 0.315 is what the product spent.
 # The drill used to publish neither: it published a five-second poll of a status
 # the server writes, which read 18 and was gated against a floor of 120.
-assert_eq "the figure a site waits through comes from the machine's own clock" \
+assert_num_eq "the figure a site waits through comes from the machine's own clock" \
   "17.7" "$(reconnect_value netdrill_reconnect_seconds s1)"
-assert_eq "the reconnect itself is published beside it" \
+assert_num_eq "the reconnect itself is published beside it" \
   "0.315" "$(reconnect_value netdrill_reconnect_attempt_seconds s1)"
 assert_contains "a machine that came back says so as a reading" '"netdrill_reconnected"' "$rows"
-assert_eq "and that reading is one" "1" "$(reconnect_value netdrill_reconnected s1)"
+assert_num_eq "and that reading is one" "1" "$(reconnect_value netdrill_reconnected s1)"
 
 # The outage stops being a whole number of the machine's own timeouts, so the
 # figure it decides has somewhere to land other than the same value every night.

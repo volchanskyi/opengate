@@ -48,7 +48,7 @@ permissions:
 jobs:
   drill:
     name: Staging fault drill
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: staging
     # Longer than the longest bounded scenario: bad-rollout is a failing helm
     # upgrade (90s) + rollback + rollout verify (2x180s SLO) plus image pulls.

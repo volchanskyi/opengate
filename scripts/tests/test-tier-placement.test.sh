@@ -74,7 +74,7 @@ arrangement_files='harness_test.go|tenancy_and_access_test.go|intel_amt_test.go'
 reaching=""
 while IFS= read -r file; do
   base="$(basename "$file")"
-  printf '%s\n' "$base" | grep -qE "^($arrangement_files)$" && continue
+  grep -qE "^($arrangement_files)$" <<<"$base" && continue
   grep -qE "$repository_packages" "$file" && reaching="$reaching ${file#"$ROOT/"}"
 done < <(find "$ACCEPTANCE" -name '*_test.go' | sort)
 

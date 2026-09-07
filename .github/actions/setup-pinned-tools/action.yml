@@ -1,0 +1,44 @@
+name: Pinned shell tools
+description: >-
+  Install the ShellCheck, shfmt and jq versions named in
+  scripts/lib/tool-versions.sh and put them ahead of the runner image's own, so
+  a job runs the same tools the workstation's gauntlet does.
+
+  Use it in every job whose steps run any of those three. jq is the reason the
+  action exists rather than a per-job install line: 33 scripts in this
+  repository read JSON with it, and the runner image's jq and the workstation's
+  had disagreed about how a number is rendered, which passed the gauntlet and
+  failed CI with nothing in the diff naming jq at all.
+
+runs:
+  using: composite
+  steps:
+    - name: Install pinned shell tools
+      shell: bash
+      run: |
+        scripts/install-shell-tools.sh
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+    - name: Verify the pinned tools are the ones on PATH
+      shell: bash
+      # The install script checks what it wrote; this checks what the job will
+      # actually resolve, which is a different question once PATH has an image
+      # copy in it too. A tool that reports the wrong version here fails the job
+      # rather than quietly changing a result somewhere downstream.
+      run: |
+        set -euo pipefail
+        . scripts/lib/tool-versions.sh
+        fail=0
+        check() {
+          local name="$1" want="$2" got="$3"
+          if [ "$want" = "$got" ]; then
+            printf '  ok   %s %s\n' "$name" "$got"
+          else
+            printf '  FAIL %s is %s, pinned at %s\n' "$name" "$got" "$want" >&2
+            fail=1
+          fi
+        }
+        check jq "$TOOL_VERSION_JQ" "$(jq --version | sed 's/^jq-//')"
+        check shellcheck "$TOOL_VERSION_SHELLCHECK" \
+          "$(shellcheck --version | awk '/^version:/ { print $2 }')"
+        check shfmt "$TOOL_VERSION_SHFMT" "$(shfmt --version | sed 's/^v//')"
+        exit "$fail"

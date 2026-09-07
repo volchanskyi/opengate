@@ -17,7 +17,7 @@ permissions: {}
 jobs:
   check-agent-changed:
     name: Check agent/ changed since previous tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
@@ -43,7 +43,7 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: check-agent-changed
     if: needs.check-agent-changed.outputs.agent_changed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     strategy:
@@ -72,7 +72,11 @@ jobs:
 
       - name: Install cross tools
         if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: cargo install --locked cross --git https://github.com/cross-rs/cross
+        run: |
+          # Pinned to a rev rather than a tag: the cross-build needs main, and an
+          # unpinned --git install compiles a tree nobody has tested.
+          cargo install --locked cross \
+            --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27
 
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
@@ -115,7 +119,7 @@ jobs:
   release:
     name: Create Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Scoped here (vs workflow-level) so the gate + build jobs run with the
     # default read-only token. Only this job publishes to GitHub Releases.
     permissions:

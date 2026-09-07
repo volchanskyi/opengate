@@ -72,12 +72,12 @@ else
 fi
 
 for want in './internal/...' './tests/...'; do
-  if printf '%s\n' "$ci_patterns" | grep -qxF "$want"; then
+  if grep -qxF "$want" <<<"$ci_patterns"; then
     pass "CI runs $want"
   else
     fail "CI does not run $want"
   fi
-  if printf '%s\n' "$gauntlet_patterns" | grep -qxF "$want"; then
+  if grep -qxF "$want" <<<"$gauntlet_patterns"; then
     pass "the gauntlet runs $want"
   else
     fail "the gauntlet does not run $want"
@@ -105,20 +105,20 @@ fi
 integration_job="$(awk '/^  go-integration:/{flag=1} /^  golden:/{flag=0} flag' "$CI")"
 
 for var in POSTGRES_TEST_URL VICTORIAMETRICS_TEST_URL; do
-  if printf '%s\n' "$integration_job" | grep -q "$var:"; then
+  if grep -q "$var:" <<<"$integration_job"; then
     pass "the integration job exports $var"
   else
     fail "the integration job does not export $var — each package would start its own container"
   fi
 done
 
-if printf '%s\n' "$integration_job" | grep -q 'victoria-metrics:v'; then
+if grep -q 'victoria-metrics:v' <<<"$integration_job"; then
   pass "the integration job starts a pinned VictoriaMetrics"
 else
   fail "the integration job never starts VictoriaMetrics"
 fi
 
-if printf '%s\n' "$integration_job" | grep -q 'postgres:17-alpine'; then
+if grep -q 'postgres:17-alpine' <<<"$integration_job"; then
   pass "the integration job starts a pinned Postgres"
 else
   fail "the integration job never starts Postgres"
@@ -138,18 +138,18 @@ mutation_matrix="$(awk '/^  mutation:/{flag=1} /^  publish:/{flag=0} flag' "$MUT
 check_provisioned() {
   local label="$1" job="$2" var
   for var in POSTGRES_TEST_URL VICTORIAMETRICS_TEST_URL; do
-    if printf '%s\n' "$job" | grep -q "$var:"; then
+    if grep -q "$var:" <<<"$job"; then
       pass "$label exports $var"
     else
       fail "$label does not export $var — each package would start its own container"
     fi
   done
-  if printf '%s\n' "$job" | grep -q 'victoria-metrics:v'; then
+  if grep -q 'victoria-metrics:v' <<<"$job"; then
     pass "$label starts a pinned VictoriaMetrics"
   else
     fail "$label never starts VictoriaMetrics"
   fi
-  if printf '%s\n' "$job" | grep -q 'postgres:17-alpine'; then
+  if grep -q 'postgres:17-alpine' <<<"$job"; then
     pass "$label starts a pinned Postgres"
   else
     fail "$label never starts Postgres"

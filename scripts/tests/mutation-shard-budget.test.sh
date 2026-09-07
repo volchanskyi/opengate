@@ -70,7 +70,7 @@ else
 fi
 
 out="$(MUTATION_SHARD_COUNTER="$counter" "$GUARD" 2>&1)"
-if printf '%s' "$out" | grep -q 'rust-core-'; then
+if grep -q 'rust-core-' <<<"$out"; then
   pass "the refusal names the shard that is over"
 else
   fail "the refusal must name the offending shard (got: $out)"
@@ -211,7 +211,7 @@ if [ "$status" -ne 0 ]; then
 else
   fail "200 go-api-runtime mutants must be refused"
 fi
-if printf '%s' "$out" | grep -q 'go-api-runtime'; then
+if grep -q 'go-api-runtime' <<<"$out"; then
   pass "the Go refusal names the shard that is over"
 else
   fail "the Go refusal must name the offending shard (got: $out)"
@@ -219,7 +219,7 @@ fi
 
 # A shard the listing never mentions projects to zero rather than vanishing from
 # the table: a leg reported as absent reads as a leg nobody measured.
-if printf '%s' "$out" | grep -q 'go-domain-alerts-room'; then
+if grep -q 'go-domain-alerts-room' <<<"$out"; then
   pass "every Go shard is reported, including the ones the listing does not reach"
 else
   fail "the Go table must report every shard (got: $out)"

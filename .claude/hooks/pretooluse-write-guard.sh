@@ -46,8 +46,9 @@ esac
 # (plans/archive/…) are stable targets. Fold other rationale inline or point at
 # the mutable .claude/decisions.md index. Extract every plan link in the new
 # content and block if any is not under plans/archive/.
-if printf '%s' "$path" | grep -qE '(^|/)docs/adr/ADR-[0-9]+.*\.md$'; then
-  if printf '%s' "$new_content" | grep -oE '\]\([^)]*plans/[^)]*\.md' | grep -qvE 'plans/archive/'; then
+if grep -qE '(^|/)docs/adr/ADR-[0-9]+.*\.md$' <<<"$path"; then
+  plan_links="$(grep -oE '\]\([^)]*plans/[^)]*\.md' <<<"$new_content" || true)"
+  if [ -n "$plan_links" ] && grep -qvE 'plans/archive/' <<<"$plan_links"; then
     block adr-plan-link "Write/Edit refused: $path links a non-archived plan file ( ](…plans/….md) ). ADRs may link only archived plans (plans/archive/…) — other plan links rot when the plan moves. Fold the rationale inline or reference .claude/decisions.md. .claude/rules/plans-and-adrs.md."
   fi
 fi
@@ -57,7 +58,7 @@ if [ -n "$new_content" ]; then
   while IFS= read -r -d '' pattern_pair; do
     pattern="${pattern_pair%%|*}"
     label="${pattern_pair#*|}"
-    if printf '%s' "$new_content" | grep -qE "$pattern"; then
+    if grep -qE "$pattern" <<<"$new_content"; then
       block sonar-suppress "Write/Edit refused: introduces ${label} in $path. .claude/rules/sonarcloud.md: no suppression without approval. Restructure the code so the linter is satisfied."
     fi
   done < <(printf '%s\0%s\0%s\0%s\0%s\0' \
