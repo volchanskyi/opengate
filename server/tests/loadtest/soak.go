@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -42,6 +43,19 @@ type loadOptions struct {
 	// answered is a count of the sessions completed. Nil counts nothing, which
 	// is what a unit test driving one agent wants.
 	sessionsJoined *atomic.Int64
+
+	// reconnect keeps a machine in the run after its connection breaks, so a
+	// fleet standing behind a link that goes dark is still there when the link
+	// returns. Off by default: a run measuring what a server carries wants a
+	// severance reported rather than repaired.
+	reconnect bool
+
+	// retryDeferred makes a machine ask again when the server tells it to wait
+	// for a catch-up slot, which is what a shipped agent does — the scheduler
+	// admits four per customer and shortens a deferred machine's wait the
+	// longer it waits. Off by default: a load run sheds the load instead, so
+	// the deferral path is measured rather than queued through.
+	retryDeferred bool
 }
 
 // defaultMetricDimNames is every host metric dimension a machine writes, in the
@@ -153,11 +167,11 @@ func readControlFrame(codec *protocol.Codec, r io.Reader) (*protocol.ControlMess
 // reconnect-storm backfill drain, optionally answers one on-demand raw-log pull
 // (the agent side of the broker round-trip), and then holds the connection open
 // for as long as the run asked, answering whatever the server sends.
-func runSoakTraffic(codec *protocol.Codec, stream soakStream, opts loadOptions) error {
+func runSoakTraffic(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) error {
 	if err := emitDefaultTelemetry(codec, stream, opts); err != nil {
 		return err
 	}
-	if _, err := drainBackfill(codec, stream, opts); err != nil {
+	if _, err := drainBackfill(ctx, codec, stream, opts); err != nil {
 		return err
 	}
 	if err := emitMetricWindows(codec, stream, opts.metricWindows); err != nil {

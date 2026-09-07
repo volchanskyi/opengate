@@ -21,6 +21,12 @@
 #   SHAPER_URL         the shaper's cluster-internal control endpoint
 #   SERVER_URL         the server's in-cluster API base
 #   DEVICE_ID          the real machine this scenario measures
+#   MACHINE_POD        that machine's pod (required) — its own log is where the
+#                      reconnect actually happened, and a five-second poll of a
+#                      status the server writes is not a reading of it
+#   FLEET_PREFIX       the name this run's simulated machines carry (required),
+#                      so a scenario can count its own herd rather than whatever
+#                      else is in the tenant
 #   API_TOKEN          bearer token for the reads above
 #   EVIDENCE_DIR       where the per-phase counters and readings are kept
 #   MEASUREMENTS_FILE  one JSON row per measurement, appended
@@ -50,6 +56,28 @@ POLL_SECONDS="${NETDRILL_POLL_SECONDS:-5}"
 # How much of the chart window has to come back for the gap to count as filled.
 GAP_FILL_TARGET="${NETDRILL_GAP_FILL_TARGET:-0.95}"
 
+# How far the first scenario's outage moves either side of the declared length,
+# drawn from the run's own seed.
+#
+# A fixed three minutes is two whole idle timeouts, so the machine met the
+# restored link at the same point in its own cycle on every night and the figure
+# that decides read the same number twice — 13 one night, 18 the next, against a
+# floor of 120 it could not reach. Moving the length moves where in that cycle
+# the link returns, which is the only thing that gives the figure a spread.
+FAULT_SPREAD_SECONDS="${NETDRILL_FAULT_SPREAD_SECONDS:-90}"
+SHAPER_SEED="${SHAPER_SEED:-0}"
+
+# How much of the herd has to be behind the link before a catch-up is a site
+# catching up. The server admits four drains per customer, so eight is four
+# draining with four more waiting — the smallest fleet that produces the queue
+# the thin-uplink scenario is about.
+FLEET_MINIMUM="${NETDRILL_FLEET_MINIMUM:-8}"
+
+# What the machine writes as it loses a link and gets it back.
+LOST_MARK="connection lost, will reconnect"
+ATTEMPT_FAILED_MARK="connection attempt failed"
+RECONNECTED_MARK="reconnected successfully"
+
 SCENARIO="${1:-}"
 
 die() {
@@ -76,6 +104,8 @@ command -v jq >/dev/null 2>&1 || die "jq not found on PATH"
 : "${SHAPER_URL:?SHAPER_URL is required}"
 : "${SERVER_URL:?SERVER_URL is required}"
 : "${DEVICE_ID:?DEVICE_ID is required — a drill with no machine to measure measures nothing}"
+: "${MACHINE_POD:?MACHINE_POD is required — the reconnect figure is the account that machine itself keeps of when it came back}"
+: "${FLEET_PREFIX:?FLEET_PREFIX is required — a scenario that cannot name its herd cannot tell whether it was there}"
 
 SHAPER_POD="${SHAPER_POD:-unknown}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-/tmp/opengate-fault-state/network-drill}"
@@ -232,6 +262,115 @@ gap_fill_ratio() {
   ' <<<"$body"
 }
 
+# The machine's own clock, so both ends of a reconnect figure are read off one
+# clock. The link is restored by a runner outside the cluster and the machine
+# writes its log inside it, and seconds of skew between the two would land
+# straight in a figure measured in seconds.
+machine_clock_now() {
+  kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- date -u +%s.%N 2>/dev/null
+}
+
+# What the machine wrote from the given moment onward.
+machine_log_since() {
+  local since="$1"
+  kubectl -n "$NAMESPACE" logs "$MACHINE_POD" --timestamps --since-time="$since" 2>/dev/null
+}
+
+# The moment one log line was written, as seconds. It is the stamp kubectl puts
+# in front of the line rather than the one the agent's own formatter writes:
+# both are the node's clock, and the stamped one needs no assumption about a
+# formatter that wraps its timestamp in terminal escapes.
+log_epoch() {
+  local stamp
+  stamp="${1%% *}"
+  [ -n "$stamp" ] || return 1
+  date -u -d "$stamp" +%s.%N 2>/dev/null
+}
+
+at_or_after() {
+  awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 >= b + 0) }'
+}
+
+# Two figures about one reconnect, or nothing at all.
+#
+# The first is what a site waits through: the link is back at this moment and
+# the machine is on it that many seconds later. The second is what the machine
+# itself spent: from its last failed attempt to being back.
+#
+# They differ by where in its own cycle the machine met the restored link, and
+# that difference is most of the figure. On the night this was written the site
+# waited 17.7 seconds and the reconnect took 0.315 of one — the machine was
+# sitting inside a ninety-second attempt that could not finish, and the link came
+# back part way through it.
+#
+# Nothing at all, rather than a zero, when the log could not be read or carries
+# no return after the link came back. A log the drill could not read is the
+# drill failing to observe; it is not a machine that failed to come back, and
+# the reading that answers that question is taken from the status poll.
+reconnect_from_machine_log() {
+  local since="$1" restored="$2"
+  local log line stamp back="" last_fail=""
+
+  [ -n "$restored" ] || return 1
+  log="$(machine_log_since "$since")" || return 1
+  [ -n "$log" ] || return 1
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    stamp="$(log_epoch "$line")" || continue
+    [ -n "$stamp" ] || continue
+    if [ -n "$back" ]; then
+      continue
+    fi
+    case "$line" in
+      *"$RECONNECTED_MARK"*)
+        if at_or_after "$stamp" "$restored"; then
+          back="$stamp"
+        fi
+        ;;
+      *"$ATTEMPT_FAILED_MARK"*) last_fail="$stamp" ;;
+      *"$LOST_MARK"*)
+        if [ -z "$last_fail" ]; then
+          last_fail="$stamp"
+        fi
+        ;;
+    esac
+  done <<<"$log"
+
+  [ -n "$back" ] || return 1
+
+  local waited spent=""
+  waited="$(awk -v b="$back" -v r="$restored" 'BEGIN { printf "%.3f", b - r }')"
+  if [ -n "$last_fail" ]; then
+    spent="$(awk -v b="$back" -v f="$last_fail" 'BEGIN { printf "%.3f", b - f }')"
+  fi
+  printf '%s %s\n' "$waited" "$spent"
+}
+
+# How many of this run's own simulated machines the server currently has online.
+#
+# Read from the product's device list rather than from the shaper, whose
+# machines field is an idle-mapping expiry: it went on reading 21 for ten
+# minutes after the herd had left, and first read 1 twenty minutes after.
+fleet_online() {
+  local body
+  body="$(api_get "/api/v1/devices")" || return 1
+  jq -r --arg p "${FLEET_PREFIX}-" \
+    '[ .[] | select((.hostname // "") | startswith($p)) | select(.status == "online") ] | length' \
+    <<<"$body" 2>/dev/null
+}
+
+# The first scenario's outage length, moved off the machine's own timeouts by
+# the run's seed so the figure it decides is not the same number every night.
+# A collapsed phase clock stays collapsed, so a calibration run is unaffected.
+outage_seconds() {
+  if [ "$FAULT_SECONDS" -le 0 ] || [ "$FAULT_SPREAD_SECONDS" -le 0 ]; then
+    printf '%s\n' "$FAULT_SECONDS"
+    return 0
+  fi
+  printf '%s\n' "$((FAULT_SECONDS - FAULT_SPREAD_SECONDS / 2 + SHAPER_SEED % FAULT_SPREAD_SECONDS))"
+}
+
 # --- what the scenario produces ----------------------------------------------
 
 # One measurement. The labels are the ones the trend is sliced by; the value is
@@ -253,6 +392,31 @@ emit_shaper_counters() {
   local body="$1"
   emit netdrill_shaper_dropped_to_server link "$(dropped_since_opening "$body" to_server)"
   emit netdrill_shaper_dropped_to_machine link "$(dropped_since_opening "$body" to_machine)"
+}
+
+# The two reconnect figures, when the machine's own log has them. A scenario
+# whose log could not be read publishes neither, and still publishes everything
+# else it measured.
+emit_reconnect_figures() {
+  local since="$1" restored_epoch="$2" figures waited spent
+  figures="$(reconnect_from_machine_log "$since" "$restored_epoch")" || return 0
+  read -r waited spent <<<"$figures"
+  emit netdrill_reconnect_seconds real "$waited"
+  emit netdrill_reconnect_attempt_seconds real "$spent"
+}
+
+# Whether the machine came back at all, which is a different question from how
+# long it took and is answered by a different reading. The status poll answers
+# empty for a machine that never returned inside the budget, and refuses
+# outright when it could not read the status at all — so an empty answer here is
+# the machine, not the drill.
+emit_reconnected() {
+  local online_at="$1"
+  if [ -n "$online_at" ]; then
+    emit netdrill_reconnected real 1
+  else
+    emit netdrill_reconnected real 0
+  fi
 }
 
 # A scenario whose drop count does not match its instruction did not run. This
@@ -303,25 +467,33 @@ THIN_UPLINK='{"rate_bits_per_sec":2000000,"max_queue_ms":1000}'
 # Three minutes exceeds the 90 s idle timeout, so the connection genuinely dies
 # rather than stalling: a stalled connection never exercises reconnect at all.
 run_s1() {
-  local dark_from dark_to restored online_at ratio filled_at
+  local dark_from dark_to restored restored_epoch online_at ratio filled_at outage
 
   impair "$PASS_THROUGH"
   open_counters
   hold "$BASELINE_SECONDS"
 
+  outage="$(outage_seconds)"
   dark_from="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   impair "$BLACKHOLE"
-  hold "$FAULT_SECONDS"
+  hold "$outage"
   read_counters fault
   require_dropped "$COUNTERS"
   dark_to="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   impair "$PASS_THROUGH"
   restored="$(date +%s)"
+  # Read before anything else in the recovery, because it is the moment the
+  # figures below are measured from.
+  restored_epoch="$(machine_clock_now || true)"
+  # The length this night actually ran, published so the figures it decides can
+  # be read against it rather than assumed to share a window.
+  emit netdrill_outage_seconds link "$outage"
 
   online_at="$(wait_until_online "$restored" "$RECOVERY_SECONDS")" \
     || inconclusive "the drill never read the machine's status while waiting for it to come back"
-  emit netdrill_reconnect_seconds real "$online_at"
+  emit_reconnected "$online_at"
+  emit_reconnect_figures "$dark_from" "$restored_epoch"
 
   filled_at="$(wait_until_filled "$restored" "$dark_from" "$dark_to" "$RECOVERY_SECONDS")"
   emit netdrill_backfill_complete_seconds real "$filled_at"
@@ -339,11 +511,12 @@ run_s1() {
 # one that measures a catch-up batch sitting ahead of the next heartbeat on the
 # one ordered stream the machine sends everything over.
 run_s2() {
-  local restored back staleness transitions watched
+  local dark_from restored restored_epoch back herd staleness transitions watched
 
   impair "$PASS_THROUGH"
   open_counters
 
+  dark_from="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   impair "$BLACKHOLE"
   hold "$FAULT_SECONDS"
   read_counters fault
@@ -351,6 +524,7 @@ run_s2() {
 
   impair "$THIN_UPLINK"
   restored="$(date +%s)"
+  restored_epoch="$(machine_clock_now || true)"
 
   # The machine has to be back before its staleness means anything. Measured
   # from the restore, the number would be the outage's own three minutes on
@@ -359,8 +533,22 @@ run_s2() {
   # catches up*.
   back="$(wait_until_online "$restored" "$RECOVERY_SECONDS")" \
     || inconclusive "the drill never read the machine's status while waiting for it to come back over the thin uplink"
-  emit netdrill_reconnect_seconds real "$back"
+  emit_reconnected "$back"
+  emit_reconnect_figures "$dark_from" "$restored_epoch"
   [ -n "$back" ] || inconclusive "the machine never came back over the thin uplink, so there was no catch-up to watch"
+
+  # And the herd has to be back, because a site is what this scenario measures.
+  # One machine catching up over a two-megabit link uses under half of it; four
+  # of them, which is what the server admits per customer, ask for nearly twice
+  # what the link has. Without the herd the figure below is a reading of an
+  # uncontended link — and it becomes the baseline that a night with a real herd
+  # is then measured against, so the night that fixes the fleet reads as the
+  # regression.
+  herd="$(fleet_online)" \
+    || inconclusive "the drill could not read how much of its herd was behind the link"
+  emit netdrill_fleet_online fleet "$herd"
+  [ "${herd:-0}" -ge "$FLEET_MINIMUM" ] \
+    || inconclusive "only ${herd:-0} of the herd was behind the link, and this scenario measures a site catching up rather than one machine on an empty one"
 
   watched="$(watch_liveness "$((RECOVERY_SECONDS - back))")" \
     || inconclusive "the drill never read the machine's status while the site caught up"
