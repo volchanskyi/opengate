@@ -22,7 +22,7 @@ func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts 
 	// short and report the run's own timeout as the server dropping machines.
 	ctx, cancel := context.WithTimeout(context.Background(), agentDeadline+opts.holdFor)
 	defer cancel()
-	return runAgentWithContext(ctx, credentials, addr, plan, opts)
+	return runAgentWithContext(ctx, credentials, addr, plan, opts, nil)
 }
 
 // runAgentWithContext is one machine's whole life, bounded by the caller's
@@ -34,12 +34,12 @@ func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts 
 // machine that comes back after an outage is the same machine — the server
 // knows it by its certificate, and re-enrolling would put a second machine in
 // the customer's list every time a link flapped.
-// arrived is called the moment this machine is part of the fleet, so a fleet
-// walking phases can count an arrival in the phase it happened in rather than
-// in whichever phase the machine's life ended in. It is optional: a run with
-// nobody keeping a tally passes none.
+// noteArrival is called the moment this machine is part of the fleet, so a
+// fleet walking phases can count an arrival in the phase it happened in rather
+// than in whichever phase the machine's life ended in. A run with nobody
+// keeping a tally passes nil.
 func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr string,
-	plan tenantAgent, opts loadOptions, arrived ...func(),
+	plan tenantAgent, opts loadOptions, noteArrival func(),
 ) agentResult {
 	tlsConfig, err := credentials.forAgent(ctx, plan)
 	if err != nil {
@@ -54,7 +54,7 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 	return persistThrough(ctx, opts, func(ctx context.Context) agentResult {
 		thisConnection := opts
 		thisConnection.holdFor = time.Until(leaveAt)
-		return serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection, arrived...)
+		return serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection, noteArrival)
 	})
 }
 
@@ -62,7 +62,7 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 // register, do its traffic, and stay until the connection breaks or the run
 // ends. Coming back afterwards is persistThrough's decision, not this one's.
 func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
-	plan tenantAgent, opts loadOptions, arrived ...func(),
+	plan tenantAgent, opts loadOptions, noteArrival func(),
 ) agentResult {
 	// Connect.
 	t0 := time.Now()
@@ -102,8 +102,8 @@ func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 	// fleet arriving. Whoever is keeping a tally is told now, because the
 	// machine outlives the phase it arrived in.
 	res.arrivedAt = time.Now()
-	for _, note := range arrived {
-		note()
+	if noteArrival != nil {
+		noteArrival()
 	}
 
 	if err := runSoakTraffic(ctx, codec, stream, opts); err != nil {

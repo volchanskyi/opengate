@@ -20,7 +20,7 @@ import (
 func TestAMachineThatCompletesLeavesTheConnectedCount(t *testing.T) {
 	release := make(chan struct{})
 	var started atomic.Int64
-	fleet := NewQUICFleet(func(ctx context.Context, _ int, arrived func()) agentResult {
+	fleet := NewQUICFleet(func(ctx context.Context, _ int, noteArrival func()) agentResult {
 		started.Add(1)
 		select {
 		case <-release:
@@ -70,12 +70,12 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 		{err: ErrEnrollmentRefused},
 	}
 	var next atomic.Int64
-	fleet := NewQUICFleet(func(_ context.Context, _ int, arrived func()) agentResult {
+	fleet := NewQUICFleet(func(_ context.Context, _ int, noteArrival func()) agentResult {
 		result := outcomes[next.Add(1)-1]
 		// A machine says so when it reaches registered, which the two that
 		// carry an arrival time did and the three that carry an error did not.
 		if !result.arrivedAt.IsZero() {
-			arrived()
+			noteArrival()
 		}
 		return result
 	})
@@ -97,7 +97,7 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 func TestProbeLatencyIsALiveRoundTrip(t *testing.T) {
 	var probes atomic.Int64
 	fleet := NewQUICFleetWithProbe(
-		func(ctx context.Context, _ int, arrived func()) agentResult {
+		func(ctx context.Context, _ int, noteArrival func()) agentResult {
 			<-ctx.Done()
 			return agentResult{}
 		},
@@ -115,7 +115,7 @@ func TestProbeLatencyIsALiveRoundTrip(t *testing.T) {
 // the fastest reading ever recorded, and this is the opposite of one.
 func TestAProbeThatFailsReportsNoLatency(t *testing.T) {
 	fleet := NewQUICFleetWithProbe(
-		func(ctx context.Context, _ int, arrived func()) agentResult {
+		func(ctx context.Context, _ int, noteArrival func()) agentResult {
 			<-ctx.Done()
 			return agentResult{}
 		},
@@ -145,8 +145,8 @@ func TestAFleetWithNoProberReportsNoLatency(t *testing.T) {
 // a run for load never offered fired on all five legs of a sweep whose fleets
 // had all arrived. An arrival is counted where it happens.
 func TestArrivalsAreCountedWhileTheMachinesAreStillHeld(t *testing.T) {
-	fleet := NewQUICFleet(func(ctx context.Context, _ int, arrived func()) agentResult {
-		arrived()
+	fleet := NewQUICFleet(func(ctx context.Context, _ int, noteArrival func()) agentResult {
+		noteArrival()
 		<-ctx.Done()
 		return agentResult{connectDur: time.Millisecond}
 	})
@@ -181,8 +181,8 @@ func TestAMachineThatNeverArrivedIsCountedOnceAsAFailure(t *testing.T) {
 // tally twice and reports an error rate for a phase whose every machine turned
 // up.
 func TestAnArrivedMachineThatIsSeveredIsAFaultRatherThanAFailedArrival(t *testing.T) {
-	fleet := NewQUICFleet(func(_ context.Context, _ int, arrived func()) agentResult {
-		arrived()
+	fleet := NewQUICFleet(func(_ context.Context, _ int, noteArrival func()) agentResult {
+		noteArrival()
 		return agentResult{err: ErrHeldPeerGone}
 	})
 	defer fleet.Stop()

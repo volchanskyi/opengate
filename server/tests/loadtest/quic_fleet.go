@@ -21,9 +21,9 @@ import (
 // and that is exercised without a server on the other end.
 
 // StartAgent is one machine's whole life. It reports its own arrival — the
-// moment it is connected, handshook and registered — by calling arrived, and
-// returns when the context is cancelled, or earlier if the machine could not
-// connect at all.
+// moment it is connected, handshook and registered — by calling noteArrival,
+// and returns when the context is cancelled, or earlier if the machine could
+// not connect at all.
 //
 // The arrival is signalled where it happens rather than read off the result,
 // because a phase is a window in time and a machine that arrives inside one is
@@ -31,7 +31,7 @@ import (
 // whichever phase the machine's life happened to end in — which for a fleet
 // held to the end of the walk is no phase at all, so every phase of every
 // profiled run reported no arrivals against an offer it had met.
-type StartAgent func(ctx context.Context, index int, arrived func()) agentResult
+type StartAgent func(ctx context.Context, index int, noteArrival func()) agentResult
 
 // ProbeRoundTrip dials one machine, takes it all the way to registered, and
 // hangs up — reporting how long that took.
@@ -115,16 +115,7 @@ func (f *QUICFleet) startOne() {
 	var arrived atomic.Bool
 	go func() {
 		defer f.wg.Done()
-		result := f.start(ctx, index, func() {
-			// Once. A machine that comes back after an outage is the same
-			// machine returning, which persistThrough counts as a reconnection
-			// rather than as a second arrival.
-			if arrived.CompareAndSwap(false, true) {
-				f.mu.Lock()
-				f.outcomes.Arrived++
-				f.mu.Unlock()
-			}
-		})
+		result := f.start(ctx, index, func() { f.noteArrival(&arrived) })
 
 		f.mu.Lock()
 		f.results = append(f.results, result)
@@ -145,6 +136,21 @@ func (f *QUICFleet) startOne() {
 		f.mu.Unlock()
 		cancel()
 	}()
+}
+
+// noteArrival counts one machine reaching registered, once.
+//
+// A machine that comes back after an outage is the same machine returning,
+// which persistThrough counts as a reconnection rather than as a second
+// arrival — so the flag it is given is what decides, not the number of times
+// the machine said so.
+func (f *QUICFleet) noteArrival(arrived *atomic.Bool) {
+	if !arrived.CompareAndSwap(false, true) {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.outcomes.Arrived++
 }
 
 // stopOne winds down the most recently started machine.
