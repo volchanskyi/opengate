@@ -114,6 +114,11 @@ func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname 
 // unregisterConn releases the device's status and closes the stream and
 // connection.
 func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *AgentConn, hostname string, logger *slog.Logger) {
+	// First, so nothing writes down a connection the server has stopped
+	// treating as the machine's. A handler that resolved this connection a
+	// moment ago is still holding it, and the writes below take several
+	// database round trips to reach the close.
+	ac.markReleased()
 	// Free any backfill admission slot this connection held so a reconnect (or
 	// another agent) can drain. Idempotent for agents that never backfilled, and
 	// a no-op when the server carries no scheduler.

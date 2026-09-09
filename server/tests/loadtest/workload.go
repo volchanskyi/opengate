@@ -79,9 +79,9 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 	}
 
 	fleet := NewQUICFleetWithProbe(
-		func(ctx context.Context, index int) agentResult {
+		func(ctx context.Context, index int, noteArrival func()) agentResult {
 			plan := agentPlan[index%len(agentPlan)]
-			return runAgentWithContext(ctx, credentials, addr, plan, opts)
+			return runAgentWithContext(ctx, credentials, addr, plan, opts, noteArrival)
 		},
 		phaseProbe(agentPlan, credentials, addr, opts))
 
@@ -162,7 +162,7 @@ func phaseProbe(agentPlan []tenantAgent, credentials agentCredentials, addr stri
 			agentIndex:  agentPlan[0].agentIndex,
 			hostname:    fmt.Sprintf("%s-probe-%d", agentPlan[0].hostname, next.Add(1)),
 		}
-		result := runAgentWithContext(ctx, credentials, addr, plan, probeOpts)
+		result := runAgentWithContext(ctx, credentials, addr, plan, probeOpts, nil)
 		if result.err != nil {
 			return 0, result.err
 		}

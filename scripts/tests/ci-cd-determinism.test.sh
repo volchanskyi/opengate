@@ -298,6 +298,99 @@ else
   fail "a script refuses to run without an input its caller never names:$env_bad"
 fi
 
+# --- a status read after errexit has already killed the shell ----------------
+#
+# A step that wants to branch on a command's exit code writes the shape
+# `cmd; rc=$?; if [ "$rc" -eq 2 ]; then …`. GitHub runs every `run:` block under
+# `bash -e`, so a non-zero `cmd` ends the step at `cmd` and `rc=$?` is never
+# reached: the whole branch below it is unreachable, and the step reports the
+# failure it was written to interpret.
+#
+# The nightly drill's publish job lost a night to it. Its regression check
+# captured the script's output into a variable, read `$?` on the next line, and
+# printed the output on the line after that — so a run with a regression died at
+# the assignment, printed nothing at all, and never reached the branch that
+# raises the alert. Its scenario loop carries the same shape around the exit code
+# that means "this scenario could not observe the system", which the comment
+# beside it calls "not a failed drill".
+#
+# The demonstration comes first, so a guard that has stopped reproducing the
+# defect fails rather than quietly policing a non-problem.
+demo_captured=$(
+  bash -e -c '
+    reached=no
+    false
+    rc=$?
+    reached=yes
+    echo "rc=$rc reached=$reached"
+  ' 2>/dev/null || true
+)
+demo_guarded=$(
+  bash -e -c '
+    set +e
+    false
+    rc=$?
+    set -e
+    echo "rc=$rc reached=yes"
+  ' 2>/dev/null || true
+)
+if [ -z "$demo_captured" ] && [ "$demo_guarded" = "rc=1 reached=yes" ]; then
+  pass "a status read under errexit is unreachable, and a guarded one is not"
+else
+  fail "the errexit demonstration no longer reproduces (unguarded='$demo_captured' guarded='$demo_guarded')"
+fi
+
+# The sweep. Every `run:` block is read whole — GitHub's `run: |` body is the
+# lines indented past the key — and a block that reads `$?` has to have turned
+# errexit off first, or to have taken the status on the failing command's own
+# line with `|| var=$?`, which errexit does not fire on.
+status_blocks=0
+status_bad=""
+while IFS= read -r finding; do
+  case "$finding" in
+    COUNT*) status_blocks=$((status_blocks + ${finding#COUNT })) ;;
+    *) status_bad="$status_bad"$'\n'"      $finding" ;;
+  esac
+done < <(
+  for wf in "$WORKFLOWS"/*.yml; do
+    awk -v file="$(basename "$wf")" '
+      # A run: block starts at "run:" and holds every line indented past it.
+      /^[[:space:]]*(-[[:space:]]+)?run:/ {
+        match($0, /^[[:space:]]*/)
+        indent = RLENGTH
+        inblock = 1; guarded = 0; captures = 0; start = NR
+        next
+      }
+      inblock {
+        if ($0 ~ /^[[:space:]]*$/) next
+        match($0, /^[[:space:]]*/)
+        if (RLENGTH <= indent) { inblock = 0 }
+      }
+      inblock {
+        if ($0 ~ /set[[:space:]]+\+e/) guarded = 1
+        # A status taken on the failing command line survives errexit.
+        if ($0 ~ /\|\|[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/) next
+        if ($0 ~ /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?[[:space:]]*$/) {
+          captures++
+          if (!guarded) {
+            printf "%s line %d reads $? under errexit, so the branch below it is unreachable\n", file, NR
+          }
+        }
+      }
+      !inblock && captures > 0 { blocks += 1; captures = 0 }
+      { if (!inblock) captures = 0 }
+      END { printf "COUNT %d\n", blocks + 0 }
+    ' "$wf"
+  done
+)
+if [ "$status_blocks" -eq 0 ]; then
+  fail "the errexit status sweep reached no status read at all, so it is asserting an absence it never tested"
+elif [ -z "$status_bad" ]; then
+  pass "each of $status_blocks workflow steps reading an exit status turns errexit off first"
+else
+  fail "a workflow step reads an exit status errexit has already acted on:$status_bad"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

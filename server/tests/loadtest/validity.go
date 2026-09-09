@@ -31,12 +31,24 @@ const (
 	ResultInvalid Result = "invalid"
 )
 
-// Generator-saturation thresholds. Past either of these the run is measuring
-// the generator rather than the target, and no amount of care about the target
+// Generator-saturation thresholds. Past any of these the run is measuring the
+// generator rather than the target, and no amount of care about the target
 // makes the number mean anything.
+//
+// They fall on a reading of the generator's own allowance and not on a reading
+// of a box it shares with the system under test: what a shared box has left is
+// what the two of them have left together, and on the throwaway venue driving
+// that box hard is the experiment. Whether the load was offered at all is
+// answered there by attainment, which is a reading of the fleet.
 const (
 	minGeneratorCPUHeadroomPercent = 20.0
 	maxGeneratorMemoryUsedPercent  = 90.0
+	// maxGeneratorCPURefusedPercent is how much of a run the generator may
+	// spend runnable and denied the processor. Past a fifth of the run, that
+	// wait is inside every round trip the generator timed, so the latencies
+	// describe the queue the generator sat in rather than the server it was
+	// talking to.
+	maxGeneratorCPURefusedPercent = 20.0
 )
 
 // defaultMaxErrorRate is the ceiling used when a run classifies without a
@@ -157,16 +169,7 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 		reasons = append(reasons,
 			"the generator was not measured, and a run that cannot say how much room its own generator had cannot say what its numbers are about")
 	}
-	if in.Headroom.Measured && in.Headroom.CPUHeadroomPercent < minGeneratorCPUHeadroomPercent {
-		reasons = append(reasons, fmt.Sprintf(
-			"generator had %.1f%% processor headroom (floor %.0f%%), so the run measured the generator",
-			in.Headroom.CPUHeadroomPercent, minGeneratorCPUHeadroomPercent))
-	}
-	if in.Headroom.Measured && in.Headroom.MemoryUsedPercent > maxGeneratorMemoryUsedPercent {
-		reasons = append(reasons, fmt.Sprintf(
-			"generator memory reached %.1f%% (ceiling %.0f%%), so the run measured the generator",
-			in.Headroom.MemoryUsedPercent, maxGeneratorMemoryUsedPercent))
-	}
+	reasons = append(reasons, generatorReasons(in.Headroom)...)
 
 	// A target that was replaced invalidates rather than fails. The numbers
 	// either side of the restart were measured against two different processes,
@@ -184,6 +187,37 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 	}
 
 	reasons = append(reasons, phaseReasons(in)...)
+	return reasons
+}
+
+// generatorReasons collects the ways a run measured its own generator.
+//
+// Only a reading of the generator's own allowance can say so. A reading of a
+// box the generator shares with the system under test is carried as evidence
+// and gated by nothing here: it describes the pair, and reading a busy shared
+// box as a starved generator would invalidate every run on the venue built to
+// drive that box hard.
+func generatorReasons(headroom Headroom) []string {
+	if !headroom.Measured || headroom.Scope != headroomScopeGenerator {
+		return nil
+	}
+
+	var reasons []string
+	if headroom.CPUHeadroomPercent < minGeneratorCPUHeadroomPercent {
+		reasons = append(reasons, fmt.Sprintf(
+			"generator had %.1f%% processor headroom (floor %.0f%%), so the run measured the generator",
+			headroom.CPUHeadroomPercent, minGeneratorCPUHeadroomPercent))
+	}
+	if headroom.MemoryUsedPercent > maxGeneratorMemoryUsedPercent {
+		reasons = append(reasons, fmt.Sprintf(
+			"generator memory reached %.1f%% (ceiling %.0f%%), so the run measured the generator",
+			headroom.MemoryUsedPercent, maxGeneratorMemoryUsedPercent))
+	}
+	if headroom.CPURefusedPercent != nil && *headroom.CPURefusedPercent > maxGeneratorCPURefusedPercent {
+		reasons = append(reasons, fmt.Sprintf(
+			"generator was refused the processor for %.1f%% of the run (ceiling %.0f%%), so its latencies carry its own wait",
+			*headroom.CPURefusedPercent, maxGeneratorCPURefusedPercent))
+	}
 	return reasons
 }
 

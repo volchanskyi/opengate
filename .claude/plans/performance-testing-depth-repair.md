@@ -12,17 +12,85 @@ code. Nothing in it is inferred.
 
 ## 0. Progress
 
-Updated 2026-09-07. Each workstream lands as one commit.
+Updated 2026-09-08. Each workstream lands as one commit.
 
 | WS | State | Where it is |
 |---|---|---|
 | WS0 | **Part-done** | Staging's first rung answered: it cannot hold 250. The rest waits on WS3; the throwaway ladder is blocked on D38 |
-| WS1 | **Done** | `2292438c`, pushed. [ADR-100](../../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md) |
+| WS1 | **Done, then repaired** | `2292438c`, then the repair below. [ADR-100](../../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md), [ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) |
 | WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
 | WS3 | Not started | |
 | WS4 | Not started | Blocks the throwaway half of WS0 |
 | WS5 | Not started | |
 | WS6 | Not started | |
+
+### What WS1's own readings got wrong, and what the repair was
+
+Four nightlies came back red on 2026-09-07 and 2026-09-08. Three of them were
+WS1's new readings failing in ways only a live run could show; the fourth was a
+different defect the same look turned up. All four are repaired.
+
+**Attainment was counted at the wrong event.** The fleet tallied an arrival when
+a machine's *life ended*, and a profiled run holds every machine to the end of
+the walk — so no machine's life ends inside a phase, every phase reported nought
+arrivals against an offer it had met, and the 80% floor invalidated all five legs
+of [run 34126361816](https://github.com/volchanskyi/opengate/actions/runs/34126361816)
+on fleets that had all arrived. An arrival is now counted where it happens. A
+machine that arrived and was later cut off is a fault rather than a failure to
+arrive, so one machine no longer enters the attempted tally twice.
+
+**A phase was as long as it said it was.** `FinishedAt` was
+`StartedAt + declared duration` and the arrival rate divided by the same
+declaration. The five legs above ran 15m42s against a profile declaring 3m30s,
+and every phase in their bundles claimed the declaration. Both are now the
+clock, so what the two halves compare is machines asked for against machines that
+turned up.
+
+**A machine asked to hold for nothing held for its whole budget.** A phase's
+round trip is a machine with no hold and a thirty-second budget, and it waited
+the budget out after registering: twenty of them are the twelve missing minutes
+above. A flat run with no hold paid the same thirty seconds per machine.
+
+**The generator's room was one look at the wrong box.** Written up as
+[ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md). It is
+now bracketed around the load and read from the generator's own cgroup where
+there is one — confirmed live on staging, where the load-test pod's 400
+millicores and 384 MiB arrive as `cpu.max 40000 100000` and
+`memory.max 402653184`. On the throwaway venue, where the generator shares the
+box with the stack it drives on purpose, the figure is evidence and attainment is
+the gate. This is what invalidated
+[run 34108066636](https://github.com/volchanskyi/opengate/actions/runs/34108066636),
+whose staging pod was reading production's load off the node.
+
+**Two nightly steps could not read the status they branched on.**
+[Run 34113731966](https://github.com/volchanskyi/opengate/actions/runs/34113731966)
+failed with no message at all: `OUT="$(check)"; rc=$?` under GitHub's `bash -e`
+ends the step at the assignment. Both sites are fixed and the shape is now swept
+for — the rule is in
+[`ci-cd-determinism.md`](../rules/ci-cd-determinism.md).
+
+Underneath it was a real finding the shape had been hiding: the drill published
+`netdrill_reconnect_attempt_seconds` of 62.945s against a floor of 35, for a
+machine that lost its link, waited out the outage and came back on its first try
+in seven seconds. The figure timed from the moment the machine *noticed* the loss
+when no attempt had failed, which measures the outage — the luck the figure
+exists to exclude and which `netdrill_reconnect_seconds` beside it already
+carries. It is now absent for a machine that failed no attempt, and that night
+reads as no regression.
+
+**A shard's baseline suite was racing.**
+[Run 34199421320](https://github.com/volchanskyi/opengate/actions/runs/34199421320)'s
+`go-protocol-wire` shard failed before mutation started, taking the night's
+canonical score row with it.
+`TestControlStream_SendAfterStreamCloseFailsAndReconciles` waited for the device
+row to go offline and then required a send to fail — but the connection is let go
+and the row written several database round trips before the stream closes, and a
+QUIC write into a still-open connection succeeds. The server now refuses a send
+down a connection it has released, which is the window an API handler that
+resolved the connection a moment earlier actually sits in: a technician's screen
+said a restart reached a machine that had been gone for seconds.
+
+Bundle schema is **3**.
 
 ### WS0, as far as it went
 
@@ -53,14 +121,15 @@ afresh, so 250 arrivals are 250 enrolment requests against a ceiling the server
 enforces on purpose. WS1's `ErrEnrollmentRefused` counts those apart from faults;
 WS3's enrol-once is what stops them being produced at all.
 
-**A caveat on the headroom figure, stated so it is not over-read.** Inside a pod,
-`LocalNodeReading` reads `/proc/loadavg`, which is not namespaced, against
-`runtime.NumCPU()`. So the reading is the *node's* run queue, not the pod's. On a
-node with 350 unreserved millicores and production beside it, 0% is a true and
-meaningful reading of a real condition — and it is exactly the condition Decision
-1 moves the generator off the cluster to escape. But the field is named for the
-generator and in this venue describes the node, and something should either
-narrow the reading to the pod's own cgroup or rename what it claims.
+**That headroom figure was the node's, and it is now the pod's.** The reading was
+one instantaneous look at `/proc/loadavg`, which is not namespaced — so inside a
+pod it described the node, production included, under a field named for the
+generator. It is now bracketed around the load and read from the generator's own
+cgroup, which the staging pod has:
+[ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md). The
+0% that invalidated this run was a true reading of a real condition on that node —
+the condition Decision 1 moves the generator off the cluster to escape — but it
+was not a reading of the generator, so it is no longer the thing that decides.
 
 So the ladder has its first rung's answer: **the largest fleet staging holds is
 below 250**, on the pod as currently sized. The 500 and 1,000 rungs are not worth
@@ -89,16 +158,19 @@ cannot measure the thing it exists to measure.
 
 ### What WS1 and WS2 changed that later workstreams should know
 
-- Bundle schema is **2**. The arrival pair split by side, so
+- Bundle schema is **3**. The arrival pair split by side, so
   `offered_agent_arrivals_per_second` and `achieved_agent_arrivals_per_second`
   are the machine half and `offered_operator_arrivals_per_second` is the
   technician declaration, whose achieved half stays absent until WS5's k6
   projection fills it. `offered_sessions` travels the same way.
 - `Fingerprint.CPUs` is fractional, and `Bundle.Validate()` refuses a memory
   figure below a mebibyte or a revision of `unknown`.
-- An unmeasured generator invalidates a run, which is what makes Decision 2's
-  top rung self-policing. Anything that starts a run has to pass
-  `-target-cpus`, `-target-memory-bytes` and `-commit` or the bundle is refused.
+- An unmeasured generator invalidates a run. Anything that starts a run has to
+  pass `-target-cpus`, `-target-memory-bytes` and `-commit` or the bundle is
+  refused. What makes Decision 2's top rung self-policing is **attainment**, not
+  headroom: on a venue where the generator shares the box with the stack it
+  drives, only the fleet's own account of what arrived says whether the load was
+  offered.
 - Every number a night is judged by lives in `load/profiles/`, and
   [`loadtest-regression-check.sh`](../../scripts/loadtest-regression-check.sh)
   holds none. WS5's re-basing is therefore one pass through the profiles.

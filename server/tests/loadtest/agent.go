@@ -22,7 +22,7 @@ func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts 
 	// short and report the run's own timeout as the server dropping machines.
 	ctx, cancel := context.WithTimeout(context.Background(), agentDeadline+opts.holdFor)
 	defer cancel()
-	return runAgentWithContext(ctx, credentials, addr, plan, opts)
+	return runAgentWithContext(ctx, credentials, addr, plan, opts, nil)
 }
 
 // runAgentWithContext is one machine's whole life, bounded by the caller's
@@ -34,8 +34,12 @@ func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts 
 // machine that comes back after an outage is the same machine — the server
 // knows it by its certificate, and re-enrolling would put a second machine in
 // the customer's list every time a link flapped.
+// noteArrival is called the moment this machine is part of the fleet, so a
+// fleet walking phases can count an arrival in the phase it happened in rather
+// than in whichever phase the machine's life ended in. A run with nobody
+// keeping a tally passes nil.
 func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr string,
-	plan tenantAgent, opts loadOptions,
+	plan tenantAgent, opts loadOptions, noteArrival func(),
 ) agentResult {
 	tlsConfig, err := credentials.forAgent(ctx, plan)
 	if err != nil {
@@ -50,7 +54,7 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 	return persistThrough(ctx, opts, func(ctx context.Context) agentResult {
 		thisConnection := opts
 		thisConnection.holdFor = time.Until(leaveAt)
-		return serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection)
+		return serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection, noteArrival)
 	})
 }
 
@@ -58,7 +62,7 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 // register, do its traffic, and stay until the connection breaks or the run
 // ends. Coming back afterwards is persistThrough's decision, not this one's.
 func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
-	plan tenantAgent, opts loadOptions,
+	plan tenantAgent, opts loadOptions, noteArrival func(),
 ) agentResult {
 	// Connect.
 	t0 := time.Now()
@@ -95,20 +99,41 @@ func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 	res.registerDur = time.Since(t2)
 	// The machine is part of the fleet from here. What follows — its traffic and
 	// whatever hold the run asked for — is the fleet being carried, not the
-	// fleet arriving.
+	// fleet arriving. Whoever is keeping a tally is told now, because the
+	// machine outlives the phase it arrived in.
 	res.arrivedAt = time.Now()
+	if noteArrival != nil {
+		noteArrival()
+	}
 
 	if err := runSoakTraffic(ctx, codec, stream, opts); err != nil {
 		res.err = err
 		return res
 	}
 
-	// Whatever hold the traffic asked for has been served; the machine now stays
-	// until the run says otherwise. A fleet holding a level is what an estate
-	// actually looks like, and it is the load a server spends most of its time
-	// carrying.
-	<-ctx.Done()
+	stayUntilWoundDown(ctx, opts)
 	return res
+}
+
+// stayUntilWoundDown keeps a machine in the run after its traffic has been
+// served, for as long as the run is holding it.
+//
+// A fleet holding a level is what an estate actually looks like, and it is the
+// load a server spends most of its time carrying — so a machine the run asked
+// to hold stays until the run winds it down, whatever its own traffic has
+// finished doing. Leaving early would drop the level between the end of the
+// traffic and the end of the phase, and the level is what the phase measures.
+//
+// A machine asked to hold for nothing leaves. Waiting for the context regardless
+// makes "no hold" mean "hold for the whole remaining budget", which is the
+// opposite: a phase's round trip is a machine with no hold and a thirty-second
+// budget, so twenty of them across a two-phase profile turned three and a half
+// declared minutes into fifteen and forty-two.
+func stayUntilWoundDown(ctx context.Context, opts loadOptions) {
+	if opts.holdFor <= 0 {
+		return
+	}
+	<-ctx.Done()
 }
 
 // handshake performs the agent-first mTLS control handshake: it sends AgentHello

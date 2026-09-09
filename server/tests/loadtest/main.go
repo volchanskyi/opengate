@@ -202,13 +202,17 @@ func run() int {
 
 	start := time.Now()
 
+	// What the generator had left, bracketed around the load rather than
+	// sampled once after it. One look says what the machine was doing at one
+	// instant; a run is fifteen minutes long, and dividing it by one instant is
+	// a coin toss that came back at nought percent on two legs of a five-leg
+	// sweep whose fleets had all arrived.
+	generatorReading := WatchGenerator()
+
 	results, phases := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts)
 	totalDur := time.Since(start)
 
-	// What the generator had left, read while the load it produced is still the
-	// most recent thing this machine did. Taken after the fleet is wound down it
-	// would describe an idle box, which is the reading that cannot fail.
-	generatorHeadroom := ReadGeneratorHeadroom()
+	generatorHeadroom := generatorReading()
 
 	// And what it is holding once the fleet is wound down and it has stopped
 	// putting things back.

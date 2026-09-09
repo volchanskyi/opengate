@@ -14,6 +14,17 @@ type recordingFleet struct {
 	failAfter int
 	latency   time.Duration
 	outcomes  FleetOutcomes
+
+	// probeCost is wall clock a round trip spends, charged to the phase that
+	// took it. A real round trip is a whole connect, handshake and register, so
+	// a phase pays for every one of them on top of the time it declares.
+	probeCost time.Duration
+	clock     *testClock
+
+	// arriveNumerator over arriveDenominator is the share of the machines asked
+	// for that turn up. Both zero is a fleet that delivers everything.
+	arriveNumerator   int64
+	arriveDenominator int64
 }
 
 type fleetStep struct {
@@ -30,15 +41,26 @@ func (f *recordingFleet) HoldConnected(elapsed time.Duration, target int) error 
 	// for more machines reports more arrivals and one that winds down reports
 	// none.
 	if target > f.connected {
-		f.outcomes.Arrived += int64(target - f.connected)
+		f.outcomes.Arrived += f.arrivalsFor(int64(target - f.connected))
 	}
 	f.connected = target
 	return nil
 }
 
+// arrivalsFor is how many of the machines asked for actually turn up.
+func (f *recordingFleet) arrivalsFor(asked int64) int64 {
+	if f.arriveDenominator <= 0 {
+		return asked
+	}
+	return asked * f.arriveNumerator / f.arriveDenominator
+}
+
 func (f *recordingFleet) Connected() int { return f.connected }
 
 func (f *recordingFleet) ProbeLatency() time.Duration {
+	if f.probeCost > 0 && f.clock != nil {
+		f.clock.Sleep(f.probeCost)
+	}
 	if f.latency == 0 {
 		return 20 * time.Millisecond
 	}

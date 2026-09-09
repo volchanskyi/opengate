@@ -157,6 +157,26 @@ the relay scenario say which of the two it hit when the fleet read comes back
 empty: a fleet that never arrived, or one the server forgot. Fix what that
 names.
 
+### The throwaway venue cannot say how much room its generator had
+
+[ADR-104](../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) reads
+the generator's room from its own cgroup, which the staging pod has and a
+GitHub-hosted runner does not: the perf-stack job runs the generator and the
+compose stack it drives side by side on the bare virtual machine, so the only
+allowance either of them has is the whole box. The bundle says so — the reading
+is scoped `machine` and gates nothing — and the sweep is policed by attainment
+instead, which is a reading of the fleet.
+
+That is honest and it is less than the staging nightly can say. A leg whose
+generator was starved but which still managed to connect its machines inside the
+phase window passes, and its latency figures carry a wait nothing accounts for.
+
+**Pay-down trigger:** any work that gives the perf-stack generator a container of
+its own with declared limits — Decision 1's move to a throwaway machine is the
+natural place, since the stack there is already composed. Once it has an
+allowance, the same three rules that hold the staging generator apply unchanged
+and this entry goes.
+
 ## Severity: Low
 
 ### The Chat tab is unreachable from any machine the browser stack can run

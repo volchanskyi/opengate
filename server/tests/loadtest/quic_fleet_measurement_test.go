@@ -20,7 +20,7 @@ import (
 func TestAMachineThatCompletesLeavesTheConnectedCount(t *testing.T) {
 	release := make(chan struct{})
 	var started atomic.Int64
-	fleet := NewQUICFleet(func(ctx context.Context, _ int) agentResult {
+	fleet := NewQUICFleet(func(ctx context.Context, _ int, noteArrival func()) agentResult {
 		started.Add(1)
 		select {
 		case <-release:
@@ -70,8 +70,14 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 		{err: ErrEnrollmentRefused},
 	}
 	var next atomic.Int64
-	fleet := NewQUICFleet(func(_ context.Context, _ int) agentResult {
-		return outcomes[next.Add(1)-1]
+	fleet := NewQUICFleet(func(_ context.Context, _ int, noteArrival func()) agentResult {
+		result := outcomes[next.Add(1)-1]
+		// A machine says so when it reaches registered, which the two that
+		// carry an arrival time did and the three that carry an error did not.
+		if !result.arrivedAt.IsZero() {
+			noteArrival()
+		}
+		return result
 	})
 
 	require.NoError(t, fleet.HoldConnected(0, len(outcomes)))
@@ -79,7 +85,7 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 
 	tally := fleet.Outcomes()
 	assert.EqualValues(t, 2, tally.Arrived)
-	assert.EqualValues(t, 3, tally.Failed)
+	assert.EqualValues(t, 3, tally.Failed, "three machines never reached registered")
 	assert.EqualValues(t, 1, tally.Severed, "a machine whose held connection went away is a fault")
 	assert.EqualValues(t, 1, tally.Rejected, "a refusal the server made on purpose is the system working")
 }
@@ -91,7 +97,7 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 func TestProbeLatencyIsALiveRoundTrip(t *testing.T) {
 	var probes atomic.Int64
 	fleet := NewQUICFleetWithProbe(
-		func(ctx context.Context, _ int) agentResult {
+		func(ctx context.Context, _ int, noteArrival func()) agentResult {
 			<-ctx.Done()
 			return agentResult{}
 		},
@@ -109,7 +115,7 @@ func TestProbeLatencyIsALiveRoundTrip(t *testing.T) {
 // the fastest reading ever recorded, and this is the opposite of one.
 func TestAProbeThatFailsReportsNoLatency(t *testing.T) {
 	fleet := NewQUICFleetWithProbe(
-		func(ctx context.Context, _ int) agentResult {
+		func(ctx context.Context, _ int, noteArrival func()) agentResult {
 			<-ctx.Done()
 			return agentResult{}
 		},
@@ -130,4 +136,63 @@ func TestAFleetWithNoProberReportsNoLatency(t *testing.T) {
 
 	require.NoError(t, fleet.HoldConnected(0, 2))
 	assert.Zero(t, fleet.ProbeLatency())
+}
+
+// D6. An arrival was tallied when a machine's life *ended*, and in a profiled
+// run no machine's life ends inside a phase — the fleet is held to the end of
+// the walk. So every phase of every profiled run reported nought arrivals
+// against an offered rate it had genuinely met, and the floor that invalidates
+// a run for load never offered fired on all five legs of a sweep whose fleets
+// had all arrived. An arrival is counted where it happens.
+func TestArrivalsAreCountedWhileTheMachinesAreStillHeld(t *testing.T) {
+	fleet := NewQUICFleet(func(ctx context.Context, _ int, noteArrival func()) agentResult {
+		noteArrival()
+		<-ctx.Done()
+		return agentResult{connectDur: time.Millisecond}
+	})
+	defer fleet.Stop()
+
+	require.NoError(t, fleet.HoldConnected(0, 3))
+	require.Eventually(t, func() bool { return fleet.Outcomes().Arrived == 3 },
+		2*time.Second, 10*time.Millisecond,
+		"three machines that arrived and are still connected are three arrivals")
+	assert.EqualValues(t, 0, fleet.Outcomes().Failed,
+		"a machine that has not ended has not failed")
+}
+
+// A machine that never reached registered is the failure, and it is counted
+// once — when its life ends, which is the first moment anything knows.
+func TestAMachineThatNeverArrivedIsCountedOnceAsAFailure(t *testing.T) {
+	fleet := NewQUICFleet(func(context.Context, int, func()) agentResult {
+		return agentResult{err: errors.New("dial: timeout")}
+	})
+	defer fleet.Stop()
+
+	require.NoError(t, fleet.HoldConnected(0, 2))
+	require.Eventually(t, func() bool { return fleet.Outcomes().Failed == 2 },
+		2*time.Second, 10*time.Millisecond)
+	assert.EqualValues(t, 0, fleet.Outcomes().Arrived)
+	assert.EqualValues(t, 2, fleet.Outcomes().Attempted(),
+		"every machine produces exactly one outcome")
+}
+
+// A machine that arrived and was later cut off is a fault rather than a
+// failure to arrive. Counting it as both puts one machine into the attempted
+// tally twice and reports an error rate for a phase whose every machine turned
+// up.
+func TestAnArrivedMachineThatIsSeveredIsAFaultRatherThanAFailedArrival(t *testing.T) {
+	fleet := NewQUICFleet(func(_ context.Context, _ int, noteArrival func()) agentResult {
+		noteArrival()
+		return agentResult{err: ErrHeldPeerGone}
+	})
+	defer fleet.Stop()
+
+	require.NoError(t, fleet.HoldConnected(0, 1))
+	require.Eventually(t, func() bool { return fleet.Outcomes().Severed == 1 },
+		2*time.Second, 10*time.Millisecond)
+
+	tally := fleet.Outcomes()
+	assert.EqualValues(t, 1, tally.Arrived)
+	assert.EqualValues(t, 0, tally.Failed, "a machine that arrived did not fail to arrive")
+	assert.InDelta(t, 0.0, tally.ErrorRate(), 0.001)
 }

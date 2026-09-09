@@ -24,12 +24,18 @@ import (
 const rampSteps = 10
 
 // FleetOutcomes is the running tally of what a fleet's machines have seen. It
-// is cumulative rather than per-phase because a machine reports once, when its
-// own life ends, and a phase is the difference between two readings of it.
+// is cumulative rather than per-phase, and a phase is the difference between
+// two readings of it.
 type FleetOutcomes struct {
-	// Arrived is machines that connected, handshook and registered.
+	// Arrived is machines that connected, handshook and registered, counted at
+	// the moment they did. A fleet holds its machines long past the phase they
+	// arrived in, so counting them when their lives end counts them in a phase
+	// they had nothing to do with — or, for a fleet held to the end of the
+	// walk, in none at all.
 	Arrived int64
-	// Failed is machines that did not, for any reason.
+	// Failed is machines that never reached registered, counted when their
+	// lives end, which is the first moment anything knows. A machine that
+	// arrived and was later cut off is a fault rather than one of these.
 	Failed int64
 	// Severed is machines whose held connection went away underneath them,
 	// which is the only detector of a fleet cut off mid-run.
@@ -110,9 +116,9 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, 
 		step = phase.Duration.Duration
 	}
 
-	// The tally the phase's own outcomes are the difference from. A machine
-	// reports once, when its life ends, so a phase can only be told apart from
-	// the run around it by bracketing it.
+	// The tally the phase's own outcomes are the difference from. It is
+	// cumulative across the run, so a phase can only be told apart from the run
+	// around it by bracketing it.
 	began := fleet.Outcomes()
 
 	var samples []time.Duration
@@ -138,17 +144,28 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, 
 		clock.Sleep(remainder)
 	}
 
+	// When the phase actually ended, which is not when it said it would. A
+	// round trip taken at each step of a climb costs the phase whatever it
+	// costs, and a declared boundary hides that: a sweep leg whose profile
+	// asked for three and a half minutes ran for fifteen and forty-two, with
+	// every phase in its bundle claiming the declaration.
+	finishedAt := clock.Now()
 	saw := fleet.Outcomes().Since(began)
-	seconds := phase.Duration.Duration.Seconds()
+	seconds := finishedAt.Sub(startedAt).Seconds()
 
 	return PhaseResult{
-		Name:       phase.Name,
-		StartedAt:  startedAt,
-		FinishedAt: startedAt.Add(phase.Duration.Duration),
+		Name:      phase.Name,
+		StartedAt: startedAt,
+		// The reading, so the phase after it starts where this one ended.
+		FinishedAt: finishedAt,
 		// What the phase's own climb asked for, against what turned up. The
 		// climb is the offer: a phase going from four hundred machines to five
 		// hundred over a minute is offering a hundred arrivals in that minute,
 		// and a phase that winds down offers none.
+		//
+		// Both halves are counts over the phase's own clock, so what they
+		// compare is machines asked for against machines that turned up,
+		// whatever the wall clock did in between.
 		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(max(phase.ConnectedAgents-from, 0)), seconds),
 		AchievedAgentArrivalsPerSecond: ratePerSecond(saw.Arrived, seconds),
 		// The profile's technician figure travels; nothing here offers it, so

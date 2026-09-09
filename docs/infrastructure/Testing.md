@@ -840,6 +840,16 @@ container spec through
 itself, including how much room it had left. A generator nobody measured
 invalidates the run.
 
+That room is bracketed around the load rather than sampled after it, and it names
+whose room it is. A generator with an allowance of its own — a cgroup quota, which
+the staging load-test pod has — is measured against that allowance, and three
+rules fall on the figure: too little processor left, too much memory held, or too
+much of the run spent runnable and refused the processor. A generator that shares
+a box with the system it measures, which is what the throwaway stack is, has no
+allowance to be measured against; its figure is carried as evidence and the
+question of whether it offered the load is answered by attainment, which is a
+reading of the fleet.
+
 The arrival rate is two pairs, not one, because two processes offer arrivals. The
 machine side is the harness's own and is measured from the fleet; the technician
 side is the profile's declaration, and its achieved half stays absent until a

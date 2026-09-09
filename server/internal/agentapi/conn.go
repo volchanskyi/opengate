@@ -112,7 +112,23 @@ type AgentConn struct {
 	// interleave their (header, payload) pairs on the same QUIC stream and
 	// corrupt the frame seen by the agent.
 	writeMu sync.Mutex
+
+	// released reports that the server has let this connection go. A handler
+	// resolves the connection it is about to push a request down and the
+	// machine can drop off before the write, and the transport cannot answer
+	// for that: a QUIC write is taken by the local send buffer whether or not
+	// anybody is still reading the other end, so it succeeds and the
+	// technician's screen says a request reached a machine that is gone. This
+	// is the one fact the server holds about that window, so it is what the
+	// refusal is made from.
+	released atomic.Bool
 }
+
+// markReleased records that the server has let this connection go, so nothing
+// writes down it afterwards. It is set before the connection is torn down,
+// because the window it closes opens the moment the server stops treating this
+// connection as the machine's.
+func (a *AgentConn) markReleased() { a.released.Store(true) }
 
 // AgentMeta is a point-in-time snapshot of an agent's registration metadata. It
 // carries exactly the fields the update-eligibility filter reads, so the API
@@ -205,6 +221,9 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 
 // sendControl encodes and writes a control message to the agent stream.
 func (a *AgentConn) sendControl(msg *protocol.ControlMessage) error {
+	if a.released.Load() {
+		return fmt.Errorf("%w: %s not sent", ErrConnectionClosed, msg.Type)
+	}
 	payload, err := a.codec.EncodeControl(msg)
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", msg.Type, err)
