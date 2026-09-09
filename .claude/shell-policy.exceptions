@@ -41,3 +41,4 @@ aggregate	scripts/tests/sonar-rating-guard.test.sh	-	Plain-Bash harness accumula
 aggregate	scripts/tests/mutation-shard-budget.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/post-push-clean-caches.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/posttooluse-cache-clean.test.sh	-	Plain-Bash harness accumulates all assertion failures.
+standalone	scripts/tests/ci-cd-determinism.test.sh	e	The errexit demonstration carries both shapes as fixture text: the unguarded status read this sweep refuses, and the guarded one it requires.

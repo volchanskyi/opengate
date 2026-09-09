@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -206,4 +207,55 @@ func readControlOfType(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer,
 	}
 	require.FailNowf(t, "frame not found", "the machine never wrote a %s", want)
 	return nil
+}
+
+// A machine with no hold asked of it leaves when its traffic is done.
+//
+// It used to wait for its context instead, whatever the hold said. A phase's
+// round trip is a machine with no hold and a thirty-second budget, so every one
+// of them sat for thirty seconds after it had already registered: twenty round
+// trips across a two-phase profile turned three and a half declared minutes
+// into fifteen and forty-two, and a flat run with no hold spent thirty seconds
+// per machine holding a connection nobody had asked it to hold.
+func TestAMachineWithNoHoldLeavesWhenItsTrafficIsDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		stayUntilWoundDown(ctx, loadOptions{holdFor: 0})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a machine asked to hold for nothing must not wait for the run to end")
+	}
+}
+
+// A machine the run is holding stays until the run winds it down. Leaving early
+// would drop the fleet's level between the end of its traffic and the end of
+// the phase, and the level is what the phase is measuring.
+func TestAHeldMachineStaysUntilTheRunWindsItDown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		stayUntilWoundDown(ctx, loadOptions{holdFor: time.Minute})
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("a held machine must not leave before the run says so")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a held machine leaves when the run winds it down")
+	}
 }

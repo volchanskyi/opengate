@@ -73,8 +73,7 @@ SHAPER_SEED="${SHAPER_SEED:-0}"
 # the thin-uplink scenario is about.
 FLEET_MINIMUM="${NETDRILL_FLEET_MINIMUM:-8}"
 
-# What the machine writes as it loses a link and gets it back.
-LOST_MARK="connection lost, will reconnect"
+# What the machine writes as it fails to get its link back, and as it gets it.
 ATTEMPT_FAILED_MARK="connection attempt failed"
 RECONNECTED_MARK="reconnected successfully"
 
@@ -307,6 +306,10 @@ at_or_after() {
 # no return after the link came back. A log the drill could not read is the
 # drill failing to observe; it is not a machine that failed to come back, and
 # the reading that answers that question is taken from the status poll.
+# What the machine's own log says about coming back: how long the site waited,
+# and — where the machine actually failed an attempt — what that attempt cost.
+# The second is empty for a machine whose first try worked, which is a machine
+# that spent nothing on a failed attempt rather than one that was quick.
 reconnect_from_machine_log() {
   local since="$1" restored="$2"
   local log line stamp back="" last_fail=""
@@ -329,11 +332,6 @@ reconnect_from_machine_log() {
         fi
         ;;
       *"$ATTEMPT_FAILED_MARK"*) last_fail="$stamp" ;;
-      *"$LOST_MARK"*)
-        if [ -z "$last_fail" ]; then
-          last_fail="$stamp"
-        fi
-        ;;
     esac
   done <<<"$log"
 
@@ -397,12 +395,18 @@ emit_shaper_counters() {
 # The two reconnect figures, when the machine's own log has them. A scenario
 # whose log could not be read publishes neither, and still publishes everything
 # else it measured.
+#
+# The attempt figure is published only by a machine that made a failed attempt.
+# A machine whose first try worked spent nothing on one, and timing from the
+# moment it noticed the loss instead times the outage — which is the luck this
+# figure exists to hold apart and which the figure beside it already carries.
 emit_reconnect_figures() {
   local since="$1" restored_epoch="$2" figures waited spent
   figures="$(reconnect_from_machine_log "$since" "$restored_epoch")" || return 0
   read -r waited spent <<<"$figures"
   emit netdrill_reconnect_seconds real "$waited"
-  emit netdrill_reconnect_attempt_seconds real "$spent"
+  [ -n "$spent" ] && emit netdrill_reconnect_attempt_seconds real "$spent"
+  return 0
 }
 
 # Whether the machine came back at all, which is a different question from how

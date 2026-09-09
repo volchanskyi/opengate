@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -166,13 +168,17 @@ func TestControlStream_SendAfterStreamCloseFailsAndReconciles(t *testing.T) {
 	// Now any control-plane send on the same AgentConn must surface an
 	// error rather than silently succeeding or hanging — the API
 	// handlers turn that into a 5xx response, which is the correct
-	// observable behaviour. Errors include io.EOF, "stream reset",
-	// "connection closed" — we only assert non-nil.
+	// observable behaviour.
+	//
+	// The refusal is the server's own. A QUIC write is accepted by the
+	// local send buffer whether or not the far side is still there, so
+	// waiting for the transport to answer is waiting for something that
+	// never comes: the connection is let go before the device row is
+	// written, and this send lands in the window between the two.
 	err := ac.SendRequestHardwareReport(context.Background())
-	require.Error(t, err, "send on a closed stream must surface an error")
-	// Just for documentation: assert the error chain doesn't include a
-	// nil-pointer dereference or other unexpected wrap.
-	assert.NotEmpty(t, err.Error(), "error must carry a message")
+	require.Error(t, err, "send on a released connection must surface an error")
+	assert.True(t, errors.Is(err, agentapi.ErrConnectionClosed),
+		"the error names the connection as gone, got %v", err)
 }
 
 // TestControlStream_ManyConcurrentSendsAllDecodable stress-tests the writeMu

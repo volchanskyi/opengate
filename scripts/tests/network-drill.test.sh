@@ -189,6 +189,18 @@ LOG
   printf '%s\n' "$WORK/machine.log"
 }
 
+# A machine whose first try after the outage worked. It logs the loss and then
+# the success, with no failed attempt between them, which is the ordinary shape
+# whenever the link comes back while the machine is still in its first backoff.
+machine_log_first_try_worked() {
+  cat >"$WORK/machine-first-try.log" <<'LOG'
+2026-09-06T09:51:58.036481Z  WARN mesh_agent: connection lost, will reconnect
+2026-09-06T09:53:28.353822Z  INFO mesh_agent_core::connection: reconnected successfully attempt=1
+2026-09-06T09:53:28.355040Z  INFO mesh_agent: registered with server, entering control loop fast_path=true
+LOG
+  printf '%s\n' "$WORK/machine-first-try.log"
+}
+
 # The same machine, still away when the drill stopped waiting.
 machine_log_never_back() {
   cat >"$WORK/machine-away.log" <<'LOG'
@@ -658,6 +670,24 @@ assert_num_eq "and that reading is one" "1" "$(reconnect_value netdrill_reconnec
 # figure it decides has somewhere to land other than the same value every night.
 assert_contains "the outage records the length it actually ran for" \
   '"netdrill_outage_seconds"' "$rows"
+
+# A machine whose first try worked spent nothing on a failed attempt, because it
+# made none. Measuring from the moment it noticed the loss measures the outage
+# instead — the very luck this figure exists to exclude, and the figure beside it
+# already carries. A night where the link returned inside the first backoff
+# published 62.945s against a floor of 35 and called a healthy machine slow.
+reset_run
+out="$(run_drill s1 \
+  MOCK_DEVICES_FILE="$(device_list_with_herd 20)" MOCK_METRICS_FILE="$(full_window)" \
+  MOCK_COUNTERS_FILE="$(counters_file 40)" \
+  MOCK_MACHINE_LOG="$(machine_log_first_try_worked)" \
+  MOCK_MACHINE_CLOCK="$MACHINE_RESTORE_CLOCK")"
+rows="$(cat "$WORK/measurements.jsonl")"
+
+assert_contains "a machine that came back on its first try still says what the site waited through" \
+  '"netdrill_reconnect_seconds"' "$rows"
+assert_lacks "and publishes no attempt figure, because it made no failed attempt" \
+  '"netdrill_reconnect_attempt_seconds"' "$rows"
 
 reset_run
 out="$(run_drill s1 \

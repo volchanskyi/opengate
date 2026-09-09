@@ -28,7 +28,14 @@ import (
 // achieved half was the same figure copied across, which made the pair
 // unreadable in both directions: the units belonged to a generator this process
 // does not drive, and the ratio between them was one by construction.
-const bundleSchemaVersion = 2
+//
+// Version 3 makes three of the numbers above readings. A phase's achieved
+// arrivals are counted where a machine arrives rather than where its life ends,
+// so a fleet held to the end of the walk no longer reports none; a phase's
+// boundaries are the clock rather than its own declaration; and the generator's
+// room is bracketed around the load and says whose room it is — its own
+// allowance, or a box it shares with the system under test.
+const bundleSchemaVersion = 3
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -177,8 +184,21 @@ type Headroom struct {
 	// which is what kept the saturation rule from ever firing.
 	Measured bool `json:"measured"`
 
+	// Scope is whose room this is: the generator's own allowance, or the box it
+	// shares with the system under test. They are different statements, and the
+	// rule that invalidates a run for a starved generator falls only on the
+	// first — a busy box is what the throwaway venue is for.
+	Scope string `json:"scope,omitempty"`
+
 	CPUHeadroomPercent float64 `json:"cpu_headroom_percent"`
 	MemoryUsedPercent  float64 `json:"memory_used_percent"`
+
+	// CPURefusedPercent is the share of the run the generator spent runnable
+	// and denied the processor, where the kernel keeps that account. A
+	// generator kept waiting measured its own wait into every latency it
+	// reported, whatever room it had left. Absent means the kernel counts no
+	// refusals, which is not the same as none having happened.
+	CPURefusedPercent *float64 `json:"cpu_refused_percent,omitempty"`
 }
 
 // CleanupProof is the run's account of what it left behind. It travels with the

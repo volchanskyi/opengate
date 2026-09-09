@@ -26,7 +26,7 @@ func validRunInputs() RunInputs {
 		},
 		ExpectedScenarios: []string{"api-baseline", "concurrent-agents", "relay-throughput", "quic-agents"},
 		ProducedScenarios: []string{"api-baseline", "concurrent-agents", "relay-throughput", "quic-agents"},
-		Headroom:          Headroom{Measured: true, CPUHeadroomPercent: 60, MemoryUsedPercent: 45},
+		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 60, MemoryUsedPercent: 45},
 		Phases: []PhaseResult{{
 			Name:                           "steady",
 			StartedAt:                      start,
@@ -83,6 +83,14 @@ func TestARunThatDidNotMeasureTheSystemIsInvalid(t *testing.T) {
 			name:   "the generator had nearly no memory left",
 			mutate: func(in *RunInputs) { in.Headroom.MemoryUsedPercent = 94 },
 			reason: "memory",
+		},
+		{
+			name: "the generator was refused the processor",
+			mutate: func(in *RunInputs) {
+				refused := 55.0
+				in.Headroom.CPURefusedPercent = &refused
+			},
+			reason: "refused the processor",
 		},
 		{
 			name:   "a safety ceiling stopped the run",

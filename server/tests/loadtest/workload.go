@@ -79,9 +79,9 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 	}
 
 	fleet := NewQUICFleetWithProbe(
-		func(ctx context.Context, index int) agentResult {
+		func(ctx context.Context, index int, arrived func()) agentResult {
 			plan := agentPlan[index%len(agentPlan)]
-			return runAgentWithContext(ctx, credentials, addr, plan, opts)
+			return runAgentWithContext(ctx, credentials, addr, plan, opts, arrived)
 		},
 		phaseProbe(agentPlan, credentials, addr, opts))
 

@@ -408,6 +408,10 @@ jobs:
           mkdir -p "$DRILL_EVIDENCE" "$(dirname "$DRILL_MEASUREMENTS")"
           : >"$DRILL_MEASUREMENTS"
           inconclusive=0
+          # errexit off around the scenario, because its exit code is the thing
+          # being read: a scenario that could not observe the system exits 2, and
+          # under errexit that ends the step before the line that says so.
+          set +e
           for scenario in $NETDRILL_RUN_SCENARIOS; do
             echo "::group::$scenario"
             NAMESPACE="$NAMESPACE" \
@@ -437,6 +441,7 @@ jobs:
               inconclusive=$((inconclusive + 1))
             fi
           done
+          set -e
           echo "inconclusive=$inconclusive" >>"$GITHUB_OUTPUT"
 
       # What the herd itself decided. It is written to a file inside the fleet
@@ -629,8 +634,14 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: |
           set -uo pipefail
+          # errexit off around the capture. The check exits 1 on a regression,
+          # which is the case this step exists to handle — under errexit the
+          # assignment ends the step, so the output is never printed and the
+          # alert below is never raised.
+          set +e
           OUT="$(scripts/network-drill-regression-check.sh artifacts/netdrill/netdrill-summary.json 2>&1)"
           rc=$?
+          set -e
           printf '%s\n' "$OUT"
           if [ "$rc" -eq 1 ]; then
             echo "regression=1" >>"$GITHUB_OUTPUT"

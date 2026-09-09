@@ -47,11 +47,11 @@ breaches_for() {
       ))) as $matched
     | (if $gate.blocking then "blocking" else "advisory" end) as $kind
     | if ($matched | length) == 0 then
-        "\($kind)\t\($gate.series) \($gate.metric) is limited, and no row for it never arrived — a limit on a measurement nothing produced reads as a limit nothing can breach"
+        "\($kind)\t\($gate.series) \($gate.metric) is limited, and no row for it ever arrived — a limit on a measurement nothing produced reads as a limit nothing can breach"
       else
         ($matched[0][$gate.metric]) as $value
         | if $value == null then
-            "\($kind)\t\($gate.series) \($gate.metric) is limited, and the row that never arrived carries no such number"
+            "\($kind)\t\($gate.series) \($gate.metric) is limited, and the row that arrived carries no such number"
           elif ($gate.max != null and $value > $gate.max) then
             "\($kind)\t\($gate.series) \($gate.metric) is \($value), past the \($gate.max) it is held to"
           elif ($gate.min != null and $value < $gate.min) then

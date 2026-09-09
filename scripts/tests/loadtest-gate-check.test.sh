@@ -50,6 +50,14 @@ assert_contains() {
   esac
 }
 
+assert_lacks() {
+  local name="$1" needle="$2" hay="$3"
+  case "$hay" in
+    *"$needle"*) fail "$name (found [$needle] in [$hay])" ;;
+    *) pass "$name" ;;
+  esac
+}
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -145,7 +153,11 @@ jq -n '[
 ]' >"$WORK/summary.json"
 run_check
 assert_eq "a limit whose measurement never arrived fails the night" "1" "$STATUS"
-assert_contains "and says the measurement was absent" "never arrived" "$OUT"
+# The sentence a reader is left with has to say which of the two happened. A
+# double negative reads as the opposite of the finding, and a night that failed
+# for a missing row spent eight lines saying "no row for it never arrived".
+assert_contains "and says the measurement was absent" "no row for it ever arrived" "$OUT"
+assert_lacks "without saying the opposite of the finding" "never arrived" "$OUT"
 
 # A row that arrived without the number the limit is about is the same absence
 # wearing a row's clothing.
@@ -155,6 +167,9 @@ jq -n '[
 ]' >"$WORK/summary.json"
 run_check
 assert_eq "a row carrying no such number fails the night" "1" "$STATUS"
+# The row is present; it is the number inside it that is missing, and a message
+# calling that row absent sends a reader looking for the wrong thing.
+assert_contains "and says the row arrived without the number" "row that arrived carries no such number" "$OUT"
 
 # A profile with no limits at all is a profile that decides nothing, which must
 # not read as a night that cleared everything.

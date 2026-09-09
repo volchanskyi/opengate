@@ -187,6 +187,53 @@ The generalisation: **a contract stated in one file and satisfied in another is
 checked in neither unless something is made to read both.** Where the two are
 text, that something is a sweep, and it costs less than one night of a nightly.
 
+### A status a step branches on is read with errexit turned off
+
+The rules above are about a step that produced nothing, read nothing, or wrote
+nothing. This one is about a step that wrote the branch and never reached it.
+
+GitHub runs every `run:` block under `bash -e`. A step that wants to interpret a
+command's exit code writes `cmd; rc=$?; if [ "$rc" -eq 2 ]; then …` — and under
+errexit a non-zero `cmd` ends the step *at* `cmd`. The `rc=$?` never runs, the
+branch below it is unreachable, and the step reports the failure it was written
+to interpret. `set -uo pipefail` at the top of the block does not help: it turns
+two options on and none off.
+
+The nightly link drill lost a night to it in both of its jobs. The publish job's
+regression check captured the script's output into a variable, read `$?` on the
+next line and printed the output on the line after — so a night with a finding
+died at the assignment, printed nothing at all, and never reached the branch that
+raises the Telegram alert. The finding underneath was a reading of a healthy
+machine that the drill was calling slow, and it had been invisible for as long as
+the shape had existed. The scenario loop in the other job carries the same shape
+around exit code 2, which the comment beside it calls "not a failed drill" — the
+one outcome the loop can never see.
+
+So a block that reads `$?` turns errexit off around the command first, and back
+on after:
+
+```bash
+set +e
+some-check "$input"
+rc=$?
+set -e
+```
+
+The status may also be taken on the failing command's own line — `cmd || rc=$?`
+— which errexit does not fire on, because a command on the left of `||` is
+tested rather than run for its success.
+
+[`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
+sweeps every workflow for it, reading each `run:` block whole, and counts what it
+reached so a sweep that matched nothing fails. It demonstrates the defect first —
+running both shapes and requiring the unguarded one to lose its branch — so a
+guard that has stopped reproducing anything fails rather than quietly policing a
+non-problem.
+
+The generalisation is the same one the inferred verb has: **a fact the shell has
+already acted on is not a fact the script can still read.** Errexit is a
+decision; a script that wants to make that decision itself has to say so.
+
 ### An exemption is re-earned
 
 The list of workflows that may not cache is a statement about tokens, not about

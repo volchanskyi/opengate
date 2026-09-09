@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,9 +20,18 @@ import (
 // bookkeeping — who is up, who never arrived, and what each one's timings were —
 // and that is exercised without a server on the other end.
 
-// StartAgent is one machine's whole life. It returns when the context is
-// cancelled, or earlier if the machine could not connect at all.
-type StartAgent func(ctx context.Context, index int) agentResult
+// StartAgent is one machine's whole life. It reports its own arrival — the
+// moment it is connected, handshook and registered — by calling arrived, and
+// returns when the context is cancelled, or earlier if the machine could not
+// connect at all.
+//
+// The arrival is signalled where it happens rather than read off the result,
+// because a phase is a window in time and a machine that arrives inside one is
+// held long past its end. Counting arrivals at the return counts them in
+// whichever phase the machine's life happened to end in — which for a fleet
+// held to the end of the walk is no phase at all, so every phase of every
+// profiled run reported no arrivals against an offer it had met.
+type StartAgent func(ctx context.Context, index int, arrived func()) agentResult
 
 // ProbeRoundTrip dials one machine, takes it all the way to registered, and
 // hangs up — reporting how long that took.
@@ -102,13 +112,23 @@ func (f *QUICFleet) startOne() {
 	f.mu.Unlock()
 
 	f.wg.Add(1)
+	var arrived atomic.Bool
 	go func() {
 		defer f.wg.Done()
-		result := f.start(ctx, index)
+		result := f.start(ctx, index, func() {
+			// Once. A machine that comes back after an outage is the same
+			// machine returning, which persistThrough counts as a reconnection
+			// rather than as a second arrival.
+			if arrived.CompareAndSwap(false, true) {
+				f.mu.Lock()
+				f.outcomes.Arrived++
+				f.mu.Unlock()
+			}
+		})
 
 		f.mu.Lock()
 		f.results = append(f.results, result)
-		f.tallyLocked(result)
+		f.tallyLocked(result, arrived.Load())
 		// A machine that has ended is not one of the connected, whichever way it
 		// ended. Removing only the ones that errored made the count a count of
 		// machines started: a machine that finished its hold normally stayed
@@ -158,17 +178,25 @@ func (f *QUICFleet) forgetLocked(index int) {
 	}
 }
 
-// tallyLocked records one machine's outcome. The caller holds the lock.
+// tallyLocked records what became of one machine, given whether it ever
+// arrived. The caller holds the lock.
 //
-// A refusal the server made on purpose is held apart from a fault: counting a
+// A machine that never reached registered is the failure, and it is counted
+// here because its life ending is the first moment anything knows. One that did
+// arrive and was later cut off is a fault instead: it turned up, so counting it
+// as a failure to turn up puts one machine into the attempted tally twice and
+// reports an error rate for a phase whose every machine arrived.
+//
+// A refusal the server made on purpose is held apart from both: counting a
 // correctly enforced limit as a defect makes the limit look broken and buries
 // the real failures underneath it.
-func (f *QUICFleet) tallyLocked(result agentResult) {
+func (f *QUICFleet) tallyLocked(result agentResult, arrived bool) {
+	if !arrived {
+		f.outcomes.Failed++
+	}
 	if result.err == nil {
-		f.outcomes.Arrived++
 		return
 	}
-	f.outcomes.Failed++
 	if errors.Is(result.err, ErrHeldPeerGone) {
 		f.outcomes.Severed++
 	}

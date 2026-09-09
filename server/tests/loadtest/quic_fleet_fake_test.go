@@ -17,7 +17,7 @@ type startCounter struct {
 	failFrom int
 }
 
-func (s *startCounter) start(ctx context.Context, index int) agentResult {
+func (s *startCounter) start(ctx context.Context, index int, arrived func()) agentResult {
 	s.mu.Lock()
 	s.started++
 	shouldFail := s.failFrom > 0 && index >= s.failFrom
@@ -27,6 +27,7 @@ func (s *startCounter) start(ctx context.Context, index int) agentResult {
 		return agentResult{err: errors.New("dial refused")}
 	}
 
+	arrived()
 	<-ctx.Done()
 
 	s.mu.Lock()

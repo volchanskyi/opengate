@@ -41,7 +41,7 @@ func measuredRun() runBundleInputs {
 			MemoryBytes: 16_766_414_848,
 			DiskBytes:   15_032_385_536,
 		},
-		Headroom: Headroom{Measured: true, CPUHeadroomPercent: 72, MemoryUsedPercent: 18},
+		Headroom: Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 72, MemoryUsedPercent: 18},
 	}
 }
 
@@ -106,7 +106,7 @@ func TestAStarvedGeneratorInvalidatesTheRun(t *testing.T) {
 	verdict := Classify(RunInputs{
 		ExpectedScenarios: []string{"quic-agents"},
 		ProducedScenarios: []string{"quic-agents"},
-		Headroom:          Headroom{Measured: true, CPUHeadroomPercent: 3, MemoryUsedPercent: 97},
+		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 3, MemoryUsedPercent: 97},
 		Phases:            []PhaseResult{{Name: "connect"}},
 	})
 
@@ -228,4 +228,39 @@ func TestAnExportWithNoJourneysCarriesNone(t *testing.T) {
 	journeys, err := LoadJourneys(path)
 	require.NoError(t, err)
 	assert.Empty(t, journeys)
+}
+
+// A generator that shares its box with the system it measures cannot have its
+// own room read off that box: what the box has left is what the two of them
+// have left together, and driving it hard is what the throwaway venue is for.
+// So the figure is carried as evidence and the floor does not fall on it —
+// whether the load was offered is answered by attainment, which is a reading of
+// the fleet rather than of the machine under it.
+func TestABusyBoxSharedWithTheTargetDoesNotInvalidateTheRun(t *testing.T) {
+	verdict := Classify(RunInputs{
+		ExpectedScenarios: []string{"quic-agents"},
+		ProducedScenarios: []string{"quic-agents"},
+		Headroom:          Headroom{Measured: true, Scope: headroomScopeMachine, CPUHeadroomPercent: 0},
+		Phases:            []PhaseResult{{Name: "connect"}},
+	})
+
+	assert.Equal(t, ResultValid, verdict.Result)
+}
+
+// A generator the kernel kept waiting measured its own wait into every latency
+// it reported, so the numbers are about the generator whatever room it had left.
+func TestAGeneratorRefusedTheProcessorInvalidatesTheRun(t *testing.T) {
+	refused := 45.0
+	verdict := Classify(RunInputs{
+		ExpectedScenarios: []string{"quic-agents"},
+		ProducedScenarios: []string{"quic-agents"},
+		Headroom: Headroom{
+			Measured: true, Scope: headroomScopeGenerator,
+			CPUHeadroomPercent: 80, CPURefusedPercent: &refused,
+		},
+		Phases: []PhaseResult{{Name: "connect"}},
+	})
+
+	require.Equal(t, ResultInvalid, verdict.Result)
+	assert.Contains(t, verdict.Reasons[0], "refused the processor")
 }
