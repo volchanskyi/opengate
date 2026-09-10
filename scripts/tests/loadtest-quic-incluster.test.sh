@@ -103,6 +103,9 @@ if [ "\$announce" = "1" ]; then
   echo 'Starting QUIC load test: 100 agents across 1 tenant(s) → opengate-staging-server:9090'
 fi
 sleep "\${HARNESS_HOLD:-0.3}"
+if [ "\${HARNESS_FILES:-1}" = "1" ]; then
+  echo 'Estate filed'
+fi
 if [ "\$announce" = "1" ]; then
   cat <<'BODY'
 
@@ -112,6 +115,7 @@ Agents:      100/100 succeeded
 Failures:    0
 BODY
 fi
+printf 'done\n' >>"$WORK/harness-ends.txt"
 exit "\$exit_code"
 EOF
 chmod +x "$WORK/bin/harness"
@@ -129,8 +133,37 @@ export LOADTEST_QUIC_START_TIMEOUT_SECONDS="15"
 export LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS="15"
 export LOADTEST_QUIC_START_ATTEMPTS="3"
 
+# lines_in counts a file that may not exist yet, without the shell complaining
+# about the redirect it could not open.
+lines_in() {
+  [ -f "$1" ] || {
+    echo 0
+    return 0
+  }
+  wc -l <"$1" | tr -d ' '
+}
+
+# settle waits for a harness an earlier case detached to finish.
+#
+# The launcher writes the harness's exit code to a fixed path in the pod, so one
+# still running when the next case resets the pod lands its status in that
+# case's run — which reads as a harness that exited before it did anything. The
+# stand-in records its own end, so this is a wait for a fact rather than for a
+# duration.
+settle() {
+  local deadline=$((SECONDS + 10)) started ended
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    started="$(lines_in "$WORK/harness-runs.txt")"
+    ended="$(lines_in "$WORK/harness-ends.txt")"
+    [ "$started" = "$ended" ] && return 0
+    sleep 0.1
+  done
+  return 0
+}
+
 reset_pod() {
-  rm -f "$POD_LOG" "$POD_STATUS" "$WORK/harness-runs.txt" \
+  settle
+  rm -f "$POD_LOG" "$POD_STATUS" "$WORK/harness-runs.txt" "$WORK/harness-ends.txt" \
     "$WORK/kubectl-calls.txt" "$WORK/exec-fails"
 }
 
@@ -284,6 +317,58 @@ if grep -q 'loadtest-quic-incluster.sh collect' <<<"$fleet_wait_block" \
   pass "the verdict is collected through the seam and judged by the keep-or-discard rule"
 else
   fail "the wait step must collect through the seam and judge with scripts/loadtest-quic-run.sh"
+fi
+
+# --- Waiting for the estate to be filed ---------------------------------------
+#
+# A machine is filed under its customer and into one of that customer's
+# buildings once it has registered, because the row it is filed against does not
+# exist before then. The browser-side scenarios narrow every device read to a
+# building, and they choose which building in their own setup — once, before
+# their first iteration — so a scenario started against an unfiled fleet reads an
+# empty building for the whole of its run, whatever is filed afterwards.
+#
+# So the ordering is asked for rather than assumed, the same way the fleet's own
+# readiness is.
+reset_pod
+"$SHIM" start -- harness >/dev/null 2>&1
+rc=0
+"$SHIM" await-filed >/dev/null 2>&1 || rc=$?
+assert_eq "a filed estate is waited for and found" "0" "$rc"
+
+# A harness that files nothing must not be reported as one that did. The
+# scenarios behind this wait would otherwise run against an unfiled fleet and
+# publish the empty reads as the night's numbers.
+reset_pod
+HARNESS_FILES=0 HARNESS_HOLD=0.2 "$SHIM" start -- harness >/dev/null 2>&1
+rc=0
+LOADTEST_QUIC_FILED_TIMEOUT_SECONDS=2 "$SHIM" await-filed >/dev/null 2>&1 || rc=$?
+if [ "$rc" -ne 0 ]; then
+  pass "an estate that was never filed is refused rather than waited out"
+else
+  fail "an estate that was never filed was reported as filed"
+fi
+
+# The workflow has to ask, or the shim's verb is a capability nobody uses. The
+# ask belongs between the fleet starting and the first scenario running: those
+# are the two events it orders.
+filed_step="$(awk '
+  /^[[:space:]]*- name: .*[Ee]state/ { found = 1 }
+  found && /loadtest-quic-incluster.sh await-filed/ { print; exit }
+' "$WORKFLOW")"
+if [ -n "$filed_step" ]; then
+  pass "the workflow waits for the estate to be filed"
+else
+  fail "the workflow starts its scenarios without waiting for the estate to be filed"
+fi
+
+# And it has to ask before the first scenario, not after the last one.
+filed_line="$(grep -n 'await-filed' "$WORKFLOW" | head -1 | cut -d: -f1)"
+baseline_line="$(grep -n 'Run k6 API baseline' "$WORKFLOW" | head -1 | cut -d: -f1)"
+if [ -n "$filed_line" ] && [ -n "$baseline_line" ] && [ "$filed_line" -lt "$baseline_line" ]; then
+  pass "the estate is filed before the first scenario reads it"
+else
+  fail "the wait for a filed estate must come before the first k6 scenario"
 fi
 
 echo

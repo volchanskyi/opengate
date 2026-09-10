@@ -50,6 +50,11 @@ type runBundleInputs struct {
 	// FixtureWeight is what the fleet cost on disk, where a run weighed it.
 	FixtureWeight *FixtureWeight
 
+	// Filer is the estate's filing, where the run had a fleet to file. What it
+	// managed travels, because a run that could not file its estate measured
+	// every scoped read against a fleet the product cannot find.
+	Filer *estateFiler
+
 	// Phases are the profile's own segments as they actually ran. Empty means
 	// the run offered everything at once, which is a shape in its own right and
 	// is reported as one phase named for what it was.
@@ -233,6 +238,11 @@ func fixtureCounts(in runBundleInputs, enrolled int) FixtureCounts {
 	if in.FixtureWeight != nil {
 		counts.DatabaseBytes = in.FixtureWeight.DatabaseBytes
 		counts.TelemetrySeries = in.FixtureWeight.TelemetrySeries
+	}
+	if in.Filer != nil {
+		filed, refused := in.Filer.counts()
+		counts.FiledDevices = &filed
+		counts.FilingRefusals = &refused
 	}
 	return counts
 }

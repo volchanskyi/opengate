@@ -60,8 +60,8 @@ across a rung with a quarter of a processor and a rung with two. A run that read
 the target's own account of itself is held to producing the figure for every
 phase, because both come off the one page; a reading that could not be taken is
 absent, never nought, for the reason
-[ADR-100](ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md) gives. Bundle
-schema 4.
+[ADR-100](ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md) gives. The
+phase field arrived at bundle schema 4.
 
 **The generator declares its own share.** It runs inside a transient processor
 and memory allowance on the throwaway venue, so the stack's four consumers are
@@ -118,9 +118,9 @@ number to revisit when the ladder reaches higher.
 The breakpoint run goes from about eleven minutes to about thirty-five, and its
 job's ceiling from sixty minutes to ninety.
 
-What this does not settle is where the lopsided estate comes from. A machine can
-only be filed under a customer once its row exists, which is after it has
-registered, so filing the fleet is a step that follows the load rather than
-preceding it — and what that would shape is the data the volume family weighs,
-not the load that produced it. That is a decision of its own and it is not taken
-here.
+Where the lopsided estate comes from is a decision of its own, taken in
+[ADR-111](ADR-111-an-estate-is-filed-as-it-arrives.md): a machine can only be
+filed under a customer once its row exists, which is after it has registered, so
+the filing follows each arrival rather than the whole load. On this venue what it
+shapes is the data the volume family weighs rather than a measurement, because
+nothing here reads a customer-scoped or building-scoped list yet.

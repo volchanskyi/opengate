@@ -317,22 +317,61 @@ func enrollmentTokenHours(runFor time.Duration) int {
 	return hours
 }
 
-// FileDevices puts each machine under the customer that is to hold it, in the
-// proportions the plan declared. An evenly spread fleet never asks the question
-// a customer-scoped page is actually asked: the page that is slow in the field
-// belongs to the customer holding most of the estate.
+// FileDevices puts each machine under the customer that is to hold it and into
+// one of that customer's buildings, in the proportions the plan declared. An
+// evenly spread fleet never asks the question a customer-scoped page is actually
+// asked: the page that is slow in the field belongs to the customer holding most
+// of the estate.
 func (c *FixtureClient) FileDevices(built BuiltFixture, deviceIDs []string) error {
+	for i, deviceID := range deviceIDs {
+		if err := c.FileDevice(built, i, len(deviceIDs), deviceID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// FileDevice files one machine, at its own place in the estate.
+//
+// It is a single machine rather than a pass over the fleet because a machine can
+// only be filed once its row exists, and the row exists when it registers — so
+// filing follows each arrival rather than waiting for the last one. Where in the
+// estate this machine sits is what decides its customer, so the caller passes
+// the position and the size rather than a list.
+//
+// Both halves go through the same interface a technician uses, and both are
+// needed. The customer is who the machine answers under; the building is what
+// every list narrows by, so a machine filed under a customer and into no
+// building is one no scoped page can find.
+func (c *FixtureClient) FileDevice(built BuiltFixture, index, total int, deviceID string) error {
 	if len(built.Customers) == 0 {
 		return errors.New("file machines: the fixture has no customers to file them under")
 	}
 
-	for i, deviceID := range deviceIDs {
-		customer := built.Customers[c.customerFor(built, i, len(deviceIDs))]
-		path := fmt.Sprintf("/api/v1/devices/%s/organization", deviceID)
-		body := map[string]string{"organization_id": customer.ID}
-		if err := c.call(http.MethodPut, path, body, http.StatusOK, nil); err != nil {
-			return fmt.Errorf("file machine %s under %s: %w", deviceID, customer.Name, err)
-		}
+	customer := built.Customers[c.customerFor(built, index, total)]
+	path := fmt.Sprintf("/api/v1/devices/%s/organization", deviceID)
+	body := map[string]string{"organization_id": customer.ID}
+	if err := c.call(http.MethodPut, path, body, http.StatusOK, nil); err != nil {
+		return fmt.Errorf("file machine %s under %s: %w", deviceID, customer.Name, err)
+	}
+
+	// A customer the plan gave no building to has nowhere to put this machine,
+	// and leaving it under the customer alone is the honest state rather than a
+	// failure. The planner gives every customer at least one, so this is a guard
+	// against a fixture nobody has built rather than a case in play.
+	if len(customer.SiteIDs) == 0 {
+		return nil
+	}
+
+	// Spread by the machine's place in the estate, so a customer with thirty
+	// buildings holds machines in thirty of them. Filing every one of a
+	// customer's machines into its first building files the estate truthfully
+	// and still leaves every other building empty — which is the same empty read
+	// a scoped page gets today, wearing a different shape.
+	site := customer.SiteIDs[index%len(customer.SiteIDs)]
+	if err := c.call(http.MethodPatch, "/api/v1/devices/"+deviceID,
+		map[string]string{"site_id": site}, http.StatusOK, nil); err != nil {
+		return fmt.Errorf("file machine %s into a building of %s: %w", deviceID, customer.Name, err)
 	}
 	return nil
 }

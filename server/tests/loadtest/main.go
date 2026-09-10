@@ -169,7 +169,7 @@ func run() int {
 
 	// A fleet is built before the clock starts. It is thousands of writes and
 	// would be the largest thing in any phase it shared.
-	fixture, spentToken := buildFixtureIfAsked(fixtureRequest{
+	fleet := buildFixtureIfAsked(fixtureRequest{
 		baseURL:   *enrollURL,
 		account:   *fixtureAccount,
 		password:  *fixturePasswordFlag,
@@ -179,14 +179,21 @@ func run() int {
 		bootstrap: *fixtureBootstrap,
 		runFor:    loadLastsFor(profile, *holdFor),
 	})
-	if spentToken != "" {
-		*enrollToken = spentToken
+	fixture := fleet.fixture
+	if fleet.token != "" {
+		*enrollToken = fleet.token
 	}
 
-	credentials, err := newAgentCredentials(dir, *enrollURL, *enrollToken)
+	source, err := newAgentCredentials(dir, *enrollURL, *enrollToken)
 	if err != nil {
 		log.Fatalf("agent credentials: %v", err)
 	}
+	// A machine's identity is minted once and every later connection made with
+	// it. The wrapper is established here rather than inside the walk because
+	// two readers share it: the fleet, which dials with it, and the filer, which
+	// takes the machine's identifier out of it.
+	credentials := enrolOnce(source)
+	filer := fleet.filerFor(credentials, *agents, profile)
 
 	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)
 
@@ -217,7 +224,7 @@ func run() int {
 	targetShape := ParseFingerprintFlags("system-under-test", *targetDescription, *targetCPUs, *targetMemory)
 
 	results, phases, flatBusy := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts,
-		NewTargetBusy(*metricsURL, targetShape.CPUs))
+		NewTargetBusy(*metricsURL, targetShape.CPUs), filer)
 	totalDur := time.Since(start)
 
 	generatorHeadroom := generatorReading()
@@ -254,6 +261,7 @@ func run() int {
 		Headroom:       generatorHeadroom,
 		Journeys:       readJourneys(*journeysPath),
 		FixtureWeight:  readFixtureWeight(*fixtureWeightPath),
+		Filer:          filer,
 		Phases:         phases,
 		FlatTargetBusy: flatBusy,
 		Registration:   registration,
