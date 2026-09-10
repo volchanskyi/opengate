@@ -173,3 +173,66 @@ func TestTheAnnouncedLevelIsTheFirstPhasesOwn(t *testing.T) {
 	// filed estate before anything had arrived.
 	assert.Equal(t, 500, filingLevel(&Profile{Phases: []Phase{{Name: "quiet"}}}, 500))
 }
+
+// Filing spends the same allowance the arrivals do. Every machine that registers
+// costs the server another request or two on the address the enrolment came
+// from, and that address is allowed about a hundred requests a second — so a
+// refusal asked for again once per machine is not merely wasted, it is taken out
+// of the budget the fleet needs to arrive at all.
+//
+// A refusal can be about one machine, so one is not enough to stop on. A run of
+// them with nothing ever filed is about the run, and asking again is spending
+// requests on an answer that will not change.
+func TestAFleetTheRunCannotFileStopsBeingAskedFor(t *testing.T) {
+	filer, api := aFiler(t, 100, 100)
+	api.mu.Lock()
+	api.failAt = "/api/v1/devices/"
+	api.mu.Unlock()
+
+	for i := 0; i < 40; i++ {
+		filer.file(context.Background(), aMachine(i))
+	}
+
+	_, refused := filer.counts()
+	assert.Positive(t, refused, "the run tried")
+	assert.LessOrEqual(t, refused, filingAttemptsBeforeGivingUp,
+		"a run that cannot file stops asking rather than spending an arrival's allowance per machine")
+}
+
+// One refusal is not a fleet it cannot file. A machine the server would not take
+// says nothing about the next one, so the run carries on filing.
+func TestOneRefusalDoesNotStopTheRunFiling(t *testing.T) {
+	filer, api := aFiler(t, 10, 10)
+
+	api.mu.Lock()
+	api.failAt = "/api/v1/devices/"
+	api.mu.Unlock()
+	filer.file(context.Background(), aMachine(0))
+
+	api.mu.Lock()
+	api.failAt = ""
+	api.mu.Unlock()
+	filer.file(context.Background(), aMachine(1))
+
+	filed, refused := filer.counts()
+	assert.Equal(t, 1, filed, "the machine after the refusal was still filed")
+	assert.Equal(t, 1, refused)
+}
+
+// A run that has filed anything at all has proved the mechanism works, so later
+// refusals are about their own machines and never stop it.
+func TestARunThatHasFiledKeepsTryingHoweverManyAreRefused(t *testing.T) {
+	filer, api := aFiler(t, 100, 100)
+	filer.file(context.Background(), aMachine(0))
+
+	api.mu.Lock()
+	api.failAt = "/api/v1/devices/"
+	api.mu.Unlock()
+	for i := 1; i < 40; i++ {
+		filer.file(context.Background(), aMachine(i))
+	}
+
+	filed, refused := filer.counts()
+	assert.Equal(t, 1, filed)
+	assert.Equal(t, 39, refused, "every one of them was tried")
+}

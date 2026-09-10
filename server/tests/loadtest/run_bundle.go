@@ -115,6 +115,13 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		Cleanup: CleanupProof{Verified: true},
 	}
 
+	// Where the ladder broke, for a profile that said what breaking means. It is
+	// read off the phases the run actually walked, so a run stopped early
+	// answers about the rungs it reached rather than about the ones it declared.
+	if in.Profile != nil {
+		bundle.BreakingPoint = FindBreakingPoint(in.Profile.GaveOut, bundle.Phases)
+	}
+
 	bundle.Verdict = Classify(RunInputs{
 		Profile:           in.Profile,
 		ExpectedScenarios: []string{"quic-agents"},

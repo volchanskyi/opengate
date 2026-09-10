@@ -261,7 +261,7 @@ jobs:
             --restart=Never \
             --overrides='{"spec":{"containers":[{"name":"'"$PROBE_POD"'","image":"docker.io/curlimages/curl:8.11.1","command":["sleep","3000"],"resources":{"requests":{"cpu":"10m","memory":"32Mi"},"limits":{"cpu":"100m","memory":"64Mi"}}}]}}' \
             --command -- sleep 3000
-          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$PROBE_POD" --timeout=120s
+          deploy/scripts/wait-for-pod-ready.sh "$PROBE_POD" 120
 
       - name: Mint the enrolment credential the machines spend
         run: |
@@ -305,7 +305,7 @@ jobs:
             SERVER_POD_IP="$SERVER_POD_IP" SHAPER_SEED="$GITHUB_RUN_ID" \
             deploy/scripts/netfault-shaper-pod.sh \
             | kubectl -n "$NAMESPACE" apply -f -
-          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$SHAPER_POD" --timeout=180s
+          deploy/scripts/wait-for-pod-ready.sh "$SHAPER_POD" 180
           kubectl -n "$NAMESPACE" cp /tmp/netfault "$SHAPER_POD:/tmp/netfault"
           kubectl -n "$NAMESPACE" exec "$SHAPER_POD" -- chmod 0755 /tmp/netfault
           kubectl -n "$NAMESPACE" exec "$SHAPER_POD" -- touch /tmp/ready
@@ -342,7 +342,7 @@ jobs:
             deploy/scripts/e2e-machine-pod.sh \
             | kubectl -n "$NAMESPACE" apply -f -
 
-          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$MACHINE_POD" --timeout=180s
+          deploy/scripts/wait-for-pod-ready.sh "$MACHINE_POD" 180
           kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- mkdir -p /tmp/agent
           kubectl -n "$NAMESPACE" cp /tmp/mesh-agent "$MACHINE_POD:/tmp/mesh-agent"
           kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- chmod 0755 /tmp/mesh-agent
@@ -375,12 +375,17 @@ jobs:
           FLEET_POD="netdrill-fleet-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "FLEET_POD=$FLEET_POD" >>"$GITHUB_ENV"
 
+          # It reserves what twenty simulated machines actually need, which is
+          # what the drill's real machine reserves beside it. Reserving a tenth
+          # of a processor was what the scheduler refused: this node is
+          # ordinarily 91% claimed before the drill starts any pod at all, and
+          # the fleet's is the last of four.
           kubectl -n "$NAMESPACE" run "$FLEET_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
-            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SHAPER_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$FLEET_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","2700"],"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SHAPER_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$FLEET_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","2700"],"resources":{"requests":{"cpu":"25m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep 2700
-          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$FLEET_POD" --timeout=120s
+          deploy/scripts/wait-for-pod-ready.sh "$FLEET_POD" 120
           kubectl -n "$NAMESPACE" cp /tmp/loadtest "$FLEET_POD:/tmp/loadtest"
           kubectl -n "$NAMESPACE" exec "$FLEET_POD" -- chmod 0755 /tmp/loadtest
 

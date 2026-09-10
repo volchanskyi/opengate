@@ -13,14 +13,14 @@ func tightSafety() Safety {
 }
 
 func TestARunUnderEveryLimitCarriesOn(t *testing.T) {
-	breach := CheckSafety(tightSafety(), NodeReading{
+	breach := CheckRoomToStart(tightSafety(), NodeReading{
 		Measured: true, CPUPercent: 40, MemoryPercent: 55,
 	})
 	assert.NoError(t, breach)
 }
 
-func TestARunPastTheProcessorLimitStops(t *testing.T) {
-	err := CheckSafety(tightSafety(), NodeReading{
+func TestARunDoesNotStartOnANodeAlreadyPastTheProcessorLimit(t *testing.T) {
+	err := CheckRoomToStart(tightSafety(), NodeReading{
 		Measured: true, CPUPercent: 92, MemoryPercent: 55,
 	})
 	require.Error(t, err)
@@ -29,8 +29,46 @@ func TestARunPastTheProcessorLimitStops(t *testing.T) {
 	assert.Contains(t, err.Error(), "processor")
 }
 
+// The processor ceiling asks whether there is room beside production, and there
+// is exactly one moment when the answer is about production alone: before the
+// run has offered anything. After that the reading is mostly the run's own work,
+// and stopping a run for doing what it was asked to do is not a safety check.
+//
+// It is what happened. Staging's nightly was refused after its ramp phase with
+// the node reading 108% against the 85% ceiling, on a node that reads between 9%
+// and 39% when nothing is running on it.
+func TestARunAlreadyOfferingLoadIsNotStoppedByABusyProcessor(t *testing.T) {
+	assert.NoError(t, CheckRoomToContinue(tightSafety(), NodeReading{
+		Measured: true, CPUPercent: 108, MemoryPercent: 55,
+	}))
+}
+
+// Memory and disk are the other kind. What the run puts there is gone until it
+// gives it back, so its own share is exactly what the ceiling asks about, and
+// the ceiling holds for the whole walk.
+func TestARunAlreadyOfferingLoadStopsWhenTheNodeRunsOutOfRoom(t *testing.T) {
+	err := CheckRoomToContinue(tightSafety(), NodeReading{
+		Measured: true, CPUPercent: 20, MemoryPercent: 95,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "memory")
+
+	err = CheckRoomToContinue(tightSafety(), NodeReading{
+		Measured: true, CPUPercent: 20, MemoryPercent: 10, DiskPercent: 95,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk")
+}
+
+// A reading nobody took is not a reading of plenty of room, whichever of the two
+// questions is being asked.
+func TestAnUnmeasuredNodeDoesNotPassEitherCheck(t *testing.T) {
+	require.Error(t, CheckRoomToStart(tightSafety(), NodeReading{Measured: false}))
+	require.Error(t, CheckRoomToContinue(tightSafety(), NodeReading{Measured: false}))
+}
+
 func TestARunPastTheMemoryLimitStops(t *testing.T) {
-	err := CheckSafety(tightSafety(), NodeReading{
+	err := CheckRoomToStart(tightSafety(), NodeReading{
 		Measured: true, CPUPercent: 10, MemoryPercent: 95,
 	})
 	require.Error(t, err)
@@ -40,12 +78,12 @@ func TestARunPastTheMemoryLimitStops(t *testing.T) {
 // A reading nobody took is not a reading of zero. Treating an absent measurement
 // as "well within the limit" is how a guard comes to protect nothing.
 func TestAnUnmeasuredNodeDoesNotPassTheLimit(t *testing.T) {
-	err := CheckSafety(tightSafety(), NodeReading{Measured: false})
+	err := CheckRoomToStart(tightSafety(), NodeReading{Measured: false})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not measured")
 }
 
-func TestTheSequencerStopsWhenTheNodeIsPastItsLimit(t *testing.T) {
+func TestTheSequencerStopsWhenTheNodeRunsOutOfRoom(t *testing.T) {
 	profile := threePhaseProfile()
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
@@ -54,14 +92,50 @@ func TestTheSequencerStopsWhenTheNodeIsPastItsLimit(t *testing.T) {
 	safe := func() NodeReading {
 		readings++
 		if readings > 3 {
-			return NodeReading{Measured: true, CPUPercent: 99, MemoryPercent: 40}
+			return NodeReading{Measured: true, CPUPercent: 20, MemoryPercent: 99}
 		}
 		return NodeReading{Measured: true, CPUPercent: 20, MemoryPercent: 40}
 	}
 
 	_, err := RunPhasesWatched(profile, fleet, clock, safe, unreadTarget)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "memory")
+}
+
+// The processor ceiling is asked once, before the first phase, and never again.
+func TestTheSequencerWillNotStartOnANodeProductionIsAlreadyFilling(t *testing.T) {
+	profile := threePhaseProfile()
+	fleet := &recordingFleet{}
+	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
+
+	_, err := RunPhasesWatched(profile, fleet, clock, func() NodeReading {
+		return NodeReading{Measured: true, CPUPercent: 99, MemoryPercent: 40}
+	}, unreadTarget)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "processor")
+	assert.Contains(t, err.Error(), "before phase", "the answer is only about the neighbour before the run offers anything")
+	assert.Empty(t, fleet.steps, "nothing was offered")
+}
+
+func TestTheSequencerCarriesOnThroughTheBusynessItIsCausing(t *testing.T) {
+	profile := threePhaseProfile()
+	fleet := &recordingFleet{}
+	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
+
+	readings := 0
+	safe := func() NodeReading {
+		readings++
+		// Quiet before the walk, then fully committed for the rest of it —
+		// which is the run's own load and is not a reason to stop.
+		if readings > 1 {
+			return NodeReading{Measured: true, CPUPercent: 190, MemoryPercent: 40}
+		}
+		return NodeReading{Measured: true, CPUPercent: 20, MemoryPercent: 40}
+	}
+
+	results, err := RunPhasesWatched(profile, fleet, clock, safe, unreadTarget)
+	require.NoError(t, err)
+	assert.Len(t, results, 3)
 }
 
 func TestTheSequencerRunsToTheEndWhileTheNodeHolds(t *testing.T) {
@@ -92,7 +166,7 @@ func TestTheLocalReadingIsAnActualMeasurement(t *testing.T) {
 // processor ceiling and a saturated reading is not a reason to stop.
 func TestADisposableStackIsNotHeldToAProcessorCeiling(t *testing.T) {
 	runnerSafety := Safety{MaxNodeMemoryPercent: 90, MaxErrorRate: 0.01}
-	assert.NoError(t, CheckSafety(runnerSafety, NodeReading{
+	assert.NoError(t, CheckRoomToStart(runnerSafety, NodeReading{
 		Measured: true, CPUPercent: 240, MemoryPercent: 55,
 	}))
 }
@@ -101,7 +175,7 @@ func TestADisposableStackIsNotHeldToAProcessorCeiling(t *testing.T) {
 // numbers describe a machine with nowhere to put them.
 func TestADisposableStackStillStopsWhenItRunsOutOfMemory(t *testing.T) {
 	runnerSafety := Safety{MaxNodeMemoryPercent: 90, MaxErrorRate: 0.01}
-	err := CheckSafety(runnerSafety, NodeReading{
+	err := CheckRoomToStart(runnerSafety, NodeReading{
 		Measured: true, CPUPercent: 240, MemoryPercent: 95,
 	})
 	require.Error(t, err)
@@ -188,13 +262,13 @@ func TestTheTwoMeasuresDisagreeOnANodeThatIsNotBusy(t *testing.T) {
 
 	instant, ok := runQueuePercent(node, processors)
 	require.True(t, ok)
-	require.Error(t, CheckSafety(tightSafety(), NodeReading{
+	require.Error(t, CheckRoomToStart(tightSafety(), NodeReading{
 		Measured: true, CPUPercent: instant,
 	}), "the instant measure refuses this node")
 
 	minute, ok := loadAveragePercent(node, processors)
 	require.True(t, ok)
-	require.NoError(t, CheckSafety(tightSafety(), NodeReading{
+	require.NoError(t, CheckRoomToStart(tightSafety(), NodeReading{
 		Measured: true, CPUPercent: minute,
 	}), "the minute measure lets it run")
 }
@@ -227,7 +301,7 @@ func TestTheVenueReadingIsAnActualMeasurement(t *testing.T) {
 // Disk is held to the memory ceiling, and the message says so — a run stopped by
 // a number nobody declared for disks is a run whose reason reads as a mistake.
 func TestAFullDiskStopsTheRunAndNamesTheCeilingItUsed(t *testing.T) {
-	err := CheckSafety(tightSafety(), NodeReading{
+	err := CheckRoomToStart(tightSafety(), NodeReading{
 		Measured: true, CPUPercent: 10, MemoryPercent: 10, DiskPercent: 95,
 	})
 	require.Error(t, err)

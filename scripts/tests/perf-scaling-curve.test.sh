@@ -50,7 +50,7 @@ leg() {
     --argjson connect "$connect" \
     --argjson busy "$busy" \
     '{
-      schema_version: 5,
+      schema_version: 6,
       target: { cpus: $cpus, memory_bytes: 1073741824 },
       phases: [ { name: "steady", latency_p95_ms: $connect, target_busy_percent: $busy } ],
       observations: [ { series: "connect_p95_ms", value: $connect } ],

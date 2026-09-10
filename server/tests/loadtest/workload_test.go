@@ -17,9 +17,15 @@ import (
 // that never arrived, and is exactly the shape the volume family published for
 // a night it ran perfectly well.
 
-// holdingProfile is one short phase that leaves its machines connected. The
-// drain phase is deliberately absent: what is being exercised is a run ending
-// with its fleet still up.
+// holdingProfile is one phase that leaves its machines connected. The drain
+// phase is deliberately absent: what is being exercised is a run ending with its
+// fleet still up.
+//
+// The phase declares no length, because these cases walk on a test clock while
+// the fleet dials on the real one. A fleet spreads a climb across the window the
+// phase hands it, and a walk that takes microseconds hands out windows nothing
+// can be dialled inside — so the phase hands out none, which is a fleet with no
+// time to spread over and therefore every machine at once.
 func holdingProfile(agents int) *Profile {
 	return &Profile{
 		SchemaVersion: profileSchemaVersion,
@@ -28,7 +34,7 @@ func holdingProfile(agents int) *Profile {
 		Environment:   EnvRunner,
 		Fixture:       FixtureSmall,
 		Phases: []Phase{
-			{Name: "steady", Duration: Duration{Duration: time.Minute}, ConnectedAgents: agents, OperatorArrivalsPerSecond: 2},
+			{Name: "steady", ConnectedAgents: agents, OperatorArrivalsPerSecond: 2},
 		},
 		Safety: Safety{MaxNodeMemoryPercent: 90, MaxErrorRate: 0.01},
 	}

@@ -62,14 +62,13 @@ func TestAPhaseRampsRatherThanStepping(t *testing.T) {
 	// The first phase climbs to its level rather than arriving at it. A step
 	// change is a different event — a site whose link came back — and the
 	// profile says which one it wants. Only the first phase's instructions are
-	// read here: elapsed time restarts with each phase, so a window on the clock
-	// would pick up the next phase's opening steps as well.
+	// read here, because each phase starts its own climb.
 	var rampTargets []int
 	for i, step := range fleet.steps {
 		if i >= rampSteps {
 			break
 		}
-		assert.LessOrEqual(t, step.at, time.Minute, "a ramp instruction lands inside its own phase")
+		assert.LessOrEqual(t, step.within, time.Minute, "a ramp step reaches its level inside its own phase")
 		rampTargets = append(rampTargets, step.target)
 	}
 	require.Greater(t, len(rampTargets), 2, "a ramp is more than one instruction")

@@ -516,12 +516,46 @@ else
 fi
 
 # The property D34 is about: a run that outlives its own declared duration still
-# holds the namespace, because something has been renewing it. Four seconds of
-# claim, renewed every second, asked about after six.
+# holds the namespace, because something has been renewing it.
+#
+# The three cases below wait on the renewer's own evidence rather than on the
+# clock. A blind sleep past the duration makes the verdict a race against how
+# promptly a detached shell process is scheduled, and beside the rest of the
+# gauntlet that race is lost: the claim expires, a waiter takes it, and a renewer
+# working exactly as designed is reported as broken. It cost a gauntlet run, and
+# it cost two assertions rather than one — the claim was stolen, so the release
+# that followed was correctly refused and failed too. Waiting for the renewer
+# makes a loaded machine a slower test instead of a failing one.
+renewer_pid() { cat "$RENEW_WORK/staging-lease-guard.pid" 2>/dev/null || true; }
+stamp_epoch() { date -u -d "$1" +%s 2>/dev/null || echo 0; }
+
+# wait_until polls a condition every second up to a generous bound. The bound is
+# long because the only thing that reaches it is a renewer that has genuinely
+# stopped, which is the defect these cases exist to catch.
+wait_until() {
+  local remaining=60
+  while [ "$remaining" -gt 0 ]; do
+    if "$@"; then return 0; fi
+    remaining=$((remaining - 1))
+    sleep 1
+  done
+  return 1
+}
+
 rm -f "$STATE"
-if TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-long >/dev/null 2>&1; then
-  sleep 6
-  if TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-thief >/dev/null 2>&1; then
+if TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-long >/dev/null 2>&1; then
+  acquired_at="$(stamp_epoch "$(renew_stamp)")"
+  # Carried past its own eight seconds by the renewer, proved by the claim's own
+  # timestamps rather than by how long the test slept.
+  carried_past_its_duration() {
+    local now
+    now="$(renew_stamp)"
+    [ -n "$now" ] || return 1
+    [ "$(($(stamp_epoch "$now") - acquired_at))" -gt 8 ]
+  }
+  if ! wait_until carried_past_its_duration; then
+    fail "a claim outliving its own duration is still held (the renewer never carried it past its duration)"
+  elif TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-thief >/dev/null 2>&1; then
     fail "a claim outliving its own duration is still held (cd-thief took it)"
   else
     assert_eq "a claim outliving its own duration is still held" "cd-long" "$(holder_now)"
@@ -532,9 +566,18 @@ fi
 
 # Releasing stops the renewing as well as the claim, or the next run's own
 # acquisition is written over by a process nobody is waiting on.
-if TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing release cd-long >/dev/null 2>&1; then
-  sleep 3
-  if [ -f "$STATE" ]; then
+#
+# "The claim did not come back" is an absence, and an absence is satisfied by a
+# machine too busy to have renewed anything. So the renewer is proved dead first,
+# and only then is the absence read.
+renewer_before_release="$(renewer_pid)"
+if TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing release cd-long >/dev/null 2>&1; then
+  renewer_is_gone() {
+    [ -z "$renewer_before_release" ] || ! kill -0 "$renewer_before_release" 2>/dev/null
+  }
+  if ! wait_until renewer_is_gone; then
+    fail "releasing stops the renewing as well (the renewer is still running)"
+  elif [ -f "$STATE" ]; then
     fail "releasing stops the renewing as well (the claim came back)"
   else
     pass "releasing stops the renewing as well"
@@ -546,11 +589,15 @@ fi
 # A claim taken from under a live run is not something to discover in a
 # measurement. The renewer records the loss and the release step reports it,
 # which is the only place in a job that always runs.
+#
+# The wait is for the renewer to have noticed, which is a file it writes — not
+# for a number of seconds in which it ought to have.
 rm -f "$STATE"
-TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-lost >/dev/null 2>&1 || true
+TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-lost >/dev/null 2>&1 || true
 seed_lease a-thief "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
-sleep 3
-if out="$(TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing release cd-lost 2>&1)"; then
+loss_recorded() { [ -f "$RENEW_WORK/staging-lease-guard.lost" ]; }
+wait_until loss_recorded || true
+if out="$(TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing release cd-lost 2>&1)"; then
   fail "a claim lost mid-run fails the release rather than passing quietly (got=[$out])"
 elif grep -qi 'lost' <<<"$out"; then
   pass "a claim lost mid-run fails the release rather than passing quietly"

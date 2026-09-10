@@ -282,10 +282,36 @@ func run() int {
 		}
 	}
 
+	printBreakingPoint(bundle.BreakingPoint)
+
 	for _, reason := range bundle.Verdict.Reasons {
 		fmt.Printf("::error::%s\n", reason)
 	}
 	return exitCode(bundle.Verdict, failures)
+}
+
+// printBreakingPoint says where the ladder broke, for a run that went looking.
+//
+// It is the family's whole answer and it is worth reading without opening the
+// bundle: whoever is looking at a red ladder wants the rung, not the file.
+func printBreakingPoint(answer *BreakingPoint) {
+	if answer == nil {
+		return
+	}
+	fmt.Printf("\n=== Where it gave ===\n")
+	if answer.RungsRead == 0 {
+		fmt.Printf("No rung was walked, so nothing was asked.\n")
+		return
+	}
+	if answer.HeldAt != "" {
+		fmt.Printf("Held:        %s (%d machines)\n", answer.HeldAt, answer.HeldAgents)
+	}
+	if answer.GaveAt == "" {
+		fmt.Printf("Gave:        nothing did, over %d rungs — the answer is above this ladder\n", answer.RungsRead)
+		return
+	}
+	fmt.Printf("Gave:        %s (%d machines)\n", answer.GaveAt, answer.GaveAgents)
+	fmt.Printf("Because:     %s\n", answer.Reason)
 }
 
 // arrivalWindow is how long the fleet took to arrive: from the run's start to

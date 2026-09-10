@@ -70,9 +70,14 @@ func (o FleetOutcomes) ErrorRate() float64 {
 // Fleet is whatever holds machines connected during a run.
 type Fleet interface {
 	// HoldConnected asks for exactly this many machines to be connected. The
-	// elapsed time is how far into the phase the request is, which a real fleet
-	// uses to spread arrivals and a test uses to say what it saw.
-	HoldConnected(elapsed time.Duration, target int) error
+	// window is how long the fleet has to get there, which a real fleet uses to
+	// spread the arrivals it is adding and a test uses to say what it saw.
+	//
+	// It is a window rather than how far into the phase the request is, because
+	// how far in says nothing a fleet can act on: it was passed for the life of
+	// this interface, read by nothing, and every step of every climb went out as
+	// a burst under an offer the profile had written down as a rate.
+	HoldConnected(within time.Duration, target int) error
 	// Connected is how many are actually connected now, which is not always what
 	// was asked for — and the difference is the finding.
 	Connected() int
@@ -129,7 +134,10 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, busy TargetBus
 	elapsed := time.Duration(0)
 	for i := 1; i <= rampSteps; i++ {
 		target := levelAt(from, phase.ConnectedAgents, i, rampSteps)
-		if err := fleet.HoldConnected(elapsed, target); err != nil {
+		// The gap until the next step is what this one has to reach its level
+		// in, so the machines it adds arrive at the rate the phase declares
+		// rather than all at once.
+		if err := fleet.HoldConnected(step, target); err != nil {
 			return PhaseResult{}, err
 		}
 		// A live round trip at each step of the climb, so the phase's tail is

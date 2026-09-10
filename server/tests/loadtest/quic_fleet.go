@@ -78,8 +78,20 @@ func NewQUICFleetWithProbe(start StartAgent, probe ProbeRoundTrip) *QUICFleet {
 }
 
 // HoldConnected brings the fleet to the level asked for, adding machines or
-// winding them down as needed.
-func (f *QUICFleet) HoldConnected(_ time.Duration, target int) error {
+// winding them down as needed. The window is the time it has to get there.
+//
+// The climb is spread across that window rather than dialled at once, and the
+// difference is the difference between an offer and a burst. A phase going from
+// eight thousand machines to sixteen thousand over five minutes is offering
+// fifty-three arrivals a second, which is a rate the server accepts; the same
+// machines dialled the instant the step is asked for are sixteen hundred
+// arrivals in a moment, which is a rate it refuses on purpose. The refusals then
+// read as machines that could not arrive, on a target that was never asked to
+// carry them.
+//
+// Winding down is not paced. A machine leaving is not an arrival, and nothing
+// on the other end rations departures.
+func (f *QUICFleet) HoldConnected(within time.Duration, target int) error {
 	if target < 0 {
 		target = 0
 	}
@@ -91,8 +103,8 @@ func (f *QUICFleet) HoldConnected(_ time.Duration, target int) error {
 	current := len(f.order)
 	f.mu.Unlock()
 
-	for i := current; i < target; i++ {
-		f.startOne()
+	if adding := target - current; adding > 0 {
+		f.climb(adding, within)
 	}
 	for i := current; i > target; i-- {
 		f.stopOne()
@@ -100,8 +112,50 @@ func (f *QUICFleet) HoldConnected(_ time.Duration, target int) error {
 	return nil
 }
 
-// startOne brings up a single machine and records it when it ends.
-func (f *QUICFleet) startOne() {
+// climb brings up count machines, each one taking its turn inside the window.
+//
+// Every machine takes its place in the level immediately, so the step after this
+// one asks for the level it was going to ask for; only the dialling waits. A
+// window of nothing is every machine at once, which is what a fleet with no time
+// to spread over should do.
+func (f *QUICFleet) climb(count int, within time.Duration) {
+	spacing := time.Duration(0)
+	if within > 0 {
+		spacing = within / time.Duration(count)
+	}
+	for i := 0; i < count; i++ {
+		// The last machine dials at the end of the window rather than the first
+		// one dialling at its start, so the level is reached when the window
+		// says and no machine arrives before the step that asked for it.
+		f.startOne(spacing * time.Duration(i+1))
+	}
+}
+
+// waitOut spends d and reports whether it got all the way there.
+//
+// A machine the run winds down while it is still waiting its turn never dials,
+// and that is the point: it offered nothing and saw nothing, so it is neither an
+// arrival nor one that failed to arrive.
+func waitOut(ctx context.Context, d time.Duration) bool {
+	// A machine with no turn to wait for goes straight to dialling, whatever the
+	// run has since decided. Its dial is what deals with a context already
+	// ended, and that is the same machine an unpaced fleet has always started.
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// startOne brings up a single machine after its turn comes round, and records it
+// when it ends.
+func (f *QUICFleet) startOne(after time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	f.mu.Lock()
@@ -115,6 +169,11 @@ func (f *QUICFleet) startOne() {
 	var arrived atomic.Bool
 	go func() {
 		defer f.wg.Done()
+		if !waitOut(ctx, after) {
+			// Let go before its turn came. stopOne has already taken it out of
+			// the level, and it has nothing to report either way.
+			return
+		}
 		result := f.start(ctx, index, func() { f.noteArrival(&arrived) })
 
 		f.mu.Lock()

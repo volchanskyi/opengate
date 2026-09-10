@@ -79,6 +79,31 @@ safety:
   max_node_memory_percent: 80
   max_error_rate: 0.25
 
+# What counts as giving out, written down before the ladder goes looking for it.
+#
+# Without this the family's answer is whatever the run happened to survive: the
+# 2026-09-09 ladder reached four thousand machines with no errors at all, which
+# establishes nothing except that the answer is higher than four thousand. A rung
+# crossing any one of these is where the system gave, the rung below it is the
+# last that held, and the run reports both together with the reading that decided
+# it.
+#
+# The three are different kinds of giving out and each is worth catching on its
+# own. Refusing work is the loudest and usually moves first. Doing the work and
+# taking far too long over it is the shape a technician actually meets, and it
+# can arrive with no errors at all. Running out of the processor the target was
+# given is what says the hold-up is the hardware rather than the code — the other
+# two cannot tell those apart.
+#
+# The figures are loose against what this ladder has measured, deliberately: the
+# rungs it has walked returned no errors and middle-case waits of 19 to 62
+# milliseconds, so a limit near those would report the ladder breaking on its own
+# noise rather than on the system.
+gave_out:
+  error_rate_above: 0.05
+  latency_p95_ms_above: 2000
+  target_busy_percent_above: 95
+
 gates:
   # This family runs on a throwaway machine with no browser-side generator on
   # it, so a limit naming a browser-side measurement could never be read here.
