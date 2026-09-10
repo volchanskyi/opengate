@@ -94,7 +94,7 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 		estateStart(roster, held, addr, opts),
 		phaseProbe(agentPlan, held, addr, opts))
 
-	results, phases, err := runProfile(profile, fleet, NewRealClock(), LocalNodeReading)
+	results, phases, err := runProfile(profile, fleet, NewRealClock(), VenueNodeReading)
 	if err != nil {
 		log.Fatalf("phases: %v", err)
 	}
