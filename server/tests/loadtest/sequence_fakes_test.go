@@ -71,6 +71,11 @@ func (f *recordingFleet) Outcomes() FleetOutcomes { return f.outcomes }
 
 // alwaysRoomToRun is a machine with plenty left, so these cases exercise the
 // walk rather than the guard beside it.
+// unreadTarget is a run with no target to read. Every phase then reports an
+// absent busy-ness, which is what these cases are about — they are about the
+// walk, not about the target.
+var unreadTarget = TargetBusy{}
+
 func alwaysRoomToRun() NodeReading {
 	return NodeReading{Measured: true, CPUPercent: 5, MemoryPercent: 10}
 }

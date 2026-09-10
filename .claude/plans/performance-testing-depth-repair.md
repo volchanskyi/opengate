@@ -20,7 +20,7 @@ Updated 2026-09-09. Each workstream lands as one commit.
 | WS1 | **Done, then repaired** | `2292438c`, then the repair below. [ADR-100](../../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md), [ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) |
 | WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
 | WS3 | **Done** | [ADR-105](../../docs/adr/ADR-105-a-simulated-machine-is-one-machine-for-the-whole-run.md), [ADR-106](../../docs/adr/ADR-106-a-venue-lasts-as-long-as-the-run-it-holds.md), [ADR-107](../../docs/adr/ADR-107-a-family-runs-somewhere.md) |
-| WS4 | **Next** | Blocks the throwaway half of WS0. Now also carries the target's own busy-ness reading (F2), which choices 2 and 3 both rest on |
+| WS4 | **Mostly done** | [ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md). Items 1, 2, 3, 4, 6 and 7 landed together, plus the volume matrix. `FileDevices` is the one piece open — see below |
 | WS5 | Not started | |
 | WS6 | Not started | |
 | F1 | **Done** | The busy-machine ceiling now reads the measure its venue calls for, and an unread figure no longer reaches it as a machine at rest. [ADR-108](../../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) |
@@ -148,6 +148,38 @@ inside the declared ceiling. But 16,000 arrivals inside a two-minute step is 133
 a second against an enrolment rate the server refuses past at about 100 — which
 is *why* the steps lengthen, rather than a separate accommodation: five minutes
 puts 16,000 arrivals at 53 a second.
+
+### What WS4 left open, and why
+
+`FileDevices` is written, tested, and called from nothing. Wiring it was listed
+inside WS4 item 5 as if it were free, and it is not: a machine can only be filed
+under a customer once its row exists, and the row exists after the machine has
+registered. So filing follows the load rather than preceding it, and what a
+lopsided estate would then shape is the data the volume family *weighs* — not
+the load that produced it. Whether that is worth having, or whether the estate
+should instead be filed by a pre-enrolment pass before the clock starts, is a
+decision nobody has taken. It is stated in
+[ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md)
+rather than left as a gap.
+
+Everything else in WS4 landed. The volume family is a three-point sweep over
+machines actually enrolled — 500, 2,000 and 8,000 — which is Decision 8's other
+half and needs no filing to be a sweep.
+
+### What WS4 changed that later workstreams should know
+
+- Bundle schema is **4**. A phase carries `target_busy_percent`, and a run that
+  read the target's exposition is refused if any phase does not.
+- The generator runs inside a declared processor and memory allowance on the
+  throwaway venue, through
+  [`loadtest-generator-share.sh`](../../scripts/loadtest-generator-share.sh). A
+  machine that cannot grant one runs unbounded and says so, and the bundle's
+  headroom scope is what a reader checks.
+- `volume.yaml` is three files now — `volume-500`, `volume-2000`, `volume-8000`.
+- The breakpoint walk is about thirty-five minutes, not eleven, and its job
+  ceiling is ninety.
+- `perf-stack.yml` has no `agents` dispatch input. Each job declares the estate
+  its profiles need.
 
 ### What WS3 changed that later workstreams should know
 

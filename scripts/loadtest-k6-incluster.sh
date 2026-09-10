@@ -48,11 +48,39 @@ main() {
   # is evidence the runner needs in order to discard it deliberately rather than
   # mistake a crashed scenario for one that never wrote a file.
   if [ -n "$export_path" ]; then
-    kubectl -n "$namespace" cp "$pod:$export_path" "$export_path" 2>/dev/null \
-      || echo "::warning::k6 wrote no summary export at $export_path inside $pod" >&2
+    collect_export "$namespace" "$pod" "$export_path"
   fi
 
   return "$status"
+}
+
+# collect_export brings one summary export out of the pod, and when it does not
+# arrive, says which of the two things happened.
+#
+# They are opposite findings. A k6 that wrote nothing is a scenario to look at;
+# a copy that failed is a measurement that exists, in a pod the next step
+# deletes, and the night is short a scenario for a reason that has nothing to do
+# with the load. The copy's own account of itself is the only thing that tells
+# them apart, and it was being sent to /dev/null under a message asserting the
+# first — an absence announced by something that never asked. Run 34443201348
+# reported that k6 wrote no export after k6 had run 7,256 requests with every
+# threshold green.
+#
+# A copy that failed is reported and not fatal: the keep/discard rule stays in
+# scripts/loadtest-k6-run.sh, which sees an absent export and refuses there, so
+# the scenario's own status travels back unchanged.
+collect_export() {
+  local namespace="$1" pod="$2" export_path="$3" refusal=""
+
+  if refusal="$(kubectl -n "$namespace" cp "$pod:$export_path" "$export_path" 2>&1)"; then
+    return 0
+  fi
+
+  if kubectl -n "$namespace" exec "$pod" -- test -f "$export_path" >/dev/null 2>&1; then
+    echo "::warning::$export_path is inside $pod and could not be copied out: $refusal" >&2
+  else
+    echo "::warning::k6 wrote no summary export at $export_path inside $pod" >&2
+  fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

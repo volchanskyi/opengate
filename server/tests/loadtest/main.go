@@ -210,7 +210,14 @@ func run() int {
 	// sweep whose fleets had all arrived.
 	generatorReading := WatchGenerator()
 
-	results, phases := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts)
+	// What the target is capped at, which is also what its own busy-ness is
+	// divided by. Both come from the same declaration so a bundle can never
+	// carry a fingerprint and a busy figure that disagree about the
+	// denominator.
+	targetShape := ParseFingerprintFlags("system-under-test", *targetDescription, *targetCPUs, *targetMemory)
+
+	results, phases, flatBusy := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts,
+		NewTargetBusy(*metricsURL, targetShape.CPUs))
 	totalDur := time.Since(start)
 
 	generatorHeadroom := generatorReading()
@@ -242,12 +249,13 @@ func run() int {
 		// Both sides of the measurement. The target's limits belong to whoever
 		// started it; the generator is this machine and is read here, including
 		// the disk room it actually has rather than the size of its partition.
-		TargetShape:    ParseFingerprintFlags("system-under-test", *targetDescription, *targetCPUs, *targetMemory),
+		TargetShape:    targetShape,
 		GeneratorShape: ReadGeneratorShape("server/tests/loadtest"),
 		Headroom:       generatorHeadroom,
 		Journeys:       readJourneys(*journeysPath),
 		FixtureWeight:  readFixtureWeight(*fixtureWeightPath),
 		Phases:         phases,
+		FlatTargetBusy: flatBusy,
 		Registration:   registration,
 		Fixture:        fixture,
 		Conservation: TargetConservation{

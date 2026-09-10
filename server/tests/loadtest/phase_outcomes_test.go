@@ -27,7 +27,7 @@ func TestEachPhaseTakesALiveRoundTrip(t *testing.T) {
 	fleet := &meteredFleet{arrivalsPerStep: 10, probe: 42 * time.Millisecond}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	assert.Positive(t, fleet.probes, "a phase that took no round trip has no latency to report")
@@ -47,7 +47,7 @@ func TestPhaseOutcomesComeFromWhatThePhaseSaw(t *testing.T) {
 	// The fleet's own tallies move as the phase runs, so they are advanced by
 	// the same instruction count the walk uses.
 	failing := &failingFleet{meteredFleet: fleet}
-	results, err := RunPhasesWatched(profile, failing, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, failing, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	assert.InDelta(t, 0.4, results[0].ErrorRate, 0.001, "four of every ten machines did not arrive")
@@ -79,7 +79,7 @@ func TestAPhaseErrorRatePastTheCeilingInvalidatesTheRun(t *testing.T) {
 	fleet := &failingFleet{meteredFleet: &meteredFleet{arrivalsPerStep: 6}}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	verdict := Classify(RunInputs{

@@ -1,0 +1,54 @@
+# Hold the load constant and vary how much data is already there. Running it any
+# other way conflates the two: a slower run against a bigger fleet says nothing
+# about which of the two caused it.
+#
+# It runs on a disposable runner stack rather than on staging, because staging's
+# database writes into the same node root production depends on, and because a
+# comparison between fixture sizes needs no production-shaped hardware — only
+# the same hardware for each size.
+schema_version: 1
+name: volume-500
+family: volume
+environment: runner
+fixture: lopsided
+
+# One point of the sweep. The legs differ in machines that actually enrolled,
+# because the fixture's name does not decide how much data is there — the large
+# and lopsided fixtures plan the same count and differ only in distribution, so
+# a sweep over fixture names was a two-point sweep wearing three labels. The
+# machines are what the database holds, and they are what varies here.
+phases:
+  - name: ramp
+    duration: 30s
+    operator_arrivals_per_second: 2
+    connected_agents: 100
+    sessions: 0
+  - name: steady
+    duration: 3m
+    operator_arrivals_per_second: 5
+    connected_agents: 500
+    sessions: 5
+
+# No processor ceiling. This stack is created by the job and thrown away with
+# it, so there is no neighbour to protect, and driving the processor is the
+# experiment rather than a hazard. What is declared is the room the run can
+# still exhaust: past it the node has nowhere to put what the run produces.
+safety:
+  max_node_memory_percent: 90
+  max_error_rate: 0.01
+
+gates:
+  # This family runs on a throwaway machine with no browser-side generator on
+  # it, so a limit naming a browser-side measurement could never be read here.
+  #
+  # The write path is what more data slows, and registration is the write this
+  # venue times — the server's own figure, taken where the device row lands
+  # rather than at the generator's send buffer.
+  - series: quic/quic-agents/aggregate
+    metric: error_rate
+    max: 0
+    blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 500
+    blocking: true

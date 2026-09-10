@@ -29,7 +29,7 @@ func TestSequencerWalksEveryPhaseInOrder(t *testing.T) {
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	require.Len(t, results, 3)
@@ -41,7 +41,7 @@ func TestEachPhaseEndsAtTheLevelItDeclared(t *testing.T) {
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	assert.Equal(t, 250, results[0].AchievedConnectedAgents)
@@ -56,7 +56,7 @@ func TestAPhaseRampsRatherThanStepping(t *testing.T) {
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	_, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	_, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	// The first phase climbs to its level rather than arriving at it. A step

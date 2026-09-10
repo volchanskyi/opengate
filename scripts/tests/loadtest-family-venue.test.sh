@@ -74,7 +74,10 @@ done
 
 doc="$(cat "$TESTING_DOC")"
 
-table_rows="$(grep -E '^\| \[[A-Z][a-z]+\]\(\.\./\.\./load/profiles/' <<<"$doc" || true)"
+# A row's label is a name a reader recognises, and a sweep's points carry the
+# number that distinguishes them — "Volume 8,000" is one row, not a malformed
+# one.
+table_rows="$(grep -E '^\| \[[A-Z][A-Za-z0-9,. ]*\]\(\.\./\.\./load/profiles/' <<<"$doc" || true)"
 row_count="$(grep -c . <<<"${table_rows:-}" || true)"
 
 if [ "${row_count:-0}" -eq "${#profiles[@]}" ]; then
@@ -85,10 +88,10 @@ fi
 
 while IFS= read -r row; do
   [ -n "$row" ] || continue
-  family="$(sed -n 's/^| \[\([A-Za-z]*\)\].*/\1/p' <<<"$row")"
+  family="$(sed -n 's/^| \[\([A-Za-z0-9,. ]*\)\].*/\1/p' <<<"$row")"
 
   # Every profile the row links must be a file that exists.
-  linked_profile="$(sed -n 's|.*(\.\./\.\./load/profiles/\([a-z]*\)\.yaml).*|\1|p' <<<"$row")"
+  linked_profile="$(sed -n 's|.*(\.\./\.\./load/profiles/\([a-z0-9-]*\)\.yaml).*|\1|p' <<<"$row")"
   if [ -n "$linked_profile" ] && [ -f "$PROFILE_DIR/$linked_profile.yaml" ]; then
     pass "$family links a profile that exists"
   else

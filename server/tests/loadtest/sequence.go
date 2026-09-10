@@ -109,8 +109,12 @@ func NewRealClock() Clock { return realClock{} }
 
 // runOnePhase climbs from the level the previous phase left to this phase's own,
 // holds there for the rest of the phase, and reports what happened.
-func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, error) {
+func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, busy TargetBusy) (PhaseResult, error) {
 	startedAt := clock.Now()
+	// Opened before the climb and closed after the hold, so what the figure
+	// divides is the work the target did in this phase by the time this phase
+	// took.
+	closeBusy := busy.Bracket()
 	step := phase.Duration.Duration / rampSteps
 	if step <= 0 {
 		step = phase.Duration.Duration
@@ -152,6 +156,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, 
 	finishedAt := clock.Now()
 	saw := fleet.Outcomes().Since(began)
 	seconds := finishedAt.Sub(startedAt).Seconds()
+	targetBusy := closeBusy(finishedAt.Sub(startedAt))
 
 	return PhaseResult{
 		Name:      phase.Name,
@@ -178,8 +183,12 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock) (PhaseResult, 
 		LatencyP95Ms:                     millis(percentile(samples, 95)),
 		LatencyP99Ms:                     millis(percentile(samples, 99)),
 		ErrorRate:                        saw.ErrorRate(),
-		ExpectedRejections:               saw.Rejected,
-		Faults:                           saw.Severed,
+		// What the target did with the allowance it was given while this phase
+		// ran, beside the wait times the phase produced. Absent where it could
+		// not be read.
+		TargetBusyPercent:  targetBusy,
+		ExpectedRejections: saw.Rejected,
+		Faults:             saw.Severed,
 	}, nil
 }
 

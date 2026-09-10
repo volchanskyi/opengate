@@ -21,31 +21,51 @@ family: breakpoint
 environment: runner
 fixture: small
 
+# The ladder reaches past where the last one stopped. Four thousand machines
+# arrived with no errors at all, which establishes nothing except that the
+# answer is higher, so two steps are added above it. The lower steps stay: a
+# single jump from four thousand to sixteen would answer whether the system
+# gives out without answering where.
+#
+# Every step is five minutes rather than two. A step has to settle before it can
+# be read, and the length is also what keeps the arrivals inside the rate the
+# server refuses past — sixteen thousand machines in two minutes is 133 a
+# second against a ceiling of about a hundred, and in five it is 53.
 phases:
   - name: step-500
-    duration: 2m
+    duration: 5m
     operator_arrivals_per_second: 5
     connected_agents: 500
     sessions: 5
   - name: step-1000
-    duration: 2m
+    duration: 5m
     operator_arrivals_per_second: 10
     connected_agents: 1000
     sessions: 10
   - name: step-2000
-    duration: 2m
+    duration: 5m
     operator_arrivals_per_second: 20
     connected_agents: 2000
     sessions: 20
   - name: step-4000
-    duration: 2m
+    duration: 5m
     operator_arrivals_per_second: 40
     connected_agents: 4000
     sessions: 40
+  - name: step-8000
+    duration: 5m
+    operator_arrivals_per_second: 80
+    connected_agents: 8000
+    sessions: 80
+  - name: step-16000
+    duration: 5m
+    operator_arrivals_per_second: 160
+    connected_agents: 16000
+    sessions: 160
   # Held at the load the run started from, so the report can say whether the
   # system came back on its own or stayed broken.
   - name: recovery
-    duration: 3m
+    duration: 5m
     operator_arrivals_per_second: 5
     connected_agents: 500
     sessions: 5

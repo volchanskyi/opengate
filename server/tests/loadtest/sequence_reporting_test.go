@@ -15,7 +15,7 @@ func TestOfferedLoadIsRecordedBesideAchievedLoad(t *testing.T) {
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	// Without both, a generator that could not keep up and a server that was
@@ -35,7 +35,7 @@ func TestPhaseBoundariesAreRecorded(t *testing.T) {
 	start := time.Unix(1_800_000_000, 0)
 	clock := &testClock{now: start}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	assert.Equal(t, start, results[0].StartedAt)
@@ -49,7 +49,7 @@ func TestAFleetThatStopsAnsweringEndsTheRun(t *testing.T) {
 	fleet := &recordingFleet{failAfter: 3}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	_, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	_, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stopped answering")
 }
@@ -62,7 +62,7 @@ func TestASingleInstantPhaseIsStillOneInstruction(t *testing.T) {
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, 400, results[0].AchievedConnectedAgents)
@@ -72,12 +72,12 @@ func TestRunPhasesRefusesAProfileWithNoPhases(t *testing.T) {
 	profile := threePhaseProfile()
 	profile.Phases = nil
 
-	_, err := RunPhasesWatched(profile, &recordingFleet{}, &testClock{now: time.Now()}, alwaysRoomToRun)
+	_, err := RunPhasesWatched(profile, &recordingFleet{}, &testClock{now: time.Now()}, alwaysRoomToRun, unreadTarget)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no phases")
 }
 
 func TestRunPhasesRefusesAMissingProfile(t *testing.T) {
-	_, err := RunPhasesWatched(nil, &recordingFleet{}, &testClock{now: time.Now()}, alwaysRoomToRun)
+	_, err := RunPhasesWatched(nil, &recordingFleet{}, &testClock{now: time.Now()}, alwaysRoomToRun, unreadTarget)
 	require.Error(t, err)
 }

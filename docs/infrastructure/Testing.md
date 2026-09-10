@@ -868,6 +868,17 @@ browser-side generator fills it. A phase's latency is a live round trip taken
 during the phase — a machine that connects, handshakes, registers and hangs up —
 because the control stream has no reply to a heartbeat.
 
+Beside a phase's wait times sits how hard the target worked over that phase: its
+own processor counter, read off the same page the harness reads registration
+timing and goroutine counts from, bracketed around the phase and divided by the
+phase's clock and by the processor allowance the target was declared with. What
+it states is *the target used this share of what it was given*, which compares
+across a rung with half a processor and a rung with four. Without it, a target
+that has run out of processor and one that is idle but slow produce the same
+wait times, and those are different problems with different fixes. A run that
+read the target's own account of itself is held to producing the figure for
+every phase, because both come off the one page.
+
 Two of a bundle's readings are taken by steps outside the harness: the fleet's
 weight on disk, read from the database once the fleet exists, and the technician
 journeys, timed in another pod.
@@ -886,7 +897,9 @@ package's tests.
 | [Peak](../../load/profiles/peak.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the busiest ordinary morning is two thousand machines, and the cluster node has 150 millicores left to reserve |
 | [Spike](../../load/profiles/spike.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | a site whose link came back is the same two thousand, arriving at once |
 | [Breakpoint](../../load/profiles/breakpoint.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | a capacity test that stops short of the capacity measures nothing, and saturating the cluster node throttles production's own probes |
-| [Volume](../../load/profiles/volume.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | staging's database shares the node root with production; a runner brings its own disk |
+| [Volume 500](../../load/profiles/volume-500.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | staging's database shares the node root with production; a runner brings its own disk |
+| [Volume 2,000](../../load/profiles/volume-2000.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the middle point of the sweep: the legs differ in machines enrolled, because the fixture names do not differ in how much data they hold |
+| [Volume 8,000](../../load/profiles/volume-8000.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the far point, four times the largest fixture any name plans |
 | [Scaling](../../load/profiles/scaling.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the sweep needs four or five processor points and the cluster offers one |
 | [Soak](../../load/profiles/soak.yaml) | GitHub-hosted runner, weekly | [`soak.yml`](../../.github/workflows/soak.yml) | the run owns the machine and destroys it, which is what makes following a held object with a debugger possible at all |
 
@@ -897,6 +910,27 @@ family this page would otherwise describe in the present tense while it never
 ran, which the live-state gate structurally cannot see — it looks for past-state
 narration, and this is a present-tense claim about something that does not
 happen.
+
+The two sweeps are read back. The scaling legs are downloaded together by a job
+that publishes the curve — each rung beside the wait times and the target
+busy-ness it produced — and refuses a sweep that could not measure at all: a leg
+that measured nothing, legs naming the same processor share, fewer legs than a
+curve needs, or legs that all came back saying the same thing. It deliberately
+does not refuse a curve that fails to rise, because one night is one sample per
+rung and two nights from the same code have disagreed about the shape.
+[ADR-109](../adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md) is
+the decision behind that, and behind the two things that made the sweep readable
+in the first place: the rungs sit below what the rest of the stack leaves, so the
+generator's share no longer shrinks as the server's grows, and the fleet sits
+where the rungs can differ at all.
+
+On that venue the generator runs inside a declared processor and memory
+allowance of its own
+([`loadtest-generator-share.sh`](../../scripts/loadtest-generator-share.sh)), so
+the stack's four consumers are four declarations rather than three and a
+remainder. A machine that cannot grant one says so and the run goes ahead
+unbounded, and the bundle's headroom scope is what says which of the two
+happened.
 
 A runner is x86_64 and production is ARM64, so every family but the first
 produces comparisons — between fixture sizes, between processor counts, between

@@ -74,10 +74,10 @@ type reportingFleet interface {
 // the whole fleet at once — which is a real event, a site whose link came back,
 // and the only shape available before profiles existed.
 func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
-	credentials agentCredentials, addr string, opts loadOptions,
-) ([]agentResult, []PhaseResult) {
+	credentials agentCredentials, addr string, opts loadOptions, busy TargetBusy,
+) ([]agentResult, []PhaseResult, *float64) {
 	if profile == nil {
-		return runFlat(agents, agentPlan, credentials, addr, opts), nil
+		return runFlat(agents, agentPlan, credentials, addr, opts, busy)
 	}
 
 	// The estate is fixed and its machines enrol once, so a level the estate
@@ -94,11 +94,11 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 		estateStart(roster, held, addr, opts),
 		phaseProbe(agentPlan, held, addr, opts))
 
-	results, phases, err := runProfile(profile, fleet, NewRealClock(), VenueNodeReading)
+	results, phases, err := runProfile(profile, fleet, NewRealClock(), VenueNodeReading, busy)
 	if err != nil {
 		log.Fatalf("phases: %v", err)
 	}
-	return results, phases
+	return results, phases, nil
 }
 
 // estateStart is one machine's start, drawn from the estate: it takes a machine
@@ -132,21 +132,28 @@ func estateStart(roster *agentRoster, credentials agentCredentials, addr string,
 // five hundred machines for six minutes the same account as one that connected
 // nobody — no successes, no failures — and a run with no failures reads as a
 // clean run.
-func runProfile(profile *Profile, fleet reportingFleet, clock Clock, read SafetyReader,
+func runProfile(profile *Profile, fleet reportingFleet, clock Clock, read SafetyReader, busy TargetBusy,
 ) ([]agentResult, []PhaseResult, error) {
 	// The machine the run shares is looked at between phases, and a run that has
 	// pushed it past what its profile said it would accept stops there. On the
 	// throwaway stack the profile declares no limits, so nothing is gated; on
 	// staging the node carries production too.
-	phases, err := RunPhasesWatched(profile, fleet, clock, read)
+	phases, err := RunPhasesWatched(profile, fleet, clock, read, busy)
 	fleet.Stop()
 	return fleet.Results(), phases, err
 }
 
 // runFlat offers every machine at once and waits for all of them.
+//
+// It has one phase and that phase is the run, so the target's own busy-ness is
+// bracketed around the whole of it — the same reading a walked phase takes,
+// over the only window this shape has.
 func runFlat(agents int, agentPlan []tenantAgent, credentials agentCredentials,
-	addr string, opts loadOptions,
-) []agentResult {
+	addr string, opts loadOptions, busy TargetBusy,
+) ([]agentResult, []PhaseResult, *float64) {
+	closeBusy := busy.Bracket()
+	startedAt := time.Now()
+
 	results := make([]agentResult, agents)
 	var wg sync.WaitGroup
 	for i := 0; i < agents; i++ {
@@ -157,7 +164,8 @@ func runFlat(agents int, agentPlan []tenantAgent, credentials agentCredentials,
 		}(i)
 	}
 	wg.Wait()
-	return results
+
+	return results, nil, closeBusy(time.Since(startedAt))
 }
 
 // phaseProbe is one live round trip through the machine side: connect,
