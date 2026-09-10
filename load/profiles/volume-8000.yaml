@@ -18,8 +18,15 @@ fixture: lopsided
 # a sweep over fixture names was a two-point sweep wearing three labels. The
 # machines are what the database holds, and they are what varies here.
 phases:
+  # Two minutes rather than the thirty seconds its siblings take, so all three
+  # legs bring their machines in at the same rate — about thirteen a second. A
+  # sweep whose legs also differ in how fast the fleet arrives is varying two
+  # things, and this leg is the one where the difference bites: sixteen hundred
+  # machines in thirty seconds is fifty-three arrivals a second, and each arrival
+  # costs another request to file the machine under its customer, against a
+  # server that accepts a hundred a second from one address.
   - name: ramp
-    duration: 30s
+    duration: 2m
     operator_arrivals_per_second: 2
     connected_agents: 1600
     sessions: 0

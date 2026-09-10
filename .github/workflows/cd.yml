@@ -483,7 +483,7 @@ jobs:
           done
 
           for machine in agent-a agent-b; do
-            kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$machine" --timeout=120s
+            deploy/scripts/wait-for-pod-ready.sh "$machine" 120
             kubectl -n "$NAMESPACE" exec "$machine" -- mkdir -p /tmp/agent
             kubectl -n "$NAMESPACE" cp /tmp/mesh-agent "$machine:/tmp/mesh-agent"
             kubectl -n "$NAMESPACE" exec "$machine" -- chmod 0755 /tmp/mesh-agent

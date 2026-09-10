@@ -39,6 +39,22 @@ import (
 // tidiness.
 const estateFiledAnnouncement = "Estate filed"
 
+// filingAttemptsBeforeGivingUp is how many refusals with nothing filed make a
+// fleet the run cannot file, rather than machines it could not file.
+//
+// It matters because filing is not free of the load. Every arrival costs the
+// server another request or two on the address the enrolment came from, and that
+// address is allowed about a hundred requests a second — so a refusal asked for
+// again once per machine is taken out of the budget the fleet needs to arrive at
+// all, and on a fleet of eight thousand it is taken out eight thousand times.
+//
+// One refusal is not enough to stop on: a machine the server would not take says
+// nothing about the next one. A handful in a row with nothing ever filed is
+// about the run, and asking again is spending requests on an answer that will
+// not change. A run that has filed anything has proved the mechanism works, and
+// never stops.
+const filingAttemptsBeforeGivingUp = 5
+
 // estateFiler files each machine once, as it arrives.
 type estateFiler struct {
 	client      *FixtureClient
@@ -56,6 +72,9 @@ type estateFiler struct {
 	filed     map[string]bool
 	refused   int
 	announced bool
+	// gaveUp is set once the run has shown it cannot file at all. See
+	// filingAttemptsBeforeGivingUp.
+	gaveUp bool
 }
 
 // newEstateFiler builds the filer for a run that has a fixture to file against.
@@ -91,7 +110,7 @@ func (f *estateFiler) file(ctx context.Context, machine tenantAgent) bool {
 	}
 
 	f.mu.Lock()
-	if f.filed[machine.hostname] {
+	if f.gaveUp || f.filed[machine.hostname] {
 		f.mu.Unlock()
 		return false
 	}
@@ -132,11 +151,23 @@ func (f *estateFiler) refuse(machine tenantAgent, err error) bool {
 	f.mu.Lock()
 	first := f.refused == 0
 	f.refused++
+	// Nothing filed after a run of attempts is a fleet this run cannot file, and
+	// every further attempt spends a request the arrivals need.
+	givingUp := false
+	if len(f.filed) == 0 && f.refused >= filingAttemptsBeforeGivingUp && !f.gaveUp {
+		f.gaveUp = true
+		givingUp = true
+	}
+	attempts := f.refused
 	f.mu.Unlock()
 
 	if first {
 		fmt.Printf("::warning::could not file %s: %v — the fleet's customer and building are what a scoped read narrows by\n",
 			machine.hostname, err)
+	}
+	if givingUp {
+		fmt.Printf("::warning::filing was refused for the first %d machines and none was filed, so this run stops asking — every attempt spends the allowance its arrivals need\n",
+			attempts)
 	}
 	return false
 }

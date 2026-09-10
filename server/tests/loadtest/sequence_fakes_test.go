@@ -28,15 +28,16 @@ type recordingFleet struct {
 }
 
 type fleetStep struct {
-	at     time.Duration
+	// within is the window the fleet was given to reach the level in.
+	within time.Duration
 	target int
 }
 
-func (f *recordingFleet) HoldConnected(elapsed time.Duration, target int) error {
+func (f *recordingFleet) HoldConnected(within time.Duration, target int) error {
 	if f.failAfter > 0 && len(f.steps) >= f.failAfter {
 		return errors.New("the fleet stopped answering")
 	}
-	f.steps = append(f.steps, fleetStep{at: elapsed, target: target})
+	f.steps = append(f.steps, fleetStep{within: within, target: target})
 	// Whatever the level climbed by is what turned up, so a fleet that is asked
 	// for more machines reports more arrivals and one that winds down reports
 	// none.

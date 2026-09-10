@@ -98,6 +98,9 @@ type Profile struct {
 	// a limit. A measurement that appears in neither list is one nobody has
 	// ruled on, which is the state this pair exists to make visible.
 	Ungated []Ungated `yaml:"ungated"`
+	// GaveOut is what counts as the system giving out, for a profile that goes
+	// looking for the point where it does. See breaking_point.go.
+	GaveOut *GaveOut `yaml:"gave_out"`
 }
 
 // TotalDuration is how long the phases run for, end to end.
@@ -178,8 +181,39 @@ func (p *Profile) Validate() error {
 	problems = append(problems, p.validateSafety()...)
 	problems = append(problems, p.validateGates()...)
 	problems = append(problems, p.validateUngated()...)
+	problems = append(problems, p.validateGaveOut()...)
 
 	return errors.Join(problems...)
+}
+
+// validateGaveOut holds a profile to stating what it went looking for.
+//
+// The breakpoint family's whole subject is where the system gives out, so a
+// ladder that has not written down what giving out means answers with whatever
+// it happened to survive — which is not a measurement of anything.
+func (p *Profile) validateGaveOut() []error {
+	if p.GaveOut == nil {
+		if p.Family == FamilyBreakpoint {
+			return []error{errors.New(
+				"a breakpoint profile declares gave_out — a ladder with no definition of giving out reports whatever it survived")}
+		}
+		return nil
+	}
+
+	var problems []error
+	for name, value := range map[string]float64{
+		"error_rate_above":          p.GaveOut.ErrorRateAbove,
+		"latency_p95_ms_above":      p.GaveOut.LatencyP95MsAbove,
+		"target_busy_percent_above": p.GaveOut.TargetBusyPercentAbove,
+	} {
+		if value < 0 {
+			problems = append(problems, fmt.Errorf("gave_out.%s is negative", name))
+		}
+	}
+	if !p.GaveOut.declared() {
+		problems = append(problems, errors.New("gave_out names at least one term, or it says nothing"))
+	}
+	return problems
 }
 
 func (p *Profile) validatePhases() []error {

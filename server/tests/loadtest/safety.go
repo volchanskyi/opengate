@@ -11,21 +11,23 @@ import (
 )
 
 // Every profile declares what the run must not push its machine past, and the
-// check below is what reads those numbers.
+// checks below are what read those numbers.
 //
 // They are not about the verdict. Two different things are being protected, and
 // a profile declares whichever of them its environment has:
 //
 //   - The processor ceiling protects a neighbour. Staging shares one node with
-//     production, and a run that saturates it does not produce a bad measurement
-//     — it makes the kubelet start choosing which pods to evict. A disposable
-//     stack has no neighbour, and driving its processor is what the scaling
-//     sweep is for, so such a profile declares no processor ceiling and this
-//     leaves it alone.
+//     production, so a run is asked before it starts whether the neighbour has
+//     left it room. A disposable stack has no neighbour, and driving its
+//     processor is what the scaling sweep is for, so such a profile declares no
+//     processor ceiling and this leaves it alone.
 //   - The memory and disk ceilings protect the measurement. Past them the node
 //     has nowhere to put what the run produces, and the numbers describe a
 //     machine out of room rather than the system under test. They hold wherever
-//     the run is.
+//     the run is, and for the whole of it.
+//
+// Which of those two a ceiling is decides when it can be read, and CheckRoomToStart
+// carries the reasoning.
 //
 // A reading nobody took is not a reading of zero. An absent measurement fails
 // the check rather than passing it, because a guard that treats "unknown" as
@@ -56,8 +58,30 @@ type NodeReading struct {
 // SafetyReader takes one reading.
 type SafetyReader func() NodeReading
 
-// CheckSafety reports why a run must stop, or nil while it may continue.
-func CheckSafety(limits Safety, reading NodeReading) error {
+// CheckRoomToStart reports why a run must not begin, or nil if it may.
+//
+// It is the only place the processor ceiling is read, and the reason is what
+// processor time does under pressure. Memory and disk get used up: what the run
+// puts there is gone until it gives it back, and past the ceiling the node has
+// nowhere to put the next thing — so the run's own share is exactly what those
+// ceilings ask about. Processor time is not used up, it is taken in turns. A
+// node whose processors are over-committed serves everything more slowly, in
+// proportion to what each pod was promised; it does not run out, and the kubelet
+// does not evict anything for it.
+//
+// So a processor reading taken while the run is offering load is mostly a
+// reading of the run's own work, and a ceiling on that stops a run for doing
+// what it was asked to do. It did: staging's nightly was refused after its ramp
+// phase with the node reading 108% against an 85% ceiling, on a node that reads
+// between 9% and 39% when nothing is running on it.
+//
+// The question the ceiling exists to ask — is there room beside production
+// tonight — has one moment when the answer is about the neighbour alone, and
+// that is before the run has offered anything. What holds afterwards is not a
+// reading at all but the kernel's own arithmetic: every pod on that node has a
+// share it is guaranteed and a cap it cannot exceed, and the run's pods are
+// capped at figures somebody chose.
+func CheckRoomToStart(limits Safety, reading NodeReading) error {
 	if !reading.Measured {
 		return errors.New("safety: the node was not measured, and an unmeasured node is not a node inside its limits")
 	}
@@ -68,6 +92,18 @@ func CheckSafety(limits Safety, reading NodeReading) error {
 			"the node's processor is %.0f%% committed against a limit of %.0f%% — production shares it",
 			reading.CPUPercent, limits.MaxNodeCPUPercent))
 	}
+	return errors.Join(append(problems, CheckRoomToContinue(limits, reading))...)
+}
+
+// CheckRoomToContinue reports why a run already offering load must stop, or nil
+// while it may carry on. It is the ceilings on room the node can actually run
+// out of; see CheckRoomToStart for why the processor is not one of them.
+func CheckRoomToContinue(limits Safety, reading NodeReading) error {
+	if !reading.Measured {
+		return errors.New("safety: the node was not measured, and an unmeasured node is not a node inside its limits")
+	}
+
+	var problems []error
 	if limits.MaxNodeMemoryPercent > 0 && reading.MemoryPercent > limits.MaxNodeMemoryPercent {
 		problems = append(problems, fmt.Errorf(
 			"the node's memory is %.0f%% used against a limit of %.0f%% — past this the kubelet starts evicting",
@@ -98,15 +134,21 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 
 	results := make([]PhaseResult, 0, len(profile.Phases))
 	from := 0
-	for _, phase := range profile.Phases {
-		if err := CheckSafety(profile.Safety, read()); err != nil {
+	for i, phase := range profile.Phases {
+		// The full check once, before anything has been offered, and the room
+		// the node can run out of every time after that.
+		check := CheckRoomToContinue
+		if i == 0 {
+			check = CheckRoomToStart
+		}
+		if err := check(profile.Safety, read()); err != nil {
 			return results, fmt.Errorf("stopping before phase %q: %w", phase.Name, err)
 		}
 		result, err := runOnePhase(phase, from, fleet, clock, busy)
 		if err != nil {
 			return nil, fmt.Errorf("phase %q: %w", phase.Name, err)
 		}
-		if err := CheckSafety(profile.Safety, read()); err != nil {
+		if err := CheckRoomToContinue(profile.Safety, read()); err != nil {
 			return append(results, result), fmt.Errorf("stopping after phase %q: %w", phase.Name, err)
 		}
 		results = append(results, result)

@@ -879,6 +879,25 @@ wait times, and those are different problems with different fixes. A run that
 read the target's own account of itself is held to producing the figure for
 every phase, because both come off the one page.
 
+A phase is also an offer, and the fleet is what makes the offer true. A step
+going from eight thousand machines to sixteen thousand over five minutes is
+offering fifty-three arrivals a second, so the fleet spreads the machines it is
+adding across the window it has to add them in rather than dialling them all at
+once. The server refuses enrolments past about a hundred a second on purpose, and
+a burst past that is turned away and counted as machines that could not arrive —
+which reads as a system that could not absorb the load rather than as load that
+was never offered. [ADR-112](../adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md)
+is the decision.
+
+The breakpoint family carries one thing the others do not: what counts as giving
+out. `gave_out` names an error rate, a wait time, or a share of the target's
+processor allowance, and the run reports the last rung that stayed inside all of
+them, the first that did not, and the reading that decided it — together with how
+many rungs it looked at, so "nothing gave out" cannot be reported by a ladder
+that walked nothing. Without a declared definition the family's answer is
+whatever the run happened to survive
+([ADR-115](../adr/ADR-115-a-ladder-declares-what-giving-out-means.md)).
+
 Two of a bundle's readings are taken by steps outside the harness: the fleet's
 weight on disk, read from the database once the fleet exists, and the technician
 journeys, timed in another pod.

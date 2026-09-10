@@ -226,7 +226,7 @@ jobs:
             --restart=Never \
             --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
-          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_K6_POD" --timeout=120s
+          deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_K6_POD" 120
           kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
           kubectl -n "$NAMESPACE" cp /tmp/k6 "$LOADTEST_K6_POD:/tmp/k6"
           kubectl -n "$NAMESPACE" cp load/. "$LOADTEST_K6_POD:/tmp/load"
@@ -294,7 +294,7 @@ jobs:
             --restart=Never \
             --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
-          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_POD" --timeout=120s
+          deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_POD" 120
           kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
           kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
 

@@ -47,7 +47,15 @@ import (
 // only through the tenant-wide read — so a night could report a device-list
 // figure measured against a fleet the product itself could not find, and nothing
 // in the bundle said which.
-const bundleSchemaVersion = 5
+//
+// Version 6 adds where the ladder broke. A family whose whole subject is the
+// point at which the system gives out reported only the phases it walked, so its
+// answer was whatever the run happened to survive — one ladder reached four
+// thousand machines with no errors and established nothing except that the
+// answer is higher. The profile now declares what giving out means and the run
+// reports the rung that held, the rung that did not, and the reading that
+// decided it.
+const bundleSchemaVersion = 6
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -276,6 +284,9 @@ type Bundle struct {
 	GeneratorHeadroom Headroom        `json:"generator_headroom"`
 	Cleanup           CleanupProof    `json:"cleanup"`
 	Verdict           Verdict         `json:"verdict"`
+	// BreakingPoint is where the ladder broke, for a profile that declared what
+	// breaking means. Absent for every profile that asked no such question.
+	BreakingPoint *BreakingPoint `json:"breaking_point,omitempty"`
 }
 
 // Validate reports every reason this bundle could not be read as a run.
@@ -295,11 +306,35 @@ func (b *Bundle) Validate() error {
 		problems = append(problems, errors.New("observations is empty — a run that watched nothing has only its own account of itself"))
 	}
 	problems = append(problems, b.validateCleanup()...)
+	problems = append(problems, b.validateBreakingPoint()...)
 	if b.Verdict.Result == "" {
 		problems = append(problems, errors.New("verdict names no result"))
 	}
 
 	return errors.Join(problems...)
+}
+
+// validateBreakingPoint refuses an answer that could not have been reached.
+//
+// "Nothing gave out" is an absence, and an absence is satisfied by the absence
+// of the whole conversation: a ladder whose phases never arrived reports it just
+// as readily as one that held all the way up. So an answer states how many rungs
+// it read, and an answer that read none is not one.
+func (b *Bundle) validateBreakingPoint() []error {
+	if b.BreakingPoint == nil {
+		return nil
+	}
+	var problems []error
+	if b.BreakingPoint.RungsRead <= 0 {
+		problems = append(problems, errors.New(
+			"breaking_point read no rung — a ladder that looked at nothing did not find that nothing gave out"))
+	}
+	if b.BreakingPoint.GaveAt != "" && b.BreakingPoint.Reason == "" {
+		problems = append(problems, fmt.Errorf(
+			"breaking_point says %q gave out and does not say which reading decided it",
+			b.BreakingPoint.GaveAt))
+	}
+	return problems
 }
 
 func (b *Bundle) validateRun() []error {

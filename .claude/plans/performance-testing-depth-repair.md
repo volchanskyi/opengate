@@ -12,7 +12,7 @@ code. Nothing in it is inferred.
 
 ## 0. Progress
 
-Updated 2026-09-09. Each workstream lands as one commit.
+Updated 2026-09-10. Each workstream lands as one commit.
 
 | WS | State | Where it is |
 |---|---|---|
@@ -20,11 +20,14 @@ Updated 2026-09-09. Each workstream lands as one commit.
 | WS1 | **Done, then repaired** | `2292438c`, then the repair below. [ADR-100](../../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md), [ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) |
 | WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
 | WS3 | **Done** | [ADR-105](../../docs/adr/ADR-105-a-simulated-machine-is-one-machine-for-the-whole-run.md), [ADR-106](../../docs/adr/ADR-106-a-venue-lasts-as-long-as-the-run-it-holds.md), [ADR-107](../../docs/adr/ADR-107-a-family-runs-somewhere.md) |
-| WS4 | **Done** | [ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md), [ADR-111](../../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md). The estate is filed as it arrives, and the scenarios that read a building wait for one. What remains is a reader on the volume venue — see below |
-| WS5 | Not started | |
+| WS4 | **Done** | [ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md), [ADR-111](../../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md), [ADR-112](../../docs/adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md). The estate is filed as it arrives, and a climb is offered at the rate its profile declares. What remains is a reader on the volume venue — see below |
+| WS5 | **Started** | Item 6 done: [ADR-115](../../docs/adr/ADR-115-a-ladder-declares-what-giving-out-means.md). Items 1–5 not started |
 | WS6 | Not started | |
 | F1 | **Done** | The busy-machine ceiling now reads the measure its venue calls for, and an unread figure no longer reaches it as a machine at rest. [ADR-108](../../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) |
 | F4 | **Done** | A machine leaves when the run winds it down rather than when its own clock runs out, so the estate gets its machines back and a recovery step measures a target let go of. [ADR-110](../../docs/adr/ADR-110-a-machine-leaves-when-the-run-says-so.md) |
+| F5 | **Done** | A climb was ten bursts under a rate the profile had written down, so the server refused two thirds of the top rungs. [ADR-112](../../docs/adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md) |
+| F6 | **Done** | The staging processor ceiling was reading the run's own load and refusing the run for it. [ADR-113](../../docs/adr/ADR-113-a-shared-processor-is-asked-about-before-the-run.md) |
+| F7 | **Done** | The drill's four pods asked for more processor than the node had left, and the refusal reached the log as a timeout. [ADR-114](../../docs/adr/ADR-114-a-run-fits-in-the-room-the-node-has-left.md) |
 
 ### What the first dispatched runs measured, 2026-09-09
 
@@ -187,6 +190,102 @@ tolerance needs a night's readings from the repaired code to bracket, so the
 reading lands first and the gate follows it. Tracked in
 [`techdebt.md`](../techdebt.md).
 
+### The three nightlies of 2026-09-10, and what they said
+
+All three scheduled runs came back red on the same night, on three unrelated
+defects. Every one of them is a live-run finding: none could have been produced
+by any gate in the repository, and two of them are the first night the code they
+broke was ever asked to do the thing it declared.
+
+**F5 — a climb was ten bursts under a rate the profile had written down.**
+[Perf stack 34474430927](https://github.com/volchanskyi/opengate/actions/runs/34474430927).
+The fleet dialled every machine of each ramp instruction the instant it received
+it, so `volume-8000`'s steady phase reached 34% of its offered arrival rate and
+the ladder's top two rungs reached 52% and 21%, all of them saying
+`enrollment refused with 429`. The server's per-address allowance is a hundred a
+second with a burst of two hundred; a step of the top rung is sixteen hundred
+machines arriving at once.
+
+The arithmetic that made the ladder five-minute steps in the first place — *five
+minutes puts sixteen thousand arrivals at fifty-three a second* — was true of
+the profile and false of the fleet, and the `within` argument the sequencer
+already passed for exactly this purpose was read by nothing. Repaired as
+[ADR-112](../../docs/adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md).
+It had been invisible for as long as every rung stayed under the burst allowance,
+and the two legs that first crossed it crossed it the night they were raised.
+
+**F6 — the staging processor ceiling was reading the run's own load.**
+[Load Tests 34459565632](https://github.com/volchanskyi/opengate/actions/runs/34459565632)
+stopped after its ramp with *the node's processor is 108% committed against a
+limit of 85%*. The reading was correct and was the guest measure ADR-108 settled
+on; what had changed in the minute before it was the run. A ceiling a working run
+cannot pass is not a safety ceiling, and this one will refuse every night that
+succeeds in offering load.
+
+Underneath it is a distinction the original comment had backwards: memory and
+disk get used up, so the run's own share is exactly what those ceilings ask
+about, while processor time is taken in turns and nothing is evicted for it.
+Repaired as
+[ADR-113](../../docs/adr/ADR-113-a-shared-processor-is-asked-about-before-the-run.md)
+— the processor ceiling is a pre-flight, the other two hold for the walk.
+
+**F7 — the drill asked the node for more than it had.**
+[Network Drill 34464514567](https://github.com/volchanskyi/opengate/actions/runs/34464514567).
+Four pods asking for 185 millicores against the 150 the node has unreserved, the
+fleet's hundred arriving last, and the scheduler's own sentence — `0/1 nodes are
+available: 1 Insufficient cpu` — read by nothing. What reached the log was a
+timeout and then a message about a pod that would not say whether it held a
+fleet, written about a pod that had never been placed. Repaired as
+[ADR-114](../../docs/adr/ADR-114-a-run-fits-in-the-room-the-node-has-left.md):
+the reservations are summed against the remainder by a shell test, and every wait
+in every workflow now prints what the cluster says.
+
+**What checking the repair turned up.** Working the paced arrival rate out for
+every phase of every profile — which nothing had ever done, because the rate was
+a claim rather than a behaviour — showed one leg sitting where the allowance
+would still bite. Each arrival costs another request to file the machine under
+its customer ([ADR-111](../../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md)),
+on the same address the enrolment came from, and `volume-8000`'s ramp brought
+sixteen hundred machines in thirty seconds — fifty-three a second, twice that
+with filing, against a hundred.
+
+Its ramp is now two minutes, which puts all three legs of the sweep at about
+thirteen arrivals a second. That is the better shape on its own terms: a sweep
+whose legs differ in how fast the fleet arrives as well as in how much data is
+already there is varying two things, which is
+[ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md)'s
+own rule. The refusal half is fixed with it: a run that has been refused its
+first few machines and has filed none stops asking, because every further attempt
+spends a request the arrivals need and the answer will not change. On the
+throwaway venue, where filing is answered `404` today, that turned one wasted
+request per arrival into five for the whole run.
+
+**What that leaves open, and why it is a decision rather than an oversight.**
+Filing costs two requests per arrival when it works, on top of the enrolment's
+one, all on the same address and against the same hundred a second. Two profiles
+sit above that ceiling once filing succeeds — `spike`, whose whole subject is
+fifteen hundred machines arriving in thirty seconds, and `volume-8000`'s steady
+phase. Neither can be fixed by slowing the profile: the burst *is* what `spike`
+measures, and a sweep leg that arrives more slowly than its siblings is the thing
+[ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md)
+forbids.
+
+What they are actually running into is D1 — the nightly's throughput is set by
+the rate limiter rather than by the server — and WS5's first item is its fix: the
+generator presents one address per simulated technician and the trust rule
+narrows to the edge. Charging filing to the arrival path at a different rate
+means re-opening
+[ADR-111](../../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md)'s
+per-arrival choice, and the two belong in one piece of work rather than in a
+repair commit. It is stated here rather than left to be rediscovered: **WS5 item
+1 has to hold the arrival rate plus what filing costs under whatever the new
+binding constraint is**, and `spike` is the profile that proves it.
+
+Each of the three is the same shape one level apart — a figure declared in one
+file and made true in another, with nothing made to read both. That is
+[`ci-cd-determinism.md`](../rules/ci-cd-determinism.md)'s own generalisation, and
+F7 is the one where a sweep could close it from the text alone.
+
 ### What WS4 left open, and why
 
 `FileDevices` is written, tested, and called from nothing. Wiring it was listed
@@ -248,8 +347,13 @@ half and needs no filing to be a sweep.
 
 ### What WS4 changed that later workstreams should know
 
-- Bundle schema is **4**. A phase carries `target_busy_percent`, and a run that
-  read the target's exposition is refused if any phase does not.
+- Bundle schema is **6**. A phase carries `target_busy_percent`, and a run that
+  read the target's exposition is refused if any phase does not; a run carries
+  what it filed, and a ladder carries where it broke.
+- A fleet spreads each step's arrivals across the window the phase gives it, so
+  `HoldConnected`'s first argument is that window rather than how far into the
+  phase the call is. Every profile's declared arrival rate is now the rate the
+  server is asked for.
 - The generator runs inside a declared processor and memory allowance on the
   throwaway venue, through
   [`loadtest-generator-share.sh`](../../scripts/loadtest-generator-share.sh). A
@@ -1232,7 +1336,8 @@ Every changed profile takes a new `workload_name` version per Decision 9.
    steady window, not over the ramps as well.
 5. Thresholds are re-based on what the widened load actually produces, and every
    changed scenario takes a new `workload_name` version per Decision 9.
-6. **What counts as "given out" is written down before it is looked for.** The
+6. **What counts as "given out" is written down before it is looked for — done,
+   [ADR-115](../../docs/adr/ADR-115-a-ladder-declares-what-giving-out-means.md).** The
    breakpoint family has no such definition today, so its answer is whatever the
    run happened to survive: the 2026-09-09 ladder reached 4,000 machines with no
    errors at all and therefore established nothing except that the answer is
