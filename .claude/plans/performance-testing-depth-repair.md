@@ -24,6 +24,7 @@ Updated 2026-09-09. Each workstream lands as one commit.
 | WS5 | Not started | |
 | WS6 | Not started | |
 | F1 | **Done** | The busy-machine ceiling now reads the measure its venue calls for, and an unread figure no longer reaches it as a machine at rest. [ADR-108](../../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) |
+| F4 | **Done** | A machine leaves when the run winds it down rather than when its own clock runs out, so the estate gets its machines back and a recovery step measures a target let go of. [ADR-110](../../docs/adr/ADR-110-a-machine-leaves-when-the-run-says-so.md) |
 
 ### What the first dispatched runs measured, 2026-09-09
 
@@ -149,6 +150,43 @@ a second against an enrolment rate the server refuses past at about 100 — whic
 is *why* the steps lengthen, rather than a separate accommodation: five minutes
 puts 16,000 arrivals at 53 a second.
 
+### F4 — a machine never heard that it had been wound down, found 2026-09-10
+
+The endurance run of
+[34422964318](https://github.com/volchanskyi/opengate/actions/runs/34422964318)
+came back invalid with nine of its ten busy phases offering no load at all.
+Repaired as
+[ADR-110](../../docs/adr/ADR-110-a-machine-leaves-when-the-run-says-so.md).
+
+A machine's hold watched only its own clock, and a profiled run gives every
+machine a hold as long as the whole walk — so the wind-down reached nothing. The
+machine stayed connected, never gave its identity back to the estate, and every
+later phase that asked for machines found none free. Three readings agree: 2,250
+machines that could not arrive (nine busy phases × 250), a run of 5h16m25s
+against a 4h44m walk (the last arrival plus the five-hour hold), and `quiet-01`
+reporting 250 connected while the target held 500.
+
+**The soak is where it went red; the shape families are where it was worse.**
+Neither `spike` nor `breakpoint` climbs again, so neither failed — they simply
+reported the recovery they were asked for while the target went on carrying two
+thousand and sixteen thousand machines respectively. The phase that exists to say
+whether the system comes back has never once measured a system coming back, and
+both series re-base from the first night after the repair.
+
+**What it says about the instruments.** Each was blind for its own reason: the
+run's count is `len(running)` and the wind-down maintains it, the conservation
+bracket reads the target at the run's start and end and the defect is entirely
+between them, and the fleet's own tests drive a stand-in machine that leaves on
+request. Nothing climbed, wound down and climbed again — the shape the soak is
+made of.
+
+The follow-on the ADR names: **a phase carries what the target holds, not only
+what the harness believes it holds.** `process_open_fds` is already on the page
+the harness fetches, and it is a reading rather than bookkeeping. Setting a
+tolerance needs a night's readings from the repaired code to bracket, so the
+reading lands first and the gate follows it. Tracked in
+[`techdebt.md`](../techdebt.md).
+
 ### What WS4 left open, and why
 
 `FileDevices` is written, tested, and called from nothing. Wiring it was listed
@@ -156,11 +194,47 @@ inside WS4 item 5 as if it were free, and it is not: a machine can only be filed
 under a customer once its row exists, and the row exists after the machine has
 registered. So filing follows the load rather than preceding it, and what a
 lopsided estate would then shape is the data the volume family *weighs* — not
-the load that produced it. Whether that is worth having, or whether the estate
-should instead be filed by a pre-enrolment pass before the clock starts, is a
-decision nobody has taken. It is stated in
+the load that produced it. It is stated in
 [ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md)
 rather than left as a gap.
+
+**What the ground says, read 2026-09-10.** Two facts the framing above does not
+carry, and together they settle where filing is worth doing.
+
+*Four profiles already ask for a lopsided estate and get none.* `volume-500`,
+`volume-2000`, `volume-8000` and `peak` all declare `fixture: lopsided`, which
+plans one customer holding 80% of the fleet. Nothing files a machine, so every
+machine sits under the tenant's own customer with no site: today the word
+changes the customer rows and the site counts and nothing else.
+
+*Two browser-side scenarios are already asking for filed machines.* A device is
+filed under a customer by `PUT /api/v1/devices/{id}/organization` and into a site
+by `PATCH /api/v1/devices/{id}`, and the harness calls neither — the site a
+connection carries is read off the machine's existing row, which a first
+registration creates with none. So:
+
+| Scenario | What it times today |
+|---|---|
+| [`api-baseline.js`](../../load/k6/scenarios/api-baseline.js) | `siteWithDevices` walks every site, finds none holding machines, and falls back to the whole-tenant read — the narrowing branch has never once run |
+| [`concurrent-agents.js`](../../load/k6/scenarios/concurrent-agents.js) | picks a random site each iteration and reads *that site's* machines, so every read returns an empty list |
+
+The second is the sharper one: a scenario in the nightly trend is measuring the
+cost of a query that matches nothing.
+
+**Settled 2026-09-10: staging first, the volume venue after.** The two venues
+each hold half of what filing needs. Staging has the readers and a fleet spread
+evenly over its customers; the volume venue has the lopsided plan and up to eight
+thousand machines and no browser-side reader at all.
+
+1. **Staging.** The estate is filed — customer *and* site — as it arrives, and
+   the browser-side scenarios run against a filed fleet. Both rows above stop
+   being true, and `journey_device_list_ms` starts measuring what its own code
+   says it measures.
+2. **The volume venue.** Filing there needs a reader built beside it, which is
+   what makes the lopsided plan shape a measurement rather than only the rows.
+   That is the work that answers the question `FileDevices`'s own comment asks —
+   the page that is slow in the field belongs to the customer holding most of
+   the estate.
 
 Everything else in WS4 landed. The volume family is a three-point sweep over
 machines actually enrolled — 500, 2,000 and 8,000 — which is Decision 8's other

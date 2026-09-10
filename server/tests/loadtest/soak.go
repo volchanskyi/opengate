@@ -187,7 +187,7 @@ func runSoakTraffic(ctx context.Context, codec *protocol.Codec, stream soakStrea
 			return fmt.Errorf("answer log pull: %w", err)
 		}
 	}
-	return holdOpen(codec, stream, opts)
+	return holdOpen(ctx, codec, stream, opts)
 }
 
 // emitMetricWindows writes n host-metric windows, driving the ingest path.

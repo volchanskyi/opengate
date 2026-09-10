@@ -177,6 +177,20 @@ if ! vm_ensure_up; then
 fi
 export VICTORIAMETRICS_TEST_URL="${VICTORIAMETRICS_TEST_URL:-$(vm_test_url)}"
 
+# The reference branch the SonarCloud scan measures new code from. It is read
+# out of this repository by name, so a local branch left behind moves the
+# boundary to wherever it and the remote last agreed — and the scan then reports
+# every commit since as this change's. Checked here rather than beside `make
+# sonar` so it costs a second instead of most of a gauntlet.
+# shellcheck source=lib/sonar-reference-branch.sh
+. "$PROJECT_ROOT/scripts/lib/sonar-reference-branch.sh"
+if ! sonar_reference_branch_check "$PROJECT_ROOT" main; then
+  color "1;31"
+  echo "✗ Reference-branch parity gate failed. See messages above." >&2
+  color "0"
+  exit 2
+fi
+
 if [ -z "${SONAR_TOKEN:-}" ]; then
   color "1;31"
   echo "✗ SONAR_TOKEN is unset — full SonarCloud scan is mandatory (no skip)." >&2

@@ -37,12 +37,25 @@ import (
 // fails and names it; one to a live peer is a frame the server already expects
 // during the traffic phase, and it keeps the device's status online, which the
 // relay scenario beside this run depends on.
-func holdOpen(codec *protocol.Codec, stream soakStream, opts loadOptions) error {
+//
+// The hold ends when the run winds this machine down as well as when its own
+// clock runs out, and the first of the two is the one that decides. A profiled
+// run gives every machine a hold as long as the whole walk — the machine has to
+// still be there for the last phase — so a hold that watched only its clock
+// could not be wound down at all: the machine stayed connected while the run's
+// count of the fleet said it had gone, the identity it holds never returned to
+// the estate, and every later phase that asked for machines found none free.
+func holdOpen(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) error {
 	if opts.holdFor <= 0 {
 		return nil
 	}
 	deadline := time.Now().Add(opts.holdFor)
-	return proveConnection(codec, stream, opts, func() time.Duration { return time.Until(deadline) })
+	return proveConnection(codec, stream, opts, func() time.Duration {
+		if ctx.Err() != nil {
+			return 0
+		}
+		return time.Until(deadline)
+	})
 }
 
 // proveUntilWoundDown keeps a machine proving its connection for the rest of
