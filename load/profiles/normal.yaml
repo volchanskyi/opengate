@@ -17,8 +17,13 @@ phases:
     operator_arrivals_per_second: 2
     connected_agents: 250
     sessions: 0
+  # Long enough to contain the three browser-side scenarios that run against
+  # this fleet. They run one after another and take about six minutes between
+  # them, and the last of them opens real sessions — so a steady phase that ends
+  # first hands the relay scenario a fleet that is already draining, and what it
+  # would time is the wind-down.
   - name: steady
-    duration: 5m
+    duration: 8m
     operator_arrivals_per_second: 5
     connected_agents: 500
     sessions: 5

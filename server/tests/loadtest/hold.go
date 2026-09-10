@@ -41,17 +41,58 @@ func holdOpen(codec *protocol.Codec, stream soakStream, opts loadOptions) error 
 	if opts.holdFor <= 0 {
 		return nil
 	}
+	deadline := time.Now().Add(opts.holdFor)
+	return proveConnection(codec, stream, opts, func() time.Duration { return time.Until(deadline) })
+}
 
-	// Once before the loop, so a hold shorter than one interval still asks. A
+// proveUntilWoundDown keeps a machine proving its connection for the rest of
+// its stay, once the hold it was given has elapsed.
+//
+// The run decides when a machine leaves, not the machine's own hold: a fleet
+// walking a profile holds its machines to the end of the walk, so the hold
+// running out is nowhere near the end of the stay. A machine that went quiet at
+// that point kept its connection — the server keep-alives every thirty seconds
+// against a ninety-second idle timeout, and a machine's online status follows
+// the connection rather than the heartbeat — so nothing looked wrong. What it
+// lost was ErrHeldPeerGone, the only detector of a severed fleet, which is
+// raised by the write: a machine that has stopped writing cannot raise it. In a
+// profiled run the blind window is every minute past the hold.
+//
+// A machine asked to hold for nothing has already left, and stays left.
+func proveUntilWoundDown(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) error {
+	if opts.holdFor <= 0 {
+		return nil
+	}
+	return proveConnection(codec, stream, opts, func() time.Duration {
+		if ctx.Err() != nil {
+			return 0
+		}
+		return holdReadSlice
+	})
+}
+
+// proveConnection answers what the server sends and proves on an interval that
+// the far side is still there, for as long as `left` reports time remaining in
+// the stay.
+//
+// A read that times out is the ordinary case — a quiet server has nothing to
+// say — so the loop simply reads again.
+func proveConnection(codec *protocol.Codec, stream soakStream, opts loadOptions,
+	left func() time.Duration,
+) error {
+	// Once before the loop, so a stay shorter than one interval still asks. A
 	// run held for seconds is the cheapest kind to make, and it would otherwise
 	// be the kind that could not see a severance at all.
 	if err := sendHeartbeat(codec, stream); err != nil {
 		return err
 	}
 
-	deadline := time.Now().Add(opts.holdFor)
 	nextBeat := time.Now().Add(holdHeartbeatInterval)
-	for time.Now().Before(deadline) {
+	for {
+		remaining := left()
+		if remaining <= 0 {
+			return nil
+		}
 		if time.Now().After(nextBeat) {
 			if err := sendHeartbeat(codec, stream); err != nil {
 				return err
@@ -59,7 +100,7 @@ func holdOpen(codec *protocol.Codec, stream soakStream, opts loadOptions) error 
 			nextBeat = time.Now().Add(holdHeartbeatInterval)
 		}
 
-		wait := min(holdReadSlice, time.Until(deadline))
+		wait := min(holdReadSlice, remaining)
 		if err := stream.SetReadDeadline(time.Now().Add(wait)); err != nil {
 			return fmt.Errorf("set read deadline: %w", err)
 		}
@@ -74,7 +115,6 @@ func holdOpen(codec *protocol.Codec, stream soakStream, opts loadOptions) error 
 			return err
 		}
 	}
-	return nil
 }
 
 // ErrHeldPeerGone is a machine that lost its connection part way through the

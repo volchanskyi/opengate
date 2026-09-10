@@ -3,14 +3,22 @@
 # resource ran out — so the phases step rather than ramp: a step that failed is
 # attributable, a continuous ramp is not.
 #
-# It runs on staging under guardrails, because saturating two processors
-# throttles production's health probes on the same node. The safety ceilings
-# below are lower than any other profile's for that reason, and they stop the
-# run rather than fail it.
+# It runs on a disposable runner stack rather than on staging. The cluster node
+# offers 1,830 millicores with 1,680 reserved, and the fleet this profile asks
+# for is several times the largest anything has ever connected to it — so the
+# venue could never answer the question, whatever the run did. A runner brings
+# its own processors and its own disk and is thrown away at the end of the job.
+#
+# A runner is x86_64 and production is ARM64, so what this produces is a
+# comparison and never an absolute capacity claim about production hardware.
+#
+# That venue is also what makes the family safe to run at all. Saturating the
+# cluster node throttles production's health probes on the same machine, and no
+# guardrail low enough to prevent that leaves room to find a breaking point.
 schema_version: 1
 name: breakpoint
 family: breakpoint
-environment: staging
+environment: runner
 fixture: small
 
 phases:
@@ -42,16 +50,30 @@ phases:
     connected_agents: 500
     sessions: 5
 
+# No processor ceiling. This stack is created by the job and thrown away with
+# it, and running the processor out is the experiment: a capacity test that
+# stops short of the capacity has measured nothing. What is declared is the room
+# the run can still exhaust, past which the machine has nowhere to put what the
+# run produces.
 safety:
-  max_node_cpu_percent: 70
   max_node_memory_percent: 80
   max_error_rate: 0.25
 
 gates:
-  # The recovery phase carries the only blocking gate. Failing under overload is
-  # the finding this family exists to produce; not recovering afterwards is the
-  # defect.
-  - series: k6/api-baseline/http
+  # This family runs on a throwaway machine with no browser-side generator on
+  # it, so a limit naming a browser-side measurement could never be read here.
+  # What this venue produces is the machine side, and these are limits on that.
+  #
+  # Failing under overload is the finding this family exists to produce, so the
+  # limits are loose by design and what they hold is the recovery: a system that
+  # gave out and came back is the answer, and one that gave out and stayed
+  # broken is the defect. The aggregate covers the whole walk, and the walk ends
+  # at the load it started from.
+  - series: quic/quic-agents/aggregate
     metric: error_rate
-    max: 0.01
+    max: 0.25
     blocking: true
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
+    max: 10000
+    blocking: false

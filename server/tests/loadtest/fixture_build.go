@@ -41,13 +41,24 @@ type FixtureClient struct {
 	baseURL string
 	http    *http.Client
 	token   string
+	// runFor is how long the run that spends this fixture's credential lasts,
+	// which is what that credential has to outlive.
+	runFor time.Duration
 }
 
-// NewFixtureClient builds a client against one server.
+// NewFixtureClient builds a client against one server, for a run that has
+// declared no length.
 func NewFixtureClient(baseURL string) *FixtureClient {
+	return NewFixtureClientForRun(baseURL, 0)
+}
+
+// NewFixtureClientForRun builds a client for a run of a known length, so the
+// credential the fleet enrols with can be made to outlive it.
+func NewFixtureClientForRun(baseURL string, runFor time.Duration) *FixtureClient {
 	return &FixtureClient{
 		baseURL: baseURL,
 		http:    &http.Client{Timeout: fixtureRequestTimeout},
+		runFor:  runFor,
 	}
 }
 
@@ -256,7 +267,8 @@ func (c *FixtureClient) registerMember(email string) error {
 }
 
 // mintEnrollmentToken issues the credential the fleet enrols with. It is the one
-// an installer spends, it expires within the hour, and the run deletes it.
+// an installer spends, it lives no longer than the run that spends it, and the
+// run deletes it.
 func (c *FixtureClient) mintEnrollmentToken(plan FixturePlan) (string, error) {
 	var reply struct {
 		Token string `json:"token"`
@@ -266,7 +278,7 @@ func (c *FixtureClient) mintEnrollmentToken(plan FixturePlan) (string, error) {
 		// Zero is unlimited, which is what a fleet of this size needs from one
 		// credential.
 		"max_uses":         0,
-		"expires_in_hours": 1,
+		"expires_in_hours": enrollmentTokenHours(c.runFor),
 	}
 	if err := c.call(http.MethodPost, "/api/v1/enrollment-tokens", body, http.StatusCreated, &reply); err != nil {
 		return "", fmt.Errorf("mint enrollment token: %w", err)
@@ -275,6 +287,34 @@ func (c *FixtureClient) mintEnrollmentToken(plan FixturePlan) (string, error) {
 		return "", errors.New("mint enrollment token: the server returned no token")
 	}
 	return reply.Token, nil
+}
+
+// enrollmentTokenHours is how long the credential the fleet enrols with has to
+// live.
+//
+// Every machine a phase starts calls the enrolment endpoint, so the credential
+// has to outlive the whole walk rather than its first minute. An hour was the
+// figure, which refused every arrival a profile made past its first sixty
+// minutes — a five-hour soak would have enrolled nobody after the first phase
+// and reported it as machines that failed to connect.
+//
+// The endpoint takes whole hours, so a part hour is rounded up: a run cut off a
+// minute inside its last hour is the same defect in miniature. A whole extra
+// hour is added on top of that for the fixture build, which happens before the
+// clock starts and takes as long as the fleet is large. A run that declares no
+// length is the everyday flat one, whose machines all arrive at the start, and
+// it keeps the hour it has always had.
+//
+// A longer-lived credential is a credential worth more to anyone who takes it,
+// and the answer is that this one is deleted by the run's own cleanup rather
+// than left to expire.
+func enrollmentTokenHours(runFor time.Duration) int {
+	hours := 1
+	if runFor > 0 {
+		hours = int((runFor + time.Hour - 1) / time.Hour)
+		hours++
+	}
+	return hours
 }
 
 // FileDevices puts each machine under the customer that is to hold it, in the

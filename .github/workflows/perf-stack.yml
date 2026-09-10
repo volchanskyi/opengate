@@ -1,13 +1,16 @@
-name: Performance Stack (volume + scaling)
+name: Performance Stack (volume + scaling + shapes)
 
-# The two families that cannot honestly run on the shared cluster.
+# The families that cannot honestly run on the shared cluster.
 #
 # The volume family varies how much data is already there, and staging's
 # database writes into the same node root production depends on. The scaling
 # family varies how many processors the server has, and the cluster offers one
-# figure. A runner brings its own disk and its own processors, is thrown away at
-# the end of the job, and is the only place the generator and the target hold
-# genuinely separate boundaries.
+# figure. The three shape families — a busy morning, a site's link coming back,
+# and the load raised until something gives — ask for two and four thousand
+# machines, and the cluster node has 150 millicores left to reserve. A runner
+# brings its own disk and its own processors, is thrown away at the end of the
+# job, and is the only place the generator and the target hold genuinely
+# separate boundaries.
 #
 # A runner is x86_64 and production is ARM64, so what this produces is a
 # comparison — between fixture sizes, or between processor counts — and never an
@@ -15,15 +18,25 @@ name: Performance Stack (volume + scaling)
 
 on:
   schedule:
-    # 07:00 rather than the crowded early slots. The account's twenty-job pool is
-    # held from 03:00 to about 05:30 by the mutation matrix and the load test
-    # follows it at 05:00, so a job scheduled beside them queues behind thirty
-    # others instead of running.
+    # Last of the night's runs, which is what this cron buys: a scheduled run
+    # starts four and a half to six and a half hours after the time it names, so
+    # the hour here decides the order and nothing else. The mutation matrix, the
+    # browser suite, the benchmark and the load test all sit in front of it, and
+    # a run scheduled beside them queues behind the whole batch on a twenty-job
+    # pool rather than running.
+    #
+    # Nothing here needs the staging namespace, so nothing serialises this
+    # against the runs that do. It brings its own stack on the runner.
     - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       agents:
-        description: "Machines to hold connected while the profile runs"
+        description: >-
+          The estate the volume and scaling legs draw their machines from. It
+          does not decide how many connect — the profile's own connected_agents
+          does — but it has to cover that figure, because a machine that cannot
+          be given an identity has not arrived. The shape legs carry their own,
+          one per profile, since they ask for different numbers.
         required: false
         default: "500"
 
@@ -269,4 +282,133 @@ jobs:
           name: perf-volume
           path: ${{ env.PERF_BUNDLE_DIR }}
           if-no-files-found: warn
+          retention-days: 90
+
+  # The three shapes an estate actually takes, none of which the everyday run
+  # produces: the busiest ordinary morning, a site whose link came back, and the
+  # load raised until something gives.
+  #
+  # They are one job over a matrix rather than three jobs, because they differ
+  # only in the profile they walk and the size of the estate that profile draws
+  # from. The stack around them is identical, and three copies of it is three
+  # places for it to drift.
+  shapes:
+    name: ${{ matrix.title }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: peak
+            # The path is spelled out rather than built from the name above.
+            # Every sweep that asks which profiles a workflow runs — whether a
+            # limit names a measurement this venue can produce, whether a
+            # profile is scheduled anywhere at all — reads the workflow as text,
+            # and a path assembled at run time is invisible to all of them.
+            path: load/profiles/peak.yaml
+            title: Busy morning (peak)
+            # The estate the profile draws from. It has to cover the profile's
+            # own highest level: a machine that cannot be given an identity has
+            # not arrived, and a run short of the level it declared is a
+            # mis-sized run rather than a finding about the system.
+            agents: '2000'
+            hold: 8m
+            minutes: 45
+          - profile: spike
+            path: load/profiles/spike.yaml
+            title: Link came back (spike)
+            agents: '2000'
+            hold: 7m
+            minutes: 45
+          - profile: breakpoint
+            path: load/profiles/breakpoint.yaml
+            title: Raise it until it gives (breakpoint)
+            agents: '4000'
+            hold: 12m
+            minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+
+      # Docker Hub's anonymous pull rate is shared across a runner's whole
+      # network, so a pull here goes through the mirror the rest of the
+      # pipelines use.
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Record what this runner actually is
+        run: |
+          set -euo pipefail
+          printf 'processors: %s\n' "$(nproc)"
+          printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+          printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
+
+      - name: Bring the performance stack up
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+
+      # The generator and the target share this box on purpose — it is the only
+      # venue with enough processors to offer four thousand machines at all — so
+      # the figure that says whether the load was actually offered is the
+      # fleet's own account of what arrived, and the harness reads its own
+      # headroom beside it. A leg whose generator ran out reports that and is
+      # marked invalid rather than answering wrongly.
+      - name: Walk the ${{ matrix.profile }} profile, building its fleet first
+        run: |
+          set -euo pipefail
+          mkdir -p "$PERF_BUNDLE_DIR"
+          go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
+            /tmp/loadtest \
+              -agents="${{ matrix.agents }}" \
+              -addr=127.0.0.1:9090 \
+              -default-telemetry \
+              -hold="${{ matrix.hold }}" \
+              -profile="${{ matrix.path }}" \
+              -commit="$GITHUB_SHA" \
+              -target-cpus="$PERF_SERVER_CPUS" \
+              -target-memory-bytes="$PERF_SERVER_MEMORY_BYTES" \
+              -target-description="compose stack, $PERF_SERVER_CPUS processors" \
+              -enroll-url=http://127.0.0.1:8080 \
+              -metrics-url=http://127.0.0.1:8081 \
+              -fixture-account=perf-admin@opengate-loadtest.invalid \
+              -fixture-password="$PERF_FIXTURE_PASSWORD" \
+              -fixture-bootstrap \
+              -fixture-seed=1 \
+              -bundle="$PERF_BUNDLE_DIR/${{ matrix.profile }}"
+        env:
+          # The stack is created by this job and thrown away at the end of it, is
+          # reachable only from inside the runner, and holds nothing but the
+          # fleet this run invented. The password is generated per run all the
+          # same, so nothing fixed is ever written down.
+          PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+
+      - name: Read the verdict the run wrote about itself
+        if: always()
+        run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json"
+
+      - name: Tear the stack down
+        if: always()
+        run: |
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" down -v
+
+      - name: Upload the ${{ matrix.profile }} bundle
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-${{ matrix.profile }}
+          path: ${{ env.PERF_BUNDLE_DIR }}
+          if-no-files-found: error
           retention-days: 90

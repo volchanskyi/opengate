@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -85,4 +86,66 @@ func (c localCredentials) forAgent(_ context.Context, plan tenantAgent) (*tls.Co
 		return nil, fmt.Errorf("sign cert for %s: %w", plan.hostname, err)
 	}
 	return c.manager.AgentTLSConfig(issued), nil
+}
+
+// enrolOnce wraps a credential source so a machine's identity is minted once
+// and every later connection is made with it.
+//
+// A real machine enrols when it is installed and comes back afterwards with the
+// certificate it already holds — the server knows it by that certificate, and
+// re-enrolling would put a second machine in the customer's list every time a
+// link flapped. A harness that re-enrolled on every start turned a burst of
+// reconnections into a burst of enrolments against a ceiling the server
+// enforces on purpose, and grew the fleet for as long as the run lasted.
+//
+// The machine's name is the key, and agentRoster is what makes that safe: no
+// two live connections are ever the same machine.
+func enrolOnce(source agentCredentials) agentCredentials {
+	return &heldCredentials{source: source, held: map[string]*heldCredential{}}
+}
+
+// heldCredentials is the identities the run has minted so far.
+type heldCredentials struct {
+	source agentCredentials
+	mu     sync.Mutex
+	held   map[string]*heldCredential
+}
+
+// heldCredential is one machine's identity, and the guard that keeps a fleet
+// starting together from minting it more than once.
+type heldCredential struct {
+	once   sync.Once
+	config *tls.Config
+	err    error
+}
+
+func (c *heldCredentials) forAgent(ctx context.Context, plan tenantAgent) (*tls.Config, error) {
+	c.mu.Lock()
+	entry, known := c.held[plan.hostname]
+	if !known {
+		entry = &heldCredential{}
+		c.held[plan.hostname] = entry
+	}
+	c.mu.Unlock()
+
+	entry.once.Do(func() { entry.config, entry.err = c.source.forAgent(ctx, plan) })
+
+	if entry.err != nil {
+		// A refusal is not an identity. Remembering it would hand every later
+		// start the same answer and leave the run no way back, so the machine
+		// is forgotten and the next start asks again.
+		c.forget(plan.hostname, entry)
+		return nil, entry.err
+	}
+	return entry.config, nil
+}
+
+// forget drops one machine's failed enrolment, unless a later start has already
+// replaced it.
+func (c *heldCredentials) forget(hostname string, entry *heldCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.held[hostname] == entry {
+		delete(c.held, hostname)
+	}
 }

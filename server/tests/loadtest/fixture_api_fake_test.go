@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +23,7 @@ type fakeAPI struct {
 	sites         []string
 	registered    []string
 	tokenLabels   []string
+	tokenHours    []int
 	filedDevices  []string
 
 	// failAt makes one path answer 500, so the builder's error handling is
@@ -94,11 +96,13 @@ func (f *fakeAPI) handler() http.Handler {
 			return
 		}
 		var body struct {
-			Label string `json:"label"`
+			Label          string `json:"label"`
+			ExpiresInHours int    `json:"expires_in_hours"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.mu.Lock()
 		f.tokenLabels = append(f.tokenLabels, body.Label)
+		f.tokenHours = append(f.tokenHours, body.ExpiresInHours)
 		f.mu.Unlock()
 		writeJSON(w, http.StatusCreated, map[string]string{"id": "tok-1", "token": "enrol-secret"})
 	})
@@ -140,6 +144,22 @@ func newFixtureClient(t *testing.T, api *fakeAPI) *FixtureClient {
 	server := httptest.NewServer(api.handler())
 	t.Cleanup(server.Close)
 	return NewFixtureClient(server.URL)
+}
+
+// newFixtureClientForRun is the same, for a run whose length the credential has
+// to cover.
+func newFixtureClientForRun(t *testing.T, api *fakeAPI, runFor time.Duration) *FixtureClient {
+	t.Helper()
+	server := httptest.NewServer(api.handler())
+	t.Cleanup(server.Close)
+	return NewFixtureClientForRun(server.URL, runFor)
+}
+
+// hoursAsked is the lifetime asked for each credential the builder minted.
+func (f *fakeAPI) hoursAsked() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int(nil), f.tokenHours...)
 }
 
 // fleetUnderTest is one built fleet and everything a case needs to assert about

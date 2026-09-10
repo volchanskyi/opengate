@@ -177,6 +177,7 @@ func run() int {
 		seed:      *fixtureSeed,
 		profile:   profile,
 		bootstrap: *fixtureBootstrap,
+		runFor:    loadLastsFor(profile, *holdFor),
 	})
 	if spentToken != "" {
 		*enrollToken = spentToken

@@ -1,9 +1,9 @@
 name: E2E Cross-Browser
 
 # Runs the Playwright suite against Firefox + WebKit in addition to Chromium.
-# Gated behind `workflow_dispatch` and a nightly cron (matches mutation.yml
-# and terraform-drift.yml at 03:00 UTC) so PR CI stays Chromium-only and
-# this never blocks merges. WebKit occasionally flakes inside Docker; the
+# Gated behind `workflow_dispatch` and a nightly cron, in the first batch
+# alongside mutation.yml and terraform-drift.yml, so PR CI stays Chromium-only
+# and this never blocks merges. WebKit occasionally flakes inside Docker; the
 # Playwright config bumps retries to 1 when PLAYWRIGHT_ALL_BROWSERS=1.
 
 on:

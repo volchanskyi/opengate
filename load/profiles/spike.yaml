@@ -2,10 +2,19 @@
 # restarted a fleet at once. What is being measured is the recovery, not the
 # spike — the numbers that matter are how long the system took to answer
 # normally again after the step ended.
+#
+# It runs on a disposable runner stack rather than on staging. The cluster node
+# offers 1,830 millicores with 1,680 reserved, and the fleet this profile asks
+# for is several times the largest anything has ever connected to it — so the
+# venue could never answer the question, whatever the run did. A runner brings
+# its own processors and its own disk and is thrown away at the end of the job.
+#
+# A runner is x86_64 and production is ARM64, so what this produces is a
+# comparison and never an absolute capacity claim about production hardware.
 schema_version: 1
 name: spike
 family: spike
-environment: staging
+environment: runner
 fixture: small
 
 phases:
@@ -28,15 +37,26 @@ phases:
     connected_agents: 500
     sessions: 5
 
+# No processor ceiling. This stack is created by the job and thrown away with
+# it, so there is no neighbour to protect, and driving the processor is the
+# experiment rather than a hazard.
 safety:
-  max_node_cpu_percent: 90
   max_node_memory_percent: 90
   max_error_rate: 0.05
 
 gates:
-  # The recovery phase is what the gate reads. The spike phase is expected to
-  # degrade; a spike that did not is a spike that was not big enough.
-  - series: k6/api-baseline/http
+  # This family runs on a throwaway machine with no browser-side generator on
+  # it, so a limit naming a browser-side measurement could never be read here.
+  # What this venue produces is the machine side, and these are limits on that.
+  #
+  # The step is expected to degrade and the recovery is what is being judged, so
+  # what every run of this owes is that its machines came back at all: a fleet
+  # that never returned measured the outage rather than the recovery from it.
+  - series: quic/quic-agents/aggregate
     metric: error_rate
-    max: 0.01
+    max: 0.05
+    blocking: true
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
+    max: 5000
     blocking: true

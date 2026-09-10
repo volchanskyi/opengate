@@ -177,6 +177,26 @@ natural place, since the stack there is already composed. Once it has an
 allowance, the same three rules that hold the staging generator apply unchanged
 and this entry goes.
 
+### The endurance run is five hours of machine churn, not eight, and its sessions are not churning
+
+[ADR-107](../docs/adr/ADR-107-a-family-runs-somewhere.md) settled the length: an
+unchanging fleet finishes one operation per machine however long it is held, so
+five hours of the fleet coming and going finish ten times what eight idle ones
+would, and five fits inside the six a scheduled job is killed at.
+
+Two things are owed against that. The churn is machines, not sessions — a
+session opening and closing is the operation the leak class this family exists
+for was actually stranding goroutines on, and driving sessions needs the
+browser-side leg the runner venue does not yet have. And a leak that only shows
+past five hours would not be found: the profile's own reasoning is that churn
+buys more than length, and that claim is untested against the eight-hour version
+it replaced.
+
+**Pay-down trigger:** the browser-side leg landing on the perf-stack venue, for
+the first half; a leak found in the field that five hours of churn did not
+surface, for the second, at which point the longer run is built and the two are
+compared.
+
 ## Severity: Low
 
 ### The Chat tab is unreachable from any machine the browser stack can run
@@ -313,6 +333,18 @@ shaper between the drill's machines and the server
 ([Fault-Injection](../docs/infrastructure/Fault-Injection.md)). Because the
 shaper sits on the machine's side of the connection, it can fail the machine's
 path but not the server's own network interface.
+
+The route that looks cheapest does not work, which is worth writing down before
+someone spends a day finding out. A `NetworkPolicy` denying the server pod's
+traffic needs no privilege and is a few lines of YAML, but this cluster's pod
+networking is flannel overlay
+([oke.tf](../deploy/terraform/modules/networking/oke.tf)) and nothing in it reads
+such a policy: the API server accepts the object and not one packet is dropped.
+A drill resting on that would command a fault, fault nothing, and report green —
+the false-green shape [ci-cd-determinism.md](rules/ci-cd-determinism.md) exists
+to refuse. Enforcing policy means Calico, whose per-node component is a
+privileged daemon on the worker that carries production, which is the option the
+trigger below already rules out.
 
 **Pay-down trigger:** a failure is observed that is specific to the server's own
 interface and is not already covered by the pod-deletion and gateway drills.

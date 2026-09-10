@@ -6,9 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       agents:
-        description: "Number of QUIC agents to simulate"
+        description: >-
+          The estate the profile draws its machines from. It has to cover the
+          profile's own highest level: a machine that cannot be given an
+          identity has not arrived, and a run short of the level it declared is
+          a mis-sized run rather than a finding about the system.
         required: false
-        default: "100"
+        default: "500"
       fixture:
         description: >-
           Fleet to build before the run. The nightly builds the reference fleet;
@@ -29,10 +33,11 @@ env:
   K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max
   LOADTEST_K6_SUMMARY_DIR: /tmp/loadtest-k6
   LOADTEST_QUIC_OUTPUT: /tmp/loadtest-quic.txt
-  # How long the QUIC fleet stays connected. It has to outlast the three k6
-  # scenarios beside it, because the relay scenario needs a machine on the other
-  # end of every session it opens.
-  LOADTEST_HOLD: 8m
+  # How long the QUIC fleet stays connected. The profile's walk is what decides
+  # when each machine leaves, so this is the floor under it rather than the
+  # figure: it has to cover the whole walk, because a machine whose hold has run
+  # out leaves the next time it reconnects and the level drops by it.
+  LOADTEST_HOLD: 12m
   NAMESPACE: opengate-staging
   RELEASE: opengate-staging
   # Every identity a run creates is built from this. Left unset it falls back to
@@ -46,8 +51,13 @@ env:
   # seeds it and no cleanup removes it, so it is still there on the night after
   # a cleanup that finally worked.
   LOADTEST_SERVICE_ACCOUNT: opengate-service@service.invalid
-  # The profile this night is judged against. It declares every number the
-  # night's rows are read against, and it is the only place those numbers live.
+  # The profile this night runs and is judged against. It declares the shape of
+  # the load and every number the night's rows are read against, and it is the
+  # only place either lives.
+  #
+  # The run used to offer its whole fleet at once and wait, which is a real event
+  # — a site whose link came back — but not the everyday one, and it meant the
+  # profile's phases were read by nothing while its limits were read by the gate.
   LOADTEST_PROFILE: load/profiles/normal.yaml
 
 permissions:
@@ -57,11 +67,13 @@ jobs:
   load-test:
     name: Load Tests (k6 + QUIC)
     runs-on: ubuntu-24.04
-    # The in-cluster k6 and QUIC runs finish in well under 15 minutes; this
-    # bounds a staging pod that never goes Ready or a scenario that wedges.
-    # Room for the wait on the namespace lease as well as the run itself: a
-    # run that queues behind a staging deploy still needs its own half hour.
-    timeout-minutes: 45
+    # Two terms, and the job has to hold both. The run itself is bounded by the
+    # wait for the harness's verdict, which is derived from the hold this file
+    # declares; the wait on the namespace claim in front of it is twenty-five
+    # minutes. A timeout covering only the second is a run cut off inside its
+    # own steady phase, which reads as a staging pod that never went Ready.
+    # scripts/tests/loadtest-run-budget.test.sh holds the sum against this.
+    timeout-minutes: 60
     # Deliberately avoid `environment: staging`: its required reviewers would
     # block the scheduled run. This read-only workload uses repository-level OCI
     # credentials and creates only short-lived test pods.
@@ -88,9 +100,19 @@ jobs:
       # own machines on the one node. The two are scheduled independently and
       # sit in different concurrency groups, so each takes the namespace before
       # touching it and gives it back after.
+      #
+      # The wait is sized against what a holder in front can legitimately hold,
+      # not against the gap between two crons: every scheduled run starts four
+      # and a half to six and a half hours after the hour it names, and the
+      # spacing compresses as it slips, so two runs arriving together is the
+      # ordinary case rather than the unlucky one. The claim is renewed for as
+      # long as its holder works, so waiting it out is the only way past it —
+      # there is no longer a stale claim to take over. Twenty-five minutes
+      # covers the deploy and the drill, and leaves this job the rest of its own
+      # hour for the run it then makes.
       - name: Take the staging namespace
         env:
-          STAGING_LEASE_WAIT_SECONDS: "900"
+          STAGING_LEASE_WAIT_SECONDS: "1500"
         run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
 
       # Both phases run their generator inside the cluster, so both need the
@@ -175,6 +197,14 @@ jobs:
       - name: Prepare load-test summaries
         run: install -d -m 0755 "$LOADTEST_K6_SUMMARY_DIR"
 
+      # The pods holding the two generators live as long as the run does. They
+      # were created with a fixed half-hour sleep, which was a ceiling on every
+      # staging run that nothing in this file declared — and a pod taken away
+      # underneath a run reports a harness that reached no verdict, which is
+      # what a broken cluster says too.
+      - name: Size the run from the hold it declares
+        run: scripts/loadtest-run-budget.sh >>"$GITHUB_ENV"
+
       - name: Stage k6 harness in cluster
         run: |
           set -euo pipefail
@@ -185,11 +215,17 @@ jobs:
           # server's. Sharing them is why the API mark had to be set wider than
           # any regression worth finding: the measurement's own spread was
           # larger than the thing being measured.
+          #
+          # What it reserves is small and what it may burst to is not. The node
+          # has 150 millicores left to reserve now that the staging server
+          # reserves what production does, and reservation is what governs
+          # admission — the machine itself is three-quarters idle, and its
+          # processor limits are already oversubscribed several times over.
           kubectl -n "$NAMESPACE" run "$LOADTEST_K6_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
-            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
-            --command -- sleep 1800
+            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_K6_POD" --timeout=120s
           kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
           kubectl -n "$NAMESPACE" cp /tmp/k6 "$LOADTEST_K6_POD:/tmp/k6"
@@ -256,8 +292,8 @@ jobs:
           kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
-            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","1800"],"resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
-            --command -- sleep 1800
+            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_POD" --timeout=120s
           kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
           kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
@@ -265,7 +301,7 @@ jobs:
       - name: Start the QUIC fleet and hold it connected
         run: |
           set -euo pipefail
-          AGENTS="${{ inputs.agents || '100' }}"
+          AGENTS="${{ inputs.agents || '500' }}"
           # The harness is launched detached inside the pod, so the fleet is
           # held by the pod rather than by a stream this runner owns, and the
           # step returns only once the harness says it is offering its fleet.
@@ -281,6 +317,7 @@ jobs:
               -fixture-seed="$GITHUB_RUN_ID" \
               -relay-sessions \
               -hold="$LOADTEST_HOLD" \
+              -profile="$LOADTEST_PROFILE" \
               -commit="$GITHUB_SHA" \
               -target-cpus="$LOADTEST_TARGET_CPUS" \
               -target-memory-bytes="$LOADTEST_TARGET_MEMORY_BYTES" \

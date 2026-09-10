@@ -83,11 +83,16 @@ fi
 # One node, 1830m of processor, and most of it already claimed. Two generator
 # pods that ask for more than is left do not fail loudly — they sit Pending
 # until a wait times out, and the night reads as a broken cluster.
+#
+# What is left shrank when the staging server took production's own reservation:
+# 1680m is now spoken for, so 150m is the whole of what a generator may reserve.
+# Bursting past it is fine and expected — the machine is three-quarters idle —
+# but reservation is what admission is decided on.
 generator_cpu="$(grep -oE '"requests":\{"cpu":"[0-9]+m"' "$WORKFLOW" | grep -oE '[0-9]+' | awk '{ total += $1 } END { print total + 0 }')"
-if [ -n "$generator_cpu" ] && [ "$generator_cpu" -gt 0 ] && [ "$generator_cpu" -le 250 ]; then
+if [ -n "$generator_cpu" ] && [ "$generator_cpu" -gt 0 ] && [ "$generator_cpu" -le 150 ]; then
   pass "the two generator pods together request a share the node can spare"
 else
-  fail "generator requests must total 250m or less (got ${generator_cpu}m)"
+  fail "generator requests must total 150m or less (got ${generator_cpu}m)"
 fi
 
 # --- The token is minted against an account no cleanup removes -----------------

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -26,6 +25,9 @@ type fixtureRequest struct {
 	seed      uint64
 	profile   *Profile
 	bootstrap bool
+	// runFor is how long the load will be applied for, which is what the
+	// credential the fleet enrols with has to outlive.
+	runFor time.Duration
 }
 
 // buildFixtureIfAsked builds the fleet the run measures against, and returns the
@@ -45,7 +47,7 @@ func buildFixtureIfAsked(request fixtureRequest) (*BuiltFixture, string) {
 		log.Fatalf("fixture: %v", err)
 	}
 
-	client := NewFixtureClient(request.baseURL)
+	client := NewFixtureClientForRun(request.baseURL, request.runFor)
 	if err := client.EnsureAdmin(request.account, request.password, request.bootstrap); err != nil {
 		log.Fatalf("fixture: %v", err)
 	}
@@ -78,18 +80,48 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 		return runFlat(agents, agentPlan, credentials, addr, opts), nil
 	}
 
+	// The estate is fixed and its machines enrol once, so a level the estate
+	// cannot reach is a mis-sized run rather than a finding about the system —
+	// and the two are indistinguishable once the walk has started.
+	if err := checkEstateHolds(profile, len(agentPlan)); err != nil {
+		log.Fatalf("phases: %v", err)
+	}
+
+	roster := newAgentRoster(agentPlan)
+	held := enrolOnce(credentials)
+
 	fleet := NewQUICFleetWithProbe(
-		func(ctx context.Context, index int, noteArrival func()) agentResult {
-			plan := agentPlan[index%len(agentPlan)]
-			return runAgentWithContext(ctx, credentials, addr, plan, opts, noteArrival)
-		},
-		phaseProbe(agentPlan, credentials, addr, opts))
+		estateStart(roster, held, addr, opts),
+		phaseProbe(agentPlan, held, addr, opts))
 
 	results, phases, err := runProfile(profile, fleet, NewRealClock(), LocalNodeReading)
 	if err != nil {
 		log.Fatalf("phases: %v", err)
 	}
 	return results, phases
+}
+
+// estateStart is one machine's start, drawn from the estate: it takes a machine
+// nobody is currently connected as, runs its whole life, and gives it back when
+// it leaves. The machine's index is the fleet's own bookkeeping and says nothing
+// about which machine this is — the estate decides that, so a level that came
+// down and went back up brings the same machines back rather than enrolling new
+// ones over them.
+//
+// A start that could not be given a machine is a machine that did not arrive,
+// and it says so. The alternative — handing one identity to two live
+// connections — is worse than the re-enrolment this closes: the server knows a
+// machine by its certificate, so it keeps whichever registered last and the
+// level drops by the one that was displaced, with nothing anywhere reporting it.
+func estateStart(roster *agentRoster, credentials agentCredentials, addr string, opts loadOptions) StartAgent {
+	return func(ctx context.Context, _ int, noteArrival func()) agentResult {
+		machine, giveBack, ok := roster.take()
+		if !ok {
+			return agentResult{err: ErrEstateExhausted}
+		}
+		defer giveBack()
+		return runAgentWithContext(ctx, credentials, addr, machine, opts, noteArrival)
+	}
 }
 
 // runProfile walks a profile's phases and returns what the fleet did.
@@ -153,15 +185,17 @@ func phaseProbe(agentPlan []tenantAgent, credentials agentCredentials, addr stri
 	probeOpts.backfillBatches = 0
 	probeOpts.answerLogPulls = false
 
-	var next atomic.Int64
+	// Its own name, so a probe is never mistaken for one of the machines the
+	// phase is holding and never takes a held machine's place. One name rather
+	// than one per round trip, because a probe is a machine that keeps coming
+	// back: numbering them enrolled a new device every step of every ramp, which
+	// over a five-hour soak is the fleet growing by the measurement of it.
+	plan := tenantAgent{
+		tenantIndex: agentPlan[0].tenantIndex,
+		agentIndex:  agentPlan[0].agentIndex,
+		hostname:    agentPlan[0].hostname + "-probe",
+	}
 	return func(ctx context.Context) (time.Duration, error) {
-		// Its own hostname, so a probe is never mistaken for one of the machines
-		// the phase is holding and never takes a held machine's place.
-		plan := tenantAgent{
-			tenantIndex: agentPlan[0].tenantIndex,
-			agentIndex:  agentPlan[0].agentIndex,
-			hostname:    fmt.Sprintf("%s-probe-%d", agentPlan[0].hostname, next.Add(1)),
-		}
 		result := runAgentWithContext(ctx, credentials, addr, plan, probeOpts, nil)
 		if result.err != nil {
 			return 0, result.err
@@ -212,4 +246,17 @@ func readServerRegistration(metricsURL string) *ServerRegistration {
 		return nil
 	}
 	return &reading
+}
+
+// loadLastsFor is how long this run will be applying load: the profile's own
+// walk when there is one, and otherwise the hold every machine was given, which
+// is what a flat run's length is.
+//
+// It is the figure the enrolment credential has to outlive, because every
+// machine a phase starts spends that credential.
+func loadLastsFor(profile *Profile, holdFor time.Duration) time.Duration {
+	if profile != nil {
+		return profile.TotalDuration()
+	}
+	return holdFor
 }

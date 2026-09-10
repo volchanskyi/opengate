@@ -246,13 +246,42 @@ else
   fail "the workflow never reads the bundle's verdict, so a run that measured nothing passes"
 fi
 
-# Weekly answered a question that changes when the schema or the read paths do.
-# It now runs nightly, in a slot where the twenty-job pool is clear: the mutation
-# matrix holds it from 03:00 to about 05:30 and the load test follows at 05:00.
-if grep -qE "cron: '0 7 \* \* \*'" "$WORKFLOW"; then
-  pass "the stack runs nightly, after the crowded slots have drained"
+# Weekly answered a question that changes when the schema or the read paths do,
+# so it runs nightly. The hour it names is not a time it starts — every
+# scheduled run begins four and a half to six and a half hours later — so what
+# the hour buys is a place in the order, and this one goes last: the whole
+# night's batch is in front of it, and a run scheduled beside them queues behind
+# them on a twenty-job pool rather than running.
+#
+# Last is therefore the property to hold, rather than the number seven.
+# Only the crons that fire every night are the night's batch. A weekly run is
+# in a different queue on a different day, and holding this one behind it would
+# be a claim about a Sunday.
+daily_hours() {
+  sed -n "s/^ *- cron: '[0-9]* \([0-9]*\) \* \* \*'.*/\1/p" "$1"
+}
+
+perf_hour="$(daily_hours "$WORKFLOW" | head -1)"
+if [ -n "$perf_hour" ]; then
+  pass "the stack runs nightly"
 else
-  fail "the stack must run nightly at 07:00 UTC"
+  fail "the stack runs nightly"
+fi
+
+behind=""
+for other in "$REPO_ROOT"/.github/workflows/*.yml; do
+  [ "$other" = "$WORKFLOW" ] && continue
+  while read -r hour; do
+    [ -n "$hour" ] || continue
+    if [ "$hour" -ge "${perf_hour:-0}" ]; then
+      behind="$behind $(basename "$other"):$hour"
+    fi
+  done < <(daily_hours "$other")
+done
+if [ -z "$behind" ]; then
+  pass "the stack is last in the night's order"
+else
+  fail "the stack is last in the night's order (not behind:$behind)"
 fi
 
 echo

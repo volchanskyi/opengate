@@ -133,12 +133,26 @@ emit_k6_rows() {
 # Changing what a scenario measures means changing the name here. A scenario
 # with no name cannot enter the trend: an unnamed workload is exactly the
 # ambiguity this removes.
+#
+# Resizing the system the work is offered to counts as changing it, for the same
+# reason and with the same consequence, and so does changing the fleet the work
+# runs against. Three of those landed together: staging now reserves and is
+# capped at what production is, a quarter of a processor where it used to burst
+# to half; the nightly walks the everyday profile rather than offering its whole
+# fleet at once; and the fleet it holds is five hundred machines rather than a
+# hundred. Every figure from here is a reading of a different pair, and a window
+# median spanning both would be a comparison nobody could interpret.
+#
+# The names below are at /2 from that change, so each series compares against
+# itself and, until three nights of it exist, against the profile ceilings
+# alone. Those ceilings are untouched: the widest of them sits thirty times
+# above what the measurement produces, so none of the three can reach one.
 workload_name() {
   case "$1" in
-    api-baseline) printf '%s\n' "member-journeys/1" ;;
-    concurrent-agents) printf '%s\n' "fleet-reads/1" ;;
-    relay-throughput) printf '%s\n' "relay-session-echo/1" ;;
-    quic-agents) printf '%s\n' "fleet-arrival/1" ;;
+    api-baseline) printf '%s\n' "member-journeys/2" ;;
+    concurrent-agents) printf '%s\n' "fleet-reads/2" ;;
+    relay-throughput) printf '%s\n' "relay-session-echo/2" ;;
+    quic-agents) printf '%s\n' "fleet-arrival/2" ;;
     *) return 2 ;;
   esac
 }
