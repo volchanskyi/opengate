@@ -88,7 +88,7 @@ func CheckSafety(limits Safety, reading NodeReading) error {
 
 // RunPhasesWatched walks a profile and stops the moment the machine it shares
 // goes past what the profile said it would accept.
-func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyReader) ([]PhaseResult, error) {
+func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyReader, busy TargetBusy) ([]PhaseResult, error) {
 	if profile == nil {
 		return nil, errors.New("run phases: no profile — a run without one has no phases to walk")
 	}
@@ -102,7 +102,7 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 		if err := CheckSafety(profile.Safety, read()); err != nil {
 			return results, fmt.Errorf("stopping before phase %q: %w", phase.Name, err)
 		}
-		result, err := runOnePhase(phase, from, fleet, clock)
+		result, err := runOnePhase(phase, from, fleet, clock, busy)
 		if err != nil {
 			return nil, fmt.Errorf("phase %q: %w", phase.Name, err)
 		}

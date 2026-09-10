@@ -59,7 +59,7 @@ func TestTheSequencerStopsWhenTheNodeIsPastItsLimit(t *testing.T) {
 		return NodeReading{Measured: true, CPUPercent: 20, MemoryPercent: 40}
 	}
 
-	_, err := RunPhasesWatched(profile, fleet, clock, safe)
+	_, err := RunPhasesWatched(profile, fleet, clock, safe, unreadTarget)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "processor")
 }
@@ -71,7 +71,7 @@ func TestTheSequencerRunsToTheEndWhileTheNodeHolds(t *testing.T) {
 
 	results, err := RunPhasesWatched(profile, fleet, clock, func() NodeReading {
 		return NodeReading{Measured: true, CPUPercent: 20, MemoryPercent: 40}
-	})
+	}, unreadTarget)
 	require.NoError(t, err)
 	assert.Len(t, results, 3)
 }

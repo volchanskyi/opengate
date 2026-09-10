@@ -67,9 +67,23 @@ for arg in "\$@"; do
 done
 case "\$verb" in
   exec)
+    # The shim asks the pod whether the export is there before it says k6 wrote
+    # none, so the stand-in answers that question about its own pod directory
+    # rather than running k6 again.
+    probing=""
+    for arg in "\$@"; do
+      [ "\$arg" = "test" ] && probing=1
+      probe="\$arg"
+    done
+    if [ -n "\$probing" ]; then
+      [ -f "$WORK/pod/\$(basename "\$probe")" ] || exit 1
+      exit 0
+    fi
     prev=""
     for arg in "\$@"; do
-      [ "\$prev" = "--summary-export" ] && printf '{"metrics":{}}' >"$WORK/pod/\$(basename "\$arg")"
+      if [ "\$prev" = "--summary-export" ] && [ ! -f "$WORK/k6-writes-nothing" ]; then
+        printf '{"metrics":{}}' >"$WORK/pod/\$(basename "\$arg")"
+      fi
       prev="\$arg"
     done
     exit "\$(cat "$WORK/k6-exit")"
@@ -78,7 +92,14 @@ case "\$verb" in
     src="\$(printf '%s\n' "\$@" | grep ':' | tail -1)"
     dst="\$(printf '%s\n' "\$@" | tail -1)"
     file="$WORK/pod/\$(basename "\${src#*:}")"
-    if [ -f "\$file" ]; then cp "\$file" "\$dst"; else exit 1; fi
+    if [ -f "$WORK/cp-refuses" ]; then
+      echo "error: the transport gave out" >&2
+      exit 1
+    fi
+    if [ -f "\$file" ]; then cp "\$file" "\$dst"; else
+      echo "error: \$src: no such file or directory" >&2
+      exit 1
+    fi
     ;;
 esac
 EOF
@@ -86,7 +107,8 @@ chmod +x "$WORK/bin/kubectl"
 
 run_shim() {
   echo "$1" >"$WORK/k6-exit"
-  rm -f "$WORK/kubectl-calls.txt" "$WORK/summaries"/*.json "$WORK/pod"/*.json
+  rm -f "$WORK/kubectl-calls.txt" "$WORK/summaries"/*.json "$WORK/pod"/*.json \
+    "$WORK/cp-refuses" "$WORK/k6-writes-nothing"
   STATUS=0
   PATH="$WORK/bin:$PATH" \
     NAMESPACE=opengate-staging \
@@ -139,6 +161,53 @@ if [ -s "$WORK/summaries/api-baseline.json" ]; then
   pass "aborted run still copies the export back for the runner to judge"
 else
   fail "aborted run still copies the export back for the runner to judge"
+fi
+
+# A summary that never reaches the runner has two causes, and they call for
+# opposite responses: a k6 that wrote nothing is a scenario to re-run, and a
+# copy that failed is a measurement sitting in a pod that is about to be
+# deleted. The shim used to announce the first without checking, which is an
+# absence asserted by something that never asked — run 34443201348 reported that
+# k6 wrote no export after k6 had run 7,256 requests with every threshold green.
+run_shim 0
+: >"$WORK/cp-refuses"
+STATUS=0
+PATH="$WORK/bin:$PATH" \
+  NAMESPACE=opengate-staging \
+  LOADTEST_K6_POD=k6-loadtest-1 \
+  "$SHIM" run \
+  --summary-export "$WORK/summaries/api-baseline.json" \
+  --env "BASE_URL=$STAGING_URL" \
+  /tmp/load/k6/scenarios/api-baseline.js >"$WORK/out.txt" 2>&1 || STATUS=$?
+assert_eq "a refused copy does not change the scenario's own status" "0" "$STATUS"
+if grep -qF 'could not be copied' "$WORK/out.txt" \
+  && grep -qF 'the transport gave out' "$WORK/out.txt"; then
+  pass "a copy that failed over an export the pod holds says so, and why"
+else
+  fail "a copy that failed over an export the pod holds says so, and why"
+fi
+if grep -qF 'wrote no summary export' "$WORK/out.txt"; then
+  fail "a refused copy is not reported as k6 writing nothing"
+else
+  pass "a refused copy is not reported as k6 writing nothing"
+fi
+
+# The other cause, stated only after the pod has been asked.
+run_shim 0
+rm -f "$WORK/pod"/*.json "$WORK/summaries"/*.json
+: >"$WORK/k6-writes-nothing"
+STATUS=0
+PATH="$WORK/bin:$PATH" \
+  NAMESPACE=opengate-staging \
+  LOADTEST_K6_POD=k6-loadtest-1 \
+  "$SHIM" run \
+  --summary-export "$WORK/summaries/api-baseline.json" \
+  --env "BASE_URL=$STAGING_URL" \
+  /tmp/load/k6/scenarios/api-baseline.js >"$WORK/out.txt" 2>&1 || STATUS=$?
+if grep -qF 'wrote no summary export' "$WORK/out.txt"; then
+  pass "an export the pod does not hold is reported as k6 writing none"
+else
+  fail "an export the pod does not hold is reported as k6 writing none"
 fi
 
 # Composed with the runner, an aborted scenario must end with no row on disk:

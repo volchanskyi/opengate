@@ -78,7 +78,7 @@ func TestAchievedArrivalRateIsMeasuredRatherThanRestated(t *testing.T) {
 	fleet := &meteredFleet{arrivalsPerStep: 2}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -98,7 +98,7 @@ func TestAPhaseBelowItsOfferedRateInvalidatesTheRun(t *testing.T) {
 	fleet := &meteredFleet{arrivalsPerStep: 2}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	verdict := Classify(RunInputs{
@@ -121,7 +121,7 @@ func TestTheOperatorRateIsCarriedWithoutBeingClaimedAsAchieved(t *testing.T) {
 	fleet := &meteredFleet{arrivalsPerStep: 10}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	assert.InDelta(t, 5.0, results[0].OfferedOperatorArrivalsPerSecond, 0.001,
@@ -140,7 +140,7 @@ func TestTheSessionCountIsCarriedWithoutBeingClaimedAsRun(t *testing.T) {
 	fleet := &meteredFleet{arrivalsPerStep: 10}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	assert.Equal(t, 5, results[0].OfferedSessions, "what the profile asked for travels with the run")

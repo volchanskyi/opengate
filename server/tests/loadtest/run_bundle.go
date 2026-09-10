@@ -55,6 +55,11 @@ type runBundleInputs struct {
 	// is reported as one phase named for what it was.
 	Phases []PhaseResult
 
+	// FlatTargetBusy is how hard the target worked over a run that offered
+	// everything at once — the reading a walked phase takes, over the only
+	// window that shape has. Nil is a run that could not take it.
+	FlatTargetBusy *float64
+
 	// Registration is how long the server took to write the device row, read
 	// from the server itself. Nil means nobody asked it.
 	Registration *ServerRegistration
@@ -267,6 +272,7 @@ func connectPhase(in runBundleInputs, finished time.Time, succeeded int, registe
 		LatencyP95Ms:                   millis(percentile(register, 95)),
 		LatencyP99Ms:                   millis(percentile(register, 99)),
 		ErrorRate:                      errorRate,
+		TargetBusyPercent:              in.FlatTargetBusy,
 	}
 }
 

@@ -29,16 +29,6 @@ on:
     # against the runs that do. It brings its own stack on the runner.
     - cron: '0 7 * * *'
   workflow_dispatch:
-    inputs:
-      agents:
-        description: >-
-          The estate the volume and scaling legs draw their machines from. It
-          does not decide how many connect — the profile's own connected_agents
-          does — but it has to cover that figure, because a machine that cannot
-          be given an identity has not arrived. The shape legs carry their own,
-          one per profile, since they ask for different numbers.
-        required: false
-        default: "500"
 
 concurrency:
   group: perf-stack
@@ -60,6 +50,17 @@ env:
   # The processor share the volume family holds constant while it varies the
   # data. The scaling family overrides it per leg — that is its whole subject.
   PERF_SERVER_CPUS: '1.0'
+  # What the generator itself may use. It declared nothing and took whatever the
+  # stack's own services left, so at the top of the sweep the server claimed the
+  # runner and the generator ran unbounded beside it — and the two measured each
+  # other. Declaring it is also what lets the harness measure its room against
+  # an allowance rather than against the box, which is the only reading that can
+  # say a run measured the generator.
+  PERF_GENERATOR_CPUS: '1.0'
+  # Enough for the largest fleet any leg offers: sixteen thousand machines cost
+  # about 400 KB each over a 1.25 GiB baseline, measured on the peak and
+  # breakpoint bundles at two and four thousand.
+  PERF_GENERATOR_MEMORY: '10G'
 
 jobs:
   # The sweep's points are stated rather than assumed: a comparison between
@@ -71,8 +72,14 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # The rungs sit below what the rest of the stack leaves. The runner has
+      # four processors, the database holds one and the metrics store half, and
+      # the generator now holds one of its own — so a server given four took
+      # everything and left the generator less than nothing, and the generator's
+      # share shrank as the server's grew. Two things that move together cannot
+      # be told apart, and a flat curve was attributable to neither.
       matrix:
-        cpus: ["0.5", "1", "2", "4"]
+        cpus: ["0.25", "0.5", "1", "2"]
     steps:
       - uses: actions/checkout@v7
 
@@ -132,11 +139,12 @@ jobs:
           mkdir -p "$PERF_BUNDLE_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
+            scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
-              -agents="${{ inputs.agents || '500' }}" \
+              -agents=2000 \
               -addr=127.0.0.1:9090 \
               -default-telemetry \
-              -hold=3m \
+              -hold=5m \
               -profile=load/profiles/scaling.yaml \
               -commit="$GITHUB_SHA" \
               -target-cpus="${{ matrix.cpus }}" \
@@ -173,7 +181,7 @@ jobs:
         with:
           name: perf-scaling-${{ matrix.cpus }}
           path: ${{ env.PERF_BUNDLE_DIR }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
   # Nobody has weighed a fixture. Production's database holds 66 MB after seven
@@ -182,9 +190,25 @@ jobs:
   # machine fixture fits inside that margin is a fact one measurement settles.
   # Until it exists, no storage decision is made either way.
   volume:
-    name: Volume family (weigh the fixture, then load it)
+    name: Volume family (${{ matrix.agents }} machines)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # The sweep varies machines that actually enrolled, not fixture names. The
+      # large and lopsided fixtures plan the same count and differ only in how
+      # the fleet is distributed, so a sweep over the three names was two points
+      # and a broken third. The paths are spelled out rather than assembled from
+      # the count above, because every sweep that asks which profiles a workflow
+      # runs reads the workflow as text.
+      matrix:
+        include:
+          - agents: '500'
+            path: load/profiles/volume-500.yaml
+          - agents: '2000'
+            path: load/profiles/volume-2000.yaml
+          - agents: '8000'
+            path: load/profiles/volume-8000.yaml
     steps:
       - uses: actions/checkout@v7
 
@@ -226,12 +250,13 @@ jobs:
           set -euo pipefail
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
+            scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
-              -agents="${{ inputs.agents || '500' }}" \
+              -agents="${{ matrix.agents }}" \
               -addr=127.0.0.1:9090 \
               -default-telemetry \
-              -hold=3m \
-              -profile=load/profiles/volume.yaml \
+              -hold=5m \
+              -profile="${{ matrix.path }}" \
               -commit="$GITHUB_SHA" \
               -target-cpus="$PERF_SERVER_CPUS" \
               -target-memory-bytes="$PERF_SERVER_MEMORY_BYTES" \
@@ -242,7 +267,7 @@ jobs:
               -fixture-password="$PERF_FIXTURE_PASSWORD" \
               -fixture-bootstrap \
               -fixture-seed=1 \
-              -bundle="$PERF_BUNDLE_DIR/volume"
+              -bundle="$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}"
         env:
           # The stack is created by this job and thrown away at the end of it, is
           # reachable only from inside the runner, and holds nothing but the
@@ -252,7 +277,7 @@ jobs:
 
       - name: Read the verdict the run wrote about itself
         if: always()
-        run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/volume/bundle.json"
+        run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json"
 
       # The volume family's whole finding is this number, and it was written into
       # a file beside the bundle that nothing downstream opened. Folding it in is
@@ -265,7 +290,7 @@ jobs:
           bash scripts/perf-weigh-fixture.sh weigh "$PERF_BASELINE_BYTES" \
             "$PERF_BUNDLE_DIR/fixture-weight.json"
           cat "$PERF_BUNDLE_DIR/fixture-weight.json"
-          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/volume/bundle.json" \
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" \
             --weight "$PERF_BUNDLE_DIR/fixture-weight.json"
 
       - name: Tear the stack down
@@ -279,9 +304,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: perf-volume
+          name: perf-volume-${{ matrix.agents }}
           path: ${{ env.PERF_BUNDLE_DIR }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
   # The three shapes an estate actually takes, none of which the everyday run
@@ -324,9 +349,15 @@ jobs:
           - profile: breakpoint
             path: load/profiles/breakpoint.yaml
             title: Raise it until it gives (breakpoint)
-            agents: '4000'
-            hold: 12m
-            minutes: 60
+            # The ladder now reaches sixteen thousand, so the estate has to. At
+            # about 400 KB of generator memory a machine over a 1.25 GiB
+            # baseline — measured on the peak and breakpoint bundles — that is
+            # roughly 7.7 GB, inside the allowance the generator is given.
+            agents: '16000'
+            # Seven steps of five minutes, and every machine is held for the
+            # whole walk.
+            hold: 40m
+            minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -369,6 +400,7 @@ jobs:
           mkdir -p "$PERF_BUNDLE_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
+            scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
               -agents="${{ matrix.agents }}" \
               -addr=127.0.0.1:9090 \
@@ -412,3 +444,38 @@ jobs:
           path: ${{ env.PERF_BUNDLE_DIR }}
           if-no-files-found: error
           retention-days: 90
+
+  # The sweep's legs, read together.
+  #
+  # Four bundles a night were produced and nothing had ever compared them: the
+  # jobs above read none of each other's output, there was no publish step, no
+  # trend and no gate. A sweep nobody reads is four runs that happen to share a
+  # profile, and the 2026-09-05 night — four legs with identical phase results
+  # and a target fingerprint of one processor on every rung — passed in exactly
+  # that state.
+  #
+  # What it enforces is the sweep's ability to measure at all, and what it
+  # publishes is the shape. A curve that fails to rise is not failed here: one
+  # night is one sample per rung, and the two nights on record disagreed about
+  # the shape from the same code and the same profile.
+  scaling-curve:
+    name: Scaling sweep, read together
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: scaling
+    # Every leg that ran is worth reading, including on a night one of them
+    # failed — a hole in the curve is itself the finding, and the script says so.
+    if: always()
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Collect every leg of the sweep
+        uses: actions/download-artifact@v8
+        with:
+          pattern: perf-scaling-*
+          path: perf-legs
+
+      - name: Publish the curve, and refuse a sweep that measured nothing
+        run: |
+          set -euo pipefail
+          scripts/perf-scaling-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"

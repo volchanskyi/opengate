@@ -23,7 +23,7 @@ func TestAPhaseIsAsLongAsItActuallyTook(t *testing.T) {
 	clock := &testClock{now: start}
 	fleet.clock = clock
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	// Ten round trips per phase, each costing four seconds of the phase it was
@@ -46,7 +46,7 @@ func TestAttainmentComparesCountsOverTheSameClock(t *testing.T) {
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 	fleet.clock = clock
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun)
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	assert.InDelta(t, 0.8, results[1].AchievedFraction(), 0.01,

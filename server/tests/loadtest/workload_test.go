@@ -39,7 +39,7 @@ func TestAProfileRunReportsTheMachinesItWasStillHolding(t *testing.T) {
 	fleet := NewQUICFleet(starter.start)
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, phases, err := runProfile(holdingProfile(4), fleet, clock, alwaysRoomToRun)
+	results, phases, err := runProfile(holdingProfile(4), fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	// Every machine that held the level is in the results. Winding the fleet
@@ -61,7 +61,7 @@ func TestAProfileRunReportsTheMachinesThatNeverArrived(t *testing.T) {
 	fleet := NewQUICFleet(starter.start)
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	results, _, err := runProfile(holdingProfile(5), fleet, clock, alwaysRoomToRun)
+	results, _, err := runProfile(holdingProfile(5), fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
 	require.Len(t, results, 5, "what arrived and what did not are both the run's account")
@@ -85,7 +85,7 @@ func TestAProfileRunStoppedByTheNodeStillReportsWhatItDrove(t *testing.T) {
 		return NodeReading{Measured: true, MemoryPercent: 99}
 	}
 
-	results, _, err := runProfile(holdingProfile(3), fleet, clock, outOfRoom)
+	results, _, err := runProfile(holdingProfile(3), fleet, clock, outOfRoom, unreadTarget)
 	require.Error(t, err, "a node past its ceiling stops the run")
 	assert.Empty(t, results, "nothing was driven, so nothing is reported")
 }

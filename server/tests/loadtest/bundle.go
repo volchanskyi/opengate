@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -35,7 +36,12 @@ import (
 // boundaries are the clock rather than its own declaration; and the generator's
 // room is bracketed around the load and says whose room it is — its own
 // allowance, or a box it shares with the system under test.
-const bundleSchemaVersion = 3
+//
+// Version 4 adds how hard the target worked. A phase carried the wait times it
+// saw and nothing about what the target did with the allowance it was given, so
+// a server out of processor and a server idle but slow read identically — and
+// every statement about which of the two a night showed was an inference.
+const bundleSchemaVersion = 4
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -127,6 +133,16 @@ type PhaseResult struct {
 	OfferedSessions  int  `json:"offered_sessions"`
 	AchievedSessions *int `json:"achieved_sessions,omitempty"`
 
+	// TargetBusyPercent is what share of its declared processor allowance the
+	// target used over this phase: its own processor counter, bracketed around
+	// the phase and divided by the phase's clock and by what it was capped at.
+	//
+	// It is a pointer because a reading that could not be taken is absent. A
+	// nought here would be a target that did no work at all — the healthiest
+	// figure a server could report — so a run that never asked must not read as
+	// the best run ever measured.
+	TargetBusyPercent *float64 `json:"target_busy_percent,omitempty"`
+
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`
 	LatencyP99Ms float64 `json:"latency_p99_ms,omitempty"`
@@ -159,9 +175,19 @@ func (p PhaseResult) AchievedFraction() float64 {
 // JourneyResult is one operator journey's account of itself, so a slow run can
 // name which screen was slow rather than only that the API was.
 type JourneyResult struct {
-	Name         string  `json:"name"`
-	Requests     int64   `json:"requests"`
-	ErrorRate    float64 `json:"error_rate"`
+	Name      string  `json:"name"`
+	Requests  int64   `json:"requests"`
+	ErrorRate float64 `json:"error_rate"`
+	// TargetBusyPercent is what share of its declared processor allowance the
+	// target used over this phase: its own processor counter, bracketed around
+	// the phase and divided by the phase's clock and by what it was capped at.
+	//
+	// It is a pointer because a reading that could not be taken is absent. A
+	// nought here would be a target that did no work at all — the healthiest
+	// figure a server could report — so a run that never asked must not read as
+	// the best run ever measured.
+	TargetBusyPercent *float64 `json:"target_busy_percent,omitempty"`
+
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`
 }
@@ -324,6 +350,12 @@ func (b *Bundle) validatePhases() []error {
 		return []error{errors.New("phases is empty — a run with no phase results measured nothing")}
 	}
 
+	// Whether this run could read the target at all. The two questions are
+	// answered by the same page, so a run that read what the target was holding
+	// could have read how hard it was working, and a phase that did not is a
+	// reading somebody dropped rather than a venue that publishes none.
+	readTheTarget := b.readTheTarget()
+
 	var problems []error
 	for i, phase := range b.Phases {
 		if phase.Name == "" {
@@ -335,9 +367,33 @@ func (b *Bundle) validatePhases() []error {
 		if phase.ErrorRate < 0 || phase.ErrorRate > 1 {
 			problems = append(problems, fmt.Errorf("phase %q error_rate %v is not a ratio", phase.Name, phase.ErrorRate))
 		}
+		if readTheTarget && phase.TargetBusyPercent == nil {
+			problems = append(problems, fmt.Errorf(
+				"phase %q carries no target busy-ness, on a run that read the target's own exposition — without it a target out of processor and one idle but slow are the same picture",
+				phase.Name))
+		}
 	}
 	return problems
 }
+
+// readTheTarget reports whether this run read the target's own account of
+// itself, which is what the target series among the observations are.
+//
+// It is the document's own statement of the venue rather than a flag beside it:
+// a bundle carrying those series was pointed at a page that answered, and the
+// processor counter is on that same page.
+func (b *Bundle) readTheTarget() bool {
+	for _, observation := range b.Observations {
+		if strings.HasPrefix(observation.Series, targetSeriesPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// targetSeriesPrefix names the observations that come off the target's own
+// exposition.
+const targetSeriesPrefix = "target_"
 
 func (b *Bundle) validateCleanup() []error {
 	if !b.Cleanup.Verified {

@@ -127,11 +127,14 @@ fi
 
 # The workflow must drive the two families this stack exists for, and must not
 # claim absolute capacity from a runner.
-for family in volume scaling; do
-  if grep -q "load/profiles/${family}.yaml" "$WORKFLOW"; then
-    pass "the workflow runs the $family profile"
+# The volume family is a sweep over machines enrolled rather than a single run,
+# so it is matched by prefix: the fixture names do not differ in how much data
+# they hold, and the count that does is in the profile's own name.
+for family in volume- scaling; do
+  if grep -q "load/profiles/${family}" "$WORKFLOW"; then
+    pass "the workflow runs the ${family%-} profile"
   else
-    fail "the workflow runs the $family profile"
+    fail "the workflow runs the ${family%-} profile"
   fi
 done
 

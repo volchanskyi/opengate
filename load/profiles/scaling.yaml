@@ -12,16 +12,21 @@ family: scaling
 environment: runner
 fixture: small
 
+# The fleet sits where the rungs can differ. Measured on the ladder this stack
+# ran at one processor, the wait times are flat to two thousand machines and
+# bend past it — 19, 20, 26 and 62 ms at 500, 1,000, 2,000 and 4,000 — so a
+# sweep held at 500 was comparing four processor counts against the cheapest
+# thing the server does, and every rung answered the same.
 phases:
   - name: ramp
     duration: 30s
     operator_arrivals_per_second: 2
-    connected_agents: 100
+    connected_agents: 500
     sessions: 0
   - name: steady
     duration: 3m
     operator_arrivals_per_second: 10
-    connected_agents: 500
+    connected_agents: 2000
     sessions: 5
 
 # No processor ceiling. This stack is created by the job and thrown away with
