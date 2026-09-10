@@ -12,17 +12,39 @@ code. Nothing in it is inferred.
 
 ## 0. Progress
 
-Updated 2026-09-08. Each workstream lands as one commit.
+Updated 2026-09-09. Each workstream lands as one commit.
 
 | WS | State | Where it is |
 |---|---|---|
-| WS0 | **Part-done** | Staging's first rung answered: it cannot hold 250. The rest waits on WS3; the throwaway ladder is blocked on D38 |
+| WS0 | **Part-done** | Staging's 250 rung came back invalid for two reasons WS3 has now closed, so the ladder's answer is open again and the nightly itself is the first rung. The throwaway ladder is blocked on D38 |
 | WS1 | **Done, then repaired** | `2292438c`, then the repair below. [ADR-100](../../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md), [ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) |
 | WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
-| WS3 | Not started | |
+| WS3 | **Done** | [ADR-105](../../docs/adr/ADR-105-a-simulated-machine-is-one-machine-for-the-whole-run.md), [ADR-106](../../docs/adr/ADR-106-a-venue-lasts-as-long-as-the-run-it-holds.md), [ADR-107](../../docs/adr/ADR-107-a-family-runs-somewhere.md) |
 | WS4 | Not started | Blocks the throwaway half of WS0 |
 | WS5 | Not started | |
 | WS6 | Not started | |
+
+### What WS3 changed that later workstreams should know
+
+- `-agents` sizes the **estate** a profile draws from, and a profile declaring a
+  level above it is refused before the clock starts. It still does not decide
+  how many machines connect — that is D38, and it is WS4's.
+- A machine enrols once and reconnects after, so a burst is a burst of
+  reconnections. The enrolment ceiling no longer caps a rung.
+- The staging nightly walks `normal.yaml` rather than offering its fleet at
+  once, against a server holding production's own 250m/384Mi, with a fleet of
+  500. All four `workload_name` series went to `/2` for that, so the trend
+  re-bases once and WS5's re-basing is a second bump on top.
+- `normal.yaml`'s steady phase is 8 minutes, because the three browser-side
+  scenarios take about six between them and the last of them needs a fleet that
+  is not already draining.
+- Every profile is named by a workflow and every family row in `Testing.md`
+  names one that exists, both swept by
+  [`loadtest-family-venue.test.sh`](../../scripts/tests/loadtest-family-venue.test.sh).
+  A new profile fails the gauntlet until it is scheduled.
+- A workflow matrix that assembles a profile path at run time is invisible to
+  every sweep that reads workflows as text, so the shape matrix spells its paths
+  out.
 
 ### What WS1's own readings got wrong, and what the repair was
 

@@ -454,6 +454,110 @@ for wf in "$REPO_ROOT"/.github/workflows/*.yml; do
   fi
 done
 
+# --- D34: a claim is renewed for as long as its holder is still working -------
+#
+# The claim was written once, at acquisition, and declared forty-five minutes.
+# Past that any waiter may take the namespace from under a run still in
+# progress — and a five-hour soak is six times that. What makes the lock a lock
+# is that the holder keeps saying so.
+
+RENEW_WORK="$WORK/renew"
+mkdir -p "$RENEW_WORK"
+
+run_lease_renewing() {
+  NAMESPACE=opengate-staging \
+    STAGING_LEASE_NAME=guard \
+    STAGING_LEASE_KUBECTL="$FAKE" \
+    STAGING_LEASE_WAIT_SECONDS=2 \
+    STAGING_LEASE_POLL_SECONDS=1 \
+    STAGING_LEASE_TTL_SECONDS="${TTL_OVERRIDE:-2700}" \
+    STAGING_LEASE_RENEW_SECONDS="${RENEW_OVERRIDE:-1}" \
+    STAGING_LEASE_STATE_DIR="$RENEW_WORK" \
+    "$LEASE" "$@"
+}
+
+renew_stamp() { sed -n 's/.*"renewTime":"\([^"]*\)".*/\1/p' "$STATE"; }
+
+# One renewal moves the claim forward without changing who holds it.
+rm -f "$STATE"
+run_lease_renewing acquire cd-r1 >/dev/null 2>&1 || true
+run_lease_renewing stop-renewing cd-r1 >/dev/null 2>&1 || true
+seed_lease cd-r1 "$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
+before="$(renew_stamp)"
+if run_lease_renewing renew cd-r1 >/dev/null 2>&1; then
+  after="$(renew_stamp)"
+  if [ "$after" != "$before" ] && [ "$(holder_now)" = "cd-r1" ]; then
+    pass "a renewal moves the holder's own claim forward"
+  else
+    fail "a renewal moves the holder's own claim forward (before=[$before] after=[$after] holder=[$(holder_now)])"
+  fi
+else
+  fail "a renewal moves the holder's own claim forward"
+fi
+
+# A renewal against somebody else's claim is refused rather than stealing it.
+# The run has lost the namespace, and quietly writing over the new holder's
+# claim would put two runs on the same server with neither of them knowing.
+seed_lease someone-else "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
+if run_lease_renewing renew cd-r1 >/dev/null 2>&1; then
+  fail "renewing a claim somebody else now holds is refused"
+else
+  pass "renewing a claim somebody else now holds is refused"
+fi
+assert_eq "the new holder is left in place" "someone-else" "$(holder_now)"
+
+# A claim that is no longer there cannot be renewed, and saying so is the only
+# way the run finds out it is measuring a namespace it does not hold.
+rm -f "$STATE"
+if run_lease_renewing renew cd-r1 >/dev/null 2>&1; then
+  fail "renewing a claim that is gone is refused"
+else
+  pass "renewing a claim that is gone is refused"
+fi
+
+# The property D34 is about: a run that outlives its own declared duration still
+# holds the namespace, because something has been renewing it. Four seconds of
+# claim, renewed every second, asked about after six.
+rm -f "$STATE"
+if TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-long >/dev/null 2>&1; then
+  sleep 6
+  if TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-thief >/dev/null 2>&1; then
+    fail "a claim outliving its own duration is still held (cd-thief took it)"
+  else
+    assert_eq "a claim outliving its own duration is still held" "cd-long" "$(holder_now)"
+  fi
+else
+  fail "a claim outliving its own duration is still held (acquire failed)"
+fi
+
+# Releasing stops the renewing as well as the claim, or the next run's own
+# acquisition is written over by a process nobody is waiting on.
+if TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing release cd-long >/dev/null 2>&1; then
+  sleep 3
+  if [ -f "$STATE" ]; then
+    fail "releasing stops the renewing as well (the claim came back)"
+  else
+    pass "releasing stops the renewing as well"
+  fi
+else
+  fail "releasing stops the renewing as well (release failed)"
+fi
+
+# A claim taken from under a live run is not something to discover in a
+# measurement. The renewer records the loss and the release step reports it,
+# which is the only place in a job that always runs.
+rm -f "$STATE"
+TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-lost >/dev/null 2>&1 || true
+seed_lease a-thief "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
+sleep 3
+if out="$(TTL_OVERRIDE=4 RENEW_OVERRIDE=1 run_lease_renewing release cd-lost 2>&1)"; then
+  fail "a claim lost mid-run fails the release rather than passing quietly (got=[$out])"
+elif grep -qi 'lost' <<<"$out"; then
+  pass "a claim lost mid-run fails the release rather than passing quietly"
+else
+  fail "a claim lost mid-run fails the release rather than passing quietly (got=[$out])"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Failures:\n' >&2

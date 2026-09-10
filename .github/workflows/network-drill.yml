@@ -11,8 +11,13 @@ name: Network Drill
 # around one. It reports and trends; it never gates a deploy.
 on:
   schedule:
-    # After the load test at 05:00, which holds the same namespace lease, and
-    # clear of the 03:00 and 04:00 batches that occupy the job pool.
+    # After the load test, which holds the same namespace claim — and the claim
+    # is what actually keeps the two apart. A scheduled run starts four and a
+    # half to six and a half hours after the time it names, and the spacing
+    # compresses as it slips: the load test has begun inside the mutation
+    # matrix's window on two of the last three nights. So the hour here is an
+    # order rather than an appointment, and whichever of the two arrives second
+    # waits for the first to release the namespace.
     - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
@@ -85,9 +90,17 @@ jobs:
 
       # The staging deploy and the load run drive this same release. Each takes
       # the namespace before touching it and gives it back after.
+      #
+      # The wait is sized against what a holder in front can legitimately hold
+      # rather than against the gap between two crons: every scheduled run
+      # starts four and a half to six and a half hours after the hour it names,
+      # and the spacing compresses as it slips. The claim is renewed for as long
+      # as its holder works, so there is no stale claim to take over and waiting
+      # it out is the only way past — thirty minutes covers the deploy and the
+      # load run, inside this job's own hour.
       - name: Take the staging namespace
         env:
-          STAGING_LEASE_WAIT_SECONDS: "1200"
+          STAGING_LEASE_WAIT_SECONDS: "1800"
         run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
 
       - name: Resolve the staging target

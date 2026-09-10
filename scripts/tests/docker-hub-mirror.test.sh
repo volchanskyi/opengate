@@ -12,7 +12,7 @@ WORKFLOWS="$REPO_ROOT/.github/workflows"
 # Every job that pulls a Docker Hub image goes through the mirror, so this is a
 # census rather than a sample: the count is stated here and each job is checked
 # against it, which is what catches a new pulling job that nobody wired up.
-EXPECTED_PULL_JOBS=10
+EXPECTED_PULL_JOBS=12
 
 PASS=0
 FAIL=0

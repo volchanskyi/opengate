@@ -111,29 +111,12 @@ func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 		return res
 	}
 
-	stayUntilWoundDown(ctx, opts)
-	return res
-}
-
-// stayUntilWoundDown keeps a machine in the run after its traffic has been
-// served, for as long as the run is holding it.
-//
-// A fleet holding a level is what an estate actually looks like, and it is the
-// load a server spends most of its time carrying — so a machine the run asked
-// to hold stays until the run winds it down, whatever its own traffic has
-// finished doing. Leaving early would drop the level between the end of the
-// traffic and the end of the phase, and the level is what the phase measures.
-//
-// A machine asked to hold for nothing leaves. Waiting for the context regardless
-// makes "no hold" mean "hold for the whole remaining budget", which is the
-// opposite: a phase's round trip is a machine with no hold and a thirty-second
-// budget, so twenty of them across a two-phase profile turned three and a half
-// declared minutes into fifteen and forty-two.
-func stayUntilWoundDown(ctx context.Context, opts loadOptions) {
-	if opts.holdFor <= 0 {
-		return
+	// The run, not the hold, decides when this machine leaves — and it keeps
+	// proving its connection until it does.
+	if err := proveUntilWoundDown(ctx, codec, stream, opts); err != nil {
+		res.err = err
 	}
-	<-ctx.Done()
+	return res
 }
 
 // handshake performs the agent-first mTLS control handshake: it sends AgentHello

@@ -220,11 +220,12 @@ func readControlOfType(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer,
 func TestAMachineWithNoHoldLeavesWhenItsTrafficIsDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}}
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		stayUntilWoundDown(ctx, loadOptions{holdFor: 0})
+		_ = proveUntilWoundDown(ctx, &protocol.Codec{}, stream, loadOptions{holdFor: 0})
 	}()
 
 	select {
@@ -232,6 +233,7 @@ func TestAMachineWithNoHoldLeavesWhenItsTrafficIsDone(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("a machine asked to hold for nothing must not wait for the run to end")
 	}
+	assert.Zero(t, stream.out.Len(), "a machine that left wrote nothing after its traffic")
 }
 
 // A machine the run is holding stays until the run winds it down. Leaving early
@@ -239,11 +241,12 @@ func TestAMachineWithNoHoldLeavesWhenItsTrafficIsDone(t *testing.T) {
 // the phase, and the level is what the phase is measuring.
 func TestAHeldMachineStaysUntilTheRunWindsItDown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}}
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		stayUntilWoundDown(ctx, loadOptions{holdFor: time.Minute})
+		_ = proveUntilWoundDown(ctx, &protocol.Codec{}, stream, loadOptions{holdFor: time.Minute})
 	}()
 
 	select {
@@ -255,7 +258,61 @@ func TestAHeldMachineStaysUntilTheRunWindsItDown(t *testing.T) {
 	cancel()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(4 * time.Second):
 		t.Fatal("a held machine leaves when the run winds it down")
 	}
+}
+
+// The defect D29 names: a machine went quiet the moment its declared hold
+// elapsed, and the run holds it far longer than that.
+//
+// It kept its connection — the server keep-alives every thirty seconds against
+// a ninety-second idle timeout, and a machine's online status follows the
+// connection rather than the heartbeat — so nothing looked wrong. What it lost
+// was the only detector of a severed fleet: ErrHeldPeerGone is raised by the
+// write, and a machine that has stopped writing cannot raise it. In a profiled
+// run the blind window is every minute past -hold, which for the nightly sweep
+// is most of the walk.
+func TestAMachineHeldPastItsHoldKeepsProvingItsConnection(t *testing.T) {
+	codec := &protocol.Codec{}
+	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*holdReadSlice)
+	defer cancel()
+
+	require.NoError(t, proveUntilWoundDown(ctx, codec, stream, loadOptions{holdFor: time.Minute}))
+
+	require.NotZero(t, stream.out.Len(),
+		"a machine still in the run and no longer writing cannot tell a quiet server from a severed one")
+	beat := readControl(t, codec, stream.out)
+	assert.Equal(t, protocol.MsgAgentHeartbeat, beat.Type)
+}
+
+// The other half of the arm above: past the hold, a severance is still named
+// rather than reported as a machine that behaved.
+func TestASeveranceAfterTheHoldIsStillReported(t *testing.T) {
+	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}, writeErr: errors.New("connection reset")}
+
+	err := proveUntilWoundDown(context.Background(), &protocol.Codec{}, stream,
+		loadOptions{holdFor: time.Minute})
+
+	require.Error(t, err, "a machine whose connection is gone must not report success because its hold had ended")
+	assert.ErrorIs(t, err, ErrHeldPeerGone)
+}
+
+// A machine still in the run answers what the server asks of it, past its hold
+// as much as during it. One that only heartbeats is a machine no technician
+// can pull a log from.
+func TestAMachineHeldPastItsHoldStillAnswersTheServer(t *testing.T) {
+	codec := &protocol.Codec{}
+	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}}
+	writeControl(t, codec, stream.in, &protocol.ControlMessage{
+		Type: protocol.MsgRequestDeviceLogs, LogLimit: 3,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*holdReadSlice)
+	defer cancel()
+
+	require.NoError(t, proveUntilWoundDown(ctx, codec, stream, loadOptions{holdFor: time.Minute}))
+
+	reply := readControlOfType(t, codec, stream.out, protocol.MsgDeviceLogsResponse)
+	assert.Len(t, reply.LogEntries, 3)
 }

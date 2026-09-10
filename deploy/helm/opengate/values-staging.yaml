@@ -18,12 +18,22 @@ server:
   # Staging E2E reaches the app via kubectl port-forward, not L4, so disable
   # hostPort here (the server still serves HTTP on :8080).
   hostPortL4: false
+  # Production's own shape, exactly. A load run against a server sized
+  # differently from the one customers use answers a question about a machine
+  # nobody has, and staging is the only venue on the hardware production
+  # actually runs on — so it is the one leg of the sweep that can state an
+  # absolute rather than a comparison.
+  #
+  # Reserving what it is capped at is the other half. A pod that reserves less
+  # than it uses is evicted before the pods that reserved properly, so a night
+  # spent bursting to twice its reservation was measuring a server the cluster
+  # considered expendable.
   resources:
     requests:
-      cpu: 50m
-      memory: 96Mi
+      cpu: 250m
+      memory: 384Mi
     limits:
-      cpu: 500m
+      cpu: 250m
       memory: 384Mi
   dataVolume:
     # Staging is a throwaway deploy-test env: /data (CA + VAPID + update-signing

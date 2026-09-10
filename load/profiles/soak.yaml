@@ -1,19 +1,38 @@
-# A steady, unremarkable load held long enough for what leaks to show. Nothing
-# here is meant to be hard; the finding is a trend line that does not flatten —
-# memory, goroutines, open files, pool occupancy, dead rows, series count.
+# A steady load held long enough for what leaks to show, with the fleet coming
+# and going throughout. Nothing here is meant to be hard; the finding is a trend
+# line that does not flatten — memory, goroutines, open files, pool occupancy,
+# dead rows, series count.
 #
-# It runs overnight on staging, which costs nothing: the node is billed by
-# existing rather than by working.
+# Five hours, not eight, and the difference is made up by churn rather than by
+# length. Holding a connection is not work: eight hours of an unchanging fleet
+# finishes five hundred operations, which is a fifth of what an ordinary eight
+# minute night completes, and a leak detector dividing what the target failed to
+# give back by the operations between two readings has almost no denominator to
+# divide by. The ten cycles below end and restart two hundred and fifty machines
+# each, so the same five hours finish five thousand.
 #
-# Eight hours, which is long enough for a slow leak to become a line rather than
-# a wobble and short enough to sit inside the life of the session it signs in
-# with. A full day would outlive that session, so the second half of the run
-# would be measuring the error path — and renewing it mid-run is a piece of work
-# in its own right, not a flag.
+# The machines that come back are the machines that left. An estate does not
+# grow when a site's link flaps, so neither does this one: a machine enrols when
+# it is first installed and reconnects afterwards with the certificate it
+# already holds. A run that enrolled afresh every time would confound its own
+# endurance question with the volume dimension, and would spend a burst of
+# reconnections against the enrolment ceiling the server enforces on purpose.
+#
+# Five hours also fits inside one job with an hour to spare, where eight does
+# not: a scheduled job is killed at six.
+#
+# It runs on a disposable runner stack rather than on staging. The run owns the
+# whole machine and destroys it, which is what makes the deepest memory
+# technique available — following what actually holds a leaked object needs a
+# debugger attached to the process, and the staging pod drops every capability,
+# runs as a non-root user and has a read-only filesystem.
+#
+# A runner is x86_64 and production is ARM64, so what this produces is a
+# comparison and never an absolute capacity claim about production hardware.
 schema_version: 1
 name: soak
 family: soak
-environment: staging
+environment: runner
 fixture: small
 
 phases:
@@ -22,28 +41,136 @@ phases:
     operator_arrivals_per_second: 1
     connected_agents: 250
     sessions: 0
-  - name: soak
-    duration: 8h
+  - name: busy-01
+    duration: 16m
     operator_arrivals_per_second: 3
     connected_agents: 500
     sessions: 3
+  - name: quiet-01
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-02
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-02
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-03
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-03
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-04
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-04
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-05
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-05
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-06
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-06
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-07
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-07
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-08
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-08
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-09
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-09
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  - name: busy-10
+    duration: 16m
+    operator_arrivals_per_second: 3
+    connected_agents: 500
+    sessions: 3
+  - name: quiet-10
+    duration: 12m
+    operator_arrivals_per_second: 1
+    connected_agents: 250
+    sessions: 1
+  # A declared wind-down, so a connection torn down by the run ending is not
+  # counted as one the server dropped.
   - name: drain
     duration: 2m
     operator_arrivals_per_second: 0
     connected_agents: 0
     sessions: 0
 
+# No processor ceiling. This stack is created by the job and thrown away with
+# it, so there is no neighbour to protect. What is declared is the room the run
+# can still exhaust: past it the machine has nowhere to put what the run
+# produces, which for an endurance run is the failure mode itself.
 safety:
-  max_node_cpu_percent: 75
   max_node_memory_percent: 85
   max_error_rate: 0.01
 
 gates:
-  - series: k6/api-baseline/http
+  # This family runs on a throwaway machine with no browser-side generator on
+  # it, so a limit naming a browser-side measurement could never be read here.
+  # What this venue produces is the machine side, and these are limits on that.
+  #
+  # An endurance run is judged on whether the load it applied was the load it
+  # declared, for the whole of the time it claimed. A leak shows as a slope in
+  # the readings rather than as a limit crossed, so nothing here is trying to
+  # catch one — these say the run was real.
+  - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0.01
     blocking: true
-  - series: quic/quic-agents/aggregate
-    metric: error_rate
-    max: 0
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
+    max: 2000
     blocking: true

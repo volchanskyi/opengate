@@ -867,24 +867,40 @@ Both schemas, their validation and the verdict rules live in
 [`server/tests/loadtest/`](../../server/tests/loadtest) and are exercised by that
 package's tests.
 
-### The six families, and where each runs
+### The seven families, and where each runs
 
-| Family | Venue | Why there |
-|---|---|---|
-| Normal / peak | Staging at night | the server is capped, and the node has real headroom |
-| Spike | Staging at night | same envelope, one short burst |
-| Soak | Staging overnight | the node is billed by existing, not by working |
-| Breakpoint | Staging, under guardrails | saturating the node throttles production's probes, so its safety ceilings are the lowest of any profile |
-| Volume | GitHub-hosted runner | staging's database shares the node root with production; a runner brings its own disk |
-| Scaling | GitHub-hosted runner | the sweep needs four or five processor points and the cluster offers one |
+| Family | Venue | Driven by | Why there |
+|---|---|---|---|
+| [Normal](../../load/profiles/normal.yaml) | Staging, nightly | [`load-test.yml`](../../.github/workflows/load-test.yml) | the everyday shape on the hardware production runs on, against a server reserving and capped at exactly what production is |
+| [Peak](../../load/profiles/peak.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the busiest ordinary morning is two thousand machines, and the cluster node has 150 millicores left to reserve |
+| [Spike](../../load/profiles/spike.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | a site whose link came back is the same two thousand, arriving at once |
+| [Breakpoint](../../load/profiles/breakpoint.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | a capacity test that stops short of the capacity measures nothing, and saturating the cluster node throttles production's own probes |
+| [Volume](../../load/profiles/volume.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | staging's database shares the node root with production; a runner brings its own disk |
+| [Scaling](../../load/profiles/scaling.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the sweep needs four or five processor points and the cluster offers one |
+| [Soak](../../load/profiles/soak.yaml) | GitHub-hosted runner, weekly | [`soak.yml`](../../.github/workflows/soak.yml) | the run owns the machine and destroys it, which is what makes following a held object with a debugger possible at all |
 
-A runner is x86_64 and production is ARM64, so the last two families produce
-comparisons — between fixture sizes, or between processor counts — and never an
-absolute capacity claim about production hardware. Their stack is
-[`deploy/docker-compose.perf.yml`](../../deploy/docker-compose.perf.yml), driven
-by [`perf-stack.yml`](../../.github/workflows/perf-stack.yml), which also weighs
-the fixture it built with
+Every row names a workflow that runs it, and
+[`scripts/tests/loadtest-family-venue.test.sh`](../../scripts/tests/loadtest-family-venue.test.sh)
+holds the table to that in both directions: a profile no workflow names is a
+family this page would otherwise describe in the present tense while it never
+ran, which the live-state gate structurally cannot see — it looks for past-state
+narration, and this is a present-tense claim about something that does not
+happen.
+
+A runner is x86_64 and production is ARM64, so every family but the first
+produces comparisons — between fixture sizes, between processor counts, between
+one night and the next — and never an absolute capacity claim about production
+hardware. Staging is the one venue on the hardware production actually runs on,
+which is what its row is for. The runner families' stack is
+[`deploy/docker-compose.perf.yml`](../../deploy/docker-compose.perf.yml), and the
+volume family also weighs the fixture it built with
 [`scripts/perf-weigh-fixture.sh`](../../scripts/perf-weigh-fixture.sh).
+
+The endurance run is five hours with the fleet coming and going rather than
+eight holding still. Holding a connection is not work: an unchanging fleet
+finishes one operation per machine for the whole run, which leaves a leak
+detector almost nothing to divide by, and five hours also fits inside the six a
+scheduled job is killed at. Its ten cycles end and restart 250 machines each.
 
 ### k6 HTTP/WS Scenarios
 
@@ -1067,10 +1083,20 @@ verdict that decides whether the night enters the trend at all.
 
 - **E2E** runs on every push and gates `merge-to-main` (includes Lighthouse CI audits)
 - **Bundle size** runs on every push and gates `merge-to-main` (size-limit gzip check)
-- **Load tests** run nightly at 05:00 UTC and on `workflow_dispatch` (not on every push)
-- **The performance stack** — the volume and scaling families, on a throwaway
-  runner — runs nightly at 07:00 UTC, clear of the twenty-job pool the mutation
-  matrix holds from 03:00
+- **Load tests** walk the everyday profile against staging nightly, and on
+  `workflow_dispatch` (not on every push)
+- **The performance stack** — the volume, scaling and three shape families, on a
+  throwaway runner — runs nightly, last in the order, after the twenty-job pool
+  the earlier batches hold has drained
+- **The endurance soak** runs weekly, on a throwaway runner of its own
+
+The hour a cron names is not the hour a run starts: every scheduled run begins
+four and a half to six and a half hours later, and the spacing compresses as it
+slips. What the hour buys is a place in the order. The two runs that need the
+staging namespace are kept apart by the claim they take on it rather than by the
+gap between their crons — see
+[`scripts/staging-lease.sh`](../../scripts/staging-lease.sh), which renews that
+claim for as long as its holder is working and fails the run that lost it.
 - **Browser performance evidence** comes from Lighthouse CI artifacts/summaries
   and the bundle-size gate; PageSpeed Insights is not part of the current CD
   workflow.

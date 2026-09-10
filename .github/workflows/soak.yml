@@ -1,0 +1,145 @@
+name: Endurance Soak
+
+# The run that exists to find what leaks.
+#
+# The defect this family is written for stranded two goroutines per finished
+# session, forever. Staging walked 29 to 334 MiB across four nightly load runs
+# and was killed against its memory limit, and every liveness number the server
+# published read healthy the whole time — because the code that decrements those
+# numbers ran. Nothing shorter than hours can see a slope like that.
+#
+# Five hours with the fleet coming and going, rather than eight holding still.
+# Holding a connection is not work: an unchanging fleet finishes one operation
+# per machine for the whole run, which leaves a leak detector almost nothing to
+# divide by. The profile's ten cycles end and restart two hundred and fifty
+# machines each, so five hours finish ten times what eight idle ones would.
+#
+# It runs on a runner rather than on the cluster. Five hours of a cluster node is
+# five hours of production's neighbour being driven, and the run owns this
+# machine and destroys it — which is what makes following a held object with a
+# debugger possible at all, where the staging pod drops every capability, runs as
+# a non-root user and has a read-only filesystem.
+
+on:
+  schedule:
+    # Weekly, not nightly. Five hours of one is worth more than a fifth of five
+    # nightly hours, because a slope needs an unbroken run to be a slope; and an
+    # endurance run repeated every night would be five hours of a shared job
+    # pool for a question that changes slowly.
+    #
+    # The hour buys a place in the order rather than a start time — every
+    # scheduled run begins four and a half to six and a half hours after the
+    # time it names — and Sunday is what keeps it clear of the weekday batch.
+    - cron: '0 7 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: soak
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  COMPOSE_FILE: deploy/docker-compose.perf.yml
+  SOAK_BUNDLE_DIR: soak-bundle
+  # Production's own memory ceiling, so the eviction case is reproduced rather
+  # than lost. A leak that would kill the real server has to be able to kill
+  # this one.
+  PERF_SERVER_MEMORY: 384m
+  PERF_SERVER_MEMORY_BYTES: '402653184'
+  PERF_SERVER_CPUS: '0.25'
+
+jobs:
+  soak:
+    name: Five hours with churn
+    runs-on: ubuntu-24.04
+    # The walk is four hours and forty-four minutes; the stack build, the fixture
+    # and the teardown are the rest. A scheduled job is killed at six hours, so
+    # the slack is stated here rather than discovered as a run cut off inside its
+    # last cycle.
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+
+      # Docker Hub's anonymous pull rate is shared across a runner's whole
+      # network, so a pull here goes through the mirror the rest of the
+      # pipelines use.
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Record what this runner actually is
+        run: |
+          set -euo pipefail
+          printf 'processors: %s\n' "$(nproc)"
+          printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+          printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
+
+      - name: Bring the performance stack up
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+
+      # The estate is five hundred machines and the profile never asks for more,
+      # so every cycle brings the same machines back rather than enrolling new
+      # ones over them. A run that grew its own fleet for five hours would be
+      # answering the volume question and the endurance one at once, and neither
+      # of them cleanly.
+      - name: Walk the soak profile, building its fleet first
+        run: |
+          set -euo pipefail
+          mkdir -p "$SOAK_BUNDLE_DIR"
+          go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          scripts/loadtest-quic-run.sh /tmp/soak-quic.txt -- \
+            /tmp/loadtest \
+              -agents=500 \
+              -addr=127.0.0.1:9090 \
+              -default-telemetry \
+              -hold=5h \
+              -profile=load/profiles/soak.yaml \
+              -commit="$GITHUB_SHA" \
+              -target-cpus="$PERF_SERVER_CPUS" \
+              -target-memory-bytes="$PERF_SERVER_MEMORY_BYTES" \
+              -target-description="compose stack, $PERF_SERVER_CPUS processors, production's memory ceiling" \
+              -enroll-url=http://127.0.0.1:8080 \
+              -metrics-url=http://127.0.0.1:8081 \
+              -fixture-account=soak-admin@opengate-loadtest.invalid \
+              -fixture-password="$SOAK_FIXTURE_PASSWORD" \
+              -fixture-bootstrap \
+              -fixture-seed=1 \
+              -bundle="$SOAK_BUNDLE_DIR/soak"
+        env:
+          # The stack is created by this job and thrown away at the end of it, is
+          # reachable only from inside the runner, and holds nothing but the
+          # fleet this run invented. The password is generated per run all the
+          # same, so nothing fixed is ever written down.
+          SOAK_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Soak!
+
+      - name: Read the verdict the run wrote about itself
+        if: always()
+        run: scripts/perf-bundle-verdict.sh "$SOAK_BUNDLE_DIR/soak/bundle.json"
+
+      - name: Tear the stack down
+        if: always()
+        run: |
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" down -v
+
+      - name: Upload the soak bundle
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: soak-bundle
+          path: ${{ env.SOAK_BUNDLE_DIR }}
+          if-no-files-found: error
+          retention-days: 90
