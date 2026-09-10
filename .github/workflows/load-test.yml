@@ -298,6 +298,19 @@ jobs:
           kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
           kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
 
+          # The profile travels with the harness, because the harness reads it
+          # from inside the pod and the pod holds no checkout. A path that
+          # resolves on this runner and nowhere else is the whole of what the
+          # harness would be given otherwise, and it fails at its first line —
+          # as "the harness exited before it offered a fleet", which is also
+          # what a broken image says.
+          #
+          # The in-pod path is exported rather than rebuilt at the call site, so
+          # the copy and the flag cannot name two different files.
+          kubectl -n "$NAMESPACE" cp "$LOADTEST_PROFILE" \
+            "$LOADTEST_POD:/tmp/$(basename "$LOADTEST_PROFILE")"
+          echo "LOADTEST_POD_PROFILE=/tmp/$(basename "$LOADTEST_PROFILE")" >>"$GITHUB_ENV"
+
       - name: Start the QUIC fleet and hold it connected
         run: |
           set -euo pipefail
@@ -317,7 +330,7 @@ jobs:
               -fixture-seed="$GITHUB_RUN_ID" \
               -relay-sessions \
               -hold="$LOADTEST_HOLD" \
-              -profile="$LOADTEST_PROFILE" \
+              -profile="$LOADTEST_POD_PROFILE" \
               -commit="$GITHUB_SHA" \
               -target-cpus="$LOADTEST_TARGET_CPUS" \
               -target-memory-bytes="$LOADTEST_TARGET_MEMORY_BYTES" \

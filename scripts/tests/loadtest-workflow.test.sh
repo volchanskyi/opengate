@@ -266,6 +266,105 @@ else
   fail "the completeness gate does not read the collected bundle, so the target's own verdict is dropped"
 fi
 
+# --- A path the in-pod harness is given resolves inside the pod ---------------
+#
+# The QUIC harness runs inside the staging pod, and the pod holds no checkout —
+# it is an alpine image the run copies one binary into. A repository-relative
+# path therefore resolves on this runner and nowhere else, and the harness dies
+# at its first line reporting a file that is not there. What the run shows is
+# "the QUIC harness exited before it offered a fleet", which is the same
+# sentence a broken image, a wrong architecture and an unschedulable pod all
+# produce.
+#
+# It is the shape ci-cd-determinism.md names: a contract stated in one file and
+# satisfied in another is checked in neither unless something is made to read
+# both. Here the two are one file, and still nothing read them together.
+#
+# So every value the in-pod harness is handed that looks like a path is either
+# absolute — a place inside the pod — or something the run copied there.
+
+# The call as one line, so a flag written across a continuation is still read.
+harness_call="$(tr '\n' ' ' <"$WORKFLOW" \
+  | grep -oE 'loadtest-quic-incluster\.sh start --.*-bundle=[^ ]+' || true)"
+
+if [ -n "$harness_call" ]; then
+  pass "the in-cluster harness call was found"
+else
+  fail "the in-cluster harness call was not found, so this sweep checked nothing"
+fi
+
+# Every -flag=value pair on that call, resolved through what the workflow sets,
+# and then judged. Resolving first is the whole of it: "$LOADTEST_PROFILE" has
+# no slash in it, so a sweep that asks what a value looks like before asking
+# what it is skips every path the workflow passes by name — which is every one
+# of them.
+resolve() {
+  local value="$1" name
+  case "$value" in
+    \$*) ;;
+    *)
+      printf '%s' "$value"
+      return
+      ;;
+  esac
+  name="${value#\$}"
+  name="${name#\{}"
+  name="${name%\}}"
+  # Two spellings set a name in a workflow: the YAML env block writes
+  # "NAME: value" and a step writing to $GITHUB_ENV writes "NAME=value".
+  local resolved
+  resolved="$(sed -n "s/^ *${name}: *//p" "$WORKFLOW" | head -1)"
+  [ -n "$resolved" ] || resolved="$(grep -oE "${name}=[^ \"]+" "$WORKFLOW" | head -1 | sed "s/^${name}=//")"
+  printf '%s' "$resolved"
+}
+
+pathlike=0
+offending=""
+while read -r pair; do
+  [ -n "$pair" ] || continue
+  value="${pair#*=}"
+  value="${value//\"/}"
+  value="$(resolve "$value")"
+
+  # A URL names a service, not a file; a bare word or a host:port names neither.
+  # Nor does a command substitution: it is evaluated where the step runs, so
+  # what reaches the pod is its output rather than the path inside it.
+  case "$value" in
+    http://* | https://*) continue ;;
+    *"\$("*) continue ;;
+    */*) ;;
+    *) continue ;;
+  esac
+
+  pathlike=$((pathlike + 1))
+  # Absolute is a place inside the pod. Anything else is this runner's tree,
+  # which the pod has no copy of.
+  case "$value" in
+    /*) ;;
+    *) offending="$offending ${pair%%=*}=$value" ;;
+  esac
+done < <(grep -oE '[-][a-z-]+=[^ ]+' <<<"$harness_call")
+
+if [ "$pathlike" -gt 0 ]; then
+  pass "the harness is handed $pathlike path-shaped values to check"
+else
+  fail "no path-shaped value was found on the harness call, so this sweep checked nothing"
+fi
+
+if [ -z "$offending" ]; then
+  pass "every path the in-pod harness is given is a place inside the pod"
+else
+  fail "the in-pod harness is given a path from this runner's tree:$offending"
+fi
+
+# And the profile it names is actually put there, or the flag points at a path
+# inside a pod that holds no such file.
+if grep -qE 'kubectl .*cp .*LOADTEST_PROFILE' "$WORKFLOW"; then
+  pass "the profile is copied into the pod that reads it"
+else
+  fail "nothing copies the profile into the pod, so the harness reads a file that is not there"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
