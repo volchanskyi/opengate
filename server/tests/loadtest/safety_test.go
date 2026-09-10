@@ -108,37 +108,120 @@ func TestADisposableStackStillStopsWhenItRunsOutOfMemory(t *testing.T) {
 	assert.Contains(t, err.Error(), "memory")
 }
 
-// What the check claims to read is what the node is committed to now. The
-// one-minute average is the minute before the check, and on a runner that minute
-// is the one the job spent building images and a fleet — so reading it stopped
-// every performance run before its first phase, naming the build as the run's
-// own commitment.
+// What the instant measure claims to read is what the box is committed to now.
+// The one-minute average is the minute before the reading, and on a box the run
+// owns that minute is the one the job spent building images and a fleet — so
+// reading it stopped every performance run before its first phase, naming the
+// build as the run's own commitment.
 func TestTheProcessorReadingIgnoresTheMinuteBeforeIt(t *testing.T) {
 	// A machine whose last minute was fully committed and whose run queue is now
 	// empty: nothing is running but this reader.
-	assert.InDelta(t, 0.0, runQueuePercent("8.00 6.00 4.00 1/512 9931\n", 4), 0)
+	percent, ok := runQueuePercent("8.00 6.00 4.00 1/512 9931\n", 4)
+	require.True(t, ok)
+	assert.InDelta(t, 0.0, percent, 0)
 }
 
 func TestTheProcessorReadingCountsWhatIsRunnableNow(t *testing.T) {
 	// Nine runnable, one of them this reader, against four processors: the node
 	// is committed to twice what it has.
-	assert.InDelta(t, 200.0, runQueuePercent("0.00 0.00 0.00 9/512 9931\n", 4), 0)
+	percent, ok := runQueuePercent("0.00 0.00 0.00 9/512 9931\n", 4)
+	require.True(t, ok)
+	assert.InDelta(t, 200.0, percent, 0)
 }
 
 // Reported as it is rather than trimmed to a hundred: a node committed to four
 // times what it has and one exactly full are different findings, and a ceiling
 // comparison works the same either way.
 func TestTheProcessorReadingIsNotTrimmedToAHundred(t *testing.T) {
-	assert.InDelta(t, 400.0, runQueuePercent("0.00 0.00 0.00 17/512 9931\n", 4), 0)
+	percent, ok := runQueuePercent("0.00 0.00 0.00 17/512 9931\n", 4)
+	require.True(t, ok)
+	assert.InDelta(t, 400.0, percent, 0)
 }
 
 // A reading that could not be taken is not a reading of an idle machine, so the
-// unreadable shapes return nothing rather than zero-as-a-measurement.
+// unreadable shapes report nothing rather than zero-as-a-measurement — and they
+// report it to the caller, not only to the parser. A measure that swallows its
+// own "could not read" hands a ceiling the one answer that always passes.
 func TestAnUnreadableRunQueueMeasuresNothing(t *testing.T) {
 	for _, raw := range []string{"", "0.00 0.00 0.00", "0.00 0.00 0.00 notanumber 9931"} {
 		_, ok := parseRunQueue(raw)
 		assert.False(t, ok, "%q is not a run-queue reading", raw)
+
+		_, ok = runQueuePercent(raw, 4)
+		assert.False(t, ok, "%q reached the ceiling as a machine at rest", raw)
 	}
+	_, ok := runQueuePercent("0.00 0.00 0.00 9/512 9931\n", 0)
+	assert.False(t, ok, "a machine with no processors is not a machine at rest")
+}
+
+// The other measure, and the one a guest reads: what the box was committed to
+// over the last minute, against the processors it has.
+func TestTheGuestReadingIsTheMinuteBeforeIt(t *testing.T) {
+	// The live staging node, sampled from inside a pod: two processors, about a
+	// third of one of them busy.
+	percent, ok := loadAveragePercent("0.65 0.70 0.71 3/680 2442829\n", 2)
+	require.True(t, ok)
+	assert.InDelta(t, 32.5, percent, 0.01)
+}
+
+func TestAnUnreadableLoadAverageMeasuresNothing(t *testing.T) {
+	for _, raw := range []string{"", "notanumber 0.70 0.71 3/680 1", "-1.00 0.70 0.71 3/680 1"} {
+		_, ok := loadAveragePercent(raw, 2)
+		assert.False(t, ok, "%q reached the ceiling as a machine at rest", raw)
+	}
+	_, ok := loadAveragePercent("0.65 0.70 0.71 3/680 1\n", 0)
+	assert.False(t, ok, "a machine with no processors is not a machine at rest")
+}
+
+// The defect the venue split exists to close, demonstrated on one reading.
+//
+// A two-processor node a third busy, with five tasks runnable at the instant the
+// reader looked. The instant measure divides four other runnable tasks across
+// two processors and reports the node twice committed, which against an
+// eighty-five percent ceiling refuses the run — and the same file says the node
+// spent the last minute about a third busy. On a two-processor node the instant
+// measure moves in fifty-point steps, so against that ceiling it is a coin flip
+// on a node that is not busy.
+func TestTheTwoMeasuresDisagreeOnANodeThatIsNotBusy(t *testing.T) {
+	const node = "0.65 0.70 0.71 5/680 2442829\n"
+	const processors = 2
+
+	instant, ok := runQueuePercent(node, processors)
+	require.True(t, ok)
+	require.Error(t, CheckSafety(tightSafety(), NodeReading{
+		Measured: true, CPUPercent: instant,
+	}), "the instant measure refuses this node")
+
+	minute, ok := loadAveragePercent(node, processors)
+	require.True(t, ok)
+	require.NoError(t, CheckSafety(tightSafety(), NodeReading{
+		Measured: true, CPUPercent: minute,
+	}), "the minute measure lets it run")
+}
+
+// Which measure is honest depends on whose box it is, so the venue picks and no
+// call site has to remember which.
+func TestTheVenuePicksWhichMeasureIsHonest(t *testing.T) {
+	const node = "0.65 0.70 0.71 5/680 2442829\n"
+
+	guest, ok := venueProcessorMeasure(true)(node, 2)
+	require.True(t, ok)
+	assert.InDelta(t, 32.5, guest, 0.01, "a guest is read over the minute production shared with it")
+
+	owner, ok := venueProcessorMeasure(false)(node, 2)
+	require.True(t, ok)
+	assert.InDelta(t, 200.0, owner, 0, "a run that owns the box is read at the instant")
+}
+
+// Both readings this process can take of its own machine are readings, whichever
+// venue it turns out to be on: a guard that always reports plenty of room is a
+// guard nobody can fail.
+func TestTheVenueReadingIsAnActualMeasurement(t *testing.T) {
+	reading := VenueNodeReading()
+	assert.True(t, reading.Measured, "the process can read the machine it is on")
+	assert.GreaterOrEqual(t, reading.CPUPercent, 0.0)
+	assert.GreaterOrEqual(t, reading.MemoryPercent, 0.0)
+	assert.LessOrEqual(t, reading.MemoryPercent, 100.0)
 }
 
 // Disk is held to the memory ceiling, and the message says so — a run stopped by

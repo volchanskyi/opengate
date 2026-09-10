@@ -72,6 +72,11 @@ type GeneratorMeter interface {
 
 // StartGeneratorMeter begins watching this machine, from its own allowance
 // where the kernel gives it one and from the box otherwise.
+//
+// The box is only ever reached on the venue where the generator shares it with
+// the stack it drives, so the instant reading LocalNodeReading takes is the
+// right one there for the same reason it is the right one for that venue's
+// safety ceilings.
 func StartGeneratorMeter() GeneratorMeter {
 	if files, ok := openOwnCgroup(); ok {
 		if meter := startCgroupMeter(files, time.Now); meter != nil {
@@ -80,6 +85,24 @@ func StartGeneratorMeter() GeneratorMeter {
 		files.close()
 	}
 	return startMachineMeter(LocalNodeReading)
+}
+
+// runHasItsOwnAllowance reports whether the kernel gives this process a
+// processor allowance of its own — a quota on its own cgroup.
+//
+// It is what being a guest on somebody else's machine looks like from inside,
+// and it is the same question that decides whose room the generator's own
+// reading describes. Confirmed on both venues: the staging load-test pod's 400
+// millicores arrive as `cpu.max 40000 100000`, and every leg of the throwaway
+// perf stack reports the machine scope, which is this answering no.
+func runHasItsOwnAllowance() bool {
+	files, ok := openOwnCgroup()
+	if !ok {
+		return false
+	}
+	defer files.close()
+	_, granted := readGeneratorAllowance(files)
+	return granted
 }
 
 // WatchGenerator samples the generator on an interval until stop is called,

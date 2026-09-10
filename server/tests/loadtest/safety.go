@@ -30,6 +30,9 @@ import (
 // A reading nobody took is not a reading of zero. An absent measurement fails
 // the check rather than passing it, because a guard that treats "unknown" as
 // "plenty of room" protects nothing at all.
+//
+// Which measure of a busy machine is honest depends on whose box it is, so the
+// venue picks rather than the call site. See venueProcessorMeasure below.
 
 // procMemInfo and procLoadAvg are the kernel's own accounts of memory and of the
 // run queue. They are named here so the readers below take a fixed path.
@@ -112,30 +115,83 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 	return results, nil
 }
 
-// LocalNodeReading is the machine this process is running on.
+// processorMeasure turns one /proc/loadavg reading into how committed the
+// machine is, as a percentage of its processors. A shape it could not read
+// reports so rather than reporting nought, because nought is a machine at rest
+// and an unasked question is not that.
+//
+// There are two of them and they answer different questions, which is the whole
+// of the venue split below.
+type processorMeasure func(raw string, processors int) (float64, bool)
+
+// venueProcessorMeasure is the measure of processor commitment the venue calls
+// for.
+//
+// A run that owns its box is read at the instant. The minute before such a
+// reading is the job's own image build, so the average would report the build as
+// the run's own commitment and stop the run before its first phase.
+//
+// A guest — a pod scheduled onto a node that carries production too — is read
+// over the last minute, because that is what "is there room beside production"
+// asks, and because the instant is a coin flip at that scale: on a two-processor
+// node the run queue moves in fifty-point steps, so a node a third busy reads as
+// a hundred or two hundred percent committed depending on which instant the look
+// landed on.
+//
+// Which of the two this is comes from the same question that decides whose room
+// the generator's own reading describes: whether the kernel gives this process a
+// processor allowance of its own.
+func venueProcessorMeasure(guest bool) processorMeasure {
+	if guest {
+		return loadAveragePercent
+	}
+	return runQueuePercent
+}
+
+// VenueNodeReading is the machine this run shares, read the way its venue calls
+// for. It is what a profiled run walks against, so no call site has to remember
+// which measure is honest where.
+func VenueNodeReading() NodeReading {
+	return readNode(venueProcessorMeasure(runHasItsOwnAllowance()))
+}
+
+// LocalNodeReading is the box this process owns, read at the instant.
 //
 // It is the honest reading where the generator and the machine under test are
-// the same box — the throwaway stack — and it is a reading of the runner rather
-// than of a cluster node anywhere else. What it cannot see, it does not claim.
+// the same box — the throwaway stack — which is the one venue that reaches it.
+// What it cannot see, it does not claim.
 func LocalNodeReading() NodeReading {
-	reading := NodeReading{Measured: true}
+	return readNode(runQueuePercent)
+}
 
-	if total, available, ok := readMemInfo(); ok {
+// readNode takes one reading of the machine this process is on, measuring its
+// processors the way the caller asked for.
+//
+// A figure that did not come back leaves the whole reading unmeasured rather
+// than nought. Nought is a machine with room to spare, so a reader that fills an
+// unanswered question in with it hands every ceiling the one answer that always
+// passes.
+func readNode(measure processorMeasure) NodeReading {
+	var reading NodeReading
+
+	total, available, memoryRead := readMemInfo()
+	if memoryRead {
 		reading.MemoryPercent = float64(total-available) / float64(total) * 100
 	}
 
 	var stat syscall.Statfs_t
-	if err := syscall.Statfs(os.TempDir(), &stat); err == nil && stat.Blocks > 0 {
+	diskRead := syscall.Statfs(os.TempDir(), &stat) == nil && stat.Blocks > 0
+	if diskRead {
 		used := stat.Blocks - stat.Bavail
 		reading.DiskPercent = float64(used) / float64(stat.Blocks) * 100
 	}
 
-	// The run queue at this instant against the processor count. It is what one
-	// look gives, reported as that rather than dressed up as utilisation, and it
-	// describes the machine now rather than the minute before the look.
+	var processorsRead bool
 	if raw, err := os.ReadFile(procLoadAvg); err == nil {
-		reading.CPUPercent = runQueuePercent(string(raw), runtime.NumCPU())
+		reading.CPUPercent, processorsRead = measure(string(raw), runtime.NumCPU())
 	}
+
+	reading.Measured = memoryRead && diskRead && processorsRead
 	return reading
 }
 
@@ -168,10 +224,9 @@ func readMemInfo() (total, available int64, ok bool) {
 // is committed right now, as a percentage of its processors.
 //
 // It reads the fourth field — the tasks runnable at this instant — and not the
-// one-minute average, which describes the minute before the reading. On a runner
-// that minute is the one the job spent building images and a fleet, so the
-// average reports the build as the run's own commitment and stops the run before
-// its first phase.
+// one-minute average, which describes the minute before the reading. It is the
+// measure for a box the run owns, where that minute is the one the job spent
+// building images and a fleet.
 //
 // The reader itself is runnable while it reads, so it is subtracted: an
 // otherwise idle machine is committed to nothing, not to one task.
@@ -179,16 +234,42 @@ func readMemInfo() (total, available int64, ok bool) {
 // The figure is reported as it is rather than trimmed to a hundred. A node
 // committed to four times what it has and one exactly full are different
 // findings, and a ceiling comparison reads them the same way either way.
-func runQueuePercent(raw string, processors int) float64 {
+func runQueuePercent(raw string, processors int) (float64, bool) {
 	runnable, ok := parseRunQueue(raw)
 	if !ok || processors <= 0 {
-		return 0
+		return 0, false
 	}
 	others := runnable - 1
 	if others < 0 {
 		others = 0
 	}
-	return float64(others) / float64(processors) * 100
+	return float64(others) / float64(processors) * 100, true
+}
+
+// loadAveragePercent turns one /proc/loadavg reading into how much of the
+// machine was committed over the last minute, as a percentage of its processors.
+//
+// It is the measure for a box this run is a guest on. The minute before the
+// reading is production going about its business, which is exactly what a
+// ceiling protecting a neighbour asks about — and unlike the instant it does not
+// quantise: a node a third busy reads as a third busy rather than as whichever
+// multiple of fifty percent the look happened to land on.
+//
+// Nothing is subtracted here. The average is over a minute this reader spent
+// almost all of asleep, so it carries no meaningful weight of its own.
+func loadAveragePercent(raw string, processors int) (float64, bool) {
+	if processors <= 0 {
+		return 0, false
+	}
+	fields := strings.Fields(raw)
+	if len(fields) < 1 {
+		return 0, false
+	}
+	average, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil || average < 0 {
+		return 0, false
+	}
+	return average / float64(processors) * 100, true
 }
 
 // parseRunQueue reads the runnable-task count out of /proc/loadavg's fourth

@@ -20,9 +20,134 @@ Updated 2026-09-09. Each workstream lands as one commit.
 | WS1 | **Done, then repaired** | `2292438c`, then the repair below. [ADR-100](../../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md), [ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) |
 | WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
 | WS3 | **Done** | [ADR-105](../../docs/adr/ADR-105-a-simulated-machine-is-one-machine-for-the-whole-run.md), [ADR-106](../../docs/adr/ADR-106-a-venue-lasts-as-long-as-the-run-it-holds.md), [ADR-107](../../docs/adr/ADR-107-a-family-runs-somewhere.md) |
-| WS4 | Not started | Blocks the throwaway half of WS0 |
+| WS4 | **Next** | Blocks the throwaway half of WS0. Now also carries the target's own busy-ness reading (F2), which choices 2 and 3 both rest on |
 | WS5 | Not started | |
 | WS6 | Not started | |
+| F1 | **Done** | The busy-machine ceiling now reads the measure its venue calls for, and an unread figure no longer reaches it as a machine at rest. [ADR-108](../../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) |
+
+### What the first dispatched runs measured, 2026-09-09
+
+WS3's families were dispatched the night it landed rather than waited for. The
+perf stack came back green on the first attempt with all eight legs valid, and
+what it produced is the first evidence any of these families has ever given.
+Three findings came out of it and one of them blocks the staging nightly today.
+
+**The three new families work, and enrol-once is confirmed.** peak held
+2,000/2,000, spike held 2,000/2,000 arriving at 49 a second, breakpoint held
+4,000/4,000. Spike walks 500 → 2,000 → 500 and its bundle reports `devices:
+2000` — one enrolment per machine in the estate, which is D30 working end to
+end. Every fleet fully arrived, every leg valid, no faults anywhere.
+
+**F1 — the staging nightly is refused before its first phase, and the load has
+nothing to do with it.** `normal.yaml`'s processor ceiling reported *the node's
+processor is 200% committed against a limit of 85%*. Sampled live from inside a
+staging pod, ten times a second apart, the node's one-minute average is 0.65 to
+0.77 across two processors — about a third busy — with one or two tasks waiting
+out of 680.
+
+`runQueuePercent` counts the tasks waiting at a single instant, subtracts
+itself, and divides by the processor count, so on a two-processor node it moves
+in fifty-point steps: three waiting reads as 100%, five reads as 200%. Against
+an 85% ceiling that is a coin flip on a node that is not busy.
+
+It had never fired because staging had never walked a profile — the flat path
+skips `RunPhasesWatched` entirely — so switching the nightly to `normal.yaml`
+exposed it on the first run, and on both re-dispatches after it
+([34420282331](https://github.com/volchanskyi/opengate/actions/runs/34420282331),
+[34422921059](https://github.com/volchanskyi/opengate/actions/runs/34422921059)).
+It is
+[ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md)'s
+defect one field over: **which measure is honest depends on whose box it is.**
+The instant reading was chosen deliberately for the throwaway runner and the
+reasoning in [`safety.go`](../../server/tests/loadtest/safety.go) is correct
+there — the run owns the box, and the minute before the reading is its own image
+build. On the cluster node the run is a guest, and the minute before is
+production going about its business, which is exactly what the ceiling asks
+about.
+
+Repaired as
+[ADR-108](../../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md).
+The venue is settled by the same question ADR-104 already asks — whether the
+kernel gives this process a processor allowance of its own — and both answers
+were confirmed against live runs before the code was written: the staging pod
+reports the `generator` headroom scope, all eight throwaway legs report
+`machine`. A second sampling of the node that evening, ten looks a second apart,
+put its one-minute average at 0.18 to 0.31 across two processors — so across both
+samplings the node sits between 9% and 39% against the 85% ceiling, where the
+instant measure it was refused by can only report multiples of fifty. A second
+defect came out with it: the
+instant measure returned nought for a `/proc/loadavg` it could not parse and the
+reading around it still called itself measured, so an unreadable processor figure
+reached every ceiling as a machine at rest.
+
+**F2 — nothing reads how hard the target worked.** The bundle carries the
+server's resident memory, goroutine count and open files, at the run's start and
+end only, and no processor figure at any point. `process_cpu_seconds_total` is
+published — 3.89 on the live staging server — on the same internal port the
+harness already reads registration timing from.
+
+This is the finding the other two rest on. Flat busy-ness with rising wait times
+means the hold-up is in the code rather than the hardware, and that is a
+different problem with a different fix; from wait times alone the two are
+indistinguishable. Every statement below of the form "the server was not working
+hard" is currently an inference, not a reading.
+
+**F3 — the scaling sweep cannot be read, for a reason that is not the load.**
+On a four-processor runner [`docker-compose.perf.yml`](../../deploy/docker-compose.perf.yml)
+gives the database 1.0 and the metrics store 0.5, and the matrix gives the
+server 0.5, 1, 2 or 4. So the generator is left 2.0, 1.5, 0.5, and less than
+nothing. **The generator's share shrinks as the server's grows**, the two move
+together, and a flat curve is attributable to neither. Raising the load alone
+makes the top rungs worse.
+
+The curve was flat: 13, 16, 18 and 16 ms at the four rungs.
+
+**What the runs give us to size the follow-on work with.** These are
+measurements, not estimates:
+
+| Reading | Figure | Where from |
+|---|---|---|
+| Generator memory per machine | ~400 KB over a 1.25 GiB baseline | peak and breakpoint bundles, 2,000 vs 4,000 machines |
+| Generator processor cost | tracks *arrival rate*, not fleet size | peak and spike hold identical fleets: 21% against 36%, the difference being spike's 49/s |
+| Generator memory ceiling | ~24,000 machines before the declared 80% | the two above |
+| Where the wait times bend | from 2,000 machines | breakpoint p50: 19, 20, 26, **62** ms at 500, 1,000, 2,000, 4,000 |
+
+The last row is what sizes both remaining questions: **the interesting region
+starts around 2,000 machines**, so the scaling sweep at 500 sits well below it
+and any increase short of a few thousand stays below it.
+
+### The follow-on work, settled 2026-09-09
+
+Three choices were taken against the findings above. Nothing here is open.
+
+**Choice 1 — the busy-machine reading is venue-shaped (fixes F1).** The cluster
+node is read over the last minute, which is what "is there room beside
+production" asks; the throwaway runner keeps the instant, for the reason already
+written beside it. The venue picks, so no call site has to remember which. It
+mirrors ADR-104 and needs no access the harness does not already have.
+
+This is a regression WS3 introduced and it holds the staging nightly red, so it
+is **not** WS4 or WS5 work — it lands on its own, before either.
+
+**Choice 2 — the scaling sweep lowers its range and raises its load (fixes
+F3).** The server's rungs become 0.25, 0.5, 1 and 2 so the generator keeps a
+fixed share at every rung, and the fleet moves to the region where the rungs can
+differ at all — around 2,000, per the table above. Both halves are needed:
+either alone leaves the sweep unreadable, one because the generator moves with
+the server and the other because nothing binds.
+
+**Choice 3 — the breakpoint ladder extends to 8,000 and 16,000, and every step
+lengthens to five minutes.** The existing steps stay, so a step that degrades is
+still attributable — a single jump from 4,000 to 12,000 would answer *whether*
+without answering *where*. Five minutes is what a step needs to settle before it
+is read; the run goes from about eleven minutes to about forty-five.
+
+Two constraints the extension has to respect, both measured rather than
+assumed. 16,000 machines is about half the generator's memory, comfortably
+inside the declared ceiling. But 16,000 arrivals inside a two-minute step is 133
+a second against an enrolment rate the server refuses past at about 100 — which
+is *why* the steps lengthen, rather than a separate accommodation: five minutes
+puts 16,000 arrivals at 53 a second.
 
 ### What WS3 changed that later workstreams should know
 
@@ -938,18 +1063,46 @@ workflow, and that every family row in `Testing.md` names a workflow that exists
 This closes D5's blind spot — a present-tense claim about something unscheduled —
 which the live-state gate structurally cannot see.
 
-### WS4 — Give the sweeps a consumer (D12, D13, D15, D19, D20, D32)
+### WS4 — Give the sweeps a consumer, and something to read (D12, D13, D15, D19, D20, D32, F2, F3)
 
-1. An aggregation job with `needs:` on the sweep matrix that downloads all legs,
+1. **The target's own busy-ness becomes a reading (F2).** `process_cpu_seconds_total`
+   is taken from the target's internal port — the one the harness already reads
+   registration timing from — bracketing each phase, and divided by the phase's
+   wall clock and the target's declared processor allowance. What it produces is
+   *the server used N% of what it was given*, per phase, beside the wait times
+   already there. A reading that could not be taken is absent rather than nought,
+   the way every other bundle field now is.
+
+   This is first, because the other two rest on it. Flat busy-ness with rising
+   wait times means the hold-up is in the code rather than the hardware, and from
+   wait times alone the two are the same picture.
+
+   **Guard:** a bundle whose target busy-ness is absent on a venue that publishes
+   it fails validation; a phase whose figure is the hardcoded nought fails a
+   test. The existing generator-headroom tests are the shape to copy.
+
+2. An aggregation job with `needs:` on the sweep matrix that downloads all legs,
    publishes the curve, and fails when **every leg is identical** — the condition
-   that actually occurred. It does not assert monotonicity: D32 shows one night
-   cannot establish a shape.
-2. The volume job becomes a matrix over machines actually enrolled per Decision
+   that actually occurred, and which the 2026-09-09 run reproduced at 13, 16, 18
+   and 16 ms. It does not assert monotonicity: D32 shows one night cannot
+   establish a shape.
+3. **The scaling sweep is reshaped so its rungs can differ (F3, choice 2).** The
+   server's rungs become 0.25, 0.5, 1 and 2, so the generator keeps a fixed share
+   at every rung rather than being squeezed as the server grows; and the fleet
+   moves to around 2,000, where the measured curve begins to bend. Both halves
+   land together — either alone leaves the sweep unreadable.
+4. **The breakpoint ladder extends (choice 3).** Steps at 8,000 and 16,000 are
+   added to the existing ones, and every step lengthens to five minutes. The
+   lower steps stay so a step that degrades is attributable, and the length is
+   what keeps 16,000 arrivals inside the enrolment rate the server refuses past.
+5. The volume job becomes a matrix over machines actually enrolled per Decision
    8, with `FileDevices` wired so the lopsided distribution exists (D19, D20).
-3. The generator's own share is declared in the stack, so contention at the top
+6. The generator's own share is declared in the stack, so contention at the top
    rung is reported by WS1's headroom reading rather than inferred (D15).
-4. Uploads move to `if-no-files-found: error` now that something downstream
+7. Uploads move to `if-no-files-found: error` now that something downstream
    reads them.
+
+Every changed profile takes a new `workload_name` version per Decision 9.
 
 ### WS5 — Load worth the name (D1, D14, D25)
 
@@ -967,6 +1120,15 @@ which the live-state gate structurally cannot see.
    steady window, not over the ramps as well.
 5. Thresholds are re-based on what the widened load actually produces, and every
    changed scenario takes a new `workload_name` version per Decision 9.
+6. **What counts as "given out" is written down before it is looked for.** The
+   breakpoint family has no such definition today, so its answer is whatever the
+   run happened to survive: the 2026-09-09 ladder reached 4,000 machines with no
+   errors at all and therefore established nothing except that the answer is
+   higher. A step is declared failed by a stated error rate, a stated wait time,
+   or a stated busy-ness held for a stated period — the third of which only
+   becomes available with WS4's target reading. The profile carries the
+   definition, because the profile is the only home for the numbers a night is
+   judged by ([ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md)).
 
 ### WS6 — See inside the leak (D37)
 

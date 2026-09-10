@@ -822,6 +822,17 @@ and a ceiling nothing consults reads as protection that is not there. The memory
 and disk ceilings hold everywhere, because past them the node has nowhere to put
 what the run produces. The schema enforces both halves.
 
+The venue also decides *how* the machine is read, which
+[ADR-108](../adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) settles.
+A run that owns its box is read at the instant it looks, because the minute
+before that look is the job's own image build. A run that is a guest on a cluster
+node is read over the last minute, because that minute is production going about
+its business and is exactly what a ceiling protecting a neighbour asks about — and
+because the instant quantises into steps as coarse as the node is small. Which of
+the two a run is comes from whether the kernel gives it a processor allowance of
+its own, the same question that decides whose room the generator's reading
+describes.
+
 **Bundles** are versioned JSON, one per run, uploaded as a workflow artifact. A
 bundle carries what produced the numbers, on what hardware, against how much
 data, what load was offered, what load arrived, what the run observed, and what
