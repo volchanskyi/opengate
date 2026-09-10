@@ -217,3 +217,31 @@ func TestLoadBundleNamesAMalformedFile(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode bundle")
 }
+
+// The estate's filing is a reading of what the run managed, not a claim that it
+// tried.
+//
+// Where a run's scenarios wait for the filing before they read, the wait is what
+// gates it — but the throwaway venues have no such wait, so there the filing
+// happens with nothing standing over it. A count that travels is what lets a
+// reader ask whether the fleet a night measured was one the product could
+// actually find.
+func TestABundleCarriesWhatTheRunFiled(t *testing.T) {
+	filed := 500
+	b := completeBundle()
+	b.Fixture.FiledDevices = &filed
+
+	require.NoError(t, b.Validate())
+	require.NotNil(t, b.Fixture.FiledDevices)
+	assert.Equal(t, 500, *b.Fixture.FiledDevices)
+}
+
+// A run that filed nothing because it had nobody to file for is not a run that
+// filed nought machines. Nought would read as a fleet the product cannot find,
+// which is the finding this field exists to report — so a run with no fixture
+// leaves it absent instead.
+func TestARunWithNoFixtureCarriesNoFilingCount(t *testing.T) {
+	b := completeBundle()
+	require.NoError(t, b.Validate())
+	assert.Nil(t, b.Fixture.FiledDevices)
+}

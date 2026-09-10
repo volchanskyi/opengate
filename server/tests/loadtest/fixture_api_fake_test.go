@@ -5,12 +5,19 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// filedCall is one filing request: which machine, and what it was filed under.
+type filedCall struct {
+	deviceID string
+	target   string
+}
 
 // fakeAPI is a stand-in for the server, recording what the builder asked it for.
 // It answers the handful of calls a fixture needs and nothing else, so a builder
@@ -24,7 +31,11 @@ type fakeAPI struct {
 	registered    []string
 	tokenLabels   []string
 	tokenHours    []int
-	filedDevices  []string
+	// filedToCustomer and filedToSite are the two halves of filing a machine,
+	// recorded apart because a machine under the right customer with no site is
+	// exactly the state the browser-side scenarios cannot read.
+	filedToCustomer []filedCall
+	filedToSite     []filedCall
 
 	// failAt makes one path answer 500, so the builder's error handling is
 	// exercised rather than assumed.
@@ -111,8 +122,28 @@ func (f *fakeAPI) handler() http.Handler {
 		if f.fail(w, "/api/v1/devices/") {
 			return
 		}
+		var body struct {
+			OrganizationID string  `json:"organization_id"`
+			SiteID         *string `json:"site_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+
 		f.mu.Lock()
-		f.filedDevices = append(f.filedDevices, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/organization") {
+			f.filedToCustomer = append(f.filedToCustomer, filedCall{
+				deviceID: strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/devices/"), "/organization"),
+				target:   body.OrganizationID,
+			})
+		} else {
+			site := ""
+			if body.SiteID != nil {
+				site = *body.SiteID
+			}
+			f.filedToSite = append(f.filedToSite, filedCall{
+				deviceID: strings.TrimPrefix(r.URL.Path, "/api/v1/devices/"),
+				target:   site,
+			})
+		}
 		f.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]string{"id": "device"})
 	})

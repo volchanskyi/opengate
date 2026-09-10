@@ -337,6 +337,18 @@ jobs:
               -target-description="$LOADTEST_TARGET_DESCRIPTION" \
               -bundle=/tmp/loadtest-bundle
 
+      # Every device read the scenarios make is narrowed to a building, and each
+      # scenario chooses which building in its own setup — once, before its first
+      # iteration. A machine can only be filed into a building after it has
+      # registered, so the filing follows the arrivals; a scenario started before
+      # it reads an empty building for the whole of its run and publishes that as
+      # the night's number.
+      #
+      # So the ordering is asked for rather than assumed. The harness says when
+      # the estate it declared is filed, and this waits for it.
+      - name: Wait for the estate to be filed
+        run: scripts/loadtest-quic-incluster.sh await-filed
+
       - name: Run k6 API baseline
         run: |
           K6_BIN=scripts/loadtest-k6-incluster.sh \

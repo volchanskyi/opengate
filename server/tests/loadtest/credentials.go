@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"sync"
@@ -86,6 +87,29 @@ func (c localCredentials) forAgent(_ context.Context, plan tenantAgent) (*tls.Co
 		return nil, fmt.Errorf("sign cert for %s: %w", plan.hostname, err)
 	}
 	return c.manager.AgentTLSConfig(issued), nil
+}
+
+// deviceIDFrom reads a machine's identifier out of the credential it dials with.
+//
+// The server knows a machine by its certificate and takes its identifier from
+// that certificate's common name, which the harness chose when it enrolled. So
+// the run already holds every identifier it needs in order to file the estate,
+// and listing the fleet back to match it up by name would be a second source of
+// truth for something nobody has to ask about.
+//
+// A credential carrying no certificate has no identifier, which is not the same
+// as a machine whose identifier is empty: filing under an identifier the server
+// never issued is refused, and the refusal would name the machine rather than
+// the credential.
+func deviceIDFrom(config *tls.Config) (string, bool) {
+	if config == nil || len(config.Certificates) == 0 || len(config.Certificates[0].Certificate) == 0 {
+		return "", false
+	}
+	leaf, err := x509.ParseCertificate(config.Certificates[0].Certificate[0])
+	if err != nil || leaf.Subject.CommonName == "" {
+		return "", false
+	}
+	return leaf.Subject.CommonName, true
 }
 
 // enrolOnce wraps a credential source so a machine's identity is minted once

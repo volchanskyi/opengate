@@ -20,7 +20,7 @@ Updated 2026-09-09. Each workstream lands as one commit.
 | WS1 | **Done, then repaired** | `2292438c`, then the repair below. [ADR-100](../../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md), [ADR-104](../../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) |
 | WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
 | WS3 | **Done** | [ADR-105](../../docs/adr/ADR-105-a-simulated-machine-is-one-machine-for-the-whole-run.md), [ADR-106](../../docs/adr/ADR-106-a-venue-lasts-as-long-as-the-run-it-holds.md), [ADR-107](../../docs/adr/ADR-107-a-family-runs-somewhere.md) |
-| WS4 | **Mostly done** | [ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md). Items 1, 2, 3, 4, 6 and 7 landed together, plus the volume matrix. `FileDevices` is the one piece open — see below |
+| WS4 | **Done** | [ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md), [ADR-111](../../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md). The estate is filed as it arrives, and the scenarios that read a building wait for one. What remains is a reader on the volume venue — see below |
 | WS5 | Not started | |
 | WS6 | Not started | |
 | F1 | **Done** | The busy-machine ceiling now reads the measure its venue calls for, and an unread figure no longer reaches it as a machine at rest. [ADR-108](../../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) |
@@ -226,15 +226,21 @@ each hold half of what filing needs. Staging has the readers and a fleet spread
 evenly over its customers; the volume venue has the lopsided plan and up to eight
 thousand machines and no browser-side reader at all.
 
-1. **Staging.** The estate is filed — customer *and* site — as it arrives, and
-   the browser-side scenarios run against a filed fleet. Both rows above stop
-   being true, and `journey_device_list_ms` starts measuring what its own code
-   says it measures.
-2. **The volume venue.** Filing there needs a reader built beside it, which is
-   what makes the lopsided plan shape a measurement rather than only the rows.
-   That is the work that answers the question `FileDevices`'s own comment asks —
-   the page that is slow in the field belongs to the customer holding most of
-   the estate.
+1. **Staging — done.**
+   [ADR-111](../../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md). A
+   machine is filed under its customer and into one of that customer's buildings
+   the moment it registers, identified from the certificate it dials with rather
+   than by listing the fleet back. The run announces a filed estate at its first
+   phase's level, the shim waits for that line, and the workflow asks between
+   starting the fleet and running the first scenario — so the wait is the gate.
+   Both rows above stop being true and both series re-base.
+2. **The volume venue — open.** It files too, so `fixture: lopsided` is now true
+   where it is declared: one customer holding 80% of up to eight thousand
+   machines. Nothing there reads it. That venue has no browser-side generator at
+   all, so what the filing shapes is the data the family weighs rather than a
+   measurement. Building the reader is what answers the question the filing was
+   written for — the page that is slow in the field belongs to the customer
+   holding most of the estate — and it is the next piece.
 
 Everything else in WS4 landed. The volume family is a three-point sweep over
 machines actually enrolled — 500, 2,000 and 8,000 — which is Decision 8's other

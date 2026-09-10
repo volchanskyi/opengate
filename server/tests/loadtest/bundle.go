@@ -41,7 +41,13 @@ import (
 // saw and nothing about what the target did with the allowance it was given, so
 // a server out of processor and a server idle but slow read identically — and
 // every statement about which of the two a night showed was an inference.
-const bundleSchemaVersion = 4
+//
+// Version 5 adds what the run filed. Every list a technician opens is narrowed
+// to a customer or to a building, and a fleet filed under neither is reachable
+// only through the tenant-wide read — so a night could report a device-list
+// figure measured against a fleet the product itself could not find, and nothing
+// in the bundle said which.
+const bundleSchemaVersion = 5
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -96,6 +102,19 @@ type FixtureCounts struct {
 	// fixture. Zero means it was not measured, which is different from empty.
 	DatabaseBytes   int64 `json:"database_bytes,omitempty"`
 	TelemetrySeries int64 `json:"telemetry_series,omitempty"`
+	// FiledDevices is how many machines the run filed under a customer and into
+	// one of that customer's buildings, which is what every list a technician
+	// opens is narrowed by. A fleet under nobody is reachable only through the
+	// tenant-wide read, and no measurement taken against it describes a page
+	// anyone in the field opens.
+	//
+	// It is a pointer because a run with no fixture had nobody to file for, and
+	// that is not the same as a run that filed nought machines — nought is the
+	// finding this field exists to report.
+	FiledDevices *int `json:"filed_devices,omitempty"`
+	// FilingRefusals is how many the server would not file. A run reporting a
+	// filed estate it could not file is the shape the count is here to refuse.
+	FilingRefusals *int `json:"filing_refusals,omitempty"`
 }
 
 // PhaseResult is one phase's account of itself.

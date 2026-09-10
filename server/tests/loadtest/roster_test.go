@@ -182,7 +182,7 @@ func TestARunWithNoProfileNeedsNoEstateCheck(t *testing.T) {
 func TestAMachineStartedAgainReconnectsRatherThanEnrolling(t *testing.T) {
 	source := &countingSource{}
 	roster := estateOf(t, 1)
-	start := estateStart(roster, enrolOnce(source), "127.0.0.1:1", loadOptions{})
+	start := estateStart(roster, enrolOnce(source), "127.0.0.1:1", loadOptions{}, nil)
 
 	for i := 0; i < 3; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
@@ -207,7 +207,7 @@ func TestAStartWithNobodyFreeReportsThatRatherThanDoublingUp(t *testing.T) {
 	_, _, ok := roster.take()
 	require.True(t, ok)
 
-	start := estateStart(roster, enrolOnce(&countingSource{}), "127.0.0.1:1", loadOptions{})
+	start := estateStart(roster, enrolOnce(&countingSource{}), "127.0.0.1:1", loadOptions{}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 

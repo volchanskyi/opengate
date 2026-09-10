@@ -30,12 +30,21 @@ type fixtureRequest struct {
 	runFor time.Duration
 }
 
+// builtFleet is what the fixture step leaves behind: the fleet that now exists,
+// the administrator session that created it — which is also the session that
+// files each machine as it arrives — and the credential those machines spend.
+type builtFleet struct {
+	fixture *BuiltFixture
+	client  *FixtureClient
+	token   string
+}
+
 // buildFixtureIfAsked builds the fleet the run measures against, and returns the
 // enrollment token the machines are to spend. A run given no administrator
 // builds nothing and measures against whatever is already there.
-func buildFixtureIfAsked(request fixtureRequest) (*BuiltFixture, string) {
+func buildFixtureIfAsked(request fixtureRequest) builtFleet {
 	if request.account == "" || request.baseURL == "" {
-		return nil, ""
+		return builtFleet{}
 	}
 
 	size := FixtureSize(request.size)
@@ -58,7 +67,18 @@ func buildFixtureIfAsked(request fixtureRequest) (*BuiltFixture, string) {
 
 	fmt.Printf("Fixture built: %d customers, %d sites, %d accounts, %d machines to enrol\n",
 		len(built.Customers), built.Sites, len(built.Users), built.PlannedDevices)
-	return &built, built.EnrollmentToken
+	return builtFleet{fixture: &built, client: client, token: built.EnrollmentToken}
+}
+
+// filerFor builds the estate's filer, or nothing when there is no fleet to file.
+//
+// The credentials are the run's held ones, so the filer reads the certificate a
+// machine actually dials with rather than minting a second identity for it.
+func (b builtFleet) filerFor(credentials agentCredentials, estate int, profile *Profile) *estateFiler {
+	if b.fixture == nil || b.client == nil {
+		return nil
+	}
+	return newEstateFiler(b.client, *b.fixture, credentials, estate, filingLevel(profile, estate))
 }
 
 // reportingFleet is a fleet that can be wound down and asked what happened. The
@@ -73,11 +93,18 @@ type reportingFleet interface {
 // runWorkload walks the profile's phases when there is one, and otherwise offers
 // the whole fleet at once — which is a real event, a site whose link came back,
 // and the only shape available before profiles existed.
+//
+// The credentials handed in are already the run's held ones, minted once per
+// machine and reused after. Both the fleet and the filer read them, and they
+// have to be the same wrapper: a filer given the raw source would mint a second
+// identity for every machine it filed, and file a fleet the run never
+// connected.
 func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 	credentials agentCredentials, addr string, opts loadOptions, busy TargetBusy,
+	filer *estateFiler,
 ) ([]agentResult, []PhaseResult, *float64) {
 	if profile == nil {
-		return runFlat(agents, agentPlan, credentials, addr, opts, busy)
+		return runFlat(agents, agentPlan, credentials, addr, opts, busy, filer)
 	}
 
 	// The estate is fixed and its machines enrol once, so a level the estate
@@ -88,11 +115,10 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 	}
 
 	roster := newAgentRoster(agentPlan)
-	held := enrolOnce(credentials)
 
 	fleet := NewQUICFleetWithProbe(
-		estateStart(roster, held, addr, opts),
-		phaseProbe(agentPlan, held, addr, opts))
+		estateStart(roster, credentials, addr, opts, filer),
+		phaseProbe(agentPlan, credentials, addr, opts))
 
 	results, phases, err := runProfile(profile, fleet, NewRealClock(), VenueNodeReading, busy)
 	if err != nil {
@@ -113,14 +139,17 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 // connections — is worse than the re-enrolment this closes: the server knows a
 // machine by its certificate, so it keeps whichever registered last and the
 // level drops by the one that was displaced, with nothing anywhere reporting it.
-func estateStart(roster *agentRoster, credentials agentCredentials, addr string, opts loadOptions) StartAgent {
+func estateStart(roster *agentRoster, credentials agentCredentials, addr string, opts loadOptions,
+	filer *estateFiler,
+) StartAgent {
 	return func(ctx context.Context, _ int, noteArrival func()) agentResult {
 		machine, giveBack, ok := roster.take()
 		if !ok {
 			return agentResult{err: ErrEstateExhausted}
 		}
 		defer giveBack()
-		return runAgentWithContext(ctx, credentials, addr, machine, opts, noteArrival)
+		return runAgentWithContext(ctx, credentials, addr, machine, opts,
+			arrivalOf(noteArrival, filer, machine))
 	}
 }
 
@@ -149,7 +178,7 @@ func runProfile(profile *Profile, fleet reportingFleet, clock Clock, read Safety
 // bracketed around the whole of it — the same reading a walked phase takes,
 // over the only window this shape has.
 func runFlat(agents int, agentPlan []tenantAgent, credentials agentCredentials,
-	addr string, opts loadOptions, busy TargetBusy,
+	addr string, opts loadOptions, busy TargetBusy, filer *estateFiler,
 ) ([]agentResult, []PhaseResult, *float64) {
 	closeBusy := busy.Bracket()
 	startedAt := time.Now()
@@ -160,7 +189,9 @@ func runFlat(agents int, agentPlan []tenantAgent, credentials agentCredentials,
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			results[idx] = runAgent(credentials, addr, agentPlan[idx], opts)
+			machine := agentPlan[idx]
+			results[idx] = runAgent(credentials, addr, machine, opts,
+				arrivalOf(nil, filer, machine))
 		}(i)
 	}
 	wg.Wait()

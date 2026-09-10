@@ -16,13 +16,15 @@ import (
 // One machine's life on the wire: dial, handshake, register, behave, and stay
 // until the run says otherwise.
 
-func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts loadOptions) agentResult {
+func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts loadOptions,
+	noteArrival func(),
+) agentResult {
 	// The deadline covers connecting and registering, plus however long this
 	// machine was asked to stay. A fixed budget would cut a held-open fleet
 	// short and report the run's own timeout as the server dropping machines.
 	ctx, cancel := context.WithTimeout(context.Background(), agentDeadline+opts.holdFor)
 	defer cancel()
-	return runAgentWithContext(ctx, credentials, addr, plan, opts, nil)
+	return runAgentWithContext(ctx, credentials, addr, plan, opts, noteArrival)
 }
 
 // runAgentWithContext is one machine's whole life, bounded by the caller's

@@ -36,11 +36,13 @@
 #   LOADTEST_QUIC_POD_STATUS                harness exit code inside the pod
 #   LOADTEST_QUIC_START_ATTEMPTS            launches to make before giving up
 #   LOADTEST_QUIC_START_TIMEOUT_SECONDS     wait for the harness to offer its fleet
+#   LOADTEST_QUIC_FILED_TIMEOUT_SECONDS     wait for the harness to file its estate
 #   LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS   wait for the harness to reach a verdict
 #   LOADTEST_QUIC_POLL_SECONDS              gap between questions
 #
 # Usage:
 #   loadtest-quic-incluster.sh start -- <harness command...>
+#   loadtest-quic-incluster.sh await-filed
 #   loadtest-quic-incluster.sh collect
 set -euo pipefail
 
@@ -48,6 +50,17 @@ set -euo pipefail
 # its fleet. It is the harness's own account of itself, which is what makes it a
 # readiness signal rather than a guess about how long a fixture takes.
 FLEET_ANNOUNCEMENT='Starting QUIC load test'
+
+# The line the harness prints once the estate it declared is filed — each
+# machine under the customer that holds it and into one of that customer's
+# buildings. It is server/tests/loadtest/filing.go's estateFiledAnnouncement.
+#
+# Filing follows the load because a machine's row does not exist until it has
+# registered, so this arrives after the fleet announcement rather than with it.
+# The scenarios that read a building have to wait for it: each chooses its
+# building once, in its own setup, so one started against an unfiled fleet reads
+# an empty building for the whole of its run.
+FILED_ANNOUNCEMENT='Estate filed'
 
 # NO_FLEET is the verdict when there is no run to report on — nothing was
 # launched, or nothing reached a verdict inside the bound. It is deliberately
@@ -62,11 +75,15 @@ POD_LOG="${LOADTEST_QUIC_POD_LOG:-/tmp/loadtest-fleet.log}"
 POD_STATUS="${LOADTEST_QUIC_POD_STATUS:-/tmp/loadtest-fleet.status}"
 START_ATTEMPTS="${LOADTEST_QUIC_START_ATTEMPTS:-3}"
 START_TIMEOUT="${LOADTEST_QUIC_START_TIMEOUT_SECONDS:-600}"
+# The filing follows the arrivals, and the arrivals are the profile's first
+# phase — so this bound covers a ramp as well as a fixture build.
+FILED_TIMEOUT="${LOADTEST_QUIC_FILED_TIMEOUT_SECONDS:-900}"
 COLLECT_TIMEOUT="${LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS:-1500}"
 POLL="${LOADTEST_QUIC_POLL_SECONDS:-5}"
 
 usage() {
   echo "usage: $0 start -- <harness command...>" >&2
+  echo "       $0 await-filed" >&2
   echo "       $0 collect" >&2
 }
 
@@ -169,6 +186,38 @@ await_fleet() {
   return "$NO_FLEET"
 }
 
+# await_filed waits for the run to say its estate is filed, and stops early when
+# the harness has already reached a verdict.
+#
+# Its bound is its own, because it waits for a later event than await_fleet does:
+# the fleet announces itself before it dials, and the filing follows the
+# arrivals — a machine cannot be filed before its row exists.
+#
+# A harness that never files is refused rather than waited out quietly. The
+# scenarios behind this wait narrow every device read to a building, so running
+# them against an unfiled fleet publishes empty reads as the night's numbers,
+# which is the shape this ordering exists to prevent.
+await_filed() {
+  local deadline=$((SECONDS + FILED_TIMEOUT))
+  local status
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if grep -qF "$FILED_ANNOUNCEMENT" <<<"$(pod_log)"; then
+      echo "the estate is filed in $POD"
+      return 0
+    fi
+    status="$(pod_status)"
+    if [ -n "$status" ]; then
+      echo "::error::the QUIC harness exited ($status) before it filed its estate." >&2
+      pod_log >&2
+      return "$NO_FLEET"
+    fi
+    sleep "$POLL"
+  done
+  echo "::error::the estate was not filed within ${FILED_TIMEOUT}s, so a scoped read would find an empty building." >&2
+  pod_log >&2
+  return "$NO_FLEET"
+}
+
 start() {
   if [ "$#" -eq 0 ]; then
     usage
@@ -250,6 +299,7 @@ main() {
 
   case "$verb" in
     start) start "$@" ;;
+    await-filed) await_filed ;;
     collect) collect "$@" ;;
     *)
       usage
