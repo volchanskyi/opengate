@@ -10,6 +10,7 @@ library	scripts/lib/toolchain-parity.sh	-	Precommit prerequisite functions inher
 library	scripts/lib/tool-versions.sh	-	The pinned-version table is sourced by the install scripts, the gauntlet prereq and the parity test.
 library	scripts/lib/mutation-shards.sh	-	Go mutation shard split sourced by the Makefile and the mutation-workflow test.
 library	scripts/lib/loadtest-profile.sh	-	Profile readers are sourced by the gate check, the regression check and their tests.
+library	scripts/lib/sonar-reference-branch.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
 aggregate	.claude/hooks/git-post-commit.sh	-	Best-effort post-commit automation must report failures without failing the commit.
 aggregate	.claude/hooks/pretooluse-gauntlet-nudge.sh	-	Background status nudge treats operational failures as a no-op.
 aggregate	.claude/hooks/sessionstart-install-git-hooks.sh	-	Session bootstrap is best-effort and must not block startup.
@@ -38,6 +39,7 @@ aggregate	scripts/tests/sonar-coverage-exclusion-guard.test.sh	-	Plain-Bash harn
 aggregate	scripts/tests/sonar-coverage-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/sonar-duplication-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/sonar-rating-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
+aggregate	scripts/tests/sonar-reference-branch.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/mutation-shard-budget.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/post-push-clean-caches.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/posttooluse-cache-clean.test.sh	-	Plain-Bash harness accumulates all assertion failures.

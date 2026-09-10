@@ -22,6 +22,36 @@ Every `new_*` condition is scoped by git blame, and the gauntlet scans **before*
 
 The rating guard fails on a bug, vulnerability or unreviewed hotspot on changed **main** code, and reports — without failing — findings that move no gate condition, such as a code smell or anything in a test file. A finding on a file this change did not touch is somebody else's and does not fail the commit.
 
+### A red local scan is not a red gate either
+
+The mirror of the section above, and the harder one to see, because a failing
+gate looks like work to do rather than a question asked wrongly.
+
+On SonarCloud `dev` is a short-lived branch, so its new code is everything since
+it left `main`, and the boundary is the merge base between the two. The scanner
+computes that merge base from the repository it is handed, and resolves the
+reference branch **by name** — which finds the local `refs/heads/main`, not the
+remote-tracking ref. Nothing on a workstation needs that local branch, so
+nothing updates it, and nothing read it either: it had not moved in five months.
+
+A scan run against it measured those five months as new code and failed the gate
+on thirteen vulnerabilities and eighty-five smells, in files the change had
+never opened. The three blame-independent guards beside it all passed, correctly
+— they judge the files the change touched. CI could not reproduce any of it: a
+fresh checkout has a current reference branch by construction, so the
+workstation is the only place the question is ever asked wrongly.
+
+[`sonar-reference-branch.sh`](../../scripts/lib/sonar-reference-branch.sh) is
+the guard, in the gauntlet's prerequisite phase so it costs a second rather than
+most of a run. It refuses a local `main` behind `origin/main` and prints
+`git fetch origin main:main`. A branch *ahead* of its remote passes — that is
+every workstation between a commit and its push, and the merge base is right
+throughout. Only behind moves the boundary.
+
+[`git.md`](git.md) already asks for that same pull before starting work, for the
+separate reason that Dependabot's security updates land on `main` and never
+reach `dev`. This is that rule checked rather than remembered.
+
 ## Fetch everything, not just issues
 
 On the **first** failure, query all three SonarCloud endpoints in parallel. They return disjoint data:

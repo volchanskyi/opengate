@@ -197,6 +197,32 @@ the first half; a leak found in the field that five hours of churn did not
 surface, for the second, at which point the longer run is built and the two are
 compared.
 
+### A phase reports what the harness believes it holds, not what the target holds
+
+[ADR-110](../docs/adr/ADR-110-a-machine-leaves-when-the-run-says-so.md) repaired
+a wind-down that reached nothing, and the reason it survived months is the
+instrument rather than the defect. A phase's `achieved_connected_agents` is
+`len(running)` over the machines the fleet is holding, which is bookkeeping the
+wind-down itself maintains: it answers whether the wind-down code ran, and the
+wind-down code ran. The conservation bracket reads the target at the run's start
+and at its end, so a fleet that comes back before the run stops leaves both
+readings clean.
+
+Between them sits every phase of every profiled run, unwatched. `spike` and
+`breakpoint` published a recovery figure on every night they ran, describing a
+target still carrying the full fleet, and no gate anywhere disagreed.
+
+`process_open_fds` is already on the exposition page the harness fetches for the
+run's start-and-end readings, and it is a reading rather than bookkeeping —
+sockets the kernel is holding, whatever the server believes about them. Carrying
+it per phase, beside the count the harness keeps, is what makes the two
+comparable at the point where they can disagree.
+
+**Pay-down trigger:** a night of the repaired code on `spike` and `breakpoint`,
+whose readings bracket the tolerance. A tolerance set before that is a guess, and
+the two counts genuinely differ while a climb settles — so the reading is
+published first and the gate follows from what it says.
+
 ## Severity: Low
 
 ### The Chat tab is unreachable from any machine the browser stack can run
