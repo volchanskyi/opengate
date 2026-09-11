@@ -76,6 +76,26 @@ steps that run the harness read its status rather than being ended by it. The
 new error block is what made this legible: `5 failures in 2 kinds` beat three
 `[1x]` lines drawn at random.
 
+**Both families are green, and the ladder has an answer, 2026-09-11.**
+[34641263355](https://github.com/volchanskyi/opengate/actions/runs/34641263355)
+and
+[34641260563](https://github.com/volchanskyi/opengate/actions/runs/34641260563),
+all eleven perf legs and all three load-test jobs. The quarter-processor rung
+shows the repair on live data — `1928/2000 succeeded`, `Failures: 0`, `Stood
+down: 72`, where all 72 had been failures the run before. And the breakpoint
+family produced the first finding it has ever produced:
+
+| | |
+|---|---|
+| Held | step-8000 (8,000 machines) |
+| Gave | step-16000 (16,000 machines) |
+| Because | error rate 0.334 is past 0.050 |
+
+So the recovery phase's earlier 1.000 was the wind-down artifact rather than a
+system that stayed broken: the same run is valid now. What the ladder has not
+yet been asked is whether those numbers are *good* — see the register entry on
+the gates these families declare and nothing reads.
+
 Beside them, two numbers that describe an intention rather than a fact
 (§1.5). `normal.yaml` kept an arrival-rate floor of fifty a second from the flat
 run it replaced, and its phases pace five hundred machines over nine minutes —
