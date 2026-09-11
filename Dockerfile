@@ -8,11 +8,19 @@ RUN npm run build
 
 # ---- Stage 2: Build Go server ----
 FROM golang:1.26-alpine AS server-build
+# What the linker keeps. The default drops the symbol table and the debugging
+# information, which is what every image this repository ships wants.
+#
+# The endurance run is the exception and builds with it empty. A core dump is
+# how the run follows what actually holds a leaked object, and reading one means
+# resolving addresses back to types and frames — which needs the very tables the
+# default removes. It changes no generated code, only what travels beside it.
+ARG GO_LDFLAGS="-s -w"
 WORKDIR /build/server
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /meshserver ./cmd/meshserver
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="$GO_LDFLAGS" -o /meshserver ./cmd/meshserver
 
 # ---- Stage 3: Final image ----
 FROM alpine:3.20

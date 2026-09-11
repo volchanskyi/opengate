@@ -119,6 +119,7 @@ func run() int {
 	commit := flag.String("commit", "", "the source revision this run measures; a run inside a pod inherits none, so it is passed in")
 	journeysPath := flag.String("journeys", "", "the technician-side generator's export, whose named journeys travel into this run's evidence")
 	fixtureWeightPath := flag.String("fixture-weight", "", "the weighing of the fleet on disk, which is the volume family's whole finding")
+	leakSnapshotEvery := flag.Duration("leak-snapshot-every", 0, "take and keep the target's goroutine and heap profiles this often, so what grew across a long run is named at a line rather than reported as a slope")
 	flag.Parse()
 
 	// Production is never a target, and the way a generator ends up pointed at
@@ -208,6 +209,13 @@ func run() int {
 	// every scenario, which is what makes a mid-run restart visible at all.
 	targetAtStart := readTargetHealth(*metricsURL, "the start of the run")
 
+	// What grew inside the target, taken on an interval and kept in full. It
+	// opens with the same bracket the conservation reading does, and for the
+	// same reason: the fixture above is thousands of writes that belong to no
+	// phase, and a first reading taken after them would carry the whole fleet's
+	// arrival as growth that was always there.
+	leakWatching := WatchForLeaks(*metricsURL, *bundleDir, *leakSnapshotEvery)
+
 	start := time.Now()
 
 	// What the generator had left, bracketed around the load rather than
@@ -232,6 +240,11 @@ func run() int {
 	// And what it is holding once the fleet is wound down and it has stopped
 	// putting things back.
 	targetAtEnd := readSettledTargetHealth(*metricsURL)
+
+	// And the closing reading, taken after the target has stopped putting
+	// things back, so what the trail reports as retained is what survived the
+	// wind-down rather than what was still being handed over.
+	leakTrail := leakWatching()
 
 	// Registration as the server measured it, where the device row lands. The
 	// harness's own clock stops at a local send buffer, which cannot move
@@ -266,6 +279,7 @@ func run() int {
 		FlatTargetBusy: flatBusy,
 		Registration:   registration,
 		Fixture:        fixture,
+		Leak:           leakTrail,
 		Conservation: TargetConservation{
 			Start: targetAtStart,
 			End:   targetAtEnd,
@@ -283,6 +297,7 @@ func run() int {
 	}
 
 	printBreakingPoint(bundle.BreakingPoint)
+	printLeakTrail(bundle.Leak)
 
 	for _, reason := range bundle.Verdict.Reasons {
 		fmt.Printf("::error::%s\n", reason)

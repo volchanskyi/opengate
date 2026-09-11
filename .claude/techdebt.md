@@ -223,6 +223,31 @@ whose readings bracket the tolerance. A tolerance set before that is a guess, an
 the two counts genuinely differ while a climb settles — so the reading is
 published first and the gate follows from what it says.
 
+### The reference walk reads the Go runtime's own internals, and one job a week looks
+
+[ADR-120](../docs/adr/ADR-120-what-holds-an-object-is-followed-on-the-box-the-run-destroys.md)
+gives the endurance run a core dump and a walk back from the heaviest live
+objects to what holds them. The tool that does it reads the runtime's internal
+structures directly — spans, type descriptors, the allocation bitmaps — because
+that is the only way to see the heap as objects rather than as bytes. Those
+structures are unexported implementation and change between Go releases, and
+the module publishes no tagged releases, so the pin is a commit.
+
+What follows is a gap the pin cannot close: a Go toolchain bump can leave the
+walk unable to read a core it took, and the only thing that asks is the weekly
+soak. The shell test beside the script drives it against stub tools, so it holds
+the script's own refusals and says nothing about whether the reader still
+understands this Go. The refusal is loud when it comes — the overview is read
+back before anything else is written — but it comes up to a week after the bump
+that caused it, in a job whose subject is something else entirely.
+
+**Pay-down trigger:** the first Go toolchain bump that breaks the walk, at which
+point the reader's version is moved with the toolchain's and the two are pinned
+together the way `server/go.mod` and the workflows' `go-version` already are.
+Until then the cost is one endurance run's deepest reading, and the profiles
+[ADR-119](../docs/adr/ADR-119-a-long-run-names-the-line-that-grew.md) keeps are
+unaffected — they are symbolised by the target itself.
+
 ### Authenticated requests are still counted per address
 
 [ADR-116](../docs/adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md)

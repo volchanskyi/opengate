@@ -75,6 +75,10 @@ type runBundleInputs struct {
 	// Conservation is what the target was holding either side of the run, and
 	// how many completed operations sit between the two readings.
 	Conservation TargetConservation
+
+	// Leak is what grew inside the target between the profiles a long run kept,
+	// where the run was asked to keep any. Nil is a run nobody asked to watch.
+	Leak *LeakTrail
 }
 
 // succeededAgents counts the machines that connected, handshook and registered.
@@ -113,6 +117,7 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		// it signs live in a directory it removes, so a run that reached this
 		// point left nothing behind to find.
 		Cleanup: CleanupProof{Verified: true},
+		Leak:    in.Leak,
 	}
 
 	// Where the ladder broke, for a profile that said what breaking means. It is

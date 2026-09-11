@@ -49,6 +49,17 @@ env:
   PERF_SERVER_MEMORY: 384m
   PERF_SERVER_MEMORY_BYTES: '402653184'
   PERF_SERVER_CPUS: '0.25'
+  # The target keeps its symbol table and its debugging information here, and
+  # nowhere else. A core dump is addresses until something can resolve them back
+  # to types and frames, and the release link drops exactly the tables that do
+  # it. No generated code changes.
+  PERF_SERVER_GO_LDFLAGS: ''
+  # How often both profiles are taken, and where the walk writes what it found.
+  # Five minutes over a four-hour-forty-four-minute walk is about sixty readings
+  # of each, roughly fifteen megabytes, which is an artifact rather than a
+  # problem.
+  SOAK_SNAPSHOT_EVERY: 5m
+  SOAK_WALK_DIR: soak-bundle/reference-walk
 
 jobs:
   soak:
@@ -75,6 +86,18 @@ jobs:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # gdb brings gcore, which takes a core off the running server without
+      # stopping it; viewcore reads that core as a Go heap. Both are installed
+      # before the five-hour walk rather than after it, so a run that cannot be
+      # followed says so now instead of at the end of an afternoon.
+      - name: Install what reads a core dump
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdb
+          go install golang.org/x/debug/cmd/viewcore@v0.0.0-20260908162731-ac862fd6552b
+          echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
+
       - name: Record what this runner actually is
         run: |
           set -euo pipefail
@@ -83,6 +106,7 @@ jobs:
           printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
 
       - name: Bring the performance stack up
+        id: stack
         run: |
           set -euo pipefail
           DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
@@ -116,6 +140,7 @@ jobs:
               -fixture-password="$SOAK_FIXTURE_PASSWORD" \
               -fixture-bootstrap \
               -fixture-seed=1 \
+              -leak-snapshot-every="$SOAK_SNAPSHOT_EVERY" \
               -bundle="$SOAK_BUNDLE_DIR/soak"
         env:
           # The stack is created by this job and thrown away at the end of it, is
@@ -127,6 +152,18 @@ jobs:
       - name: Read the verdict the run wrote about itself
         if: always()
         run: scripts/perf-bundle-verdict.sh "$SOAK_BUNDLE_DIR/soak/bundle.json"
+
+      # What holds what the profiles say grew. The heap profiles name where an
+      # object was born; this names what is still pointing at it, which is the
+      # half no profiler can answer.
+      #
+      # It runs whenever the stack came up, including after a failed walk — a run
+      # that went red is the run whose heap is most worth reading — and before
+      # the teardown, because it needs the server alive. The core itself is read
+      # here and deleted here; only the text travels.
+      - name: Follow what holds the heaviest objects
+        if: always() && steps.stack.outcome == 'success'
+        run: scripts/loadtest-reference-walk.sh opengate-perf-server /usr/local/bin/meshserver "$SOAK_WALK_DIR"
 
       - name: Tear the stack down
         if: always()

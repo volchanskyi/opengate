@@ -54,7 +54,7 @@ leg() {
     --argjson busy "$busy" \
     --arg journey "$journey" \
     '{
-      schema_version: 6,
+      schema_version: 7,
       target: { cpus: $cpus, memory_bytes: 1073741824 },
       phases: [ { name: "steady", latency_p95_ms: $connect, target_busy_percent: $busy } ],
       observations: [ { series: "connect_p95_ms", value: $connect } ],
