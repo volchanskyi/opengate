@@ -25,7 +25,9 @@ moves a window median. A scenario past its error ceiling has produced a finding,
 not a series.
 
 The run's own verdict is what gates it, not a count of failures, and every
-workflow reads that verdict back rather than inferring one.
+workflow reads that verdict back rather than inferring one. A step that runs the
+harness reads its status rather than being ended by it: a fleet that half
+arrived is a measurement, and the verdict step beside it is what judges one.
 
 **A capacity ladder is judged against the answer it went looking for.** A
 profile that declares what giving out means is sent to find the rung where the
@@ -86,6 +88,15 @@ starts.
 **A ramp is spread across the window it is given** rather than offered in
 bursts the server refuses. A machine still queued is not asked for twice, and
 one let go before its turn is neither an arrival nor a failure to arrive.
+
+**A machine the run stood down is the run's own doing, not the system's.** Every
+start still reaching for the server when a level comes down is cancelled by the
+wind-down, and it never registered — so it is counted apart from both, in the
+fleet's tally, in the results block and in the rate the trend is given. Read as
+failures they are indistinguishable from a server that would not take them, and
+they land in whichever phase the wind-down happened in: a recovery phase offers
+no arrivals, so they are every outcome it has and its error rate is one by
+construction.
 
 **Each machine is recorded as it arrives**, under its customer and building,
 identified from its own certificate rather than by asking the server what
