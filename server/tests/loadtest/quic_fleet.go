@@ -255,8 +255,18 @@ func (f *QUICFleet) forgetLocked(index int) {
 // A refusal the server made on purpose is held apart from both: counting a
 // correctly enforced limit as a defect makes the limit look broken and buries
 // the real failures underneath it.
+// A machine the run itself stood down before it arrived is held apart from
+// both, for the same reason: the wind-down cancelled it, so it never asked the
+// system anything. Counted as a failure it is indistinguishable from a server
+// that would not take it, and it lands in whichever phase the wind-down
+// happened in — which for a phase that offers no arrivals is every outcome it
+// has.
 func (f *QUICFleet) tallyLocked(result agentResult, arrived bool) {
-	if !arrived {
+	switch {
+	case arrived:
+	case errors.Is(result.err, context.Canceled):
+		f.outcomes.StoodDown++
+	default:
 		f.outcomes.Failed++
 	}
 	if result.err == nil {

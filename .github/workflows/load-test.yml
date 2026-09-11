@@ -428,8 +428,20 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          # 1 is a fleet that half arrived, which is a measurement: the gate job
+          # reads the profile's limits against it and the completeness step
+          # reads the run's own verdict. Failing here on the count instead is a
+          # second verdict nobody wrote down, and it refuses a night over one
+          # machine the server would not take.
+          set +e
           scripts/loadtest-quic-run.sh "$LOADTEST_QUIC_OUTPUT" -- \
             scripts/loadtest-quic-incluster.sh collect
+          collected=$?
+          set -e
+          if [ "$collected" -gt 1 ]; then
+            echo "::error::the QUIC harness did not complete a run (exit $collected)." >&2
+            exit "$collected"
+          fi
 
       - name: Collect the QUIC evidence bundle
         if: always()

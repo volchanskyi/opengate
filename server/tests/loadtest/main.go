@@ -8,6 +8,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -379,17 +381,23 @@ func reportResults(results []agentResult, start time.Time, totalDur time.Duratio
 	var (
 		successes    int
 		failures     int
+		stoodDown    int
 		connectTimes []time.Duration
 		hsTimes      []time.Duration
 	)
 	for _, r := range results {
-		if r.err != nil {
+		switch {
+		case r.err == nil:
+			successes++
+			connectTimes = append(connectTimes, r.connectDur)
+			hsTimes = append(hsTimes, r.handshakeDur)
+		case errors.Is(r.err, context.Canceled) && r.arrivedAt.IsZero():
+			// The run stood this machine down before it registered, so it never
+			// asked the system anything. See FleetOutcomes.StoodDown.
+			stoodDown++
+		default:
 			failures++
-			continue
 		}
-		successes++
-		connectTimes = append(connectTimes, r.connectDur)
-		hsTimes = append(hsTimes, r.handshakeDur)
 	}
 
 	fmt.Printf("\n=== Results ===\n")
@@ -397,6 +405,9 @@ func reportResults(results []agentResult, start time.Time, totalDur time.Duratio
 	fmt.Printf("Arrival window:  %s\n", arrivalWindow(results, start).Round(time.Millisecond))
 	fmt.Printf("Agents:      %d/%d succeeded\n", successes, agents)
 	fmt.Printf("Failures:    %d\n", failures)
+	if stoodDown > 0 {
+		fmt.Printf("Stood down:  %d\n", stoodDown)
+	}
 
 	if successes > 0 {
 		// Connect and handshake are the generator's own side of the wire, and it

@@ -58,6 +58,24 @@ Each fault is below, with what it cost. All five are repaired; the schema is 8.
    limits are watched rather than enforced until nights bracket them, and that is
    a register entry.
 
+**F9 — what the first green fleet showed, 2026-09-11.** With the filing
+repaired, both families were dispatched
+([34635099183](https://github.com/volchanskyi/opengate/actions/runs/34635099183),
+[34635078938](https://github.com/volchanskyi/opengate/actions/runs/34635078938)).
+The staging run came back green with the estate filed and a registration line —
+`p50=8.058ms p95=24.085ms p99=278.542ms`, the first this project has ever
+recorded, comfortably inside the limits written for it. The perf stack went
+further and showed the next fault down, which only a fleet that arrives can
+reach: **every** failure across its red legs was `context canceled`, machines
+the run itself stood down when a level came down, except one genuine timeout in
+two thousand. Read as failures they invalidated the spike's recovery phase at an
+error rate of exactly 1.000 — that phase offers no arrivals, so the cancellations
+are every outcome it has. A stood-down machine is now held apart from both, in
+the fleet's tally, the results block and the rate the trend is given, and the
+steps that run the harness read its status rather than being ended by it. The
+new error block is what made this legible: `5 failures in 2 kinds` beat three
+`[1x]` lines drawn at random.
+
 Beside them, two numbers that describe an intention rather than a fact
 (§1.5). `normal.yaml` kept an arrival-rate floor of fifty a second from the flat
 run it replaced, and its phases pace five hundred machines over nine minutes —
@@ -130,6 +148,7 @@ them.
 | F6 | **Done** | The staging processor ceiling was reading the run's own load and refusing the run for it. [ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md) |
 | F7 | **Done** | The drill's four pods asked for more processor than the node had left, and the refusal reached the log as a timeout. [ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md) |
 | F8 | **Done** | Filing raced the registration it depended on and took both nightly families down; four more faults sat behind it. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md) |
+| F9 | **Done** | A machine the run stood down was counted as one that failed to arrive, which invalidated the phase that exists to say whether the system came back. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md) |
 
 ### What the first dispatched runs measured, 2026-09-09
 

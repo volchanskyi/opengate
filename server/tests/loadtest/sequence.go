@@ -44,6 +44,16 @@ type FleetOutcomes struct {
 	// rate past a declared ceiling. Counting those as faults makes a correctly
 	// enforced limit look like a defect and buries the real ones.
 	Rejected int64
+	// StoodDown is machines the run cancelled before they ever registered,
+	// which is what a wind-down does to every start still reaching for the
+	// server when the level comes down.
+	//
+	// They are the run's own doing and say nothing about the system, so they
+	// are neither an arrival nor a failure to arrive — the rule the ramp
+	// already states about a machine let go before its turn, kept here where
+	// the tally is. Counted rather than dropped, because a phase that stood
+	// most of its fleet down measured less than it looks like it did.
+	StoodDown int64
 }
 
 // Attempted is how many machines produced an outcome either way.
@@ -52,10 +62,11 @@ func (o FleetOutcomes) Attempted() int64 { return o.Arrived + o.Failed }
 // Since is what happened between an earlier reading and this one.
 func (o FleetOutcomes) Since(earlier FleetOutcomes) FleetOutcomes {
 	return FleetOutcomes{
-		Arrived:  o.Arrived - earlier.Arrived,
-		Failed:   o.Failed - earlier.Failed,
-		Severed:  o.Severed - earlier.Severed,
-		Rejected: o.Rejected - earlier.Rejected,
+		Arrived:   o.Arrived - earlier.Arrived,
+		Failed:    o.Failed - earlier.Failed,
+		Severed:   o.Severed - earlier.Severed,
+		Rejected:  o.Rejected - earlier.Rejected,
+		StoodDown: o.StoodDown - earlier.StoodDown,
 	}
 }
 

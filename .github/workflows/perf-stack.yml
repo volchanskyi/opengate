@@ -167,6 +167,11 @@ jobs:
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline &
           K6_LEG=$!
+          # The harness's own exit code, read rather than acted on: 1 is a fleet
+          # that half arrived, which is a measurement. What judges it is the
+          # verdict step below, and failing here on the count is a second
+          # verdict nobody wrote down.
+          set +e
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
@@ -186,7 +191,13 @@ jobs:
               -fixture-bootstrap \
               -fixture-seed=1 \
               -bundle="$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}"
+          walk=$?
+          set -e
           wait "$K6_LEG"
+          if [ "$walk" -gt 1 ]; then
+            echo "::error::the harness did not complete a run (exit $walk)." >&2
+            exit "$walk"
+          fi
 
       # The technician numbers are timed by a generator in another process and
       # written to a file of its own. Folding them into the leg is what gives
@@ -284,6 +295,11 @@ jobs:
         run: |
           set -euo pipefail
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          # The harness's own exit code, read rather than acted on: 1 is a fleet
+          # that half arrived, which is a measurement. What judges it is the
+          # verdict step below, and failing here on the count is a second
+          # verdict nobody wrote down.
+          set +e
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
@@ -303,6 +319,12 @@ jobs:
               -fixture-bootstrap \
               -fixture-seed=1 \
               -bundle="$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}"
+          walk=$?
+          set -e
+          if [ "$walk" -gt 1 ]; then
+            echo "::error::the harness did not complete a run (exit $walk)." >&2
+            exit "$walk"
+          fi
         env:
           # The stack is created by this job and thrown away at the end of it, is
           # reachable only from inside the runner, and holds nothing but the
@@ -434,6 +456,11 @@ jobs:
           set -euo pipefail
           mkdir -p "$PERF_BUNDLE_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          # The harness's own exit code, read rather than acted on: 1 is a fleet
+          # that half arrived, which is a measurement. What judges it is the
+          # verdict step below, and failing here on the count is a second
+          # verdict nobody wrote down.
+          set +e
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
@@ -453,6 +480,12 @@ jobs:
               -fixture-bootstrap \
               -fixture-seed=1 \
               -bundle="$PERF_BUNDLE_DIR/${{ matrix.profile }}"
+          walk=$?
+          set -e
+          if [ "$walk" -gt 1 ]; then
+            echo "::error::the harness did not complete a run (exit $walk)." >&2
+            exit "$walk"
+          fi
         env:
           # The stack is created by this job and thrown away at the end of it, is
           # reachable only from inside the runner, and holds nothing but the

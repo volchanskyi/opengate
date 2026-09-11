@@ -349,6 +349,34 @@ rc=0
 K6_SUMMARY_DIR="$WORK/missing-k6" QUIC_OUTPUT_FILE="$WORK/missing-quic.txt" "$SUMMARIZE" >/dev/null 2>&1 || rc=$?
 if [ "$rc" -eq 2 ]; then pass "missing all inputs exits 2"; else fail "missing all inputs expected exit 2, got $rc"; fi
 
+# --- A machine the run stood down is not an error the system made -------------
+#
+# A walk cancels every start still reaching for the server when its level comes
+# down, and those machines never registered — so the succeeded count is short by
+# them while nothing failed. Reading the shortfall as errors publishes an error
+# rate about the harness's own wind-down, against a limit held at nought.
+cat >"$WORK/quic-stood-down.txt" <<'TXT'
+=== Results ===
+Total time:  5m0s
+Arrival window:  2m0s
+Agents:      455/500 succeeded
+Failures:    1
+Stood down:  44
+
+Connect:     p50=10ms  p95=20ms  p99=30ms
+Handshake:   p50=1ms  p95=2ms  p99=3ms
+TXT
+
+STOOD="$(
+  K6_SUMMARY_DIR="$WORK/none" QUIC_OUTPUT_FILE="$WORK/quic-stood-down.txt" GITHUB_SHA="deadbeef" "$SUMMARIZE"
+)"
+stood_error_rate="$(jq -r '.[] | select(.phase == "aggregate") | .error_rate' <<<"$STOOD")"
+# 1 failure out of the 456 machines that actually asked the server for anything.
+assert_eq "the stood-down machines leave the error rate" "0.002193" "$stood_error_rate"
+
+stood_rps="$(jq -r '.[] | select(.phase == "aggregate") | .rps' <<<"$STOOD")"
+assert_eq "the rate is still the machines that arrived over the window" "3.791667" "$stood_rps"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

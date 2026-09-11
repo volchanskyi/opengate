@@ -228,7 +228,7 @@ emit_quic_rows() {
   local file="$1"
   [ -f "$file" ] || return 0
 
-  local window_duration agents_line successes total_agents window_ms rps error_rate workload
+  local window_duration agents_line successes total_agents stood_down window_ms rps error_rate workload
 
   if ! workload="$(workload_name quic-agents)"; then
     echo "scenario quic-agents declares no workload; add it to workload_name in $0" >&2
@@ -250,6 +250,14 @@ emit_quic_rows() {
   successes="${BASH_REMATCH[1]}"
   total_agents="${BASH_REMATCH[2]}"
 
+  # Machines the run itself cancelled when a level came down. They never
+  # registered, so the succeeded count is short by them while nothing failed —
+  # and reading that shortfall as errors publishes an error rate about the
+  # harness's own wind-down against a limit held at nought. The line is absent
+  # on a run that stood nobody down.
+  stood_down="$(awk '/^Stood down:/ { print $3; exit }' "$file")"
+  [ -n "$stood_down" ] || stood_down=0
+
   # A block reporting arrivals with no window has no denominator this may use.
   # Falling back to the run's clock is the defect above, arrived at quietly, so
   # the extraction refuses rather than publishing a number it cannot stand behind.
@@ -263,7 +271,14 @@ emit_quic_rows() {
     window_ms="$(duration_to_ms "$window_duration")" || return 2
   fi
   rps="$(awk -v successes="$successes" -v window_ms="$window_ms" 'BEGIN { if (window_ms <= 0) print 0; else printf "%.6f", successes / (window_ms / 1000) }')"
-  error_rate="$(awk -v successes="$successes" -v total_agents="$total_agents" 'BEGIN { if (total_agents <= 0) print 0; else printf "%.6f", (total_agents - successes) / total_agents }')"
+  # Over the machines that actually asked the server for something, which is
+  # every machine the run offered less the ones it stood down itself.
+  error_rate="$(awk -v successes="$successes" -v total_agents="$total_agents" -v stood="$stood_down" '
+    BEGIN {
+      asked = total_agents - stood
+      if (asked <= 0) print 0
+      else printf "%.6f", (asked - successes) / asked
+    }')"
 
   jq -nc \
     --arg commit "$COMMIT_SHA" \
