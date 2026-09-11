@@ -2,7 +2,7 @@
 
 Provisions the **Oracle Kubernetes Engine (OKE)** cluster + Always-Free A1.Flex
 node pool that hosts the [Helm-packaged stack](../../../helm/opengate/). See
-[ADR-030](../../../../docs/adr/ADR-030-kubernetes-adoption-oke-helm.md) for the
+[ADR-030](../../../../docs/adr/ADR-030-kubernetes-on-oke.md) for the
 platform decisions and
 [docs/Kubernetes-Migration.md](../../../../docs/Kubernetes-Migration.md) for the
 one-time cutover.

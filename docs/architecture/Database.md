@@ -3,8 +3,8 @@
 OpenGate uses PostgreSQL 17 as its single storage backend behind per-domain
 repositories. The server requires the `DATABASE_URL` env var (or
 `-database-url` flag) at startup and exits fast if it is unset. See
-[ADR-014](../adr/ADR-014-postgres-migration.md) for the rationale behind the
-PostgreSQL choice and the supersession of ADR-003.
+[ADR-014](../adr/ADR-014-postgresql.md) for the rationale behind the
+PostgreSQL choice and the supersession of ADR-014.
 
 ## Driver & connection pool
 
@@ -257,7 +257,7 @@ sends a `RequestDeviceLogs` control message, blocks on the agent's bounded
 response, redacts known secrets, and streams the lines straight back in the same
 HTTP response. Nothing raw is persisted centrally, so tenant isolation for raw
 logs is the agent connection's scope rather than an RLS row. See
-[ADR-046](../adr/ADR-046-edge-sentinel-raw-log-broker.md) and the
+[ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md) and the
 [API reference](API-Reference.md).
 
 ### Device Processes Table
@@ -326,7 +326,7 @@ compiled into the server from
 [`server/internal/rules/catalogue/`](../../server/internal/rules/catalogue), which
 is what lets a predicate be cost-bounded in CI before it reaches an endpoint. See
 [Alerts and Rules](../product/Alerts-and-Rules.md) and
-[ADR-071](../adr/ADR-071-rule-catalogue-bindings-and-durable-coverage.md).
+[ADR-070](../adr/ADR-070-alert-rules.md).
 
 - `rule_bindings` — a customer's parameter overrides, keyed
   `(organization_id, rule_id, level, level_key, selector)` where `level` is one
@@ -358,7 +358,7 @@ Three tables hold what a machine reported was wrong, the room those reports fold
 into, and what people did about it. The adapter is
 [`server/internal/alerts`](../../server/internal/alerts); the ingest path is
 [`conn_alerts.go`](../../server/internal/agentapi/conn_alerts.go). See
-[ADR-074](../adr/ADR-074-alert-store-accounted-ingest-and-the-erasure-cascade.md).
+[ADR-074](../adr/ADR-074-alerts-and-incidents.md).
 
 - `alerts` — one row per thing a machine reported, keyed for idempotency on
   `(device_id, rule_id, rule_version, window_start)` so a reconnect replaying a
@@ -451,14 +451,14 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   adds `maintenance_on`/`maintenance_since`/`maintenance_by`/`maintenance_reason`
   to `devices` (the server-authoritative maintenance desired state, default
   Active) plus a partial index on `(tenant_id) WHERE maintenance_on` for the fleet
-  count (see [ADR-056](../adr/ADR-056-device-maintenance-mode.md)).
+  count (see [ADR-056](../adr/ADR-056-maintenance-mode.md)).
 - [`007_maintenance_mode.down.sql`](../../server/internal/db/migrations/007_maintenance_mode.down.sql)
   drops the columns and index for rollback.
 - [`008_amt_device_link.up.sql`](../../server/internal/db/migrations/008_amt_device_link.up.sql)
   adds the SMBIOS `system_uuid` join key and the AMT columns to
   `device_hardware`, links `amt_devices` to its owning device, and reduces
   `amt_devices` to connection state (see
-  [ADR-061](../adr/ADR-061-amt-as-device-property.md)).
+  [ADR-061](../adr/ADR-061-intel-amt.md)).
 - [`008_amt_device_link.down.sql`](../../server/internal/db/migrations/008_amt_device_link.down.sql)
   restores the standalone AMT columns for rollback.
 - [`009_drop_group_owner`](../../server/internal/db/migrations/009_drop_group_owner.up.sql)
@@ -498,7 +498,7 @@ cross-tenant `app.is_admin` / `app.current_tenant` scope, because the deployed r
 is `NOBYPASSRLS` and owns tables under forced RLS — a migration that touches
 rows is otherwise refused by the tenant policy. The pool that serves application
 traffic never carries that scope. See
-[ADR-041](../adr/ADR-041-postgres-rls-multitenancy.md).
+[ADR-041](../adr/ADR-041-postgres-row-level-security.md).
 
 ## Backups
 
@@ -514,7 +514,7 @@ retention threshold, and upload image are the `postgres.backup`
 commands are in the chart
 [`NOTES.txt`](../../deploy/helm/opengate/templates/NOTES.txt). Rationale (and the
 50 GB block volume this frees under the OCI free-tier cap):
-[ADR-035](../adr/ADR-035-oke-free-tier-block-volume-remediation.md).
+[ADR-035](../adr/ADR-035-block-volume-budget.md).
 
 ## Data directory
 

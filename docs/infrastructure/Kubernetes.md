@@ -2,7 +2,7 @@
 
 OpenGate runs on **Oracle Kubernetes Engine (OKE)** via a Helm chart. The
 platform decisions are recorded in
-[ADR-030](../adr/ADR-030-kubernetes-adoption-oke-helm.md).
+[ADR-030](../adr/ADR-030-kubernetes-on-oke.md).
 
 ## Cluster Topology
 
@@ -45,7 +45,7 @@ templates translate the compose services one-for-one:
 |---|---|
 | `server` | Deployment + ClusterIP Service (HTTP) + hostPort L4 (QUIC/MPS) |
 | `postgres` | StatefulSet + headless Service + `oci-bv` PVC |
-| `postgres-backup` | CronJob (`pg_dump` → OCI Object Storage via a write-only PAR; [ADR-035](../adr/ADR-035-oke-free-tier-block-volume-remediation.md)) |
+| `postgres-backup` | CronJob (`pg_dump` → OCI Object Storage via a write-only PAR; [ADR-035](../adr/ADR-035-block-volume-budget.md)) |
 | `caddy` | `Ingress` (ingress-nginx) + cert-manager `ClusterIssuer` |
 | `web-init` + `web-assets` volume | *removed* — the server serves the SPA itself (`-web-dir`) |
 
@@ -76,7 +76,7 @@ The chart never embeds secret material — it references an `existingSecret`
 
 QUIC (agent transport, UDP) and Intel AMT CIRA (MPS, TCP) are non-HTTP and
 cannot ride the ingress. On the single-node start they bind to the node's
-public IP via `hostPort` (`server.hostPortL4`) — see ADR-030 §5 for the
+public IP via `hostPort` (`server.hostPortL4`) — see ADR-030 for the
 rationale.
 
 ### Shared keys

@@ -34,7 +34,7 @@ honest answer is `ConnectionState().TLS.DidResume`, read in the accept path
 where the peer certificates are already being read
 ([`server_connection.go`](../../server/internal/agentapi/server_connection.go)).
 This is where the reconnect saving in
-[ADR-037](../adr/ADR-037-client-first-fast-path-reconnect.md) is measured.
+[ADR-037](../adr/ADR-037-quic-transport.md) is measured.
 
 The count is taken before the application handshake can fail, so the series
 counts TLS handshakes rather than successful registrations, and it covers the
@@ -96,7 +96,7 @@ were unlisted, because one window is one message and the count rides the log
 line. The filter behind it is what keeps the `dim` label off agent control: an
 agent free to name its own dimensions would drive central cardinality directly.
 See
-[ADR-065](../adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md).
+[ADR-065](../adr/ADR-065-vitals.md).
 
 Alerts join the same ledger with reasons prefixed `alert_`, so a fleet-wide
 rollout bug and one misbehaving device never read as the same number: the path's
@@ -150,7 +150,7 @@ back. Every value of every closed vocabulary is exported even at zero, because a
 missing series reads as "no data", which is not the same answer as "none open" —
 and the two look identical exactly when somebody is checking whether a rollout
 raised anything. See
-[ADR-076](../adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md).
+[ADR-076](../adr/ADR-076-platform-metrics.md).
 
 The two gauges are counts over tables that only grow, so they are refreshed on a
 timer rather than computed when the endpoint is scraped, and each refresh is one
@@ -168,7 +168,7 @@ The numerator is a full day of stored alerts. The denominator is the fleet, read
 off the coverage gauge — its four states always sum to the fleet, so any rule's
 total is the fleet size. What the resulting figure obliges, and why it needs a
 real population before it means anything, is in
-[ADR-076](../adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md).
+[ADR-076](../adr/ADR-076-platform-metrics.md).
 
 ## Request and session surface
 

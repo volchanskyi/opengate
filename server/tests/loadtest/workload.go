@@ -102,7 +102,7 @@ type reportingFleet interface {
 func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 	credentials agentCredentials, addr string, opts loadOptions, busy TargetBusy,
 	filer *estateFiler,
-) ([]agentResult, []PhaseResult, *float64) {
+) ([]agentResult, []PhaseResult, *float64, string) {
 	if profile == nil {
 		return runFlat(agents, agentPlan, credentials, addr, opts, busy, filer)
 	}
@@ -124,7 +124,9 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 	if err != nil {
 		log.Fatalf("phases: %v", err)
 	}
-	return results, phases, nil
+	// A walked run carries its busy-ness per phase, so the whole-run pair below
+	// belongs to the flat shape alone and stays absent here.
+	return results, phases, nil, ""
 }
 
 // estateStart is one machine's start, drawn from the estate: it takes a machine
@@ -179,7 +181,7 @@ func runProfile(profile *Profile, fleet reportingFleet, clock Clock, read Safety
 // over the only window this shape has.
 func runFlat(agents int, agentPlan []tenantAgent, credentials agentCredentials,
 	addr string, opts loadOptions, busy TargetBusy, filer *estateFiler,
-) ([]agentResult, []PhaseResult, *float64) {
+) ([]agentResult, []PhaseResult, *float64, string) {
 	closeBusy := busy.Bracket()
 	startedAt := time.Now()
 
@@ -196,7 +198,8 @@ func runFlat(agents int, agentPlan []tenantAgent, credentials agentCredentials,
 	}
 	wg.Wait()
 
-	return results, nil, closeBusy(time.Since(startedAt))
+	busyPercent, busyAbsent := closeBusy(time.Since(startedAt))
+	return results, nil, busyPercent, busyAbsent
 }
 
 // phaseProbe is one live round trip through the machine side: connect,

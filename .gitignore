@@ -79,5 +79,5 @@ __pycache__/
 
 # Local-state marker files: ignore precommit/refactor head pointers only.
 # Tracked subdirectories under .claude/.markers/ (e.g. arch-lint-flipped/
-# per ADR-020 §5.4) must NOT be ignored.
+# per ADR-020) must NOT be ignored.
 /.claude/.markers/*.head

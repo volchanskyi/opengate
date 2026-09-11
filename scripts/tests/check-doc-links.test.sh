@@ -102,10 +102,11 @@ run_fixture ok 0
 run_fixture broken-file 1 'docs/index.md:3: target does not exist'
 run_fixture broken-anchor 1 'docs/index.md:3: heading anchor "#missing-heading" not found'
 run_fixture broken-line 1 'docs/index.md:3: line anchor "#L4" exceeds 3 lines'
-run_fixture active-plan-link 1 'links to active plan'
-run_fixture active-plan-self-anchor 0
-run_fixture archived-plan-link 0
-run_fixture docs-plan-link 1 'documentation under docs/ must not link plan files'
+run_fixture adr-plan-link 1 'must not link plan files'
+run_fixture adr-nested-plan-link 1 'must not link plan files'
+run_fixture docs-plan-link 1 'must not link plan files'
+run_fixture plan-self-anchor 0
+run_fixture plan-to-plan 0
 
 run_hook_case \
   "hook rejects broken Write" \

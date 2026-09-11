@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   # Determine the image tag, verify it exists, and decide whether staging needs
-  # to run at all (ADR-025 pre-flight check).
+  # to run at all (ADR-086 pre-flight check).
   resolve-tag:
     name: Resolve image tag
     runs-on: ubuntu-24.04

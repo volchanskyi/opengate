@@ -2,7 +2,7 @@
 //!
 //! The production section (always compiled) records the WS-14b store's footprint
 //! (bytes/sample, before and after cold-tier DEFLATE), ingest/commit cost,
-//! range-query latency, and crash-recovery open time — the numbers ADR-051 and
+//! range-query latency, and crash-recovery open time — the numbers ADR-052 and
 //! the WS-14b build spec track. The WS-14a bake-off comparison (append-only vs
 //! redb substrates, the codec bake-off, the redb scale sweep) is retained behind
 //! the `bakeoff` feature. It is a plain `main` (harness = false), so gate

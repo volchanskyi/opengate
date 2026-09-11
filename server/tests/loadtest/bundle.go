@@ -60,7 +60,14 @@ import (
 // load. A soak now keeps a goroutine and a heap profile on an interval and
 // reports the difference between them, which for a stuck goroutine is the whole
 // answer: the count and the line, in one row.
-const bundleSchemaVersion = 7
+// Version 8 lets a phase account for a busy-ness it could not take. An absent
+// reading voided the whole bundle, which is right for a reading somebody
+// dropped and wrong for the one case a capacity ladder exists to reach: a
+// target loaded until it stops answering its own exposition. One nightly
+// climbed to sixteen thousand machines, found that load, and threw away the
+// evidence for the rung it had just climbed. A phase now says which of the two
+// it was, and an absence with nothing beside it is refused exactly as before.
+const bundleSchemaVersion = 8
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -174,6 +181,13 @@ type PhaseResult struct {
 	// figure a server could report — so a run that never asked must not read as
 	// the best run ever measured.
 	TargetBusyPercent *float64 `json:"target_busy_percent,omitempty"`
+
+	// TargetBusyAbsent is why the reading above is not there, where the run can
+	// say. An absence a reader cannot account for is a reading somebody
+	// dropped and voids the bundle; an absence the run explains is a fact about
+	// the run — chiefly a target loaded until it stopped answering, which is
+	// the answer a capacity ladder goes looking for.
+	TargetBusyAbsent string `json:"target_busy_absent,omitempty"`
 
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`

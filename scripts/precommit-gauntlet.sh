@@ -219,7 +219,7 @@ fi
 if ! command -v pmat >/dev/null 2>&1; then
   color "1;31"
   echo "✗ pmat is not installed — the ADR-019 TDG gate cannot run." >&2
-  echo "  Install the pinned version (ADR-019 §5.5):" >&2
+  echo "  Install the pinned version (ADR-019):" >&2
   echo "    cargo install --locked --version 3.17.0 pmat" >&2
   color "0"
   exit 2
@@ -262,7 +262,7 @@ run_check "cargo modules" -- bash -c '
   cd agent
   actual=$(RUST_LOG=off NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core 2>&1)
   if ! printf "%s\n" "$actual" | diff -u crates/mesh-agent-core/tests/module-graph.snap - ; then
-    echo "::error::mesh-agent-core module graph diverged from the ADR-020 §5.2 snapshot."
+    echo "::error::mesh-agent-core module graph diverged from the ADR-020 snapshot."
     echo "Review the diff above. If the change is intentional, regenerate:"
     echo "  cd agent && NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core > crates/mesh-agent-core/tests/module-graph.snap"
     exit 1
@@ -277,14 +277,14 @@ run_check "depcruise" -- bash -c '
   current=$(npx --no-install depcruise src --output-type json --no-progress 2>/dev/null | jq -r ".summary.warn")
   baseline=$(jq -r ".warn" dependency-cruiser.snapshot.json)
   if [ -f ../.claude/.markers/arch-lint-flipped/depcruise ]; then
-    # ADR-020 §5.4 flipped: zero is the only allowed count.
+    # ADR-020 flipped: zero is the only allowed count.
     if [ "$current" -gt 0 ]; then
-      echo "::error::depcruise (flipped to error mode) violations: current=$current (ADR-020 §5.3+§5.4)."
+      echo "::error::depcruise (flipped to error mode) violations: current=$current (ADR-020)."
       exit 1
     fi
   else
     if [ "$current" -gt "$baseline" ]; then
-      echo "::error::depcruise warning count grew: current=$current baseline=$baseline (ADR-020 §5.3)."
+      echo "::error::depcruise warning count grew: current=$current baseline=$baseline (ADR-020)."
       echo "Either fix the new violation or, if intentional, update the baseline:"
       echo "  jq \".warn = $current\" web/dependency-cruiser.snapshot.json > /tmp/snap.json && mv /tmp/snap.json web/dependency-cruiser.snapshot.json"
       exit 1

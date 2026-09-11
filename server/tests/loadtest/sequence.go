@@ -164,7 +164,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, busy TargetBus
 	finishedAt := clock.Now()
 	saw := fleet.Outcomes().Since(began)
 	seconds := finishedAt.Sub(startedAt).Seconds()
-	targetBusy := closeBusy(finishedAt.Sub(startedAt))
+	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
 
 	return PhaseResult{
 		Name:      phase.Name,
@@ -195,6 +195,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, busy TargetBus
 		// ran, beside the wait times the phase produced. Absent where it could
 		// not be read.
 		TargetBusyPercent:  targetBusy,
+		TargetBusyAbsent:   busyAbsent,
 		ExpectedRejections: saw.Rejected,
 		Faults:             saw.Severed,
 	}, nil

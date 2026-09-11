@@ -207,7 +207,7 @@ Quality gate thresholds (configured in the SonarCloud UI, Clean-as-You-Code mode
 
 The three rating conditions (Reliability / Security / Maintainability = A) implicitly forbid any new bugs, vulnerabilities, or code smells — any such issue flips the corresponding rating from A to worse and fails the gate. Overall project coverage is enforced separately by the per-language unit-test jobs (`Go Unit Tests`, `Rust Tests`, `Web Unit Tests`), each of which fails at < 80%. SonarCloud itself does not gate on overall coverage.
 
-Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action — the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. A failed `sonarcloud` job blocks the auto-merge to `main`. SonarCloud.io itself is the authoritative console for findings; they are not mirrored into the GitHub Code Scanning tab (see [ADR-013](../adr/ADR-013-docs-in-repo-and-immutable-adrs.md) for why the SARIF upload was dropped).
+Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action — the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. A failed `sonarcloud` job blocks the auto-merge to `main`. SonarCloud.io itself is the authoritative console for findings; they are not mirrored into the GitHub Code Scanning tab (see [ADR-080](../adr/ADR-080-documentation.md) for why the SARIF upload was dropped).
 
 ### Local SonarCloud Analysis
 
@@ -348,7 +348,7 @@ test regressed. The benchmark and mutation trend workflows are split the same
 way.
 
 The regression semantics are recorded in
-[ADR-045](../adr/ADR-045-load-test-regression-gate.md). In short: latency and rps
+[ADR-038](../adr/ADR-038-ci-trend-store.md). In short: latency and rps
 are evaluated per `{source, scenario, phase}` against VM read-back baselines plus
 absolute limits, error rate has hard ceilings, p99 is advisory-only, and missing
 VM history or transport failure does not create a false red.

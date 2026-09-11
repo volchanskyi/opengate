@@ -4,7 +4,7 @@ This chapter is the single source of truth for OpenGate's fault-injection
 harness. It freezes the contract that the Go fault suite, the ingress fault
 profiles, the Kubernetes scenario runners and the nightly network drill build
 against. The mechanism decision — no fault code in the shipped binary — is
-recorded in [ADR-055](../adr/ADR-055-fault-injection-mechanism.md).
+recorded in [ADR-055](../adr/ADR-055-fault-injection.md).
 
 ## Mechanism
 
@@ -144,7 +144,7 @@ catch-up slot, and it carries a name of the drill's own. A load run wants the
 opposite of the first two — a severance reported and a deferral shed, because
 those are the things it is measuring — and the third is what lets the drill
 count its own machines and remove them afterwards
-([ADR-103](../adr/ADR-103-a-drill-measures-a-herd-that-is-there.md)).
+([ADR-082](../adr/ADR-082-load-run-validity.md)).
 
 Every scenario is three phases: baseline, fault, recovery.
 
@@ -184,7 +184,7 @@ value every night.
   process, so each scenario records where the totals stood when it opened and
   measures from there — both the rows it publishes about the link and the check
   that proves its fault reached the link at all
-  ([ADR-102](../adr/ADR-102-a-drill-reading-is-the-scenarios-own-or-it-is-not-a-reading.md)).
+  ([ADR-082](../adr/ADR-082-load-run-validity.md)).
 - **No privilege of any kind.** No node agent, no runtime socket, no added
   capability, no root.
 - **Staging only.** The runner refuses any namespace but `opengate-staging`, and
@@ -254,7 +254,7 @@ promotion from its first run.
 Tenancy is cross-cutting: every repository call runs in a tenant-scoped
 transaction whose tenant comes from the request context (`dbtx`, JWT `tenant` claim,
 per-tx `SET LOCAL app.current_tenant` — see [Database](../architecture/Database.md) and
-[ADR-041](../adr/ADR-041-postgres-rls-multitenancy.md)). Every harness fault
+[ADR-041](../adr/ADR-041-postgres-row-level-security.md)). Every harness fault
 decorator **threads the request `context.Context` through unchanged**, so the
 tenant GUC still propagates and a fault can never drop or cross a tenant
 context. The fault suite proves this with a cross-tenant-leak assertion around a

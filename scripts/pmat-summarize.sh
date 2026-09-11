@@ -19,7 +19,7 @@
 # Other env:
 #   GITHUB_SHA        tagged into the canonical row
 #
-# Alert conditions (ADR-019 §"Integration point 3"):
+# Alert conditions (ADR-019):
 #   - repo_score drop ≥ REPO_SCORE_DROP_THRESHOLD points day-over-day, OR
 #   - a file newly below B+ since the previous run. We track this via the
 #     below-B+ COUNT rising (a faithful, Loki-storable proxy for "any single

@@ -113,5 +113,12 @@ func rlsProbeURL(baseURL string) string {
 	params := url.Values{}
 	params.Set("search_path", rlsProbeSchema)
 	params.Set("options", "-c role="+rlsProbeRole)
-	return baseURL + sep + params.Encode()
+
+	// A space is written %20 rather than +. Spelling it + is an HTML form
+	// convention, and a reader that follows the URL standard keeps it as a
+	// literal plus — the driver then hands Postgres the option name "+role" and
+	// the connection is refused with "unrecognized configuration parameter".
+	// Every + this encoder emits stands for a space, because a literal one
+	// comes back as %2B.
+	return baseURL + sep + strings.ReplaceAll(params.Encode(), "+", "%20")
 }

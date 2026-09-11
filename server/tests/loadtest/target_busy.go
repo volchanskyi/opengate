@@ -31,6 +31,25 @@ import (
 // targetCPUMetric is the family the target publishes its own processor time in.
 const targetCPUMetric = "process_cpu_seconds_total"
 
+// Why a reading is absent, in the phase's own words.
+//
+// An absent reading voids a bundle, on the reasoning that a run which read the
+// target once could have read it again — so a phase that did not is a reading
+// somebody dropped. There is a case that reasoning does not cover, and it is
+// the one the breakpoint family exists to reach: a target loaded until it stops
+// answering. That is the finding rather than a lapse, and a phase that says so
+// keeps its place in the evidence while a phase that says nothing still does
+// not.
+//
+// The other two are narrower and are stated for the same reason: an absence a
+// reader cannot account for is one they have to guess at.
+const (
+	busyAbsentTargetSilent    = "the target did not answer its own exposition"
+	busyAbsentNoAllowance     = "nobody declared what the target was capped at"
+	busyAbsentTargetRestarted = "the target restarted inside the phase"
+	busyAbsentNoWindow        = "the phase had no length to divide the work by"
+)
+
 // TargetBusy is how a phase reads what share of its allowance the target used.
 //
 // Both halves are needed and either can be missing. A run pointed at no target
@@ -54,13 +73,26 @@ type TargetBusy struct {
 // rather than the phase's declaration: a phase runs for as long as it runs, and
 // dividing a real amount of work by a declared length reports a busy-ness
 // nobody measured.
-func (b TargetBusy) Bracket() func(window time.Duration) *float64 {
+// The closer returns the reading and, where there is none, what accounted for
+// it. A run pointed at no target asked nothing, so it gets neither: there is no
+// absence to account for where there was no question.
+func (b TargetBusy) Bracket() func(window time.Duration) (*float64, string) {
+	if b.ReadCPUSeconds == nil {
+		return func(time.Duration) (*float64, string) { return nil, "" }
+	}
+
 	before, opened := b.read()
 
-	return func(window time.Duration) *float64 {
+	return func(window time.Duration) (*float64, string) {
 		after, closed := b.read()
-		if !opened || !closed || window <= 0 || b.Allowance <= 0 {
-			return nil
+		if !opened || !closed {
+			return nil, busyAbsentTargetSilent
+		}
+		if b.Allowance <= 0 {
+			return nil, busyAbsentNoAllowance
+		}
+		if window <= 0 {
+			return nil, busyAbsentNoWindow
 		}
 
 		// A counter that went backwards is a target that restarted inside the
@@ -69,11 +101,11 @@ func (b TargetBusy) Bracket() func(window time.Duration) *float64 {
 		// measured nothing rather than reporting one.
 		used := after - before
 		if used < 0 {
-			return nil
+			return nil, busyAbsentTargetRestarted
 		}
 
 		percent := used / window.Seconds() / b.Allowance * 100
-		return &percent
+		return &percent, ""
 	}
 }
 

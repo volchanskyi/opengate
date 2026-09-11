@@ -68,7 +68,6 @@ echo "docs-diagrams:"
 assert_mermaid_count_at_least "$REPO_ROOT/docs/architecture/System-Architecture.md" 5
 assert_mermaid_count_at_least "$REPO_ROOT/docs/architecture/Wire-Protocol.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/infrastructure/Monitoring.md" 1
-assert_mermaid_count_at_least "$REPO_ROOT/docs/adr/ADR-025-cd-preflight-digest-check.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/infrastructure/Kubernetes.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/infrastructure/Continuous-Deployment.md" 1
 

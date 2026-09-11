@@ -175,3 +175,82 @@ func breakpointShapedProfile() *Profile {
 		GaveOut: gaveOut(),
 	}
 }
+
+// A ladder that finds its answer is a ladder that worked.
+//
+// Every other family reads a phase whose error rate is past the profile's
+// ceiling as a run that stopped measuring the system: the numbers describe the
+// error path rather than the product. On a capacity ladder that phase is the
+// whole point. The nightly that climbed to sixteen thousand machines lost
+// fifteen thousand of them, which is the answer it was sent to find, and the
+// run was then thrown away for having found it.
+//
+// So a rung at or above the one the ladder reports as giving out is what the
+// run measured, and everything below it is still held to the ceiling — a rung
+// that was meant to hold and did not is a run that measured the error path,
+// and so is a recovery phase that never recovered.
+func TestALadderIsNotInvalidatedByTheRungItWasSentToFind(t *testing.T) {
+	profile := &Profile{
+		Safety:  Safety{MaxErrorRate: 0.25},
+		GaveOut: &GaveOut{ErrorRateAbove: 0.05},
+	}
+	phases := []PhaseResult{
+		{Name: "step-500", OfferedConnectedAgents: 500, ErrorRate: 0},
+		{Name: "step-1000", OfferedConnectedAgents: 1000, ErrorRate: 0.99},
+		{Name: "recovery", OfferedConnectedAgents: 500, ErrorRate: 0},
+	}
+
+	verdict := Classify(RunInputs{
+		Profile:           profile,
+		BreakingPoint:     FindBreakingPoint(profile.GaveOut, phases),
+		ExpectedScenarios: []string{"quic-agents"},
+		ProducedScenarios: []string{"quic-agents"},
+		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
+		Phases:            phases,
+	})
+
+	assert.Equal(t, ResultValid, verdict.Result,
+		"the rung that gave out is the finding: %v", verdict.Reasons)
+}
+
+// A rung below the one that gave out is a rung that was meant to hold, and a
+// recovery phase that never recovered is the defect the family reports.
+func TestARecoveryThatNeverRecoveredStillInvalidatesTheLadder(t *testing.T) {
+	profile := &Profile{
+		Safety:  Safety{MaxErrorRate: 0.25},
+		GaveOut: &GaveOut{ErrorRateAbove: 0.05},
+	}
+	phases := []PhaseResult{
+		{Name: "step-500", OfferedConnectedAgents: 500, ErrorRate: 0},
+		{Name: "step-1000", OfferedConnectedAgents: 1000, ErrorRate: 0.99},
+		{Name: "recovery", OfferedConnectedAgents: 500, ErrorRate: 0.9},
+	}
+
+	verdict := Classify(RunInputs{
+		Profile:           profile,
+		BreakingPoint:     FindBreakingPoint(profile.GaveOut, phases),
+		ExpectedScenarios: []string{"quic-agents"},
+		ProducedScenarios: []string{"quic-agents"},
+		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
+		Phases:            phases,
+	})
+
+	assert.Equal(t, ResultInvalid, verdict.Result)
+}
+
+// A profile that declares no breaking point is asking no such question, and
+// every phase of it is held to the ceiling exactly as before.
+func TestAProfileThatAsksNoCapacityQuestionKeepsItsCeiling(t *testing.T) {
+	profile := &Profile{Safety: Safety{MaxErrorRate: 0.25}}
+	phases := []PhaseResult{{Name: "steady", OfferedConnectedAgents: 500, ErrorRate: 0.99}}
+
+	verdict := Classify(RunInputs{
+		Profile:           profile,
+		ExpectedScenarios: []string{"quic-agents"},
+		ProducedScenarios: []string{"quic-agents"},
+		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
+		Phases:            phases,
+	})
+
+	assert.Equal(t, ResultInvalid, verdict.Result)
+}

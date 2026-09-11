@@ -10,7 +10,7 @@
 # workflow uses an absent agent/** diff against the previous v* tag as the
 # signal to skip the build (saves ~15-20 min CI wall-clock for the 86% of
 # releases that don't touch agent/). See:
-#   - ADR-005 (agent auto-update)
+#   - ADR-121 (agent auto-update)
 #   - .claude/plans/path-gate-agent-release.md
 #
 # Idempotent: pure function of git state. Manual workflow_dispatch re-runs

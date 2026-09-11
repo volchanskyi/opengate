@@ -16,7 +16,7 @@
 # matching the TDD gate's change detection.
 #
 # === Why not the literal ADR-019 command? ===
-# ADR-019 §"Integration point 2" prescribes:
+# ADR-019 prescribes:
 #     pmat tdg --since-commit HEAD~1 --threshold B+
 # Neither flag exists in the pinned pmat@3.17.0: `--since-commit` is absent and
 # `--threshold` is a *complexity* knob for --explain mode, not a grade floor.
@@ -54,7 +54,7 @@ PMAT_PRECOMMIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TDD_CHECK="$PMAT_PRECOMMIT_DIR/tdd-check.sh"
 
 # pmat_version_ok — true if PMAT_BIN reports exactly the pinned version, or if
-# the pin is disabled. ADR-019 §5.5 pins pmat exactly (no patch auto-update).
+# the pin is disabled. ADR-019 pins pmat exactly (no patch auto-update).
 pmat_version_ok() {
   [ -z "$PMAT_PIN" ] && return 0
   command -v "$PMAT_BIN" >/dev/null 2>&1 || return 1

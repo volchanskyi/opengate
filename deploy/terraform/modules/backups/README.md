@@ -1,6 +1,6 @@
 # Backups submodule
 
-Codifies the off-cluster Postgres backup substrate ([ADR-035](../../../../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md)) that was originally stood up imperatively with the `oci` CLI:
+Codifies the off-cluster Postgres backup substrate ([ADR-035](../../../../docs/adr/ADR-035-block-volume-budget.md)) that was originally stood up imperatively with the `oci` CLI:
 
 - a **private** Object Storage bucket (`opengate-pg-backups`, `NoPublicAccess`),
 - a server-side **retention lifecycle** rule (DELETE objects older than `lifecycle_days`, scoped to the `opengate-` prefix) — the replacement for the old host-side `find -mtime` cron, and

@@ -150,7 +150,7 @@ restart count was taken at the time, and the node the run shares carries two
 processors for staging and production together.
 
 **Pay-down trigger:** the run already brackets itself with two readings of its
-target ([ADR-094](../docs/adr/ADR-094-a-run-records-what-its-target-was-holding.md)),
+target ([ADR-082](../docs/adr/ADR-082-load-run-validity.md)),
 and a restart between them is what that bracket is for — so read the server's
 own uptime and restart count into the evidence bundle beside the rest, and have
 the relay scenario say which of the two it hit when the fleet read comes back
@@ -159,7 +159,7 @@ names.
 
 ### The throwaway venue cannot say how much room its generator had
 
-[ADR-104](../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) reads
+[ADR-082](../docs/adr/ADR-082-load-run-validity.md) reads
 the generator's room from its own cgroup, which the staging pod has and a
 GitHub-hosted runner does not: the perf-stack job runs the generator and the
 compose stack it drives side by side on the bare virtual machine, so the only
@@ -179,7 +179,7 @@ and this entry goes.
 
 ### The endurance run is five hours of machine churn, not eight, and its sessions are not churning
 
-[ADR-107](../docs/adr/ADR-107-a-family-runs-somewhere.md) settled the length: an
+[ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) settled the length: an
 unchanging fleet finishes one operation per machine however long it is held, so
 five hours of the fleet coming and going finish ten times what eight idle ones
 would, and five fits inside the six a scheduled job is killed at.
@@ -199,7 +199,7 @@ compared.
 
 ### A phase reports what the harness believes it holds, not what the target holds
 
-[ADR-110](../docs/adr/ADR-110-a-machine-leaves-when-the-run-says-so.md) repaired
+[ADR-082](../docs/adr/ADR-082-load-run-validity.md) repaired
 a wind-down that reached nothing, and the reason it survived months is the
 instrument rather than the defect. A phase's `achieved_connected_agents` is
 `len(running)` over the machines the fleet is holding, which is bookkeeping the
@@ -223,9 +223,31 @@ whose readings bracket the tolerance. A tolerance set before that is a guess, an
 the two counts genuinely differ while a climb settles — so the reading is
 published first and the gate follows from what it says.
 
+### Registration timing has three limits and no night has ever measured it
+
+The load harness read the server's exposition looking for a registration outcome
+labelled `accepted`, and the server publishes `ok`
+([`registration_pool.go`](../server/internal/metrics/registration_pool.go)). So
+the reading came back with nothing accepted on every run ever taken, no results
+block ever carried a registration line, and the three limits
+[`normal.yaml`](../load/profiles/normal.yaml) holds against
+`quic/quic-agents/register` were limits on a measurement nothing produced. The
+parser now takes the label from the server's own constant, so the reading
+arrives from the next night on.
+
+What it does not do is say whether the limits are right. They were written
+against a belief about the quarter-processor staging server rather than a
+reading of one, so all three are watched rather than enforced until nights of
+the repaired code bracket them. A limit that fires on a measurement's own noise
+the first night it is able to fire is one everybody learns to ignore.
+
+**Pay-down trigger:** three nights of the staging run carrying a registration
+row. Set the middle-case and tail limits from the spread those nights show, and
+make the first two blocking again in the same commit.
+
 ### The reference walk reads the Go runtime's own internals, and one job a week looks
 
-[ADR-120](../docs/adr/ADR-120-what-holds-an-object-is-followed-on-the-box-the-run-destroys.md)
+[ADR-119](../docs/adr/ADR-119-finding-a-leak.md)
 gives the endurance run a core dump and a walk back from the heaviest live
 objects to what holds them. The tool that does it reads the runtime's internal
 structures directly — spans, type descriptors, the allocation bitmaps — because
@@ -245,12 +267,12 @@ that caused it, in a job whose subject is something else entirely.
 point the reader's version is moved with the toolchain's and the two are pinned
 together the way `server/go.mod` and the workflows' `go-version` already are.
 Until then the cost is one endurance run's deepest reading, and the profiles
-[ADR-119](../docs/adr/ADR-119-a-long-run-names-the-line-that-grew.md) keeps are
+[ADR-119](../docs/adr/ADR-119-finding-a-leak.md) keeps are
 unaffected — they are symbolised by the target itself.
 
 ### Authenticated requests are still counted per address
 
-[ADR-116](../docs/adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md)
+[ADR-116](../docs/adr/ADR-116-forwarded-addresses.md)
 narrowed which peer may say what address a request came from, and left the
 question of what a request should be counted under where it was.
 
@@ -446,7 +468,7 @@ interface and is not already covered by the pod-deletion and gateway drills.
 Closing it needs either a privileged node agent on the one worker production runs
 on, or a second cluster — both of which the free-tier block-volume cap and the
 shared node currently rule out
-([ADR-055](../docs/adr/ADR-055-fault-injection-mechanism.md)).
+([ADR-055](../docs/adr/ADR-055-fault-injection.md)).
 
 ### An alert a machine raises never reaches the server
 
@@ -485,7 +507,7 @@ an end-to-end test that proves secrets are redacted in the emitted payload.
 ### ADR-035 — residual external uptime/DNS follow-ups (user-owned)
 
 The OKE free-tier block-volume remediation
-([ADR-035](../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md)) is
+([ADR-035](../docs/adr/ADR-035-block-volume-budget.md)) is
 complete; only two **external, user-owned** follow-ups remain (neither bills):
 
 1. **External uptime SaaS** (user — needs an account): create UptimeRobot/Better
@@ -496,7 +518,7 @@ complete; only two **external, user-owned** follow-ups remain (neither bills):
 2. **Cloudflare DNS** (user): retire `status.opengate.cloudisland.net` or CNAME it
    to the SaaS status page.
 
-### ADR-024 WebRTC dispatch — 1 residual equivalent mutant in `handler.rs`
+### ADR-020 WebRTC dispatch — 1 residual equivalent mutant in `handler.rs`
 
 `cargo mutants -p mesh-agent-core` leaves one uncaught mutant in
 `session/handler.rs::handle_control`: the `ControlMessage::FileUploadRequest`
@@ -524,7 +546,7 @@ range), then bump both together.
 
 An incident's auto-resolve hold is its rule's own grouping window, and there is
 no per-rule override
-([ADR-075](../docs/adr/ADR-075-incident-grouping-lifecycle-and-auto-resolve.md)
+([ADR-074](../docs/adr/ADR-074-alerts-and-incidents.md)
 carries why). The cost is that a rule wanting to gather firings over one span
 while holding its room for a different one cannot say so. No shipped rule wants
 that, and none of the three curated shapes — fleet event, slow burn, recurrence —
@@ -532,7 +554,7 @@ needs it.
 
 **Pay-down trigger:** a concrete rule that needs a hold differing from its
 grouping window. That is a change to the relationship between the two grouping
-axes, so it lands as a new ADR superseding ADR-075 on this point — not as a YAML
+axes, so it lands as a new ADR superseding ADR-074 on this point — not as a YAML
 knob added to the catalogue grammar.
 
 ### Every control frame allocates the whole union
@@ -546,7 +568,7 @@ alert fields took `BenchmarkCodec_DecodeControl` from 1 592 to 1 848 B/op by
 crossing 1 408.
 
 The union is what makes the hand-written encoder's field ordering byte-identical
-to the Rust side ([ADR-060](../docs/adr/ADR-060-control-message-hand-written-encoder.md)),
+to the Rust side ([ADR-063](../docs/adr/ADR-063-control-message-encoding.md)),
 so the fix is not a smaller struct but a different shape: a type per message,
 decoded after the tag is read. That is a change to both language bindings and to
 every golden fixture, which is why it is not being done for an allocation that
@@ -568,7 +590,7 @@ central cardinality O(1), and are left as they are: of the four alternative
 shapes considered, none is satisfying yet. Nothing is blocked by the deferral —
 the per-device cap is enforced over the vitals set, and the aggregate rule
 metrics
-([ADR-076](../docs/adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md))
+([ADR-076](../docs/adr/ADR-076-platform-metrics.md))
 carry no device label.
 
 **Pay-down trigger:** both of two facts, neither of which exists yet — the query

@@ -96,7 +96,7 @@ not a trade worth making.
 to know about the running deployment it reads off the cluster, and the binary it
 used to build cold it takes as an artifact from
 [`build-image.yml`](../../.github/workflows/build-image.yml), whose token does
-write. See [ADR-086](../../docs/adr/ADR-086-the-cluster-is-the-source-of-truth-for-what-is-deployed.md).
+write. See [ADR-086](../../docs/adr/ADR-086-deploy-reads-the-cluster.md).
 
 ### A tool a workflow builds is built from a graph somebody has tested
 

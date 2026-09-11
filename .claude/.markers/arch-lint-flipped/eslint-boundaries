@@ -1,4 +1,4 @@
-# ADR-020 §5.4 flip marker for the eslint-boundaries gate.
+# ADR-020 flip marker for the eslint-boundaries gate.
 #
 # Created by scripts/arch-lint-flip.sh --apply on 2026-05-29T02:18:30Z.
 # Trigger: web/eslint.config.js's boundaries/dependencies severity reached

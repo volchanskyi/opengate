@@ -231,23 +231,29 @@ gates:
 
   # The server's own figure, measured where the device row lands rather than at
   # this generator's send buffer.
+  #
+  # Watched rather than enforced, because no night has ever produced this
+  # measurement: the harness read the page looking for an outcome label the
+  # server has never published, so the reading came back empty on every run and
+  # these three limits held a number that never arrived. The figures below were
+  # written against a belief about the quarter-processor staging server rather
+  # than against a reading of it, and a limit that fires on a measurement's own
+  # noise the first night it can fire teaches everyone to ignore it. Three
+  # nights of readings are what set them, and the first two become blocking
+  # again once those nights bracket them.
   - series: quic/quic-agents/register
     metric: latency_p50_ms
     max: 100
-    blocking: true
+    blocking: false
   - series: quic/quic-agents/register
     metric: latency_p95_ms
     max: 500
-    blocking: true
+    blocking: false
   - series: quic/quic-agents/register
     metric: latency_p99_ms
     max: 1000
     blocking: false
 
-  - series: quic/quic-agents/aggregate
-    metric: rps
-    min: 50
-    blocking: true
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0
@@ -300,3 +306,15 @@ ungated:
   - series: k6/api-baseline/command_accept
     metric: latency_p50_ms
     reason: the tail is held to 1000 ms, so a middle-case ceiling above that can never fire
+  # The rate machines arrive at is this profile's own pacing, not the server's
+  # intake. The phases climb to five hundred machines over nine minutes, so the
+  # figure is about one a second whatever the server does, and the floor it
+  # inherited from the flat run this profile replaced was fifty. Every other
+  # walked profile in this directory already holds the aggregate by its error
+  # rate alone. What the floor was there to catch is caught twice over here: a
+  # machine that was asked for and did not arrive moves the error rate, which is
+  # held at nought, and how fast the server takes machines on is the server's
+  # own registration timing, which is held three ways above.
+  - series: quic/quic-agents/aggregate
+    metric: rps
+    reason: a walked profile paces its own arrivals, so the rate measures the profile rather than the server

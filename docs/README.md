@@ -59,36 +59,32 @@ retention horizon, a state name) may be stated there in prose or a table; the
 source-linked statement of the same fact lives in the architecture or
 infrastructure chapter that owns it.
 
-### 2. Per-file ADRs are mutable; supersede only for decision *changes*
+### 2. Every ADR describes live state
 
-An Architecture Decision Record documents a decision. Per-file ADRs in
-[`adr/`](./adr/) (ADR-013 onward) are **mutable** — edit them in place to keep
-them accurate against current state: fix a rotted link, correct a moved path,
-strip chronological noise from the body. git history (`git log --follow` per
-file) is the audit trail.
+An Architecture Decision Record documents a decision the system still runs on.
+ADRs are **edited in place** to keep them accurate: fix a rotted link, correct a
+moved path, tighten wording. Git history (`git log --follow` per file) is the
+audit trail.
 
-Supersession is still used for genuine **decision changes** (a reversal or
-replacement, not a correction): create a new ADR with the next number, set its
-`supersedes:` frontmatter, and update the prior ADR's `status:`. The lineage
-stays explicit so a reader asking "why was it X, and what changed?" can trace
-`ADR-014 → supersedes ADR-003`. Mutability keeps an ADR *true*; supersession
-records what *changed*.
+There is no superseded status and no supersession chain. When a decision
+changes, the ADR that holds it is rewritten to say what is true now. When a
+decision leaves nothing behind — the thing it chose is no longer in the system —
+its ADR is deleted, and anything still live merges into the ADR that replaced
+it. Numbers are never reused, so gaps in the sequence are expected.
 
-ADR bodies follow the same current-state doctrine as the rest of the docs:
-purge chronological/logistical noise, but **rewrite to preserve the fact and the
-why — never delete substantive rationale**, and keep the
-`date:`/`status:`/`supersedes:` frontmatter. An ADR may link a plan only under
-`plans/archive/…` (active plans rot); fold other pointers inline or into the
-[`index`](../.claude/decisions.md).
+A fix, a patch or a repair does not get an ADR of its own. It belongs in the ADR
+whose decision it refines, or nowhere.
 
-New ADRs live as individual files using the `ADR-NNN-kebab-title.md` naming
-convention. The combined
+An ADR body follows the same live-state rule as the rest of the docs: say what
+the system does, not what it stopped doing. Keep the `number:` and `title:`
+frontmatter. Do not link a plan — plans are working documents and are deleted
+when their work lands; fold what matters inline.
+
+New ADRs are individual files named `ADR-NNN-kebab-title.md`. The combined
 [`Architecture-Decision-Records.md`](./Architecture-Decision-Records.md) holds
-ADR-001 … ADR-012 in one file and is **mutable on the same terms** — edit it in
-place to keep it accurate against current state. The compact
-[`index`](../.claude/decisions.md) is updated for every new ADR. See
-[`adr/ADR-036`](./adr/ADR-036-mutable-adrs-current-state-doctrine.md) for the
-full doctrine.
+the early ones, ADR-001 … ADR-012, on the same terms. The compact
+[`index`](../.claude/decisions.md) gains a row for every new ADR. See
+[`adr/ADR-080`](./adr/ADR-080-documentation.md) for the full convention.
 
 ### 3. No paraphrased ADR bodies
 
@@ -124,7 +120,7 @@ CI.
 
 The rationale for everything in this section — C4 adoption, the render gate, the
 CI validator, the drift guard, and the coverage standard — is recorded in
-[ADR-039](./adr/ADR-039-diagrams-as-code-part-2.md).
+[ADR-039](./adr/ADR-039-diagrams-as-code.md).
 
 For architecture-level structure, use the native Mermaid **C4** block types so
 the views follow the [C4 model](https://c4model.com/):
@@ -189,7 +185,7 @@ docs/
 ├── product/                            What the system does — one chapter per capability
 ├── architecture/                       How it is built — components, protocol, API, schema
 ├── infrastructure/                     How it runs — cluster, IaC, CI/CD, observability, test tooling
-├── adr/                                Per-file ADRs (ADR-013+)
+├── adr/                                Per-file ADRs (ADR-014+)
 │   └── ADR-NNN-title.md
 └── api/                                Generated Scalar OpenAPI reference
     └── index.html

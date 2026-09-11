@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
 // Registration has to be measured where the device row lands.
@@ -32,7 +34,13 @@ const registrationMetric = "opengate_agent_registration_duration_seconds"
 const poolMetric = "opengate_db_pool_connections"
 
 // acceptedOutcome is the label value for a registration that completed.
-const acceptedOutcome = "accepted"
+//
+// It is the server's own constant rather than a copy of it. A copy read
+// "accepted" while the server published "ok", so the reading came back with
+// nothing accepted on every run that ever took it: no registration line in any
+// results block, and three limits held against a measurement nothing produced.
+// A vocabulary with two homes is the defect; one home is the fix.
+const acceptedOutcome = appmetrics.RegistrationOK
 
 // serverMetricsTimeout bounds the read. The page is small and local; a read that
 // hangs would hold the end of a run for no useful reason.

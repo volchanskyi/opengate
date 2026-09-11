@@ -193,7 +193,7 @@ that tier's seam is "what needs a transport".
 **Two things run beside it.** A static guard in the pen-test gate refuses the
 code shape that caused this before the test has to run, and the nightly load run
 asks the same question of the deployed server under real load
-([ADR-094](../adr/ADR-094-a-run-records-what-its-target-was-holding.md)). The
+([ADR-082](../adr/ADR-082-load-run-validity.md)). The
 rule all three serve is
 [`resource-conservation.md`](../../.claude/rules/resource-conservation.md).
 
@@ -406,7 +406,7 @@ emit a row per run to:
   [`vm-push.sh`](../../scripts/lib/vm-push.sh) transport. Visualised by the provisioned
   [`mutation-trend.json`](../../deploy/grafana/provisioning/dashboards/mutation-trend.json)
   dashboard. Canonical trend store per
-  [ADR-038](../adr/ADR-038-victoriametrics-ci-trend-store.md).
+  [ADR-038](../adr/ADR-038-ci-trend-store.md).
 - **Workflow artifacts** — every run uploads `mutation-run-status`; only a complete
   artifact set uploads `mutation-canonical-row`. Validation and the no-partial-row
   contract are implemented by
@@ -786,7 +786,7 @@ scenario produced no rows, the generator ran out of room, or a safety ceiling
 stopped it. An invalid run never enters the trend, because a partial night
 absorbed as data lowers the window median and the next genuinely slow night then
 compares favourably against it and passes.
-[ADR-082](../adr/ADR-082-load-runs-measure-the-system-or-say-they-did-not.md) is
+[ADR-082](../adr/ADR-082-load-run-validity.md) is
 the decision behind that and everything below it.
 
 ### What a run is configured by, and what it produces
@@ -799,7 +799,7 @@ an ordered phase list, the safety limits that stop it, and the numbers its
 results are read against.
 
 Those numbers live in the profile and nowhere else, which
-[ADR-101](../adr/ADR-101-one-measurement-one-limit-one-file.md) settles. A
+[ADR-101](../adr/ADR-101-load-profiles-and-limits.md) settles. A
 measurement carries at most one limit that fails a night, per direction, and any
 number of marks that only report — a floor under a collapse and a target
 somebody is watching before enforcing are different statements, and a profile
@@ -823,7 +823,7 @@ and disk ceilings hold everywhere, because past them the node has nowhere to put
 what the run produces. The schema enforces both halves.
 
 The venue also decides *how* the machine is read, which
-[ADR-108](../adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) settles.
+[ADR-107](../adr/ADR-107-where-a-run-happens.md) settles.
 A run that owns its box is read at the instant it looks, because the minute
 before that look is the job's own image build. A run that is a guest on a cluster
 node is read over the last minute, because that minute is production going about
@@ -842,7 +842,7 @@ section fails the run rather than entering the trend as a thinner version of a
 real one.
 
 Every field in it is a reading or is absent, which is what
-[ADR-100](../adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md) settles
+[ADR-082](../adr/ADR-082-load-run-validity.md) settles
 and what the validation enforces. Both sides of the measurement are recorded
 because a latency figure is a property of the pair: the target's own limits are
 handed in by whoever started it — the sweep's matrix value, or the cluster's own
@@ -886,7 +886,7 @@ adding across the window it has to add them in rather than dialling them all at
 once. The server refuses enrolments past about a hundred a second on purpose, and
 a burst past that is turned away and counted as machines that could not arrive —
 which reads as a system that could not absorb the load rather than as load that
-was never offered. [ADR-112](../adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md)
+was never offered. [ADR-082](../adr/ADR-082-load-run-validity.md)
 is the decision.
 
 The breakpoint family carries one thing the others do not: what counts as giving
@@ -896,7 +896,7 @@ them, the first that did not, and the reading that decided it — together with 
 many rungs it looked at, so "nothing gave out" cannot be reported by a ladder
 that walked nothing. Without a declared definition the family's answer is
 whatever the run happened to survive
-([ADR-115](../adr/ADR-115-a-ladder-declares-what-giving-out-means.md)).
+([ADR-101](../adr/ADR-101-load-profiles-and-limits.md)).
 
 Two of a bundle's readings are taken by steps outside the harness: the fleet's
 weight on disk, read from the database once the fleet exists, and the technician
@@ -937,7 +937,7 @@ that measured nothing, legs naming the same processor share, fewer legs than a
 curve needs, or legs that all came back saying the same thing. It deliberately
 does not refuse a curve that fails to rise, because one night is one sample per
 rung and two nights from the same code have disagreed about the shape.
-[ADR-109](../adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md) is
+[ADR-101](../adr/ADR-101-load-profiles-and-limits.md) is
 the decision behind that, and behind the two things that made the sweep readable
 in the first place: the rungs sit below what the rest of the stack leaves, so the
 generator's share no longer shrinks as the server's grows, and the fleet sits
@@ -985,7 +985,7 @@ whole finding — the profile carries a count and the stack it is parked on.
 A profile the target would not answer with is counted rather than skipped, and
 a trail of fewer than two readings fails validation, because a single reading
 cannot have found that nothing grew.
-[ADR-119](../adr/ADR-119-a-long-run-names-the-line-that-grew.md) is the decision.
+[ADR-119](../adr/ADR-119-finding-a-leak.md) is the decision.
 
 **What holds it.** A heap profile records where an object was born, and a leak is
 about what is still pointing at it. So
@@ -999,7 +999,7 @@ cannot happen is a refusal rather than an empty report, which
 [`loadtest-reference-walk.test.sh`](../../scripts/tests/loadtest-reference-walk.test.sh)
 holds it to. The core is read where it is taken and never leaves the job; the
 reports do.
-[ADR-120](../adr/ADR-120-what-holds-an-object-is-followed-on-the-box-the-run-destroys.md)
+[ADR-119](../adr/ADR-119-finding-a-leak.md)
 is the decision, including why this target is built with its symbol table kept.
 
 ### k6 HTTP/WS Scenarios
@@ -1032,7 +1032,7 @@ itself rather than turning every request in the run red.
 
 How many journeys a second arrive and how many sessions are open are
 technician-side numbers, and the profile is where both are written down
-([ADR-101](../adr/ADR-101-one-measurement-one-limit-one-file.md)). The projection
+([ADR-101](../adr/ADR-101-load-profiles-and-limits.md)). The projection
 in [`scripts/lib/loadtest-profile.sh`](../../scripts/lib/loadtest-profile.sh)
 hands the walk to the generator, which turns each phase into one arrival-rate
 scenario tagged with that phase's name.
@@ -1068,7 +1068,7 @@ enforced at full strength; the budget is simply per technician.
 
 A presented address is believed only from a peer the deployment has named as a
 proxy, which is narrower than the rule it replaced — see
-[ADR-116](../adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md)
+[ADR-116](../adr/ADR-116-forwarded-addresses.md)
 and [Security](Security-and-Dependencies.md#rate-limiting).
 [`scripts/tests/loadtest-rate-budget.test.sh`](../../scripts/tests/loadtest-rate-budget.test.sh)
 sizes one technician's own share against the router's limit and holds the whole
@@ -1103,7 +1103,7 @@ Each scenario declares the workload it performs, and that name travels with ever
 sample into the trend store. A window baseline is only a baseline for the work
 that produced it, so a scenario rewritten to measure something else takes a new
 name and is compared against itself rather than against what it replaced. See
-[ADR-092](../adr/ADR-092-a-trend-series-carries-the-workload-that-produced-it.md).
+[ADR-038](../adr/ADR-038-ci-trend-store.md).
 
 The scenarios spell their URLs by hand, so
 [`scripts/tests/api-endpoint-drift.test.sh`](../../scripts/tests/api-endpoint-drift.test.sh)
@@ -1204,7 +1204,7 @@ its fleet, which is why a fleet that never came up is reported by the step that
 launched it rather than by a scenario four minutes later; a launch the API server
 never got to the kubelet is made again, and one that reached the pod never is,
 because a second harness would build a second fixture over the first one's names.
-See [ADR-099](../adr/ADR-099-a-fleet-is-held-by-the-cluster-not-by-a-stream.md).
+See [ADR-082](../adr/ADR-082-load-run-validity.md).
 
 [`scripts/loadtest-quic-run.sh`](../../scripts/loadtest-quic-run.sh) applies the
 same keep-or-discard rule the k6 half has to what that read-back returns: a fleet

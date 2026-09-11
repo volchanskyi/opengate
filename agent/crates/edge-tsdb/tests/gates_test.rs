@@ -51,7 +51,7 @@ fn round_trip_is_lossless_for_all_persistent_substrates() {
 /// ~1 B target — a lossless f64 XOR codec over mixed gauges + monotonic
 /// counters lands in the low single digits, and redb's COW B-tree adds ~2.8×
 /// storage overhead over the bespoke append-only files. That ~2.8× write-amp
-/// gap is the A-vs-KV decider recorded in ADR-051.
+/// gap is the A-vs-KV decider recorded in ADR-052.
 #[test]
 fn bytes_per_sample_clears_the_bar() {
     let corpus = Corpus::generate(CorpusConfig {
