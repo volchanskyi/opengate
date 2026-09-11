@@ -108,6 +108,13 @@ spec:
             - name: OPENGATE_BASE_URL
               value: {{ .Values.server.baseURL | quote }}
             {{- end }}
+            {{- if .Values.server.trustedProxies }}
+            # Which peer's X-Forwarded-For is believed, and therefore which
+            # allowance a request spends. Comma-joined so one variable carries
+            # the whole list.
+            - name: OPENGATE_TRUSTED_PROXIES
+              value: {{ join "," .Values.server.trustedProxies | quote }}
+            {{- end }}
             {{- if .Values.server.logLevel }}
             - name: LOG_LEVEL
               value: {{ .Values.server.logLevel | quote }}

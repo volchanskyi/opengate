@@ -222,6 +222,7 @@ PATH="$WORK/bin:$PATH" \
   LOADTEST_K6_SUMMARY_DIR="$WORK/summaries" \
   LOADTEST_BASE_URL="$STAGING_URL" \
   LOADTEST_RUN_ID="42-1" \
+  LOADTEST_PROFILE="$REPO_ROOT/load/profiles/normal.yaml" \
   K6_SUMMARY_TREND_STATS="avg,p(95)" \
   "$RUNNER" api-baseline /tmp/load/k6/scenarios/api-baseline.js >"$WORK/out.txt" 2>&1 || STATUS=$?
 assert_eq "runner over the shim propagates 107" "107" "$STATUS"

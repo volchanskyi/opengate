@@ -28,7 +28,8 @@ metrics="$(
       sample("loadtest_latency_p95_ms"; .latency_p95_ms),
       sample("loadtest_latency_p99_ms"; .latency_p99_ms),
       sample("loadtest_rps"; .rps),
-      sample("loadtest_error_rate"; .error_rate)
+      sample("loadtest_error_rate"; .error_rate),
+      sample("loadtest_dropped_iterations"; .dropped_iterations)
   ' "$SUMMARY_FILE"
 )"
 

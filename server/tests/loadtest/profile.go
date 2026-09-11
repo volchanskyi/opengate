@@ -67,6 +67,13 @@ type Phase struct {
 	// the browser's side of the wire, so the machine-side harness carries this
 	// into the run's evidence as an offer and never as an achievement.
 	Sessions int `yaml:"sessions"`
+	// Measured marks the phase the night's browser-side percentiles are taken
+	// over. A percentile spanning the climb to the load and the wind-down away
+	// from it is a mixture of three systems — one warming up, one under the
+	// declared load, one draining — and the mixture moves whenever the climb's
+	// share of the run moves, which is a change nobody made to the product. At
+	// most one phase carries it; a profile that marks none is measured whole.
+	Measured bool `yaml:"measured"`
 }
 
 // Safety is what makes a run stop itself. Nothing here is about the verdict.
@@ -101,6 +108,17 @@ type Profile struct {
 	// GaveOut is what counts as the system giving out, for a profile that goes
 	// looking for the point where it does. See breaking_point.go.
 	GaveOut *GaveOut `yaml:"gave_out"`
+}
+
+// MeasuredPhase is the phase this profile's browser-side numbers are taken
+// over, or nil when it names none and the whole run is the window.
+func (p *Profile) MeasuredPhase() *Phase {
+	for i := range p.Phases {
+		if p.Phases[i].Measured {
+			return &p.Phases[i]
+		}
+	}
+	return nil
 }
 
 // TotalDuration is how long the phases run for, end to end.
@@ -222,6 +240,7 @@ func (p *Profile) validatePhases() []error {
 	}
 
 	var problems []error
+	var measured []string
 	seen := make(map[string]bool, len(p.Phases))
 	for i, phase := range p.Phases {
 		switch {
@@ -244,6 +263,14 @@ func (p *Profile) validatePhases() []error {
 		if phase.Sessions < 0 {
 			problems = append(problems, fmt.Errorf("phase %q: sessions cannot be negative", phase.Name))
 		}
+		if phase.Measured {
+			measured = append(measured, phase.Name)
+		}
+	}
+	if len(measured) > 1 {
+		problems = append(problems, fmt.Errorf(
+			"phases %v are all marked measured — percentiles pooled across two loads describe neither, so at most one phase carries it",
+			measured))
 	}
 	return problems
 }

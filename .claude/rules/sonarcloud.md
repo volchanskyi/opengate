@@ -16,9 +16,17 @@ Every `new_*` condition is scoped by git blame, and the gauntlet scans **before*
 
 | Guard | Gate condition it stands in for |
 |---|---|
-| [`sonar-coverage-guard.sh`](../../scripts/sonar-coverage-guard.sh) | `new_coverage`, held off the 80.0 boundary by a buffer |
+| [`sonar-coverage-guard.sh`](../../scripts/sonar-coverage-guard.sh) | `new_coverage`, held off the 80.0 boundary by a buffer, plus every line the diff touched |
 | [`sonar-duplication-guard.sh`](../../scripts/sonar-duplication-guard.sh) | `new_duplicated_lines_density`, per changed file |
 | [`sonar-rating-guard.sh`](../../scripts/sonar-rating-guard.sh) | `new_reliability_rating`, `new_security_rating`, `new_security_hotspots_reviewed`, per changed file |
+
+The coverage guard asks SonarCloud for the per-line hits it computed, and falls
+back to the coverage reports the scan uploaded for a file the analysis holds
+nothing about. It has to: `dev` is a short-lived branch, and a short-lived
+branch keeps file-level data only where that branch changed the file — so what
+the analysis holds per file is a fact about the previous commit rather than
+about the coverage. Neither source answering is still a refusal. See
+[ADR-118](../../docs/adr/ADR-118-a-coverage-guard-reads-the-report-it-uploaded.md).
 
 The rating guard fails on a bug, vulnerability or unreviewed hotspot on changed **main** code, and reports — without failing — findings that move no gate condition, such as a code smell or anything in a test file. A finding on a file this change did not touch is somebody else's and does not fail the commit.
 

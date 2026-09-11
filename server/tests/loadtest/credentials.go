@@ -66,6 +66,10 @@ func (c enrolledCredentials) forAgent(ctx context.Context, plan tenantAgent) (*t
 		EnrollmentToken: c.token,
 		DeviceID:        uuid.New().String(),
 		Hostname:        plan.hostname,
+		// The same address this machine is filed under afterwards, so its
+		// arrival and its filing are charged to one allowance rather than to
+		// the fleet's shared one.
+		PresentedAddress: presentedAddress(plan.agentIndex),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("enroll %s: %w", plan.hostname, err)

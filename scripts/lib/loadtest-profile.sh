@@ -102,3 +102,92 @@ for entry in profile.get("ungated") or []:
 json.dump(rows, sys.stdout)
 PY
 }
+
+# profile_phases prints a profile's walk as a JSON array of
+# {name, seconds, arrivals_per_second, sessions, agents, measured}.
+#
+# It is what a browser-side generator is handed. The technician numbers — how
+# many journeys a second arrive, how many sessions are open — are technician-side
+# facts the machine-side harness cannot offer, and they were read by nothing at
+# all: a profile could declare fifteen arrivals a second while the run offered a
+# fixed twenty virtual users sleeping a second and a half between journeys, and
+# no number anywhere said the two disagreed.
+# A second argument says how many seconds of the walk have already gone. The
+# machine-side harness starts walking as soon as it has machines, and a
+# browser-side generator cannot start until the estate it reads is filed — which
+# is after the arrivals. A generator that then started the walk from its
+# beginning would be a phase behind for the rest of the night: its steady window
+# would run on past the drain, and the percentile it publishes would be taken
+# partly against a fleet that had already left.
+profile_phases() {
+  local profile="$1" elapsed="${2:-0}"
+
+  if [ ! -s "$profile" ]; then
+    echo "::error::there is no profile at $profile, so the load a night offers is unknown." >&2
+    return 2
+  fi
+  if ! profile_reader_available; then
+    echo "::error::this machine cannot read a profile (python3 with PyYAML is missing), so the load to offer could not be asked for." >&2
+    return 2
+  fi
+
+  python3 - "$profile" "$elapsed" <<'PROFILE_PHASES_PY'
+import json
+import re
+import sys
+
+import yaml
+
+UNITS = {"ms": 0.001, "s": 1, "m": 60, "h": 3600}
+
+
+def seconds(duration):
+    """Read a phase duration the way the harness reads it: a sum of amounts with
+    units, so 1m30s is ninety seconds and a bare number is refused."""
+    if duration is None:
+        raise SystemExit("a phase with no duration offers load for no time")
+    text = str(duration).strip()
+    total = 0.0
+    matched = 0
+    for amount, unit in re.findall(r"([0-9]+(?:\.[0-9]+)?)(ms|h|m|s)", text):
+        total += float(amount) * UNITS[unit]
+        matched += len(amount) + len(unit)
+    if matched != len(text) or total <= 0:
+        raise SystemExit(f"phase duration {text!r} is not a duration")
+    return total
+
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    profile = yaml.safe_load(handle) or {}
+
+elapsed = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
+
+rows = []
+for phase in profile.get("phases") or []:
+    length = seconds(phase.get("duration"))
+    if elapsed > 0:
+        # Drop what is already over and shorten the phase that is running, so
+        # the generator joins the walk where the walk actually is.
+        if elapsed >= length:
+            elapsed -= length
+            continue
+        length -= elapsed
+        elapsed = 0.0
+    rows.append(
+        {
+            "name": phase.get("name"),
+            "seconds": length,
+            "arrivals_per_second": float(phase.get("operator_arrivals_per_second") or 0),
+            "sessions": int(phase.get("sessions") or 0),
+            "agents": int(phase.get("connected_agents") or 0),
+            "measured": bool(phase.get("measured")),
+        }
+    )
+if not rows:
+    raise SystemExit(
+        "the walk was already over before the generator could join it: nothing "
+        "is left of the profile to offer"
+    )
+json.dump(rows, sys.stdout)
+PROFILE_PHASES_PY
+}

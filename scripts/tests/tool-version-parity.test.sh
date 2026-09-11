@@ -108,6 +108,7 @@ check_tool CONFTEST conftest '^\s*CONFTEST_VERSION:'
 check_tool PMAT pmat '^\s*PMAT_VERSION:'
 check_tool CARGO_MUTANTS cargo-mutants '^\s*CARGO_MUTANTS_VERSION:'
 check_tool GREMLINS gremlins '^\s*GREMLINS_VERSION:'
+check_tool K6 k6 '^\s*K6_VERSION:'
 check_tool CHECKOV checkov 'pipx install checkov'
 check_tool YAMLLINT yamllint 'pip install --user yamllint'
 check_tool CARGO_AUDIT cargo-audit 'cargo install .*cargo-audit'
@@ -117,7 +118,7 @@ check_tool GOVULNCHECK govulncheck 'go install .*govulncheck'
 check_tool GO_ARCH_LINT go-arch-lint 'go install .*go-arch-lint'
 check_tool OAPI_CODEGEN oapi-codegen 'go install .*oapi-codegen'
 
-if [ "$checked_tools" -ge 16 ]; then
+if [ "$checked_tools" -ge 17 ]; then
   pass "$checked_tools manifest rows were checked against the workflows"
 else
   fail "only $checked_tools manifest rows were checked — the sweep lost rows"

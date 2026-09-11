@@ -30,8 +30,24 @@
 # the generator falls back to a fixed word, every night asks the server for the
 # same addresses, and the second night is refused as a duplicate.
 #
+# The load itself is the profile's. `operator_arrivals_per_second` and
+# `sessions` are technician-side numbers the machine-side harness cannot offer,
+# and until they were projected here every scenario carried a shape of its own —
+# so a profile could declare fifteen journeys a second while the run offered a
+# fixed twenty virtual users sleeping a second and a half between journeys, and
+# no number anywhere said the two disagreed. The walk is read from the profile
+# and handed over, so the profile is the only home for the load as well as for
+# the limits the night is judged against.
+#
+# A run with no profile is refused rather than defaulted: a default is exactly
+# the undeclared shape this closes, wearing a different name.
+#
 # Usage: loadtest-k6-run.sh <scenario-name> <script-path>
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/loadtest-profile.sh
+. "$SCRIPT_DIR/lib/loadtest-profile.sh"
 
 K6_BIN="${K6_BIN:-k6}"
 K6_THRESHOLDS_FAILED=99
@@ -47,6 +63,13 @@ main() {
   local export_path="$summary_dir/$scenario.json"
   local breach_path="$summary_dir/$scenario.thresholds"
   local status=0
+  local phases
+
+  # How far the walk has already gone, so this generator joins it where it is
+  # rather than starting the shape again from its beginning.
+  phases="$(profile_phases \
+    "${LOADTEST_PROFILE:?LOADTEST_PROFILE must name the profile whose load this offers}" \
+    "${LOADTEST_WALK_ELAPSED_SECONDS:-0}")" || return 2
 
   # A breach record left by an earlier attempt would otherwise be read as this
   # run's.
@@ -54,9 +77,11 @@ main() {
 
   "$K6_BIN" run \
     --summary-export "$export_path" \
-    --summary-trend-stats "${K6_SUMMARY_TREND_STATS:-avg,min,med,p(50),p(95),p(99),max}" \
+    --summary-trend-stats "${K6_SUMMARY_TREND_STATS:-avg,min,med,p(50),p(95),p(99),max,count}" \
     --env "BASE_URL=${LOADTEST_BASE_URL:?LOADTEST_BASE_URL must be set}" \
     --env "LOADTEST_RUN_ID=${LOADTEST_RUN_ID:?LOADTEST_RUN_ID must be set}" \
+    --env "LOADTEST_SCENARIO=$scenario" \
+    --env "LOADTEST_PHASES=$phases" \
     "$script" || status=$?
 
   if [ "$status" -ne 0 ] && [ "$status" -ne "$K6_THRESHOLDS_FAILED" ]; then

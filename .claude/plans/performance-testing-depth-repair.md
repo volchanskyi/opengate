@@ -14,6 +14,33 @@ code. Nothing in it is inferred.
 
 Updated 2026-09-10. Each workstream lands as one commit.
 
+**What WS5 changed, and what it leaves to the nights.** The load a browser-side
+generator offers is now the profile's, projected in and offered as an arrival
+rate; each technician and each machine presents an address of its own, and the
+rule that decides whose presented address is believed narrowed from "anything
+private" to "a service the deployment named"; the percentile is taken over the
+phase the profile marks rather than over the climb and the wind-down as well;
+and the scaling sweep finally holds a technician load constant while it varies
+its processors. Item 4's "lengthen the steady phases" needed nothing: WS3 had
+already put every steady phase between three and eight minutes.
+
+**A gate repaired on the way.** The coverage guard's diff check had become
+unable to ask its question: SonarCloud keeps file-level data for a short-lived
+branch only where that branch changed the file, so a commit whose predecessor
+touched only test-harness files leaves every guarded source file without a
+component. It now reads the coverage reports the scan uploaded where the
+analysis holds nothing
+([ADR-118](../../docs/adr/ADR-118-a-coverage-guard-reads-the-report-it-uploaded.md)).
+
+Item 5 is where the honest limit is. Thresholds cannot be re-based on what the
+widened load produces until a night of it exists — every browser-side series
+takes a new `workload_name` (`/3`), so each starts its window again and is held
+by the profile's absolute limits alone until three nights of it are on record.
+The limits themselves are untouched for that reason, except the two new
+`dropped_iterations` rows, whose blocking value is set loose on purpose and
+whose advisory value is the target. The first nights after this are what set
+them.
+
 | WS | State | Where it is |
 |---|---|---|
 | WS0 | **Part-done** | Staging's 250 rung came back invalid for two reasons WS3 has now closed, so the ladder's answer is open again and the nightly itself is the first rung. The throwaway ladder is blocked on D38 |
@@ -21,7 +48,7 @@ Updated 2026-09-10. Each workstream lands as one commit.
 | WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
 | WS3 | **Done** | [ADR-105](../../docs/adr/ADR-105-a-simulated-machine-is-one-machine-for-the-whole-run.md), [ADR-106](../../docs/adr/ADR-106-a-venue-lasts-as-long-as-the-run-it-holds.md), [ADR-107](../../docs/adr/ADR-107-a-family-runs-somewhere.md) |
 | WS4 | **Done** | [ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md), [ADR-111](../../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md), [ADR-112](../../docs/adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md). The estate is filed as it arrives, and a climb is offered at the rate its profile declares. What remains is a reader on the volume venue — see below |
-| WS5 | **Started** | Item 6 done: [ADR-115](../../docs/adr/ADR-115-a-ladder-declares-what-giving-out-means.md). Items 1–5 not started |
+| WS5 | **Done** | [ADR-115](../../docs/adr/ADR-115-a-ladder-declares-what-giving-out-means.md), [ADR-116](../../docs/adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md), [ADR-117](../../docs/adr/ADR-117-the-profile-offers-the-load-and-names-the-window.md). Items 1–6 all landed; what items 4 and 5 asked for in numbers is below |
 | WS6 | Not started | |
 | F1 | **Done** | The busy-machine ceiling now reads the measure its venue calls for, and an unread figure no longer reaches it as a machine at rest. [ADR-108](../../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) |
 | F4 | **Done** | A machine leaves when the run winds it down rather than when its own clock runs out, so the estate gets its machines back and a recovery step measures a target let go of. [ADR-110](../../docs/adr/ADR-110-a-machine-leaves-when-the-run-says-so.md) |
@@ -1322,20 +1349,26 @@ Every changed profile takes a new `workload_name` version per Decision 9.
 
 ### WS5 — Load worth the name (D1, D14, D25)
 
-1. Per Decision 4, the generator presents one address per simulated technician
-   and the trust rule is narrowed to the entry point at the edge, in the same
-   commit, with `TestExtractIP` extended both ways.
-   `loadtest-rate-budget.test.sh` is re-pointed at whatever the new binding
-   constraint is.
-2. Per Decision 6, api-baseline and concurrent-agents move to arrival-rate
-   executors and `dropped_iterations` becomes a gated series.
-3. Per Decision 7, the profile's technician numbers are projected into k6, and
-   the perf-stack gains a k6 leg so its families hold a real technician load
-   constant.
-4. Steady phases lengthen to 3–5 minutes and percentiles are taken over the
-   steady window, not over the ramps as well.
-5. Thresholds are re-based on what the widened load actually produces, and every
-   changed scenario takes a new `workload_name` version per Decision 9.
+1. **Done — [ADR-116](../../docs/adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md).**
+   The generator presents one address per simulated technician and one per
+   machine; the trust rule narrowed to the proxies the deployment names, by
+   service rather than by address, in the same commit.
+   `loadtest-rate-budget.test.sh` now sizes one technician's own share against
+   the router's limit and holds the five-file chain that makes a presented
+   address believed.
+2. **Done — [ADR-117](../../docs/adr/ADR-117-the-profile-offers-the-load-and-names-the-window.md).**
+   api-baseline and concurrent-agents are arrival-rate scenarios and
+   `dropped_iterations` is a gated series.
+3. **Done — same ADR.** The profile's technician numbers are projected into k6,
+   and the scaling job runs a browser-side leg whose journeys are folded into
+   its bundle and read by the curve.
+4. **Done — same ADR.** Percentiles are taken over the phase the profile marks
+   `measured`. The steady phases needed no lengthening: WS3 had already put
+   every one of them between three and eight minutes.
+5. **Half done, and the other half needs a night.** Every changed scenario took
+   a new `workload_name` per Decision 9, so each compares against itself. The
+   thresholds themselves cannot be re-based until the widened load has produced
+   readings — see the note in §0.
 6. **What counts as "given out" is written down before it is looked for — done,
    [ADR-115](../../docs/adr/ADR-115-a-ladder-declares-what-giving-out-means.md).** The
    breakpoint family has no such definition today, so its answer is whatever the

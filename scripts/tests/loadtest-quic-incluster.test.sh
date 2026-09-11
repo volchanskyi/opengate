@@ -362,13 +362,36 @@ else
   fail "the workflow starts its scenarios without waiting for the estate to be filed"
 fi
 
-# And it has to ask before the first scenario, not after the last one.
-filed_line="$(grep -n 'await-filed' "$WORKFLOW" | head -1 | cut -d: -f1)"
-baseline_line="$(grep -n 'Run k6 API baseline' "$WORKFLOW" | head -1 | cut -d: -f1)"
-if [ -n "$filed_line" ] && [ -n "$baseline_line" ] && [ "$filed_line" -lt "$baseline_line" ]; then
-  pass "the estate is filed before the first scenario reads it"
+# And it has to ask before the scenarios, not after them. The three run at the
+# same time, driven from one step, so that step is the thing to be before.
+filed_at="$(grep -n 'await-filed' "$WORKFLOW" || true)"
+filed_line="${filed_at%%:*}"
+scenarios_at="$(grep -n 'Run the browser-side scenarios against the walk' "$WORKFLOW" || true)"
+scenarios_line="${scenarios_at%%:*}"
+if [ -n "$filed_line" ] && [ -n "$scenarios_line" ] && [ "$filed_line" -lt "$scenarios_line" ]; then
+  pass "the estate is filed before the scenarios read it"
 else
-  fail "the wait for a filed estate must come before the first k6 scenario"
+  fail "the wait for a filed estate must come before the k6 scenarios"
+fi
+
+# The walk the scenarios join is the one the harness is already walking, and the
+# harness is the only thing that knows when that started. A generator handed no
+# start time begins the profile's shape again from its beginning and is a phase
+# behind for the rest of the night.
+reset_pod
+HARNESS_FILES=0 HARNESS_HOLD=0.2 "$SHIM" start -- harness >/dev/null 2>&1
+rc=0
+started="$("$SHIM" walk-started-at 2>/dev/null)" || rc=$?
+if [ "$rc" -ne 0 ] && [ -z "$started" ]; then
+  pass "a harness that never said when it started walking is refused"
+else
+  fail "a harness that never said when it started walking answered '$started'"
+fi
+
+if grep -q 'walk-started-at' "$WORKFLOW"; then
+  pass "the workflow asks how far the walk has gone before starting a generator"
+else
+  fail "the workflow asks how far the walk has gone before starting a generator"
 fi
 
 echo

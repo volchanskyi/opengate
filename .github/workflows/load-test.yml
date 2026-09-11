@@ -30,7 +30,10 @@ concurrency:
 
 env:
   K6_VERSION: v1.6.1
-  K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max
+  # count is one of them because the bundle records how many times each
+  # screen was opened, and a trend statistic that was not asked for is not
+  # in the export — so the evidence carried nought openings of every screen.
+  K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max,count
   LOADTEST_K6_SUMMARY_DIR: /tmp/loadtest-k6
   LOADTEST_QUIC_OUTPUT: /tmp/loadtest-quic.txt
   # How long the QUIC fleet stays connected. The profile's walk is what decides
@@ -59,6 +62,12 @@ env:
   # — a site whose link came back — but not the everyday one, and it meant the
   # profile's phases were read by nothing while its limits were read by the gate.
   LOADTEST_PROFILE: load/profiles/normal.yaml
+  # The label the generator pods carry, and the only thing that puts them behind
+  # the service the staging server has been told is a proxy. Without it every
+  # presented address a run offers is disbelieved and the whole night spends the
+  # one allowance a single pod is entitled to. Held equal to the chart's own
+  # selector by scripts/tests/loadtest-rate-budget.test.sh.
+  LOADTEST_GENERATOR_LABEL: opengate.io/loadtest-generator
 
 permissions:
   contents: read
@@ -221,10 +230,15 @@ jobs:
           # reserves what production does, and reservation is what governs
           # admission — the machine itself is three-quarters idle, and its
           # processor limits are already oversubscribed several times over.
+          #
+          # The memory cap covers three generators rather than one: the
+          # browser-side scenarios walk the profile at the same time now, so
+          # three k6 runtimes and the virtual users of all three share this pod.
           kubectl -n "$NAMESPACE" run "$LOADTEST_K6_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
-            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --labels="$LOADTEST_GENERATOR_LABEL=true" \
+            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"600m","memory":"768Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_K6_POD" 120
           kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
@@ -292,6 +306,7 @@ jobs:
           kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
+            --labels="$LOADTEST_GENERATOR_LABEL=true" \
             --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_POD" 120
@@ -349,20 +364,50 @@ jobs:
       - name: Wait for the estate to be filed
         run: scripts/loadtest-quic-incluster.sh await-filed
 
-      - name: Run k6 API baseline
+      # The machine-side harness has been walking since its fleet started
+      # arriving, and the step above waited for the estate to be filed. The
+      # browser-side generators join that walk where it is rather than starting
+      # the shape again: a generator a phase behind holds its steady window open
+      # past the drain, and publishes a percentile taken partly against a fleet
+      # that had already left.
+      - name: Say how far the walk has already gone
         run: |
-          K6_BIN=scripts/loadtest-k6-incluster.sh \
-            scripts/loadtest-k6-run.sh api-baseline /tmp/load/k6/scenarios/api-baseline.js
+          set -euo pipefail
+          started="$(scripts/loadtest-quic-incluster.sh walk-started-at)"
+          echo "LOADTEST_WALK_ELAPSED_SECONDS=$(( $(date +%s) - started ))" >>"$GITHUB_ENV"
 
-      - name: Run k6 concurrent agents
+      # The three browser-side scenarios walk the same profile the machine-side
+      # harness is walking, at the same time, because that is what the profile
+      # describes: one night, one shape, technicians working through it while
+      # machines arrive underneath them. Run one after another they would each
+      # walk the whole shape in turn, which is three nights end to end and none
+      # of them the night the profile declares.
+      #
+      # Each presents addresses from a block of its own, so two of them cannot
+      # spend one technician's allowance between them.
+      #
+      # A scenario that fails is waited for rather than abandoned: `wait` on a
+      # named job returns that job's status, and every one of the three is
+      # checked, so a night short of a generator says which one and still keeps
+      # what the other two measured.
+      - name: Run the browser-side scenarios against the walk
         run: |
-          K6_BIN=scripts/loadtest-k6-incluster.sh \
-            scripts/loadtest-k6-run.sh concurrent-agents /tmp/load/k6/scenarios/concurrent-agents.js
+          set -uo pipefail
+          declare -A running=()
+          for scenario in api-baseline concurrent-agents relay-throughput; do
+            K6_BIN=scripts/loadtest-k6-incluster.sh \
+              scripts/loadtest-k6-run.sh "$scenario" "/tmp/load/k6/scenarios/$scenario.js" &
+            running["$scenario"]=$!
+          done
 
-      - name: Run k6 relay throughput
-        run: |
-          K6_BIN=scripts/loadtest-k6-incluster.sh \
-            scripts/loadtest-k6-run.sh relay-throughput /tmp/load/k6/scenarios/relay-throughput.js
+          failed=0
+          for scenario in "${!running[@]}"; do
+            if ! wait "${running[$scenario]}"; then
+              echo "::error::k6 scenario $scenario did not finish; the night is short of its numbers."
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Cleanup k6 load test pod
         if: always()

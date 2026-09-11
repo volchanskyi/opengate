@@ -60,8 +60,8 @@ func RequestTimeout(d time.Duration) func(http.Handler) http.Handler {
 
 // AuthRateLimiter returns an oapi-codegen MiddlewareFunc that applies a tighter
 // rate limit to authentication endpoints (login/register).
-func AuthRateLimiter(rps float64, burst int) MiddlewareFunc {
-	limiter := RateLimiter(rps, burst)
+func AuthRateLimiter(rps float64, burst int, trust *TrustedProxies) MiddlewareFunc {
+	limiter := RateLimiter(rps, burst, trust)
 	return func(next http.Handler) http.Handler {
 		limited := limiter(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -88,7 +88,8 @@ read_leg() {
         (.verdict.result),
         ([.observations[]? | select(.series == "connect_p95_ms") | .value] | first // "absent" | tostring),
         ([.phases[]? | .latency_p95_ms // 0] | max | tostring),
-        ([.phases[]? | .target_busy_percent] | if length == 0 or any(. == null) then "absent" else (add / length | . * 10 | round / 10 | tostring) end)
+        ([.phases[]? | .target_busy_percent] | if length == 0 or any(. == null) then "absent" else (add / length | . * 10 | round / 10 | tostring) end),
+        ([.journeys[]? | select(.name == "device-list") | .latency_p95_ms] | first // "absent" | tostring)
       ] | @tsv' "$path" 2>/dev/null)"; then
     echo "::error::$path is not a readable bundle, so its rung contributes nothing to the curve." >&2
     return 1
@@ -108,6 +109,17 @@ read_leg() {
     return 1
   fi
 
+  # The technician half. The sweep holds the technician load constant and varies
+  # the processors, so a rung with no technician reading is a rung where the
+  # thing being held constant was not offered at all — which is how the curve
+  # came to be flat from one processor upwards while every leg looked fine.
+  local journey
+  journey="$(cut -f6 <<<"$row")"
+  if [ "$journey" = "absent" ]; then
+    echo "::error::the leg at $path carries no technician reading, so what the sweep varied processors against at that rung was machines arriving and nothing else." >&2
+    return 1
+  fi
+
   printf '%s\n' "$row"
 }
 
@@ -118,9 +130,9 @@ publish_curve() {
   local rows="$1"
   echo "### Scaling sweep"
   echo
-  echo "| Server processors | Verdict | Connect p95 (ms) | Phase p95 (ms) | Target busy (% of allowance) |"
-  echo "|---|---|---|---|---|"
-  awk -F'\t' 'NF == 5 { printf "| %s | %s | %s | %s | %s |\n", $1, $2, $3, $4, $5 }' <<<"$rows"
+  echo "| Server processors | Verdict | Connect p95 (ms) | Phase p95 (ms) | Target busy (% of allowance) | Fleet list p95 (ms) |"
+  echo "|---|---|---|---|---|---|"
+  awk -F'\t' 'NF == 6 { printf "| %s | %s | %s | %s | %s | %s |\n", $1, $2, $3, $4, $5, $6 }' <<<"$rows"
   echo
 }
 
@@ -131,7 +143,7 @@ publish_curve() {
 # and one byte on every leg produced.
 check_rungs_are_distinct() {
   local rows="$1" rungs unique total
-  rungs="$(awk -F'\t' 'NF == 5 { print $1 }' <<<"$rows")"
+  rungs="$(awk -F'\t' 'NF == 6 { print $1 }' <<<"$rows")"
   total="$(grep -c . <<<"$rungs")"
   unique="$(sort -u <<<"$rungs" | grep -c .)"
 
@@ -146,7 +158,7 @@ check_rungs_are_distinct() {
 # something other than the rungs.
 check_legs_are_not_identical() {
   local rows="$1" readings unique
-  readings="$(awk -F'\t' 'NF == 5 { print $3 "\t" $4 "\t" $5 }' <<<"$rows")"
+  readings="$(awk -F'\t' 'NF == 6 { print $3 "\t" $4 "\t" $5 "\t" $6 }' <<<"$rows")"
   unique="$(sort -u <<<"$readings" | grep -c .)"
 
   if [ "$unique" -eq 1 ]; then

@@ -9,14 +9,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// okHandler answers every request, so what a test reads off a recorder is the
+// limiter's verdict and nothing else.
+var okHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+})
+
+// insideTheCluster names the ranges this server used to believe by their shape:
+// loopback, the private ranges, link-local. The cases below are about which
+// allowance a request spends rather than about which peer is believed, so they
+// state that set outright; which peers a deployment actually names is
+// proxytrust_test.go's subject.
+func insideTheCluster(t *testing.T) *TrustedProxies {
+	t.Helper()
+	trust, err := ParseTrustedProxies([]string{
+		"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"::1/128", "fe80::/10",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, trust)
+	return trust
+}
+
 func TestRateLimiter(t *testing.T) {
 	t.Parallel()
-	okHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
 
 	t.Run("requests under limit pass", func(t *testing.T) {
-		handler := RateLimiter(10, 5)(okHandler)
+		handler := RateLimiter(10, 5, insideTheCluster(t))(okHandler)
 		for i := 0; i < 5; i++ {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.RemoteAddr = "1.2.3.4:1234"
@@ -27,7 +46,7 @@ func TestRateLimiter(t *testing.T) {
 	})
 
 	t.Run("requests over limit return 429", func(t *testing.T) {
-		handler := RateLimiter(1, 2)(okHandler)
+		handler := RateLimiter(1, 2, insideTheCluster(t))(okHandler)
 		var codes []int
 		for i := 0; i < 10; i++ {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -47,7 +66,7 @@ func TestRateLimiter(t *testing.T) {
 	})
 
 	t.Run("different IPs get independent limits", func(t *testing.T) {
-		handler := RateLimiter(1, 1)(okHandler)
+		handler := RateLimiter(1, 1, insideTheCluster(t))(okHandler)
 
 		// Exhaust limit for IP A
 		for i := 0; i < 5; i++ {
@@ -66,7 +85,7 @@ func TestRateLimiter(t *testing.T) {
 	})
 
 	t.Run("X-Forwarded-For from a trusted proxy identifies the client", func(t *testing.T) {
-		handler := RateLimiter(1, 1)(okHandler)
+		handler := RateLimiter(1, 1, insideTheCluster(t))(okHandler)
 
 		// First request through the proxy should pass
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -100,7 +119,7 @@ func TestRateLimiter(t *testing.T) {
 	}
 	for _, tt := range bypass {
 		t.Run("varying X-Forwarded-For cannot mint fresh buckets: "+tt.name, func(t *testing.T) {
-			handler := RateLimiter(1, 1)(okHandler)
+			handler := RateLimiter(1, 1, insideTheCluster(t))(okHandler)
 			send := func(xff string) int {
 				req := httptest.NewRequest(http.MethodGet, "/", nil)
 				req.RemoteAddr = tt.remoteAddr
@@ -126,13 +145,13 @@ func TestExtractIP(t *testing.T) {
 	}{
 		{"remote addr with port", "1.2.3.4:5678", "", "1.2.3.4"},
 		{"remote addr without port", "1.2.3.4", "", "1.2.3.4"},
-		// Loopback and private peers are our own reverse proxy: the entry it
-		// appended — the last one — is the client it actually observed.
+		// A peer this deployment named as its proxy: the entry it appended —
+		// the last one — is the client it actually observed.
 		{"xff single from loopback proxy", "127.0.0.1:80", "203.0.113.1", "203.0.113.1"},
 		{"xff from loopback proxy uses last hop", "127.0.0.1:80", "203.0.113.1, 198.51.100.9", "198.51.100.9"},
 		{"xff with spaces", "127.0.0.1:80", " 203.0.113.2 , 198.51.100.8 ", "198.51.100.8"},
 		{"xff from private proxy", "10.0.0.1:8080", "203.0.113.1, 198.51.100.7", "198.51.100.7"},
-		// A public peer is not our proxy, so nothing it claims is trusted.
+		// A peer this deployment did not name, so nothing it claims is trusted.
 		{"xff ignored from public peer", "203.0.113.50:44321", "198.51.100.1", "203.0.113.50"},
 		{"xff ignored from public peer with chain", "203.0.113.50:44321", "1.1.1.1, 2.2.2.2", "203.0.113.50"},
 		// A malformed trailing entry must not become the identity.
@@ -146,7 +165,7 @@ func TestExtractIP(t *testing.T) {
 			if tt.xff != "" {
 				req.Header.Set("X-Forwarded-For", tt.xff)
 			}
-			assert.Equal(t, tt.want, extractIP(req))
+			assert.Equal(t, tt.want, extractIP(req, insideTheCluster(t)))
 		})
 	}
 }

@@ -41,6 +41,12 @@ type EnrollOptions struct {
 	// Hostname is the name this machine presents. Empty falls back to the
 	// device id, which is always present.
 	Hostname string
+	// PresentedAddress is the address this machine arrives from. The server
+	// counts requests per address, so a fleet that presents one between all of
+	// it measures that allowance rather than the server. Empty presents
+	// nothing, which is the right answer against a deployment that has not
+	// named this generator as a proxy. See presented.go.
+	PresentedAddress string
 }
 
 // IssuedCertificate is what a machine ends up holding: the certificate the
@@ -147,6 +153,7 @@ func postEnrollment(ctx context.Context, opts EnrollOptions, csrPEM []byte) (*en
 		return nil, fmt.Errorf("build enrollment request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	presentAddress(req, opts.PresentedAddress)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

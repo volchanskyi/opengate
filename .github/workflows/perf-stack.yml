@@ -39,6 +39,8 @@ permissions:
 
 env:
   COMPOSE_FILE: deploy/docker-compose.perf.yml
+  K6_VERSION: v1.6.1
+  K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max,count
   PERF_BUNDLE_DIR: perf-bundles
   # What the system under test is capped at. It is declared here rather than
   # left to the compose file's own default because the harness records it as the
@@ -133,11 +135,38 @@ jobs:
       # Building the fleet is also what makes this a scaling sweep: the family
       # holds the load and the data constant and varies the processors, and its
       # profile names the fixture it holds constant.
-      - name: Run the scaling profile, building its fleet first
+      - name: Install k6
         run: |
           set -euo pipefail
-          mkdir -p "$PERF_BUNDLE_DIR"
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
+
+      # The technician load runs beside the fleet, from the profile, so the sweep
+      # holds it constant while it varies the processors. It used to hold none:
+      # no browser-side generator ran on this venue at all, so what the sweep
+      # varied processors against was five hundred machines arriving, which is
+      # the cheapest thing the server does — and that is why its curve was flat
+      # from one processor upwards.
+      - name: Run the scaling profile, building its fleet first
+        env:
+          LOADTEST_BASE_URL: http://127.0.0.1:8080
+          LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-cpus${{ matrix.cpus }}
+          LOADTEST_PROFILE: load/profiles/scaling.yaml
+          LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
+          K6_BIN: /tmp/k6
+          # The stack is created by this job and thrown away at the end of it, is
+          # reachable only from inside the runner, and holds nothing but the
+          # fleet this run invented. The password is generated per run all the
+          # same, so nothing fixed is ever written down.
+          PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+        run: |
+          set -euo pipefail
+          mkdir -p "$PERF_BUNDLE_DIR" "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline &
+          K6_LEG=$!
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
@@ -157,12 +186,18 @@ jobs:
               -fixture-bootstrap \
               -fixture-seed=1 \
               -bundle="$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}"
-        env:
-          # The stack is created by this job and thrown away at the end of it, is
-          # reachable only from inside the runner, and holds nothing but the
-          # fleet this run invented. The password is generated per run all the
-          # same, so nothing fixed is ever written down.
-          PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+          wait "$K6_LEG"
+
+      # The technician numbers are timed by a generator in another process and
+      # written to a file of its own. Folding them into the leg is what gives
+      # them a reader: the curve is built from the bundles, and a measurement
+      # nobody reads is a run that happens to share a profile.
+      - name: Fold the technician journeys into the leg
+        run: |
+          set -euo pipefail
+          scripts/loadtest-bundle-merge.sh \
+            "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json" \
+            --journeys /tmp/perf-k6/api-baseline.json
 
       - name: Read the verdict the run wrote about itself
         if: always()

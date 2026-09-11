@@ -18,6 +18,13 @@ server:
   # Staging E2E reaches the app via kubectl port-forward, not L4, so disable
   # hostPort here (the server still serves HTTP on :8080).
   hostPortL4: false
+  # The edge, and the generators a load run creates here. The second entry is
+  # what lets a night offer the request load a fleet of technicians would offer
+  # rather than the single allowance one pod is entitled to; it names the
+  # service the run's pods join, which exists in this environment alone.
+  trustedProxies:
+    - ingress-nginx-controller.ingress-nginx
+    - opengate-staging-loadtest-generators.opengate-staging
   # Production's own shape, exactly. A load run against a server sized
   # differently from the one customers use answers a question about a machine
   # nobody has, and staging is the only venue on the hardware production
@@ -57,5 +64,7 @@ postgres:
 # emptyDir and starts empty on every pod restart, so the account is re-seeded on
 # every deployment rather than created once.
 loadTest:
+  generators:
+    enabled: true
   serviceAccount:
     enabled: true

@@ -365,6 +365,11 @@ All API endpoints are subject to per-IP rate limiting:
 
 Requests exceeding the limit receive `429 Too Many Requests`. A 30-second request timeout applies to all API routes (WebSocket routes are excluded).
 
+The address a request is counted under is its peer's, unless the peer is one of
+the proxies the deployment names — then it is the last entry of that request's
+`X-Forwarded-For`. See
+[ADR-116](../adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md).
+
 ## Authentication
 
 Protected endpoints require a JWT bearer token in the `Authorization` header:

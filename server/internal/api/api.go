@@ -206,9 +206,13 @@ type ServerConfig struct {
 	GitHubRepo            string // GitHub repo for manifest auto-sync (e.g. "owner/repo")
 	BaseURL               string // public base URL for install script (e.g. "https://opengate.example.com")
 	QuicHost              string // override hostname for QUIC address in enrollment (bypasses CDN proxy)
-	Logger                *slog.Logger
-	WebDir                string // directory containing SPA static assets (optional)
-	Metrics               *appmetrics.Metrics
+	// TrustedProxies names the reverse proxies whose X-Forwarded-For decides
+	// which request allowance a caller spends. Nil believes none of them, which
+	// is the right answer for a server reached directly.
+	TrustedProxies *TrustedProxies
+	Logger         *slog.Logger
+	WebDir         string // directory containing SPA static assets (optional)
+	Metrics        *appmetrics.Metrics
 	// RequestTimeout bounds a single API request. Zero selects
 	// defaultRequestTimeout. Tests inject a short budget so timeout-boundary
 	// behavior is provable in milliseconds rather than in wall-clock seconds.
@@ -268,6 +272,7 @@ type Server struct {
 	githubRepo      string
 	baseURL         string
 	quicHost        string
+	trustedProxies  *TrustedProxies
 	router          chi.Router
 	logger          *slog.Logger
 	webDir          string
@@ -385,6 +390,7 @@ func NewServer(cfg ServerConfig) *Server {
 		githubRepo:      cfg.GitHubRepo,
 		baseURL:         strings.TrimRight(cfg.BaseURL, "/"),
 		quicHost:        cfg.QuicHost,
+		trustedProxies:  cfg.TrustedProxies,
 		router:          chi.NewRouter(),
 		logger:          cfg.Logger,
 		webDir:          cfg.WebDir,
@@ -474,13 +480,13 @@ func (s *Server) routes() {
 	// WebSocket routes stay outside so TimeoutHandler doesn't break upgrades.
 	r.Group(func(apiRouter chi.Router) {
 		apiRouter.Use(RequestTimeout(s.requestTimeout))
-		apiRouter.Use(RateLimiter(100, 200))
+		apiRouter.Use(RateLimiter(100, 200, s.trustedProxies))
 
 		HandlerWithOptions(strictHandler, ChiServerOptions{
 			BaseRouter: apiRouter,
 			Middlewares: []MiddlewareFunc{
 				s.oapiAuthMiddleware(),
-				AuthRateLimiter(10, 20),
+				AuthRateLimiter(10, 20, s.trustedProxies),
 			},
 			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 				s.logHTTPIssue(slog.LevelWarn, "request error", r, err)

@@ -56,9 +56,25 @@ echo "api-endpoint-drift:"
 
 # Callers that spell API URLs by hand, relative to the repo root.
 CALLERS=(deploy/scripts/smoke-test.sh deploy/scripts/e2e-stack-up.sh)
+# Under load/, a caller is a file that makes requests — one that imports k6's
+# HTTP module. The others are what a generator is built out of rather than what
+# it asks for: the projection that turns a profile's walk into executors makes
+# no request at all, and holding it to "probes at least one declared path" would
+# fail it for being a library.
+found_js=0
 while IFS= read -r js; do
-  CALLERS+=("$js")
+  found_js=$((found_js + 1))
+  if grep -q 'from "k6/http"' "$ROOT/$js"; then
+    CALLERS+=("$js")
+  fi
 done < <(cd "$ROOT" && find load -type f -name '*.js' | sort)
+
+# A selection that reached nothing would pass every check below vacuously, which
+# is the shape this file exists to refuse one level down.
+if [ "$found_js" -eq 0 ]; then
+  echo "FAIL: no JavaScript under load/ — the caller selection reached nothing" >&2
+  exit 1
+fi
 
 for f in "$SPEC" "${CALLERS[@]/#/$ROOT/}"; do
   if [ ! -f "$f" ]; then

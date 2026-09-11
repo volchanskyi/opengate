@@ -60,6 +60,7 @@ run_case() {
     LOADTEST_K6_SUMMARY_DIR="$WORK/summaries" \
     LOADTEST_BASE_URL="http://127.0.0.1:18080" \
     LOADTEST_RUN_ID="${LOADTEST_RUN_ID:-99-1}" \
+    LOADTEST_PROFILE="${LOADTEST_PROFILE:-$REPO_ROOT/load/profiles/normal.yaml}" \
     K6_SUMMARY_TREND_STATS="avg,p(95)" \
     "$RUNNER" api-baseline load/k6/scenarios/api-baseline.js >"$WORK/out.txt" 2>&1 || STATUS=$?
 }
@@ -161,7 +162,18 @@ WORKFLOW="$REPO_ROOT/.github/workflows/load-test.yml"
 direct="$(grep -cE '^\s+/tmp/k6 run' "$WORKFLOW" || true)"
 assert_eq "load-test.yml invokes k6 only through the runner" "0" "$direct"
 wrapped="$(grep -cE 'scripts/loadtest-k6-run\.sh' "$WORKFLOW" || true)"
-assert_eq "load-test.yml runs three k6 scenarios through the runner" "3" "$wrapped"
+assert_eq "load-test.yml invokes the runner" "1" "$wrapped"
+
+# The three of them, named where the runner is driven. They run at the same time
+# because the profile describes one night rather than one scenario's night, so
+# the count is read off the list the loop walks rather than off three separate
+# steps.
+named="$(grep -oE 'for scenario in api-baseline concurrent-agents relay-throughput' "$WORKFLOW" || true)"
+if [ -n "$named" ]; then
+  pass "load-test.yml drives all three scenarios through the runner, together"
+else
+  fail "load-test.yml drives all three scenarios through the runner, together"
+fi
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

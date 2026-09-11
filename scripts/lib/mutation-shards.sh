@@ -293,7 +293,7 @@ mutation_go_global_excludes() {
 mutation_go_shard_units() {
   case "$1" in
     go-api-runtime)
-      echo "file:internal/api/api.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/ratelimit.go"
+      echo "file:internal/api/api.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/ratelimit.go file:internal/api/proxytrust.go"
       ;;
     # What the server accepts from a caller, and what it refuses to write into
     # a log once it has.

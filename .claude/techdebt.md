@@ -223,6 +223,50 @@ whose readings bracket the tolerance. A tolerance set before that is a guess, an
 the two counts genuinely differ while a climb settles — so the reading is
 published first and the gate follows from what it says.
 
+### Authenticated requests are still counted per address
+
+[ADR-116](../docs/adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md)
+narrowed which peer may say what address a request came from, and left the
+question of what a request should be counted under where it was.
+
+Northwind IT's forty technicians share one office connection. Steady browsing is
+nowhere near the limit — their pages refresh every fifteen to sixty seconds, so
+forty idling technicians are about three requests a second. But a bad patch goes
+out at 09:05, everyone opens a machine's page at once, six requests each, two
+hundred and forty in a second or two against a saved-up allowance of two
+hundred. Somewhere past the thirtieth technician the page comes back empty with
+nothing on screen explaining why.
+
+Counting an authenticated request under the account that made it is the answer,
+and it is a product change rather than a load-test one: it would not have solved
+the load run's problem, because every simulated technician in a scenario shares
+one sign-in, so the bucket would have moved from one address to one account.
+
+**Pay-down trigger:** any work on the request path, or the first customer report
+of a refused page during a busy moment.
+
+### The trusted-proxy list is a dependency the load run has and nothing else states
+
+The same ADR's chain runs through five files: the chart's service selects a
+label, the workflow's generator pods carry it, the chart's trusted list names
+that service, the browser-side scenarios present from the shared helper, and the
+machine-side harness presents per machine.
+[`loadtest-rate-budget.test.sh`](../scripts/tests/loadtest-rate-budget.test.sh)
+holds all five level, which is what a sweep over text can do. What it cannot
+check is the cluster: whether the generator pods actually became endpoints of
+that service in time, and whether the resolver answered for them. A night where
+they did not looks exactly like a night the server was slow — the run fills with
+429s and the error-rate gate reds.
+
+The reading that would settle it is the run's own: a phase whose requests were
+refused at the limiter is a phase whose presented addresses were not believed,
+and the refusal count is already in the k6 export as `http_req_failed` broken
+down by status.
+
+**Pay-down trigger:** the first night that reds on an error rate the server
+cannot explain, or the next piece of work that touches the generator pods.
+
+
 ## Severity: Low
 
 ### The Chat tab is unreachable from any machine the browser stack can run

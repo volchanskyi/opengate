@@ -74,7 +74,7 @@ emitted_measurements() {
   jq -r '
     .[]
     | . as $row
-    | ["latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "rps", "error_rate"][]
+    | ["latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "rps", "error_rate", "dropped_iterations"][]
     | select($row[.] != null)
     | "\($row.source)/\($row.scenario)/\($row.phase)|\(.)"
   ' <<<"$1" | sort -u
@@ -104,10 +104,17 @@ k6_export() {
 JSON
 }
 
+# The arrival-rate scenarios report what the generator could not offer; the
+# session scenario does not, because it holds sessions open rather than arriving
+# at a rate. Both shapes are put through, so a limit on the number is seen to be
+# reachable where it is emitted and its absence elsewhere is seen too.
+DROPPED=',
+    "dropped_iterations": { "count": 0, "rate": 0.0 }'
+
 # The technician journeys are timed by api-baseline alone, and each carries its
 # own limit. They were absent from this fixture while three limits named them,
 # so nothing here had ever read one.
-k6_export ',
+k6_export "$DROPPED"',
     "journey_device_list_ms": {
       "avg": 45.0, "min": 12.0, "med": 40.0,
       "p(50)": 40.0, "p(95)": 88.0, "p(99)": 120.0, "max": 150.0
@@ -120,7 +127,7 @@ k6_export ',
       "avg": 110.0, "min": 30.0, "med": 95.0,
       "p(50)": 95.0, "p(95)": 240.0, "p(99)": 400.0, "max": 520.0
     }' >"$WORK/k6/api-baseline.json"
-k6_export >"$WORK/k6/concurrent-agents.json"
+k6_export "$DROPPED" >"$WORK/k6/concurrent-agents.json"
 k6_export ',
     "relay_msg_latency_ms": {
       "avg": 30.0, "min": 8.0, "med": 25.0,

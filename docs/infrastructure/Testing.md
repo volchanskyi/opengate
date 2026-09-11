@@ -968,8 +968,8 @@ scheduled job is killed at. Its ten cycles end and restart 250 machines each.
 
 ### k6 HTTP/WS Scenarios
 
-Three k6 scenarios in [`load/k6/scenarios/`](../../load/k6/scenarios), each declaring
-its own VU ramp and thresholds in its `options` block:
+Three k6 scenarios in [`load/k6/scenarios/`](../../load/k6/scenarios), each
+building its executors from the profile the night walks:
 
 | Scenario | Exercises |
 |----------|-----------|
@@ -992,17 +992,54 @@ accepting it, so a run times the acceptance path without a fleet-wide side
 effect. `setup()` throws on an unexpected status, so a broken precondition names
 itself rather than turning every request in the run red.
 
-A run drives the server from one pod, so every virtual user in every scenario
-shares a single source address and therefore a single per-IP token bucket at the
-[API router](../../server/internal/api/api.go). A scenario is sized to keep what
-its virtual users offer under that limit; above it the run fills with 429s and
-the latency and error numbers describe the rate limiter rather than the server —
-which is a nightly error-rate regression on a night nothing regressed. The
-budget is the peak virtual users times the requests one iteration issues over
-the shortest sleep between them, and
+#### The load is the profile's
+
+How many journeys a second arrive and how many sessions are open are
+technician-side numbers, and the profile is where both are written down
+([ADR-101](../adr/ADR-101-one-measurement-one-limit-one-file.md)). The projection
+in [`scripts/lib/loadtest-profile.sh`](../../scripts/lib/loadtest-profile.sh)
+hands the walk to the generator, which turns each phase into one arrival-rate
+scenario tagged with that phase's name.
+
+Arrival rate rather than a fixed count of virtual users: a fixed count is a
+closed loop, where each user waits for its own reply before asking again, so a
+server that has slowed is offered *less* work and the latency it reports
+understates the damage. What the open loop costs is a second way to be wrong —
+a generator that cannot keep the rate offers less and the night reports a
+healthy system nobody finished asking — so `dropped_iterations` is a number the
+profiles hold to a limit.
+
+Tagging by phase is also what lets a percentile be taken over the load rather
+than over the climb to it. A profile marks one phase `measured: true`, the
+generator names that phase's sub-metric in a threshold, and both the canonical
+row and the bundle read that sub-metric where it exists. A generator joins the
+walk where the walk is, from the start time the harness announces — one that
+started the shape again from its beginning would hold its steady window open
+past the drain.
+
+#### One address per technician
+
+The server counts requests per address, at about a hundred a second
+([API router](../../server/internal/api/api.go)). A run driving the server from
+one pod used to spend one allowance between all of it, which made the rate
+limiter the run's throughput: the latency figures described an idle system and
+no throughput regression could show.
+
+Each simulated technician now presents an address of its own, and so does each
+arriving machine — from 198.18.0.0/15, which RFC 2544 reserves for benchmark
+traffic, so a synthetic address can never be somebody real. The limit is still
+enforced at full strength; the budget is simply per technician.
+
+A presented address is believed only from a peer the deployment has named as a
+proxy, which is narrower than the rule it replaced — see
+[ADR-116](../adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md)
+and [Security](Security-and-Dependencies.md#rate-limiting).
 [`scripts/tests/loadtest-rate-budget.test.sh`](../../scripts/tests/loadtest-rate-budget.test.sh)
-recomputes it against the router's own limit on every commit, so a request added
-to an iteration moves the sum where someone sees it.
+sizes one technician's own share against the router's limit and holds the whole
+chain that makes the address believed — the label the pods carry, the service
+that selects it, the trusted list that names the service — because a single
+broken link puts every technician back behind one allowance and the night
+reports it as the server failing.
 
 Every name a run creates carries the run's marker and its own seed, so two nights
 never ask the server for the same customer.
