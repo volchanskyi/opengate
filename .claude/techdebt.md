@@ -223,6 +223,37 @@ whose readings bracket the tolerance. A tolerance set before that is a guess, an
 the two counts genuinely differ while a climb settles — so the reading is
 published first and the gate follows from what it says.
 
+### The performance families declare limits nothing reads
+
+`breakpoint`, `spike`, `peak`, `scaling` and the three `volume` profiles each
+carry a `gates:` block naming what their numbers are held to.
+[`loadtest-gate-check.sh`](../scripts/loadtest-gate-check.sh) is the only thing
+that reads such a block, and
+[`load-test.yml`](../.github/workflows/load-test.yml) is the only workflow that
+calls it — against [`normal.yaml`](../load/profiles/normal.yaml). Every limit in
+the other seven profiles is a number nobody evaluates, which is the shape
+[`ci-cd-determinism.md`](rules/ci-cd-determinism.md) calls a check that cannot
+fail.
+
+What judges a perf leg today is its bundle's own verdict: the phase error
+ceiling and the arrival attainment floor that
+[`validity.go`](../server/tests/loadtest/validity.go) applies, read back by
+[`perf-bundle-verdict.sh`](../scripts/perf-bundle-verdict.sh). That is a real
+check and it is the one that caught every fault of 2026-09-11 — but it answers
+*did this run measure the system*, not *was the system fast enough*, and the
+second question is what the gates were written to ask.
+
+It became more load-bearing rather than less: the walk steps used to fail on the
+harness's exit code, which was a crude second opinion, and removing that (the
+count is not a verdict — [ADR-082](../docs/adr/ADR-082-load-run-validity.md))
+leaves the verdict alone.
+
+**Pay-down trigger:** the sweep aggregation already downloads every leg's bundle,
+so the cheapest home is there rather than in eight separate jobs. It needs the
+summarizer to emit rows from a bundle instead of from a results block, which is
+the same work [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md)'s
+"limits are read where both halves of the night exist" asks for.
+
 ### Registration timing has three limits and no night has ever measured it
 
 The load harness read the server's exposition looking for a registration outcome
