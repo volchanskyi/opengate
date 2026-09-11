@@ -25,12 +25,85 @@ export const LOAD_TEST_MARKER = "opengate-loadtest";
 /** Password every load-test identity is created with. */
 const LOAD_TEST_PASSWORD = "LoadTestPass123!";
 
-/** Authorization headers for a bearer token. */
+/**
+ * The address one simulated technician presents.
+ *
+ * The server counts requests per address, so a scenario whose virtual users all
+ * leave one pod spends one allowance between them however many technicians it
+ * is pretending to be — and what it then measures is the allowance rather than
+ * the server. Real technicians arrive from many addresses; presenting one each
+ * is the faithful shape as well as the one that lets the load through.
+ *
+ * The range is 198.18.0.0/15, which exists for exactly this (RFC 2544 reserves
+ * it for benchmarking) and belongs to nobody, so a synthetic address can never
+ * be a real one. It holds 131,072 addresses, which is more virtual users than
+ * any generator here can hold open.
+ *
+ * The server believes a presented address only from a peer it has been told is
+ * a proxy, and a load generator is named as one in the environment it runs in
+ * and nowhere else — so this claims nothing on a deployment that has not said
+ * so.
+ */
+export function presentedAddress(index) {
+  const offset = Math.abs(index | 0) % 131072;
+  return `198.${18 + (offset >> 16)}.${(offset >> 8) & 255}.${offset & 255}`;
+}
+
+/**
+ * How many addresses one scenario's block holds, and how many blocks there are.
+ * The product is the whole range, so the blocks tile it exactly.
+ */
+const ADDRESSES_PER_SCENARIO = 8192;
+const SCENARIO_BLOCKS = 16;
+
+/**
+ * The block of addresses this scenario presents from.
+ *
+ * The browser-side scenarios run at the same time against the same server, and
+ * an address is an allowance — so two of them presenting the same address would
+ * share one between them and measure the allowance rather than the server.
+ * Derived from the scenario's own name rather than handed in, so a scenario
+ * cannot be added without a block and no table has to be kept level with the
+ * files beside it. That the repository's own names land in different blocks is
+ * checked by scripts/tests/loadtest-rate-budget.test.sh.
+ */
+export function scenarioBlock(name) {
+  let hash = 2166136261;
+  for (let i = 0; i < name.length; i++) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash % SCENARIO_BLOCKS;
+}
+
+/**
+ * The address this virtual user presents. One per virtual user, stable for the
+ * life of the run, so a technician spends its own allowance from its first
+ * request to its last.
+ */
+export function technicianAddress() {
+  const scenario = __ENV.LOADTEST_SCENARIO || "adhoc";
+  return presentedAddress(
+    scenarioBlock(scenario) * ADDRESSES_PER_SCENARIO + (__VU % ADDRESSES_PER_SCENARIO)
+  );
+}
+
+/** Authorization headers for a bearer token, from this technician's address. */
 export function authHeaders(token) {
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
+    "X-Forwarded-For": technicianAddress(),
   };
+}
+
+/**
+ * Headers for a request that carries no session — a health check. It still
+ * presents the technician's address, because the allowance is spent per address
+ * whether the request was signed in or not.
+ */
+export function anonymousHeaders() {
+  return { "X-Forwarded-For": technicianAddress() };
 }
 
 /**
@@ -64,7 +137,7 @@ export function registerMember(baseUrl, prefix) {
   const resp = http.post(
     `${baseUrl}/api/v1/auth/register`,
     JSON.stringify({ email, password: LOAD_TEST_PASSWORD }),
-    { headers: { "Content-Type": "application/json" } }
+    { headers: { "Content-Type": "application/json", "X-Forwarded-For": technicianAddress() } }
   );
   if (resp.status !== 201) {
     throw new Error(`setup: register returned ${resp.status}: ${resp.body}`);

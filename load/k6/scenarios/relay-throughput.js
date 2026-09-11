@@ -22,6 +22,11 @@ import {
   printCleanupManifest,
   registerMember,
 } from "../lib/session.js";
+import {
+  measuredThresholds,
+  phases,
+  sessionScenarios,
+} from "../lib/profile.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -41,21 +46,22 @@ const PROBE = new Uint8Array([
   0x79, 0x2d, 0x70, 0x72, 0x6f, 0x62, 0x65,
 ]);
 
+const WALK = phases();
+
 export const options = {
-  scenarios: {
-    relay: {
-      executor: "constant-vus",
-      vus: 20,
-      duration: "1m",
-    },
-  },
+  // How many sessions are held open is the profile's `sessions`, phase by
+  // phase. It used to be a fixed twenty for one minute, which is a shape
+  // nobody declared: a profile could say five and the run hold twenty, and no
+  // number anywhere said the two disagreed.
+  scenarios: sessionScenarios(WALK),
   // The generator runs beside the server, one network hop away, so this is the
   // relay's own round trip: browser side to server, server to machine side, and
   // back. It is deliberately looser than a single HTTP request because the path
   // is three hops and two WebSocket upgrades rather than one request.
-  thresholds: {
-    relay_msg_latency_ms: ["p(95)<400"],
-  },
+  thresholds: Object.assign(
+    { relay_msg_latency_ms: ["p(95)<400"] },
+    measuredThresholds(WALK, { relay_msg_latency_ms: ["p(95)<400"] })
+  ),
 };
 
 export function setup() {

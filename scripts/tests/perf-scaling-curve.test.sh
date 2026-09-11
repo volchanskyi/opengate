@@ -39,9 +39,12 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # leg writes one bundle: the processor share the server was given, its verdict,
-# the wait time the machines saw, and how hard the server worked.
+# the wait time the machines saw, how hard the server worked, and what a
+# technician waited for a fleet list. The last is the half the sweep holds
+# constant, so a leg without one is a leg that offered no technician load at
+# all — the fifth argument is left off to produce exactly that.
 leg() {
-  local cpus="$1" verdict="$2" connect="$3" busy="$4"
+  local cpus="$1" verdict="$2" connect="$3" busy="$4" journey="${5:-}"
   local dir="$WORK/legs/scaling-$cpus"
   mkdir -p "$dir"
   jq -n \
@@ -49,11 +52,14 @@ leg() {
     --arg verdict "$verdict" \
     --argjson connect "$connect" \
     --argjson busy "$busy" \
+    --arg journey "$journey" \
     '{
       schema_version: 6,
       target: { cpus: $cpus, memory_bytes: 1073741824 },
       phases: [ { name: "steady", latency_p95_ms: $connect, target_busy_percent: $busy } ],
       observations: [ { series: "connect_p95_ms", value: $connect } ],
+      journeys: (if $journey == "" then []
+                 else [ { name: "device-list", latency_p95_ms: ($journey | tonumber) } ] end),
       verdict: { result: $verdict }
     }' >"$dir/bundle.json"
 }
@@ -69,10 +75,10 @@ echo "perf-scaling-curve:"
 
 # A sweep whose rungs differ is a curve, whichever way it happens to bend.
 reset_legs
-leg 0.25 valid 62 96
-leg 0.5 valid 41 88
-leg 1 valid 22 71
-leg 2 valid 19 44
+leg 0.25 valid 62 96 310
+leg 0.5 valid 41 88 260
+leg 1 valid 22 71 190
+leg 2 valid 19 44 170
 run_curve
 assert_eq "a sweep whose legs differ passes" "0" "$STATUS"
 if grep -qF '| 0.25 | valid | 62 | 62 | 96 |' "$WORK/out.txt"; then
@@ -90,19 +96,19 @@ fi
 # same code disagreed about the shape, so one night's monotonicity is not
 # something to gate on.
 reset_legs
-leg 0.25 valid 16 40
-leg 0.5 valid 13 41
-leg 1 valid 18 39
-leg 2 valid 16 42
+leg 0.25 valid 16 40 310
+leg 0.5 valid 13 41 260
+leg 1 valid 18 39 190
+leg 2 valid 16 42 170
 run_curve
 assert_eq "a flat curve is published rather than failed" "0" "$STATUS"
 
 # The condition the 2026-09-05 sweep was actually in: four legs, one answer.
 reset_legs
-leg 0.25 valid 14 40
-leg 0.5 valid 14 40
-leg 1 valid 14 40
-leg 2 valid 14 40
+leg 0.25 valid 14 40 190
+leg 0.5 valid 14 40 190
+leg 1 valid 14 40 190
+leg 2 valid 14 40 190
 run_curve
 if [ "$STATUS" -ne 0 ] && grep -qF 'identical readings' "$WORK/out.txt"; then
   pass "a sweep whose legs all say the same thing fails"
@@ -114,7 +120,7 @@ fi
 # the rungs were never rungs.
 reset_legs
 mkdir -p "$WORK/legs/a" "$WORK/legs/b"
-leg 1 valid 14 40
+leg 1 valid 14 40 190
 cp "$WORK/legs/scaling-1/bundle.json" "$WORK/legs/a/bundle.json"
 jq '.observations[0].value = 22 | .phases[0].latency_p95_ms = 22' \
   "$WORK/legs/scaling-1/bundle.json" >"$WORK/legs/b/bundle.json"
@@ -129,8 +135,8 @@ fi
 # A leg that measured nothing takes its rung out of the curve, and a curve with
 # a hole in it is not one.
 reset_legs
-leg 0.25 valid 62 96
-leg 1 invalid 0 0
+leg 0.25 valid 62 96 310
+leg 1 invalid 0 0 190
 run_curve
 if [ "$STATUS" -ne 0 ] && grep -qF 'did not measure the system' "$WORK/out.txt"; then
   pass "an invalid leg fails the sweep rather than being averaged in"
@@ -141,7 +147,7 @@ fi
 # One rung is a run. Reporting it as a sweep is how three rungs go missing with
 # nothing saying so.
 reset_legs
-leg 1 valid 22 71
+leg 1 valid 22 71 190
 run_curve
 if [ "$STATUS" -ne 0 ] && grep -qF 'at least 2 points' "$WORK/out.txt"; then
   pass "a single leg is refused as a curve"

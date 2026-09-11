@@ -122,6 +122,11 @@ func CheckRoomToContinue(limits Safety, reading NodeReading) error {
 	return errors.Join(problems...)
 }
 
+// walkStartedAnnouncement is the line the run prints when it starts walking,
+// followed by the second it started at. scripts/loadtest-quic-incluster.sh
+// reads it, the way it already reads the fleet and estate announcements.
+const walkStartedAnnouncement = "Walk started at"
+
 // RunPhasesWatched walks a profile and stops the moment the machine it shares
 // goes past what the profile said it would accept.
 func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyReader, busy TargetBusy) ([]PhaseResult, error) {
@@ -131,6 +136,15 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 	if len(profile.Phases) == 0 {
 		return nil, errors.New("run phases: the profile declares no phases")
 	}
+
+	// The walk says when it began, because something else has to join it.
+	// The browser-side generators cannot start until the estate they read is
+	// filed, which is after the arrivals — so without a time to join at, they
+	// would start the shape again from its beginning and stay a phase behind
+	// for the rest of the night, holding a steady window open past the drain
+	// and publishing a percentile taken partly against a fleet that had already
+	// left.
+	fmt.Printf("%s %d\n", walkStartedAnnouncement, clock.Now().Unix())
 
 	results := make([]PhaseResult, 0, len(profile.Phases))
 	from := 0

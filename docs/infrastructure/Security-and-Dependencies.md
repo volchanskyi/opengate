@@ -148,7 +148,23 @@ Per-IP rate limiting is enforced at the middleware level:
 | Global (all routes) | 100 req/s | 200 |
 | Auth endpoints (`/auth/login`, `/auth/register`) | 10 req/s | 20 |
 
-Rate limits are tracked per client IP. When behind a reverse proxy, the real IP is extracted from the `X-Forwarded-For` header.
+Rate limits are tracked per client address. A request bucket is an identity, so
+whoever can choose the address a request is counted under can mint a fresh
+allowance per request — which makes *whose* `X-Forwarded-For` is believed part
+of the limit rather than a detail of it.
+
+It is believed only from a peer the deployment has named as one of its proxies,
+in `server.trustedProxies`
+([values.yaml](../../deploy/helm/opengate/values.yaml)). An entry is either a
+Kubernetes service, written `<service>.<namespace>` and matched against what the
+cluster's own resolver says the peer answers for, or a range. A service is named
+rather than an address because the address belongs to the controller's pod and
+changes whenever that pod is replaced. Nothing named means nothing believed,
+which is the right answer for a server reached directly.
+
+Only the header's *last* entry is read, because that is the one the proxy
+appended and every earlier one was supplied by the caller. See
+[ADR-116](../adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md).
 
 ### Request Timeout
 

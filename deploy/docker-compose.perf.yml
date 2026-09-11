@@ -72,6 +72,19 @@ services:
       - DATABASE_URL=postgres://opengate:perf-test-password@postgres:5432/opengate?sslmode=disable
       - OPENGATE_QUIC_HOST=server
       - OPENGATE_VICTORIAMETRICS_URL=http://metrics:8428
+      # Whose X-Forwarded-For this server believes, and therefore which request
+      # allowance a caller spends. The generators run on the runner and reach a
+      # published port, so what this server sees as the peer is the bridge this
+      # stack created — a range, because a bridge address is assigned when the
+      # stack comes up and is knowable to nobody before then.
+      #
+      # It is the private ranges, which is wide, and it is the whole of what can
+      # reach this stack: it is created by one job, is published on the loopback
+      # of one runner, and is destroyed with the job. A generator that could not
+      # present a technician address here would spend one allowance for a whole
+      # fleet of them, and the ladder families would be measuring that allowance
+      # rather than the server.
+      - OPENGATE_TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
     # The machine-facing listener is published as well as the browser-facing
     # one: this stack is driven by simulated machines, and a machine reaches the
     # server over QUIC.

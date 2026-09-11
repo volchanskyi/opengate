@@ -47,6 +47,9 @@
 #                          API. A line the coverage report says nothing about —
 #                          a comment, a blank, a declaration — simply has no row.
 #   SCOV_TOUCHED_OVERRIDE  test seam: "path:line" rows, standing in for the diff.
+#   SCOV_REPORT_ROOT       directory the coverage reports are read from, default
+#                          the repository root. The reports are the fallback for
+#                          a file the branch analysis holds no component for.
 #   CURL_BIN               curl binary (stubbed in tests).
 #
 # Exit codes: 0 = both checks clear the floor, or there is nothing to cover;
@@ -210,11 +213,89 @@ scov_line_hits() {
     | jq -r '.sources[]? | select(has("lineHits")) | "\(.line) \(.lineHits)"' 2>/dev/null
 }
 
+# scov_local_line_hits <path> — print "line hits" for a file, read from the
+# coverage reports the scan uploaded.
+#
+# What the analysis holds per file is not a fact about the coverage report; it
+# is a fact about the branch. SonarCloud keeps file-level data for a short-lived
+# branch only where that branch changed the file, and `dev` is short-lived — so
+# a file the previous commit did not touch has no component on it, whatever its
+# coverage. The lines being committed right now are never in that set, which is
+# exactly the blame gap this check exists to close, arrived at from the other
+# side.
+#
+# It surfaced on a commit whose predecessor touched only test-harness files:
+# every guarded source file came back "not found" for a change that had just
+# added a well-covered one, and the guard refused permanently rather than once.
+#
+# The reports describe the working tree, so they carry no blame gap at all, and
+# they are the same numbers SonarCloud was given — sonar-project.properties
+# names all three, and this reads them where that file points.
+scov_local_line_hits() {
+  local path="$1" root="${SCOV_REPORT_ROOT:-.}" want_go
+
+  case "$path" in
+    server/*)
+      # A Go cover profile names files by import path.
+      want_go="github.com/volchanskyi/opengate/$path"
+      # A Go cover profile names a block by its first and last line, so every
+      # line the block spans carries the block's count.
+      awk -v want="$want_go" '
+        function lineOf(spec,   dot) {
+          dot = index(spec, ".")
+          return (dot == 0 ? spec : substr(spec, 1, dot - 1)) + 0
+        }
+        NR == 1 { next }
+        NF == 3 {
+          # "<import path>/<file>.go:<start>.<col>,<end>.<col> <stmts> <count>".
+          # The name is everything before the last colon, which is where a
+          # separator-based split goes wrong: the path is full of dots.
+          cut = index($1, ".go:")
+          if (cut == 0) next
+          if (substr($1, 1, cut + 2) != want) next
+          # "<start>.<col>,<end>.<col>" — a column is not a line, and awk reads
+          # "10.20" as 10.2, so each half is cut at its own dot.
+          span = substr($1, cut + 4)
+          comma = index(span, ",")
+          if (comma == 0) next
+          start = lineOf(substr(span, 1, comma - 1))
+          end = lineOf(substr(span, comma + 1))
+          for (line = start; line <= end; line++) print line, $3
+        }' "$root/server/coverage.out" 2>/dev/null
+      ;;
+    web/*)
+      # The web report names files relative to web/.
+      scov_lcov_line_hits "$root/web/coverage/lcov.info" "${path#web/}"
+      ;;
+    agent/*)
+      # The Rust report is rewritten into repository-relative paths before the
+      # scan reads it, so its names are already the ones used here.
+      scov_lcov_line_hits "$root/agent/lcov.info" "$path"
+      ;;
+  esac
+}
+
+# scov_lcov_line_hits <report> <path> — print "line hits" for one file in an
+# LCOV report.
+scov_lcov_line_hits() {
+  local report="$1" want="$2"
+  [ -f "$report" ] || return 0
+  awk -v want="$want" '
+    /^SF:/ { inside = (substr($0, 4) == want); next }
+    /^end_of_record/ { inside = 0; next }
+    inside && /^DA:/ {
+      split(substr($0, 4), parts, ",")
+      print parts[1] + 0, parts[2] + 0
+    }' "$report" 2>/dev/null
+}
+
 # scov_file_tally <path> — print "covered to_cover" over the lines this change
-# touched, or nothing when SonarCloud has no coverage figures for the file.
+# touched, or nothing when neither the analysis nor the reports say anything
+# about the file.
 scov_file_tally() {
   local path="$1" hits changed
   hits="$(scov_line_hits "$path")"
+  [ -n "$hits" ] || hits="$(scov_local_line_hits "$path")"
   [ -n "$hits" ] || return 1
   changed="$(scov_changed_lines "$path")"
   [ -n "$changed" ] || {

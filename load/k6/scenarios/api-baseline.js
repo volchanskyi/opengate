@@ -1,13 +1,19 @@
 import http from "k6/http";
-import { check, sleep } from "k6";
+import { check } from "k6";
 import { Trend } from "k6/metrics";
 import {
+  anonymousHeaders,
   authHeaders,
   devicesUrl,
   printCleanupManifest,
   registerMember,
   siteWithDevices,
 } from "../lib/session.js";
+import {
+  arrivalScenarios,
+  measuredThresholds,
+  phases,
+} from "../lib/profile.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -20,30 +26,49 @@ const deviceListLatency = new Trend("journey_device_list_ms");
 const deviceDetailLatency = new Trend("journey_device_detail_ms");
 const commandAcceptLatency = new Trend("journey_command_accept_ms");
 
+// Requests one journey makes. It is what decides how long a virtual user is
+// held, and therefore how many of them a declared arrival rate needs.
+const REQUESTS_PER_JOURNEY = 6;
+
+const WALK = phases();
+
 export const options = {
-  stages: [
-    { duration: "30s", target: 20 },
-    { duration: "1m", target: 20 },
-    { duration: "30s", target: 0 },
-  ],
+  scenarios: arrivalScenarios(WALK, REQUESTS_PER_JOURNEY),
+  // The run-wide marks, and the same marks over the phase the profile says the
+  // night's numbers are taken from. Naming a phase's sub-metric here is also
+  // what puts it in the summary export, which is how the stored row comes to
+  // hold the load's own figures rather than a mixture of the load, the climb to
+  // it and the wind-down away from it.
+  //
   // 100 ms rather than 200. The wider figure had cleared every night on the
   // retained trend including the worst one, so it distinguished nothing; the
   // reason it had to be wide was that the generator and the target shared the
   // same two processors, and the measurement's own spread was larger than any
   // regression worth finding. With the two given separate allocations, this is
   // tight enough that a real regression shows.
-  thresholds: {
-    http_req_duration: ["p(95)<100"],
-    http_req_failed: ["rate<0.01"],
-    // A glance at the fleet.
-    "journey_device_list_ms": ["p(95)<300"],
-    // One machine's page, which fans out to its inventory, its history and its
-    // readings, so it is given more room than the list it was opened from.
-    "journey_device_detail_ms": ["p(95)<500"],
-    // A deliberate act — putting a machine into maintenance — where the mark is
-    // the server accepting the instruction, not the machine carrying it out.
-    "journey_command_accept_ms": ["p(95)<1000"],
-  },
+  thresholds: Object.assign(
+    {
+      http_req_duration: ["p(95)<100"],
+      http_req_failed: ["rate<0.01"],
+      // A glance at the fleet.
+      "journey_device_list_ms": ["p(95)<300"],
+      // One machine's page, which fans out to its inventory, its history and its
+      // readings, so it is given more room than the list it was opened from.
+      "journey_device_detail_ms": ["p(95)<500"],
+      // A deliberate act — putting a machine into maintenance — where the mark is
+      // the server accepting the instruction, not the machine carrying it out.
+      "journey_command_accept_ms": ["p(95)<1000"],
+      // The generator saying it could not keep the rate the profile declared.
+      // Without it, an arrival-rate run degrades quietly back into the closed
+      // loop it replaced: offered load falls, latency stays flat, and the night
+      // reports a healthy server it never finished asking.
+      dropped_iterations: ["count<1"],
+    },
+    measuredThresholds(WALK, {
+      http_req_duration: ["p(95)<100"],
+      http_req_failed: ["rate<0.01"],
+    })
+  ),
 };
 
 export function setup() {
@@ -60,9 +85,11 @@ export function setup() {
 
 export default function (data) {
   const headers = authHeaders(data.token);
+  const anonymous = anonymousHeaders();
 
-  // Health check (no auth)
-  const health = http.get(`${BASE_URL}/api/v1/health`);
+  // Health check (no auth), still from this technician's address: the allowance
+  // is spent per address whether the request was signed in or not.
+  const health = http.get(`${BASE_URL}/api/v1/health`, { headers: anonymous });
   check(health, { "health 200": (r) => r.status === 200 });
 
   // Get current user
@@ -100,15 +127,6 @@ export default function (data) {
     check(command, { "command accepted": (r) => r.status === 200 || r.status === 204 });
     commandAcceptLatency.add(command.timings.duration);
   }
-
-  // Six requests an iteration across twenty virtual users, all of them leaving
-  // one pod and therefore one source address, so the whole scenario spends a
-  // single per-IP token bucket at the server. This cadence keeps what the fleet
-  // offers under that limit; at a faster one the run fills with 429s and the
-  // latency and error numbers describe the rate limiter instead of the server.
-  // A request added above moves that sum, and the budget is recomputed on every
-  // commit rather than remembered.
-  sleep(1.5);
 }
 
 export function teardown(data) {

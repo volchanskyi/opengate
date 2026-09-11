@@ -43,6 +43,7 @@
 # Usage:
 #   loadtest-quic-incluster.sh start -- <harness command...>
 #   loadtest-quic-incluster.sh await-filed
+#   loadtest-quic-incluster.sh walk-started-at
 #   loadtest-quic-incluster.sh collect
 set -euo pipefail
 
@@ -61,6 +62,18 @@ FLEET_ANNOUNCEMENT='Starting QUIC load test'
 # building once, in its own setup, so one started against an unfiled fleet reads
 # an empty building for the whole of its run.
 FILED_ANNOUNCEMENT='Estate filed'
+
+# The line the harness prints when it starts walking the profile, followed by
+# the second it started at. It is server/tests/loadtest/safety.go's
+# walkStartedAnnouncement.
+#
+# The browser-side generators join that walk where it is. They cannot start
+# until the estate they read is filed, which is after the arrivals, so a
+# generator that began the shape again from its beginning would be a phase
+# behind for the rest of the night — holding its steady window open past the
+# drain and publishing a percentile taken partly against a fleet that had
+# already left.
+WALK_ANNOUNCEMENT='Walk started at'
 
 # NO_FLEET is the verdict when there is no run to report on — nothing was
 # launched, or nothing reached a verdict inside the bound. It is deliberately
@@ -84,6 +97,7 @@ POLL="${LOADTEST_QUIC_POLL_SECONDS:-5}"
 usage() {
   echo "usage: $0 start -- <harness command...>" >&2
   echo "       $0 await-filed" >&2
+  echo "       $0 walk-started-at" >&2
   echo "       $0 collect" >&2
 }
 
@@ -218,6 +232,21 @@ await_filed() {
   return "$NO_FLEET"
 }
 
+# walk_started_at prints the second the harness started walking. A log with no
+# such line is refused rather than answered with the clock here: a caller that
+# takes "now" for "when the walk began" joins the walk at its beginning, which
+# is the mistake this exists to prevent.
+walk_started_at() {
+  local announced line
+  announced="$(grep -F "$WALK_ANNOUNCEMENT" <<<"$(pod_log)" || true)"
+  line="${announced##*$'\n'}"
+  if [[ ! "$line" =~ ([0-9]+)[[:space:]]*$ ]]; then
+    echo "::error::$POD has not said when it started walking, so a generator cannot join the walk where it is." >&2
+    return "$NO_FLEET"
+  fi
+  printf '%s\n' "${BASH_REMATCH[1]}"
+}
+
 start() {
   if [ "$#" -eq 0 ]; then
     usage
@@ -300,6 +329,7 @@ main() {
   case "$verb" in
     start) start "$@" ;;
     await-filed) await_filed ;;
+    walk-started-at) walk_started_at ;;
     collect) collect "$@" ;;
     *)
       usage

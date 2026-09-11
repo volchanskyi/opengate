@@ -348,10 +348,16 @@ func (c *FixtureClient) FileDevice(built BuiltFixture, index, total int, deviceI
 		return errors.New("file machines: the fixture has no customers to file them under")
 	}
 
+	// Filing is charged to the same address the machine arrived from. It is not
+	// free of the load: every arrival costs the server two more requests on that
+	// address, and on a fleet of eight thousand it is taken out eight thousand
+	// times.
+	presented := presentedAddress(index)
+
 	customer := built.Customers[c.customerFor(built, index, total)]
 	path := fmt.Sprintf("/api/v1/devices/%s/organization", deviceID)
 	body := map[string]string{"organization_id": customer.ID}
-	if err := c.call(http.MethodPut, path, body, http.StatusOK, nil); err != nil {
+	if err := c.callAs(presented, http.MethodPut, path, body, http.StatusOK, nil); err != nil {
 		return fmt.Errorf("file machine %s under %s: %w", deviceID, customer.Name, err)
 	}
 
@@ -369,7 +375,7 @@ func (c *FixtureClient) FileDevice(built BuiltFixture, index, total int, deviceI
 	// and still leaves every other building empty — which is the same empty read
 	// a scoped page gets today, wearing a different shape.
 	site := customer.SiteIDs[index%len(customer.SiteIDs)]
-	if err := c.call(http.MethodPatch, "/api/v1/devices/"+deviceID,
+	if err := c.callAs(presented, http.MethodPatch, "/api/v1/devices/"+deviceID,
 		map[string]string{"site_id": site}, http.StatusOK, nil); err != nil {
 		return fmt.Errorf("file machine %s into a building of %s: %w", deviceID, customer.Name, err)
 	}
@@ -404,6 +410,14 @@ func (c *FixtureClient) customerFor(built BuiltFixture, index, total int) int {
 // failure it is. A fixture built on top of a refused call is a fleet nobody
 // declared, and the numbers measured against it look ordinary.
 func (c *FixtureClient) call(method, path string, body any, wantStatus int, out any) error {
+	return c.callAs("", method, path, body, wantStatus, out)
+}
+
+// callAs is call, presenting an address. The fixture-building calls present
+// nothing — they are one administrator doing administrator work, which is what
+// they are on a real system too — while the per-machine calls present the
+// machine they are about.
+func (c *FixtureClient) callAs(presented, method, path string, body any, wantStatus int, out any) error {
 	var payload []byte
 	if body != nil {
 		var err error
@@ -420,6 +434,7 @@ func (c *FixtureClient) call(method, path string, body any, wantStatus int, out 
 		return fmt.Errorf("build request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	presentAddress(request, presented)
 	if c.token != "" {
 		request.Header.Set("Authorization", "Bearer "+c.token)
 	}

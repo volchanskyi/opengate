@@ -31,19 +31,44 @@ usage() {
 # journeys_from turns a browser-side export into the bundle's own journey shape.
 # Only the named journeys are carried: every other series in that export belongs
 # to the request path rather than to a screen somebody opens.
+#
+# The statistics are read whichever way the exporter nests them. k6 v1.x writes
+# them flat on the metric and v0.x nested them under "values", and reading only
+# the nested shape is not a wrong number — it is three zeros. Every field falls
+# back to nought, so a bundle produced by the pinned exporter declared that
+# opening a fleet list, opening a machine and sending an instruction each took
+# no time at all, which is the healthiest figure a server can report. The
+# canonical row extraction had already been bitten by this exact nesting and
+# repaired; this reader was not, and its fixtures were written in the shape it
+# reads rather than in the shape the exporter writes.
+#
+# A phase-tagged copy wins where there is one, for the reason the extraction
+# gives: a percentile over the whole run is a mixture of the climb to the load,
+# the load, and the wind-down away from it.
 journeys_from() {
-  jq '[
-    .metrics
-    | to_entries[]
-    | select(.key | startswith("journey_") and endswith("_ms"))
-    | {
-        name: (.key | ltrimstr("journey_") | rtrimstr("_ms") | gsub("_"; "-")),
-        requests: (.value.values.count // 0 | floor),
+  jq '
+    def windowed($name):
+      (.metrics | to_entries
+        | map(select(.key | startswith($name + "{phase:")))
+        | first | .value) // null;
+    def stats($name): (windowed($name) // .metrics[$name] // {}) | (.values // .);
+
+    . as $doc
+    | [
+        $doc.metrics
+        | keys[]
+        | select(startswith("journey_") and endswith("_ms"))
+        | split("{")[0]
+      ]
+    | unique
+    | map(. as $metric | ($doc | stats($metric)) as $s | {
+        name: ($metric | ltrimstr("journey_") | rtrimstr("_ms") | gsub("_"; "-")),
+        requests: ($s.count // 0 | floor),
         error_rate: 0,
-        latency_p50_ms: (.value.values.med // 0),
-        latency_p95_ms: (.value.values["p(95)"] // 0)
-      }
-  ] | sort_by(.name)' "$1"
+        latency_p50_ms: ($s["p(50)"] // $s.med // 0),
+        latency_p95_ms: ($s["p(95)"] // 0)
+      })
+    | sort_by(.name)' "$1"
 }
 
 main() {

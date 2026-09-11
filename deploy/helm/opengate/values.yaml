@@ -38,6 +38,18 @@ server:
   # if empty, the cert is localhost-only and agents fail the QUIC handshake with
   # "certificate not valid for name <host>". Set per environment.
   quicHost: ""
+  # The reverse proxies whose X-Forwarded-For decides which request allowance a
+  # caller spends. A request bucket is an identity, so anything believed here
+  # can choose which allowance it spends — and inside a cluster every workload
+  # shares the private address range, which is what the shape-based rule this
+  # replaced believed.
+  #
+  # An entry is either a service, written "<service>.<namespace>", or a range.
+  # A service is named rather than an address because the address belongs to the
+  # controller's pod and changes whenever that pod is replaced. Empty believes
+  # nobody, which is the right answer for a server reached directly.
+  trustedProxies:
+    - ingress-nginx-controller.ingress-nginx
   # Public base URL baked into the served install.sh as SERVER_URL (manifest
   # fetches). Empty leaves SERVER_URL blank, breaking the server-manifest install
   # path. Set per environment, e.g. https://<domain>.
@@ -148,6 +160,13 @@ certManager:
 # empty turns it on, and production is not one of them. See the job template for
 # why the account exists and why it holds no usable password.
 loadTest:
+  # The pods a load run's generators sit in. They are created by the run and
+  # destroyed with it, so they are named by a service rather than by an address:
+  # the server believes a presented address only from a peer the cluster says
+  # answers for one of the services it was told about.
+  generators:
+    enabled: false
+    label: opengate.io/loadtest-generator
   serviceAccount:
     enabled: false
     email: opengate-service@service.invalid

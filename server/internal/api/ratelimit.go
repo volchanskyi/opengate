@@ -63,11 +63,14 @@ func (l *ipLimiter) cleanup() {
 
 // RateLimiter returns middleware that applies per-IP token bucket rate limiting.
 // Requests exceeding the limit receive a 429 response.
-func RateLimiter(rps float64, burst int) func(http.Handler) http.Handler {
+//
+// trust names the reverse proxies whose X-Forwarded-For decides which bucket a
+// request belongs to. Nil believes none of them and buckets by the peer.
+func RateLimiter(rps float64, burst int, trust *TrustedProxies) func(http.Handler) http.Handler {
 	limiter := newIPLimiter(rps, burst)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := extractIP(r)
+			ip := extractIP(r, trust)
 			if !limiter.get(ip).Allow() {
 				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
@@ -161,14 +164,6 @@ func (l *emailLimiter) cleanup() {
 	}
 }
 
-// trustedProxyPeer reports whether the immediate peer is infrastructure we
-// operate: loopback, or a private or link-local address, which in this
-// deployment is the in-cluster ingress controller. Only such a peer's
-// X-Forwarded-For is believed.
-func trustedProxyPeer(addr netip.Addr) bool {
-	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
-}
-
 // peerIP returns the IP portion of the request's immediate peer address.
 func peerIP(r *http.Request) string {
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -180,17 +175,17 @@ func peerIP(r *http.Request) string {
 
 // extractIP identifies the client a rate-limit bucket belongs to.
 //
-// X-Forwarded-For is consulted only when the request reached us from a trusted
-// proxy, and then only its *last* entry is used: the reverse proxy appends the
-// peer it actually observed, while every earlier entry was supplied by the
-// caller. Honouring a caller-supplied entry would let any client mint a fresh
-// bucket per request just by varying a header, which is no rate limit at all.
-// Anything unusable falls back to the peer address, which a client cannot
-// choose.
-func extractIP(r *http.Request) string {
+// X-Forwarded-For is consulted only when the request reached us from one of the
+// proxies this deployment names, and then only its *last* entry is used: the
+// reverse proxy appends the peer it actually observed, while every earlier
+// entry was supplied by the caller. Honouring a caller-supplied entry would let
+// any client mint a fresh bucket per request just by varying a header, which is
+// no rate limit at all. Anything unusable falls back to the peer address, which
+// a client cannot choose.
+func extractIP(r *http.Request, trust *TrustedProxies) string {
 	peer := peerIP(r)
 	addr, err := netip.ParseAddr(peer)
-	if err != nil || !trustedProxyPeer(addr) {
+	if err != nil || !trust.trusts(addr) {
 		return peer
 	}
 

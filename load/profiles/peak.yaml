@@ -26,6 +26,7 @@ phases:
     operator_arrivals_per_second: 15
     connected_agents: 2000
     sessions: 20
+    measured: true
   - name: drain
     duration: 1m
     operator_arrivals_per_second: 0

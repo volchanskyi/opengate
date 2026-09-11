@@ -1,0 +1,34 @@
+{{- if .Values.loadTest.generators.enabled -}}
+# The service that gives a load run's generator pods a name.
+#
+# A load run spreads its work across many presented addresses so the request
+# allowance it spends is the one a fleet of technicians would spend, rather than
+# the single allowance one pod is entitled to. The server believes a presented
+# address only from a peer it has been told is a proxy, and it is told in terms
+# of a service rather than an address — the generators are created fresh for
+# every run and their addresses belong to nobody until then.
+#
+# So the pods join a service, and the cluster's own resolver is what says they
+# did. This carries a port because a service with none publishes no endpoints,
+# and it is the endpoints that give each pod a name the server can ask about;
+# nothing connects to it.
+#
+# Off by default: only an environment a load run is allowed to fill and empty
+# turns it on, and production is not one of them.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opengate.fullname" . }}-loadtest-generators
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: loadtest-generators
+spec:
+  type: ClusterIP
+  selector:
+    {{ .Values.loadTest.generators.label }}: "true"
+  ports:
+    - name: unused
+      port: 1
+      targetPort: 1
+      protocol: TCP
+{{- end }}

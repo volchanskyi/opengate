@@ -19,7 +19,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -91,6 +93,11 @@ type Config struct {
 	BaseURL string
 	// QuicHost overrides the hostname an enrolling agent is told to dial.
 	QuicHost string
+	// TrustedProxies names the reverse proxies whose X-Forwarded-For decides
+	// which request allowance a caller spends, one entry per line or comma.
+	// Empty believes none of them and holds every caller behind one proxy to a
+	// single allowance between them.
+	TrustedProxies string
 	// WebDir holds the single-page application's static assets.
 	WebDir string
 	// InternalListen is the address the cluster-only listener binds. Empty
@@ -234,6 +241,14 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 
 	jwtCfg := &auth.JWTConfig{Secret: cfg.JWTSecret, Issuer: "opengate", Duration: jwtTokenLifetime}
 
+	// Refused here rather than shrugged off, because a name with a typo in it
+	// narrows the trusted set silently and the symptom appears somewhere else
+	// entirely — every technician behind one proxy sharing one allowance.
+	trustedProxies, err := api.ParseTrustedProxies(splitTrustedProxies(cfg.TrustedProxies))
+	if err != nil {
+		return nil, fmt.Errorf("app: read trusted proxies: %w", err)
+	}
+
 	vapidPriv, vapidPub, err := notifications.LoadOrGenerateVAPID(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("app: init VAPID keys: %w", err)
@@ -358,6 +373,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		GitHubRepo:            cfg.GitHubRepo,
 		BaseURL:               cfg.BaseURL,
 		QuicHost:              cfg.QuicHost,
+		TrustedProxies:        trustedProxies,
 		Logger:                logger,
 		WebDir:                cfg.WebDir,
 		Metrics:               appMetrics,
@@ -581,4 +597,13 @@ func ruleIDs(catalogue *rules.Catalogue) []string {
 		ids = append(ids, def.ID)
 	}
 	return ids
+}
+
+// splitTrustedProxies reads the configured proxies out of one string. Commas,
+// whitespace and newlines all separate, so a Helm value written as a list, a
+// line per entry or one comma-joined line all arrive as the same set.
+func splitTrustedProxies(configured string) []string {
+	return strings.FieldsFunc(configured, func(r rune) bool {
+		return r == ',' || unicode.IsSpace(r)
+	})
 }

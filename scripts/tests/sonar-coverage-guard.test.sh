@@ -33,6 +33,10 @@ assert_fail() {
   shift
   if "$@" >/dev/null 2>&1; then fail "$n (expected non-zero)"; else pass "$n"; fi
 }
+assert_eq() {
+  local n="$1" want="$2" got="$3"
+  if [ "$want" = "$got" ]; then pass "$n"; else fail "$n (want=[$want] got=[$got])"; fi
+}
 assert_rc() {
   local n="$1" want="$2"
   shift 2
@@ -167,9 +171,98 @@ SCOV_LINES_OVERRIDE="$(split_lines 2 0)" \
   assert_ok "lines with no coverage figure do not count against the ratio" scov_check_diff
 
 # A guard that answers yes when it could not ask is the false green it was
-# written to close.
-SCOV_LINES_OVERRIDE="other/file.go:1:5" \
+# written to close. The report root is pointed at nothing as well, because a
+# file the analysis cannot answer for is read from the reports instead — and
+# this case is about neither of them answering.
+SCOV_REPORT_ROOT=/nonexistent \
+  SCOV_LINES_OVERRIDE="other/file.go:1:5" \
   assert_rc "no figures for any changed file → rc 2, never a pass" 2 scov_check_diff
+
+unset SCOV_CHANGED_OVERRIDE SCOV_TOUCHED_OVERRIDE SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
+unset SCOV_LINES_OVERRIDE
+
+# --- the reports the scan just uploaded ---------------------------------------
+#
+# What the analysis holds per file is not a fact about the coverage report; it
+# is a fact about the branch. SonarCloud keeps file-level data for a short-lived
+# branch only where that branch changed the file, and `dev` is short-lived — so
+# a file the previous commit did not touch has no component on it, whatever its
+# coverage. The lines being committed right now are never in that set, which is
+# precisely the blame gap this check exists to close.
+#
+# It surfaced on a commit whose predecessor touched only test-harness files:
+# every guarded source file came back "not found", for a change that had just
+# added a well-covered file. The guard refused, correctly and permanently.
+#
+# So the hit counts are read from the reports the scan uploaded. They describe
+# the working tree, so they carry no blame gap at all, and they are the same
+# numbers SonarCloud was given.
+
+REPORTS="$(mktemp -d)"
+# Invoked through the EXIT trap.
+# shellcheck disable=SC2329
+cleanup_reports() { rm -rf "$REPORTS"; }
+trap 'cleanup; cleanup_work; cleanup_reports' EXIT
+
+mkdir -p "$REPORTS/server" "$REPORTS/web/coverage" "$REPORTS/agent"
+
+# A Go cover profile names a block by its start and end line, so every line of a
+# block carries the block's count.
+cat >"$REPORTS/server/coverage.out" <<'PROFILE'
+mode: atomic
+github.com/volchanskyi/opengate/server/internal/app/background.go:10.20,12.4 2 7
+github.com/volchanskyi/opengate/server/internal/app/background.go:14.20,15.4 1 0
+PROFILE
+
+cat >"$REPORTS/web/coverage/lcov.info" <<'LCOV'
+SF:src/features/devices/DeviceList.tsx
+DA:4,3
+DA:5,0
+end_of_record
+LCOV
+
+cat >"$REPORTS/agent/lcov.info" <<'LCOV'
+SF:agent/crates/mesh-agent/src/run.rs
+DA:8,2
+end_of_record
+LCOV
+
+export SCOV_REPORT_ROOT="$REPORTS"
+
+assert_eq "a Go profile block covers every line it spans" \
+  "$(printf '10 7\n11 7\n12 7\n14 0\n15 0\n')" \
+  "$(scov_local_line_hits server/internal/app/background.go)"
+
+assert_eq "a web lcov row is one line" \
+  "$(printf '4 3\n5 0\n')" \
+  "$(scov_local_line_hits web/src/features/devices/DeviceList.tsx)"
+
+assert_eq "a rust lcov path is already repository-relative" \
+  "$(printf '8 2\n')" \
+  "$(scov_local_line_hits agent/crates/mesh-agent/src/run.rs)"
+
+assert_eq "a file no report mentions has no figures, rather than zeros" \
+  "" "$(scov_local_line_hits server/internal/api/nothing.go)"
+
+# The whole point: the check now answers on a branch that holds no component for
+# the file, because the reports do.
+export SCOV_CHANGED_OVERRIDE="server/internal/app/background.go"
+SCOV_TOUCHED_OVERRIDE="$(printf 'server/internal/app/background.go:10\nserver/internal/app/background.go:11\n')"
+export SCOV_TOUCHED_OVERRIDE
+export SCOV_SETTLE_RETRIES=0
+export SCOV_SETTLE_SLEEP=0
+SCOV_LINES_OVERRIDE="other/file.go:1:5" \
+  assert_ok "a file SonarCloud has no component for is read from the report instead" scov_check_diff
+
+# And a branch that answers is still preferred, so the read-back of what was
+# uploaded is not lost.
+SCOV_LINES_OVERRIDE="$(printf 'server/internal/app/background.go:10:0\nserver/internal/app/background.go:11:0\n')" \
+  assert_rc "what the analysis says wins where it says anything" 1 scov_check_diff
+
+# With neither source answering, the guard still refuses.
+SCOV_REPORT_ROOT="$REPORTS/empty" \
+  SCOV_LINES_OVERRIDE="other/file.go:1:5" \
+  assert_rc "no figures anywhere → rc 2, never a pass" 2 scov_check_diff
 
 unset SCOV_CHANGED_OVERRIDE SCOV_TOUCHED_OVERRIDE SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
 

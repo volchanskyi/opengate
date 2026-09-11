@@ -27,6 +27,7 @@ phases:
     operator_arrivals_per_second: 5
     connected_agents: 500
     sessions: 5
+    measured: true
   # A declared wind-down, so a connection torn down by the run ending is not
   # counted as one the server dropped.
   - name: drain
@@ -251,6 +252,35 @@ gates:
     metric: error_rate
     max: 0
     blocking: true
+
+  # --- the generator saying it kept up ----------------------------------------
+  #
+  # An arrival-rate run offers work whether or not the last answer has come
+  # back, which is what makes a slow server show as a queue rather than as a
+  # quieter test. What it costs is a second way to be wrong: a generator that
+  # cannot keep the rate offers less, latency stays flat, and the night reports
+  # a healthy system nobody finished asking. This is the number that says so.
+  #
+  # The blocking row is loose because a handful of late iterations over a walk
+  # this long is the generator having a bad second rather than a generator that
+  # fell behind; the advisory row beside it is the target, watched until fresh
+  # nights show it holds.
+  - series: k6/api-baseline/http
+    metric: dropped_iterations
+    max: 50
+    blocking: true
+  - series: k6/api-baseline/http
+    metric: dropped_iterations
+    max: 0
+    blocking: false
+  - series: k6/concurrent-agents/http
+    metric: dropped_iterations
+    max: 50
+    blocking: true
+  - series: k6/concurrent-agents/http
+    metric: dropped_iterations
+    max: 0
+    blocking: false
 
 # Measurements this profile has looked at and deliberately left alone. An entry
 # here is a decision; a measurement in neither list is nobody having decided,

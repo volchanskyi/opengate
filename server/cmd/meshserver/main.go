@@ -84,6 +84,7 @@ func main() {
 		GitHubRepo:         os.Getenv("OPENGATE_GITHUB_REPO"),
 		BaseURL:            os.Getenv("OPENGATE_BASE_URL"),
 		QuicHost:           os.Getenv("OPENGATE_QUIC_HOST"),
+		TrustedProxies:     os.Getenv("OPENGATE_TRUSTED_PROXIES"),
 		WebDir:             *webDir,
 		InternalListen:     *internalListen,
 	})

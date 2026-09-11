@@ -97,6 +97,35 @@ assert_eq "each carries its own tail" "88.5" \
 assert_eq "each carries how many requests timed it" "1200" \
   "$(jq -r '.journeys[] | select(.name == "device-list") | .requests' "$WORK/bundle.json")"
 
+# The shape the pinned exporter actually writes.
+#
+# k6 v1.x puts a trend statistic flat on the metric; the fixture above is v0.x,
+# which nests them under "values". Reading only the nested shape is not a wrong
+# number, it is three zeros — every field falls back to nought — so every bundle
+# the nightly produced declared that opening a fleet list, opening a machine and
+# sending an instruction each took no time at all. The fixture that should have
+# caught it was written in the shape the reader reads rather than the shape the
+# exporter writes.
+fresh_bundle
+jq -n '{
+  metrics: {
+    "journey_device_list_ms":        { "p(50)": 41.0, med: 41.0, "p(95)": 88.5, count: 1200 },
+    "journey_device_list_ms{phase:steady}": { "p(50)": 39.0, med: 39.0, "p(95)": 80.0, count: 900 },
+    "journey_device_detail_ms":      { "p(50)": 60.0, med: 60.0, "p(95)": 140.25, count: 600 },
+    "http_req_duration":             { "p(50)": 7.0, med: 7.0, "p(95)": 12.0, count: 7228 }
+  }
+}' >"$WORK/export.json"
+run_merge "$WORK/bundle.json" --journeys "$WORK/export.json"
+assert_eq "an export in the pinned exporter shape merges" "0" "$STATUS"
+assert_eq "a flat statistic is a reading, not a nought" "140.25" \
+  "$(jq -r '.journeys[] | select(.name == "device-detail") | .latency_p95_ms' "$WORK/bundle.json")"
+assert_eq "and so is how many times the screen was opened" "600" \
+  "$(jq -r '.journeys[] | select(.name == "device-detail") | .requests' "$WORK/bundle.json")"
+assert_eq "the measured phase wins over the whole run" "80.0" \
+  "$(jq -r '.journeys[] | select(.name == "device-list") | .latency_p95_ms' "$WORK/bundle.json")"
+assert_eq "a phase-tagged copy is not a second journey" "2" \
+  "$(jq -r '.journeys | length' "$WORK/bundle.json")"
+
 # Both at once, which is what the volume family's job does.
 fresh_bundle
 fresh_weight

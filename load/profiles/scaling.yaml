@@ -28,6 +28,7 @@ phases:
     operator_arrivals_per_second: 10
     connected_agents: 2000
     sessions: 5
+    measured: true
 
 # No processor ceiling. This stack is created by the job and thrown away with
 # it, so there is no neighbour to protect, and driving the processor is the
