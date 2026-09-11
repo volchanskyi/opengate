@@ -1,6 +1,6 @@
 # PMAT baselines
 
-Snapshots used to detect quality regressions during the modular-monolith decomposition. Required by [ADR-019](../../docs/adr/ADR-019-pmat-quality-overlay.md) (PMAT adoption) and [ADR-020](../../docs/adr/ADR-020-modular-monolith-full-hexagonal.md) — a baseline must exist BEFORE the first opportunistic-trigger PR fires so post-decomposition drift is measurable.
+Snapshots used to detect quality regressions during the modular-monolith decomposition. Required by [ADR-019](../../docs/adr/ADR-019-pmat-quality-overlay.md) (PMAT adoption) and [ADR-020](../../docs/adr/ADR-020-module-boundaries.md) — a baseline must exist BEFORE the first opportunistic-trigger PR fires so post-decomposition drift is measurable.
 
 ## 2026-05-20 — pre-ADR-020 baseline
 
@@ -50,7 +50,7 @@ Snapshots used to detect quality regressions during the modular-monolith decompo
 
 ## Re-baseline policy
 
-Per [PMAT plan §5.3](../plans/archive/pmat-adoption-evaluation.md), re-baseline at the end of each modular-monolith phase — i.e. each time one of the 12 modules listed in ADR-020 finishes its hexagonal extraction. File-naming: `pmat-tdg-baseline-YYYY-MM-DD.json` and `pmat-repo-score-YYYY-MM-DD.json`. Keep prior baselines for trend visibility; do not overwrite.
+Re-baseline at the end of each modular-monolith phase — i.e. each time one of the 12 modules listed in ADR-020 finishes its hexagonal extraction. File-naming: `pmat-tdg-baseline-YYYY-MM-DD.json` and `pmat-repo-score-YYYY-MM-DD.json`. Keep prior baselines for trend visibility; do not overwrite.
 
 PMAT's nightly Loki/Grafana workflow (ADR-019, future opportunistic trigger) is the **trend store**; this directory is just the named-snapshot store referenced by ADRs.
 

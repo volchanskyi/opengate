@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -69,15 +70,30 @@ type agentResult struct {
 // verdict says whether what happened was a measurement at all. A run that
 // measured nothing cannot be reported as one that did, however few of its
 // machines failed.
-func exitCode(verdict Verdict, failures int) int {
+func exitCode(verdict Verdict, failures int, answer *BreakingPoint) int {
 	switch {
 	case verdict.Result == ResultInvalid:
 		return exitMeasuredNothing
-	case verdict.Result == ResultFailed, failures > 0:
+	case verdict.Result == ResultFailed:
+		return exitAgentFailures
+	case failures > 0 && !ladderFoundItsAnswer(answer):
 		return exitAgentFailures
 	default:
 		return 0
 	}
+}
+
+// ladderFoundItsAnswer reports whether this run was a capacity ladder that
+// reached the load it was sent to find.
+//
+// Such a run loses machines by design: the rung where they stop arriving is the
+// answer. A code taken from the failure count therefore reports the family
+// succeeding as the family failing, which leaves the ladder able to go green
+// only by never finding anything — and that is what it did, on the one night it
+// found the load and was thrown away for it. A ladder that held all the way up
+// has no such explanation and keeps its count.
+func ladderFoundItsAnswer(answer *BreakingPoint) bool {
+	return answer != nil && answer.GaveAt != ""
 }
 
 func main() {
@@ -231,7 +247,7 @@ func run() int {
 	// denominator.
 	targetShape := ParseFingerprintFlags("system-under-test", *targetDescription, *targetCPUs, *targetMemory)
 
-	results, phases, flatBusy := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts,
+	results, phases, flatBusy, flatBusyAbsent := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts,
 		NewTargetBusy(*metricsURL, targetShape.CPUs), filer)
 	totalDur := time.Since(start)
 
@@ -269,17 +285,18 @@ func run() int {
 		// Both sides of the measurement. The target's limits belong to whoever
 		// started it; the generator is this machine and is read here, including
 		// the disk room it actually has rather than the size of its partition.
-		TargetShape:    targetShape,
-		GeneratorShape: ReadGeneratorShape("server/tests/loadtest"),
-		Headroom:       generatorHeadroom,
-		Journeys:       readJourneys(*journeysPath),
-		FixtureWeight:  readFixtureWeight(*fixtureWeightPath),
-		Filer:          filer,
-		Phases:         phases,
-		FlatTargetBusy: flatBusy,
-		Registration:   registration,
-		Fixture:        fixture,
-		Leak:           leakTrail,
+		TargetShape:          targetShape,
+		GeneratorShape:       ReadGeneratorShape("server/tests/loadtest"),
+		Headroom:             generatorHeadroom,
+		Journeys:             readJourneys(*journeysPath),
+		FixtureWeight:        readFixtureWeight(*fixtureWeightPath),
+		Filer:                filer,
+		Phases:               phases,
+		FlatTargetBusy:       flatBusy,
+		FlatTargetBusyAbsent: flatBusyAbsent,
+		Registration:         registration,
+		Fixture:              fixture,
+		Leak:                 leakTrail,
 		Conservation: TargetConservation{
 			Start: targetAtStart,
 			End:   targetAtEnd,
@@ -302,7 +319,7 @@ func run() int {
 	for _, reason := range bundle.Verdict.Reasons {
 		fmt.Printf("::error::%s\n", reason)
 	}
-	return exitCode(bundle.Verdict, failures)
+	return exitCode(bundle.Verdict, failures, bundle.BreakingPoint)
 }
 
 // printBreakingPoint says where the ladder broke, for a run that went looking.
@@ -421,23 +438,80 @@ func millisDuration(ms float64) time.Duration {
 	return time.Duration(ms * float64(time.Millisecond)).Round(time.Microsecond)
 }
 
-// printErrorSamples prints up to three unique error messages from failed agents.
+// printErrorSamples says what a failed run failed at, commonest first.
+//
+// It counts kinds rather than messages. Every failure names the machine it
+// happened to and most name the address it was dialling, so counting whole
+// messages makes every failure unique: a ladder that lost 15,891 machines out
+// of 16,000 printed three of them, each marked as having happened once, in
+// whatever order the map handed them over. The block could not answer the one
+// question it exists for.
 func printErrorSamples(results []agentResult) {
-	seen := map[string]int{}
+	byKind := map[string]int{}
+	sample := map[string]string{}
+	failures := 0
 	for _, r := range results {
-		if r.err != nil {
-			seen[r.err.Error()]++
+		if r.err == nil {
+			continue
+		}
+		failures++
+		message := r.err.Error()
+		kind := errorKind(message)
+		byKind[kind]++
+		if _, seen := sample[kind]; !seen {
+			sample[kind] = message
 		}
 	}
-	fmt.Printf("\nError samples:\n")
-	printed := 0
-	for msg, cnt := range seen {
-		fmt.Printf("  [%dx] %s\n", cnt, msg)
-		printed++
-		if printed >= 3 {
+	if failures == 0 {
+		return
+	}
+
+	kinds := make([]string, 0, len(byKind))
+	for kind := range byKind {
+		kinds = append(kinds, kind)
+	}
+	// Commonest first, and by name where two are equally common, so the same
+	// run prints the same block twice running.
+	sort.Slice(kinds, func(i, j int) bool {
+		if byKind[kinds[i]] != byKind[kinds[j]] {
+			return byKind[kinds[i]] > byKind[kinds[j]]
+		}
+		return kinds[i] < kinds[j]
+	})
+
+	fmt.Printf("\nError samples: %d failures in %s\n", failures, plural(len(kinds), "kind"))
+	for i, kind := range kinds {
+		if i >= errorKindsPrinted {
+			fmt.Printf("  … and %s more\n", plural(len(kinds)-errorKindsPrinted, "kind"))
 			break
 		}
+		fmt.Printf("  [%dx] %s\n", byKind[kind], sample[kind])
 	}
+}
+
+// plural is a count and its noun, so a block that found one of something does
+// not report it as one kinds.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// errorKindsPrinted is how many kinds the block names. Enough to show a run
+// failing two ways at once, and the line above the list says how many there
+// were in total, so a short list is never the whole story by accident.
+const errorKindsPrinted = 5
+
+// errorKindNoise is the part of a message that names which machine it happened
+// to rather than what happened: the run's own numbering, and the long hex of a
+// credential or an identifier in a path.
+var errorKindNoise = regexp.MustCompile(`[0-9a-f]{8,}|[0-9]+`)
+
+// errorKind is one failure with the machine taken out of it, so two machines
+// failing the same way count as one kind.
+func errorKind(message string) string {
+	return errorKindNoise.ReplaceAllString(message, "#")
 }
 
 // defaultHostnamePrefix is the name a load run's machines carry. Its cleanup

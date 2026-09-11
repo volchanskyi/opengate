@@ -40,6 +40,17 @@ type fakeAPI struct {
 	// failAt makes one path answer 500, so the builder's error handling is
 	// exercised rather than assumed.
 	failAt string
+
+	// rowLandsAfter is how many filing attempts answer the way the real server
+	// answers for a machine whose row has not landed yet. A machine's row is
+	// written when the server finishes reading its register frame, and the
+	// machine's own write returns as soon as the bytes are buffered locally —
+	// so a filing that follows the arrival straight away can reach the server
+	// first. Setting this is how a case drives that gap.
+	rowLandsAfter int
+	// filingAttempts counts every attempt at the filing path, refused ones
+	// included, so a case can say how many it took.
+	filingAttempts int
 }
 
 func (f *fakeAPI) handler() http.Handler {
@@ -122,6 +133,9 @@ func (f *fakeAPI) handler() http.Handler {
 		if f.fail(w, "/api/v1/devices/") {
 			return
 		}
+		if f.rowHasNotLanded(w) {
+			return
+		}
 		var body struct {
 			OrganizationID string  `json:"organization_id"`
 			SiteID         *string `json:"site_id"`
@@ -149,6 +163,29 @@ func (f *fakeAPI) handler() http.Handler {
 	})
 
 	return mux
+}
+
+// rowHasNotLanded answers the way the server answers for a machine it has not
+// written yet, for as many attempts as the case asked for. The words are the
+// server's own: the path serves two lookups and says which of them missed.
+func (f *fakeAPI) rowHasNotLanded(w http.ResponseWriter) bool {
+	f.mu.Lock()
+	f.filingAttempts++
+	notYet := f.filingAttempts <= f.rowLandsAfter
+	f.mu.Unlock()
+	if notYet {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "device not found"})
+		return true
+	}
+	return false
+}
+
+// attemptsAtFiling is how many times the filing path was asked, refusals
+// included.
+func (f *fakeAPI) attemptsAtFiling() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.filingAttempts
 }
 
 func (f *fakeAPI) fail(w http.ResponseWriter, path string) bool {

@@ -113,7 +113,7 @@ cleanup_repo
 
 # ----------------------------------------------------------------------------
 # eslint-boundaries gate — config-severity state machine (added 2026-05-28
-# for ADR-020 §5.4 flip). State derives from web/eslint.config.js severity
+# for ADR-020 flip). State derives from web/eslint.config.js severity
 # token AND marker presence:
 #   - severity 'warn' AND no marker  → eligible
 #   - severity 'error' OR marker     → flipped
@@ -183,7 +183,7 @@ cleanup_repo
 
 # ----------------------------------------------------------------------------
 # cargo-deny gate — config-severity state machine (added 2026-05-28 for the
-# second ADR-020 §5.4 flip). State derives from agent/deny.toml's
+# second ADR-020 flip). State derives from agent/deny.toml's
 # `multiple-versions` AND `wildcards` severity tokens AND marker presence:
 #   - both severities 'warn' AND no marker          → eligible
 #   - both severities 'deny' OR marker present      → flipped

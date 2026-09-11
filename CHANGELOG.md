@@ -737,7 +737,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.38.0] - 2026-06-05
 
 ### Added
-- **relay:** Phase 13b PR-C C2 — cross-server WS proxy + internal listener (ADR-033)
+- **relay:** Phase 13b PR-C C2 — cross-server WS proxy + internal listener (ADR-023)
 
 ## [v0.37.1] - 2026-06-04
 
@@ -747,7 +747,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.37.0] - 2026-06-03
 
 ### Added
-- **relay:** Phase 13b PR-C C1 — Redis Sentinel SessionRegistry + backend selection (ADR-031)
+- **relay:** Phase 13b PR-C C1 — Redis Sentinel SessionRegistry + backend selection (ADR-023)
 
 ## [v0.36.2] - 2026-06-03
 
@@ -1227,7 +1227,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.11.0] - 2026-03-20
 
 ### Added
-- complete agent auto-update system (Phase 14, ADR-005)
+- complete agent auto-update system (Phase 14, ADR-121)
 
 ### Changed
 - extract constants and helpers in Phase 14 code

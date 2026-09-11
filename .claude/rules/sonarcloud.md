@@ -26,7 +26,7 @@ nothing about. It has to: `dev` is a short-lived branch, and a short-lived
 branch keeps file-level data only where that branch changed the file — so what
 the analysis holds per file is a fact about the previous commit rather than
 about the coverage. Neither source answering is still a refusal. See
-[ADR-118](../../docs/adr/ADR-118-a-coverage-guard-reads-the-report-it-uploaded.md).
+[ADR-091](../../docs/adr/ADR-091-coverage-reports.md).
 
 The rating guard fails on a bug, vulnerability or unreviewed hotspot on changed **main** code, and reports — without failing — findings that move no gate condition, such as a code smell or anything in a test file. A finding on a file this change did not touch is somebody else's and does not fail the commit.
 

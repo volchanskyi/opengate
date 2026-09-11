@@ -41,15 +41,12 @@ case "$tool" in
   MultiEdit) new_content="${HOOK_TOOL_INPUT_EDITS:-}" ;;
 esac
 
-# 2. ADRs (013+) are mutable, but may only link ARCHIVED plans. A link to an
-# active plan rots when the plan is archived/renamed; archived plans
-# (plans/archive/…) are stable targets. Fold other rationale inline or point at
-# the mutable .claude/decisions.md index. Extract every plan link in the new
-# content and block if any is not under plans/archive/.
+# 2. An ADR may not link a plan. A plan is a working document, deleted in the
+# commit that lands its work, so a decision record that points at one rots.
+# Fold the rationale inline — the ADR is the durable record.
 if grep -qE '(^|/)docs/adr/ADR-[0-9]+.*\.md$' <<<"$path"; then
-  plan_links="$(grep -oE '\]\([^)]*plans/[^)]*\.md' <<<"$new_content" || true)"
-  if [ -n "$plan_links" ] && grep -qvE 'plans/archive/' <<<"$plan_links"; then
-    block adr-plan-link "Write/Edit refused: $path links a non-archived plan file ( ](…plans/….md) ). ADRs may link only archived plans (plans/archive/…) — other plan links rot when the plan moves. Fold the rationale inline or reference .claude/decisions.md. .claude/rules/plans-and-adrs.md."
+  if grep -qE '\]\([^)]*plans/[^)]*\.md' <<<"$new_content"; then
+    block adr-plan-link "Write/Edit refused: $path links a plan file ( ](…plans/….md) ). A plan is deleted when its work lands, so an ADR linking one rots. Fold the rationale inline. .claude/rules/plans-and-adrs.md."
   fi
 fi
 

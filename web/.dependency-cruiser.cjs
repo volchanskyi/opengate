@@ -2,14 +2,14 @@
 module.exports = {
   forbidden: [
     // -------------------------------------------------------------------------
-    // ADR-022 / ADR-020 §5.3 — per-feature boundaries.
+    // ADR-020 — per-feature boundaries.
     //
     // Two unambiguous direction-rules live here. Cross-feature "deep-import"
     // detection lives in `eslint.config.js`'s `boundaries/dependencies` rule
     // — boundaries can express element-relative constraints (same-feature vs
     // sibling-feature), which depcruise's regex matching cannot.
     //
-    // Both rules are warn-level during the pilot (per ADR-020 §5.4 they
+    // Both rules are warn-level during the pilot (per ADR-020 they
     // auto-flip to error once the count reaches zero). The snapshot file
     // `web/dependency-cruiser.snapshot.json` captures today's violation count;
     // the gauntlet step fails if a future commit increases it.
@@ -28,7 +28,7 @@ module.exports = {
       severity: 'warn',
       comment:
         "Global bootstrap stores (src/state/) must not depend on feature code. " +
-        "After ADR-022 only useAuthStore stays in src/state/; per-feature stores " +
+        "After ADR-020 only useAuthStore stays in src/state/; per-feature stores " +
         "move into their own feature folder.",
       from: { path: '^src/state/' },
       to: { path: '^src/features/' },

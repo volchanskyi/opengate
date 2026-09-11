@@ -9,7 +9,7 @@ metadata:
     {{- include "mon.labels" . | nindent 4 }}
 data:
   # Templated from deploy/grafana/provisioning/datasources/datasources.yml with
-  # URLs repointed at the in-cluster Services (ADR-030 §4).
+  # URLs repointed at the in-cluster Services (ADR-030).
   datasources.yml: |
     apiVersion: 1
     datasources:

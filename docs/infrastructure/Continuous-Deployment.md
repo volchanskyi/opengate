@@ -98,7 +98,7 @@ Two checks avoid unnecessary work:
 - The `resolve-tag` job reads the image the staging Deployment is running and
   compares the target digest and `deploy/` changes against it. It deploys
   whenever the answer is anything it cannot read — see
-  [ADR-086](../adr/ADR-086-the-cluster-is-the-source-of-truth-for-what-is-deployed.md).
+  [ADR-086](../adr/ADR-086-deploy-reads-the-cluster.md).
 
 Manual dispatch always performs the deployment.
 

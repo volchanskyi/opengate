@@ -32,7 +32,7 @@ MANDATORY RULES (enforced by .claude/hooks/, NO bypass):
   - Run /precommit before every commit; hook re-runs scripts/precommit-gauntlet.sh on each commit attempt — no marker bypass (git-commit-guard)
   - Run /refactor after /precommit; marker validates via git rev-parse HEAD (git-push-guard)
   - Plans live in /home/ivan/opengate/.claude/plans/, NOT ~/.claude/plans/ (write-guard)
-  - ADRs in docs/adr/ are immutable — supersede with new file (write-guard)
+  - ADRs in docs/adr/ describe live state — edit in place, never link a plan (write-guard)
   - No NOSONAR / //nolint / sonar.issue.ignore / eslint-disable (write-guard)
   - Use `make e2e`, not bare `npx playwright test` (.claude/rules/tooling.md)
 

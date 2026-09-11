@@ -47,6 +47,9 @@
 #                          API. A line the coverage report says nothing about —
 #                          a comment, a blank, a declaration — simply has no row.
 #   SCOV_TOUCHED_OVERRIDE  test seam: "path:line" rows, standing in for the diff.
+#   SCOV_PROPERTIES        sonar-project.properties path, default the repo-root
+#                          file. It is what says which files the coverage gate
+#                          covers at all.
 #   SCOV_REPORT_ROOT       directory the coverage reports are read from, default
 #                          the repository root. The reports are the fallback for
 #                          a file the branch analysis holds no component for.
@@ -66,6 +69,7 @@ NEW_COVERAGE_FLOOR="${NEW_COVERAGE_FLOOR:-82}"
 SCOV_BASE="${SCOV_BASE:-HEAD}"
 SCOV_SETTLE_RETRIES="${SCOV_SETTLE_RETRIES:-12}"
 SCOV_SETTLE_SLEEP="${SCOV_SETTLE_SLEEP:-5}"
+SCOV_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURL_BIN="${CURL_BIN:-curl}"
 
 # scov_fetch — print the raw new_coverage value (empty when the metric is absent,
@@ -143,17 +147,73 @@ scov_is_source() {
   esac
 }
 
-# scov_changed_files — print changed + untracked source files, one per line.
+# scov_property <name> — one setting's value from sonar-project.properties, with
+# the backslash continuations joined and the whitespace taken out.
+#
+# The file is read rather than copied, because a second copy of the analysis's
+# scope is a second thing to keep true and the first one to go stale.
+scov_property() {
+  local name="$1" file="${SCOV_PROPERTIES:-$SCOV_REPO_ROOT/sonar-project.properties}"
+  [ -f "$file" ] || return 0
+  awk -v key="$name" '
+    joining { line = line $0 }
+    !joining && index($0, key "=") == 1 { line = substr($0, length(key) + 2); joining = 1 }
+    joining {
+      if (line ~ /\\$/) { line = substr(line, 1, length(line) - 1); next }
+      gsub(/[ \t]/, "", line)
+      print line
+      exit
+    }' "$file"
+}
+
+# scov_gate_covers <path> — whether the coverage gate measures this file at all.
+#
+# A file the analysis never indexes, and a file the coverage exclusions name,
+# carry no figure anywhere by design. That is the same silence as a production
+# file whose coverage the analysis dropped, and only the second is the defect
+# the refusal below exists for — so the two are told apart here, from the
+# analysis's own configuration rather than from a list kept beside it.
+#
+# A commit confined to the load harness and a documentation tool was refused on
+# every attempt for touching nothing this gate measures.
+scov_gate_covers() {
+  local path="$1" root exclusion
+  scov_is_source "$path" || return 1
+
+  local covered=1
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    case "$path" in "$root"/*) covered=0 ;; esac
+  done <<<"$(scov_property sonar.sources | tr ',' '\n')"
+  [ "$covered" -eq 0 ] || return 1
+
+  while IFS= read -r exclusion; do
+    [ -n "$exclusion" ] || continue
+    # A Sonar glob is shell-glob syntax with "**" meaning any depth, which a
+    # case pattern already reads as "anything" — the separators either side are
+    # what the two spellings differ over.
+    # shellcheck disable=SC2254
+    case "$path" in
+      ${exclusion//\*\*\//*} | ${exclusion//\*\*/*}) return 1 ;;
+    esac
+  done <<<"$(scov_property sonar.coverage.exclusions | tr ',' '\n')"
+  return 0
+}
+
+# scov_changed_files — print the changed + untracked files the coverage gate
+# covers, one per line.
 scov_changed_files() {
   if [ -n "${SCOV_CHANGED_OVERRIDE:-}" ]; then
-    printf '%s\n' "$SCOV_CHANGED_OVERRIDE"
+    printf '%s\n' "$SCOV_CHANGED_OVERRIDE" | while IFS= read -r f; do
+      [ -n "$f" ] && scov_gate_covers "$f" && printf '%s\n' "$f"
+    done
     return 0
   fi
   {
     git diff --name-only "$SCOV_BASE" 2>/dev/null
     git ls-files --others --exclude-standard 2>/dev/null
   } | sort -u | while IFS= read -r f; do
-    [ -n "$f" ] && scov_is_source "$f" && printf '%s\n' "$f"
+    [ -n "$f" ] && scov_gate_covers "$f" && printf '%s\n' "$f"
   done
 }
 
@@ -289,14 +349,41 @@ scov_lcov_line_hits() {
     }' "$report" 2>/dev/null
 }
 
+# scov_report_was_read <path> — whether the coverage report covering this file's
+# tree exists and names at least one source.
+#
+# It is what separates a file with nothing to execute from a measurement that
+# went missing, and the two are otherwise the same silence. A Rust module that
+# is doc comments and `pub mod` lines has no executable line, so llvm-cov writes
+# no record for it while naming every other file in its crate — and a guard that
+# reads that as coverage nobody took refuses a change that has nothing to cover.
+#
+# A report that names nothing is the case this guard exists for, and it still
+# refuses. The read-back is the signal rather than the absence, for the reason
+# rust-lcov-relativize.sh gives about the report it rewrites.
+scov_report_was_read() {
+  local path="$1" root="${SCOV_REPORT_ROOT:-.}"
+  case "$path" in
+    server/*) grep -qE '\.go:[0-9]+' "$root/server/coverage.out" 2>/dev/null ;;
+    web/*) grep -q '^SF:' "$root/web/coverage/lcov.info" 2>/dev/null ;;
+    agent/*) grep -q '^SF:' "$root/agent/lcov.info" 2>/dev/null ;;
+    *) return 1 ;;
+  esac
+}
+
 # scov_file_tally <path> — print "covered to_cover" over the lines this change
-# touched, or nothing when neither the analysis nor the reports say anything
-# about the file.
+# touched, or nothing when the file's own coverage report was never read.
 scov_file_tally() {
   local path="$1" hits changed
   hits="$(scov_line_hits "$path")"
   [ -n "$hits" ] || hits="$(scov_local_line_hits "$path")"
-  [ -n "$hits" ] || return 1
+  if [ -z "$hits" ]; then
+    # A file neither source says anything about, in a tree whose report was
+    # read, holds no executable line — so there is nothing here to cover.
+    scov_report_was_read "$path" || return 1
+    printf '0 0\n'
+    return 0
+  fi
   changed="$(scov_changed_lines "$path")"
   [ -n "$changed" ] || {
     printf '0 0\n'

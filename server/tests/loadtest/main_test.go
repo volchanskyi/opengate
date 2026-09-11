@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -93,27 +94,48 @@ func TestAnswerLogPull_IgnoresOtherFrames(t *testing.T) {
 func TestTheExitCodeSaysWhichOfTheThreeOutcomesHappened(t *testing.T) {
 	t.Run("a run that measured nothing is not a clean run", func(t *testing.T) {
 		verdict := Verdict{Result: ResultInvalid, Reasons: []string{"scenario \"quic-agents\" produced no rows"}}
-		assert.Equal(t, exitMeasuredNothing, exitCode(verdict, 0),
+		assert.Equal(t, exitMeasuredNothing, exitCode(verdict, 0, nil),
 			"no failures and no measurement is the shape that used to pass")
 	})
 
 	t.Run("a fleet that half arrived is a measurement", func(t *testing.T) {
-		assert.Equal(t, exitAgentFailures, exitCode(Verdict{Result: ResultValid}, 12),
+		assert.Equal(t, exitAgentFailures, exitCode(Verdict{Result: ResultValid}, 12, nil),
 			"a fleet that half connects is exactly what the trend exists to record")
 	})
 
 	t.Run("a run that breached a gate is a measurement too", func(t *testing.T) {
-		assert.Equal(t, exitAgentFailures, exitCode(Verdict{Result: ResultFailed}, 0),
+		assert.Equal(t, exitAgentFailures, exitCode(Verdict{Result: ResultFailed}, 0, nil),
 			"a gate breach is a finding about the system, not a missing run")
 	})
 
 	t.Run("a whole fleet that arrived and held is clean", func(t *testing.T) {
-		assert.Equal(t, 0, exitCode(Verdict{Result: ResultValid}, 0))
+		assert.Equal(t, 0, exitCode(Verdict{Result: ResultValid}, 0, nil))
 	})
 
 	t.Run("measuring nothing outranks the failure count", func(t *testing.T) {
-		assert.Equal(t, exitMeasuredNothing, exitCode(Verdict{Result: ResultInvalid}, 500),
+		assert.Equal(t, exitMeasuredNothing, exitCode(Verdict{Result: ResultInvalid}, 500, nil),
 			"a run that never measured the system cannot be reported as one that did")
+	})
+
+	// A capacity ladder is sent to find the load at which machines stop
+	// arriving. The machines it loses reaching that load are its answer, so a
+	// code derived from the failure count reports the family's success as a
+	// failure — and the ladder can only ever be green by never finding
+	// anything.
+	t.Run("a ladder that found its answer is a clean run", func(t *testing.T) {
+		answer := &BreakingPoint{HeldAt: "step-4000", HeldAgents: 4000, GaveAt: "step-8000", GaveAgents: 8000}
+		assert.Equal(t, 0, exitCode(Verdict{Result: ResultValid}, 15891, answer))
+	})
+
+	t.Run("a ladder that found nothing keeps its failure count", func(t *testing.T) {
+		answer := &BreakingPoint{HeldAt: "step-4000", HeldAgents: 4000, RungsRead: 4}
+		assert.Equal(t, exitAgentFailures, exitCode(Verdict{Result: ResultValid}, 12, answer),
+			"machines lost on a ladder that held all the way up are unexplained")
+	})
+
+	t.Run("a ladder whose recovery stayed broken is still a finding", func(t *testing.T) {
+		answer := &BreakingPoint{GaveAt: "step-8000", GaveAgents: 8000}
+		assert.Equal(t, exitAgentFailures, exitCode(Verdict{Result: ResultFailed}, 0, answer))
 	})
 }
 
@@ -253,4 +275,57 @@ func resultsLine(t *testing.T, out, prefix string) string {
 		}
 	}
 	return ""
+}
+
+// What a failed run failed at.
+//
+// Every failure a machine reports names the machine it happened to, and most
+// name the address it was dialling too. Counting whole messages therefore makes
+// every failure unique: a ladder that lost 15,891 machines out of 16,000
+// reported three of them, each marked as having happened once, drawn in
+// whatever order the map handed them over. The one question the block exists to
+// answer — what went wrong — was the one thing it could not say.
+func TestErrorSamplesCountTheKindOfFailureRatherThanTheMachine(t *testing.T) {
+	results := []agentResult{
+		{err: errors.New(`enroll soak-t0-a11175: Post "http://127.0.0.1:8080/api/v1/enroll/d8c509f3": deadline exceeded`)},
+		{err: errors.New(`enroll soak-t0-a12461: Post "http://127.0.0.1:8080/api/v1/enroll/d8c509f3": deadline exceeded`)},
+		{err: errors.New(`enroll soak-t0-a14785: Post "http://127.0.0.1:8080/api/v1/enroll/d8c509f3": deadline exceeded`)},
+		{err: errors.New("dial soak-t0-a7: no route to host")},
+		{},
+	}
+
+	printed := captureStdout(t, func() { printErrorSamples(results) })
+
+	assert.Contains(t, printed, "[3x]", "three machines failed the same way and the block says so")
+	assert.Contains(t, printed, "enroll", "and names what they were doing")
+	assert.Contains(t, printed, "[1x]")
+}
+
+// The kinds are printed commonest first, so the line at the top is the one that
+// explains the run.
+func TestErrorSamplesLeadWithTheCommonestKind(t *testing.T) {
+	var results []agentResult
+	for i := 0; i < 20; i++ {
+		results = append(results, agentResult{err: fmt.Errorf("dial soak-t0-a%d: deadline exceeded", i)})
+	}
+	results = append(results, agentResult{err: errors.New("handshake soak-t0-a99: bad certificate")})
+
+	printed := captureStdout(t, func() { printErrorSamples(results) })
+
+	lines := strings.Split(strings.TrimSpace(printed), "\n")
+	require.GreaterOrEqual(t, len(lines), 2)
+	assert.Contains(t, lines[1], "[20x]", "the commonest kind is the first one printed")
+}
+
+// A run with more kinds than the block prints says how many it left out, so a
+// short list is never mistaken for the whole story.
+func TestErrorSamplesSayHowMuchTheyLeftOut(t *testing.T) {
+	var results []agentResult
+	for i := 0; i < 6; i++ {
+		results = append(results, agentResult{err: fmt.Errorf("failure of kind %s: nothing", string(rune('a'+i)))})
+	}
+
+	printed := captureStdout(t, func() { printErrorSamples(results) })
+
+	assert.Contains(t, printed, "6 kinds", "the block says how many kinds it found")
 }

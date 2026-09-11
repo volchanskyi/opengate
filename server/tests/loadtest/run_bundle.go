@@ -64,6 +64,9 @@ type runBundleInputs struct {
 	// everything at once — the reading a walked phase takes, over the only
 	// window that shape has. Nil is a run that could not take it.
 	FlatTargetBusy *float64
+	// FlatTargetBusyAbsent accounts for a whole-run reading that could not be
+	// taken, for the same reason a phase's does.
+	FlatTargetBusyAbsent string
 
 	// Registration is how long the server took to write the device row, read
 	// from the server itself. Nil means nobody asked it.
@@ -129,6 +132,7 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 
 	bundle.Verdict = Classify(RunInputs{
 		Profile:           in.Profile,
+		BreakingPoint:     bundle.BreakingPoint,
 		ExpectedScenarios: []string{"quic-agents"},
 		ProducedScenarios: producedScenarios(succeeded),
 		Headroom:          bundle.GeneratorHeadroom,
@@ -295,6 +299,7 @@ func connectPhase(in runBundleInputs, finished time.Time, succeeded int, registe
 		LatencyP99Ms:                   millis(percentile(register, 99)),
 		ErrorRate:                      errorRate,
 		TargetBusyPercent:              in.FlatTargetBusy,
+		TargetBusyAbsent:               in.FlatTargetBusyAbsent,
 	}
 }
 

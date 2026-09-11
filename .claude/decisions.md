@@ -1,129 +1,74 @@
 # Architecture Decision Records
 
-<!-- Index only. A decision and its why live in the ADR; a row here exists to let -->
-<!-- a reader choose a link. Prose per row is capped at 200 characters, enforced -->
-<!-- by scripts/tests/state-index-density.test.sh. -->
-<!--   - ADR-001 … ADR-012: docs/Architecture-Decision-Records.md (combined log) -->
-<!--   - ADR-013 onward:    docs/adr/ADR-NNN-title.md (one file per decision) -->
-<!-- All ADRs are mutable — edit in place to keep them current (ADR-036). -->
-<!-- Supersede with a new ADR only for a genuine decision change. -->
-<!-- Amendment ADRs folded into their parents: 028+032 → 019; 026 → 020; 031+033 → 023. -->
-<!-- See docs/README.md for the full convention. -->
+<!-- Index only. A decision and its reasoning live in the ADR; a row here exists -->
+<!-- so a reader can choose a link. Prose per row is capped at 200 characters, -->
+<!-- enforced by scripts/tests/state-index-density.test.sh. -->
+<!--   - ADR-001 … ADR-012: docs/Architecture-Decision-Records.md (one page) -->
+<!--   - ADR-014 onward:    docs/adr/ADR-NNN-title.md (one file each) -->
+<!-- Every ADR describes live state. A decision that changes rewrites its ADR; -->
+<!-- one that leaves nothing behind is deleted. Git history holds the history. -->
+<!-- Numbers are not reused, so gaps are expected. -->
+<!-- See docs/README.md for the conventions. -->
 
-| ADR | Decision | Phase | Status | Record |
-|-----|----------|-------|--------|--------|
-| 001 | MessagePack wire protocol, internally tagged enums, `[type][len][payload]` framing | 1 | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 002 | Golden file tests — Rust generates the fixtures, Go verifies them | 1 | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 003 | SQLite WAL via `modernc.org/sqlite`, `MaxOpenConns(1)` | 2 | Superseded by 014 | [log](../docs/Architecture-Decision-Records.md) |
-| 004 | ECDSA P-256 self-signed CA, CSR enrollment at `/api/v1/enroll/{token}`, TLS 1.3 | 2 | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 005 | QUIC mTLS via quic-go; the agent opens the control stream and writes first | 4 | Accepted; rationale superseded by 037 | [log](../docs/Architecture-Decision-Records.md) |
-| 006 | Platform traits with null implementations for headless and CI environments | 5 | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 007 | VAPID Web Push, keypair persisted to `{dataDir}/vapid.json` | 10 | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 008 | `aarch64-unknown-linux-musl` cross-compilation via `cross` | CD-C | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 009 | Cosign keyless signing for container images, authenticated by GitHub OIDC | CD-E | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 010 | Hardware inventory in its own `device_hardware` table, collected on demand over the control path | 12+ | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 011 | Device logs pulled on demand over the control path, one row per line, filtered in SQL | — | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 012 | SonarCloud quality gate is a hard merge block on the Clean-as-You-Code model | — | Accepted | [log](../docs/Architecture-Decision-Records.md) |
-| 013 | Docs live in-repo under `/docs`; link over paraphrase | — | Accepted; immutability clause superseded by 036 | [ADR-013](../docs/adr/ADR-013-docs-in-repo-and-immutable-adrs.md) |
-| 014 | PostgreSQL 17 via `pgx/v5/stdlib` with native types, deployed as the app chart's StatefulSet | 13a | Accepted (supersedes 003) | [ADR-014](../docs/adr/ADR-014-postgres-migration.md) |
-| 015 | IaC defense-in-depth — Checkov, Hadolint, Trivy and gitleaks all run; one baseline is the only suppression surface | S2 | Accepted | [ADR-015](../docs/adr/ADR-015-iac-defense-in-depth.md) |
-| 016 | Bidirectional goldens: Go→Rust reverse fixtures beside Rust→Go, each with a `.meta.json` sidecar | C1 | Accepted (extends 002) | [ADR-016](../docs/adr/ADR-016-bidirectional-goldens-and-sidecars.md) |
-| 017 | CI gates consolidated into `ci.yml`, hard-blocking destroys on direct push | — | Accepted; trend-store clause superseded by 038 | [ADR-017](../docs/adr/ADR-017-ci-gates-consolidation.md) |
-| 018 | OCI Bastion is the human node-SSH path; CI/CD uses the OKE API instead | — | Accepted | [ADR-018](../docs/adr/ADR-018-oci-bastion-operator-access.md) |
-| 019 | PMAT as an augment-only quality overlay at three separately-togglable points; no existing gate replaced | — | Accepted, incl. amendments | [ADR-019](../docs/adr/ADR-019-pmat-quality-overlay.md) |
-| 020 | Modular monolith — module boundaries enforced in one deployable, extraction deferred until a trigger fires | — | Accepted, incl. amendment | [ADR-020](../docs/adr/ADR-020-modular-monolith-full-hexagonal.md) |
-| 021 | Per-aggregate Go repositories carved out of the monolithic `db.Store` | — | Accepted | [ADR-021](../docs/adr/ADR-021-go-per-aggregate-repositories.md) |
-| 022 | Web state is per-feature: one store per feature, no global store | — | Accepted | [ADR-022](../docs/adr/ADR-022-web-per-feature-state.md) |
-| 023 | Relay session-registry seam — a slim `SessionRegistry` with the in-process adapter as the only implementation | — | Accepted; distributed amendments reverted | [ADR-023](../docs/adr/ADR-023-relay-extraction-redis-session-registry.md) |
-| 024 | A `ControlMessageHandler` trait around the agent's inner control fan-out, carved up per message family | — | Accepted | [ADR-024](../docs/adr/ADR-024-rust-control-message-handler-trait.md) |
-| 025 | CD pre-flight digest check short-circuits a staging deploy when the target digest and `deploy/**` are both unchanged | — | Superseded by 086 | [ADR-025](../docs/adr/ADR-025-cd-preflight-digest-check.md) |
-| 027 | Adversarial pen-test gate — custom Semgrep rules for the classes review keeps missing, run on the diff at commit time | — | Accepted | [ADR-027](../docs/adr/ADR-027-adversarial-pentest-precommit-gate.md) |
-| 029 | Test determinism — every test runs on every machine; a dependency is provisioned, never skipped around | 13b | Accepted | [ADR-029](../docs/adr/ADR-029-test-determinism-no-silent-skips.md) |
-| 030 | Kubernetes adoption — OKE plus a Helm chart as the deployment substrate | 13b | Accepted | [ADR-030](../docs/adr/ADR-030-kubernetes-adoption-oke-helm.md) |
-| 034 | Shared server keys mounted read-only from the existing Kubernetes Secret, so identity survives a redeploy | 13b | Accepted; autoscaling/PDB reverted | [ADR-034](../docs/adr/ADR-034-scale-out-keda-shared-keys.md) |
-| 035 | OKE free-tier block-volume remediation — the cluster sized to the 200 GB cap | 13b | Accepted | [ADR-035](../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md) |
-| 036 | All ADRs are mutable current-state records; supersede only for a genuine decision change | — | Accepted (supersedes 013's immutability clause) | [ADR-036](../docs/adr/ADR-036-mutable-adrs-current-state-doctrine.md) |
-| 037 | Client-first QUIC handshake and fast-path reconnect — mTLS-only auth, 1-RTT resumption adopted, 0-RTT deferred | 4 | Accepted (supersedes 005's rationale) | [ADR-037](../docs/adr/ADR-037-client-first-fast-path-reconnect.md) |
-| 038 | VictoriaMetrics is the canonical numeric CI-trend store, written through one shared transport | — | Accepted (supersedes 017/019 trend clauses) | [ADR-038](../docs/adr/ADR-038-victoriametrics-ci-trend-store.md) |
-| 039 | Diagrams as code, part 2 — native Mermaid C4 behind a mandatory render check, a drift guard, and a coverage standard | — | Accepted (extends DD-E) | [ADR-039](../docs/adr/ADR-039-diagrams-as-code-part-2.md) |
-| 040 | Service-extraction decision lens — Balanced Coupling decides what leaves the monolith, and when | — | Accepted | [ADR-040](../docs/adr/ADR-040-service-extraction-balanced-coupling-lens.md) |
-| 041 | Postgres row-level security is the tenant wall; the tenant comes from the JWT through one scoped transaction helper | ES WS-0 | Accepted | [ADR-041](../docs/adr/ADR-041-postgres-rls-multitenancy.md) |
-| 042 | Control-protocol forward compatibility — tolerant unknown-message decoding, with capabilities as the primary gate | ES WS-1 | Accepted | [ADR-042](../docs/adr/ADR-042-control-forward-compat-capabilities.md) |
-| 043 | The local ML sampler runs on the device, inside a bounded CPU and memory budget | ES WS-2 | Accepted | [ADR-043](../docs/adr/ADR-043-edge-sentinel-local-ml-sampler.md) |
-| 044 | The server, not a scrape, writes edge telemetry to VictoriaMetrics, injecting the resolved tenant | ES WS-4 | Accepted | [ADR-044](../docs/adr/ADR-044-edge-sentinel-server-telemetry-ingest.md) |
-| 045 | Load-test regression gate reads its baseline back from VictoriaMetrics and fails red | — | Accepted (supersedes 038's visibility-only clause) | [ADR-045](../docs/adr/ADR-045-load-test-regression-gate.md) |
-| 046 | Raw logs are brokered on demand and never centralized — nothing is persisted server-side | ES WS-11 | Accepted | [ADR-046](../docs/adr/ADR-046-edge-sentinel-raw-log-broker.md) |
-| 047 | Web telemetry charts render through a thin uPlot adapter over typed arrays, code-split into its own chunk | ES WS-6/12 | Accepted | [ADR-047](../docs/adr/ADR-047-web-telemetry-chart-engine.md) |
-| 048 | The endpoint-log model is edge-stored and server-proxied; log lines stay on the machine | ES WS-13 | Accepted | [ADR-048](../docs/adr/ADR-048-edge-sentinel-endpoint-log-model.md) |
-| 049 | Raw-log privacy is layered — structural controls plus redaction at the edge and again at the server | ES WS-13 | Accepted | [ADR-049](../docs/adr/ADR-049-edge-sentinel-raw-log-privacy.md) |
-| 050 | Host log sources are read through their first-party CLIs, so no GPL library is linked into the agent | ES WS-13 | Accepted | [ADR-050](../docs/adr/ADR-050-edge-sentinel-log-reader-sourcing.md) |
-| 051 | Local TSDB substrate chosen by bake-off: redb, on measured write throughput and crash safety | ES WS-14a | Accepted | [ADR-051](../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md) |
-| 052 | Local TSDB build — tiered rollups behind a durable watermark, sized to a fixed on-disk cap | ES WS-14b | Accepted | [ADR-052](../docs/adr/ADR-052-edge-sentinel-local-tsdb-build.md) |
-| 053 | Declarative threshold rules evaluated on the device beside the anomaly detector, with hysteresis and a sustain window | ES WS-19 | Accepted | [ADR-053](../docs/adr/ADR-053-edge-sentinel-threshold-alerts.md) |
-| 054 | Right-to-be-forgotten erasure — a tombstone deny-list, a purge state machine, and a reconciliation sweep | ES WS-20 | Accepted | [ADR-054](../docs/adr/ADR-054-edge-sentinel-data-lifecycle-erasure.md) |
-| 055 | No fault-injection code in the shipped binary; faults come from outside the process, and the machine-facing network path from an unprivileged in-path link shaper | FI1 | Accepted | [ADR-055](../docs/adr/ADR-055-fault-injection-mechanism.md) |
-| 056 | Maintenance mode is a server-authoritative per-device desired state, and edge collectors are always on | — | Accepted | [ADR-056](../docs/adr/ADR-056-device-maintenance-mode.md) |
-| 057 | Host metrics stream live over the existing control message; host system logs are served on demand beside them | — | Accepted | [ADR-057](../docs/adr/ADR-057-live-host-metric-streaming-and-system-logs.md) |
-| 058 | Telemetry persists through a coalescing queue, and the fleet-health badge reads a bounded lookback | — | Accepted | [ADR-058](../docs/adr/ADR-058-telemetry-persist-coalescing-and-badge-lookback.md) |
-| 059 | An unpaired session releases its row, and a relay-keyed sweep clears rows the relay no longer holds | — | Accepted | [ADR-059](../docs/adr/ADR-059-agent-session-row-lifecycle.md) |
-| 060 | A hand-written msgpack encoder for `ControlMessage`, byte-compared against the goldens | — | Accepted | [ADR-060](../docs/adr/ADR-060-control-message-hand-written-encoder.md) |
-| 061 | Intel AMT is a property of a managed device, linked by SMBIOS UUID, and a CIRA connection resolves to a tenant | — | Accepted | [ADR-061](../docs/adr/ADR-061-amt-as-device-property.md) |
-| 062 | Reads are tenant-scoped and configuration is admin-gated; the fleet summary is one O(1) query | — | Accepted | [ADR-062](../docs/adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md) |
-| 063 | Every server-to-agent control message has a decoder, a golden and a test — completeness is asserted, not assumed | — | Accepted | [ADR-063](../docs/adr/ADR-063-server-to-agent-control-message-completeness.md) |
-| 064 | Four-level tenancy — tenant, customer, site, device — resolved through one shared settings ladder | — | Accepted | [ADR-064](../docs/adr/ADR-064-four-level-tenancy-and-the-settings-ladder.md) |
-| 065 | The vitals contract — a 60 s cadence, window extrema beside the averages, and a bounded dim vocabulary | EF-B2 | Accepted | [ADR-065](../docs/adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md) |
-| 066 | Stall vitals read straight from kernel pressure accounting; absent, never zero, where the kernel has none | EF-B4 | Accepted | [ADR-066](../docs/adr/ADR-066-stall-vitals-from-kernel-pressure.md) |
-| 067 | Disk-performance vitals from per-device kernel counters, reduced worst-device per vital independently | EF-B5 | Accepted | [ADR-067](../docs/adr/ADR-067-disk-performance-vitals.md) |
-| 068 | System-event rules over a polled log with a cursor, feeding one bounded per-device alert sink | EF-B6 | Accepted | [ADR-068](../docs/adr/ADR-068-system-event-rules-and-the-edge-alert-sink.md) |
-| 069 | Ranking what broke moves to the device and rides the alert; the central correlation endpoint is removed | EF-B7 | Accepted | [ADR-069](../docs/adr/ADR-069-edge-correlation-ranking.md) |
-| 070 | The alert-rule grammar — a closed, cost-computable shape — plus metric aliasing and explicit coverage states | EF-B8 | Accepted | [ADR-070](../docs/adr/ADR-070-rule-grammar-and-coverage.md) |
-| 071 | Rule definitions are compiled-in YAML; a customer's bindings and rollout live in Postgres, and unsupported coverage is durable | EF-B9 | Accepted | [ADR-071](../docs/adr/ADR-071-rule-catalogue-bindings-and-durable-coverage.md) |
-| 072 | A new rule is re-run over the device's own stored history, once per version, bounded and interruptible | EF-B10 | Accepted | [ADR-072](../docs/adr/ADR-072-retroactive-rule-evaluation.md) |
-| 073 | A rule reaches an estate in stages held on quiet, with a kill switch and a ceiling the endpoint enforces itself | EF-B11 | Accepted | [ADR-073](../docs/adr/ADR-073-staged-rule-rollout-and-the-endpoint-budget.md) |
-| 074 | The alert store — an idempotent identity, accounted ingest, self-contained evidence, and an erasure cascade | EF-C2 | Accepted | [ADR-074](../docs/adr/ADR-074-alert-store-accounted-ingest-and-the-erasure-cascade.md) |
-| 075 | Incident grouping on two axes — how wide a room is and how long it stays one — plus the lifecycle and auto-resolve | EF-C3 | Accepted | [ADR-075](../docs/adr/ADR-075-incident-grouping-lifecycle-and-auto-resolve.md) |
-| 076 | Aggregate platform metrics are O(rules), carrying no entity label, and the alert rate becomes a measured gate | EF-C4 | Accepted | [ADR-076](../docs/adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md) |
-| 077 | The investigations API — tenant membership is the whole gate, and the triage queue pages by keyset | EF-C5 | Accepted | [ADR-077](../docs/adr/ADR-077-investigations-api-and-the-keyset-triage-queue.md) |
-| 078 | The triage workspace reads the incident snapshot and nothing else; an absence is stated, never left as a gap | EF-C6 | Accepted | [ADR-078](../docs/adr/ADR-078-the-triage-workspace-reads-a-snapshot.md) |
-| 079 | Rule administration is read-for-all and write-for-admins, with labels as a cross-cutting targeting dimension | Rules admin | Accepted | [ADR-079](../docs/adr/ADR-079-rule-administration-and-the-cross-cutting-label.md) |
-| 080 | One fact, one home: `docs/` splits into product, architecture and infrastructure behind a seam gate, and the state files become a capped index, ledger and register | Docs split | Accepted | [ADR-080](../docs/adr/ADR-080-one-fact-one-home-docs-and-state-files.md) |
-| 081 | One composition root in `internal/app`, an acceptance tier speaking through two doors, its capability binding gated both ways, a seam between the Go tiers, and real machines in the browser | Acceptance tier | Accepted | [ADR-081](../docs/adr/ADR-081-one-composition-root-and-the-acceptance-tier.md) |
-| 082 | A load run measures the system or is recorded invalid: reachable gate rows, server-side registration, a real relay, one versioned profile and bundle, no authority key off-cluster, no residue | Perf testing | Accepted | [ADR-082](../docs/adr/ADR-082-load-runs-measure-the-system-or-say-they-did-not.md) |
-| 083 | Four red nightlies repaired at the fault with the test that would have caught it; registration read from the server, phases walked, fleets built through the API, production last evicted | Nightly repair | Accepted | [ADR-083](../docs/adr/ADR-083-a-nightly-that-repairs-itself-rather-than-reporting.md) |
-| 084 | Staging's browser suite gets two real machines it cross-builds and enrols itself; certificate named for the in-cluster server, operator registered first, no authority key off-cluster | Staging fleet | Accepted | [ADR-084](../docs/adr/ADR-084-staging-e2e-runs-against-real-machines.md) |
-| 085 | One holder at a time over the staging namespace, taken as a Lease in the cluster rather than a shared GitHub concurrency group, which a deploy awaiting its reviewer would hold for hours | Staging locking | Accepted | [ADR-085](../docs/adr/ADR-085-one-holder-at-a-time-over-staging.md) |
-| 086 | The pre-flight reads what staging is running off the cluster, the deploy declares no cache its token cannot write, and a cache write we name is read back through the API | CD cache | Accepted | [ADR-086](../docs/adr/ADR-086-the-cluster-is-the-source-of-truth-for-what-is-deployed.md) |
-| 087 | A run's names carry its own seed, a safety ceiling belongs to the environment that has the thing it protects, cleanup counts every kind it removes, and the local coverage guard reads the diff | Nightly repair | Accepted | [ADR-087](../docs/adr/ADR-087-a-run-is-independent-of-what-the-last-one-left.md) |
-| 088 | A benchmark measures the code, not its own pipe and scheduler; each lazy engine carries its own JS budget; guards refuse a clock toggled inside the loop and a chunk subtracted without one | Gate honesty | Accepted | [ADR-088](../docs/adr/ADR-088-a-gate-measures-the-system-not-its-own-harness.md) |
-| 089 | Alerts, evidence and closed rooms are swept at a year, aged on receipt so a retroactive finding survives; open work is never taken and a room outlives the alerts pointing at it | Retention | Accepted | [ADR-089](../docs/adr/ADR-089-the-declared-retention-period-is-the-one-the-tables-observe.md) |
-| 090 | A run is gated on the verdict it wrote about itself rather than on its failure count; the fleet is wound down before it is read, and every workflow reads the verdict back | Run honesty | Accepted | [ADR-090](../docs/adr/ADR-090-a-run-is-gated-on-its-own-verdict-not-on-its-failure-count.md) |
-| 091 | A coverage report is rewritten into the coordinates of whatever reads it and then read back; the list of what goes unmeasured is held equal wherever it is written | Rust coverage | Accepted | [ADR-091](../docs/adr/ADR-091-a-coverage-report-is-written-in-the-readers-coordinates.md) |
-| 092 | A trend sample carries the workload that produced it and the window is keyed by it, so a rewritten scenario compares against itself rather than against the work it replaced | Trend identity | Accepted | [ADR-092](../docs/adr/ADR-092-a-trend-series-carries-the-workload-that-produced-it.md) |
-| 093 | A relay session's lifetime belongs to the relay: the handler parks on the session's own done channel and a server-lifetime context, never on a request context a hijack left uncancellable | Relay lifetime | Accepted | [ADR-093](../docs/adr/ADR-093-a-relay-session-lifetime-is-owned-by-the-relay.md) |
-| 094 | A run brackets itself with two readings of its target: replaced mid-run is invalid, not giving back what it took is failed, and both readings travel in the bundle | Run honesty | Accepted | [ADR-094](../docs/adr/ADR-094-a-run-records-what-its-target-was-holding.md) |
-| 095 | The server binds a second, cluster-only listener for the exposition and pprof; the ingress routes the API port alone, and every consumer's port is read back | Two listeners | Accepted | [ADR-095](../docs/adr/ADR-095-the-server-has-two-listeners.md) |
-| 096 | A counter of a resource is not a measurement of it: every liveness number read zero while the process held 7,455 goroutines, so a count is paired with a reading and the assertion is a slope | Conservation | Accepted | [ADR-096](../docs/adr/ADR-096-a-counter-of-a-resource-is-not-a-measurement-of-it.md) |
-| 097 | A mutant's leash is a term of the budget: the pre-flight adds one per non-terminating mutant, costs are measured over the mutants that finish, and the coefficient is bounded by the headroom | Mutation budget | Accepted | [ADR-097](../docs/adr/ADR-097-a-mutants-leash-is-a-term-of-the-budget.md) |
-| 098 | A test asserts on the code that ships, and assertion shape is not evidence of value: grading by shape inverted the correlation, so the guard refuses a copied module and an un-restored global | Test value | Accepted | [ADR-098](../docs/adr/ADR-098-a-test-asserts-on-the-code-that-ships.md) |
-| 099 | A fleet is held by the cluster, not by a stream: the harness is launched detached in the pod, the start proves it is offering a fleet, and only a launch that never happened is made again | Load transport | Accepted | [ADR-099](../docs/adr/ADR-099-a-fleet-is-held-by-the-cluster-not-by-a-stream.md) |
-| 100 | A bundle field is a reading or it is absent: eleven fields were literals or restatements, so both fingerprints are passed in, the generator measures itself, and the arrival pair splits by side | Run evidence | Accepted | [ADR-100](../docs/adr/ADR-100-a-bundle-field-is-a-reading-or-it-is-absent.md) |
-| 101 | One measurement, one limit, one file: the profile is the only home for the numbers, the regression check keeps only its method, and every measurement the extraction emits carries a decision | Load limits | Accepted | [ADR-101](../docs/adr/ADR-101-one-measurement-one-limit-one-file.md) |
-| 102 | A drill reading is the scenario's own, or it is not a reading: an unreadable status is inconclusive rather than an offline machine, and the link figures are measured from where the scenario opened | Network drill | Accepted | [ADR-102](../docs/adr/ADR-102-a-drill-reading-is-the-scenarios-own-or-it-is-not-a-reading.md) |
-| 103 | A drill measures a herd that is there, and a reconnect it can read: the fleet persists behind its own name, the scenario refuses without it, and the figures come from the machine's own log | Network drill | Accepted | [ADR-103](../docs/adr/ADR-103-a-drill-measures-a-herd-that-is-there.md) |
-| 104 | A reading names whose room it measures: the generator's own allowance gates a run, a shared box is evidence, and both are bracketed around the load | Performance Depth WS1 | Accepted | [ADR-104](../docs/adr/ADR-104-a-reading-names-whose-room-it-measures.md) |
-| 105 | A simulated machine is one machine for the whole run: identity minted once and the estate a fixed roster, no two live connections the same machine, and the connection proved for the whole stay | Performance Depth WS3 | Accepted | [ADR-105](../docs/adr/ADR-105-a-simulated-machine-is-one-machine-for-the-whole-run.md) |
-| 106 | A venue lasts as long as the run it holds: pod lifetime and verdict wait derived from the hold, the namespace claim renewed while its holder works, and a claim lost mid-run fails the release | Performance Depth WS3 | Accepted | [ADR-106](../docs/adr/ADR-106-a-venue-lasts-as-long-as-the-run-it-holds.md) |
-| 107 | A family runs somewhere: five unscheduled profiles get venues, staging becomes production-shaped and walks the everyday profile, the soak is five hours with churn, and a cron names an order | Performance Depth WS3 | Accepted | [ADR-107](../docs/adr/ADR-107-a-family-runs-somewhere.md) |
-| 108 | The venue picks how a busy machine is read: a guest node is read over the last minute production shared with it, a box the run owns at the instant, and an unread figure is not a machine at rest | Performance Depth WS3 | Accepted | [ADR-108](../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) |
-| 109 | A sweep varies one thing and somebody reads it: a phase says how hard the target worked, the generator declares its own share, the rungs bind, and the legs are read together | Performance Depth WS4 | Accepted | [ADR-109](../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md) |
-| 110 | A machine leaves when the run says so: a hold ends on the wind-down as well as on its own clock, so a fleet wound down gives its machines back and a recovery step measures a target let go of | Performance Depth WS3 | Accepted | [ADR-110](../docs/adr/ADR-110-a-machine-leaves-when-the-run-says-so.md) |
-| 111 | An estate is filed as it arrives: each machine under its customer and into one of its buildings, identified from its own credential, and a scenario that reads a building waits for one | Performance Depth WS4 | Accepted | [ADR-111](../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md) |
-| 112 | A climb is offered at the rate it declares: the fleet spreads each step's arrivals across the window it is given, so a rate a profile wrote down is the rate the server is asked for | Performance Depth WS4 | Accepted | [ADR-112](../docs/adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md) |
-| 113 | A shared processor is asked about before the run, not during it: processor time is taken in turns rather than used up, so a mid-run reading is the run's own work | Performance Depth WS3 | Accepted | [ADR-113](../docs/adr/ADR-113-a-shared-processor-is-asked-about-before-the-run.md) |
-| 114 | A run fits in the room the node has left: pod reservations are summed per workflow against what the node has free, and a wait that fails prints the cluster's own reason | Performance Depth WS3 | Accepted | [ADR-114](../docs/adr/ADR-114-a-run-fits-in-the-room-the-node-has-left.md) |
-| 115 | A ladder declares what giving out means: the profile names the terms, the run reports the rung that held, the rung that gave and the reading that decided, and states how many rungs it read | Performance Depth WS5 | Accepted | [ADR-115](../docs/adr/ADR-115-a-ladder-declares-what-giving-out-means.md) |
-| 116 | A presented address is believed from a named proxy: the deployment names its proxies by service, and a load run presents one address per technician and per machine so the limit is per technician | Performance Depth WS5 | Accepted | [ADR-116](../docs/adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md) |
-| 117 | The profile offers the load and names the window: the walk is projected into the generator, journeys arrive at a rate, and the percentile is taken over the phase the profile marks | Performance Depth WS5 | Accepted | [ADR-117](../docs/adr/ADR-117-the-profile-offers-the-load-and-names-the-window.md) |
-| 118 | A coverage guard reads the report it uploaded: the analysis is asked first, and a file the short-lived branch holds no component for is read from the coverage report instead | Performance Depth WS5 | Accepted | [ADR-118](../docs/adr/ADR-118-a-coverage-guard-reads-the-report-it-uploaded.md) |
-| 119 | A long run names the line that grew: a soak keeps the target's goroutine and heap profiles on an interval and reports the difference between them as growth at a symbolised site | Performance Depth WS6 | Accepted | [ADR-119](../docs/adr/ADR-119-a-long-run-names-the-line-that-grew.md) |
-| 120 | What holds an object is followed on the box the run destroys: a core is taken off the running server and the heaviest live types are walked back to the root keeping them alive | Performance Depth WS6 | Accepted | [ADR-120](../docs/adr/ADR-120-what-holds-an-object-is-followed-on-the-box-the-run-destroys.md) |
+| ADR | Decision | Record |
+|-----|----------|--------|
+| 001 | MessagePack on the wire, internally tagged enums, `[type][length][payload]` framing | [log](../docs/Architecture-Decision-Records.md) |
+| 002 | Golden fixtures prove Rust and Go agree, in both directions, each with a sidecar saying what it holds | [log](../docs/Architecture-Decision-Records.md) |
+| 004 | The server is its own certificate authority; agents enrol by signing request over TLS 1.3 | [log](../docs/Architecture-Decision-Records.md) |
+| 006 | Agent capabilities are traits, and a platform that implements none of them gets the null ones | [log](../docs/Architecture-Decision-Records.md) |
+| 007 | Web push with the keypair persisted to the data directory | [log](../docs/Architecture-Decision-Records.md) |
+| 008 | The agent cross-compiles to static aarch64 musl | [log](../docs/Architecture-Decision-Records.md) |
+| 009 | Container images are signed without keys, through the pipeline's own identity | [log](../docs/Architecture-Decision-Records.md) |
+| 010 | Hardware inventory is its own table, collected when asked for rather than on a schedule | [log](../docs/Architecture-Decision-Records.md) |
+| 012 | The SonarCloud gate blocks the merge, on new code only, with per-language coverage held separately | [log](../docs/Architecture-Decision-Records.md) |
+| 014 | PostgreSQL 17 through pgx, native column types, running in the cluster | [ADR-014](../docs/adr/ADR-014-postgresql.md) |
+| 015 | Infrastructure code is scanned by Checkov, Hadolint and Trivy; one baseline is the only suppression | [ADR-015](../docs/adr/ADR-015-iac-scanning.md) |
+| 018 | Operators reach nodes through OCI Bastion; automation uses the cluster API instead | [ADR-018](../docs/adr/ADR-018-operator-node-access.md) |
+| 019 | PMAT runs at three switchable points and replaces no existing gate | [ADR-019](../docs/adr/ADR-019-pmat-quality-overlay.md) |
+| 020 | Module boundaries inside one deployable, held by lints; a port is earned, and extraction needs a reason | [ADR-020](../docs/adr/ADR-020-module-boundaries.md) |
+| 023 | The relay keeps its own session registry, in process, because pairing is local | [ADR-023](../docs/adr/ADR-023-relay-session-registry.md) |
+| 027 | A pen-test gate runs custom rules over the diff at three points, with no inline suppression | [ADR-027](../docs/adr/ADR-027-pentest-gate.md) |
+| 029 | Every test runs on every machine; a missing dependency is provisioned, never skipped around | [ADR-029](../docs/adr/ADR-029-test-determinism.md) |
+| 030 | Kubernetes on OKE, packaged with Helm, with the database in the cluster | [ADR-030](../docs/adr/ADR-030-kubernetes-on-oke.md) |
+| 034 | The server's four key files are mounted from a Kubernetes Secret, so identity survives a redeploy | [ADR-034](../docs/adr/ADR-034-server-keys-from-a-secret.md) |
+| 035 | The cluster fits the 200 GB storage cap; the binding constraint is volume count, not size | [ADR-035](../docs/adr/ADR-035-block-volume-budget.md) |
+| 037 | QUIC with mutual TLS; the agent opens the stream, and resumption carries the reconnect saving | [ADR-037](../docs/adr/ADR-037-quic-transport.md) |
+| 038 | CI trends live in VictoriaMetrics; a sample names its workload and the load gate reads its baseline back | [ADR-038](../docs/adr/ADR-038-ci-trend-store.md) |
+| 039 | Diagrams are Mermaid in the document, syntax-checked in CI, with pinned counts | [ADR-039](../docs/adr/ADR-039-diagrams-as-code.md) |
+| 041 | Forced row-level security is the tenant wall, driven by the token through one scoped transaction | [ADR-041](../docs/adr/ADR-041-postgres-row-level-security.md) |
+| 042 | An unknown control message is ignored rather than fatal, and new ones are gated on a declared capability | [ADR-042](../docs/adr/ADR-042-control-protocol-compatibility.md) |
+| 043 | The device detects its own problems — an always-on sampler, plus threshold rules with hysteresis | [ADR-043](../docs/adr/ADR-043-on-device-detection.md) |
+| 044 | The server writes telemetry and resolves the tenant from the connection; agents hold no store credential | [ADR-044](../docs/adr/ADR-044-telemetry-ingest.md) |
+| 046 | Logs stay on the machine: brokered on demand, bounded, redacted twice, audited, never stored centrally | [ADR-046](../docs/adr/ADR-046-logs-stay-on-the-machine.md) |
+| 047 | Telemetry charts run on one thin uPlot adapter, split into its own budgeted bundle | [ADR-047](../docs/adr/ADR-047-telemetry-charts.md) |
+| 052 | The agent keeps its own tiered store on redb, behind a durable cursor and a disk cap | [ADR-052](../docs/adr/ADR-052-agent-local-store.md) |
+| 054 | Erasure is immediate and tombstone-first; alerts and closed incidents are swept at a year, aged on receipt | [ADR-054](../docs/adr/ADR-054-data-lifecycle.md) |
+| 055 | No fault code in the shipped binary; faults come from a test harness and from tooling outside the process | [ADR-055](../docs/adr/ADR-055-fault-injection.md) |
+| 056 | Maintenance mode is a desired state on the device row, and collectors are otherwise always on | [ADR-056](../docs/adr/ADR-056-maintenance-mode.md) |
+| 059 | A session row is released when its session ends, three ways, including a sweep for what the process cannot see | [ADR-059](../docs/adr/ADR-059-session-row-lifecycle.md) |
+| 061 | Intel AMT is a property of a device, joined on the firmware identifier, which is stored and never returned | [ADR-061](../docs/adr/ADR-061-intel-amt.md) |
+| 063 | Control messages encode themselves to identical bytes, and every server-to-agent message is proved complete | [ADR-063](../docs/adr/ADR-063-control-message-encoding.md) |
+| 064 | Four levels of tenancy; the wall stays at the tenant, membership is the read gate, settings resolve down the ladder | [ADR-064](../docs/adr/ADR-064-tenancy.md) |
+| 065 | A reading a minute with extremes beside it, 24 series per device, and absent rather than zero | [ADR-065](../docs/adr/ADR-065-vitals.md) |
+| 068 | Rules for failures that cross no threshold, over a polled log with a cursor, ranked on the device | [ADR-068](../docs/adr/ADR-068-system-event-rules.md) |
+| 070 | The rule engine — a closed grammar, three layers by mutability, retroactive scan, staged rollout, own budget | [ADR-070](../docs/adr/ADR-070-alert-rules.md) |
+| 074 | An alert's identity is reproducible, its evidence rides with it, and incidents group by customer, scope and rule | [ADR-074](../docs/adr/ADR-074-alerts-and-incidents.md) |
+| 076 | Five aggregate series about the alert pack, no entity label, every value exported including the zeros | [ADR-076](../docs/adr/ADR-076-platform-metrics.md) |
+| 077 | Investigations — tenant membership is the whole gate, the queue pages by key, the room reads the snapshot | [ADR-077](../docs/adr/ADR-077-investigations.md) |
+| 079 | Rules are read by every member and written by administrators; labels aim them, and a stop is a row | [ADR-079](../docs/adr/ADR-079-rule-administration.md) |
+| 080 | Documentation lives in the repository in three trees, describes live state, and the ADR is a decision's only home | [ADR-080](../docs/adr/ADR-080-documentation.md) |
+| 081 | One composition root, an acceptance tier bound to the product chapters, and a stated seam between tiers | [ADR-081](../docs/adr/ADR-081-composition-root-and-test-tiers.md) |
+| 082 | A load run is valid, failed or invalid; every number is a reading, and the fleet is a roster the run gives back | [ADR-082](../docs/adr/ADR-082-load-run-validity.md) |
+| 084 | Staging carries two real machines it builds and enrols, and one holder at a time through a Lease | [ADR-084](../docs/adr/ADR-084-staging-environment.md) |
+| 086 | The deploy reads the cluster for what is running, declares no cache its token cannot write, and reads back what it does | [ADR-086](../docs/adr/ADR-086-deploy-reads-the-cluster.md) |
+| 088 | A benchmark measures the code rather than its own harness, and each lazy bundle carries its own budget | [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md) |
+| 091 | A coverage report is rewritten into its reader's coordinates and read back; exclusions agree in all four places | [ADR-091](../docs/adr/ADR-091-coverage-reports.md) |
+| 093 | The relay owns a session's lifetime, never a hijacked request context, and a slope proves the resource came back | [ADR-093](../docs/adr/ADR-093-relay-session-lifetime.md) |
+| 095 | Two listeners — the API in public, the exposition and profiler cluster-only, with every consumer read back | [ADR-095](../docs/adr/ADR-095-two-listeners.md) |
+| 097 | A mutant's leash is a declared term of the night's budget, and cost is measured over the mutants that finish | [ADR-097](../docs/adr/ADR-097-mutation-budget.md) |
+| 098 | A test asserts on the code that ships; assertion shape is not evidence of value, and the data says so | [ADR-098](../docs/adr/ADR-098-test-value.md) |
+| 101 | The profile is the only home for the numbers — one measurement, one limit, and the window it is taken over | [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md) |
+| 107 | Every profile has a venue; limits derive from the run's length, and the node is asked whether it has room | [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) |
+| 116 | A forwarded address is believed only from a proxy the deployment named | [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md) |
+| 119 | A long run keeps the target's profiles and names the line that grew; a core says what still holds it | [ADR-119](../docs/adr/ADR-119-finding-a-leak.md) |
+| 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |

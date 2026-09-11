@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/arch-lint-flip.sh — per ADR-020 §5.4 warn→error auto-flip.
+# scripts/arch-lint-flip.sh — per ADR-020 warn→error auto-flip.
 #
 # Usage:
 #   scripts/arch-lint-flip.sh [--check|--apply]
@@ -17,7 +17,7 @@
 #                          dev-facing action that records "all violations fixed";
 #                          --apply records the flip in a tracked marker.
 #
-# Deferred (per ADR-020 §5.4 mechanism notes):
+# Deferred (per ADR-020 mechanism notes):
 #   eslint-boundaries   — requires eslint.config.js severity mutation; out of
 #                          scope for the initial scaffolding ADR-020 PR.
 #   cargo-deny          — bans/multiple-versions warns; covered by ADR-020
@@ -75,7 +75,7 @@ esac
 
 if [ "$mode" = "--apply" ] && [ "$depcruise_state" = "eligible" ]; then
   cat >"$depcruise_marker" <<EOF
-# ADR-020 §5.4 flip marker for the depcruise gate.
+# ADR-020 flip marker for the depcruise gate.
 #
 # Created by scripts/arch-lint-flip.sh --apply on $(date -u +%Y-%m-%dT%H:%M:%SZ).
 # Trigger: web/dependency-cruiser.snapshot.json's .warn count reached zero.
@@ -89,7 +89,7 @@ EOF
 fi
 
 # ----------------------------------------------------------------------------
-# Gate: eslint-boundaries (ADR-020 §5.4)
+# Gate: eslint-boundaries (ADR-020)
 #
 # State machine driven by web/eslint.config.js's `boundaries/dependencies`
 # severity token AND the marker file:
@@ -138,7 +138,7 @@ if [ "$mode" = "--apply" ] && [ "$eslint_state" = "eligible" ]; then
   if grep -qF "$eslint_error_pat" "$tmp" && ! grep -qF "$eslint_warn_pat" "$tmp"; then
     mv "$tmp" "$eslint_config"
     cat >"$eslint_marker" <<EOF
-# ADR-020 §5.4 flip marker for the eslint-boundaries gate.
+# ADR-020 flip marker for the eslint-boundaries gate.
 #
 # Created by scripts/arch-lint-flip.sh --apply on $(date -u +%Y-%m-%dT%H:%M:%SZ).
 # Trigger: web/eslint.config.js's boundaries/dependencies severity reached
@@ -157,7 +157,7 @@ EOF
 fi
 
 # ----------------------------------------------------------------------------
-# Gate: cargo-deny (ADR-020 §5.4, Amendment 1)
+# Gate: cargo-deny (ADR-020, Amendment 1)
 #
 # State machine driven by agent/deny.toml's `multiple-versions` AND
 # `wildcards` severity tokens AND the marker file:
@@ -205,7 +205,7 @@ if [ "$mode" = "--apply" ] && [ "$deny_state" = "eligible" ]; then
   if grep -qF "$deny_mv_deny" "$tmp" && grep -qF "$deny_wc_deny" "$tmp"; then
     mv "$tmp" "$deny_config"
     cat >"$deny_marker" <<EOF
-# ADR-020 §5.4 flip marker for the cargo-deny gate.
+# ADR-020 flip marker for the cargo-deny gate.
 #
 # Created by scripts/arch-lint-flip.sh --apply on $(date -u +%Y-%m-%dT%H:%M:%SZ).
 # Trigger: agent/deny.toml's multiple-versions + wildcards severities reached
@@ -226,7 +226,7 @@ elif [ "$mode" = "--apply" ] && [ "$deny_state" = "flipped" ] && [ ! -f "$deny_m
   # in the same commit that introduces this gate). Record the marker so the
   # audit trail matches the config state.
   cat >"$deny_marker" <<EOF
-# ADR-020 §5.4 flip marker for the cargo-deny gate.
+# ADR-020 flip marker for the cargo-deny gate.
 #
 # Created by scripts/arch-lint-flip.sh --apply on $(date -u +%Y-%m-%dT%H:%M:%SZ).
 # Trigger: agent/deny.toml severities were already at 'deny' when --apply ran;

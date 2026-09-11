@@ -9,17 +9,18 @@ All agent plans must be created in **this repo's** `.claude/plans/` directory (i
 - Use a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names.
 - If plan mode suggests a path under `~/.claude/plans/`, ignore it and use the project-local path instead.
 
-### Archive a plan the moment its work is done (MANDATORY)
+### Delete a plan the moment its work is done (MANDATORY)
 
-**Enforced by:** [`scripts/tests/plans-archive-consistency.test.sh`](../../scripts/tests/plans-archive-consistency.test.sh) (gauntlet shell-tests step) + [`scripts/check-doc-links`](../../scripts/check-doc-links/). **No bypass.**
+**Enforced by:** [`scripts/tests/plans-retirement.test.sh`](../../scripts/tests/plans-retirement.test.sh) (gauntlet shell-tests step). **No bypass.**
 
-The commit that lands a micro-plan's final implementation MUST also retire the plan — do **not** leave it for "later" (that has been forgotten repeatedly). In the **same commit**:
+A plan is a working document. Once its implementation has landed, what it
+described lives in the code, in [`/docs`](../../docs/) and in the ADRs — the
+plan is a second, stale account of the same thing. So the commit that lands a
+plan's final implementation MUST also `git rm` the plan, and add its
+[`phases.md`](../phases.md) row in the same commit. Do not leave it for
+"later"; that has been forgotten repeatedly.
 
-1. `git mv .claude/plans/<plan>.md .claude/plans/archive/<plan>.md`.
-2. Bump every internal relative link **one `../` deeper** (`../../` → `../../../`) — a freshly-archived plan isn't baselined, so stale links fail the doc-links gate. Validate with `GO111MODULE=off go run ./scripts/check-doc-links`.
-3. Repoint every reference to it — the master-plan index row, the `phases.md` **Completed** row (link `plans/archive/<plan>.md`), and cross-refs in sibling plans — to the `archive/` path.
-
-The consistency gate refuses any `phases.md` **Completed** row whose Plan link resolves to a **non-archived** plan, so recording a phase as done forces its plan into `archive/`. Pair this with the existing "update `phases.md` after completing significant work" rule in [`CLAUDE.md`](../../CLAUDE.md): finishing a workstream means a `phases.md` Completed row **and** the plan archived, together, in the completing commit.
+`phases.md` rows link no plan. The consistency gate refuses one that does.
 
 ### Plans vs memory
 
@@ -56,23 +57,31 @@ than in a longer row.
 
 ## ADRs
 
-All ADRs are **mutable** — edit them in place to keep them accurate against current state (fix a rotted link, correct a moved path, strip chronological/past-state noise per [`docs-live-state.md`](docs-live-state.md)). This covers both the per-file ADRs in [`docs/adr/`](../../docs/adr/) (ADR-013 onward) and the combined historical log [`docs/Architecture-Decision-Records.md`](../../docs/Architecture-Decision-Records.md) (ADR-001–012). git history (`git log --follow` per file) is the audit trail.
+Every ADR describes **live state**. They are edited in place to stay accurate,
+and git history (`git log --follow` per file) is the audit trail.
 
-Supersession is still used for genuine **decision changes** (a reversal or replacement, not a correction): create a new ADR with the next number, set its `supersedes:` frontmatter, and update the prior ADR's `status:`. Mutability keeps an ADR *true*; supersession records what *changed*. See [`docs/adr/ADR-036`](../../docs/adr/ADR-036-mutable-adrs-current-state-doctrine.md).
+There is no superseded status and no supersession chain. When a decision
+changes, its ADR is rewritten to say what is true now. When a decision leaves
+nothing behind, its ADR is deleted and anything still live merges into the ADR
+that replaced it. Numbers are never reused, so gaps are expected.
 
-When recording a new architectural decision:
+A minor fix or patch does not get an ADR. It belongs in the ADR whose decision
+it refines, or nowhere.
 
-1. Add a new file in [`docs/adr/`](../../docs/adr/) with the next sequential number.
+When recording a new decision:
+
+1. Add a file in [`docs/adr/`](../../docs/adr/) with the next number, carrying
+   `number:` and `title:` frontmatter.
 2. Add an index row in [`.claude/decisions.md`](../decisions.md).
 
-### Plan links from docs
+### No plan links from docs
 
-Plans are **ephemeral** — active plans get archived/renamed, and archived plans get **deleted** in cleanups. So permanent documentation must not depend on them. Two rules, by document class:
+Plans are working documents and are deleted when their work lands, so nothing
+durable may depend on one. No ADR and no page under `docs/` links a plan. Fold
+what matters inline — the ADR is the durable record.
 
-- **ADRs** (`docs/adr/ADR-*.md`) may link a plan **only** under `plans/archive/…` — a stable-enough target for a decision record — alongside other stable targets (other ADRs, code, external URLs). Never link an **active** plan (it rots when archived). Put the rationale that matters **inline** in the ADR (it is the durable record), and any working-plan pointer in the mutable [`.claude/decisions.md`](../decisions.md) index.
-- **All other docs under `docs/`** (Testing.md, Home.md, …) must **not link any plan at all** — archived or active. Fold the rationale inline or reference [`.claude/decisions.md`](../decisions.md). A doc that links an archived plan breaks the moment that plan is cleaned up.
-
-Enforced by two mechanisms:
-
-- [`pretooluse-write-guard.sh`](../hooks/pretooluse-write-guard.sh) (`adr-plan-link`): a Write/Edit/MultiEdit of an ADR whose new content links a **non-archived** plan (`](…plans/….md)` not under `plans/archive/`) is blocked.
-- [`scripts/check-doc-links`](../../scripts/check-doc-links/) (gauntlet): scans durable sources only — `docs/**` and `.claude/**` **minus the ephemeral `.claude/plans/**` working-area** (active plans and `archive/`), whose files are deletion-bound and whose internal links rot by design. Within that scope it refuses any **active-plan** link and any **plan link at all** (archived included) from a non-ADR doc under `docs/`. Plan files remain valid link *targets*; they are simply no longer scanned as *sources*, so the gate is a clean "zero broken links" with no baseline ledger to maintain.
+Enforced by [`pretooluse-write-guard.sh`](../hooks/pretooluse-write-guard.sh)
+(a Write/Edit of an ADR whose content links a plan is blocked) and by
+[`scripts/check-doc-links`](../../scripts/check-doc-links/), which scans
+`docs/**` and `.claude/**` minus the `.claude/plans/**` working area and
+refuses any plan link.

@@ -117,7 +117,7 @@ const { data, error } = await api.GET('/api/v1/sites');
 
 ### Device Logs
 
-`GET /api/v1/devices/{id}/logs` brokers raw logs from the agent on demand via the QUIC control path. The request **blocks** until the agent returns a bounded response, which is redacted and streamed straight back; nothing is persisted centrally (see [ADR-046](../adr/ADR-046-edge-sentinel-raw-log-broker.md)). Reading raw logs is an elevated action restricted to administrators, and every pull writes a `device.logs.read` audit event.
+`GET /api/v1/devices/{id}/logs` brokers raw logs from the agent on demand via the QUIC control path. The request **blocks** until the agent returns a bounded response, which is redacted and streamed straight back; nothing is persisted centrally (see [ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md)). Reading raw logs is an elevated action restricted to administrators, and every pull writes a `device.logs.read` audit event.
 
 **Query Parameters**
 
@@ -183,7 +183,7 @@ no-op; a sample that still arrives off the grid is counted on
 `opengate_metrics_grid_misalignment_total` and logged, never dropped in silence.
 
 The narrowest bucket is 60 s, the cadence a device writes its vitals on
-([ADR-065](../adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md)); a
+([ADR-065](../adr/ADR-065-vitals.md)); a
 finer one would ask the store for detail it does not hold. The optional `band`
 computes min/max alongside the avg line, and the response labels its provenance:
 `avg_of_60s` is min/max across the 60 s averages in the bucket, never host
@@ -232,7 +232,7 @@ administrators.
 `POST /api/v1/devices/{id}/maintenance` toggles a device's maintenance state —
 the server-authoritative desired state that quiets the agent's telemetry and
 alerting during disruptive host work (see
-[ADR-056](../adr/ADR-056-device-maintenance-mode.md) and
+[ADR-056](../adr/ADR-056-maintenance-mode.md) and
 [Device Health](../product/Device-Health.md#maintenance-mode)). The body carries
 the desired
 `enabled` flag and an optional operator `reason`. It is a desired state, not a
@@ -296,7 +296,7 @@ queue and the lifecycle are in
 [Investigations](../product/Investigations.md). Reading
 the queue, moving an incident, assigning it and commenting on it are operational
 work on the tenant's own resources, so **tenant membership is the whole gate**,
-the same rule device commands follow ([ADR-062](../adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md)).
+the same rule device commands follow ([ADR-064](../adr/ADR-064-tenancy.md)).
 `organization_id` narrows to the customer on screen; an incident outside it
 answers exactly as one that does not exist, so neither the tenant wall nor the
 customer narrowing is discoverable by probing ids. Rule bindings and rollout are
@@ -317,7 +317,7 @@ costs, and
 structure. The stored blob is DEFLATE around MessagePack under a codec named on
 the row, so a build that cannot read one answers `422` rather than handing back
 bytes. Log lines inside it were redacted on the machine before they were sent
-([ADR-049](../adr/ADR-049-edge-sentinel-raw-log-privacy.md)); this path returns the
+([ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md)); this path returns the
 stored structure unchanged.
 
 The device page's strip, `GET /api/v1/devices/{id}/incidents`, is the same queue
@@ -352,7 +352,7 @@ device — and which tenant — a CIRA connection belongs to, and never
 returns it in any response. AMT hardware attributes (`amt_available`,
 `amt_version`, `amt_model`, `amt_firmware`) live on the
 `GET /api/v1/devices/{id}/hardware` payload. See
-[ADR-061](../adr/ADR-061-amt-as-device-property.md).
+[ADR-061](../adr/ADR-061-intel-amt.md).
 
 ## Rate Limiting
 
@@ -368,7 +368,7 @@ Requests exceeding the limit receive `429 Too Many Requests`. A 30-second reques
 The address a request is counted under is its peer's, unless the peer is one of
 the proxies the deployment names — then it is the last entry of that request's
 `X-Forwarded-For`. See
-[ADR-116](../adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md).
+[ADR-116](../adr/ADR-116-forwarded-addresses.md).
 
 ## Authentication
 

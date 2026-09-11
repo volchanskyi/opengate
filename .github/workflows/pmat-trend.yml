@@ -2,7 +2,7 @@ name: PMAT Quality Trend
 
 # PMAT quality overlay as observability (ADR-019), NOT a CI gate.
 # Plan: .claude/plans/adr-020-024-pmat-phase-13b-rollout.md
-# CLI/MCP mapping vs the pinned tool: docs/adr/ADR-028-pmat-3.17-cli-mapping.md
+# CLI/MCP mapping vs the pinned tool: docs/adr/ADR-019-pmat-quality-overlay.md
 #
 # Nightly full-repo run. Does NOT block merges or deploys (not in
 # merge-to-main.needs[]). Pushes repo-score + below-B+ count to
@@ -28,7 +28,7 @@ permissions:
 
 env:
   RUST_VERSION: stable
-  PMAT_VERSION: 3.17.0  # exact pin (ADR-019 §5.5); keep in sync with .mcp.json + scripts/pmat-precommit.sh
+  PMAT_VERSION: 3.17.0  # exact pin (ADR-019); keep in sync with .mcp.json + scripts/pmat-precommit.sh
 jobs:
   pmat-trend:
     name: PMAT trend + alert on regression

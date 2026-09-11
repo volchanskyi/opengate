@@ -24,11 +24,11 @@ belongs in the tree that owns the fact, and a fact found stated in two trees is
 itself a finding: replace the copy with a link. The structural half is already
 gated by [`docs-seam.test.sh`](../../../scripts/tests/docs-seam.test.sh) and
 [`docs-live-state.test.sh`](../../../scripts/tests/docs-live-state.test.sh); this
-skill audits what those cannot see. **All** ADRs are **mutable**
+skill audits what those cannot see. **Every** ADR describes **live state**
 — a stale link, moved path, or fact the code has since reversed is fixed in
 place, like any other doc. This covers both the per-file ADRs in `docs/adr/*.md`
-(013+) and the combined log `docs/Architecture-Decision-Records.md` (001–012).
-Reserve a new superseding ADR for a genuine decision *change*.
+and the combined log `docs/Architecture-Decision-Records.md` (001–012). An ADR
+whose decision leaves nothing behind is deleted, not marked as past.
 
 **Reference:** [`docs/README.md`](../../../docs/README.md) — link-over-paraphrase rule.
 
@@ -183,15 +183,16 @@ done
 
 ## 2. ADR currency check
 
-ADRs are mutable: fix stale links, moved paths, and facts the code has since
-reversed in place, like any other doc. This applies to the per-file ADRs in
-`docs/adr/` (013+) **and** to the combined log at
+Every ADR describes live state: fix stale links, moved paths, and facts the
+code has since reversed in place, like any other doc. This applies to the
+per-file ADRs in `docs/adr/` **and** to the combined log at
 [`docs/Architecture-Decision-Records.md`](../../../docs/Architecture-Decision-Records.md)
-(001–012). Reserve a new superseding ADR for a genuine decision *change* (a
-reversal or replacement), with `supersedes:` frontmatter set. When purging
-chronological/logistical noise from an ADR body, **rewrite to preserve the fact
-and the why — never delete substantive rationale** — and keep the
-`date:`/`status:`/`supersedes:` frontmatter.
+(001–012). There is no superseded status: a changed decision rewrites its ADR,
+and a decision that leaves nothing behind has its ADR deleted with anything
+still live merged into the ADR that replaced it. A minor fix belongs in the ADR
+whose decision it refines rather than in one of its own. When cutting an ADR
+body, **rewrite to preserve the fact and the why — never delete substantive
+rationale** — and keep the `number:`/`title:` frontmatter.
 
 Watch for the highest-value ADR drift: a Context or Decision section written in
 the present tense that the implementation has since overtaken ("no such trait

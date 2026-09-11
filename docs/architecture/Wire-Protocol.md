@@ -123,14 +123,14 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 
 The Edge Sentinel telemetry variants are ingested by the server when received.
 The agent sampler runs on every device
-([ADR-056](../adr/ADR-056-device-maintenance-mode.md)); it pauses only while the
+([ADR-056](../adr/ADR-056-maintenance-mode.md)); it pauses only while the
 device is in maintenance mode. Server ingest ignores payload `tenant_id` for
 authorization, resolves the device's authoritative tenant after handshake,
 applies a telemetry payload cap and interval floor, and drops/counts telemetry
 when the bounded persistence path is saturated. The source-of-truth payload definitions are the Rust
 [`ControlMessage`](../../agent/crates/mesh-protocol/src/control.rs) enum and Go
 [`ControlMessage`](../../server/internal/protocol/control.go) flat struct; the
-store decision is [ADR-044](../adr/ADR-044-edge-sentinel-server-telemetry-ingest.md).
+store decision is [ADR-044](../adr/ADR-044-telemetry-ingest.md).
 
 Live host metrics reuse `AgentMetricWindow`: the sampler folds its 1 s samples
 into a 60 s window and emits one window per minute over a bounded channel that
@@ -299,7 +299,7 @@ envelope allowance, so an alert holding the largest legal evidence is admitted
 rather than refused by a bound borrowed from the telemetry path.
 
 Every free-text field is redacted on the device
-([ADR-049](../adr/ADR-049-edge-sentinel-raw-log-privacy.md)) — log lines, process
+([ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md)) — log lines, process
 basenames, and dimension labels alike. The server's own guard is defence in
 depth, not the guarantee.
 
@@ -311,7 +311,7 @@ and echoes `MaintenanceApplied { enabled }` as its applied-state report. Both
 carry an explicit boolean, so a `false` (resume) is distinct from an absent field.
 `SetMaintenanceMode` is universal control and is not capability-gated; the agent
 resets to Active on every registration and suppresses only when the server pushes
-`true`. See [ADR-056](../adr/ADR-056-device-maintenance-mode.md).
+`true`. See [ADR-056](../adr/ADR-056-maintenance-mode.md).
 
 ### Capabilities
 
@@ -347,7 +347,7 @@ The `DeviceLogsResponse` message carries an array of `LogEntry` structs:
 | `target` | string | Rust tracing target (module path) |
 | `message` | string | Log message body |
 
-The agent parses daily-rotated log files written by `tracing-subscriber` and returns matching entries. The server redacts known secrets from the bounded response and streams it straight back to the requesting administrator; nothing is persisted centrally (see [ADR-046](../adr/ADR-046-edge-sentinel-raw-log-broker.md)).
+The agent parses daily-rotated log files written by `tracing-subscriber` and returns matching entries. The server redacts known secrets from the bounded response and streams it straight back to the requesting administrator; nothing is persisted centrally (see [ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md)).
 
 ### Data Frame Types
 

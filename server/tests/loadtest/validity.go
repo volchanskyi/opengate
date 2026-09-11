@@ -116,6 +116,11 @@ type RunInputs struct {
 	// looked, which is silent rather than clean.
 	Target TargetConservation
 
+	// BreakingPoint is the ladder's answer, for a profile that went looking for
+	// one. A rung at or above the one that gave out is what such a run was sent
+	// to measure — see phaseReasons.
+	BreakingPoint *BreakingPoint
+
 	// SafetyBreaches are ceilings the run crossed and stopped for.
 	SafetyBreaches []string
 	// GateBreaches are gate rules the results broke. These are findings about
@@ -229,6 +234,9 @@ func phaseReasons(in RunInputs) []string {
 
 	var reasons []string
 	for _, phase := range in.Phases {
+		if pastTheBreakingPoint(in.BreakingPoint, phase) {
+			continue
+		}
 		if phase.ErrorRate > maxErrorRate {
 			reasons = append(reasons, fmt.Sprintf(
 				"phase %q error rate %.3f is past the ceiling %.3f, so its numbers describe the error path",
@@ -241,6 +249,26 @@ func phaseReasons(in RunInputs) []string {
 		}
 	}
 	return reasons
+}
+
+// pastTheBreakingPoint reports whether this phase is a rung the ladder has
+// already reported as the load the system gave out under.
+//
+// Every other family reads a phase full of errors as a run that stopped
+// measuring the system. A capacity ladder is sent to find exactly that phase,
+// and reading it the same way threw away the run for succeeding: one nightly
+// climbed to sixteen thousand machines, lost fifteen thousand of them, and the
+// ladder's own answer went with it.
+//
+// Only rungs at or above the one that gave out are covered. A rung below it was
+// meant to hold, and a recovery phase sits at the load the ladder started from
+// — so a system that gave out and stayed broken still invalidates, which is the
+// outcome the recovery phase exists to report.
+func pastTheBreakingPoint(answer *BreakingPoint, phase PhaseResult) bool {
+	if answer == nil || answer.GaveAgents <= 0 {
+		return false
+	}
+	return phase.OfferedConnectedAgents >= answer.GaveAgents
 }
 
 // conservationBreaches reports what the target took and did not give back.

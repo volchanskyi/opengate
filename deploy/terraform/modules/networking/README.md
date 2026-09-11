@@ -7,7 +7,7 @@ Owns the OpenGate VCN and its shared surfaces — internet gateway and route tab
 | Variable | Type | Purpose |
 |---|---|---|
 | `compartment_id` | string (sensitive) | OCI compartment OCID that owns the VCN and its children. |
-| `ssh_allowed_cidr` | string (sensitive) | CIDR block allowed to reach TCP 22 on break-glass SSH rules (operator break-glass — normal access is via OCI Bastion per [ADR-018](../../../../docs/adr/ADR-018-oci-bastion-operator-access.md); set to `127.0.0.1/32` to disable). `0.0.0.0/0` is rejected by the root variable's validation block either way. |
+| `ssh_allowed_cidr` | string (sensitive) | CIDR block allowed to reach TCP 22 on break-glass SSH rules (operator break-glass — normal access is via OCI Bastion per [ADR-018](../../../../docs/adr/ADR-018-operator-node-access.md); set to `127.0.0.1/32` to disable). `0.0.0.0/0` is rejected by the root variable's validation block either way. |
 
 ## Outputs
 

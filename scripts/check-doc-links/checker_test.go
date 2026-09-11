@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-// TestCheckLinkPlanPolicy pins the plan-link doctrine:
-//   - documentation under docs/ (other than ADRs) must not link ANY plan file,
-//     archived or active — plans are ephemeral and get cleaned up;
-//   - ADRs may link archived plans (a stable-enough target for a decision record);
-//   - active-plan links are refused from every source;
-//   - non-docs sources (README, plans, rules) keep the archived-plan allowance.
+// TestCheckLinkPlanPolicy pins the plan-link doctrine: a plan is a working
+// document and is deleted in the commit that lands its work, so nothing
+// durable may depend on one. No source under docs/ — ADRs included — and no
+// source under .claude/ may link a plan. A plan linking a sibling plan is the
+// working area referring to itself and is left alone.
+// See .claude/rules/plans-and-adrs.md.
 func TestCheckLinkPlanPolicy(t *testing.T) {
-	const archivedTarget = ".claude/plans/archive/foo.md"
+	const planTarget = ".claude/plans/foo.md"
 
 	cases := []struct {
 		name        string
@@ -21,40 +21,34 @@ func TestCheckLinkPlanPolicy(t *testing.T) {
 		wantSubstr  string // "" means the link must be accepted
 	}{
 		{
-			name:        "non-ADR doc to archived plan is refused",
-			source:      "docs/infrastructure/Testing.md",
-			destination: "../../.claude/plans/archive/foo.md",
-			wantSubstr:  "documentation under docs/",
-		},
-		{
-			name:        "non-ADR doc to active plan is refused",
+			name:        "doc to plan is refused",
 			source:      "docs/infrastructure/Testing.md",
 			destination: "../../.claude/plans/foo.md",
-			wantSubstr:  "documentation under docs/",
+			wantSubstr:  "must not link plan files",
 		},
 		{
-			name:        "ADR to archived plan is allowed",
-			source:      "docs/adr/ADR-037-example.md",
-			destination: "../../.claude/plans/archive/foo.md",
-			wantSubstr:  "",
-		},
-		{
-			name:        "ADR to active plan is refused",
+			name:        "ADR to plan is refused",
 			source:      "docs/adr/ADR-037-example.md",
 			destination: "../../.claude/plans/foo.md",
-			wantSubstr:  "active plan",
+			wantSubstr:  "must not link plan files",
 		},
 		{
-			name:        "non-docs source to archived plan is allowed",
-			source:      "README.md",
-			destination: ".claude/plans/archive/foo.md",
-			wantSubstr:  "",
+			name:        "rule to plan is refused",
+			source:      ".claude/rules/tdd.md",
+			destination: "../plans/foo.md",
+			wantSubstr:  "must not link plan files",
 		},
 		{
-			name:        "non-docs source to active plan is refused",
+			name:        "repository README to plan is refused",
 			source:      "README.md",
 			destination: ".claude/plans/foo.md",
-			wantSubstr:  "active plan",
+			wantSubstr:  "must not link plan files",
+		},
+		{
+			name:        "plan to sibling plan is allowed",
+			source:      ".claude/plans/bar.md",
+			destination: "foo.md",
+			wantSubstr:  "",
 		},
 	}
 
@@ -64,9 +58,9 @@ func TestCheckLinkPlanPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatalf("newChecker: %v", err)
 			}
-			// Make the archived target resolvable so "allowed" cases reach a
-			// clean result instead of a missing-target error.
-			c.overlays[archivedTarget] = []byte("# archived plan\n")
+			// Make the target resolvable so an "allowed" case reaches a clean
+			// result instead of a missing-target error.
+			c.overlays[planTarget] = []byte("# plan\n")
 
 			got := c.checkLink(tc.source, link{Destination: tc.destination})
 

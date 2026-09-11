@@ -56,9 +56,9 @@ flowchart LR
 | Promtail pod-log config | [`promtail-config.yaml`](../../deploy/helm/monitoring/files/promtail-config.yaml) |
 | Loki retention/config | [`loki-config.yml`](../../deploy/helm/monitoring/files/loki-config.yml) |
 | CI trend VM transport | [`scripts/lib/vm-push.sh`](../../scripts/lib/vm-push.sh) |
-| CI trend-store decision | [ADR-038](../adr/ADR-038-victoriametrics-ci-trend-store.md) |
-| Load-test regression decision | [ADR-045](../adr/ADR-045-load-test-regression-gate.md) |
-| Edge Sentinel telemetry-store decision | [ADR-044](../adr/ADR-044-edge-sentinel-server-telemetry-ingest.md) |
+| CI trend-store decision | [ADR-038](../adr/ADR-038-ci-trend-store.md) |
+| Load-test regression decision | [ADR-038](../adr/ADR-038-ci-trend-store.md) |
+| Edge Sentinel telemetry-store decision | [ADR-044](../adr/ADR-044-telemetry-ingest.md) |
 
 ## Components
 
@@ -102,7 +102,7 @@ copy those values into prose; link to the values file when exact numbers matter.
 ## Storage Model
 
 The intended free-tier storage model is recorded in
-[ADR-035](../adr/ADR-035-oke-free-tier-block-volume-remediation.md):
+[ADR-035](../adr/ADR-035-block-volume-budget.md):
 
 - VictoriaMetrics and Loki keep block-backed PVCs.
 - Grafana uses `emptyDir`; dashboards, datasources, and alerting config are
@@ -120,7 +120,7 @@ VictoriaMetrics, and Loki.
 | Grafana | `make tunnel` → `kubectl port-forward svc/monitoring-grafana` | [`Makefile`](../../Makefile) |
 | VictoriaMetrics | ClusterIP Service, queried by Grafana or one-shot kubectl pods | [`values.yaml`](../../deploy/helm/monitoring/values.yaml) |
 | Loki | ClusterIP Service, written by Promtail and queried by Grafana | [`promtail-config.yaml`](../../deploy/helm/monitoring/files/promtail-config.yaml) |
-| Public uptime | External SaaS probing the public app endpoints | [ADR-035](../adr/ADR-035-oke-free-tier-block-volume-remediation.md) |
+| Public uptime | External SaaS probing the public app endpoints | [ADR-035](../adr/ADR-035-block-volume-budget.md) |
 
 No monitoring ingress is rendered by the monitoring chart. The public HTTP edge
 is owned by ingress-nginx and the app chart; QUIC and MPS remain L4 hostPorts on
@@ -286,7 +286,7 @@ The server exports five aggregate series covering alerts raised, refusals, the
 triage queue and fleet-wide rule coverage; they are defined in
 [Metrics Reference](../architecture/Metrics-Reference.md#detection-alerts-incidents-and-coverage),
 and what a measured rate obliges is in
-[ADR-076](../adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md).
+[ADR-076](../adr/ADR-076-platform-metrics.md).
 
 The [Rule Rollout And Triage
 dashboard](../../deploy/grafana/provisioning/dashboards/rule-rollout.json) reads
@@ -388,9 +388,9 @@ write Prometheus samples to VictoriaMetrics:
   [`scripts/loadtest-vm-push.sh`](../../scripts/loadtest-vm-push.sh)
 
 VictoriaMetrics is the canonical numeric CI-trend store; Loki is reserved for
-logs per [ADR-038](../adr/ADR-038-victoriametrics-ci-trend-store.md). Load-test
+logs per [ADR-038](../adr/ADR-038-ci-trend-store.md). Load-test
 regression semantics are recorded in
-[ADR-045](../adr/ADR-045-load-test-regression-gate.md). PMAT reads its previous
+[ADR-038](../adr/ADR-038-ci-trend-store.md). PMAT reads its previous
 day-over-day baseline through
 [`pmat-vm-query.sh`](../../scripts/pmat-vm-query.sh) before publishing the current
 sample.

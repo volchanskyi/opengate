@@ -46,12 +46,12 @@ matter, and rots the moment the next change lands.
 
 ## Exceptions
 
-- Every ADR is out of the gate's scope for the reason above, and an ADR may
-  record a genuine **decision change** through a `supersedes:` link —
-  that is a decision record, not descriptive prose. Its *descriptive* body still
-  follows this rule. Every ADR is editable to keep it true, including the
-  combined historical log
+- Every ADR is out of the gate's scope for the reason above: a Context
+  section has to state the problem the decision solved. Its *descriptive* body
+  still follows this rule. Every ADR is editable to keep it true, including the
+  combined log
   [`docs/Architecture-Decision-Records.md`](../../docs/Architecture-Decision-Records.md)
-  (ADR-001–012).
+  (ADR-001–012), and an ADR whose decision leaves nothing behind is deleted
+  rather than marked as past.
 - Code comments may carry concise **design rationale** (why the current design
   is shaped this way), but not narration of removed features.

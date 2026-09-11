@@ -6,9 +6,9 @@ This file is a one-page index. Each rule lives in its own focused file under [`.
 
 **MANDATORY.** Read these three files at session start:
 
-- [`.claude/phases.md`](.claude/phases.md) — **ledger**: what shipped, in what order, linking the plan and the ADRs
+- [`.claude/phases.md`](.claude/phases.md) — **ledger**: what the system is made of, in the order it arrived, linking the ADRs
 - [`.claude/techdebt.md`](.claude/techdebt.md) — **register**: what is still owed, by severity
-- [`.claude/decisions.md`](.claude/decisions.md) — **index**: number → one line → phase → status → link (full ADRs in [`docs/adr/`](docs/adr/))
+- [`.claude/decisions.md`](.claude/decisions.md) — **index**: number → one line → link (full ADRs in [`docs/adr/`](docs/adr/))
 
 **The ADR is the only home of a decision and its why.** Those three files are
 pointers with just enough text to choose a link — a `decisions.md` row is capped
@@ -23,7 +23,7 @@ Canonical developer docs live in [`docs/`](docs/), split into three trees —
 [`docs/Home.md`](docs/Home.md). Read [`docs/README.md`](docs/README.md) before
 editing any doc.
 
-After completing significant work, update [`phases.md`](.claude/phases.md), [`techdebt.md`](.claude/techdebt.md), and (for architectural decisions) add an ADR file in [`docs/adr/`](docs/adr/) plus an index row in [`decisions.md`](.claude/decisions.md). Per-file ADRs (013+) are mutable — edit to keep current; supersede only for decision changes.
+After completing significant work, update [`phases.md`](.claude/phases.md) and [`techdebt.md`](.claude/techdebt.md), delete the plan, and (for an architectural decision) add an ADR file in [`docs/adr/`](docs/adr/) plus an index row in [`decisions.md`](.claude/decisions.md). Every ADR describes live state: edit it in place when the decision changes, delete it when the decision leaves nothing behind, and fold a minor fix into the ADR it refines rather than writing a new one.
 
 ## Workflow Rules
 
@@ -37,7 +37,7 @@ After completing significant work, update [`phases.md`](.claude/phases.md), [`te
 | [`rules/precommit-refactor.md`](.claude/rules/precommit-refactor.md) | `/precommit` before commit; `/refactor` before push | commit/push guards via marker files |
 | [`rules/sonarcloud.md`](.claude/rules/sonarcloud.md) | quality-gate workflow; no suppressions without approval | `pretooluse-write-guard.sh` |
 | [`rules/coverage-exclusions.md`](.claude/rules/coverage-exclusions.md) | exclusions/suppressions are a last resort; per-entry justification, no directory globs | `sonar-coverage-exclusion-guard.sh` |
-| [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, ADR mutability + archived-plan-link rule | `pretooluse-write-guard.sh` |
+| [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, deleting a plan when its work lands, ADRs as live state | `pretooluse-write-guard.sh` |
 | [`rules/tool-versions.md`](.claude/rules/tool-versions.md) | one version, written down once — local and CI provision from the same manifest | `tool-version-parity.test.sh`, `toolchain-parity.sh` |
 | [`rules/cache-hygiene.md`](.claude/rules/cache-hygiene.md) | reclaim local build caches after every push | `post-push-clean-caches.sh`, `posttooluse-cache-clean.sh` |
 | [`rules/ci-cd-determinism.md`](.claude/rules/ci-cd-determinism.md) | a CI/CD step whose work was refused must not report success | `ci-cd-determinism.test.sh`, `assert-cache-written.sh` |

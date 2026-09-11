@@ -135,7 +135,7 @@ Generate a new Customer Secret Key for `tf-state-writer`, update `~/.oci/terrafo
 
 ### Custom IaC policies
 
-Project-specific invariants (Always-Free shape, required tags, image pinning, action SHA-pinning) live in [`policy/`](../../policy) and are enforced via [Conftest](https://www.conftest.dev/) (OPA Rego). Run with `make iac-policy-custom`; full per-policy listing in the directory READMEs. The shape and tag rules ALSO run inside `terraform test` ([`modules/networking/tests/`](../../deploy/terraform/modules/networking/tests), [`modules/oke/tests/`](../../deploy/terraform/modules/oke/tests)) — overlap is deliberate per [ADR-015](../adr/ADR-015-iac-defense-in-depth.md).
+Project-specific invariants (Always-Free shape, required tags, image pinning, action SHA-pinning) live in [`policy/`](../../policy) and are enforced via [Conftest](https://www.conftest.dev/) (OPA Rego). Run with `make iac-policy-custom`; full per-policy listing in the directory READMEs. The shape and tag rules ALSO run inside `terraform test` ([`modules/networking/tests/`](../../deploy/terraform/modules/networking/tests), [`modules/oke/tests/`](../../deploy/terraform/modules/oke/tests)) — overlap is deliberate per [ADR-015](../adr/ADR-015-iac-scanning.md).
 
 The terraform Rego check requires a plan-file because conftest's HCL2 parser leaves `${var.X}` references unresolved. Operator runs:
 
@@ -225,9 +225,9 @@ application and cluster logs around a drift event.
 
 Operator SSH access to the **OKE worker node** goes through the OCI Bastion service, not the static `ssh_allowed_cidr` rule. The dev machine sits on a dynamic ISP-issued IP and updating the CIDR after every ISP rebind was the original pain point — bastion sessions are gated by OCI IAM instead of L4 CIDR, so the dev-machine IP is irrelevant.
 
-Grafana is a ClusterIP service, reached with `kubectl port-forward` (`make tunnel`), not an SSH tunnel. Uptime monitoring is an external SaaS — no in-cluster status UI to tunnel to (see [ADR-035](../adr/ADR-035-oke-free-tier-block-volume-remediation.md)).
+Grafana is a ClusterIP service, reached with `kubectl port-forward` (`make tunnel`), not an SSH tunnel. Uptime monitoring is an external SaaS — no in-cluster status UI to tunnel to (see [ADR-035](../adr/ADR-035-block-volume-budget.md)).
 
-CI reaches the cluster through [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) and Kubernetes APIs. The bastion is for **human** node access only. See [ADR-018](../adr/ADR-018-oci-bastion-operator-access.md) for the original access-plane rationale and the current OKE update.
+CI reaches the cluster through [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) and Kubernetes APIs. The bastion is for **human** node access only. See [ADR-018](../adr/ADR-018-operator-node-access.md) for the original access-plane rationale and the current OKE update.
 
 #### Daily flow
 

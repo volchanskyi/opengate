@@ -266,6 +266,88 @@ SCOV_REPORT_ROOT="$REPORTS/empty" \
 
 unset SCOV_CHANGED_OVERRIDE SCOV_TOUCHED_OVERRIDE SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
 
+# --- A file the gate does not cover is not a file whose coverage went missing --
+#
+# The refusal above exists for a production file the analysis dropped. A file
+# outside the analysed sources, or named by the coverage exclusions, has no
+# figure anywhere by design — the two are the same silence, and only one of them
+# is a defect. A commit confined to the load harness and a documentation tool
+# was refused permanently for touching nothing the gate measures.
+echo
+echo "what the coverage gate actually covers:"
+
+assert_ok "a production source file is covered" scov_gate_covers server/internal/app/background.go
+assert_ok "a Rust crate source file is covered" scov_gate_covers agent/crates/mesh-agent/src/main2.rs
+assert_ok "a web source file is covered" scov_gate_covers web/src/features/devices/DeviceList.tsx
+
+assert_fail "the load harness is test tooling, outside the analysed sources" \
+  scov_gate_covers server/tests/loadtest/main.go
+assert_fail "a documentation tool is outside the analysed sources" \
+  scov_gate_covers scripts/check-doc-links/checker.go
+assert_fail "a Go test file is named by the coverage exclusions" \
+  scov_gate_covers server/internal/app/background_test.go
+assert_fail "generated API code is named by the coverage exclusions" \
+  scov_gate_covers server/internal/api/openapi_gen.go
+
+# The narrowing is what the refusal is asked about, so a change that touches
+# nothing the gate covers is nothing to cover rather than a missing measurement.
+export SCOV_SETTLE_RETRIES=0
+export SCOV_SETTLE_SLEEP=0
+SCOV_CHANGED_OVERRIDE="$(printf 'server/tests/loadtest/main.go\nscripts/check-doc-links/checker.go\n')" \
+SCOV_LINES_OVERRIDE="other/file.go:1:5" \
+  assert_ok "a change the gate covers no part of is not a refusal" scov_check_diff
+
+# And a production file among them still has to answer.
+SCOV_CHANGED_OVERRIDE="$(printf 'server/tests/loadtest/main.go\nserver/internal/app/background.go\n')" \
+SCOV_REPORT_ROOT="$REPORTS/empty" \
+SCOV_LINES_OVERRIDE="other/file.go:1:5" \
+  assert_rc "one covered file with no figures anywhere still refuses" 2 scov_check_diff
+
+unset SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
+
+# --- A file with nothing to execute is not a file nobody measured -------------
+#
+# A Rust module that is doc comments and `pub mod` lines has no executable line,
+# so llvm-cov writes no record for it and the file is absent from a report that
+# names every other file in its crate. That silence reads exactly like coverage
+# the analysis dropped, and only one of the two is a defect.
+#
+# What separates them is the report itself: one that names sources was read, so
+# a file missing from it has nothing to execute. One that names none is the
+# measurement going missing, which is what this guard was written for.
+echo
+echo "a report that was read, and one that went missing:"
+
+assert_ok "a populated Rust report was read" scov_report_was_read agent/crates/edge-tsdb/src/lib.rs
+assert_ok "a populated Go profile was read" scov_report_was_read server/internal/app/background.go
+SCOV_REPORT_ROOT="$REPORTS/empty" \
+  assert_fail "a report that names nothing was not read" \
+  scov_report_was_read agent/crates/edge-tsdb/src/lib.rs
+
+export SCOV_SETTLE_RETRIES=0
+export SCOV_SETTLE_SLEEP=0
+
+# A crate whose report names its siblings and not this file: nothing to cover.
+SCOV_CHANGED_OVERRIDE="agent/crates/edge-tsdb/src/lib.rs" \
+  SCOV_TOUCHED_OVERRIDE="agent/crates/edge-tsdb/src/lib.rs:6" \
+  SCOV_LINES_OVERRIDE="other/file.rs:1:5" \
+  assert_ok "a file with no executable line is not a missing measurement" scov_check_diff
+
+# The same file against a report that names nothing at all still refuses.
+SCOV_CHANGED_OVERRIDE="agent/crates/edge-tsdb/src/lib.rs" \
+  SCOV_TOUCHED_OVERRIDE="agent/crates/edge-tsdb/src/lib.rs:6" \
+  SCOV_REPORT_ROOT="$REPORTS/empty" \
+  SCOV_LINES_OVERRIDE="other/file.rs:1:5" \
+  assert_rc "a report that names nothing is still a refusal" 2 scov_check_diff
+
+# And a file the report does carry is still read from it, uncovered lines and all.
+SCOV_CHANGED_OVERRIDE="agent/crates/mesh-agent/src/run.rs" \
+  SCOV_TOUCHED_OVERRIDE="agent/crates/mesh-agent/src/run.rs:8" \
+  SCOV_LINES_OVERRIDE="other/file.rs:1:5" \
+  assert_ok "a file the report carries is still read from it" scov_check_diff
+
+unset SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

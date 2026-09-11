@@ -178,9 +178,14 @@ func (b *Bundle) validatePhases() []error {
 		if phase.ErrorRate < 0 || phase.ErrorRate > 1 {
 			problems = append(problems, fmt.Errorf("phase %q error_rate %v is not a ratio", phase.Name, phase.ErrorRate))
 		}
-		if readTheTarget && phase.TargetBusyPercent == nil {
+		if phase.TargetBusyPercent != nil && phase.TargetBusyAbsent != "" {
 			problems = append(problems, fmt.Errorf(
-				"phase %q carries no target busy-ness, on a run that read the target's own exposition — without it a target out of processor and one idle but slow are the same picture",
+				"phase %q carries a target busy-ness and accounts for an absence of one — a reader has no way to tell which of the two is true",
+				phase.Name))
+		}
+		if readTheTarget && phase.TargetBusyPercent == nil && phase.TargetBusyAbsent == "" {
+			problems = append(problems, fmt.Errorf(
+				"phase %q carries no target busy-ness and says nothing about why, on a run that read the target's own exposition — without it a target out of processor and one idle but slow are the same picture",
 				phase.Name))
 		}
 	}

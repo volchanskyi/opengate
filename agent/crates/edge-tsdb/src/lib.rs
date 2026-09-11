@@ -3,7 +3,7 @@
 //! Because central VictoriaMetrics keeps `avg` only (the cardinality decision),
 //! this store is the **sole** home for each device's min/max/last + 1 s raw
 //! history — load-bearing, and fetched on demand by WS-15. It was chosen and
-//! de-risked by the WS-14a bake-off (ADR-051) and built in WS-14b.
+//! de-risked by the WS-14a bake-off (ADR-052) and built in WS-14b.
 //!
 //! ## Production surface (always compiled)
 //!

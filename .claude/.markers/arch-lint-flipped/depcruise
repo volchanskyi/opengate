@@ -1,4 +1,4 @@
-# ADR-020 §5.4 flip marker for the depcruise gate.
+# ADR-020 flip marker for the depcruise gate.
 #
 # Created by scripts/arch-lint-flip.sh --apply on 2026-05-25T00:12:26Z.
 # Trigger: web/dependency-cruiser.snapshot.json's .warn count reached zero.

@@ -357,7 +357,11 @@ func (c *FixtureClient) FileDevice(built BuiltFixture, index, total int, deviceI
 	customer := built.Customers[c.customerFor(built, index, total)]
 	path := fmt.Sprintf("/api/v1/devices/%s/organization", deviceID)
 	body := map[string]string{"organization_id": customer.ID}
-	if err := c.callAs(presented, http.MethodPut, path, body, http.StatusOK, nil); err != nil {
+	// Both halves wait for the row the register frame has not produced yet. See
+	// waitForTheRow.
+	if err := waitForTheRow(func() error {
+		return c.callAs(presented, http.MethodPut, path, body, http.StatusOK, nil)
+	}); err != nil {
 		return fmt.Errorf("file machine %s under %s: %w", deviceID, customer.Name, err)
 	}
 
@@ -375,8 +379,10 @@ func (c *FixtureClient) FileDevice(built BuiltFixture, index, total int, deviceI
 	// and still leaves every other building empty — which is the same empty read
 	// a scoped page gets today, wearing a different shape.
 	site := customer.SiteIDs[index%len(customer.SiteIDs)]
-	if err := c.callAs(presented, http.MethodPatch, "/api/v1/devices/"+deviceID,
-		map[string]string{"site_id": site}, http.StatusOK, nil); err != nil {
+	if err := waitForTheRow(func() error {
+		return c.callAs(presented, http.MethodPatch, "/api/v1/devices/"+deviceID,
+			map[string]string{"site_id": site}, http.StatusOK, nil)
+	}); err != nil {
 		return fmt.Errorf("file machine %s into a building of %s: %w", deviceID, customer.Name, err)
 	}
 	return nil
@@ -446,7 +452,11 @@ func (c *FixtureClient) callAs(presented, method, path string, body any, wantSta
 	defer response.Body.Close()
 
 	if response.StatusCode != wantStatus {
-		return fmt.Errorf("%s %s: server answered %d, expected %d", method, path, response.StatusCode, wantStatus)
+		return &apiRefusal{
+			Method: method, Path: path,
+			Status: response.StatusCode, Want: wantStatus,
+			Detail: detailOf(response.Body),
+		}
 	}
 	if out == nil {
 		return nil

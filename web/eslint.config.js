@@ -60,7 +60,7 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
-  // ADR-022 / ADR-020 §5.3 — per-feature boundaries.
+  // ADR-020 — per-feature boundaries.
   //
   // Element groups:
   //   app        — top-level src/{main,App,router,...}.tsx — entry points,
@@ -69,11 +69,11 @@ export default defineConfig([
   //                their barrel index.ts (deep-import rule comes later).
   //   lib        — src/lib/<name>/** — utility layer; never imports feature.
   //   app-state  — src/state/** — bootstrap-coupled global stores; only
-  //                useAuthStore lives here per ADR-022, but the directory is
+  //                useAuthStore lives here per ADR-020, but the directory is
   //                permitted as the documented exception until the migration
   //                completes.
   //
-  // Flipped to ERROR on 2026-05-28 per ADR-020 §5.4 — zero current
+  // Flipped to ERROR on 2026-05-28 per ADR-020 — zero current
   // boundaries violations, marker recorded at
   // .claude/.markers/arch-lint-flipped/eslint-boundaries.
   {
@@ -104,7 +104,7 @@ export default defineConfig([
           { from: { type: 'app-state' }, allow: { to: { type: ['app-state', 'lib'] } } },
         ],
       }],
-      // ADR-022's barrel-only enforcement ("features must import siblings
+      // ADR-020's barrel-only enforcement ("features must import siblings
       // only via the sibling's index.ts") rides on `boundaries/dependencies`
       // when each feature gains an index.ts. The legacy `boundaries/no-private`
       // rule is deprecated in v6+ — its semantics merged into `dependencies`

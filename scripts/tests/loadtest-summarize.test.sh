@@ -86,7 +86,7 @@ Connect:     p50=10ms  p95=750ms  p99=1.5s
 Handshake:   p50=20ms  p95=40ms  p99=60ms
 Register:    p50=5ms  p95=10ms  p99=15ms
 
-Error samples:
+Error samples: 2 failures in 1 kind
   [2x] dial: timeout
 TXT
 

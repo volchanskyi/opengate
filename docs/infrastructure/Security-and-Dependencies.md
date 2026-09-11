@@ -61,7 +61,7 @@ The existing `merge-to-main` job in [`ci.yml`](../../.github/workflows/ci.yml) f
 
 ## Adversarial Pen-Test Gate
 
-[ADR-027](../adr/ADR-027-adversarial-pentest-precommit-gate.md) adds a fail-closed
+[ADR-027](../adr/ADR-027-pentest-gate.md) adds a fail-closed
 adversarial gate that runs custom [Semgrep](https://semgrep.dev) rules plus an
 OpenAPI spec-drift check over the diff. It is enforced in three places sharing
 one runner ([`scripts/pentest-review.sh`](../../scripts/pentest-review.sh)): the
@@ -102,7 +102,7 @@ See [[Container-Images#supply-chain-security]] for verification commands.
 **Tenant is the visibility boundary. `is_admin` is the mutation
 boundary.** Every member of a tenant sees the same fleet and may act on
 any device in it; only configuration and secret-bearing reads are gated on
-admin. See [ADR-062](../adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md).
+admin. See [ADR-064](../adr/ADR-064-tenancy.md).
 
 | Class | Authorization rule | Endpoints |
 |---|---|---|
@@ -164,7 +164,7 @@ which is the right answer for a server reached directly.
 
 Only the header's *last* entry is read, because that is the one the proxy
 appended and every earlier one was supplied by the caller. See
-[ADR-116](../adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md).
+[ADR-116](../adr/ADR-116-forwarded-addresses.md).
 
 ### Request Timeout
 

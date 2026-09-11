@@ -1,7 +1,7 @@
 # OCI Bastion service — operator access plane for human SSH sessions. IAM gates
 # session creation, so the dev-machine IP is irrelevant (no L4 CIDR allow-list).
 #
-# See `docs/adr/ADR-018-oci-bastion-operator-access.md`.
+# See `docs/adr/ADR-018-operator-node-access.md`.
 
 mock_provider "oci" {}
 
