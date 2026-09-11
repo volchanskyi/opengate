@@ -117,6 +117,7 @@ check_tool CARGO_MODULES cargo-modules 'cargo install .*cargo-modules'
 check_tool GOVULNCHECK govulncheck 'go install .*govulncheck'
 check_tool GO_ARCH_LINT go-arch-lint 'go install .*go-arch-lint'
 check_tool OAPI_CODEGEN oapi-codegen 'go install .*oapi-codegen'
+check_tool VIEWCORE viewcore 'go install .*viewcore'
 
 if [ "$checked_tools" -ge 17 ]; then
   pass "$checked_tools manifest rows were checked against the workflows"

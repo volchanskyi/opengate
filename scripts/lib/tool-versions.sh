@@ -74,6 +74,11 @@ export TOOL_VERSION_TRIVY="0.70.0"
 export TOOL_VERSION_K6="v1.6.1"
 export TOOL_VERSION_CARGO_MUTANTS="27.0.0"
 export TOOL_VERSION_GREMLINS="0.6.0"
+# viewcore reads a core dump as a Go heap, which is how the endurance run follows
+# what holds a leaked object rather than where it was allocated. It has no
+# tagged releases, so the pin is the commit — which is the same statement every
+# other row makes, spelled the way this module publishes versions.
+export TOOL_VERSION_VIEWCORE="v0.0.0-20260908162731-ac862fd6552b"
 
 # --- deliberately floating ---------------------------------------------------
 #

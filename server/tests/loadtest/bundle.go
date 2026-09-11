@@ -2,11 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -55,7 +53,14 @@ import (
 // answer is higher. The profile now declares what giving out means and the run
 // reports the rung that held, the rung that did not, and the reading that
 // decided it.
-const bundleSchemaVersion = 6
+//
+// Version 7 adds what grew and where. A run said whether a completed operation
+// gave back what it took and nothing about which line kept it, so an endurance
+// run that found a leak handed back an instruction to reproduce five hours of
+// load. A soak now keeps a goroutine and a heap profile on an interval and
+// reports the difference between them, which for a stuck goroutine is the whole
+// answer: the count and the line, in one row.
+const bundleSchemaVersion = 7
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -287,177 +292,11 @@ type Bundle struct {
 	// BreakingPoint is where the ladder broke, for a profile that declared what
 	// breaking means. Absent for every profile that asked no such question.
 	BreakingPoint *BreakingPoint `json:"breaking_point,omitempty"`
-}
-
-// Validate reports every reason this bundle could not be read as a run.
-func (b *Bundle) Validate() error {
-	var problems []error
-
-	if b.SchemaVersion != bundleSchemaVersion {
-		problems = append(problems, fmt.Errorf("schema_version %d is not %d", b.SchemaVersion, bundleSchemaVersion))
-	}
-	problems = append(problems, b.validateRun()...)
-	problems = append(problems, validateFingerprint("target", b.Target)...)
-	problems = append(problems, validateFingerprint("generator", b.Generator)...)
-	problems = append(problems, b.validateFixture()...)
-	problems = append(problems, b.validatePhases()...)
-
-	if len(b.Observations) == 0 {
-		problems = append(problems, errors.New("observations is empty — a run that watched nothing has only its own account of itself"))
-	}
-	problems = append(problems, b.validateCleanup()...)
-	problems = append(problems, b.validateBreakingPoint()...)
-	if b.Verdict.Result == "" {
-		problems = append(problems, errors.New("verdict names no result"))
-	}
-
-	return errors.Join(problems...)
-}
-
-// validateBreakingPoint refuses an answer that could not have been reached.
-//
-// "Nothing gave out" is an absence, and an absence is satisfied by the absence
-// of the whole conversation: a ladder whose phases never arrived reports it just
-// as readily as one that held all the way up. So an answer states how many rungs
-// it read, and an answer that read none is not one.
-func (b *Bundle) validateBreakingPoint() []error {
-	if b.BreakingPoint == nil {
-		return nil
-	}
-	var problems []error
-	if b.BreakingPoint.RungsRead <= 0 {
-		problems = append(problems, errors.New(
-			"breaking_point read no rung — a ladder that looked at nothing did not find that nothing gave out"))
-	}
-	if b.BreakingPoint.GaveAt != "" && b.BreakingPoint.Reason == "" {
-		problems = append(problems, fmt.Errorf(
-			"breaking_point says %q gave out and does not say which reading decided it",
-			b.BreakingPoint.GaveAt))
-	}
-	return problems
-}
-
-func (b *Bundle) validateRun() []error {
-	var problems []error
-	if b.Run.ID == "" {
-		problems = append(problems, errors.New("run.id is empty"))
-	}
-	if b.Run.Commit == "" || b.Run.Commit == unknownCommit {
-		problems = append(problems, fmt.Errorf(
-			"run.commit is %q — a measurement with no source revision cannot be attributed to the code that produced it",
-			b.Run.Commit))
-	}
-	if b.Run.ProfileName == "" {
-		problems = append(problems, errors.New("run.profile_name is empty"))
-	}
-	if b.Run.ProfileVersion == 0 {
-		problems = append(problems, errors.New("run.profile_version is unset"))
-	}
-	if b.Run.StartedAt.IsZero() {
-		problems = append(problems, errors.New("run.started_at is unset"))
-	}
-	if b.Run.FinishedAt.Before(b.Run.StartedAt) {
-		problems = append(problems, errors.New("run.finished_at is before run.started_at"))
-	}
-	return problems
-}
-
-// minPlausibleMemoryBytes is the floor below which a memory figure is a
-// placeholder rather than a reading.
-//
-// It is a mebibyte, which no machine or container this repository runs anything
-// on could be limited to and which every real reading clears by three orders of
-// magnitude. The number it exists to refuse is one byte: both fingerprints were
-// written as one processor and one byte of memory on every run, so four bundles
-// from a sweep whose only subject was the processor count reported identical
-// hardware and every latency figure beside them was uninterpretable.
-const minPlausibleMemoryBytes = 1 << 20
-
-func validateFingerprint(field string, f Fingerprint) []error {
-	var problems []error
-	if f.Kind == "" || f.Description == "" {
-		problems = append(problems, fmt.Errorf("%s fingerprint names neither a kind nor a description", field))
-	}
-	if f.CPUs <= 0 {
-		problems = append(problems, fmt.Errorf("%s fingerprint reports no processor count", field))
-	}
-	if f.MemoryBytes < minPlausibleMemoryBytes {
-		problems = append(problems, fmt.Errorf(
-			"%s fingerprint reports %d bytes of memory, which is below the %d-byte floor a real reading clears — a latency figure is a property of the pair, so a placeholder here makes every number beside it unreadable",
-			field, f.MemoryBytes, minPlausibleMemoryBytes))
-	}
-	return problems
-}
-
-func (b *Bundle) validateFixture() []error {
-	if b.Fixture.Size == "" {
-		return []error{errors.New("fixture names no size — the same load against a different fleet is a different run")}
-	}
-	if b.Fixture.Devices <= 0 {
-		return []error{errors.New("fixture reports no devices")}
-	}
-	return nil
-}
-
-func (b *Bundle) validatePhases() []error {
-	if len(b.Phases) == 0 {
-		return []error{errors.New("phases is empty — a run with no phase results measured nothing")}
-	}
-
-	// Whether this run could read the target at all. The two questions are
-	// answered by the same page, so a run that read what the target was holding
-	// could have read how hard it was working, and a phase that did not is a
-	// reading somebody dropped rather than a venue that publishes none.
-	readTheTarget := b.readTheTarget()
-
-	var problems []error
-	for i, phase := range b.Phases {
-		if phase.Name == "" {
-			problems = append(problems, fmt.Errorf("phase %d has no name", i))
-		}
-		if phase.FinishedAt.Before(phase.StartedAt) {
-			problems = append(problems, fmt.Errorf("phase %q finished before it started", phase.Name))
-		}
-		if phase.ErrorRate < 0 || phase.ErrorRate > 1 {
-			problems = append(problems, fmt.Errorf("phase %q error_rate %v is not a ratio", phase.Name, phase.ErrorRate))
-		}
-		if readTheTarget && phase.TargetBusyPercent == nil {
-			problems = append(problems, fmt.Errorf(
-				"phase %q carries no target busy-ness, on a run that read the target's own exposition — without it a target out of processor and one idle but slow are the same picture",
-				phase.Name))
-		}
-	}
-	return problems
-}
-
-// readTheTarget reports whether this run read the target's own account of
-// itself, which is what the target series among the observations are.
-//
-// It is the document's own statement of the venue rather than a flag beside it:
-// a bundle carrying those series was pointed at a page that answered, and the
-// processor counter is on that same page.
-func (b *Bundle) readTheTarget() bool {
-	for _, observation := range b.Observations {
-		if strings.HasPrefix(observation.Series, targetSeriesPrefix) {
-			return true
-		}
-	}
-	return false
-}
-
-// targetSeriesPrefix names the observations that come off the target's own
-// exposition.
-const targetSeriesPrefix = "target_"
-
-func (b *Bundle) validateCleanup() []error {
-	if !b.Cleanup.Verified {
-		return []error{errors.New("cleanup was never verified — residue accumulates one unchecked run at a time")}
-	}
-	if !b.Cleanup.Clean() {
-		return []error{fmt.Errorf("run left residue: %d users, %d devices, %d tenants, %d pods",
-			b.Cleanup.OrphanUsers, b.Cleanup.OrphanDevices, b.Cleanup.OrphanTenants, b.Cleanup.OrphanPods)}
-	}
-	return nil
+	// Leak is what grew inside the target across the run, and where the
+	// readings it was found in are kept. Absent for every run that was not
+	// asked to watch — which is not the same as a run that watched and found
+	// nothing, and the two must never arrive as the same document.
+	Leak *LeakTrail `json:"leak_trail,omitempty"`
 }
 
 // WriteTo validates the bundle and writes it into dir, returning the path. An

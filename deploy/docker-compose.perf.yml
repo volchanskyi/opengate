@@ -66,6 +66,12 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        # The endurance family sets this empty so the target keeps its symbol
+        # table and its debugging information, which is what lets a core dump be
+        # read back as types and frames. Every other family takes the default
+        # the shipped image is built with.
+        GO_LDFLAGS: "${PERF_SERVER_GO_LDFLAGS:--s -w}"
     container_name: opengate-perf-server
     environment:
       - JWT_SECRET=perf-test-secret-minimum-32-bytes!

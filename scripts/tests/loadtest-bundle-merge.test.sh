@@ -43,7 +43,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 fresh_bundle() {
   jq -n '{
-    schema_version: 6,
+    schema_version: 7,
     fixture: { size: "lopsided", devices: 500 },
     journeys: null,
     verdict: { result: "valid" }

@@ -966,6 +966,42 @@ finishes one operation per machine for the whole run, which leaves a leak
 detector almost nothing to divide by, and five hours also fits inside the six a
 scheduled job is killed at. Its ten cycles end and restart 250 machines each.
 
+#### What leaked, and what holds it
+
+The conservation reading says whether a completed operation gave back what it
+took. It does not say where, and the distance between those two answers is a
+week: the run that produced the evidence is over, the machine is destroyed, and
+the next endurance run is seven days away. Two readings close it, and they answer
+different halves.
+
+**What grew.** The soak takes the target's goroutine and heap profiles on an
+interval and keeps every one beside the bundle, in the symbolised text form —
+because the binary that would resolve a protocol buffer's addresses does not
+outlive the job. The bundle's `leak_trail` reports the difference between the
+readings as growth at a named line, ranked heaviest first, with the number of
+intervals each stack grew in beside it: a leak grows in nearly every interval,
+a cache that filled once grows in one. For a stuck-goroutine leak that is the
+whole finding — the profile carries a count and the stack it is parked on.
+A profile the target would not answer with is counted rather than skipped, and
+a trail of fewer than two readings fails validation, because a single reading
+cannot have found that nothing grew.
+[ADR-119](../adr/ADR-119-a-long-run-names-the-line-that-grew.md) is the decision.
+
+**What holds it.** A heap profile records where an object was born, and a leak is
+about what is still pointing at it. So
+[`loadtest-reference-walk.sh`](../../scripts/loadtest-reference-walk.sh) takes a
+core off the running server without stopping it and walks the heaviest live types
+back to the root that keeps them alive — a global, or a named variable in a live
+goroutine's frame. It runs here and nowhere else: it needs to attach to a process
+and it needs a binary that still carries its debugging information, and this is
+the venue where the run owns the machine and destroys it. Every way the walk
+cannot happen is a refusal rather than an empty report, which
+[`loadtest-reference-walk.test.sh`](../../scripts/tests/loadtest-reference-walk.test.sh)
+holds it to. The core is read where it is taken and never leaves the job; the
+reports do.
+[ADR-120](../adr/ADR-120-what-holds-an-object-is-followed-on-the-box-the-run-destroys.md)
+is the decision, including why this target is built with its symbol table kept.
+
 ### k6 HTTP/WS Scenarios
 
 Three k6 scenarios in [`load/k6/scenarios/`](../../load/k6/scenarios), each

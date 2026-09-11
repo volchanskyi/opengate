@@ -24,6 +24,28 @@ and the scaling sweep finally holds a technician load constant while it varies
 its processors. Item 4's "lengthen the steady phases" needed nothing: WS3 had
 already put every steady phase between three and eight minutes.
 
+**What WS6 changed, and the one thing only a night can settle.** The soak keeps
+the target's goroutine and heap profiles on a five-minute interval, in the
+symbolised text form, and reports the difference between consecutive readings as
+growth at a named line with the count of intervals each stack grew in — which is
+what separates a leak from a cache that filled once. The bundle schema is 7 and
+carries `leak_trail`; a profile the target would not answer with is counted, and
+a trail of fewer than two readings fails validation, because one reading cannot
+have found that nothing grew. Item 4's reference walk takes a core off the
+running server with `gcore` and walks the heaviest live types back to the root
+that holds them with `viewcore`, on the endurance venue alone, with the target
+built keeping its symbol table.
+
+The honest limit on that last item: it is driven here against stub tools, which
+hold the script's own refusals — a container that is not running, a stripped
+binary, a core the debugger never wrote, a core the reader cannot open, a heap
+with nothing live in it — and say nothing about whether a real core comes back
+readable. That cannot be proven on a workstation: it needs ptrace on a container
+and a `core`-capable box, and this one has neither. The first Sunday run is the
+proof, and the failure mode if it is wrong is loud rather than silent — the
+overview is read back before any report is written. The standing cost of the same
+shape is now a register entry.
+
 **A gate repaired on the way.** The coverage guard's diff check had become
 unable to ask its question: SonarCloud keeps file-level data for a short-lived
 branch only where that branch changed the file, so a commit whose predecessor
@@ -49,7 +71,7 @@ them.
 | WS3 | **Done** | [ADR-105](../../docs/adr/ADR-105-a-simulated-machine-is-one-machine-for-the-whole-run.md), [ADR-106](../../docs/adr/ADR-106-a-venue-lasts-as-long-as-the-run-it-holds.md), [ADR-107](../../docs/adr/ADR-107-a-family-runs-somewhere.md) |
 | WS4 | **Done** | [ADR-109](../../docs/adr/ADR-109-a-sweep-varies-one-thing-and-somebody-reads-it.md), [ADR-111](../../docs/adr/ADR-111-an-estate-is-filed-as-it-arrives.md), [ADR-112](../../docs/adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md). The estate is filed as it arrives, and a climb is offered at the rate its profile declares. What remains is a reader on the volume venue — see below |
 | WS5 | **Done** | [ADR-115](../../docs/adr/ADR-115-a-ladder-declares-what-giving-out-means.md), [ADR-116](../../docs/adr/ADR-116-a-presented-address-is-believed-from-a-named-proxy.md), [ADR-117](../../docs/adr/ADR-117-the-profile-offers-the-load-and-names-the-window.md). Items 1–6 all landed; what items 4 and 5 asked for in numbers is below |
-| WS6 | Not started | |
+| WS6 | **Done** | [ADR-119](../../docs/adr/ADR-119-a-long-run-names-the-line-that-grew.md), [ADR-120](../../docs/adr/ADR-120-what-holds-an-object-is-followed-on-the-box-the-run-destroys.md). All four items landed; item 4 is stub-tested rather than core-tested, for the reason below |
 | F1 | **Done** | The busy-machine ceiling now reads the measure its venue calls for, and an unread figure no longer reaches it as a machine at rest. [ADR-108](../../docs/adr/ADR-108-the-venue-picks-how-a-busy-machine-is-read.md) |
 | F4 | **Done** | A machine leaves when the run winds it down rather than when its own clock runs out, so the estate gets its machines back and a recovery step measures a target let go of. [ADR-110](../../docs/adr/ADR-110-a-machine-leaves-when-the-run-says-so.md) |
 | F5 | **Done** | A climb was ten bursts under a rate the profile had written down, so the server refused two thirds of the top rungs. [ADR-112](../../docs/adr/ADR-112-a-climb-is-offered-at-the-rate-it-declares.md) |
@@ -1382,19 +1404,27 @@ Every changed profile takes a new `workload_name` version per Decision 9.
 
 ### WS6 — See inside the leak (D37)
 
-1. The soak takes a heap profile and a goroutine profile on an interval and keeps
-   every one. Both are already published on the port the harness reads; a
-   goroutine dump is 16 KB and a heap profile 23 KB at rest, so five hours at
-   five-minute intervals is about 15 MB.
-2. The run reports the difference between consecutive snapshots, so the finding
-   is "this grew, at this line" rather than "something grew".
-3. For a stuck-goroutine leak the dump *is* the answer: it prints every
-   goroutine's full stack, so it names the file and line and how many are stuck
-   there. Against the defect that cost 7,148 goroutines it would have printed the
-   offending line 7,148 times.
-4. For a held-object leak Go's own profiler says where an object was born, not
-   what holds it. A debugger-based reference walk is added on the throwaway
-   machine, where the run owns the box and destroys it.
+**Done — [ADR-119](../../docs/adr/ADR-119-a-long-run-names-the-line-that-grew.md),
+[ADR-120](../../docs/adr/ADR-120-what-holds-an-object-is-followed-on-the-box-the-run-destroys.md).**
+
+1. **Done.** The soak takes both profiles every five minutes and keeps every one
+   beside the bundle, in the symbolised text form rather than the protocol
+   buffer — the binary that would resolve a protocol buffer's addresses is
+   destroyed with the job, so a kept profile has to name its own lines. Sixty-one
+   readings of both is about 15 MB.
+2. **Done.** The run reports the difference between consecutive readings, ranked
+   by how much each stack grew, with the number of intervals it grew in beside
+   it. The site is the first frame that is not standard library, because every
+   parked goroutine's own top frame is the runtime parking it.
+3. **Done, and better than the plan asked.** The aggregated form says in one row
+   what the full dump says 7,148 times — the count and the stack — and it is the
+   form a difference can be taken between at all.
+4. **Done, stub-tested.** `gcore` takes a core off the running server without
+   stopping it and `viewcore` walks the heaviest live types back to the root that
+   holds them. It needs a target that kept its symbol table, so the endurance
+   stack alone builds with `GO_LDFLAGS` empty. Every way the walk cannot happen
+   is a refusal rather than an empty report, which is what the shell test holds;
+   whether a real core comes back readable is what the first Sunday run says.
 
 ## 5. Verification
 
