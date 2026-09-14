@@ -12,7 +12,7 @@ code. Nothing in it is inferred.
 
 ## 0. Progress
 
-Updated 2026-09-11. Each workstream lands as one commit.
+Updated 2026-09-13. Each workstream lands as one commit.
 
 **F8 — five faults between the families and a green night, found 2026-09-11.**
 The estate filing WS4 landed had never once succeeded, and it took both nightly
@@ -153,6 +153,87 @@ The limits themselves are untouched for that reason, except the two new
 whose advisory value is the target. The first nights after this are what set
 them.
 
+**F10 — three faults on the night of 2026-09-13, one per family.** All three
+families ran; all three came back red, and none of them for a reason about the
+product.
+
+1. **A refused question read as a pod holding no fleet.** Eight minutes into a
+   twelve-minute hold, one `kubectl exec` did not arrive, and the step that
+   collects the fleet's verdict reported *no fleet was launched* about a pod
+   whose harness was still running and whose 499 machines the cleanup went on to
+   remove. `test -e` exits one for a file that is not there and the client exits
+   one for a call that never reached the pod, so the exit code the guard read
+   made an absence and a refusal the same fact; the second question it asked to
+   tell them apart is a different call at a different moment, which a transient
+   has already stopped affecting. The pod answers in a word now, and a question
+   that came back with neither word is asked again
+   ([34750329550](https://github.com/volchanskyi/opengate/actions/runs/34750329550)).
+2. **The ladder was invalidated by the phase behind the rung it had just
+   found.** The breakpoint family climbed to sixteen thousand machines, found its
+   answer — held at eight thousand, gave at sixteen — and the recovery phase
+   behind it reported an error rate of 0.588, which voided the run. That 0.588 is
+   ten failures and seven arrivals: seventeen stragglers out of sixteen thousand,
+   whose dials began under the crush and ended after it, because an outcome is
+   known when a machine's life ends rather than when it began. The phase offered
+   no arrivals of its own — it winds down — and had seven machines connected of
+   the five hundred it declared, while the server beside it was answering a fresh
+   machine in 57 ms and using 1% of its processor. So the ceiling now falls on a
+   phase that reached for machines itself, and the ladder empties its fleet
+   before it asks for the opening load again: the generator never replaces a
+   machine it lost, so a recovery phase inheriting a crushed fleet holds corpses
+   rather than a level
+   ([34757309350](https://github.com/volchanskyi/opengate/actions/runs/34757309350)).
+3. **An empty value is not an unset one, and the soak's target came back
+   stripped.** The endurance family sets the link flags empty so the target keeps
+   the symbol table a core dump is read through. Compose supplies a `${VAR:-…}`
+   default for a variable that is set and empty as well as for one that is unset,
+   so the release link came back and the reference walk — five hours in, on the
+   first night it had ever run — refused at the first thing it checks. The
+   default is written without its colon now, what a workflow empties on purpose
+   is swept against the form the stack reads it with, and what compose renders is
+   read back rather than inferred from the punctuation
+   ([34757347584](https://github.com/volchanskyi/opengate/actions/runs/34757347584)).
+   The walk's remaining unknown is unchanged: whether a real core comes back
+   readable is still the next endurance run's to answer.
+
+**F11 — two bundle fields that count something other than what they name, found
+2026-09-13, open.** The same breakpoint bundle says the fleet that exists is
+**439 machines** and that **10,520 machines** were filed under a customer. Both
+cannot be true, and neither field holds what its name says:
+
+* `fixture.devices` is documented as *the machines that enrolled* and is filled
+  from `succeededAgents`, which counts results whose whole life ended with no
+  error at all. Under overload that is the survivors, not the fleet. Every
+  healthy night hides it — spike read 1999 of 2000, volume read 7997 of 8000 —
+  because on a system that holds, the two numbers are the same number.
+* `filed_devices` is documented as *how many machines the run filed* and counts
+  filings. Filing happens inside the arrival callback, which fires on every
+  registration, and `persistThrough` re-registers a machine each time its
+  connection comes back — so a thrashing fleet files the same machine over and
+  over. 10,520 filings across the machines that got that far is roughly
+  twenty-four apiece over thirty-six minutes, which is what a fleet reconnecting
+  against a 30-second idle timeout looks like.
+
+Underneath both sits the same filter, and it reaches further than the two
+counts. `summarizeResults` skips every result carrying an error, so the
+connect, handshake and registration series a run publishes are the timings of
+the machines that survived to the wind-down — 439 of sixteen thousand on this
+night. Every machine that got in during the crush and was severed later
+contributed no timing at all, which is a survivorship filter on the very
+measurement the night was taken to produce. The reading that is right is
+already recorded: `agentResult.arrivedAt` is set when the machine finished
+registering and is kept across every reconnection, so *did this machine ever
+arrive* and *did it end cleanly* are separable facts and the summary conflates
+them.
+
+None of it gates anything today, which is why it survived. The trend's
+aggregate error rate comes from the harness's printed tally, which is correct,
+and the ladder's own latency term reads the phase probes rather than these. What
+it corrupts is the evidence: the volume family's data axis is `fixture.devices`
+and `database_bytes` is read against it, and the connect series is what the
+`quic/quic-agents/connect` limit names. This is the reviewer checklist's own
+line, one layer in: *a count of machines is a count of machines that exist.*
+
 | WS | State | Where it is |
 |---|---|---|
 | WS0 | **Part-done** | Staging's 250 rung came back invalid for two reasons WS3 has now closed, so the ladder's answer is open again and the nightly itself is the first rung. The throwaway ladder is blocked on D38 |
@@ -169,6 +250,8 @@ them.
 | F7 | **Done** | The drill's four pods asked for more processor than the node had left, and the refusal reached the log as a timeout. [ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md) |
 | F8 | **Done** | Filing raced the registration it depended on and took both nightly families down; four more faults sat behind it. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md) |
 | F9 | **Done** | A machine the run stood down was counted as one that failed to arrive, which invalidated the phase that exists to say whether the system came back. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md) |
+| F10 | **Done** | Three faults on one night, one per family: a refused question read as an absent fleet, a ladder voided by the wind-down behind the rung it found, and a soak target linked without the symbols its core walk reads. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-119](../../docs/adr/ADR-119-finding-a-leak.md) |
+| F11 | **Open** | A bundle reports 439 machines in a fleet it filed 10,520 of. `fixture.devices` counts the machines that survived and `filed_devices` counts filings, and both are named for machines that exist |
 
 ### What the first dispatched runs measured, 2026-09-09
 

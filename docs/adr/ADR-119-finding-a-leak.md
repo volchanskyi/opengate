@@ -56,7 +56,13 @@ object was born, and a leak is not about where something was made — it is abou
 what is still pointing at it.
 
 **The target is built with its debugging information kept**, or the walk names
-nothing.
+nothing. The endurance family asks for that by handing the build an empty link,
+and an empty value has to survive being read: a default supplied for an unset
+variable is supplied for an emptied one too unless it is written not to be, so
+the empty link was replaced by the release one and the first walk ever taken
+refused at its first check. What a workflow empties on purpose and what the
+stack reads it with are checked against each other, and what the stack renders
+is read back rather than inferred from the punctuation.
 
 **Every way the walk cannot happen is a failure, never an empty report.**
 

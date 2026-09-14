@@ -137,19 +137,25 @@ LAUNCHER_EOF
 # pod_holds_fleet answers whether a harness was ever started in this pod, and
 # refuses to guess when it could not ask. A guard that answers yes when the
 # question did not arrive is the false green it exists to close, and here the
-# wrong answer starts a second fixture over the first one's names.
+# wrong answer starts a second fixture over the first one's names — or, at
+# collect time, throws away a night whose fleet was still running.
+#
+# The pod answers in a word rather than in an exit code. `test -e` exits 1 for a
+# file that is not there and kubectl exits 1 for a call that never reached the
+# pod, so an exit code cannot tell an absence from a refusal; a word can only be
+# printed by a pod that heard the question. Anything else is the question going
+# unanswered, and it is asked again.
 pod_holds_fleet() {
-  local attempt
+  local attempt answer
   for attempt in 1 2 3; do
-    if pod_sh "test -e '$POD_LOG'" >/dev/null 2>&1; then
-      return 0
-    fi
-    # A pod that answered "no such file" and a call that never arrived are the
-    # same exit code here, so the second question is whether the pod is
-    # answering at all.
-    if pod_sh "true" >/dev/null 2>&1; then
-      return 1
-    fi
+    answer="$(pod_sh "if [ -e '$POD_LOG' ]; then echo held; else echo none; fi" 2>/dev/null || true)"
+    # The last line, because a client is free to print something of its own
+    # before the pod's answer.
+    answer="${answer##*$'\n'}"
+    case "$answer" in
+      held) return 0 ;;
+      none) return 1 ;;
+    esac
     sleep "$POLL"
   done
   echo "::error::$POD did not answer whether it holds a fleet, so this run will not start a second one over the first one's fixture." >&2
