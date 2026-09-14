@@ -218,6 +218,12 @@ sockets the kernel is holding, whatever the server believes about them. Carrying
 it per phase, beside the count the harness keeps, is what makes the two
 comparable at the point where they can disagree.
 
+It is the only candidate left for a phase that reaches for no machine of its
+own. Such a phase's error rate is the tail of the phase before it and is held to
+no ceiling ([ADR-082](../docs/adr/ADR-082-load-run-validity.md)), and its
+attainment is one by construction, so the level it holds is the whole of what it
+could be judged on — and that level is the count above.
+
 **Pay-down trigger:** a night of the repaired code on `spike` and `breakpoint`,
 whose readings bracket the tolerance. A tolerance set before that is a guess, and
 the two counts genuinely differ while a climb settles — so the reading is

@@ -202,6 +202,24 @@ type PhaseResult struct {
 	Faults             int64 `json:"faults"`
 }
 
+// OfferedAgentArrivals reports whether this phase reached for machines of its
+// own, which is what makes ErrorRate a reading of the phase rather than of the
+// one before it.
+//
+// A phase that winds down asks for fewer machines than the one before it, so it
+// reaches for nobody: it stands machines down and offers no arrival. Every
+// outcome recorded inside its window therefore belongs to a machine an earlier
+// phase reached for — a machine's outcome is known when its life ends, and a
+// dial that began under the level before this one can end under this one.
+//
+// The technician figure is not consulted. It travels with the profile whether
+// anything offers it or not, and ErrorRate is the fleet's own share of machines
+// that did not arrive, so a browser-side load says nothing about whether this
+// phase asked for a machine.
+func (p PhaseResult) OfferedAgentArrivals() bool {
+	return p.OfferedAgentArrivalsPerSecond > 0
+}
+
 // AchievedFraction is how much of the offered arrival rate actually arrived.
 //
 // It reads the technician side when something measured it and the machine side

@@ -62,8 +62,25 @@ phases:
     operator_arrivals_per_second: 160
     connected_agents: 16000
     sessions: 160
-  # Held at the load the run started from, so the report can say whether the
-  # system came back on its own or stayed broken.
+  # The fleet is emptied before the recovery is asked for.
+  #
+  # The generator never replaces a machine it lost — the gap between the level
+  # asked for and the level connected is the finding, and topping it up would be
+  # the harness closing it quietly. A rung that severs most of the fleet
+  # therefore leaves a recovery phase holding corpses: the 2026-09-13 ladder's
+  # recovery declared five hundred machines, had seven connected, and offered no
+  # arrival at all, so nothing in it could say whether the server had come back.
+  #
+  # One minute, because standing a machine down is cancelling its context and
+  # sixteen thousand of those cost nothing.
+  - name: drain
+    duration: 1m
+    operator_arrivals_per_second: 0
+    connected_agents: 0
+    sessions: 0
+  # Held at the load the run started from, with machines this phase reaches for
+  # itself, so the report can say whether the system came back on its own or
+  # stayed broken.
   - name: recovery
     duration: 5m
     operator_arrivals_per_second: 5

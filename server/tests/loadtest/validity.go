@@ -237,7 +237,13 @@ func phaseReasons(in RunInputs) []string {
 		if pastTheBreakingPoint(in.BreakingPoint, phase) {
 			continue
 		}
-		if phase.ErrorRate > maxErrorRate {
+		// A phase that reached for no machine has no arrival error rate of its
+		// own: what its window holds is the tail of the phase that did reach.
+		// A ladder's recovery read 0.588 over seventeen stragglers out of a
+		// fleet of sixteen thousand and threw away the answer the run had just
+		// found. Whether such a phase recovered is asked of the machines it
+		// reaches for, which is why the ladder empties its fleet first.
+		if phase.OfferedAgentArrivals() && phase.ErrorRate > maxErrorRate {
 			reasons = append(reasons, fmt.Sprintf(
 				"phase %q error rate %.3f is past the ceiling %.3f, so its numbers describe the error path",
 				phase.Name, phase.ErrorRate, maxErrorRate))

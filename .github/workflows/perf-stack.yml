@@ -411,8 +411,9 @@ jobs:
             # baseline — measured on the peak and breakpoint bundles — that is
             # roughly 7.7 GB, inside the allowance the generator is given.
             agents: '16000'
-            # Seven steps of five minutes, and every machine is held for the
-            # whole walk.
+            # Six rungs of five minutes, one to empty the fleet, and five more
+            # to ask a crushed server for its opening load again. A machine is
+            # held from the rung that dialled it to the end of the walk.
             hold: 40m
             minutes: 90
     steps:

@@ -263,6 +263,44 @@ else
 fi
 assert_contains "collect names what is missing" "no fleet" "$OUT"
 
+# --- A refusal at collect time is not a pod that holds no fleet ----------------
+#
+# `test -e` exits 1 for a file that is not there, and kubectl exits 1 for a call
+# that never reached the pod. Reading the pod's answer off that exit code makes
+# the two the same fact, and the run of 2026-09-13 is what that cost: one refused
+# call, eight minutes into a twelve-minute hold, and the step reported "no fleet
+# was launched" about a pod whose harness was still running and whose 499
+# machines the cleanup went on to remove. The whole night was discarded.
+#
+# So the pod answers in a word. A call that did not arrive brings back neither
+# word and is made again.
+reset_pod
+"$SHIM" start -- "$WORK/bin/harness" >/dev/null 2>&1
+printf '1\n' >"$WORK/exec-fails"
+STATUS=0
+OUT="$("$SHIM" collect 2>&1)" || STATUS=$?
+assert_eq "a refused question does not void a live fleet" "0" "$STATUS"
+assert_contains "collect still returns the harness's own account" "=== Results ===" "$OUT"
+
+# And a pod that genuinely holds nothing still says so, rather than being read as
+# a call that failed: the guard that survives a refusal must not survive an
+# absence too.
+reset_pod
+STATUS=0
+OUT="$("$SHIM" collect 2>&1)" || STATUS=$?
+assert_eq "a pod holding no fleet is still refused" "4" "$STATUS"
+assert_contains "and it says what is missing" "no fleet" "$OUT"
+
+# A pod that answers nothing at all is neither. It is the case where the run must
+# not start a second fixture over the first one's names, so it refuses rather
+# than guessing in either direction.
+reset_pod
+printf '9\n' >"$WORK/exec-fails"
+STATUS=0
+OUT="$("$SHIM" collect 2>&1)" || STATUS=$?
+assert_eq "a pod that will not answer is refused" "4" "$STATUS"
+assert_contains "and the refusal names the unanswered question" "did not answer" "$OUT"
+
 # --- A start with nothing to launch --------------------------------------------
 reset_pod
 STATUS=0

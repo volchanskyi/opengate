@@ -34,8 +34,11 @@ profile that declares what giving out means is sent to find the rung where the
 system gives out, so a rung at or above that one is what the run measured rather
 than a run that measured nothing — and the machines lost reaching it are the
 reading rather than a fault. Every rung below it is held to the ceiling exactly
-as any other phase is, which is what keeps the recovery phase able to report a
-system that gave out and stayed broken.
+as any other phase is. The recovery phase behind the ladder reaches for machines
+of its own — the run empties its fleet first — because the generator never
+replaces a machine it lost, so a recovery phase inheriting a crushed fleet holds
+corpses rather than a level and can say nothing about whether the system came
+back.
 
 ### Every number is a reading
 
@@ -94,9 +97,19 @@ start still reaching for the server when a level comes down is cancelled by the
 wind-down, and it never registered — so it is counted apart from both, in the
 fleet's tally, in the results block and in the rate the trend is given. Read as
 failures they are indistinguishable from a server that would not take them, and
-they land in whichever phase the wind-down happened in: a recovery phase offers
-no arrivals, so they are every outcome it has and its error rate is one by
-construction.
+they land in whichever phase the wind-down happened in, and a phase that winds
+down offers no arrivals of its own.
+
+**A phase that reached for no machine has no arrival error rate.** An outcome is
+known when a machine's life ends rather than when it began, so a dial that
+started under the level before this one can end under this one — and a phase
+that winds down reaches for nobody, which leaves the tail of the phase before it
+as every outcome inside its window. A ladder's recovery read 0.588 over ten
+failures and seven arrivals, out of a fleet of sixteen thousand, against a server
+that was answering a fresh machine in fifty-seven milliseconds; that reading of
+the crush was the only thing standing between the night and the first answer this
+family has ever produced. So the ceiling falls on a phase that offered arrivals,
+and a phase whose question is whether a crushed system came back offers them.
 
 **Each machine is recorded as it arrives**, under its customer and building,
 identified from its own certificate rather than by asking the server what
@@ -119,6 +132,14 @@ launch that never happened is retried and one that happened is never made twice
 — decided by asking the pod what it holds, not by reading an error string,
 because a second harness would build a second fixture over the first one's
 names.
+
+**The pod answers that question in a word, not in an exit code.** `test -e`
+exits one for a file that is not there and the client exits one for a call that
+never reached the pod, so an exit code makes an absence and a refusal the same
+fact. One refused call, eight minutes into a twelve-minute hold, reported a pod
+holding no fleet while its harness was still running, and the night was
+discarded. A word can only be printed by a pod that heard the question; anything
+else is the question going unanswered, and it is asked again.
 
 ### Independence
 

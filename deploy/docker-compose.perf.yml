@@ -71,7 +71,12 @@ services:
         # table and its debugging information, which is what lets a core dump be
         # read back as types and frames. Every other family takes the default
         # the shipped image is built with.
-        GO_LDFLAGS: "${PERF_SERVER_GO_LDFLAGS:--s -w}"
+        #
+        # The default is written without a colon on purpose: `:-` supplies it for
+        # a variable that is set and empty as well as for one that is unset, so
+        # the empty link the endurance family asks for would be replaced by the
+        # release one and the core would come back unreadable.
+        GO_LDFLAGS: "${PERF_SERVER_GO_LDFLAGS--s -w}"
     container_name: opengate-perf-server
     environment:
       - JWT_SECRET=perf-test-secret-minimum-32-bytes!

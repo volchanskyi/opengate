@@ -125,6 +125,71 @@ else
   echo "  note docker not on PATH; compose parse not exercised here (CI runs it)"
 fi
 
+# --- A default that fires on an empty value is not a default on an unset one ---
+#
+# The endurance family sets PERF_SERVER_GO_LDFLAGS to the empty string, and that
+# empty string is the whole point: an empty link keeps the target's symbol table,
+# and a core dump is addresses until something can read them back as types.
+#
+# Compose's `${VAR:-default}` substitutes its default for a variable that is set
+# and empty as well as for one that is unset, so the value the workflow chose was
+# discarded and the release link came back. The soak of 2026-09-13 walked its five
+# hours, reached the reference walk and refused at the first thing it checks —
+# "carries no debugging information" — on the first night that walk had ever run.
+# `${VAR-default}` is the form that means what the workflow meant.
+#
+# The contract is stated in the workflow and satisfied in the compose file, so it
+# is checked against both: every variable a workflow deliberately empties is read
+# off the workflows, and the form the compose file reads it with is read off the
+# compose file.
+emptied=()
+while IFS= read -r name; do
+  [ -n "$name" ] && emptied+=("$name")
+done < <(
+  grep -rhoE "^[[:space:]]+[A-Z][A-Z0-9_]*:[[:space:]]*''[[:space:]]*$" "$REPO_ROOT"/.github/workflows/*.yml \
+    | sed -E "s/^[[:space:]]+([A-Z0-9_]+):.*/\1/" | sort -u
+)
+
+# A sweep that reached nothing passes for the wrong reason. The soak's own
+# variable is the one it must always find.
+if [ "${#emptied[@]}" -gt 0 ] && grep -qxF 'PERF_SERVER_GO_LDFLAGS' <<<"$(printf '%s\n' "${emptied[@]}")"; then
+  pass "the sweep read the variables a workflow empties on purpose (${#emptied[@]})"
+else
+  fail "no workflow empties a variable on purpose, so this sweep is checking nothing"
+fi
+
+discarded=""
+for name in "${emptied[@]}"; do
+  if grep -qF "\${$name:-" "$COMPOSE"; then
+    discarded="$discarded $name"
+  fi
+done
+if [ -z "$discarded" ]; then
+  pass "an emptied variable reaches the build rather than being replaced by a default"
+else
+  fail "compose reads these with \${VAR:-default}, which discards the empty value the workflow set:$discarded"
+fi
+
+# And the punctuation is a proxy for what compose does with it, so compose is
+# asked. The variable is set exactly the way the soak sets it, and what comes
+# back has to be the empty link rather than the release one.
+if command -v docker >/dev/null 2>&1; then
+  rendered="$(
+    PERF_SERVER_GO_LDFLAGS='' DOCKER_CONFIG="$("$REPO_ROOT/scripts/docker-credstore-guard.sh")" \
+      docker compose -f "$COMPOSE" config 2>/dev/null || true
+  )"
+  built_with="$(sed -n 's/^ *GO_LDFLAGS: *//p' <<<"$rendered" | head -1)"
+  if [ -z "$rendered" ]; then
+    fail "compose rendered nothing, so what the endurance target is linked with was not read back"
+  elif [ "$built_with" = '""' ] || [ -z "$built_with" ]; then
+    pass "the endurance target is built with the empty link the soak asks for"
+  else
+    fail "the endurance target is built with [$built_with], not the empty link the soak asks for"
+  fi
+else
+  echo "  note docker not on PATH; what compose renders is not read back here (CI runs it)"
+fi
+
 # The workflow must drive the two families this stack exists for, and must not
 # claim absolute capacity from a runner.
 # The volume family is a sweep over machines enrolled rather than a single run,
