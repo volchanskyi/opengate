@@ -45,6 +45,34 @@ has learned to ignore protects nothing.
 **A technician-side figure travels as an offer, never as an achievement**, until
 something on that side measures it.
 
+**Where a night has no browser-side half, its limits are read off its own
+evidence.** Seven profiles run on a throwaway stack with no browser-side
+generator on it, so the join that builds canonical rows for the everyday night
+cannot happen there and every limit they declared was read by nothing. The
+evidence bundle is turned into the same canonical rows and handed to the same
+one evaluator; a second evaluator would be a second set of numbers to keep
+level. The reader emits only the series a limit names, the two sides are held
+level in both directions by a sweep, and a bundle it cannot read refuses rather
+than answering with an empty set — an empty set is a night where every limit
+passed for want of anything to compare.
+
+**A limit sits inside the range its instrument can report.** Registration timing
+is a bucketed histogram, so a tail past its last finite boundary was never kept
+and is reported at that boundary. The reading is then a floor, which fails a
+ceiling below it correctly and can never rise to meet one at or above it — so no
+registration limit may sit at or above the histogram's last boundary, and a
+sweep holds the profiles to the buckets the server declares.
+
+**A measurement a family exists to drive past carries no ceiling.** The ladder
+climbs until arrivals fail, so its aggregate share of machines that did not get
+in is the finding rather than a fault: any ceiling it could pass is one it
+passes by not finding an answer. What is worth holding there is whether the
+system came back, which is the recovery phase rather than the whole walk, and
+the per-phase ceiling the run's own verdict applies already holds it. The
+measurement is declared deliberately unlimited with that reason written beside
+it, because a measurement in neither list reads from the outside exactly like
+one nobody decided about.
+
 ### The sweeps
 
 **A phase says how hard the target worked**, read from the target's own

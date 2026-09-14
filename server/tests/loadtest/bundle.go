@@ -67,7 +67,18 @@ import (
 // climbed to sixteen thousand machines, found that load, and threw away the
 // evidence for the rung it had just climbed. A phase now says which of the two
 // it was, and an absence with nothing beside it is refused exactly as before.
-const bundleSchemaVersion = 8
+//
+// Version 9 adds the two numbers a night is judged by that a bundle did not
+// carry. A phase said what the harness believed it held and nothing about what
+// the target held, and that belief is bookkeeping the wind-down maintains — so
+// a recovery phase describing a target still carrying the full fleet was
+// published on every night two families ran, and no gate disagreed. The phase
+// now carries the target's own count and the goroutines behind it, taken where
+// it takes its own. Beside them the run states its aggregate error rate, which
+// is the one series the profiles hold their machine-side limits to and the one
+// the bundle did not have — so on the venues that produce no browser-side rows,
+// every limit named a measurement that could not be read.
+const bundleSchemaVersion = 9
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -188,6 +199,25 @@ type PhaseResult struct {
 	// the run — chiefly a target loaded until it stopped answering, which is
 	// the answer a capacity ladder goes looking for.
 	TargetBusyAbsent string `json:"target_busy_absent,omitempty"`
+
+	// TargetConnectedAgents is the fleet the target says it was holding when
+	// this phase closed, and TargetGoroutines is the count that bounds it
+	// below. AchievedConnectedAgents above is the harness's own answer to the
+	// same question, taken at the same instant, and the pair is only useful
+	// because the two are kept independently: one is bookkeeping the wind-down
+	// maintains, and only the other is a reading.
+	//
+	// Both are pointers for the reason the busy-ness above is. A nought here
+	// would be a target holding nobody, which is exactly the finding the rule
+	// over these acts on, so a question nobody asked must not arrive as the
+	// answer it exists to catch.
+	TargetConnectedAgents *int     `json:"target_connected_agents,omitempty"`
+	TargetGoroutines      *float64 `json:"target_goroutines,omitempty"`
+
+	// TargetCensusAbsent is why the pair above is not there, where the run can
+	// say — a target loaded until it stopped answering, or one that keeps no
+	// count of its fleet.
+	TargetCensusAbsent string `json:"target_census_absent,omitempty"`
 
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`

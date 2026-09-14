@@ -191,7 +191,7 @@ var productionSchedule = app.BackgroundSchedule{
 	// that connected a thousand agents can be recorded as a server that saw
 	// none. These are in-memory counts, so reading them this often costs
 	// nothing worth saving.
-	Gauges: 5 * time.Second,
+	Gauges: app.ProductionGaugeInterval,
 
 	// The database's on-disk size moves slowly and the query is not free, so it
 	// is read far less often than it is scraped.

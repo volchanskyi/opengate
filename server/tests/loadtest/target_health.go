@@ -14,8 +14,8 @@ import (
 // scenarios ran, the rows arrived, and the verdict was computed over numbers
 // measured against two different processes.
 //
-// The four families below are the ones that answer it, and every one of them is
-// already on the page this harness reads registration timing from — the
+// The four process families below are the ones that answer it, and every one of
+// them is already on the page this harness reads registration timing from — the
 // registry registers the client library's Go and process collectors. Nothing
 // here needs a kubeconfig, a pod UID or a restart count, which is what lets the
 // same reading work for the volume and scaling families, whose target runs in a
@@ -24,14 +24,24 @@ import (
 // They are also the only numbers in the exposition that are readings rather
 // than bookkeeping. Every opengate_* series is maintained by the code path it
 // describes, so it says the teardown ran; these say whether the resource came
-// back.
+// back. The one opengate_* series read here is read for a different purpose,
+// which the constant block states.
 
-// The four series a run brackets itself with.
+// The four series a run brackets itself with, and the server's own count of the
+// fleet it is holding.
+//
+// That fifth one is not a process family and is not a reading: the server
+// maintains it, refreshed on an interval by
+// server/internal/metrics's gauge updater. It is here because the
+// harness is counting the same population from the other end, and two counts
+// kept independently are the only way a level either of them publishes can be
+// disagreed with. What bounds them below is the goroutine count beside it.
 const (
-	goroutinesMetric = "go_goroutines"
-	residentMetric   = "process_resident_memory_bytes"
-	openFDsMetric    = "process_open_fds"
-	startTimeMetric  = "process_start_time_seconds"
+	goroutinesMetric      = "go_goroutines"
+	residentMetric        = "process_resident_memory_bytes"
+	openFDsMetric         = "process_open_fds"
+	startTimeMetric       = "process_start_time_seconds"
+	agentsConnectedMetric = "opengate_agents_connected"
 )
 
 // TargetHealth is one reading of the target process.
@@ -50,6 +60,14 @@ type TargetHealth struct {
 	// says whether two readings came from the same process, which is what makes
 	// every other number between them comparable.
 	StartTimeSeconds float64 `json:"start_time_seconds"`
+
+	// AgentsConnected is the fleet the target says it is holding.
+	//
+	// It is a pointer because a target that publishes no such count is an
+	// absence and not a fleet of nought — and nought is precisely the reading
+	// the rule beside this one acts on, so filling an unasked question in with
+	// it would invalidate every run against a target that keeps no count.
+	AgentsConnected *float64 `json:"agents_connected,omitempty"`
 }
 
 // TargetConservation is the pair of readings that bracket a run, and the number
@@ -102,7 +120,7 @@ func perOperation(c TargetConservation, delta float64) float64 {
 	return delta / float64(c.Operations)
 }
 
-// ParseTargetHealth reads the four families out of an exposition page.
+// ParseTargetHealth reads the five families out of an exposition page.
 //
 // It reads only those, the way the registration reader beside it does, so what
 // the harness depends on is visible in one place rather than behind a parser
@@ -132,6 +150,13 @@ func ParseTargetHealth(page string) TargetHealth {
 		case startTimeMetric:
 			health.StartTimeSeconds = value
 			health.Read = true
+		case agentsConnectedMetric:
+			// Deliberately not a reason to call the page read. The four above
+			// are what every target this repository points a run at publishes;
+			// this one is the product's own, and a page carrying it alone is
+			// not the exposition the bracket needs.
+			held := value
+			health.AgentsConnected = &held
 		}
 	}
 	return health

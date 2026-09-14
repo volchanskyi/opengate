@@ -25,7 +25,7 @@ func TestAPhaseSaysTheTargetWouldNotAnswerWhenItWouldNot(t *testing.T) {
 	busy := TargetBusy{ReadCPUSeconds: (&countingTarget{unread: true}).read, Allowance: 1}
 
 	phase := Phase{Name: "step-16000", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, busy)
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{Busy: busy})
 	require.NoError(t, err)
 
 	assert.Nil(t, result.TargetBusyPercent)
@@ -38,7 +38,7 @@ func TestAPhaseSaysWhenNobodyDeclaredWhatTheTargetWasCappedAt(t *testing.T) {
 	busy := TargetBusy{ReadCPUSeconds: target.read}
 
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, busy)
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{Busy: busy})
 	require.NoError(t, err)
 
 	assert.Equal(t, busyAbsentNoAllowance, result.TargetBusyAbsent)
@@ -49,7 +49,7 @@ func TestAPhaseSaysWhenTheTargetRestartedUnderIt(t *testing.T) {
 	busy := TargetBusy{ReadCPUSeconds: target.read, Allowance: 1}
 
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, busy)
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{Busy: busy})
 	require.NoError(t, err)
 
 	assert.Equal(t, busyAbsentTargetRestarted, result.TargetBusyAbsent)
@@ -59,7 +59,7 @@ func TestAPhaseSaysWhenTheTargetRestartedUnderIt(t *testing.T) {
 // for and no question anybody left unanswered.
 func TestARunWithNoTargetAccountsForNothing(t *testing.T) {
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetBusy{})
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{})
 	require.NoError(t, err)
 
 	assert.Empty(t, result.TargetBusyAbsent)
@@ -72,7 +72,7 @@ func TestAPhaseThatWasReadAccountsForNoAbsence(t *testing.T) {
 	busy := TargetBusy{ReadCPUSeconds: target.read, Allowance: 0.5}
 
 	phase := Phase{Name: "steady", Duration: Duration{Duration: 3 * time.Second}, ConnectedAgents: 10}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, busy)
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{Busy: busy})
 	require.NoError(t, err)
 
 	assert.Empty(t, result.TargetBusyAbsent)

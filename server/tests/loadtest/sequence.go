@@ -125,12 +125,12 @@ func NewRealClock() Clock { return realClock{} }
 
 // runOnePhase climbs from the level the previous phase left to this phase's own,
 // holds there for the rest of the phase, and reports what happened.
-func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, busy TargetBusy) (PhaseResult, error) {
+func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetReading) (PhaseResult, error) {
 	startedAt := clock.Now()
 	// Opened before the climb and closed after the hold, so what the figure
 	// divides is the work the target did in this phase by the time this phase
 	// took.
-	closeBusy := busy.Bracket()
+	closeBusy := target.Busy.Bracket()
 	step := phase.Duration.Duration / rampSteps
 	if step <= 0 {
 		step = phase.Duration.Duration
@@ -175,6 +175,14 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, busy TargetBus
 	finishedAt := clock.Now()
 	saw := fleet.Outcomes().Since(began)
 	seconds := finishedAt.Sub(startedAt).Seconds()
+
+	// The level the harness believes it holds, and the target's own account of
+	// the same population, taken here with nothing between them — the two are
+	// only comparable while they describe one instant, and a phase reporting
+	// the first alone reports whether its own wind-down code ran.
+	held := fleet.Connected()
+	targetAgents, targetGoroutines, censusAbsent := target.Census.Take()
+
 	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
 
 	return PhaseResult{
@@ -197,11 +205,16 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, busy TargetBus
 		OfferedOperatorArrivalsPerSecond: phase.OperatorArrivalsPerSecond,
 		OfferedSessions:                  phase.Sessions,
 		OfferedConnectedAgents:           phase.ConnectedAgents,
-		AchievedConnectedAgents:          fleet.Connected(),
-		LatencyP50Ms:                     millis(percentile(samples, 50)),
-		LatencyP95Ms:                     millis(percentile(samples, 95)),
-		LatencyP99Ms:                     millis(percentile(samples, 99)),
-		ErrorRate:                        saw.ErrorRate(),
+		AchievedConnectedAgents:          held,
+		// The other end's count of it, and the reading that bounds that count
+		// below. Absent where the target could not be asked.
+		TargetConnectedAgents: targetAgents,
+		TargetGoroutines:      targetGoroutines,
+		TargetCensusAbsent:    censusAbsent,
+		LatencyP50Ms:          millis(percentile(samples, 50)),
+		LatencyP95Ms:          millis(percentile(samples, 95)),
+		LatencyP99Ms:          millis(percentile(samples, 99)),
+		ErrorRate:             saw.ErrorRate(),
 		// What the target did with the allowance it was given while this phase
 		// ran, beside the wait times the phase produced. Absent where it could
 		// not be read.

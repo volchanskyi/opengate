@@ -250,7 +250,10 @@ func run() int {
 	targetShape := ParseFingerprintFlags("system-under-test", *targetDescription, *targetCPUs, *targetMemory)
 
 	results, phases, flatBusy, flatBusyAbsent := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts,
-		NewTargetBusy(*metricsURL, targetShape.CPUs), filer)
+		TargetReading{
+			Busy:   NewTargetBusy(*metricsURL, targetShape.CPUs),
+			Census: NewTargetCensus(*metricsURL),
+		}, filer)
 	totalDur := time.Since(start)
 
 	generatorHeadroom := generatorReading()

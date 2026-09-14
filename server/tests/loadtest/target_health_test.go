@@ -8,9 +8,26 @@ import (
 )
 
 // targetPage is an exposition carrying the four process families a run brackets
-// itself with, mixed in with families it does not read — which is the shape of
-// the real page.
+// itself with and the server's own count of the fleet, mixed in with families it
+// does not read — which is the shape of the real page.
 func targetPage(goroutines, resident, fds, start string) string {
+	return targetPageHolding(goroutines, resident, fds, start, "500")
+}
+
+// targetPageHolding is the same page with the fleet count set, so a case can say
+// what the server thinks it is holding.
+func targetPageHolding(goroutines, resident, fds, start, agents string) string {
+	page := targetPageWithoutFleetCount(goroutines, resident, fds, start)
+	if agents != "" {
+		page += "opengate_agents_connected " + agents + "\n"
+	}
+	return page
+}
+
+// targetPageWithoutFleetCount is a target that publishes no count of the fleet
+// it holds. Every other family is there, so a case reaching for the count gets
+// an absence rather than an unread page.
+func targetPageWithoutFleetCount(goroutines, resident, fds, start string) string {
 	return "# HELP go_goroutines Number of goroutines that currently exist.\n" +
 		"# TYPE go_goroutines gauge\n" +
 		"go_goroutines " + goroutines + "\n" +
@@ -94,4 +111,28 @@ func TestTargetConservationRetentionIsPerCompletedOperation(t *testing.T) {
 	settled.End.ResidentBytes = 29 << 20
 	assert.Equal(t, 0.0, settled.RetainedGoroutinesPerOperation())
 	assert.Equal(t, 0.0, settled.RetainedBytesPerOperation())
+}
+
+// The server's own count of the population the harness is also counting. It is
+// the second of two counts kept independently by the two ends, and the whole
+// point of reading it is that it can disagree with the first.
+func TestParseTargetHealthReadsTheServersOwnFleetCount(t *testing.T) {
+	t.Parallel()
+
+	health := ParseTargetHealth(targetPageHolding("1530", "3.6083e+08", "18", "1.7566e+09", "500"))
+
+	require.NotNil(t, health.AgentsConnected, "a page carrying the count is a reading of it")
+	assert.Equal(t, 500.0, *health.AgentsConnected)
+}
+
+// A target that publishes no such count is an absence, not a fleet of nought. A
+// nought here would say the target holds nobody, which is the reading the rule
+// beside it exists to act on.
+func TestParseTargetHealthLeavesAnAbsentFleetCountAbsent(t *testing.T) {
+	t.Parallel()
+
+	health := ParseTargetHealth(targetPageWithoutFleetCount("1530", "3.6083e+08", "18", "1.7566e+09"))
+
+	require.True(t, health.Read, "the page answered")
+	assert.Nil(t, health.AgentsConnected, "a count nobody published is not a count of nought")
 }

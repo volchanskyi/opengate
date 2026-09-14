@@ -124,18 +124,35 @@ gave_out:
 gates:
   # This family runs on a throwaway machine with no browser-side generator on
   # it, so a limit naming a browser-side measurement could never be read here.
-  # What this venue produces is the machine side, and these are limits on that.
+  # What this venue produces is the machine side, and this is a limit on that.
   #
   # Failing under overload is the finding this family exists to produce, so the
-  # limits are loose by design and what they hold is the recovery: a system that
-  # gave out and came back is the answer, and one that gave out and stayed
-  # broken is the defect. The aggregate covers the whole walk, and the walk ends
-  # at the load it started from.
-  - series: quic/quic-agents/aggregate
-    metric: error_rate
-    max: 0.25
-    blocking: true
+  # figure is loose by design: it is a floor under a collapse of the arrival
+  # path rather than a target, and the rungs walked so far have returned tails
+  # of 2 to 2,123 milliseconds against it.
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
     max: 10000
     blocking: false
+
+# Measurements this profile has looked at and deliberately left alone. An entry
+# here is a decision; a measurement in neither list is nobody having decided,
+# and the two read identically from the outside.
+ungated:
+  # The whole walk's arrival failures, over a family whose subject is the load
+  # at which arrivals start failing. The 2026-09-13 ladder answered the question
+  # it was sent to answer — 8,000 machines held, 16,000 gave — and the same walk
+  # read 0.97 aggregate, so any ceiling this family could pass is one it passes
+  # by not finding an answer.
+  #
+  # What is worth holding is whether the system came back, and that is the
+  # recovery phase rather than the walk: it empties the fleet and dials the
+  # opening load again at a crushed server. The profile's own max_error_rate
+  # already holds it, applied per phase by the run's verdict, and every rung at
+  # or above the breaking point is exempt there while every rung below it —
+  # the recovery included — is not. A ceiling here at the same figure would be
+  # a second limit on the same reading, which is the shape one of them is always
+  # decoration.
+  - series: quic/quic-agents/aggregate
+    metric: error_rate
+    reason: the walk climbs until arrivals fail, so its aggregate is the finding; safety.max_error_rate holds the recovery phase

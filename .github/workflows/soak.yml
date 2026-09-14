@@ -153,6 +153,16 @@ jobs:
         if: always()
         run: scripts/perf-bundle-verdict.sh "$SOAK_BUNDLE_DIR/soak/bundle.json"
 
+      # And the numbers the profile says this run is judged by, read off its own
+      # evidence — this venue produces no browser-side export to join, which is
+      # why every limit this profile declares had gone unread.
+      - name: Read the profile's limits against the run's own rows
+        if: always()
+        run: |
+          set -euo pipefail
+          scripts/loadtest-bundle-rows.sh "$SOAK_BUNDLE_DIR/soak/bundle.json" /tmp/soak-rows.json
+          scripts/loadtest-gate-check.sh load/profiles/soak.yaml /tmp/soak-rows.json
+
       # What holds what the profiles say grew. The heap profiles name where an
       # object was born; this names what is still pointing at it, which is the
       # half no profiler can answer.

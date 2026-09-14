@@ -14,6 +14,13 @@ code. Nothing in it is inferred.
 
 Updated 2026-09-13. Each workstream lands as one commit.
 
+**Where this stands.** F10 (`c4e33752`) and F11 (`ec9636f6`) are landed, and
+the three perf-testing entries the register carried are paid down — see F12
+below. What is left of this plan is WS0's two ladders: the staging one is open
+again now that WS3 closed the two reasons its 250 rung came back invalid, and
+the throwaway one is still blocked on D38.
+
+
 **F8 — five faults between the families and a green night, found 2026-09-11.**
 The estate filing WS4 landed had never once succeeded, and it took both nightly
 families down with it
@@ -239,6 +246,101 @@ nobody could interpret. The machine-side series therefore starts its window
 again and is held by the profile's absolute limits until three nights are on
 record — the same cost §0 already records for the browser-side series.
 
+**The instrument the held-level register entry proposes cannot move, measured
+2026-09-13.** That entry asks for `process_open_fds` to be carried per phase so
+the level the harness believes it holds sits beside a reading of the target. The
+reading it names cannot disagree with a machine fleet, for a structural reason:
+the server serves every machine from one UDP socket
+([`agentapi/server.go`](../../server/internal/agentapi/server.go) does one
+`net.ListenUDP` into one `quic.Transport`, and `Accept` hands back connections
+multiplexed on it, never sockets). Stood up as the server builds it and counted
+from the kernel:
+
+| machines | sockets on the listener's port | goroutines |
+|---|---|---|
+| 0 | 1 | 7 |
+| 50 | 1 | 357 |
+| 200 | 1 | 1407 |
+| 500 | 1 | 3507 |
+
+One socket at every fleet size, and goroutines strictly linear at seven a
+machine. The live staging server agrees: sixteen descriptors, nine sockets, and
+exactly one UDP socket bound to 9090. A descriptor count does move with
+browser-side load, which is TCP and one descriptor apiece — so the figure is not
+constant in general, only with respect to the fleet, which is the comparison the
+entry proposed.
+
+What can disagree is `go_goroutines`, which is a reading rather than
+bookkeeping and carries at least one goroutine per accepted connection, and
+`opengate_agents_connected`, which is the server's own count of the same thing
+the harness is counting, refreshed every five seconds
+([`main.go`](../../server/cmd/meshserver/main.go)). Two counts of one population,
+kept by the two ends independently, plus a reading that bounds them below.
+
+**F12 — the three register entries, paid down 2026-09-14.** Each had a
+pay-down trigger and each trigger was met; what landed is below, together with
+what reading the nights of 2026-09-13 and 2026-09-14 gave it.
+
+1. **A phase now carries the target's own count of the fleet.** Each phase
+   publishes `opengate_agents_connected` and `go_goroutines` taken at the
+   instant it takes its own count, and a phase whose target was holding
+   materially fewer machines than the phase claims is invalid — bounded below by
+   the goroutine the listener starts per accepted connection. The rule stands
+   down for a phase shorter than the interval the server refreshes that count
+   on: a phase climbs across its whole length in ten equal steps, so the spike
+   family's thirty-second spike holds its level for three seconds and would be
+   refused for climbing. That interval now has one home,
+   `app.ProductionGaugeInterval`, read by the binary and by the harness.
+2. **Every profile's limits are read.** The bundle is turned into the canonical
+   rows the one evaluator already reads, on the three legs of the perf stack and
+   on the endurance run. Replayed against the ten legs of
+   [34850289658](https://github.com/volchanskyi/opengate/actions/runs/34850289658),
+   every limit passes: volume-8000's blocking register tail read 396 ms against
+   500, and the three legs whose fleets came up short — 1961, 1999 and 7997 —
+   were short only by machines the run stood down, so their aggregate is exactly
+   nought against ceilings held at nought. Breakpoint's aggregate ceiling is
+   declared deliberately unlimited with its reason beside it: the walk climbs
+   until arrivals fail, so any ceiling it could pass is one it passes by not
+   finding an answer.
+3. **Registration's middle case and tail are blocking.** Four staging nights
+   bracket them — 8.058/24.085, 8.124/23.810, 8.085/23.451 and 8.255/31.250 —
+   against limits of 100 ms and 500 ms. The 99th stays watched: those nights
+   read 278.542, 200.500, 154.625 and 85.714, and the widest is more than three
+   times the narrowest.
+
+Three things the runs turned up on the way, all repaired here:
+
+- **The aggregate's denominator was the fleet somebody declared.** The endurance
+  run replaces a machine when it leaves, so the night of 2026-09-13 declared 500
+  and arrived 2,750 — more arrivals than the line allows for, and a share below
+  nought, which every ceiling passes because a ceiling is a maximum. It divides
+  by the machine-lives the run produced now, less what it stood down, so a
+  machine that arrived is a machine that asked. The printed-block reader cannot
+  recover that count and refuses rather than publishing the difference.
+- **A registration tail past the histogram's last bucket is a floor.** The
+  breakpoint ladder and the quarter-processor scaling rung both published
+  exactly 10,000 ms on 2026-09-14, which is the boundary rather than a
+  measurement. A floor fails a ceiling below it correctly and can never rise to
+  meet one at or above it, so a sweep holds every registration limit under the
+  buckets the server declares.
+- **The sweep that demands a limit reader selected on the harness binary.** The
+  network drill runs the same binary as a site — no profile, no limits, no
+  bundle — so it was being asked for a reader with nothing to read. It selects
+  on the bundle now.
+
+Two readings worth keeping, neither a fault. The five-hour endurance run's leak
+trail came back flat: 58 readings five minutes apart, and the largest growth
+anywhere was 8 KB, at `bytes.growSlice`. And the repaired ladder answered
+cleanly — held at 8,000 machines, gave at 16,000, and its recovery phase reached
+500 machines at an error rate of nought behind a drained fleet, which is the
+shape F10's second fault was about.
+
+The endurance run of
+[34757347584](https://github.com/volchanskyi/opengate/actions/runs/34757347584)
+failed at the reference walk on the stripped target F10's third fault describes,
+five hours in and before that repair had landed. Nothing new is behind it; the
+next Sunday run is still the proof that a real core comes back readable.
+
 | WS | State | Where it is |
 |---|---|---|
 | WS0 | **Part-done** | Staging's 250 rung came back invalid for two reasons WS3 has now closed, so the ladder's answer is open again and the nightly itself is the first rung. The throwaway ladder is blocked on D38 |
@@ -257,6 +359,7 @@ record — the same cost §0 already records for the browser-side series.
 | F9 | **Done** | A machine the run stood down was counted as one that failed to arrive, which invalidated the phase that exists to say whether the system came back. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md) |
 | F10 | **Done** | Three faults on one night, one per family: a refused question read as an absent fleet, a ladder voided by the wind-down behind the rung it found, and a soak target linked without the symbols its core walk reads. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-119](../../docs/adr/ADR-119-finding-a-leak.md) |
 | F11 | **Done** | A bundle reported 439 machines in a fleet it had filed 10,520 of: the run's summary counted the survivors rather than the arrivals, and dropped the timings of every machine the load severed. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md) |
+| F12 | **Done** | The three register entries paid down: a phase carries the target's own count of the fleet, every profile's limits are read off the run's own evidence, and registration's middle case and tail are blocking. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md) |
 
 ### What the first dispatched runs measured, 2026-09-09
 

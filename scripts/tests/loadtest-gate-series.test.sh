@@ -238,6 +238,61 @@ case "$PINNED" in
   *) fail "pinned k6 is $PINNED but the fixtures here encode the v1 flat-statistics shape" ;;
 esac
 
+# --- A registration limit sits under the histogram it is read from -----------
+#
+# Registration timing is a bucketed histogram, so a tail past its last finite
+# boundary was never kept: the harness reports that boundary, because a ceiling
+# cannot be compared against an infinity. The reading is therefore a floor, and
+# the nights prove it is reachable — the breakpoint ladder and the
+# quarter-processor scaling rung both published exactly 10,000 ms on
+# 2026-09-14, which is the boundary rather than a measurement.
+#
+# A floor fails a ceiling correctly wherever the ceiling is below it. At or
+# above it, the limit reads a number that cannot rise and passes every night,
+# however slow the system got — the limit that cannot fail this file exists to
+# refuse. The two facts live in different languages, so nothing reads both
+# unless something is made to.
+BUCKETS_FILE="$REPO_ROOT/server/internal/metrics/registration_pool.go"
+if [ ! -f "$BUCKETS_FILE" ]; then
+  fail "the registration histogram's buckets are not where the limits are checked against them"
+else
+  buckets_line="$(grep -E '^var registrationDurationBuckets' "$BUCKETS_FILE" || true)"
+  bounds="$(tr -d '{} ' <<<"${buckets_line#*\{}")"
+  top_bucket_ms="$(awk -F, '{ printf "%d", $NF * 1000 }' <<<"$bounds")"
+  if [ -z "$top_bucket_ms" ] || [ "$top_bucket_ms" -le 0 ]; then
+    fail "could not read the registration histogram's last boundary out of $BUCKETS_FILE"
+  else
+    pass "the registration histogram's last boundary is ${top_bucket_ms}ms"
+    swept=0
+    over=""
+    while IFS= read -r profile; do
+      [ -n "$profile" ] || continue
+      while IFS='|' read -r series metric max; do
+        [ -n "$series" ] || continue
+        case "$series" in */register) ;; *) continue ;; esac
+        case "$metric" in latency_*) ;; *) continue ;; esac
+        [ "$max" != "null" ] || continue
+        swept=$((swept + 1))
+        if awk -v m="$max" -v top="$top_bucket_ms" 'BEGIN { exit !(m >= top) }'; then
+          over="$over $(basename "$profile") $series $metric=$max"
+        fi
+      done < <(profile_gates "$profile" | jq -r '.[] | "\(.series)|\(.metric)|\(.max)"')
+    done < <(find "$REPO_ROOT/load/profiles" -name '*.yaml' | sort)
+
+    if [ -z "$over" ]; then
+      pass "every registration limit sits under it"
+    else
+      fail "registration limits at or above the last boundary, where the reading cannot rise to meet them:$over"
+    fi
+    # A sweep that reached nothing proves nothing.
+    if [ "$swept" -ge 3 ]; then
+      pass "swept $swept registration limit(s)"
+    else
+      fail "swept only $swept registration limit(s) — did the profiles stop naming them?"
+    fi
+  fi
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
