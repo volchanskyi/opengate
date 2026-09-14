@@ -196,43 +196,48 @@ product.
    The walk's remaining unknown is unchanged: whether a real core comes back
    readable is still the next endurance run's to answer.
 
-**F11 — two bundle fields that count something other than what they name, found
-2026-09-13, open.** The same breakpoint bundle says the fleet that exists is
-**439 machines** and that **10,520 machines** were filed under a customer. Both
-cannot be true, and neither field holds what its name says:
+**F11 — the summary counted the survivors, found and repaired 2026-09-13.** The
+breakpoint bundle says the fleet that exists is **439 machines** and that
+**10,520 machines** were filed under a customer. Both come from the same run and
+both are named for machines that exist.
 
-* `fixture.devices` is documented as *the machines that enrolled* and is filled
-  from `succeededAgents`, which counts results whose whole life ended with no
-  error at all. Under overload that is the survivors, not the fleet. Every
-  healthy night hides it — spike read 1999 of 2000, volume read 7997 of 8000 —
-  because on a system that holds, the two numbers are the same number.
-* `filed_devices` is documented as *how many machines the run filed* and counts
-  filings. Filing happens inside the arrival callback, which fires on every
-  registration, and `persistThrough` re-registers a machine each time its
-  connection comes back — so a thrashing fleet files the same machine over and
-  over. 10,520 filings across the machines that got that far is roughly
-  twenty-four apiece over thirty-six minutes, which is what a fleet reconnecting
-  against a 30-second idle timeout looks like.
+The filing count was the right one: it is keyed by the machine's own name, so a
+machine that comes back after an outage is recognised rather than written again,
+and 10,520 is the number of distinct machines that got as far as a device row.
+`fixture.devices` was the wrong one. It was filled from a count of results whose
+*whole life* ended with no error — the survivors — under a function whose own
+comment said it counted the machines that connected, handshook and registered.
 
-Underneath both sits the same filter, and it reaches further than the two
-counts. `summarizeResults` skips every result carrying an error, so the
-connect, handshake and registration series a run publishes are the timings of
-the machines that survived to the wind-down — 439 of sixteen thousand on this
-night. Every machine that got in during the crush and was severed later
-contributed no timing at all, which is a survivorship filter on the very
-measurement the night was taken to produce. The reading that is right is
-already recorded: `agentResult.arrivedAt` is set when the machine finished
-registering and is kept across every reconnection, so *did this machine ever
-arrive* and *did it end cleanly* are separable facts and the summary conflates
-them.
+The same predicate sat under `summarizeResults`, and that is the half that
+mattered more: the connect, handshake and registration series a run publishes
+were taken only from machines that outlived the load. On this night that is 439
+of sixteen thousand, and the machines it dropped are the slow ones — a
+survivorship filter that reports a run as faster the more of its fleet it lost.
+It reached the conservation denominator too, where every machine that connected
+is one operation the target has to give back, and counting only the survivors
+divides the retained goroutines by too small a number.
 
-None of it gates anything today, which is why it survived. The trend's
-aggregate error rate comes from the harness's printed tally, which is correct,
-and the ladder's own latency term reads the phase probes rather than these. What
-it corrupts is the evidence: the volume family's data axis is `fixture.devices`
-and `database_bytes` is read against it, and the connect series is what the
-`quic/quic-agents/connect` limit names. This is the reviewer checklist's own
-line, one layer in: *a count of machines is a count of machines that exist.*
+Every healthy night hides all of it, because on a system that holds, the
+machines that arrived and the machines that ended cleanly are the same machines:
+spike read 1999 of 2000 and volume read 7997 of 8000. Only a night that severed
+its fleet separates them.
+
+The right reading was already recorded. `agentResult.arrivedAt` is set when the
+machine finishes registering and is kept across every reconnection, so *did this
+machine ever arrive* and *did it end cleanly* are separate facts the summary was
+conflating. The count reads the first now, the severance is still counted on its
+own, and the fixtures that asserted on results carrying three timings and no
+arrival — a shape no run produces — say what a real result says.
+
+The same predicate sat a third time in the printed results block, which is what
+the extraction reads to build the trend's aggregate error rate, so that rate was
+part arrival failure and part severance with the severance already published
+beside it. It reads arrivals now, and the machine-side workload name moves to
+`fleet-arrival/3` for it: the shape did not change, but what the number is a
+reading of did, and a window median spanning both sides of that is a comparison
+nobody could interpret. The machine-side series therefore starts its window
+again and is held by the profile's absolute limits until three nights are on
+record — the same cost §0 already records for the browser-side series.
 
 | WS | State | Where it is |
 |---|---|---|
@@ -251,7 +256,7 @@ line, one layer in: *a count of machines is a count of machines that exist.*
 | F8 | **Done** | Filing raced the registration it depended on and took both nightly families down; four more faults sat behind it. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md) |
 | F9 | **Done** | A machine the run stood down was counted as one that failed to arrive, which invalidated the phase that exists to say whether the system came back. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md) |
 | F10 | **Done** | Three faults on one night, one per family: a refused question read as an absent fleet, a ladder voided by the wind-down behind the rung it found, and a soak target linked without the symbols its core walk reads. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-119](../../docs/adr/ADR-119-finding-a-leak.md) |
-| F11 | **Open** | A bundle reports 439 machines in a fleet it filed 10,520 of. `fixture.devices` counts the machines that survived and `filed_devices` counts filings, and both are named for machines that exist |
+| F11 | **Done** | A bundle reported 439 machines in a fleet it had filed 10,520 of: the run's summary counted the survivors rather than the arrivals, and dropped the timings of every machine the load severed. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md) |
 
 ### What the first dispatched runs measured, 2026-09-09
 

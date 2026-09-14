@@ -889,6 +889,16 @@ which reads as a system that could not absorb the load rather than as load that
 was never offered. [ADR-082](../adr/ADR-082-load-run-validity.md)
 is the decision.
 
+A machine that arrived and a machine that ended cleanly are two facts, and every
+count in a bundle says which one it is. The fleet that exists is the machines
+that reached registered; a severance is recorded beside that and never inside
+it. A summary counting the survivors reported a fleet of 439 in a run that had
+filed 10,520 machines under a customer, and took the connect, handshake and
+registration series from those 439 alone — which drops the slowest arrivals
+first, so a run reads faster the more of its fleet it loses. On a system that
+holds the two counts are the same number, which is why only a night that severed
+its fleet can tell them apart.
+
 A phase that winds down offers nothing, and that decides what its error rate is
 a reading of. An outcome is known when a machine's life ends rather than when it
 began, so a dial that started under the level before this one can end under this

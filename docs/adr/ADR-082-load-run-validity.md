@@ -57,6 +57,18 @@ validity rule exists for: a generator that could not produce the load reads
 exactly like a system that could not absorb it. The technician side stays absent
 until something on that side measures it.
 
+**A machine that arrived and a machine that ended cleanly are two facts, and
+every count says which one it is.** The fleet that exists is the machines that
+reached registered; whether one was later severed is recorded beside it and
+never inside it. A summary that counted the survivors reported a fleet of 439
+in a run that had filed 10,520 machines under a customer, and it took the
+connect, handshake and registration series from those 439 alone — dropping the
+slowest arrivals first, so a run reads faster the more of its fleet it loses.
+It reaches the conservation denominator too: every machine that connected is one
+operation the target has to give back. On a system that holds, the two counts
+are the same number, which is why only a night that severed its fleet can show
+the difference.
+
 **Registration is timed where the device row lands**, from what the server
 records, with connection-pool occupancy beside it — a registration queued behind
 a connection and one executing slowly are the same latency until the pool says

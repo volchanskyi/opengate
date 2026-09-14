@@ -179,13 +179,18 @@ emit_k6_rows() {
 # changes what the number is a reading of, so a window median spanning both
 # sides of it would be a comparison nobody could interpret.
 #
-# The machine-side name is untouched: nothing above it changed.
+# The machine-side name moves for a change of its own: the succeeded count it is
+# built from was the machines still standing at the wind-down, and is now the
+# machines that arrived. A machine that got in and was severed under the load
+# used to be counted as one that never arrived, so the aggregate error rate was
+# part arrival failure and part severance, with the severance already published
+# beside it under its own name.
 workload_name() {
   case "$1" in
     api-baseline) printf '%s\n' "member-journeys/3" ;;
     concurrent-agents) printf '%s\n' "fleet-reads/3" ;;
     relay-throughput) printf '%s\n' "relay-session-echo/3" ;;
-    quic-agents) printf '%s\n' "fleet-arrival/2" ;;
+    quic-agents) printf '%s\n' "fleet-arrival/3" ;;
     *) return 2 ;;
   esac
 }
