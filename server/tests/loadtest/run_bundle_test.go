@@ -13,10 +13,17 @@ import (
 // The harness's own account of a run has to become a bundle, or the run's
 // evidence is a block of text in a workflow log that nothing can read back.
 
+// Two machines that got in and one that never did. The arrivals carry the
+// moment they finished registering, because that is what a machine that
+// connected, handshook and registered comes back with — a result holding three
+// timings and no arrival is a shape no run produces.
 func harnessResults() []agentResult {
+	start := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)
 	return []agentResult{
-		{connectDur: 10 * time.Millisecond, handshakeDur: 20 * time.Millisecond, registerDur: 5 * time.Millisecond},
-		{connectDur: 12 * time.Millisecond, handshakeDur: 22 * time.Millisecond, registerDur: 6 * time.Millisecond},
+		{connectDur: 10 * time.Millisecond, handshakeDur: 20 * time.Millisecond,
+			registerDur: 5 * time.Millisecond, arrivedAt: start.Add(35 * time.Millisecond)},
+		{connectDur: 12 * time.Millisecond, handshakeDur: 22 * time.Millisecond,
+			registerDur: 6 * time.Millisecond, arrivedAt: start.Add(40 * time.Millisecond)},
 		{err: errors.New("dial: timeout")},
 	}
 }
@@ -166,7 +173,8 @@ func TestTheVerdictFollowsWhetherAnythingWasMeasured(t *testing.T) {
 	assert.False(t, nothing.Verdict.EntersTrend())
 
 	healthy := bundleFrom(t, []agentResult{
-		{connectDur: time.Millisecond, handshakeDur: time.Millisecond, registerDur: time.Millisecond},
+		{connectDur: time.Millisecond, handshakeDur: time.Millisecond, registerDur: time.Millisecond,
+			arrivedAt: time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)},
 	}, true)
 	assert.Equal(t, ResultValid, healthy.Verdict.Result)
 }
@@ -212,6 +220,62 @@ func TestTheConnectPhaseEndsWhenTheFleetIsUp(t *testing.T) {
 		"the connect ends at the last arrival; the hold that follows is not part of it")
 	assert.Equal(t, start.Add(8*time.Minute), bundle.Run.FinishedAt,
 		"the run still ends when it ended — only the phase is bounded to the arrival")
+}
+
+// A machine severed after it arrived is still a machine that arrived.
+//
+// The bundle of 2026-09-13 says both that the fleet which exists is 439
+// machines and that 10,520 of them were filed under a customer. One run, two
+// numbers, and both are named for machines that exist. Underneath sat a single
+// predicate: the summary counted results whose whole life ended with no error,
+// so under a load that severed the fleet it counted the survivors — and it
+// dropped the connect, handshake and registration timings of everyone else,
+// which is a survivorship filter on the very measurement the night was taken to
+// produce. Every healthy night hides it, because on a system that holds, the
+// machines that arrived and the machines that ended cleanly are the same
+// machines.
+//
+// Arriving and ending cleanly are separate facts and the run already records
+// both: arrivedAt is set when the machine finished registering and is kept
+// across every reconnection, and the severance is counted on its own.
+func TestAMachineSeveredAfterArrivingIsStillOneThatArrived(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 9, 13, 12, 32, 0, 0, time.UTC)
+	results := []agentResult{
+		// Survived to the wind-down.
+		{connectDur: 10 * time.Millisecond, handshakeDur: 4 * time.Millisecond,
+			registerDur: 5 * time.Millisecond, arrivedAt: start.Add(100 * time.Millisecond)},
+		// Arrived, worked, and lost its connection under the load.
+		{connectDur: 200 * time.Millisecond, handshakeDur: 90 * time.Millisecond,
+			registerDur: 60 * time.Millisecond, arrivedAt: start.Add(200 * time.Millisecond),
+			err: ErrHeldPeerGone},
+		// Never got in at all.
+		{err: errors.New("dial: timeout")},
+	}
+
+	bundle := buildRunBundle(runBundleInputs{
+		Results:    results,
+		StartedAt:  start,
+		Total:      5 * time.Minute,
+		AgentCount: len(results),
+		Target:     "opengate-perf-server:9090",
+	})
+
+	assert.Equal(t, 2, bundle.Fixture.Devices,
+		"the fleet that exists is the machines that registered, not the ones that outlived the load")
+
+	// And the severed machine's own timings are in the series. They are the
+	// slowest ones, which is exactly why dropping them flatters the run.
+	series := map[string]float64{}
+	for _, observation := range bundle.Observations {
+		series[observation.Series] = observation.Value
+	}
+	assert.InDelta(t, 200.0, series["connect_p95_ms"], 0.001,
+		"a machine that took 200ms to connect and was later severed still took 200ms to connect")
+	assert.InDelta(t, 90.0, series["handshake_p95_ms"], 0.001)
+	assert.InDelta(t, 1.0, series["agents_severed_mid_hold"], 0.001,
+		"the severance is still counted, separately, where it belongs")
 }
 
 // A run that severed nothing says so, and a run that lost machines mid-hold

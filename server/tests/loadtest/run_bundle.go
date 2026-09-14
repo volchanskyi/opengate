@@ -84,26 +84,33 @@ type runBundleInputs struct {
 	Leak *LeakTrail
 }
 
-// succeededAgents counts the machines that connected, handshook and registered.
-// A machine that failed took nothing the target has to give back.
-func succeededAgents(results []agentResult) int {
-	succeeded := 0
+// arrivedAgents counts the machines that connected, handshook and registered.
+// A machine that never got in took nothing the target has to give back.
+//
+// Arriving is what the count is about, and it is not the same question as
+// whether the machine's life ended cleanly. A machine that arrived, carried
+// load and was severed under it arrived; counting only the ones still standing
+// at the wind-down turns every reading taken from this into a reading of the
+// survivors, and the harder the run the fewer of those there are. On the night
+// the ladder found its breaking point the two answers were 10,520 and 439.
+func arrivedAgents(results []agentResult) int {
+	arrived := 0
 	for _, result := range results {
-		if result.err == nil {
-			succeeded++
+		if !result.arrivedAt.IsZero() {
+			arrived++
 		}
 	}
-	return succeeded
+	return arrived
 }
 
 // buildRunBundle turns a finished run into its evidence.
 func buildRunBundle(in runBundleInputs) *Bundle {
-	succeeded, connect, handshake, register := summarizeResults(in.Results)
+	arrived, connect, handshake, register := summarizeResults(in.Results)
 	finished := in.StartedAt.Add(in.Total)
 
 	errorRate := 0.0
 	if in.AgentCount > 0 {
-		errorRate = float64(in.AgentCount-succeeded) / float64(in.AgentCount)
+		errorRate = float64(in.AgentCount-arrived) / float64(in.AgentCount)
 	}
 
 	bundle := &Bundle{
@@ -111,8 +118,8 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		Run:               runIdentity(in, finished),
 		Target:            targetFingerprint(in),
 		Generator:         generatorFingerprint(in),
-		Fixture:           fixtureCounts(in, succeeded),
-		Phases:            phaseResults(in, finished, succeeded, register, errorRate),
+		Fixture:           fixtureCounts(in, arrived),
+		Phases:            phaseResults(in, finished, arrived, register, errorRate),
 		Journeys:          in.Journeys,
 		Observations:      latencyObservations(finished, connect, handshake, in),
 		GeneratorHeadroom: in.Headroom,
@@ -134,7 +141,7 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		Profile:           in.Profile,
 		BreakingPoint:     bundle.BreakingPoint,
 		ExpectedScenarios: []string{"quic-agents"},
-		ProducedScenarios: producedScenarios(succeeded),
+		ProducedScenarios: producedScenarios(arrived),
 		Headroom:          bundle.GeneratorHeadroom,
 		Phases:            bundle.Phases,
 		Target:            in.Conservation,
@@ -266,34 +273,34 @@ func fixtureCounts(in runBundleInputs, enrolled int) FixtureCounts {
 // phaseResults is the run's phases. A run driven by a profile reports the
 // profile's own segments; one without a profile offered everything at once, and
 // that is reported as the single phase it was rather than dressed up as more.
-func phaseResults(in runBundleInputs, finished time.Time, succeeded int,
+func phaseResults(in runBundleInputs, finished time.Time, arrived int,
 	register []time.Duration, errorRate float64,
 ) []PhaseResult {
 	if len(in.Phases) > 0 {
 		return in.Phases
 	}
-	return []PhaseResult{connectPhase(in, finished, succeeded, register, errorRate)}
+	return []PhaseResult{connectPhase(in, finished, arrived, register, errorRate)}
 }
 
-func connectPhase(in runBundleInputs, finished time.Time, succeeded int, register []time.Duration, errorRate float64) PhaseResult {
+func connectPhase(in runBundleInputs, finished time.Time, arrived int, register []time.Duration, errorRate float64) PhaseResult {
 	// The connect ends when the fleet is up. A run that then holds its fleet for
 	// the generator beside it spends most of its wall clock there, so a phase
 	// carrying the run's own end reports the hold under the arrival's name.
-	arrived := finished
+	lastArrival := finished
 	if window := arrivalWindow(in.Results, in.StartedAt); window > 0 {
-		arrived = in.StartedAt.Add(window)
+		lastArrival = in.StartedAt.Add(window)
 	}
 	return PhaseResult{
 		Name:       "connect",
 		StartedAt:  in.StartedAt,
-		FinishedAt: arrived,
+		FinishedAt: lastArrival,
 		// Every machine is offered at once, so the offered and achieved counts
 		// are the fleet and the fleet that arrived, and the two arrival rates
 		// are those counts over the window the fleet took to turn up.
-		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(in.AgentCount), arrived.Sub(in.StartedAt).Seconds()),
-		AchievedAgentArrivalsPerSecond: ratePerSecond(int64(succeeded), arrived.Sub(in.StartedAt).Seconds()),
+		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(in.AgentCount), lastArrival.Sub(in.StartedAt).Seconds()),
+		AchievedAgentArrivalsPerSecond: ratePerSecond(int64(arrived), lastArrival.Sub(in.StartedAt).Seconds()),
 		OfferedConnectedAgents:         in.AgentCount,
-		AchievedConnectedAgents:        succeeded,
+		AchievedConnectedAgents:        arrived,
 		LatencyP50Ms:                   millis(percentile(register, 50)),
 		LatencyP95Ms:                   millis(percentile(register, 95)),
 		LatencyP99Ms:                   millis(percentile(register, 99)),
@@ -379,26 +386,31 @@ func targetObservations(at time.Time, target TargetConservation) []Observation {
 // producedScenarios reports whether this half of the night measured anything. A
 // run where nothing connected produced no rows, which is a partial night rather
 // than a slow system.
-func producedScenarios(succeeded int) []string {
-	if succeeded == 0 {
+func producedScenarios(arrived int) []string {
+	if arrived == 0 {
 		return nil
 	}
 	return []string{"quic-agents"}
 }
 
-// summarizeResults splits the run into what succeeded and the three latency
+// summarizeResults splits the run into what arrived and the three latency
 // series it produced.
-func summarizeResults(results []agentResult) (succeeded int, connect, handshake, register []time.Duration) {
+//
+// A timing belongs to the machine that took it. A machine that connected in
+// 200ms and was severed an hour later connected in 200ms, and dropping it
+// because of how its life ended removes the slowest arrivals from the series
+// first — which reports a run as faster the more of its fleet it lost.
+func summarizeResults(results []agentResult) (arrived int, connect, handshake, register []time.Duration) {
 	for _, result := range results {
-		if result.err != nil {
+		if result.arrivedAt.IsZero() {
 			continue
 		}
-		succeeded++
+		arrived++
 		connect = append(connect, result.connectDur)
 		handshake = append(handshake, result.handshakeDur)
 		register = append(register, result.registerDur)
 	}
-	return succeeded, connect, handshake, register
+	return arrived, connect, handshake, register
 }
 
 func millis(d time.Duration) float64 {

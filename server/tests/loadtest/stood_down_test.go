@@ -106,3 +106,31 @@ func TestTheResultsBlockHoldsStoodDownMachinesApartFromFailures(t *testing.T) {
 	assert.Contains(t, printed, "Agents:      1/4 succeeded")
 	assert.Contains(t, printed, "Stood down:  2")
 }
+
+// And it counts a machine that got in and was severed under the load as one
+// that got in, because it did.
+//
+// The trend's aggregate error rate is built by reading this block, so counting
+// the survivors publishes an error rate that is part arrival failure and part
+// severance — with the severance already published beside it under its own
+// name. The night of 2026-09-13 read 439 of sixteen thousand that way, on a run
+// that had filed 10,520 machines under a customer. The timings go with it: a
+// machine that took 200ms to connect took 200ms to connect, and dropping it
+// takes the slowest arrivals out first.
+func TestTheResultsBlockCountsAMachineSeveredUnderLoad(t *testing.T) {
+	results := []agentResult{
+		{connectDur: 5 * time.Millisecond, arrivedAt: time.Now()},
+		{connectDur: 200 * time.Millisecond, arrivedAt: time.Now(), err: ErrHeldPeerGone},
+		{err: fmt.Errorf("enroll soak-t0-a3: context deadline exceeded")},
+	}
+
+	var failures int
+	printed := captureStdout(t, func() {
+		failures = reportResults(results, time.Now().Add(-time.Minute), time.Minute, 3, nil)
+	})
+
+	assert.Equal(t, 1, failures, "only the machine that never got in failed to arrive")
+	assert.Contains(t, printed, "Agents:      2/3 succeeded")
+	assert.Contains(t, printed, "p99=200ms",
+		"the severed machine's connect time is one of the run's connect times")
+}

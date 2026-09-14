@@ -305,7 +305,7 @@ func run() int {
 			// Every machine that connected and every session that was answered
 			// is one operation the target took something for and was expected
 			// to give back.
-			Operations: succeededAgents(results) + int(sessionsJoined.Load()),
+			Operations: arrivedAgents(results) + int(sessionsJoined.Load()),
 		},
 	})
 
@@ -387,11 +387,16 @@ func reportResults(results []agentResult, start time.Time, totalDur time.Duratio
 	)
 	for _, r := range results {
 		switch {
-		case r.err == nil:
+		case !r.arrivedAt.IsZero():
+			// It got in. Whether its connection survived to the wind-down is a
+			// different fact, counted as a severance; reading it here counts a
+			// machine that carried load for half an hour as one that never
+			// turned up, and takes its timings out of the two series below —
+			// the slow ones first, so the harder the run the faster it reads.
 			successes++
 			connectTimes = append(connectTimes, r.connectDur)
 			hsTimes = append(hsTimes, r.handshakeDur)
-		case errors.Is(r.err, context.Canceled) && r.arrivedAt.IsZero():
+		case errors.Is(r.err, context.Canceled):
 			// The run stood this machine down before it registered, so it never
 			// asked the system anything. See FleetOutcomes.StoodDown.
 			stoodDown++
