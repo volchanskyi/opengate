@@ -100,11 +100,11 @@ type reportingFleet interface {
 // identity for every machine it filed, and file a fleet the run never
 // connected.
 func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
-	credentials agentCredentials, addr string, opts loadOptions, busy TargetBusy,
+	credentials agentCredentials, addr string, opts loadOptions, target TargetReading,
 	filer *estateFiler,
 ) ([]agentResult, []PhaseResult, *float64, string) {
 	if profile == nil {
-		return runFlat(agents, agentPlan, credentials, addr, opts, busy, filer)
+		return runFlat(agents, agentPlan, credentials, addr, opts, target.Busy, filer)
 	}
 
 	// The estate is fixed and its machines enrol once, so a level the estate
@@ -120,7 +120,7 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 		estateStart(roster, credentials, addr, opts, filer),
 		phaseProbe(agentPlan, credentials, addr, opts))
 
-	results, phases, err := runProfile(profile, fleet, NewRealClock(), VenueNodeReading, busy)
+	results, phases, err := runProfile(profile, fleet, NewRealClock(), VenueNodeReading, target)
 	if err != nil {
 		log.Fatalf("phases: %v", err)
 	}
@@ -163,13 +163,13 @@ func estateStart(roster *agentRoster, credentials agentCredentials, addr string,
 // five hundred machines for six minutes the same account as one that connected
 // nobody — no successes, no failures — and a run with no failures reads as a
 // clean run.
-func runProfile(profile *Profile, fleet reportingFleet, clock Clock, read SafetyReader, busy TargetBusy,
+func runProfile(profile *Profile, fleet reportingFleet, clock Clock, read SafetyReader, target TargetReading,
 ) ([]agentResult, []PhaseResult, error) {
 	// The machine the run shares is looked at between phases, and a run that has
 	// pushed it past what its profile said it would accept stops there. On the
 	// throwaway stack the profile declares no limits, so nothing is gated; on
 	// staging the node carries production too.
-	phases, err := RunPhasesWatched(profile, fleet, clock, read, busy)
+	phases, err := RunPhasesWatched(profile, fleet, clock, read, target)
 	fleet.Stop()
 	return fleet.Results(), phases, err
 }

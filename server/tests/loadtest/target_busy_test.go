@@ -49,7 +49,7 @@ func TestPhaseReportsWhatShareOfItsAllowanceTheTargetUsed(t *testing.T) {
 	busy := TargetBusy{ReadCPUSeconds: target.read, Allowance: 0.5}
 
 	phase := Phase{Name: "steady", Duration: Duration{Duration: 3 * time.Second}, ConnectedAgents: 10}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, busy)
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{Busy: busy})
 	require.NoError(t, err)
 
 	require.NotNil(t, result.TargetBusyPercent, "the target answered at both ends of the phase")
@@ -62,7 +62,7 @@ func TestPhaseWithNoTargetReadingReportsNoBusyness(t *testing.T) {
 	busy := TargetBusy{ReadCPUSeconds: (&countingTarget{unread: true}).read, Allowance: 1}
 
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, busy)
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{Busy: busy})
 	require.NoError(t, err)
 
 	assert.Nil(t, result.TargetBusyPercent)
@@ -76,7 +76,7 @@ func TestPhaseWithNoDeclaredAllowanceReportsNoBusyness(t *testing.T) {
 	busy := TargetBusy{ReadCPUSeconds: target.read}
 
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, busy)
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{Busy: busy})
 	require.NoError(t, err)
 
 	assert.Nil(t, result.TargetBusyPercent)
@@ -90,7 +90,7 @@ func TestPhaseWhoseTargetRestartedReportsNoBusyness(t *testing.T) {
 	busy := TargetBusy{ReadCPUSeconds: target.read, Allowance: 1}
 
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, busy)
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{Busy: busy})
 	require.NoError(t, err)
 
 	assert.Nil(t, result.TargetBusyPercent)
@@ -100,7 +100,7 @@ func TestPhaseWhoseTargetRestartedReportsNoBusyness(t *testing.T) {
 // a target that did no work.
 func TestARunWithNoTargetToReadTakesNoReadings(t *testing.T) {
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
-	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetBusy{})
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, TargetReading{})
 	require.NoError(t, err)
 
 	assert.Nil(t, result.TargetBusyPercent)
@@ -127,7 +127,7 @@ func TestEveryPhaseOfAWalkCarriesItsOwnBusyness(t *testing.T) {
 		},
 	}
 
-	results, err := RunPhasesWatched(profile, &recordingFleet{}, &testClock{now: time.Now()}, alwaysRoomToRun, busy)
+	results, err := RunPhasesWatched(profile, &recordingFleet{}, &testClock{now: time.Now()}, alwaysRoomToRun, TargetReading{Busy: busy})
 	require.NoError(t, err)
 	require.Len(t, results, 3)
 

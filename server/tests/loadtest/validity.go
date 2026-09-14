@@ -253,6 +253,7 @@ func phaseReasons(in RunInputs) []string {
 				"phase %q reached %.0f%% of the offered arrival rate (floor %.0f%%), so the load was never offered",
 				phase.Name, fraction*100, minAchievedFraction*100))
 		}
+		reasons = append(reasons, censusReasons(phase)...)
 	}
 	return reasons
 }

@@ -69,6 +69,33 @@ operation the target has to give back. On a system that holds, the two counts
 are the same number, which is why only a night that severed its fleet can show
 the difference.
 
+**A level the harness holds is published beside the target's own count of it.**
+A phase's achieved level is the machines the fleet has not wound down, which is
+bookkeeping the wind-down maintains: it answers whether the wind-down code ran.
+So each phase also carries what the target says it was holding at that instant
+and the goroutines under that count, taken from one reading of the target's own
+page, and a phase whose target was holding materially fewer machines than the
+phase counted did not measure the system at that load. Two counts of one
+population kept by the two ends can disagree; one count cannot. The goroutine
+count bounds them below, because the listener starts one per accepted
+connection — measured at three per machine against twenty-nine at rest — so a
+level with no population behind it is refused even where the target keeps no
+count of its own. A target that could not be asked says so, and the absence
+stands, exactly as the busy-ness reading beside it does.
+
+**The share of a fleet that did not get in divides by the machines that asked.**
+Those are the machine-lives the run produced, less the ones it stood down
+itself: a wind-down cancels every start still reaching for the server when a
+level comes down, and such a machine never asked for anything. It is counted off
+the run's own results rather than off the fleet somebody declared, because an
+endurance run replaces a machine when it leaves and arrives several thousand
+against a declared five hundred — dividing by the declaration puts more arrivals
+over the line than the line allows for, and a share below nought passes every
+ceiling a profile can write. Counted from the results, a machine that arrived is
+a machine that asked, so the share cannot leave nought-to-one whatever shape the
+run had. Where a reader has only the printed block and not the results, it
+refuses rather than publishing the difference.
+
 **Registration is timed where the device row lands**, from what the server
 records, with connection-pool occupancy beside it — a registration queued behind
 a connection and one executing slowly are the same latency until the pool says

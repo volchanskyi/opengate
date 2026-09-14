@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -103,14 +104,47 @@ func arrivedAgents(results []agentResult) int {
 	return arrived
 }
 
+// askedAgents is the machines that asked the server for something: every
+// machine-life the run produced, less the ones the run stood down itself.
+//
+// A wind-down cancels every start still reaching for the server when a level
+// comes down, and such a machine never registered — so counting it among the
+// ones that failed to arrive publishes an error rate about the harness's own
+// wind-down, against limits several profiles hold at nought. It is the
+// denominator the canonical rows already divide by.
+//
+// It is counted off the results rather than off the fleet the run was told to
+// offer, because the two are not the same number wherever a machine is replaced
+// when it leaves: the endurance run declares five hundred and produces several
+// thousand machine-lives. Dividing by the declaration there puts more arrivals
+// over the line than the line allows for and reports a share below nought,
+// which every ceiling in every profile passes. Counted this way a machine that
+// arrived is a machine that asked, so the share stays between nought and one
+// whatever shape the run had.
+func askedAgents(results []agentResult) int {
+	asked := 0
+	for _, result := range results {
+		if result.arrivedAt.IsZero() && errors.Is(result.err, context.Canceled) {
+			continue
+		}
+		asked++
+	}
+	return asked
+}
+
 // buildRunBundle turns a finished run into its evidence.
 func buildRunBundle(in runBundleInputs) *Bundle {
 	arrived, connect, handshake, register := summarizeResults(in.Results)
 	finished := in.StartedAt.Add(in.Total)
 
+	// The share of the machines that asked the server for something and did not
+	// get in. Over the machine-lives the run produced less what it stood down
+	// itself, which is the same denominator the canonical rows use — a run that
+	// stood its whole fleet down asked nothing and reports nothing rather than
+	// everything.
 	errorRate := 0.0
-	if in.AgentCount > 0 {
-		errorRate = float64(in.AgentCount-arrived) / float64(in.AgentCount)
+	if asked := askedAgents(in.Results); asked > 0 {
+		errorRate = float64(asked-arrived) / float64(asked)
 	}
 
 	bundle := &Bundle{
@@ -121,7 +155,7 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		Fixture:           fixtureCounts(in, arrived),
 		Phases:            phaseResults(in, finished, arrived, register, errorRate),
 		Journeys:          in.Journeys,
-		Observations:      latencyObservations(finished, connect, handshake, in),
+		Observations:      latencyObservations(finished, connect, handshake, errorRate, in),
 		GeneratorHeadroom: in.Headroom,
 		// The harness holds no long-lived identities of its own: the certificates
 		// it signs live in a directory it removes, so a run that reached this
@@ -313,10 +347,18 @@ func connectPhase(in runBundleInputs, finished time.Time, arrived int, register 
 // latencyObservations records each phase's tail separately. Folding them into
 // one aggregate hides which of the three a slow run was slow in, and they are
 // three different pieces of work.
-func latencyObservations(at time.Time, connect, handshake []time.Duration, in runBundleInputs) []Observation {
+//
+// The aggregate error rate travels beside them because it is the third of the
+// three series the profiles hold their machine-side limits to, and it was the
+// one a bundle did not carry — so on the venues whose only output is a bundle,
+// every limit named a measurement nothing there could produce.
+func latencyObservations(at time.Time, connect, handshake []time.Duration, errorRate float64,
+	in runBundleInputs,
+) []Observation {
 	observations := []Observation{
 		{At: at, Series: "connect_p95_ms", Value: millis(percentile(connect, 95))},
 		{At: at, Series: "handshake_p95_ms", Value: millis(percentile(handshake, 95))},
+		{At: at, Series: "aggregate_error_rate", Value: errorRate},
 	}
 
 	observations = append(observations,

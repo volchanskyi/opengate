@@ -129,7 +129,7 @@ const walkStartedAnnouncement = "Walk started at"
 
 // RunPhasesWatched walks a profile and stops the moment the machine it shares
 // goes past what the profile said it would accept.
-func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyReader, busy TargetBusy) ([]PhaseResult, error) {
+func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyReader, target TargetReading) ([]PhaseResult, error) {
 	if profile == nil {
 		return nil, errors.New("run phases: no profile — a run without one has no phases to walk")
 	}
@@ -158,7 +158,7 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 		if err := check(profile.Safety, read()); err != nil {
 			return results, fmt.Errorf("stopping before phase %q: %w", phase.Name, err)
 		}
-		result, err := runOnePhase(phase, from, fleet, clock, busy)
+		result, err := runOnePhase(phase, from, fleet, clock, target)
 		if err != nil {
 			return nil, fmt.Errorf("phase %q: %w", phase.Name, err)
 		}

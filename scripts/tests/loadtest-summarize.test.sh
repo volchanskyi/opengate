@@ -377,6 +377,44 @@ assert_eq "the stood-down machines leave the error rate" "0.002193" "$stood_erro
 stood_rps="$(jq -r '.[] | select(.phase == "aggregate") | .rps' <<<"$STOOD")"
 assert_eq "the rate is still the machines that arrived over the window" "3.791667" "$stood_rps"
 
+# --- A run that replaced its machines has no denominator here -----------------
+#
+# The declared fleet is the denominator only while every machine lives once. An
+# endurance run replaces a machine when it leaves, so it arrives more machines
+# than it declared — 2,750 against 500 on 2026-09-13 — and dividing by the
+# declaration puts more arrivals over the line than the line allows for. The
+# share of a fleet that did not get in then comes out below nought, which every
+# ceiling in every profile passes, because a ceiling is a maximum.
+#
+# The count of machine-lives is not in this block, so this cannot compute the
+# share at all. It says so rather than publishing the negative: such a run's
+# evidence bundle states the share itself, over the results it holds.
+cat >"$WORK/quic-churned.txt" <<'TXT'
+=== Results ===
+Total time:  4h44m0.996s
+Arrival window:  4h30m0.9s
+Agents:      2750/500 succeeded
+Failures:    0
+
+Connect:     p50=2ms  p95=3ms  p99=4ms
+Handshake:   p50=1ms  p95=1ms  p99=2ms
+TXT
+
+CHURN_RC=0
+CHURN_ERR="$(
+  K6_SUMMARY_DIR="$WORK/none" QUIC_OUTPUT_FILE="$WORK/quic-churned.txt" GITHUB_SHA="deadbeef" "$SUMMARIZE" 2>&1 >/dev/null
+)" || CHURN_RC=$?
+if [ "$CHURN_RC" -eq 2 ]; then
+  pass "a run that arrived more machines than it declared refuses"
+else
+  fail "a run that arrived more machines than it declared expected exit 2, got $CHURN_RC"
+fi
+if grep -qF -- "more machines" <<<"$CHURN_ERR"; then
+  pass "and says the declared fleet is not its denominator"
+else
+  fail "and says the declared fleet is not its denominator: $CHURN_ERR"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

@@ -263,6 +263,18 @@ emit_quic_rows() {
   stood_down="$(awk '/^Stood down:/ { print $3; exit }' "$file")"
   [ -n "$stood_down" ] || stood_down=0
 
+  # The declared fleet is the denominator only while every machine lives once.
+  # A run that replaces a machine when it leaves arrives more machines than it
+  # declared, and dividing by the declaration puts more arrivals over the line
+  # than the line allows for — the share comes out below nought, which every
+  # ceiling in every profile passes. The count of machine-lives is not in this
+  # block, so the share cannot be computed here at all; such a run's evidence
+  # bundle states it over the results it holds.
+  if [ "$successes" -gt "$((total_agents - stood_down))" ]; then
+    echo "$file arrived more machines ($successes) than the $total_agents it declared less the $stood_down it stood down, so the declared fleet is not the denominator of its error rate" >&2
+    return 2
+  fi
+
   # A block reporting arrivals with no window has no denominator this may use.
   # Falling back to the run's clock is the defect above, arrived at quietly, so
   # the extraction refuses rather than publishing a number it cannot stand behind.

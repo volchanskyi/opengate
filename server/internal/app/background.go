@@ -147,6 +147,15 @@ func startRetentionSweepLoop(
 // the next pass. A zero field is refused rather than defaulted — a schedule
 // half-filled in is a worker that never runs, and a ticker built from zero
 // panics on the spot.
+// ProductionGaugeInterval is how often the shipped binary refreshes the
+// in-memory runtime counts.
+//
+// It is here rather than in the binary because a reader of those counts has to
+// know how stale one can be. A load run compares its own count of the fleet
+// against the server's and would otherwise refuse a phase for climbing, so the
+// interval has one home and both ends read it.
+const ProductionGaugeInterval = 5 * time.Second
+
 type BackgroundSchedule struct {
 	// Gauges is how often the in-memory runtime counts are read.
 	Gauges time.Duration
