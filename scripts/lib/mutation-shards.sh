@@ -1,16 +1,41 @@
 #!/usr/bin/env bash
 # Single source of truth for mutation-test shard ids and Go mutation scope.
 #
-# Every Go shard runs `gremlins unleash .` from server/ so the coverage dry-run
-# remains module-wide. The per-shard exclude regexp narrows only the source files
-# mutated by that shard. Units are repository-relative to server/:
+# A Go shard runs gremlins from server/ over the narrowest path that still
+# contains everything it is there to mutate, and narrows the source files within
+# it via the per-shard exclude regexp. Units are repository-relative to server/:
 #   dir:<path>   every non-test Go source below a directory
 #   file:<path>  one source file (used to split internal/api)
 #
+# The path matters because gremlins does two things with it, not one: it walks it
+# for mutants AND it runs `go test` over it to decide which lines are covered. A
+# shard pointed at the module root therefore runs tests/acceptance,
+# tests/integration, tests/loadtest, tests/netfault and tests/vmramseries in its
+# survey — from cold, since GOFLAGS=-count=1 — before mutating a single line of
+# its own. Twenty-seven shards did that twenty-seven times a night, so one flaky
+# test anywhere in those packages was twenty-seven independent draws, and twelve
+# of twenty scheduled runs came back with no score at all.
+#
+# The narrowing costs nothing in mutants, which is why it is safe to make. The
+# survey's coverage is per-package: `go test ./...` gives each package the
+# coverage of its own statements, so a harness package's tests never contributed
+# a line of internal/ coverage to begin with. Measured against server/ at
+# 1fe6ddd4, the two invocations produce mutant sets over internal/ that are
+# identical file by file, line by line, column by column and status by status —
+# 2,152 runnable and 257 not covered either way — while the coverage run drops
+# from 99.6s to 73.5s.
+#
+# What the narrow walk cannot reach is what decides which shards get it:
+# mutation_go_shard_scan_path gives the module root to a shard owning a unit
+# outside internal/, because a walk that cannot see a file cannot mutate it.
+# Today that is go-observability-harness alone, which owns tests/loadtest and
+# tests/netfault — 943 killed mutants and 139 uncovered ones in the run of
+# 2026-09-12, so dropping them silently would have taken the Go leg from 85.9 to
+# 85.4 against a floor of 85.0.
+#
 # scripts/tests/mutation-workflow.test.sh proves every non-test server Go source
-# is covered by exactly one unit or by the global carve-outs. This prevents
-# sources outside internal/ (notably tests/loadtest) from being mutated and
-# counted once per shard.
+# is covered by exactly one unit or by the global carve-outs, and that each
+# shard's walk plus its regexp leaves it mutating its own units and nothing else.
 
 # Where this library sits, so the functions below can read the gremlins config
 # that is the single source of truth for the per-mutant leash.
@@ -278,8 +303,36 @@ mutation_all_shards() {
   echo "$(mutation_rust_shards) $(mutation_go_shards) $(mutation_web_shards)"
 }
 
+# The path gremlins walks for a shard, relative to server/.
+#
+# It is derived from the shard's own units rather than listed, so a unit moving
+# out of internal/ moves its shard's walk with it in the same edit. A second
+# list would be the thing that silently disagreed: a shard left on the narrow
+# walk whose file is no longer inside it mutates nothing and says so nowhere,
+# because gremlins reports what it walked and not what it was asked for.
+mutation_go_shard_scan_path() {
+  local shard="${1:?mutation shard required}" unit
+  for unit in $(mutation_go_shard_units "$shard"); do
+    case "${unit#*:}" in
+      internal/*) ;;
+      *)
+        echo "."
+        return 0
+        ;;
+    esac
+  done
+  echo "./internal"
+}
+
 # A CLI -E overrides server/.gremlins.yaml exclude-files, so every sharded run
 # must restate the generated code, entry points, and shared test scaffolding.
+#
+# gremlins matches these against the path it walked, so the list is stated in the
+# walk's own coordinates: a shard walking internal/ sees testutil/foo.go, and a
+# rule naming internal/testutil/ would match nothing and let the scaffolding be
+# mutated. Where the walk cannot reach an entry at all — cmd/ and tests/ under
+# the narrow walk — the entry is absent rather than restated, because a rule that
+# can never match is a rule nobody can tell from a rule that stopped working.
 #
 # cmd/meshserver is excluded as a package rather than as one file: every source
 # in it is the process's own wiring — flag parsing, construction order, and the
@@ -287,7 +340,18 @@ mutation_all_shards() {
 # process is assembled rather than what any behavior does. Splitting that wiring
 # across files for readability must not quietly enrol it in mutation testing.
 mutation_go_global_excludes() {
-  echo 'openapi_gen\.go|cmd/meshserver/|tests/loadtest/main\.go|tests/netfault/main\.go|internal/testutil/|internal/faulttest/'
+  case "${1:-.}" in
+    ./internal)
+      echo 'openapi_gen\.go|^testutil/|^faulttest/'
+      ;;
+    .)
+      echo 'openapi_gen\.go|^cmd/meshserver/|^tests/loadtest/main\.go$|^tests/netfault/main\.go$|^internal/testutil/|^internal/faulttest/'
+      ;;
+    *)
+      echo "unknown mutation scan path: $1" >&2
+      return 1
+      ;;
+  esac
 }
 
 mutation_go_shard_units() {
@@ -584,8 +648,21 @@ mutation_go_unit_matches() {
   esac
 }
 
+# mutation_go_unit_regex UNIT [SCAN_PATH] — the unit as gremlins will see it.
+#
+# It is anchored at the front, which the walk-relative form makes load-bearing
+# rather than tidy: internal/api/x.go and internal/agentapi/x.go become api/x.go
+# and agentapi/x.go, and the second contains the first as a substring. An
+# unanchored rule for one would silently exclude the other from every shard that
+# does not own it — a file dropped from mutation entirely, with the report
+# showing only a smaller number.
+#
+# A unit the walk cannot reach prints nothing. Its shard's own walk is the module
+# root, so the file is still mutated exactly once; adding a rule for it here
+# would be a rule matching nothing in every regexp that carried it.
 mutation_go_unit_regex() {
   local unit="${1:?mutation unit required}"
+  local scan="${2:-.}"
   local path
 
   case "$unit" in
@@ -603,24 +680,41 @@ mutation_go_unit_regex() {
       return 1
       ;;
   esac
+
+  case "$scan" in
+    ./internal)
+      case "$path" in
+        internal/*) path="${path#internal/}" ;;
+        *) return 0 ;;
+      esac
+      ;;
+    .) ;;
+    *)
+      echo "unknown mutation scan path: $scan" >&2
+      return 1
+      ;;
+  esac
+
   path="${path//./\\.}"
   if [[ "$unit" == file:* ]]; then
     path="$path\$"
   fi
-  printf '%s' "$path"
+  printf '^%s' "$path"
 }
 
 mutation_go_shard_exclude_regex() {
   local shard="${1:?mutation shard required}"
-  local other unit part
+  local other unit part scan
   local regex
 
   mutation_go_shard_units "$shard" >/dev/null || return 1
-  regex="$(mutation_go_global_excludes)"
+  scan="$(mutation_go_shard_scan_path "$shard")"
+  regex="$(mutation_go_global_excludes "$scan")" || return 1
   for other in $(mutation_go_shards); do
     [[ "$other" == "$shard" ]] && continue
     for unit in $(mutation_go_shard_units "$other"); do
-      part="$(mutation_go_unit_regex "$unit")" || return 1
+      part="$(mutation_go_unit_regex "$unit" "$scan")" || return 1
+      [ -n "$part" ] || continue
       regex="$regex|$part"
     done
   done

@@ -356,6 +356,19 @@ CI shard ids and source ownership for both languages live in
 every non-test source to belong to one mutation unit or an explicit carve-out,
 so shard reports can be merged without duplicate source counts.
 
+A Go shard is pointed at the narrowest path that still holds its own units, and
+that path is derived from the shard map rather than listed beside it. It matters
+because gremlins uses the path twice — it walks it for mutants, and it runs `go
+test` over it to survey which lines are covered — so a shard aimed at the module
+root drags `tests/acceptance`, `tests/integration`, `tests/loadtest`,
+`tests/netfault` and `tests/vmramseries` through its survey before mutating a
+line of its own. The narrowing is free in mutants: coverage is per-package, so a
+harness package's tests never contributed a line of `internal/` coverage, and the
+two invocations produce mutant sets over `internal/` that match file by file,
+line by line and status by status. The shard owning `tests/loadtest` and
+`tests/netfault` keeps the module root, because a walk that cannot see a file
+cannot mutate it. See [ADR-122](../adr/ADR-122-mutation-walk-and-legs.md).
+
 Each shard is named for the behavior it mutates, so a red leg says what lost
 coverage rather than which slice of an interleaved list failed. How many mutants
 a shard may hold is a measurement, not a habit, and what one mutant costs differs
@@ -407,17 +420,21 @@ emit a row per run to:
   [`mutation-trend.json`](../../deploy/grafana/provisioning/dashboards/mutation-trend.json)
   dashboard. Canonical trend store per
   [ADR-038](../adr/ADR-038-ci-trend-store.md).
-- **Workflow artifacts** — every run uploads `mutation-run-status`; only a complete
-  artifact set uploads `mutation-canonical-row`. Validation and the no-partial-row
-  contract are implemented by
+- **Workflow artifacts** — every run uploads `mutation-run-status`, which carries
+  completeness for the run as a whole and for each language. A run with at least
+  one complete leg uploads `mutation-canonical-row`. Validation and the
+  no-partial-leg contract are implemented by
   [`mutation-status-build.sh`](../../scripts/mutation-status-build.sh) and the strict
   language merge scripts beside it.
 
 Numeric mutation-score history lives in VictoriaMetrics + Grafana, the right
 home for time-series telemetry.
 
-An incomplete run fails as incomplete after publishing its completion status. It
-does not emit a canonical language score from whichever shards happened to finish.
+A leg is published when all of its own shards finished, and a leg short a shard
+emits no score at all — a score over the shards that happened to finish is a
+smaller number nothing marks as partial. A night where one leg is short still
+publishes the others and still checks them for regressions, and still goes red:
+the gate reads the whole run. See [ADR-122](../adr/ADR-122-mutation-walk-and-legs.md).
 
 **Regression alert rules** — fired when any language regresses on either
 condition: its absolute score crosses below the floor, or it drops by more than
@@ -951,18 +968,38 @@ ran, which the live-state gate structurally cannot see — it looks for past-sta
 narration, and this is a present-tense claim about something that does not
 happen.
 
-The two sweeps are read back. The scaling legs are downloaded together by a job
-that publishes the curve — each rung beside the wait times and the target
-busy-ness it produced — and refuses a sweep that could not measure at all: a leg
-that measured nothing, legs naming the same processor share, fewer legs than a
-curve needs, or legs that all came back saying the same thing. It deliberately
-does not refuse a curve that fails to rise, because one night is one sample per
-rung and two nights from the same code have disagreed about the shape.
+Both sweeps are read back, each by a job of its own that downloads every leg and
+publishes the curve —
+[`perf-scaling-curve.sh`](../../scripts/perf-scaling-curve.sh) over the processor
+rungs and [`perf-volume-curve.sh`](../../scripts/perf-volume-curve.sh) over the
+estates. Each refuses a sweep that could not measure at all: a leg that measured
+nothing, legs holding the same point, fewer legs than a curve needs, or legs that
+all came back saying the same thing. Neither refuses a curve that fails to rise,
+because one night is one sample per leg and two nights from the same code have
+disagreed about the shape.
+
+Each leg also runs a browser-side generator from its own profile beside the
+fleet, folds the journeys into its bundle, and its curve refuses a leg that
+carries no technician reading. Whatever a family holds constant has to be
+something its variable can move, and machines arriving is not: that cost barely
+changes with the second processor or with the size of the estate already in the
+database, which is how a scaling curve came to be flat from one processor upwards
+while every leg looked fine.
 [ADR-101](../adr/ADR-101-load-profiles-and-limits.md) is
-the decision behind that, and behind the two things that made the sweep readable
-in the first place: the rungs sit below what the rest of the stack leaves, so the
-generator's share no longer shrinks as the server's grows, and the fleet sits
-where the rungs can differ at all.
+the decision behind all of that, and behind the two things that made the sweeps
+readable in the first place: the rungs sit below what the rest of the stack
+leaves, so the generator's share no longer shrinks as the server's grows, and the
+fleet sits where the rungs can differ at all.
+
+How large a fleet a profile may ask for is a property of its venue, and the
+figure is a reading rather than a target:
+[`loadtest-venue-ceilings.sh`](../../scripts/lib/loadtest-venue-ceilings.sh)
+carries one row per venue with the run that established it, and
+[`loadtest-venue-ceiling.test.sh`](../../scripts/tests/loadtest-venue-ceiling.test.sh)
+refuses a profile asking past its row. A capacity ladder is the one shape allowed
+through, and it identifies itself by declaring `gave_out:`; in exchange it owes a
+rung at or below the ceiling and one above, or nothing in it can be named as the
+last that held. See [ADR-107](../adr/ADR-107-where-a-run-happens.md).
 
 On that venue the generator runs inside a declared processor and memory
 allowance of its own

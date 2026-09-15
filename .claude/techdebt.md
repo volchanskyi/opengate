@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-09-04. -->
+<!-- Last reviewed: 2026-09-14. -->
 
 ## Severity: Medium
 
@@ -9,16 +9,20 @@
 
 Two legs, one cause and one way to pay it down, so they are one entry.
 
-The go leg reads 85.5 against the 88.2 it carried before that surface landed.
+The go leg reads 85.9 against the 88.2 it carried before that surface landed.
 The nightly is green — the check in
 [`mutation-summarize.sh`](../scripts/mutation-summarize.sh) compares each run
-with the one before it and holds an absolute floor of 85.0, and 85.5 clears both
-— so what is owed is the 2.7 points, not a red run.
+with the one before it and holds an absolute floor of 85.0, and 85.9 clears both
+— so what is owed is the 2.3 points, not a red run.
 
 The shape says new surface arriving under-tested rather than existing tests
-weakening. Of 2 965 go mutants, 332 sit in code no test reaches at all, against
-96 that a test reaches and fails to kill: reaching the code is the larger half
-of the work by more than three to one.
+weakening. Of the 3 485 go mutants in the run of 2026-09-12, 392 sit in code no
+test reaches at all, against 97 that a test reaches and fails to kill: reaching
+the code is the larger half of the work by four to one.
+
+That target is stated against the measurement as it stands and survives the
+narrowed coverage survey unedited: the survey change moves no mutant and no score
+([ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md)).
 
 The web leg clears its own floor by half a point, 85.5 against 85.0. That margin
 is thin enough that the next tranche of web surface needs its survivors covered
@@ -32,20 +36,6 @@ it off a local run costs less than a nightly and names the assertions that are
 missing. The trigger is go reaching 88.2 and web holding a margin it is not one
 bad night from losing, both on their own rather than by moving either figure
 down to meet the score.
-
-### The two larger fleets have not been built on staging
-
-The three committed fleet sizes are all buildable in either venue, and the
-nightly builds the smallest of them. The two larger ones are a deliberate
-`workflow_dispatch` choice rather than a schedule, because staging's database
-writes into the same node root production's does and nobody has yet measured what
-a fleet four times the reference weighs. The performance stack weighs one on a
-throwaway runner every night, which is the measurement that decision is waiting
-on.
-
-**Pay-down trigger:** a weighed fleet that fits inside the node's eviction
-margin with room to spare. Schedule the larger sizes on staging then, or record
-the number that says they cannot be.
 
 ### Load-test identities live in the default tenant
 
@@ -157,26 +147,6 @@ the relay scenario say which of the two it hit when the fleet read comes back
 empty: a fleet that never arrived, or one the server forgot. Fix what that
 names.
 
-### The throwaway venue cannot say how much room its generator had
-
-[ADR-082](../docs/adr/ADR-082-load-run-validity.md) reads
-the generator's room from its own cgroup, which the staging pod has and a
-GitHub-hosted runner does not: the perf-stack job runs the generator and the
-compose stack it drives side by side on the bare virtual machine, so the only
-allowance either of them has is the whole box. The bundle says so — the reading
-is scoped `machine` and gates nothing — and the sweep is policed by attainment
-instead, which is a reading of the fleet.
-
-That is honest and it is less than the staging nightly can say. A leg whose
-generator was starved but which still managed to connect its machines inside the
-phase window passes, and its latency figures carry a wait nothing accounts for.
-
-**Pay-down trigger:** any work that gives the perf-stack generator a container of
-its own with declared limits — Decision 1's move to a throwaway machine is the
-natural place, since the stack there is already composed. Once it has an
-allowance, the same three rules that hold the staging generator apply unchanged
-and this entry goes.
-
 ### The endurance run is five hours of machine churn, not eight, and its sessions are not churning
 
 [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) settled the length: an
@@ -186,16 +156,25 @@ would, and five fits inside the six a scheduled job is killed at.
 
 Two things are owed against that. The churn is machines, not sessions — a
 session opening and closing is the operation the leak class this family exists
-for was actually stranding goroutines on, and driving sessions needs the
-browser-side leg the runner venue does not yet have. And a leak that only shows
-past five hours would not be found: the profile's own reasoning is that churn
-buys more than length, and that claim is untested against the eight-hour version
-it replaced.
+for was actually stranding goroutines on. `soak.yaml` declares three sessions
+and three technician arrivals a second through each of its ten busy phases and
+nothing offers them, so those numbers describe an intention rather than a fact.
+And a leak that only shows past five hours would not be found: the profile's own
+reasoning is that churn buys more than length, and that claim is untested against
+the eight-hour version it replaced.
 
-**Pay-down trigger:** the browser-side leg landing on the perf-stack venue, for
-the first half; a leak found in the field that five hours of churn did not
-surface, for the second, at which point the longer run is built and the two are
-compared.
+The first half is no longer blocked. The runner venue has a browser-side leg —
+[`loadtest-k6-alongside.sh`](../scripts/loadtest-k6-alongside.sh) joins the walk
+where it is, and both perf-stack families run one — so pointing
+[`soak.yml`](../.github/workflows/soak.yml) at it is the same three steps, plus
+the `workload_name` bump a load-shape change owes
+([ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md)).
+
+**Pay-down trigger:** immediate for the first half, on any run of this family
+that is not already booked — the change alters what a five-hour walk measures, so
+it lands between runs rather than under one. For the second: a leak found in the
+field that five hours of churn did not surface, at which point the longer run is
+built and the two are compared.
 
 ### The reference walk reads the Go runtime's own internals, and one job a week looks
 

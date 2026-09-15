@@ -87,7 +87,19 @@ question about the target and not about the node.
 
 **The legs are read together.** An aggregation job downloads every leg and reads
 the curve. It does not refuse a curve that fails to rise — one night is one
-sample per step, and a sweep is for seeing a shape, not for gating on it.
+sample per step, and a sweep is for seeing a shape, not for gating on it. Each
+sweep has one: `perf-scaling-curve.sh` over the processor rungs, and
+`perf-volume-curve.sh` over the estates.
+
+**A sweep offers the technician load it varies things against.** Whichever
+variable a family holds constant has to be something the variable can move, and
+machines arriving is not: the cost of a machine arriving barely changes with the
+size of the estate already in the database, or with the second processor. So a
+sweep leg runs a browser-side generator from its own profile beside the fleet,
+folds the journeys into its bundle, and its curve refuses a leg that carries no
+technician reading — a leg without one varied its variable against nothing that
+could feel it, which is how a scaling curve came to be flat from one processor
+upwards while every leg looked fine.
 
 **A ladder declares what counts as failing**, and the run reports the last step
 that held, the step that failed, and the reading that decided — plus how many steps it

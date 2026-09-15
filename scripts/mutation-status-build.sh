@@ -25,6 +25,7 @@ entries=()
 all_valid=1
 rust_valid=1
 go_valid=1
+web_valid=1
 
 record_shard() {
   local shard="$1"
@@ -103,10 +104,12 @@ done
 web_file="$ARTIFACTS_DIR/mutation-web/web/reports/mutation/mutation.json"
 if [[ ! -f "$web_file" ]]; then
   record_shard web false missing
+  web_valid=0
 elif valid_web_report "$web_file"; then
   record_shard web true ok
 else
   record_shard web false invalid
+  web_valid=0
 fi
 
 # Exercise the same merge implementations used by publish. With valid inputs
@@ -115,14 +118,31 @@ fi
 if [[ "$rust_valid" -eq 1 ]] \
   && ! "$SCRIPT_DIR/mutation-merge-rust.sh" "$work/rust.json" "${rust_inputs[@]}" >/dev/null 2>&1; then
   all_valid=0
+  rust_valid=0
 fi
 if [[ "$go_valid" -eq 1 ]] \
   && ! "$SCRIPT_DIR/mutation-merge-go.sh" "$work/go.json" "${go_inputs[@]}" >/dev/null 2>&1; then
   all_valid=0
+  go_valid=0
 fi
 
 complete=false
 [[ "$all_valid" -eq 1 ]] && complete=true
+# Completeness per leg, beside the whole-run boolean rather than instead of it.
+#
+# One boolean over all fifty-three shards is what destroyed the scores: on six of
+# the last ten red nights the failing leg was Go alone, and the twenty-five Rust
+# shards and the web shard had all finished. Their scores were discarded with the
+# Go leg's, which is a detection gap as well as waste — a Rust regression cannot
+# be seen on a night Go flakes.
+#
+# `complete` keeps its meaning exactly, so everything already reading it — the
+# gate, the VM status push — is unaffected by what is added next to it.
+by_language="$(jq -nc \
+  --argjson rust "$([[ "$rust_valid" -eq 1 ]] && echo true || echo false)" \
+  --argjson go "$([[ "$go_valid" -eq 1 ]] && echo true || echo false)" \
+  --argjson web "$([[ "$web_valid" -eq 1 ]] && echo true || echo false)" \
+  '{rust:$rust,go:$go,web:$web}')"
 shards="$(printf '%s\n' "${entries[@]}" | jq -s 'from_entries')"
 commit="${GITHUB_SHA:-$(git -C "$SCRIPT_DIR/.." rev-parse HEAD 2>/dev/null || echo unknown)}"
 run_id="${GITHUB_RUN_ID:-unknown}"
@@ -134,7 +154,8 @@ jq -n \
   --arg commit "$commit" \
   --arg run_id "$run_id" \
   --argjson complete "$complete" \
+  --argjson by_language "$by_language" \
   --argjson shards "$shards" \
-  '{commit:$commit,run_id:$run_id,complete:$complete,shards:$shards}' >"$tmp_out"
+  '{commit:$commit,run_id:$run_id,complete:$complete,complete_by_language:$by_language,shards:$shards}' >"$tmp_out"
 mv "$tmp_out" "$OUT"
 tmp_out=""

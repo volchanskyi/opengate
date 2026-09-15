@@ -68,9 +68,30 @@ else
   fail "LOADTEST_RUN_ID must come from the workflow run id"
 fi
 
+# The first line a pattern appears on, in a file or in a block, or nothing.
+#
+# Not a pipeline: `grep | head | cut` under pipefail answers with grep's status,
+# so a pattern that stops matching ends this sweep at the assignment rather than
+# answering "no line" — and every assertion after it never runs, which reads
+# from the outside as a file with nothing left to check. See
+# .claude/rules/assertion-determinism.md.
+first_line_of() {
+  local matches
+  matches="$(grep -nE -- "$1" "$2" || true)"
+  [ -n "$matches" ] || return 0
+  cut -d: -f1 <<<"${matches%%$'\n'*}"
+}
+
+first_line_in() {
+  local matches
+  matches="$(grep -nE -- "$1" <<<"$2" || true)"
+  [ -n "$matches" ] || return 0
+  cut -d: -f1 <<<"${matches%%$'\n'*}"
+}
+
 # --- A file is written before it is read ---------------------------------------
-summary_line="$(grep -n 'Build canonical load-test summary' "$WORKFLOW" | head -1 | cut -d: -f1)"
-completeness_line="$(grep -n 'Record run completeness' "$WORKFLOW" | head -1 | cut -d: -f1)"
+summary_line="$(first_line_of 'Build canonical load-test summary' "$WORKFLOW")"
+completeness_line="$(first_line_of 'Record run completeness' "$WORKFLOW")"
 if [ -n "$summary_line" ] && [ -n "$completeness_line" ] \
   && [ "$summary_line" -lt "$completeness_line" ]; then
   pass "the canonical summary is built before the step that reads it"
@@ -204,8 +225,8 @@ else
   fail "the publish job pushes rows without reading whether the run measured anything"
 fi
 
-push_line="$(grep -n 'loadtest-vm-push.sh' <<<"$publish_block" | head -1 | cut -d: -f1)"
-verdict_line="$(grep -n 'loadtest-completeness.json' <<<"$publish_block" | head -1 | cut -d: -f1)"
+push_line="$(first_line_in 'loadtest-vm-push\.sh' "$publish_block")"
+verdict_line="$(first_line_in 'loadtest-completeness\.json' "$publish_block")"
 if [ -n "$push_line" ] && [ -n "$verdict_line" ] && [ "$verdict_line" -lt "$push_line" ]; then
   pass "the verdict is read before anything is pushed"
 else

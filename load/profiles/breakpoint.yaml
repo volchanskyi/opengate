@@ -31,6 +31,14 @@ fixture: small
 # be read, and the length is also what keeps the arrivals inside the rate the
 # server refuses past — sixteen thousand machines in two minutes is 133 a
 # second against a ceiling of about a hundred, and in five it is 53.
+#
+# This is the one shape allowed past what its venue has been shown to hold,
+# because finding that edge is what it is for, and `gave_out:` below is the
+# declaration that makes it one. What it owes instead is the bracket: a rung at
+# or below the recorded ceiling and a rung above it, or no rung of it can be
+# named as the last that held. scripts/tests/loadtest-venue-ceiling.test.sh
+# holds it to that against scripts/lib/loadtest-venue-ceilings.sh, whose runner
+# row this ladder is what established.
 phases:
   - name: step-500
     duration: 5m

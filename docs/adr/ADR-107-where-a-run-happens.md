@@ -49,7 +49,33 @@ still exercises nothing after the first minute.
 **The cron names an order, not a time.** The families are sequenced by measured
 duration across five workflows, so they do not collide.
 
+**A venue's ceiling is a reading, and a profile stays inside the one its venue
+has.** The number of machines a profile asks for is the largest number in it and
+was the one number nothing checked. Asking for a fleet the venue has never held
+does not fail loudly: it half-arrives, and a percentile taken over the half that
+did still clears a limit written for a full one, so the leg is green and the
+finding is that there is no finding. Both figures cost a run to learn, so they
+are written down once — in
+[`loadtest-venue-ceilings.sh`](../../scripts/lib/loadtest-venue-ceilings.sh),
+each with the run that established it — and
+[`loadtest-venue-ceiling.test.sh`](../../scripts/tests/loadtest-venue-ceiling.test.sh)
+holds every profile to the row for the venue it names. A ceiling says what a
+venue has been observed holding with its arrivals landing and its errors at zero,
+never what it ought to manage: raising a row means walking the rung.
+
+**The one shape allowed past a ceiling is a ladder, and a ladder says so
+itself.** A profile carrying `gave_out:` has written down what counts as giving
+out before going to look for it, which is the whole of what a capacity ladder is
+— so no separate exemption list exists to go stale. What it owes instead is the
+bracket: a rung at or below the ceiling and a rung above it, or no rung of it can
+be named as the last that held. A ladder that has stopped reaching past the
+ceiling has stopped being one, and is refused.
+
 ## Consequences
 
 Adding a profile means adding its row, which means choosing where it runs, which is
 the step that was being skipped.
+
+Adding a venue means recording what it has been measured holding. A venue row no
+profile names fails the sweep rather than sitting there going stale, which is the
+same rule the tool-version manifest keeps for the same reason.

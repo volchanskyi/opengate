@@ -72,3 +72,4 @@
 | 116 | A forwarded address is believed only from a proxy the deployment named | [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md) |
 | 119 | A long run keeps the target's profiles and names the line that grew; a core says what still holds it | [ADR-119](../docs/adr/ADR-119-finding-a-leak.md) |
 | 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |
+| 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |

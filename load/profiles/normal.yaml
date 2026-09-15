@@ -7,6 +7,13 @@ family: normal
 environment: staging
 fixture: small
 
+# The fleet below is the largest staging has been shown to hold. The node offers
+# 1,830 millicores with 1,680 already spoken for, so both generator pods share
+# 150 between them and what bounds this is the pod rather than the server it
+# drives. The figure lives once, with the run that established it, in
+# scripts/lib/loadtest-venue-ceilings.sh, and
+# scripts/tests/loadtest-venue-ceiling.test.sh refuses a profile asking its
+# venue for more than that.
 phases:
   # A ramp rather than a step, so the steady phase measures a warm system: the
   # first connection of a run pays for a cold connection pool and an empty

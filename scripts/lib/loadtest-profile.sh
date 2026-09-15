@@ -103,6 +103,74 @@ json.dump(rows, sys.stdout)
 PY
 }
 
+# profile_venue prints the venue a profile runs in.
+#
+# The venue is what decides how large a fleet the profile may ask for, and until
+# it had a reader it was a field only the harness looked at — so nothing over
+# the whole directory could tell a profile asking for more machines than its
+# venue holds from one asking for a reasonable number.
+profile_venue() {
+  local profile="$1" venue
+
+  if [ ! -s "$profile" ]; then
+    echo "::error::there is no profile at $profile, so the place it runs is unknown." >&2
+    return 2
+  fi
+  if ! profile_reader_available; then
+    echo "::error::this machine cannot read a profile (python3 with PyYAML is missing), so the venue could not be asked for." >&2
+    return 2
+  fi
+
+  venue="$(
+    python3 - "$profile" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    profile = yaml.safe_load(handle) or {}
+
+print(profile.get("environment") or "")
+PY
+  )"
+  if [ -z "$venue" ]; then
+    echo "::error::$profile names no environment, so nothing can say where it runs." >&2
+    return 2
+  fi
+  printf '%s\n' "$venue"
+}
+
+# profile_is_ladder prints true when a profile has written down what counts as
+# giving out, and false otherwise.
+#
+# A capacity ladder is exactly a profile that states the condition it is looking
+# for before it goes looking — without that its answer is whatever the run
+# happened to survive. So the declaration is the definition, and nothing else
+# needs to keep a list of which profiles are ladders.
+profile_is_ladder() {
+  local profile="$1"
+
+  if [ ! -s "$profile" ]; then
+    echo "::error::there is no profile at $profile." >&2
+    return 2
+  fi
+  if ! profile_reader_available; then
+    echo "::error::this machine cannot read a profile (python3 with PyYAML is missing)." >&2
+    return 2
+  fi
+
+  python3 - "$profile" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    profile = yaml.safe_load(handle) or {}
+
+print("true" if profile.get("gave_out") else "false")
+PY
+}
+
 # profile_phases prints a profile's walk as a JSON array of
 # {name, seconds, arrivals_per_second, sessions, agents, measured}.
 #
