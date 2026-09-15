@@ -14,8 +14,9 @@
 #   HISTORY_FILE    default: docs/mutation-history.jsonl
 #
 # Behavior controlled by env vars:
-#   GITHUB_SHA      tagged into the canonical row
-#   APPEND=1        append the canonical row to HISTORY_FILE (and rotate to 90d)
+#   GITHUB_SHA          tagged into the canonical row
+#   APPEND=1            append the canonical row to HISTORY_FILE (and rotate to 90d)
+#   MUTATION_LANGUAGES  which legs to carry, space-separated (default: all three)
 #
 # Outputs to stdout:
 #   - the canonical row as a single JSON object
@@ -40,6 +41,20 @@ RUST_OUTCOMES="${RUST_OUTCOMES:-agent/mutants.out/outcomes.json}"
 GO_REPORT="${GO_REPORT:-server/mutation-report.json}"
 WEB_REPORT="${WEB_REPORT:-web/reports/mutation/mutation.json}"
 HISTORY_FILE="${HISTORY_FILE:-docs/mutation-history.jsonl}"
+
+# Which legs this run has to carry.
+#
+# A night where one language flakes used to produce no row for any of them: the
+# publish job held a single completeness boolean over all fifty-three shards, and
+# on six of the last ten red nights the failing leg was Go alone. The other
+# legs' scores were thrown away, and with them their regression checks — so a
+# Rust regression was invisible on any night the Go leg flaked.
+#
+# The distinction this keeps is between a leg nobody asked for and a leg asked
+# for and broken. The first is absent from the row; the second is exit 2, the
+# same as it has always been. Blurring them would turn every partial night back
+# into an incomplete run, one level down.
+MUTATION_LANGUAGES="${MUTATION_LANGUAGES-rust go web}"
 
 REGRESSION_DROP_PP=2.0    # alert when score drops by more than this from prev
 REGRESSION_FLOOR_PCT=85.0 # alert when absolute score crosses below this floor
@@ -147,27 +162,45 @@ parse_web() {
 
 # --- Aggregator ---------------------------------------------------------------
 
-# build_row → canonical JSON object for the current run
+# build_row → canonical JSON object for the current run, carrying one entry per
+# language in MUTATION_LANGUAGES and nothing for the rest.
 build_row() {
-  local rust go web
+  local language parsed scores='{}'
+
+  if [[ -z "${MUTATION_LANGUAGES// /}" ]]; then
+    echo "no language was named as complete, so there is no score to publish" >&2
+    return 2
+  fi
+
   # `|| return 2` is required: build_row runs in a `row="$(build_row)" || exit 2`
   # context where set -e is suspended, so a parse failure here would otherwise
   # fall through to the aggregating jq and print a misleading "invalid JSON"
   # after the correct "missing: <file>" error.
-  rust="$(parse_rust "$RUST_OUTCOMES")" || return 2
-  go="$(parse_go "$GO_REPORT")" || return 2
-  web="$(parse_web "$WEB_REPORT")" || return 2
+  for language in $MUTATION_LANGUAGES; do
+    case "$language" in
+      rust) parsed="$(parse_rust "$RUST_OUTCOMES")" || return 2 ;;
+      go) parsed="$(parse_go "$GO_REPORT")" || return 2 ;;
+      web) parsed="$(parse_web "$WEB_REPORT")" || return 2 ;;
+      *)
+        # Not skipped: a caller that named a language this does not know asked
+        # for a row it will not get, and publishing a narrower one silently is
+        # the shape the subset exists to make visible.
+        echo "unknown mutation language: $language" >&2
+        return 2
+        ;;
+    esac
+    scores="$(jq -nc --argjson scores "$scores" --arg l "$language" --argjson s "$parsed" \
+      '$scores + {($l): $s}')" || return 2
+  done
 
   jq -nc \
     --arg ts "$TIMESTAMP" \
     --arg sha "$COMMIT_SHA" \
-    --argjson rust "$rust" \
-    --argjson go "$go" \
-    --argjson web "$web" \
+    --argjson scores "$scores" \
     '{
       timestamp: $ts,
       commit: $sha,
-      scores: { rust: $rust, go: $go, web: $web }
+      scores: $scores
     }'
 }
 
@@ -203,15 +236,14 @@ regression_check() {
         or (p != null and (p - c) > $drop)
       end;
 
-    {
-      rust: { curr: $curr.scores.rust.score_pct, prev: ($prev.scores.rust.score_pct // null) },
-      go:   { curr: $curr.scores.go.score_pct,   prev: ($prev.scores.go.score_pct   // null) },
-      web:  { curr: $curr.scores.web.score_pct,  prev: ($prev.scores.web.score_pct  // null) }
-    }
-    | .rust.regressed = regressed(.rust.curr; .rust.prev)
-    | .go.regressed   = regressed(.go.curr;   .go.prev)
-    | .web.regressed  = regressed(.web.curr;  .web.prev)
-    | .any = (.rust.regressed or .go.regressed or .web.regressed)
+    # A leg that did not run has not regressed, so only the legs the row
+    # carries are judged — and a leg absent from the row is absent from the
+    # alert rather than reported as a null beside the ones that ran.
+    [ $curr.scores | keys[] ] as $languages
+    | reduce $languages[] as $l ({};
+        .[$l] = { curr: $curr.scores[$l].score_pct, prev: ($prev.scores[$l].score_pct // null) }
+        | .[$l].regressed = regressed(.[$l].curr; .[$l].prev))
+    | .any = ([ .[$languages[]].regressed ] | any)
     ')"
 
   local any
@@ -230,7 +262,7 @@ regression_check() {
           else "  \(lang | ascii_upcase): \(row.prev // "n/a") → \(row.curr)"
           end;
 
-      [fmt("rust"; .rust), fmt("go"; .go), fmt("web"; .web)] | join("\n")
+      [ to_entries[] | select(.key != "any") | fmt(.key; .value) ] | join("\n")
     ' <<<"$result")"
     echo "REGRESSION_ALERT:⚠️ Mutation score regression on $branch"
     echo "REGRESSION_ALERT:"

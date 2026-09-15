@@ -302,6 +302,41 @@ else
   fail "the scaling family measures against an empty database, so its data is not the profile's"
 fi
 
+# --- A sweep offers the technician load it varies things against --------------
+#
+# The volume family varies how much data is already there. Reading is what more
+# data slows, and the only reader this venue had was machines arriving — the
+# cheapest thing the server does, and one whose cost barely moves with the size
+# of the fleet already in the database. So the sweep varied its variable against
+# a load that could not feel it, which is the same shape that left the scaling
+# curve flat from one processor upwards.
+for family in volume scaling; do
+  block="$(job_block "$family")"
+  if grep -q 'loadtest-k6-alongside\.sh' <<<"$block"; then
+    pass "the $family family offers the technician load its profiles declare"
+  else
+    fail "the $family family declares a technician load in its profiles and offers none, so it varies its variable against machines arriving and nothing else"
+  fi
+done
+
+# And what a browser-side generator times is written into another process's
+# file. A family that starts one and never folds it in has produced numbers in a
+# temp directory that travel nowhere; a family that folds without starting one
+# folds an export that was never written. Both directions, because either alone
+# is satisfied by doing neither.
+for family in volume scaling; do
+  block="$(job_block "$family")"
+  runs=no
+  folds=no
+  grep -q 'loadtest-k6-alongside\.sh' <<<"$block" && runs=yes
+  grep -q -- '--journeys' <<<"$block" && folds=yes
+  if [ "$runs" = "$folds" ]; then
+    pass "the $family family's technician numbers are offered and folded together"
+  else
+    fail "the $family family runs a browser-side generator ($runs) and folds its journeys ($folds), which do not agree"
+  fi
+done
+
 # --- The bundle's verdict is read back ----------------------------------------
 #
 # The harness writes what it thought of its own run into the bundle, and the

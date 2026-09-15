@@ -51,12 +51,22 @@ test-coverage:
 # every table and index, in a single transaction — competing for the default
 # 64. Enough of them in flight together exhausts the table and the migration
 # fails with "out of shared memory" rather than anything about the schema.
+#
+# And shared memory itself is declared, because the settings above are what make
+# the default too small: Postgres puts a parallel query's workers in /dev/shm,
+# Docker gives a container 64 MiB of it, and one worker asked for 32. Two at
+# once is the whole allowance. What that looks like is not a memory error in a
+# test but the database leaving mid-run — "could not resize shared memory
+# segment to 33554432 bytes: No space left on device", then connection refused
+# from everything after it, on a host with 189 GB free. Held level across every
+# caller by scripts/tests/postgres-test-container.test.sh.
+#
 # Mirrors the ci.yml / mutation.yml setup so CI and local behave the same.
 postgres-test-up:
 	docker rm -f opengate-pg-test 2>/dev/null || true
 	docker run -d --rm --name opengate-pg-test \
 		-e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-		-p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
+		--shm-size=1g -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
 	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
 		docker exec opengate-pg-test pg_isready -U opengate -d opengate_test >/dev/null 2>&1 && break; \
 		sleep 1; \
@@ -404,16 +414,18 @@ mutate-go:
 	  echo "         export POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\""; \
 	fi
 	@# Run the same mutation-unit shards as CI (scripts/lib/mutation-shards.sh):
-	@# each shard mutates the whole module restricted to its files/dirs via -E, then
-	@# merge into one report — mirrors .github/workflows/mutation.yml.
+	@# each shard walks the narrowest path holding its own units, restricted to
+	@# its files/dirs via -E, then merge into one report — mirrors
+	@# .github/workflows/mutation.yml, whose path comes from the same function.
 	. scripts/lib/mutation-shards.sh; \
 	reports=""; \
 	for shard in $$(mutation_go_shards); do \
+	  scan="$$(mutation_go_shard_scan_path $$shard)"; \
 	  excl="$$(mutation_go_shard_exclude_regex $$shard)"; \
 	  coef="$$(mutation_go_shard_timeout_coefficient $$shard)"; \
 	  coef_flag=""; [ -n "$$coef" ] && coef_flag="--timeout-coefficient $$coef"; \
-	  echo ">> mutating shard $$shard (exclude: $$excl) (coef: $${coef:-baseline})"; \
-	  ( cd server && gremlins unleash . -E "$$excl" $$coef_flag --output "mutation-report-$$shard.json" ) || true; \
+	  echo ">> mutating shard $$shard (walks: $$scan) (exclude: $$excl) (coef: $${coef:-baseline})"; \
+	  ( cd server && gremlins unleash "$$scan" -E "$$excl" $$coef_flag --output "mutation-report-$$shard.json" ) || true; \
 	  reports="$$reports server/mutation-report-$$shard.json"; \
 	done; \
 	./scripts/mutation-merge-go.sh server/mutation-report.json $$reports; \

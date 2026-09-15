@@ -350,45 +350,75 @@ if [ -f "$SHARDS_LIB" ]; then
   # Every non-test Go source under server/ is either globally excluded or
   # belongs to exactly one mutation unit. This catches sources outside
   # internal/* (notably tests/loadtest) and duplicate directory/file overlap.
+  #
+  # And then the question that actually decides a night: how many shards would
+  # mutate the file. That is not the unit map — it is the walk each shard is
+  # pointed at and the regexp it is handed, together. A shard whose walk cannot
+  # see a file mutates it whatever the regexp says, and a regexp written in the
+  # wrong coordinates excludes nothing at all. Both halves are asked below, of
+  # every source, against every shard, so a file that would be mutated twice or
+  # not at all is named here rather than showing up as a number that moved.
   partition_bad=""
-  regex_bad=""
+  mutated_bad=""
+  declare -A scan_by_shard=()
+  declare -A globals_by_shard=()
+  for shard in "${go_shards[@]}"; do
+    scan_by_shard[$shard]="$(mutation_go_shard_scan_path "$shard")"
+    globals_by_shard[$shard]="$(mutation_go_global_excludes "${scan_by_shard[$shard]}")"
+  done
+
+  # walk_path prints the source as a shard's walk sees it, or nothing when the
+  # walk cannot reach it at all.
+  walk_path() {
+    local scan="$1" path="$2"
+    case "$scan" in
+      ./internal)
+        case "$path" in
+          internal/*) printf '%s' "${path#internal/}" ;;
+          *) return 1 ;;
+        esac
+        ;;
+      *) printf '%s' "$path" ;;
+    esac
+  }
+
   while IFS= read -r source; do
     rel="${source#"$REPO_ROOT/server/"}"
-    global=0
-    if grep -qE "$(mutation_go_global_excludes)" <<<"$rel"; then
-      global=1
-    fi
 
     matches=0
-    owner=""
     for unit in "${all_units[@]}"; do
       if mutation_go_unit_matches "$unit" "$rel"; then
         matches=$((matches + 1))
-        owner="${unit_owner[$unit]}"
       fi
     done
 
-    if [ "$global" -eq 0 ] && [ "$matches" -ne 1 ]; then
+    # A source every shard's carve-outs remove is allowed to belong to no unit;
+    # everything else belongs to exactly one.
+    carved=1
+    for shard in "${go_shards[@]}"; do
+      seen="$(walk_path "${scan_by_shard[$shard]}" "$rel")" || continue
+      grep -qE "${globals_by_shard[$shard]}" <<<"$seen" || carved=0
+    done
+
+    if [ "$carved" -eq 0 ] && [ "$matches" -ne 1 ]; then
       partition_bad="$partition_bad [$rel:matches=$matches]"
-      continue
     fi
 
-    # The generated/entry-point/test-helper carve-outs must be excluded by all
-    # shard regexes. A real source must be included only by its owner.
+    # What the run would actually do with it.
+    mutators=0
     for shard in "${go_shards[@]}"; do
-      excl="${shard_regex[$shard]}"
-      if [ "$global" -eq 1 ]; then
-        grep -qE "$excl" <<<"$rel" \
-          || regex_bad="$regex_bad [$shard:$rel:global-not-excluded]"
-      elif [ "$shard" = "$owner" ]; then
-        if grep -qE "$excl" <<<"$rel"; then
-          regex_bad="$regex_bad [$shard:$rel:own-source-excluded]"
-        fi
-      else
-        grep -qE "$excl" <<<"$rel" \
-          || regex_bad="$regex_bad [$shard:$rel:other-source-not-excluded]"
-      fi
+      seen="$(walk_path "${scan_by_shard[$shard]}" "$rel")" || continue
+      grep -qE "${shard_regex[$shard]}" <<<"$seen" && continue
+      mutators=$((mutators + 1))
+      mutated_by="$shard"
     done
+
+    if [ "$carved" -eq 1 ]; then
+      [ "$mutators" -eq 0 ] \
+        || mutated_bad="$mutated_bad [$rel:carved-but-mutated-by-${mutated_by:-?}]"
+    elif [ "$mutators" -ne 1 ]; then
+      mutated_bad="$mutated_bad [$rel:mutated-by=$mutators]"
+    fi
   done < <(find "$REPO_ROOT/server" -type f -name '*.go' ! -name '*_test.go' | sort)
 
   if [ -z "$partition_bad" ]; then
@@ -396,10 +426,47 @@ if [ -f "$SHARDS_LIB" ]; then
   else
     fail "whole-server Go source partition mismatch:$partition_bad"
   fi
-  if [ -z "$regex_bad" ]; then
-    pass "each Go shard regex includes only its own mutation units"
+  if [ -z "$mutated_bad" ]; then
+    pass "every server Go source is mutated by exactly one shard's walk and regex"
   else
-    fail "Go shard exclude regex mismatch:$regex_bad"
+    fail "Go shard walk/regex mismatch:$mutated_bad"
+  fi
+
+  # The narrowing is only safe while the harness units keep a shard that can see
+  # them. A walk that cannot reach a unit mutates nothing and reports a smaller
+  # number, which is indistinguishable from a shard whose code got simpler.
+  reach_bad=""
+  for shard in "${go_shards[@]}"; do
+    for unit in $(mutation_go_shard_units "$shard"); do
+      walk_path "${scan_by_shard[$shard]}" "${unit#*:}" >/dev/null \
+        || reach_bad="$reach_bad [$shard:$unit:outside-its-own-walk]"
+    done
+  done
+  if [ -z "$reach_bad" ]; then
+    pass "every Go shard's walk reaches every unit that shard owns"
+  else
+    fail "a Go shard is pointed at a path that cannot see its own units:$reach_bad"
+  fi
+
+  # Anchoring is load-bearing under the narrow walk, not tidiness: internal/api
+  # and internal/agentapi become api/ and agentapi/, and the second contains the
+  # first. An unanchored rule for one would drop the other from every shard that
+  # does not own it.
+  anchor_bad=""
+  for shard in "${go_shards[@]}"; do
+    while IFS= read -r alternative; do
+      [ -n "$alternative" ] || continue
+      case "$alternative" in
+        '^'*) ;;
+        'openapi_gen\.go') ;;
+        *) anchor_bad="$anchor_bad [$shard:$alternative]" ;;
+      esac
+    done <<<"$(tr '|' '\n' <<<"${shard_regex[$shard]}")"
+  done
+  if [ -z "$anchor_bad" ]; then
+    pass "every Go shard exclude alternative is anchored at the path's start"
+  else
+    fail "unanchored Go shard exclude alternatives:$anchor_bad"
   fi
 
   loadtest_bad=""
@@ -561,6 +628,21 @@ if [ -f "$SHARDS_LIB" ]; then
   else
     fail "Makefile mutate-go must derive --timeout-coefficient from the shard library"
   fi
+
+  # The path gremlins walks decides both what it mutates and which tests it runs
+  # to survey coverage, so a literal path in either caller is a second home for a
+  # fact the library already holds. The two must also agree with each other: a
+  # local run and a nightly that walk different trees produce scores nobody can
+  # compare, and the difference does not appear anywhere in either report.
+  for caller in "$WORKFLOW" "$REPO_ROOT/Makefile"; do
+    name="$(basename "$caller")"
+    if grep -q 'mutation_go_shard_scan_path' "$caller" \
+      && ! grep -qE 'gremlins unleash (\.|\./internal)[[:space:]]' "$caller"; then
+      pass "$name walks the path the shard library names"
+    else
+      fail "$name must take gremlins' path from mutation_go_shard_scan_path, not spell one out"
+    fi
+  done
 
   # The pre-flight must be able to fail the job it runs in. Its output is teed
   # into the step summary, and the default shell does not set pipefail, so
@@ -783,6 +865,50 @@ if [ -x "$STATUS_BUILD" ]; then
   else
     fail "status builder must reject an invalid Web reporter shape"
   fi
+
+  # --- Completeness is reported per leg ---------------------------------------
+  #
+  # One boolean over fifty-three shards is what destroyed the scores. On six of
+  # the last ten red nights the failing leg was Go alone; the twenty-five Rust
+  # shards and the web shard had all finished and their scores were discarded,
+  # which is a detection gap as well as waste — a Rust regression is invisible on
+  # any night the Go leg flakes.
+  make_complete_artifacts "$artifacts"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.complete_by_language == {rust:true,go:true,web:true}' "$status" >/dev/null; then
+    pass "status builder reports every leg complete on a whole artifact set"
+  else
+    fail "status builder must report completeness per language"
+  fi
+
+  make_complete_artifacts "$artifacts"
+  rm -f "$artifacts/mutation-go-agentapi-backfill/server/mutation-report-go-agentapi-backfill.json"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.complete == false and .complete_by_language == {rust:true,go:false,web:true}' "$status" >/dev/null; then
+    pass "a missing Go shard leaves the Rust and web legs complete"
+  else
+    fail "a missing Go shard must not mark the other legs incomplete"
+  fi
+
+  make_complete_artifacts "$artifacts"
+  printf '%s' '{"files":[]}' >"$artifacts/mutation-web/web/reports/mutation/mutation.json"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.complete_by_language == {rust:true,go:true,web:false}' "$status" >/dev/null; then
+    pass "an invalid web report leaves the Rust and Go legs complete"
+  else
+    fail "an invalid web report must not mark the other legs incomplete"
+  fi
+
+  # `complete` keeps meaning what it meant, so anything still reading it is
+  # unaffected by the addition beside it.
+  make_complete_artifacts "$artifacts"
+  rm -f "$artifacts/mutation-go-agentapi-backfill/server/mutation-report-go-agentapi-backfill.json"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.complete == false' "$status" >/dev/null; then
+    pass "complete still means every leg, so its existing readers are unchanged"
+  else
+    fail "complete changed meaning"
+  fi
   rm -rf "$tmp"
 else
   fail "scripts/mutation-status-build.sh must exist and be executable"
@@ -880,10 +1006,126 @@ else
   fail "scripts/mutation-summarize.sh must exist and be executable"
 fi
 
+# --- The summarizer carries the legs it was given, and only those -------------
+#
+# The distinction that must not blur is between a leg nobody asked for and a leg
+# asked for and broken. The first is a night where one language flaked and the
+# other two still have scores worth publishing and regressions worth checking;
+# the second is the malformed input the exit-2 path above exists for. Collapsing
+# them would turn every partial night into an incomplete run again, one level
+# down.
+
+if [ -x "$SUMMARIZE" ]; then
+  tmp="$(mktemp -d)"
+  printf '%s' '{"caught":95,"missed":5,"timeout":0,"unviable":0}' >"$tmp/rust.json"
+  printf '%s' '{"mutants_killed":95,"mutants_lived":5,"mutants_not_covered":0,"mutants_not_viable":0}' >"$tmp/go.json"
+  web_report 95 5 >"$tmp/web.json"
+
+  code=0
+  out="$(MUTATION_LANGUAGES="rust web" RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/NOPE.json" \
+    WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
+  rows="$(grep -E '^\{' <<<"$out" || true)"
+  row="${rows##*$'\n'}"
+  if [ "$code" = "0" ] && jq -e '
+      (.scores | keys) == ["rust","web"]
+      and .scores.rust.score_pct == 95
+      and (.scores | has("go") | not)' <<<"$row" >/dev/null 2>&1; then
+    pass "a row asked for two legs carries two legs and no absent third"
+  else
+    fail "the summarizer must carry only the legs it was asked for (code=$code, out=$out)"
+  fi
+
+  code=0
+  out="$(MUTATION_LANGUAGES="go" RUST_OUTCOMES="$tmp/NOPE.json" GO_REPORT="$tmp/go.json" \
+    WEB_REPORT="$tmp/NOPE.json" HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
+  rows="$(grep -E '^\{' <<<"$out" || true)"
+  row="${rows##*$'\n'}"
+  if [ "$code" = "0" ] && jq -e '(.scores | keys) == ["go"]' <<<"$row" >/dev/null 2>&1; then
+    pass "a single-leg row is a row"
+  else
+    fail "the summarizer must publish a single complete leg (code=$code, out=$out)"
+  fi
+
+  # Asked for and broken is still exit 2. This is the case the whole distinction
+  # rests on: a leg named as complete whose artifact will not parse is an
+  # incomplete run, not a partial publish.
+  printf '%s' 'not json at all' >"$tmp/broken.json"
+  code=0
+  out="$(MUTATION_LANGUAGES="rust go" RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/broken.json" \
+    WEB_REPORT="$tmp/NOPE.json" HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
+  if [ "$code" = "2" ]; then
+    pass "a leg asked for and malformed is still exit 2"
+  else
+    fail "a malformed leg that was asked for must exit 2, not publish (code=$code, out=$out)"
+  fi
+
+  # Naming no leg at all is a publish with nothing in it, which must not read as
+  # a clean run.
+  code=0
+  out="$(MUTATION_LANGUAGES="" RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
+    WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
+  if [ "$code" = "2" ]; then
+    pass "a run naming no complete leg is refused"
+  else
+    fail "an empty language set must be refused (code=$code, out=$out)"
+  fi
+
+  # An unknown language is a caller mistake, not a leg to skip: skipping it
+  # would publish a narrower row than the caller believed it asked for.
+  code=0
+  out="$(MUTATION_LANGUAGES="rust perl" RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
+    WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
+  if [ "$code" = "2" ]; then
+    pass "a language the summarizer does not know is refused"
+  else
+    fail "an unknown language must be refused (code=$code, out=$out)"
+  fi
+
+  # The regression check still reads the legs present, and says nothing about
+  # the ones absent — a leg that did not run has not regressed.
+  printf '%s\n' '{"scores":{"rust":{"score_pct":95.0},"go":{"score_pct":95.0},"web":{"score_pct":89.5}}}' >"$tmp/hist.jsonl"
+  web_report 87 13 >"$tmp/web-drop.json"
+  code=0
+  out="$(MUTATION_LANGUAGES="web" RUST_OUTCOMES="$tmp/NOPE.json" GO_REPORT="$tmp/NOPE.json" \
+    WEB_REPORT="$tmp/web-drop.json" HISTORY_FILE="$tmp/hist.jsonl" "$SUMMARIZE" 2>&1)" || code=$?
+  if [ "$code" = "1" ] && grep -q 'WEB:' <<<"$out" && ! grep -q 'GO:' <<<"$out"; then
+    pass "a leg that ran is still regression-checked when the others did not"
+  else
+    fail "the regression check must read the legs present and name no others (code=$code, out=$out)"
+  fi
+
+  # Naming every leg is what the whole set does today, and it must be unchanged.
+  code=0
+  out="$(RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" WEB_REPORT="$tmp/web.json" \
+    HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
+  rows="$(grep -E '^\{' <<<"$out" || true)"
+  row="${rows##*$'\n'}"
+  if [ "$code" = "0" ] && jq -e '(.scores | keys) == ["go","rust","web"]' <<<"$row" >/dev/null 2>&1; then
+    pass "naming no subset still publishes all three legs"
+  else
+    fail "the default must stay all three legs (code=$code, out=$out)"
+  fi
+  rm -rf "$tmp"
+else
+  fail "scripts/mutation-summarize.sh must exist and be executable"
+fi
+
 # --- Workflow wires the VM baseline restore before Summarize ------------------
 # The fetch needs kubectl, so OCI+kube setup must precede the Restore step, and
 # Restore must precede Summarize so previous_row sees the reconstructed row.
-line_of() { grep -nE "$1" "$WORKFLOW" | head -1 | cut -d: -f1; }
+# The first line matching a pattern, or nothing.
+#
+# Not a pipeline: `grep | head` under pipefail reports grep's status, so a
+# pattern that matches nothing ends the sweep at the assignment rather than
+# answering "no line" — and the assertions below it never run at all. That is
+# the shape .claude/rules/assertion-determinism.md refuses, and it hid here for
+# as long as every pattern happened to match.
+line_of() {
+  local matches
+  matches="$(grep -nE "$1" "$WORKFLOW" || true)"
+  [ -n "$matches" ] || return 0
+  cut -d: -f1 <<<"${matches%%$'\n'*}"
+}
 oci_line="$(line_of 'uses:[[:space:]]*\./\.github/actions/oci-kube-setup')"
 fetch_line="$(line_of 'mutation-baseline-fetch\.sh')"
 summ_line="$(line_of 'mutation-summarize\.sh')"
@@ -915,7 +1157,7 @@ fi
 status_build_line="$(line_of 'mutation-status-build\.sh')"
 status_upload_line="$(line_of 'name:[[:space:]]*Upload mutation run status')"
 status_push_line="$(line_of 'mutation-status-vm-push\.sh')"
-incomplete_line="$(line_of 'name:[[:space:]]*Fail incomplete mutation run')"
+incomplete_line="$(line_of 'name:[[:space:]]*Fail a mutation run with no complete leg')"
 
 if [ -n "$status_build_line" ] && [ -n "$status_upload_line" ] \
   && [ "$status_build_line" -lt "$status_upload_line" ] \
@@ -933,25 +1175,50 @@ else
   fail "status VM push order is wrong (oci=$oci_line push=$status_push_line summarize=$summ_line)"
 fi
 
+# A run with no complete leg at all has nothing to summarize and still fails
+# here, before summarization is attempted.
+incomplete_step="$(sed -n "/name:[[:space:]]*Fail a mutation run with no complete leg/,+5p" "$WORKFLOW")"
 if [ -n "$incomplete_line" ] && [ -n "$summ_line" ] && [ "$incomplete_line" -lt "$summ_line" ] \
-  && grep -A5 -E 'name:[[:space:]]*Fail incomplete mutation run' "$WORKFLOW" \
-  | grep -q "steps.status.outputs.complete != 'true'"; then
-  pass "workflow fails an incomplete run before canonical summarization"
+  && grep -q "steps.status.outputs.complete-legs == ''" <<<"$incomplete_step"; then
+  pass "workflow fails a run with no complete leg before canonical summarization"
 else
-  fail "workflow needs an explicit status-gated incomplete-run failure"
+  fail "workflow needs an explicit failure when no leg completed"
 fi
 
+# And the publishing steps run for the legs that did complete rather than only
+# for a whole set. This is the change itself: on six of the last ten red nights
+# the failing leg was Go alone and twenty-six finished shards were discarded.
 canonical_guards=0
 for step_name in 'Upload canonical row as artifact' 'Push to VictoriaMetrics'; do
-  if grep -A4 -E "name:[[:space:]]*$step_name" "$WORKFLOW" \
-    | grep -q "steps.status.outputs.complete == 'true'"; then
+  step="$(sed -n "/name:[[:space:]]*$step_name/,+4p" "$WORKFLOW")"
+  if grep -q "steps.status.outputs.complete-legs != ''" <<<"$step"; then
     canonical_guards=$((canonical_guards + 1))
   fi
 done
 if [ "$canonical_guards" -eq 2 ]; then
-  pass "canonical artifact and VM score push are both complete-status gated"
+  pass "canonical artifact and VM score push publish whatever legs completed"
 else
-  fail "canonical upload/push need explicit complete-status guards (found=$canonical_guards)"
+  fail "canonical upload/push must be gated on the complete legs, not the whole set (found=$canonical_guards)"
+fi
+
+# The summarizer is handed exactly those legs, so a row never claims a leg that
+# did not run and never omits one that did.
+summarize_step="$(sed -n "/name:[[:space:]]*Summarize + regression check/,+8p" "$WORKFLOW")"
+if grep -qE 'MUTATION_LANGUAGES: .*steps\.status\.outputs\.complete-legs' <<<"$summarize_step"; then
+  pass "the summarizer is handed the legs that completed"
+else
+  fail "the summarize step must hand mutation-summarize.sh the complete legs"
+fi
+
+# An incomplete night is still a red night. The gate reads the whole-run
+# boolean, which is what keeps this change from softening anything: what moved
+# is that the complete legs are published before the run goes red.
+gate_step="$(sed -n "/name:[[:space:]]*Fail workflow red on regression/,/^  [a-z-]*:$/p" "$WORKFLOW")"
+if grep -q 'needs.publish.outputs.complete' <<<"$gate_step" \
+  && grep -q 'needs.publish.outputs.regression' <<<"$gate_step"; then
+  pass "the gate still fails a night any leg missed, and a night any leg regressed"
+else
+  fail "the gate must fail on an incomplete run as well as on a regression"
 fi
 
 echo

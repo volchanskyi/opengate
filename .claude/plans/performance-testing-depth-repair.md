@@ -12,13 +12,31 @@ code. Nothing in it is inferred.
 
 ## 0. Progress
 
-Updated 2026-09-13. Each workstream lands as one commit.
+Updated 2026-09-14. Each workstream lands as one commit.
 
 **Where this stands.** F10 (`c4e33752`) and F11 (`ec9636f6`) are landed, and
 the three perf-testing entries the register carried are paid down — see F12
-below. What is left of this plan is WS0's two ladders: the staging one is open
-again now that WS3 closed the two reasons its 250 rung came back invalid, and
-the throwaway one is still blocked on D38.
+below. What is left of this plan is WS0, and neither of its ladders is blocked
+any longer. The staging one is open again now that WS3 closed the two reasons
+its 250 rung came back invalid. The throwaway one lost its blocker when WS4 gave
+each perf-stack job an estate of its own (D38 below), and its rungs now walk
+every night as the volume family's 500, 2,000 and 8,000 machines.
+
+**Two of WS0's three outputs are landed.** Both venue ceilings are recorded with
+the runs that established them — staging at 500 from load-test 34831825889,
+the throwaway stack at 8,000 from perf-stack 34850289658, where the ladder held
+that rung at an error rate of zero and gave at 16,000 with 0.330 — and
+`loadtest-venue-ceiling.test.sh` refuses a profile that asks its venue for more
+than its row. The one shape allowed past is a ladder, and a ladder is a profile
+that declares `gave_out:`, so no exemption list exists to go stale; what it owes
+instead is a rung at or below the ceiling and one above it. The volume family
+now offers the technician load its profiles declare and its three legs are read
+together by `perf-volume-curve.sh`, which refuses a leg carrying no technician
+reading. Both fold into [ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md)
+and [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md).
+
+**What WS0 still owes is the churn rate**, which needs an endurance run that
+reaches the end. It is the only thing between this plan and its retirement.
 
 
 **F8 — five faults between the families and a green night, found 2026-09-11.**
@@ -343,7 +361,7 @@ next Sunday run is still the proof that a real core comes back readable.
 
 | WS | State | Where it is |
 |---|---|---|
-| WS0 | **Part-done** | Staging's 250 rung came back invalid for two reasons WS3 has now closed, so the ladder's answer is open again and the nightly itself is the first rung. The throwaway ladder is blocked on D38 |
+| WS0 | **Part-done** | Both ladders are unblocked. Staging's 250 rung came back invalid for two reasons WS3 has now closed, and the nightly itself is the first rung, holding 500; the throwaway rungs walk nightly as the volume family's 500, 2,000 and 8,000 now that D38 is closed. What is owed is the figures in the profiles, the venue-ceiling guard, and the churn rate |
 | WS1 | **Done, then repaired** | `2292438c`, then the repair below. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-082](../../docs/adr/ADR-082-load-run-validity.md) |
 | WS2 | **Done** | [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md) |
 | WS3 | **Done** | [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md), [ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md) |
@@ -848,8 +866,11 @@ counted 500 because the *profile* connected that many, and `-agents=500` sat
 between them meaning neither. WS1 split the first two apart; this is the third.
 
 Decision 8 already calls for the volume legs to differ in machines actually
-enrolled, so the fix belongs in WS4 — and until it lands, the throwaway ladder
-cannot measure the thing it exists to measure.
+enrolled, so the fix belonged in WS4, and it landed there.
+[`perf-stack.yml`](../../.github/workflows/perf-stack.yml) carries no `agents`
+input at all: each job names the profile it walks and the estate that profile
+draws from, so the volume family's three legs enrol 500, 2,000 and 8,000
+machines and the throwaway ladder measures what it exists to measure.
 
 ### What WS1 and WS2 changed that later workstreams should know
 
@@ -1519,10 +1540,26 @@ comes before WS1 because it is what sizes everything else.
 
 Three dispatched runs, no product changes.
 
-1. **The in-cluster generator's real ceiling.** Raise the generator pod to
-   reserve 150 millicores and 512 MB with a burst limit of 1,500 and 2 GB, and
-   run staging at 250, 500 and 1,000 machines, watching both pods and the node.
-   Output: the largest fleet staging can hold, which sizes the ampere leg.
+1. **The in-cluster generator's real ceiling.** Run staging at 250, 500 and
+   1,000 machines, watching both pods and the node. Output: the largest fleet
+   staging can hold, which sizes the ampere leg.
+
+   The reservation this step originally asked for — 150 millicores and 512 MB
+   for the generator pod alone — cannot be given, and the reason is settled
+   rather than open. The node offers 1,830 millicores and 1,680 are spoken for
+   since the staging server took production's own reservation, so 150 is the
+   whole of what both generator pods may reserve between them, which is what
+   [`loadtest-workflow.test.sh`](../../scripts/tests/loadtest-workflow.test.sh)
+   holds them to; they sit at 75 and 75 today. Nothing frees more: Oracle's
+   free grant is two processors and 12 GB, confirmed from the account, and a
+   second node needs a boot disk the 200 GB storage allowance has no room for
+   ([ADR-035](../../docs/adr/ADR-035-block-volume-budget.md) refused the trade
+   that would make room).
+
+   The rungs are still walkable, because reservation is what admission is
+   decided on and bursting past it is expected on a node that is three-quarters
+   idle. The nightly holds 500 on the pod as it stands, so 250 and 500 are
+   answered and 1,000 is the rung left to try.
 2. **The throwaway machine's real ceiling.** The same at 500, 2,000 and 8,000
    machines against the 250-millicore stack. Output: the generator's cost per
    machine, which sizes every profile.

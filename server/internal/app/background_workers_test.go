@@ -68,9 +68,16 @@ func TestStartBackgroundWorkersRunsThePeriodicWorkers(t *testing.T) {
 	defer stop()
 	require.NoError(t, assembly.StartBackgroundWorkers(ctx, backgroundSchedule()))
 
+	// The deadline is about the machine, not about the product. What is asserted
+	// is that a worker ran at all, and the poll below keeps asserting it however
+	// long the wait is — so the only thing a short deadline adds is a race with
+	// whatever else is using the database. Running the whole module at four
+	// processors lost this test four times out of four while the package alone
+	// passed every time, and the worker's own failure path logs a warning that
+	// never appeared: the first size query was still in flight, not failing.
 	assert.Eventually(t, func() bool {
 		return promtestutil.ToFloat64(assembly.Metrics.DBSizeBytes) > 0
-	}, 10*time.Second, 20*time.Millisecond, "no worker ever measured the database")
+	}, time.Minute, 20*time.Millisecond, "no worker ever measured the database")
 }
 
 // The reconciliation sweep and the release-feed sync are the two workers that

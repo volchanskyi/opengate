@@ -73,7 +73,7 @@ jobs:
           done
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-            -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
+            --shm-size=1g -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
           for i in {1..30}; do
             if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
               echo "postgres ready after ${i} attempt(s)"; exit 0
@@ -264,7 +264,7 @@ jobs:
           done
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-            -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
+            --shm-size=1g -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
           for i in {1..30}; do
             if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
               echo "postgres ready after ${i} attempt(s)"; exit 0
@@ -369,13 +369,18 @@ jobs:
           # schema setup and false-time-out en masse, sinking the score. -count=1
           # forces the dry-run to actually run the tests, giving a stable budget.
           GOFLAGS: "-count=1"
-        # gremlins takes one path arg, so each shard runs the whole module
-        # (module-wide coverage → no cross-shard coverage loss) and restricts
-        # mutation to its packages via --exclude-files. The split lives in
+        # gremlins takes one path arg and uses it twice: it walks it for mutants
+        # and runs `go test` over it to decide which lines are covered. So the
+        # path is the narrowest one that still holds everything the shard
+        # mutates, which for all but the harness shard leaves tests/acceptance,
+        # tests/integration, tests/loadtest, tests/netfault and tests/vmramseries
+        # out of the survey entirely. The path and the split both live in
         # scripts/lib/mutation-shards.sh.
         run: |
           . scripts/lib/mutation-shards.sh
+          scan="$(mutation_go_shard_scan_path '${{ matrix.shard }}')"
           excl="$(mutation_go_shard_exclude_regex '${{ matrix.shard }}')"
+          echo "shard ${{ matrix.shard }} walks: $scan"
           echo "shard ${{ matrix.shard }} exclude: $excl"
           # Every shard inherits the timeout coefficient from server/.gremlins.yaml,
           # which is held to a bound a mutant that never terminates cannot break.
@@ -385,7 +390,7 @@ jobs:
           [ -n "$coef" ] && coef_flag=(--timeout-coefficient "$coef")
           echo "shard ${{ matrix.shard }} timeout-coefficient: ${coef:-baseline}"
           cd server
-          gremlins unleash . -E "$excl" "${coef_flag[@]}" --output "mutation-report-${{ matrix.shard }}.json" || EXIT=$?
+          gremlins unleash "$scan" -E "$excl" "${coef_flag[@]}" --output "mutation-report-${{ matrix.shard }}.json" || EXIT=$?
           # gremlins exits non-zero on a surviving mutant, so the status above is
           # captured rather than propagated. The report is what distinguishes a
           # shard that measured and found survivors from one whose coverage
@@ -477,6 +482,8 @@ jobs:
     # below, so a real score regression does not read as a broken environment.
     outputs:
       regression: ${{ steps.summarize.outputs.regression }}
+      complete: ${{ steps.status.outputs.complete }}
+      incomplete-legs: ${{ steps.status.outputs.incomplete-legs }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -502,29 +509,50 @@ jobs:
           ./scripts/mutation-status-build.sh artifacts mutation-status.json
           jq . mutation-status.json
           echo "complete=$(jq -r '.complete' mutation-status.json)" >> "$GITHUB_OUTPUT"
+          # Which legs finished, so a night where one language flaked still
+          # publishes the others' scores and still checks them for regressions.
+          # One boolean over fifty-three shards threw all three away: on six of
+          # the last ten red nights the failing leg was Go alone.
+          for language in rust go web; do
+            echo "$language=$(jq -r --arg l "$language" '.complete_by_language[$l]' mutation-status.json)" >> "$GITHUB_OUTPUT"
+          done
+          complete_legs="$(jq -r '[.complete_by_language | to_entries[] | select(.value) | .key] | join(" ")' mutation-status.json)"
+          incomplete_legs="$(jq -r '[.complete_by_language | to_entries[] | select(.value | not) | .key] | join(" ")' mutation-status.json)"
+          echo "complete-legs=$complete_legs" >> "$GITHUB_OUTPUT"
+          echo "incomplete-legs=$incomplete_legs" >> "$GITHUB_OUTPUT"
 
       - name: Place artifacts at canonical input paths
-        if: steps.status.outputs.complete == 'true'
+        if: steps.status.outputs.rust == 'true' || steps.status.outputs.go == 'true' || steps.status.outputs.web == 'true'
         run: |
           set -euo pipefail
           # The artifact directory layout is artifacts/mutation-<lang|shard>/...
           # Status validation has already proved the complete expected set. Merge
           # exactly that set into the canonical language inputs.
           . scripts/lib/mutation-shards.sh
-          rust_expected=()
-          for shard in $(mutation_rust_shards); do
-            rust_expected+=("artifacts/mutation-$shard/agent/mutants.out/outcomes.json")
-          done
-          mkdir -p agent/mutants.out
-          ./scripts/mutation-merge-rust.sh agent/mutants.out/outcomes.json "${rust_expected[@]}"
-          expected=()
-          for shard in $(mutation_go_shards); do
-            expected+=("artifacts/mutation-$shard/server/mutation-report-$shard.json")
-          done
-          mkdir -p server
-          ./scripts/mutation-merge-go.sh server/mutation-report.json "${expected[@]}"
-          mkdir -p web/reports
-          mv artifacts/mutation-web/web/reports/mutation web/reports/mutation
+          # Each merge runs only where that leg's own shards are all present.
+          # Merging a leg that is short a shard would produce a score over the
+          # shards that happened to finish, which is a smaller number nothing
+          # marks as partial.
+          if [ "${{ steps.status.outputs.rust }}" = "true" ]; then
+            rust_expected=()
+            for shard in $(mutation_rust_shards); do
+              rust_expected+=("artifacts/mutation-$shard/agent/mutants.out/outcomes.json")
+            done
+            mkdir -p agent/mutants.out
+            ./scripts/mutation-merge-rust.sh agent/mutants.out/outcomes.json "${rust_expected[@]}"
+          fi
+          if [ "${{ steps.status.outputs.go }}" = "true" ]; then
+            expected=()
+            for shard in $(mutation_go_shards); do
+              expected+=("artifacts/mutation-$shard/server/mutation-report-$shard.json")
+            done
+            mkdir -p server
+            ./scripts/mutation-merge-go.sh server/mutation-report.json "${expected[@]}"
+          fi
+          if [ "${{ steps.status.outputs.web }}" = "true" ]; then
+            mkdir -p web/reports
+            mv artifacts/mutation-web/web/reports/mutation web/reports/mutation
+          fi
 
       - name: Upload mutation run status
         if: always()
@@ -555,7 +583,7 @@ jobs:
           fi
 
       - name: Restore baseline from VM
-        if: steps.status.outputs.complete == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: steps.status.outputs.complete-legs != '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           VM_EXCLUDE_COMMIT: ${{ github.sha }}
         run: |
@@ -566,17 +594,32 @@ jobs:
             rm -f mutation-baseline.jsonl
           fi
 
-      - name: Fail incomplete mutation run
-        if: steps.status.outputs.complete != 'true'
+      # A night where every leg is short is a night with nothing to publish, and
+      # that is still a failure here. A night where one leg is short is not: the
+      # legs that finished have scores worth storing and regressions worth
+      # checking, and throwing them away was a detection gap rather than only
+      # waste — a Rust regression could not be seen on any night Go flaked.
+      #
+      # The run still goes red. That is the gate job's, below, which reads the
+      # whole-run `complete` and is unchanged; what moved is only that the
+      # complete legs are published before it does.
+      - name: Fail a mutation run with no complete leg
+        if: steps.status.outputs.complete-legs == ''
         run: |
-          echo "::error::Mutation artifact set is incomplete or invalid; see mutation-run-status. No canonical score row was produced."
+          echo "::error::Every mutation leg is incomplete or invalid; see mutation-run-status. No canonical score row was produced."
           exit 2
+
+      - name: Note the legs that did not complete
+        if: steps.status.outputs.complete-legs != '' && steps.status.outputs.incomplete-legs != ''
+        run: |
+          echo "::warning::These mutation legs did not complete and carry no score tonight: ${{ steps.status.outputs.incomplete-legs }}. The run is published for the rest and the gate job fails it."
 
       - name: Summarize + regression check (canonical row to stdout)
         id: summarize
-        if: steps.status.outputs.complete == 'true'
+        if: steps.status.outputs.complete-legs != ''
         env:
           GITHUB_SHA: ${{ github.sha }}
+          MUTATION_LANGUAGES: ${{ steps.status.outputs.complete-legs }}
         # Run the summarize script (APPEND unset → no on-disk history file
         # written; trend data lives in VictoriaMetrics). Capture the canonical row and
         # any REGRESSION_ALERT lines for downstream steps. Script exits 1 on
@@ -627,7 +670,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload canonical row as artifact
-        if: steps.status.outputs.complete == 'true'
+        if: steps.status.outputs.complete-legs != ''
         uses: actions/upload-artifact@v7
         with:
           name: mutation-canonical-row
@@ -636,10 +679,11 @@ jobs:
           if-no-files-found: error
 
       - name: Push to VictoriaMetrics
-        if: steps.status.outputs.complete == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: steps.status.outputs.complete-legs != '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: ./scripts/mutation-vm-push.sh canonical-row.json
 
       - name: Write GITHUB_STEP_SUMMARY
+        if: steps.status.outputs.complete-legs != ''
         run: |
           {
             echo "# Mutation testing run"
@@ -654,12 +698,12 @@ jobs:
             echo "## Per-language scores"
             echo "| Lang | Killed | Survived | NoCov | Score |"
             echo "|---|---|---|---|---|"
-            for L in rust go web; do
-              jq -r --arg l "$L" '
-                .scores[$l] as $r
-                | "| \($l) | \($r.killed) | \($r.survived) | \($r.no_coverage // "—") | \($r.score_pct)% |"
-              ' canonical-row.json
-            done
+            # Only the legs the row carries. A leg that did not run has no score,
+            # and printing it as a row of dashes reads as a measurement.
+            jq -r '
+              .scores | to_entries[]
+              | "| \(.key) | \(.value.killed) | \(.value.survived) | \(.value.no_coverage // "—") | \(.value.score_pct)% |"
+            ' canonical-row.json
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Telegram alert on regression
@@ -741,6 +785,14 @@ jobs:
         run: |
           if [ "${{ needs.publish.result }}" != "success" ]; then
             echo "::error::Mutation results were not published; see the publish job."
+            exit 1
+          fi
+          # An incomplete night is still a red night. What changed is only that
+          # the legs that did finish were published and checked before this ran:
+          # the scores are in the trend and a regression in one of them is
+          # reported, rather than being discarded because another leg flaked.
+          if [ "${{ needs.publish.outputs.complete }}" != "true" ]; then
+            echo "::error::Mutation legs incomplete tonight: ${{ needs.publish.outputs.incomplete-legs }}. The complete legs were published; this run is red for the ones that were not."
             exit 1
           fi
           if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then

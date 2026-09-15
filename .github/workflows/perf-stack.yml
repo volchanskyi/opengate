@@ -302,13 +302,33 @@ jobs:
           mkdir -p "$PERF_BUNDLE_DIR"
           echo "PERF_BASELINE_BYTES=$(bash scripts/perf-weigh-fixture.sh baseline)" >>"$GITHUB_ENV"
 
+      - name: Install k6
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
+
       # Everything a fleet is made of goes through the same interface a
       # technician uses. The stack starts empty, so the first account the server
       # sees becomes its administrator — which is how a fresh install bootstraps.
+      #
+      # The technician load runs beside the fleet, from the profile, so the
+      # sweep holds it constant while it varies how much data is already there.
+      # Reading is what more data slows, and the only reader this family had was
+      # machines arriving — whose cost barely moves with the size of the fleet
+      # already in the database. So the sweep varied its own variable against a
+      # load that could not feel it, which is why three legs a night differing
+      # by sixteen times the machines returned registration tails inside a
+      # hundred milliseconds of each other.
       - name: Run the volume profile, building its fleet first
         run: |
           set -euo pipefail
+          mkdir -p "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline &
+          K6_LEG=$!
           # The harness's own exit code, read rather than acted on: 1 is a fleet
           # that half arrived, which is a measurement. What judges it is the
           # verdict step below, and failing here on the count is a second
@@ -335,24 +355,40 @@ jobs:
               -bundle="$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}"
           walk=$?
           set -e
+          wait "$K6_LEG"
           if [ "$walk" -gt 1 ]; then
             echo "::error::the harness did not complete a run (exit $walk)." >&2
             exit "$walk"
           fi
         env:
+          LOADTEST_BASE_URL: http://127.0.0.1:8080
+          LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-volume${{ matrix.agents }}
+          LOADTEST_PROFILE: ${{ matrix.path }}
+          LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
+          K6_BIN: /tmp/k6
           # The stack is created by this job and thrown away at the end of it, is
           # reachable only from inside the runner, and holds nothing but the
           # fleet this run invented. The password is generated per run all the
           # same, so nothing fixed is ever written down.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
 
+      # The technician numbers are timed by a generator in another process and
+      # written to a file of its own. Folding them into the leg is what gives
+      # them a reader: the curve is built from the bundles, and a measurement
+      # nobody reads is a run that happens to share a profile.
+      - name: Fold the technician journeys into the leg
+        run: |
+          set -euo pipefail
+          scripts/loadtest-bundle-merge.sh \
+            "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" \
+            --journeys /tmp/perf-k6/api-baseline.json
+
       - name: Read the verdict the run wrote about itself
         if: always()
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json"
 
       # And the numbers the profile says this leg is judged by, read off the run's
-      # own evidence — this venue produces no browser-side export to join, which
-      # is why every limit these profiles declare had gone unread.
+      # own evidence.
       - name: Read the profile's limits against the run's own rows
         if: always()
         run: |
@@ -390,6 +426,39 @@ jobs:
           path: ${{ env.PERF_BUNDLE_DIR }}
           if-no-files-found: error
           retention-days: 90
+
+  # The volume family's legs, read together.
+  #
+  # Whether the system slows down as an estate grows is a comparison between the
+  # legs and is nowhere inside any one of them, so three bundles a night with no
+  # step reading them together is three runs that happen to share a profile.
+  #
+  # What it enforces is the sweep's ability to answer that question: legs that
+  # held different amounts of data, each weighed, each offered the technician
+  # load the family holds constant. The shape itself is published rather than
+  # gated — one night is one sample per leg, and a larger estate coming back
+  # faster is a reading worth having rather than a fault.
+  volume-curve:
+    name: Volume family, read together
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: volume
+    # Every leg that ran is worth reading, including on a night one of them
+    # failed — a hole in the curve is itself the finding, and the script says so.
+    if: always()
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Collect every leg of the sweep
+        uses: actions/download-artifact@v8
+        with:
+          pattern: perf-volume-*
+          path: perf-legs
+
+      - name: Publish the curve, and refuse a sweep that measured nothing
+        run: |
+          set -euo pipefail
+          scripts/perf-volume-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The three shapes an estate actually takes, none of which the everyday run
   # produces: the busiest ordinary morning, a site whose link came back, and the

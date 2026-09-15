@@ -39,8 +39,12 @@ safety:
   max_error_rate: 0.01
 
 gates:
-  # This family runs on a throwaway machine with no browser-side generator on
-  # it, so a limit naming a browser-side measurement could never be read here.
+  # What judges a leg here is the evidence bundle, and a bundle states the
+  # machine side: a limit naming a browser-side measurement would be held
+  # against a row the reader does not produce. The technician load that runs
+  # beside the fleet is folded into the bundle all the same, and read by the
+  # curve that puts the legs side by side — which is where an estate slowing
+  # reads down is visible at all.
   #
   # The write path is what more data slows, and registration is the write this
   # venue times — the server's own figure, taken where the device row lands
