@@ -90,7 +90,8 @@ run_rows() {
 # --- what the reader produces ------------------------------------------------
 
 bundle_observing "$WORK/full.json" \
-  aggregate_error_rate 0.004 connect_p95_ms 41 handshake_p95_ms 12 register_p95_ms 23.45
+  aggregate_error_rate 0.004 connect_p95_ms 41 handshake_p95_ms 12 \
+  register_p50_ms 8.1 register_p95_ms 23.45
 run_rows "$WORK/full.json"
 assert_eq "a bundle carrying every series is read" "0" "$STATUS"
 
@@ -104,6 +105,12 @@ assert_eq "the aggregate error rate is read off the bundle" "0.004" \
   "$(jq -r '.[] | select(.phase == "aggregate") | .error_rate' <<<"$OUT")"
 assert_eq "registration is read off the bundle" "23.45" \
   "$(jq -r '.[] | select(.phase == "register") | .latency_p95_ms' <<<"$OUT")"
+# Both halves of it. The tail and the middle case answer different questions
+# about the same queue, and where a venue is driven to what it has been shown to
+# hold only the middle case reproduces — so a profile that can name only the
+# tail there has nothing left it can hold the write path to.
+assert_eq "so is its middle case" "8.1" \
+  "$(jq -r '.[] | select(.phase == "register") | .latency_p50_ms' <<<"$OUT")"
 assert_eq "every row names the machine side" "quic quic-agents" \
   "$(jq -r '[.[] | .source] + [.[] | .scenario] | unique | join(" ")' <<<"$OUT")"
 

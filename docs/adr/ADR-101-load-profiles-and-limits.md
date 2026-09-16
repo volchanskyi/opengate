@@ -55,6 +55,19 @@ hold, not the write path. A limit inherited across that change is a limit on an
 experiment that is no longer being run, and it says nothing about the one that
 is.
 
+**At a venue's ceiling the tail is the queue, so what is held there is the
+middle case.** The two are readings of one operation and they separate as the
+target runs out of processor: at 87 per cent of one, two valid runs an hour
+apart under identical load read tails of 5,773 and 9,443 ms — with the second's
+99th reaching the histogram's last boundary, where a reading stops being a
+measurement — while their middle cases read 239 and 255, beside a 220 from a
+third. Nothing about the server moved between them. A ceiling wide enough not to
+fire on the tail's spread is one that cannot fire on anything, so the tail is
+declared ungated with that reason and the middle case carries the limit. What
+the leg still owes at that ceiling is that its machines arrive, which its
+aggregate holds at nought, and the shape across the family's legs is what the
+family is for.
+
 **A technician-side figure travels as an offer, never as an achievement**, until
 something on that side measures it.
 

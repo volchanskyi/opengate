@@ -371,6 +371,13 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, error
 	if in.Registration != nil && in.Registration.Measured() {
 		observations = append(observations,
 			Observation{At: at, Series: "register_p95_ms", Value: in.Registration.QuantileMs(0.95)},
+			// The middle case beside the tail. They answer different questions
+			// about the same queue, and where the venue is driven to what it
+			// has been shown to hold only one of them reproduces: two runs an
+			// hour apart under identical load read tails of 5,773 and 9,443 ms
+			// with middle cases of 239 and 255. The tail there is the queue;
+			// the middle case is the write.
+			Observation{At: at, Series: "register_p50_ms", Value: in.Registration.QuantileMs(0.50)},
 			Observation{At: at, Series: "register_mean_ms", Value: in.Registration.MeanMs()},
 			Observation{At: at, Series: "register_rejected", Value: float64(in.Registration.Rejected)},
 			Observation{At: at, Series: "db_pool_in_use", Value: in.Registration.PoolInUse},
