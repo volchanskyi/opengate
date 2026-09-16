@@ -58,7 +58,7 @@ leg() {
     --argjson bytes "$bytes" \
     --arg journey "$journey" \
     '{
-      schema_version: 10,
+      schema_version: 11,
       fixture: { devices: $devices, database_bytes: $bytes },
       observations: [ { series: "register_p95_ms", value: $register } ],
       journeys: (if $journey == "" then []

@@ -94,8 +94,9 @@ halves of presence are reported per connection while the run's tally of arrivals
 stays once-only — a machine that flapped twenty times arrived once. Counting an
 absent machine published a level that included machines attached to nothing, and
 the server, counting what was attached, disagreed by exactly them: 46 of 1,959
-on the quarter-processor rung and 57 of 7,947 on the volume family's largest. The target works its count out
-where its page is read rather than copying it in on a timer
+on the quarter-processor rung and 57 of 7,947 on the volume family's largest.
+The target works its count out where its page is read rather than copying it in
+on a timer
 ([ADR-076](ADR-076-platform-metrics.md)): a copy refreshed every five seconds
 answers with the fleet of five seconds ago, which on a climb is short by the
 arrival rate times the interval — eight machines at 1.7 arrivals a second,
@@ -106,6 +107,26 @@ machines the fleet recorded leaving in between. There is no tolerance beyond
 that, and deliberately none: a share of the fleet cannot express a quantity that
 has nothing to do with fleet size, and one wide enough to swallow it is wide
 enough to swallow the finding.
+
+**What neither end can remove, the run waits out.** A third delay sits under
+both of those and belongs to neither: a machine has dialled, handshaken and
+asked to register before the target has put it in the map it keeps the count in,
+and between those two moments the target reads that machine's customer and its
+name out of the database. So the run's count leads the target's by the arrival
+rate times those reads — exactly nothing
+on a phase that offers no arrivals, and 63 of 7,946 and 56 of 1,947 on climbing
+ones against saturated targets, with nothing failing, nothing severed and
+nothing leaving. Those machines were connections the target was holding: the
+goroutine count taken in the same read agreed with the run rather than with the
+target. A target that is merely behind catches up the moment the run stops
+offering arrivals, so the run holds still until it does — asking again on an
+interval until the target accounts for the fleet, for up to thirty seconds,
+which clears the widest arrival the target has a histogram bucket for three
+times over. The floor it waits for falls as machines leave, so a fleet shrinking
+under the question is not waited on for a catch-up that can never come. This
+widens nothing: a target that was never holding the fleet does not catch up, and
+the phase publishes what it last said. What the phase gains is a reading nothing
+else here produces — how far behind its own arrivals the target was.
 
 **The share of a fleet that did not get in divides by the machines that asked.**
 Those are the machine-lives the run produced, less the ones it stood down

@@ -89,7 +89,18 @@ import (
 // phase now says what the run was holding before it asked and what left before
 // the answer came back, and those two are the whole of what the counts are
 // allowed to differ by.
-const bundleSchemaVersion = 10
+//
+// Version 11 carries how long the target took to account for that fleet. The
+// bracket above closed the two delays the run and the target each kept, and a
+// third was left underneath both: a machine has handshaken and asked to
+// register before the target has put it in the map it counts, and the target
+// reads that machine's customer and its name out of the database in between. On
+// 2026-09-16 that refused a phase holding 7,946 machines for a target holding
+// 7,883 and one holding 1,947 for a target holding 1,891, with nothing failing,
+// nothing severed and nothing leaving. The run holds still for it rather than
+// allowing for it, and a phase now says how long it held — which is a reading of
+// how far behind its own arrivals the target was.
+const bundleSchemaVersion = 11
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -229,6 +240,18 @@ type PhaseResult struct {
 	// say — a target loaded until it stopped answering, or one that keeps no
 	// count of its fleet.
 	TargetCensusAbsent string `json:"target_census_absent,omitempty"`
+
+	// TargetCensusWaitedMs is how long the run held still while the target
+	// admitted machines it had already accepted.
+	//
+	// A machine has dialled, handshaken and asked to register before the target
+	// has put it in the map it counts, so the run's count leads the target's by
+	// the database reads that admission takes. The run waits that out rather than
+	// allowing for it, and the wait is worth recording on its own: it is a
+	// reading of how far behind its own fleet the target was, which nothing else
+	// here produces.
+	// Nought is the healthy answer and the one every leg with room gives.
+	TargetCensusWaitedMs float64 `json:"target_census_waited_ms,omitempty"`
 
 	// The two terms that say how far apart the counts are allowed to be.
 	//

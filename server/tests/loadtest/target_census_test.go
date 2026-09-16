@@ -2,10 +2,16 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// askedOnce is the clock a case that is about one reading hands the census.
+// These cases are about what one answer carries; what a census does with a
+// target that is behind is target_census_settle_test.go's subject.
+func askedOnce() Clock { return &testClock{now: time.Unix(1_800_000_000, 0)} }
 
 // What the target says it is holding, taken where a phase closes.
 //
@@ -26,14 +32,14 @@ func censusReading(page string) TargetCensus {
 func TestACensusCarriesBothOfTheTargetsCounts(t *testing.T) {
 	t.Parallel()
 
-	agents, goroutines, absent := censusReading(
-		targetPageHolding("1530", "3.6083e+08", "18", "1.7566e+09", "500")).Take()
+	reading := censusReading(
+		targetPageHolding("1530", "3.6083e+08", "18", "1.7566e+09", "500")).Take(holding(500), askedOnce())
 
-	assert.Empty(t, absent, "a reading that was taken accounts for no absence")
-	require.NotNil(t, agents)
-	require.NotNil(t, goroutines)
-	assert.Equal(t, 500, *agents)
-	assert.Equal(t, 1530.0, *goroutines)
+	assert.Empty(t, reading.Absent, "a reading that was taken accounts for no absence")
+	require.NotNil(t, reading.Agents)
+	require.NotNil(t, reading.Goroutines)
+	assert.Equal(t, 500, *reading.Agents)
+	assert.Equal(t, 1530.0, *reading.Goroutines)
 }
 
 // A target loaded until it stops answering is the finding a capacity ladder
@@ -41,11 +47,11 @@ func TestACensusCarriesBothOfTheTargetsCounts(t *testing.T) {
 func TestACensusOfASilentTargetIsAnAccountedAbsence(t *testing.T) {
 	t.Parallel()
 
-	agents, goroutines, absent := censusReading("<!doctype html><html><body>not an exposition</body></html>").Take()
+	reading := censusReading("<!doctype html><html><body>not an exposition</body></html>").Take(holding(500), askedOnce())
 
-	assert.Nil(t, agents)
-	assert.Nil(t, goroutines)
-	assert.Equal(t, censusAbsentTargetSilent, absent)
+	assert.Nil(t, reading.Agents)
+	assert.Nil(t, reading.Goroutines)
+	assert.Equal(t, censusAbsentTargetSilent, reading.Absent)
 }
 
 // The page answered and carries no count of the fleet. That is a different fact
@@ -53,12 +59,12 @@ func TestACensusOfASilentTargetIsAnAccountedAbsence(t *testing.T) {
 func TestACensusOfATargetThatPublishesNoFleetCountSaysSo(t *testing.T) {
 	t.Parallel()
 
-	agents, goroutines, absent := censusReading(
-		targetPageWithoutFleetCount("1530", "3.6083e+08", "18", "1.7566e+09")).Take()
+	reading := censusReading(
+		targetPageWithoutFleetCount("1530", "3.6083e+08", "18", "1.7566e+09")).Take(holding(500), askedOnce())
 
-	assert.Nil(t, agents)
-	assert.Nil(t, goroutines)
-	assert.Equal(t, censusAbsentNoFleetCount, absent)
+	assert.Nil(t, reading.Agents)
+	assert.Nil(t, reading.Goroutines)
+	assert.Equal(t, censusAbsentNoFleetCount, reading.Absent)
 }
 
 // A run pointed at no target asked nothing, so there is no absence to account
@@ -66,9 +72,9 @@ func TestACensusOfATargetThatPublishesNoFleetCountSaysSo(t *testing.T) {
 func TestACensusWithNoTargetToReadAccountsForNothing(t *testing.T) {
 	t.Parallel()
 
-	agents, goroutines, absent := TargetCensus{}.Take()
+	reading := TargetCensus{}.Take(holding(500), askedOnce())
 
-	assert.Nil(t, agents)
-	assert.Nil(t, goroutines)
-	assert.Empty(t, absent, "where there was no question there is no unanswered one")
+	assert.Nil(t, reading.Agents)
+	assert.Nil(t, reading.Goroutines)
+	assert.Empty(t, reading.Absent, "where there was no question there is no unanswered one")
 }
