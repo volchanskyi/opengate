@@ -54,12 +54,23 @@ rows_from() {
         # Registration is the server figure, and a run the server did not answer
         # has none. The row is absent rather than nought, which is what lets the
         # limits on it fail the night instead of passing against a zero.
+        #
+        # The tail and the middle case travel together because they answer
+        # different questions about the same queue. Where a venue is driven to
+        # the largest fleet it has been shown to hold, two runs an hour apart
+        # under identical load read tails of 5,773 and 9,443 ms with middle
+        # cases of 239 and 255 — the tail there is the queue and only the middle
+        # case is the write, so a leg that can name only the tail has nothing it
+        # can hold the write path to.
         (if $value.register_p95_ms == null then empty
-         else ($base + {phase: "register", latency_p95_ms: $value.register_p95_ms})
+         else ($base + {phase: "register",
+                        latency_p95_ms: $value.register_p95_ms}
+                     + (if $value.register_p50_ms == null then {}
+                        else {latency_p50_ms: $value.register_p50_ms} end))
          end)
       ]
     | map(select(
-        (.error_rate != null) or (.latency_p95_ms != null)
+        (.error_rate != null) or (.latency_p50_ms != null) or (.latency_p95_ms != null)
       ))
   ' "$1"
 }

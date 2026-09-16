@@ -111,6 +111,13 @@ func TestABundleCarriesTheServersOwnRegistrationFigure(t *testing.T) {
 	bundle := buildRunBundle(in)
 	series := observedSeries(bundle)
 	assert.True(t, series["register_p95_ms"])
+	// And the middle case beside the tail, because they answer different
+	// questions about the same queue and only one of them reproduces where the
+	// venue is driven hard. At the largest fleet the throwaway stack has been
+	// shown to hold, two runs an hour apart under identical load read tails of
+	// 5,773 and 9,443 ms while their middle cases read 239 and 255 — so the
+	// tail there is the queue and the middle case is the write.
+	assert.True(t, series["register_p50_ms"])
 	// The pool travels beside it: a registration queued behind a connection and
 	// one executing slowly are the same latency until the pool says which.
 	assert.True(t, series["db_pool_in_use"])

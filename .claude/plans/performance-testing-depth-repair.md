@@ -152,11 +152,21 @@ underneath both that belongs to neither end.
    the same technician load and read 6.5 and 5.0 ms, so the step is the venue at
    the top of a sweep driven to what it has been shown to hold rather than the
    write path — and what that ceiling still owes, that the machines arrive, the
-   night met at 7,994 of 8,000 with no failures. The ceiling now sits between
-   the widest of the four readings and the histogram's last boundary, with the
-   readings beside it, and [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md)
-   carries the rule the two halves of: a limit is bracketed by nights of the
-   load its leg offers, and a leg whose load changes re-earns its limits.
+   nights met at 7,994 and 7,986 of 8,000 with no failures.
+
+   A ceiling set between those four readings and the histogram's boundary was
+   the wrong answer, and the next run said so: 9,443 ms, with the 99th at
+   10,000 exactly, which is the boundary rather than a measurement. Two valid
+   runs an hour apart under identical load, nothing about the server moved
+   between them. So the tail at this fleet is the queue and does not reproduce,
+   while the middle case does — 220, 239 and 255 ms across the same runs. The
+   middle case carries the limit at 500 ms, the tail is declared ungated with
+   that reason, and the bundle publishes the middle case for the first time:
+   the reader had only ever emitted the tail, so a leg whose tail had stopped
+   meaning anything had nothing left it could hold the write path to.
+   [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md) carries both
+   rules — a limit is bracketed by nights of the load its leg offers, and at a
+   venue's ceiling what is held is the middle case.
 
 
 **F8 — five faults between the families and a green night, found 2026-09-11.**
