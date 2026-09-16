@@ -72,11 +72,13 @@ jobs:
           workspaces: agent
       - uses: taiki-e/install-action@0758d235715de2f3551eacc980d9ae8fce9342c3 # v2
         with:
-          tool: cargo-nextest
+          # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
+          # released this morning.
+          tool: cargo-nextest@0.9.129
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@0758d235715de2f3551eacc980d9ae8fce9342c3 # v2 — newer pin requires explicit tool input
         with:
-          tool: cargo-llvm-cov
+          tool: cargo-llvm-cov@0.8.5
       # The instrumented run is the canonical execution of the workspace suite:
       # it reports pass/fail AND produces lcov.info, so the workspace is compiled
       # and executed once rather than once bare and once under instrumentation.

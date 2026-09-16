@@ -118,7 +118,7 @@ shell-test:
 shell-quality: shell-check shell-test
 
 lint-deploy:
-	@command -v yamllint >/dev/null 2>&1 || { echo "ERROR: yamllint not found. Install with: pip install yamllint"; exit 1; }
+	@bash scripts/require-tool.sh yamllint
 	yamllint -c .yamllint.yml deploy/
 	@$(MAKE) secrets-scan
 	@$(MAKE) lint-dockerfile
@@ -207,7 +207,7 @@ secrets-scan:
 # L4 — Built-in policy scanning (Checkov, 4 frameworks; secrets framework is
 # disabled because gitleaks already owns that surface — see .checkov.yaml).
 iac-policy:
-	@command -v checkov >/dev/null 2>&1 || { echo "ERROR: checkov not found. Install: pipx install checkov"; exit 1; }
+	@bash scripts/require-tool.sh checkov
 	@# The `helm` framework renders deploy/helm/** charts before scanning.
 	@command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found (required by Checkov's helm framework). Install from: https://helm.sh/docs/intro/install/"; exit 1; }
 	checkov --config-file .checkov.yaml
@@ -389,7 +389,7 @@ clean:
 mutate: mutate-rust mutate-go mutate-web
 
 mutate-rust:
-	@command -v cargo-mutants >/dev/null 2>&1 || { echo "ERROR: cargo-mutants not found. Install with: cargo install cargo-mutants"; exit 1; }
+	@bash scripts/require-tool.sh cargo-mutants
 	@# Run the same scope shards as CI (scripts/lib/mutation-shards.sh): each
 	@# shard mutates one package restricted to its files, then merge into one
 	@# report — mirrors .github/workflows/mutation.yml.
@@ -446,13 +446,13 @@ FUZZ_RUNS ?= 100000
 # the prebuilt std is always present, regardless of how cargo-fuzz was installed.
 FUZZ_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
 fuzz-rust:
-	@command -v cargo-fuzz >/dev/null 2>&1 || { echo "ERROR: cargo-fuzz not found. Install with: cargo install cargo-fuzz"; exit 1; }
+	@bash scripts/require-tool.sh cargo-fuzz
 	@rustup toolchain list | grep -q '^nightly' || { echo "ERROR: nightly toolchain not found. Install with: rustup toolchain install nightly"; exit 1; }
 	cd agent/fuzz && cargo +nightly fuzz run --target $(FUZZ_TARGET) decode -- -runs=$(FUZZ_RUNS)
 
 # Static taint linting — catches data-flow paths from sources to sinks.
 taint-go:
-	@command -v gosec >/dev/null 2>&1 || { echo "ERROR: gosec not found. Install with: go install github.com/securego/gosec/v2/cmd/gosec@latest"; exit 1; }
+	@bash scripts/require-tool.sh gosec
 	cd server && gosec -conf .gosec.json ./...
 
 taint-web:
@@ -467,7 +467,7 @@ pentest-review:
 
 # Dead-code & unused-symbol sweep across all three languages.
 dead-code:
-	@command -v staticcheck >/dev/null 2>&1 || { echo "ERROR: staticcheck not found. Install with: go install honnef.co/go/tools/cmd/staticcheck@latest"; exit 1; }
+	@bash scripts/require-tool.sh staticcheck
 	cd agent && cargo clippy --workspace --all-targets -- -W dead_code
 	cd server && staticcheck -checks U1000 ./...
 	cd web && npx ts-prune -p tsconfig.app.json -i 'src/types/api\.d\.ts'

@@ -86,15 +86,19 @@ check_tool() { # KEY, human name, pattern with %s where the version goes
     return
   fi
   checked_tools=$((checked_tools + 1))
-  # Every line mentioning the tool in a version-carrying position.
-  found="$(grep -rhE "$pattern" "$WORKFLOWS" || true)"
+  # Every line mentioning the tool in a version-carrying position, wherever it
+  # is written: a workflow, the Makefile, or an install script.
+  found="$(grep -rhE "$pattern" "$WORKFLOWS" "$ROOT/Makefile" "$ROOT"/scripts/*.sh || true)"
   if [ -z "$found" ]; then
-    fail "$name: the manifest pins $want but no workflow names it — stale row or renamed step"
+    fail "$name: the manifest pins $want but nothing names it — stale row or renamed step"
     return
   fi
-  bad="$(grep -vF "$want" <<<"$found" || true)"
+  # A line that reads the manifest instead of repeating its number has nothing
+  # to drift: it is the same guarantee, made by construction rather than by a
+  # sweep. scripts/require-tool.sh builds every workstation install that way.
+  bad="$(grep -vF "$want" <<<"$found" | grep -vF "TOOL_VERSION_$key" || true)"
   if [ -n "$bad" ]; then
-    fail "$name: pinned at $want, but a workflow says otherwise:$(printf ' [%s]' "$(head -1 <<<"$bad" | sed 's/^ *//')")"
+    fail "$name: pinned at $want, but an install site says otherwise:$(printf ' [%s]' "$(head -1 <<<"$bad" | sed 's/^ *//')")"
     return
   fi
   pass "$name is $want everywhere it appears"
@@ -118,9 +122,14 @@ check_tool GOVULNCHECK govulncheck 'go install .*govulncheck'
 check_tool GO_ARCH_LINT go-arch-lint 'go install .*go-arch-lint'
 check_tool OAPI_CODEGEN oapi-codegen 'go install .*oapi-codegen'
 check_tool VIEWCORE viewcore 'go install .*viewcore'
+check_tool STATICCHECK staticcheck 'go install .*staticcheck'
+check_tool GOSEC gosec 'go install .*gosec'
+check_tool CARGO_FUZZ cargo-fuzz 'cargo install .*cargo-fuzz|tool: cargo-fuzz'
+check_tool CARGO_NEXTEST cargo-nextest 'tool: cargo-nextest'
+check_tool CARGO_LLVM_COV cargo-llvm-cov 'tool: cargo-llvm-cov'
 
-if [ "$checked_tools" -ge 17 ]; then
-  pass "$checked_tools manifest rows were checked against the workflows"
+if [ "$checked_tools" -ge 22 ]; then
+  pass "$checked_tools manifest rows were checked against every install site"
 else
   fail "only $checked_tools manifest rows were checked — the sweep lost rows"
 fi
@@ -130,6 +139,14 @@ fi
 # The shapes that resolve a version at run time. Each one has been the cause of
 # a build nobody could reproduce, and `cargo install` without a version is the
 # one this repository's own ci-cd-determinism rule already names.
+#
+# Read from the Makefile and the install scripts as well as the workflows,
+# because an install is an install wherever it is written and this sweep could
+# only see one of the three places. The Makefile told six tools to install
+# themselves at whatever version resolved that day, three of them contradicting
+# a version this manifest already pins — and one of those, staticcheck, stopped
+# working outright when the Go it had been built with fell behind the code it
+# analyses, in a gauntlet step whose subject is dead code.
 unpinned=""
 add_unpinned() { unpinned="$unpinned  $1"$'\n'; }
 
@@ -137,14 +154,18 @@ add_unpinned() { unpinned="$unpinned  $1"$'\n'; }
 # --rev sits on the next line is pinned, and a timeout-minutes comment that
 # merely mentions one is not an install at all — both read the other way to a
 # sweep that takes the workflows a raw line at a time.
+install_sources=("$WORKFLOWS"/*.yml "$ROOT/Makefile" "$ROOT"/scripts/install-*.sh)
 install_lines="$(
   awk '
     { line = line $0 }
     /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, "", line); next }
     { sub(/#.*$/, "", line); if (line ~ /[^[:space:]]/) print line; line = "" }
     END { if (line ~ /[^[:space:]]/) { sub(/#.*$/, "", line); print line } }
-  ' "$WORKFLOWS"/*.yml
+  ' "${install_sources[@]}"
 )"
+if [ -z "$install_lines" ]; then
+  fail "the install sweep read nothing at all, so it checked no install"
+fi
 
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -169,8 +190,18 @@ while IFS= read -r line; do
 done < <(grep -E '\-\-git http' <<<"$install_lines" \
   | grep -vE '\-\-rev [0-9a-f]{40}' || true)
 
+# An action that fetches a tool by name resolves the version itself, which is
+# the same decision nobody recorded wearing a different spelling. taiki-e's
+# install-action takes `tool: name@version`; a bare name is the newest release
+# on the morning the job happens to run.
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  add_unpinned "action install with no version: ${line#"${line%%[![:space:]]*}"}"
+done < <(grep -E '^[[:space:]]*tool:[[:space:]]*[A-Za-z]' <<<"$install_lines" \
+  | grep -vE 'tool:[[:space:]]*[^[:space:]]+@' || true)
+
 if [ -n "$unpinned" ]; then
-  fail "a workflow installs a tool without naming its version"
+  fail "something installs a tool without naming its version"
   printf '%s' "$unpinned" >&2
 else
   pass "every workflow install names an exact version"

@@ -44,7 +44,9 @@ jobs:
           workspaces: agent/fuzz
       - uses: taiki-e/install-action@0758d235715de2f3551eacc980d9ae8fce9342c3 # v2
         with:
-          tool: cargo-fuzz
+          # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
+          # released this morning.
+          tool: cargo-fuzz@0.13.2
       - name: Run bounded fuzz session
         working-directory: ${{ github.workspace }}
         run: make fuzz-rust FUZZ_RUNS=${{ github.event.inputs.runs || '5000000' }}
