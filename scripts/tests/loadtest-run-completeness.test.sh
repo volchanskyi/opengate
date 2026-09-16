@@ -86,11 +86,16 @@ assert_eq "an unexpected scenario is invalid" "invalid" "$(jq -r '.result' "$WOR
 assert_eq "an unexpected scenario is named" "ad-hoc" "$(jq -r '.unexpected_scenarios | join(",")' "$WORK/completeness.json")"
 
 # A breached mark is a failure, which is a measurement — the system was measured
-# and it was slow — so it stays in the trend.
+# and it was slow — so it stays in the trend and the night goes red.
+#
+# It went green. The verdict was worked out, written into the record and then
+# returned as nought, so a night that had crossed a limit reported success. Five
+# nights did, and one of them was hiding four registration limits with no
+# measurement behind them at all.
 rows api-baseline concurrent-agents relay-throughput quic-agents
 printf 'api-baseline\n' >"$WORK/k6/api-baseline.thresholds"
 run_check
-assert_eq "a breached mark exits 0" "0" "$STATUS"
+assert_eq "a breached mark exits 4" "4" "$STATUS"
 assert_eq "a breached mark is a failure, not an invalid run" "failed" "$(jq -r '.result' "$WORK/completeness.json")"
 assert_eq "a breached mark is named" "api-baseline" "$(jq -r '.threshold_breaches | join(",")' "$WORK/completeness.json")"
 rm -f "$WORK/k6"/*.thresholds
@@ -174,7 +179,7 @@ fi
 # failed and its rows still enter the trend.
 bundle_verdict failed "target retained 2.00 goroutines per completed operation (ceiling 0.50) across 1200 operations"
 run_check_with_bundle
-assert_eq "a target that kept what it took exits 0" "0" "$STATUS"
+assert_eq "a target that kept what it took exits 4" "4" "$STATUS"
 assert_eq "a target that kept what it took is a failure, not an invalid run" "failed" \
   "$(jq -r '.result' "$WORK/completeness.json")"
 assert_eq "the per-operation figure travels into the record" "1" \
@@ -215,12 +220,19 @@ rows api-baseline concurrent-agents relay-throughput quic-agents
 jq -n '["k6/api-baseline/http latency_p95_ms is 260, past the 200 it is held to"]' >"$WORK/gates.json"
 run_check_with_gates
 assert_eq "a breached limit fails the night" "failed" "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "a breached limit exits 4" "4" "$STATUS"
 assert_eq "and the breach travels with the night" "1" \
   "$(jq '.gate_breaches | length' "$WORK/completeness.json")"
+if grep -q "past the 200 it is held to" "$WORK/err.txt"; then
+  pass "the breach is named on the way out"
+else
+  fail "the breach is named on the way out"
+fi
 
 jq -n '[]' >"$WORK/gates.json"
 run_check_with_gates
 assert_eq "no breach leaves the night valid" "valid" "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "and exits 0" "0" "$STATUS"
 
 # A file nobody wrote is silence rather than a pass. The step that reads the
 # limits fails loudly on its own account; this one has its own reasons to fail a

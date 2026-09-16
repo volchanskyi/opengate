@@ -56,6 +56,39 @@ level in both directions by a sweep, and a bundle it cannot read refuses rather
 than answering with an empty set — an empty set is a night where every limit
 passed for want of anything to compare.
 
+**A limit sits inside the range the generator can drive.** A floor on a rate is
+a statement about the system only where the generator is capable of exceeding
+it; where it is not, it is breached on every run ever taken and says nothing —
+the same shape as a limit on a measurement nothing produces, one field over. The
+relay path was held to five requests a second by a generator holding five
+sessions, each making one request and then waiting a full second: five a second
+is its arithmetic ceiling, reachable only against a server that answers in no
+time. Five nights read 4.926 to 4.935 against a server opening a session in
+4.9 ms. A sweep now computes each session-driven scenario's ceiling from the
+sessions the profile declares, the requests a journey makes and the pause it
+takes, and refuses a floor at or above it; how far underneath a floor sits is a
+judgement about the server, made in the profile with the nights on record beside
+it.
+
+**A night that crossed a limit is red.** A breach is a finding about the system,
+so the night fails and its rows still enter the trend — but the verdict was
+worked out, written into the night's record and then returned as nought, so five
+nights recorded themselves as failed and reported success. One of them was
+carrying four registration limits held against a measurement that came back
+empty on every run ever taken. A failed night now exits on its own code, which
+the workflow passes through, and the reasons are printed as errors rather than
+as warnings nobody reads.
+
+**A limit is read off a run that measured something.** The bundle carries the
+run's verdict beside its numbers, so where the verdict is invalid those numbers
+are readings of something else and the limits over them decide nothing. They are
+still printed — the leg is red on the verdict's account, and a reader who can see
+the figures should say what they were — but a leg whose fleet count had been
+refused reported a registration tail of 4.6 seconds against a limit of 500 ms as
+its headline, on a profile that had read 396 ms the night before. The rows
+reader, the evaluator and that rule are one script the four venues share, so a
+pair spelled out in four workflow steps is not four places to keep level.
+
 **A limit sits inside the range its instrument can report.** Registration timing
 is a bucketed histogram, so a tail past its last finite boundary was never kept
 and is reported at that boundary. The reading is then a floor, which fails a

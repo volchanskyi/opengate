@@ -160,8 +160,8 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          scripts/loadtest-bundle-rows.sh "$SOAK_BUNDLE_DIR/soak/bundle.json" /tmp/soak-rows.json
-          scripts/loadtest-gate-check.sh load/profiles/soak.yaml /tmp/soak-rows.json
+          scripts/perf-bundle-limits.sh load/profiles/soak.yaml \
+            "$SOAK_BUNDLE_DIR/soak/bundle.json" /tmp/soak-rows.json
 
       # What holds what the profiles say grew. The heap profiles name where an
       # object was born; this names what is still pointing at it, which is the

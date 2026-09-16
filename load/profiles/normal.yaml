@@ -176,9 +176,22 @@ gates:
     metric: latency_p99_ms
     max: 1000
     blocking: false
+  # What the generator can offer, less a tenth. This scenario holds the
+  # profile's five sessions open and each makes one request and then waits a
+  # second, so five a second is the arithmetic ceiling and is reachable only
+  # against a server that answers in no time — which is what the floor was set
+  # to, so it was breached on every night ever taken. The nights on record read
+  # 4.926, 4.926, 4.928, 4.932 and 4.935 against a server opening a session in
+  # 4.9 ms and returning a keystroke through the machine in 3.0 ms.
+  #
+  # At 4.5 the journey may cost 111 ms before this fires — fourteen times what
+  # those nights measured, and comfortably inside the 500 ms and 400 ms the two
+  # halves of it are separately held to above. So it says what it is for: the
+  # generator stopped keeping pace, rather than the server got slower, which the
+  # limits beside it already answer.
   - series: k6/relay-throughput/http
     metric: rps
-    min: 5
+    min: 4.5
     blocking: true
   - series: k6/relay-throughput/http
     metric: error_rate

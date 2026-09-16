@@ -14,7 +14,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
-// GaugeSource provides runtime gauge values from application components.
+// GaugeSource is where the three runtime counts come from: the assembled
+// product's own tallies of what it is holding. Each callback is a single read of
+// a value the process already keeps, which is what lets the page ask at the
+// moment it is built. See live_counts.go.
 type GaugeSource struct {
 	ActiveSessions      func() int
 	ConnectedAgents     func() int
@@ -27,11 +30,11 @@ type Metrics struct {
 	HTTPRequestsTotal   *prometheus.CounterVec
 	HTTPRequestDuration *prometheus.HistogramVec
 
-	// Relay
-	RelayActiveSessions prometheus.Gauge
-
-	// Agents
-	AgentsConnected prometheus.Gauge
+	// The counts of what the process is holding right now — relay sessions,
+	// connected agents, connected MPS devices. They are read where the page is
+	// built rather than held here, so what the page says is what is true when
+	// it is asked. See live_counts.go.
+	runtime *runtimeCounts
 
 	// Agent registration, measured server-side where the device row lands.
 	// See registration_pool.go for why the outcome and the duration travel
@@ -44,9 +47,6 @@ type Metrics struct {
 	// server then declines — so the resumed/not-resumed split is taken from the
 	// server's own connection state.
 	AgentTLSHandshakesTotal *prometheus.CounterVec
-
-	// MPS
-	MPSConnectedDevices prometheus.Gauge
 
 	// Audit, by outcome. Every audited action is written, failed or shed, so
 	// the three together answer whether any audit row went missing rather than
@@ -135,6 +135,13 @@ func gauge(name, help string) prometheus.Gauge {
 	})
 }
 
+// desc builds a namespaced descriptor for a collector that renders its own
+// metrics rather than holding one — the runtime counts in live_counts.go, which
+// are read where the page is built.
+func desc(name, help string) *prometheus.Desc {
+	return prometheus.NewDesc(namespace+"_"+name, help, nil, nil)
+}
+
 func gaugeVec(name, help string, labels ...string) *prometheus.GaugeVec {
 	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
@@ -154,14 +161,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			"HTTP request duration in seconds.",
 			prometheus.DefBuckets, "method", "route"),
 
-		RelayActiveSessions: gauge("relay_active_sessions",
-			"Number of active relay sessions."),
-
-		AgentsConnected: gauge("agents_connected",
-			"Number of currently connected agents."),
-
-		MPSConnectedDevices: gauge("mps_connected_devices",
-			"Number of connected MPS (Intel AMT) devices."),
+		runtime: newRuntimeCounts(),
 
 		AuditWritesTotal: counterVec("audit_writes_total",
 			"Audited actions by what became of their row.",
@@ -238,9 +238,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	reg.MustRegister(
 		m.HTTPRequestsTotal,
 		m.HTTPRequestDuration,
-		m.RelayActiveSessions,
-		m.AgentsConnected,
-		m.MPSConnectedDevices,
+		m.runtime,
 		m.AuditWritesTotal,
 		m.DBQueryDuration,
 		m.DBQueriesTotal,
@@ -394,30 +392,6 @@ func NewRegistry() *prometheus.Registry {
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 	return reg
-}
-
-// StartGaugeUpdater periodically updates gauge metrics from the given source.
-// It stops when the context is cancelled.
-func StartGaugeUpdater(ctx context.Context, m *Metrics, src GaugeSource, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	update := func() {
-		m.RelayActiveSessions.Set(float64(src.ActiveSessions()))
-		m.AgentsConnected.Set(float64(src.ConnectedAgents()))
-		m.MPSConnectedDevices.Set(float64(src.ConnectedMPSDevices()))
-	}
-
-	update()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			update()
-		}
-	}
 }
 
 // DBSizer returns the current on-disk database size in bytes.

@@ -19,11 +19,11 @@ func TestFleetReportsWhatArrivedAndWhatDidNot(t *testing.T) {
 
 		require.NoError(t, fleet.HoldConnected(0, 5))
 
-		// Asked for five, two arrived. The count reports what is actually there
-		// rather than what was requested.
-		require.Eventually(t, func() bool { return fleet.Connected() == 2 },
-			2*time.Second, 10*time.Millisecond)
-		assert.Len(t, fleet.Failures(), 3)
+		// Asked for five, three refused at the dial and two arrived. Each half
+		// is waited for on its own: the count of the connected answers the
+		// second and says nothing about the first.
+		awaitFailures(t, fleet, 3)
+		awaitConnected(t, fleet, 2)
 	})
 
 	t.Run("a machine that never arrived is not replaced by another dial", func(t *testing.T) {
@@ -41,9 +41,8 @@ func TestFleetReportsWhatArrivedAndWhatDidNot(t *testing.T) {
 		// milliseconds apart and the refusals land between them.
 		for _, elapsed := range []time.Duration{0, time.Second, 2 * time.Second} {
 			require.NoError(t, fleet.HoldConnected(elapsed, 5))
-			require.Eventually(t, func() bool { return fleet.Connected() == 2 },
-				2*time.Second, 10*time.Millisecond,
-				"three machines were refused at the dial, so two are connected")
+			awaitFailures(t, fleet, 3)
+			awaitConnected(t, fleet, 2)
 		}
 
 		// Reading the level off what is connected makes each of those steps
@@ -66,8 +65,8 @@ func TestFleetReportsWhatArrivedAndWhatDidNot(t *testing.T) {
 		fleet := NewQUICFleet(starter.start)
 
 		require.NoError(t, fleet.HoldConnected(0, 6))
-		require.Eventually(t, func() bool { return fleet.Connected() == 3 },
-			2*time.Second, 10*time.Millisecond)
+		awaitFailures(t, fleet, 3)
+		awaitConnected(t, fleet, 3)
 
 		// Three of the six never arrived, so winding down to three is winding
 		// down the three that never arrived. Keeping them in the level is what

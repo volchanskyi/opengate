@@ -183,9 +183,11 @@ real population before it means anything, is in
 `route` is the registered pattern rather than the requested path, so the label
 stays bounded by the routing table instead of growing with traffic.
 
-The three gauges above are maintained by the paths they describe, so each one
-says its own bookkeeping ran. What says the resource came back is
-[the process itself](#the-process-itself), and the two are read together.
+The three gauges above are read off the process's own tallies where this page is
+built, so each is what it is holding at the instant the page is asked for. They
+are still counts the paths maintain rather than readings of the resource: what
+says the resource came back is [the process itself](#the-process-itself), and the
+two are read together.
 
 ## Audit
 

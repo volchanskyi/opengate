@@ -18,12 +18,12 @@ func TestFleetHoldsTheLevelItIsAskedFor(t *testing.T) {
 		defer fleet.Stop()
 
 		require.NoError(t, fleet.HoldConnected(0, 5))
-		assert.Equal(t, 5, fleet.Connected())
 
-		// Each machine runs on its own, so the fleet's own count is true
-		// immediately and the dialling catches up a moment later.
+		// Each machine runs on its own, so the dialling catches up a moment
+		// later and the fleet is five once all five have arrived.
 		require.Eventually(t, func() bool { return starter.startedCount() == 5 },
 			2*time.Second, 10*time.Millisecond)
+		awaitConnected(t, fleet, 5)
 	})
 
 	t.Run("climbs again without restarting what is already up", func(t *testing.T) {
@@ -33,12 +33,13 @@ func TestFleetHoldsTheLevelItIsAskedFor(t *testing.T) {
 
 		require.NoError(t, fleet.HoldConnected(0, 3))
 		require.NoError(t, fleet.HoldConnected(time.Second, 8))
-		assert.Equal(t, 8, fleet.Connected())
 
 		// Rebuilding the fleet at each step would measure the accept path over
-		// and over and never measure a fleet that is simply there.
+		// and over and never measure a fleet that is simply there: eight were
+		// asked for and eight dialled, not three and then eight more.
 		require.Eventually(t, func() bool { return starter.startedCount() == 8 },
 			2*time.Second, 10*time.Millisecond)
+		awaitConnected(t, fleet, 8)
 	})
 
 	t.Run("holding the level it already holds starts nothing", func(t *testing.T) {
@@ -60,11 +61,15 @@ func TestFleetHoldsTheLevelItIsAskedFor(t *testing.T) {
 		defer fleet.Stop()
 
 		require.NoError(t, fleet.HoldConnected(0, 6))
-		require.NoError(t, fleet.HoldConnected(time.Second, 2))
-		assert.Equal(t, 2, fleet.Connected())
+		awaitConnected(t, fleet, 6)
 
+		require.NoError(t, fleet.HoldConnected(time.Second, 2))
 		require.Eventually(t, func() bool { return starter.stoppedCount() == 4 },
 			2*time.Second, 10*time.Millisecond, "the machines the run closed should have closed")
+		// A machine the run closed has left the connected once its own life has
+		// finished, which is after the dialling side recorded the close — so
+		// this is its own wait rather than a reading taken off that one.
+		awaitConnected(t, fleet, 2)
 	})
 
 	t.Run("stopping ends every machine it started", func(t *testing.T) {

@@ -78,7 +78,18 @@ import (
 // is the one series the profiles hold their machine-side limits to and the one
 // the bundle did not have — so on the venues that produce no browser-side rows,
 // every limit named a measurement that could not be read.
-const bundleSchemaVersion = 9
+//
+// Version 10 brackets that count in time. The target's answer and the run's own
+// were compared as though both described the same instant, and neither did: the
+// run was counting machines it had queued to dial, and the target was copying
+// its count in every five seconds. The shortfall between them was the arrival
+// rate times those two delays, which is a quantity with nothing to do with fleet
+// size — so the share of the fleet standing in for it refused every phase of
+// every family on the first night it ran, a five-hour endurance run included. A
+// phase now says what the run was holding before it asked and what left before
+// the answer came back, and those two are the whole of what the counts are
+// allowed to differ by.
+const bundleSchemaVersion = 10
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -218,6 +229,21 @@ type PhaseResult struct {
 	// say — a target loaded until it stopped answering, or one that keeps no
 	// count of its fleet.
 	TargetCensusAbsent string `json:"target_census_absent,omitempty"`
+
+	// The two terms that say how far apart the counts are allowed to be.
+	//
+	// The run counts its own machines, asks the target, and counts again, so
+	// the target's answer describes an instant between the two. The population
+	// can only shrink by machines leaving, so the fewest it can have been is
+	// the count before the question less what left before the answer — and a
+	// shortfall past that is a fleet the target was not holding rather than a
+	// question that took time.
+	//
+	// Stating both rather than the difference is deliberate: a phase whose
+	// counts disagree has to say which term accounts for it, and a soak that
+	// replaces every machine it loses reports a departure figure all night.
+	ConnectedAgentsBeforeCensus int   `json:"connected_agents_before_census,omitempty"`
+	DeparturesDuringCensus      int64 `json:"departures_during_census,omitempty"`
 
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`

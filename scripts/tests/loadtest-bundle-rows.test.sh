@@ -71,7 +71,7 @@ bundle_observing() {
     shift 2
   done
   jq -n --argjson o "$(printf '%s\n' "${series[@]+"${series[@]}"}" | jq -sc '.')" '{
-    schema_version: 9,
+    schema_version: 10,
     run: {
       id: "quic-agents-1",
       commit: "0b5d1f2c3a4e5d6f7089abcdef0123456789abcd",
@@ -158,13 +158,16 @@ fi
 # --- the sweep ---------------------------------------------------------------
 
 # bundle_judged_profiles — every profile whose limits are read off a bundle: the
-# profiles named by a workflow that runs this reader.
+# profiles named by a workflow that runs this reader. The workflows call it
+# through scripts/perf-bundle-limits.sh, which pairs it with the one evaluator
+# and holds an invalid run's numbers apart from a valid one's, so that is the
+# name a workflow is searched for.
 bundle_judged_profiles() {
   local workflow
   while IFS= read -r workflow; do
     [ -n "$workflow" ] || continue
     grep -oE 'load/profiles/[a-z0-9-]+\.yaml' "$workflow" || true
-  done < <(grep -rlE 'loadtest-bundle-rows\.sh' "$WORKFLOW_DIR" 2>/dev/null || true) | sort -u
+  done < <(grep -rlE 'perf-bundle-limits\.sh' "$WORKFLOW_DIR" 2>/dev/null || true) | sort -u
 }
 
 # A leg that writes an evidence bundle and reads no limits is the state this
@@ -187,7 +190,7 @@ swept=0
 while IFS= read -r workflow; do
   [ -n "$workflow" ] || continue
   swept=$((swept + 1))
-  if grep -qE 'loadtest-bundle-rows\.sh' "$workflow"; then
+  if grep -qE 'perf-bundle-limits\.sh' "$workflow"; then
     pass "$(basename "$workflow") reads its limits off the run's own evidence"
   else
     fail "$(basename "$workflow") writes a bundle and reads no limit at all"

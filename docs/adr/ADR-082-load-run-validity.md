@@ -70,18 +70,36 @@ are the same number, which is why only a night that severed its fleet can show
 the difference.
 
 **A level the harness holds is published beside the target's own count of it.**
-A phase's achieved level is the machines the fleet has not wound down, which is
-bookkeeping the wind-down maintains: it answers whether the wind-down code ran.
-So each phase also carries what the target says it was holding at that instant
-and the goroutines under that count, taken from one reading of the target's own
-page, and a phase whose target was holding materially fewer machines than the
-phase counted did not measure the system at that load. Two counts of one
-population kept by the two ends can disagree; one count cannot. The goroutine
-count bounds them below, because the listener starts one per accepted
-connection — measured at three per machine against twenty-nine at rest — so a
-level with no population behind it is refused even where the target keeps no
-count of its own. A target that could not be asked says so, and the absence
-stands, exactly as the busy-ness reading beside it does.
+A phase's achieved level is the run's own count of the machines that arrived and
+have not ended. That is one end of a conversation: it says the run's bookkeeping
+ran. So each phase also carries what the target says it was holding and the
+goroutines under that count, taken from one reading of the target's own page,
+and a phase whose target was holding fewer machines than the run was did not
+measure the system at that load. Two counts of one population kept by the two
+ends can disagree; one count cannot. The goroutine count bounds them below,
+because the listener starts one per accepted connection — measured at three per
+machine against twenty-nine at rest — so a level with no population behind it is
+refused even where the target keeps no count of its own. A target that could not
+be asked says so, and the absence stands, exactly as the busy-ness reading
+beside it does.
+
+**The two counts are of one population and describe one instant, and what stands
+between them is counted rather than estimated.** Both halves of that had to be
+made true before the rule could say anything. The run counts a machine as
+connected when it has arrived, not when it has been queued to dial: on a
+quarter-processor target where registering took eight seconds, a hundred and
+thirty-seven of two thousand had not arrived. The target works its count out
+where its page is read rather than copying it in on a timer
+([ADR-076](ADR-076-platform-metrics.md)): a copy refreshed every five seconds
+answers with the fleet of five seconds ago, which on a climb is short by the
+arrival rate times the interval — eight machines at 1.7 arrivals a second,
+sixty-four at 13.3, two hundred at 35.2 — while the goroutine count in the same
+read agreed with the run throughout. So the run takes its own count, asks the
+target, and counts again, and what the two are allowed to differ by is the
+machines the fleet recorded leaving in between. There is no tolerance beyond
+that, and deliberately none: a share of the fleet cannot express a quantity that
+has nothing to do with fleet size, and one wide enough to swallow it is wide
+enough to swallow the finding.
 
 **The share of a fleet that did not get in divides by the machines that asked.**
 Those are the machine-lives the run produced, less the ones it stood down

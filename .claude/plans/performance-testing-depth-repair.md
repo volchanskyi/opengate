@@ -36,7 +36,67 @@ reading. Both fold into [ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md)
 and [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md).
 
 **What WS0 still owes is the churn rate**, which needs an endurance run that
-reaches the end. It is the only thing between this plan and its retirement.
+reaches the end. It is the only thing between this plan and its retirement. The
+run of 2026-09-15 reached four hours and forty-four minutes with 2,750 arrivals
+and nothing failing, and was voided at its final step by F13's first fault.
+
+**F13 — the census refused every family on the first night it ran, 2026-09-15.**
+All three families went red, and one gate is behind almost all of it
+([34968860276](https://github.com/volchanskyi/opengate/actions/runs/34968860276),
+[34953772071](https://github.com/volchanskyi/opengate/actions/runs/34953772071),
+[34919207472](https://github.com/volchanskyi/opengate/actions/runs/34919207472)).
+
+1. **Two counts of one population, taken at two different moments.** F12's first
+   item put the target's own count of the fleet beside the run's, with a share of
+   the fleet standing in for the refresh interval. Neither count described the
+   instant the other did. The run counted machines it had queued to dial — a
+   machine joins that list before it dials, handshakes or registers — and the
+   target published a copy of its count refreshed every five seconds. The
+   shortfall is the arrival rate times those two delays, which has nothing to do
+   with fleet size: 8 machines at 1.66 arrivals a second, 8 at 1.66, 15 at 3.33,
+   32 at 6.66, 64 at 13.33 across the ladder's five rungs, and 200 at 35.2 on
+   volume-8000. Divide each by its rate and the answer is a time inside the
+   refresh window on every leg where registering was quick, and above it by about
+   the registration time on the two where it was not. Every phase that offered no
+   arrivals — both drains and the spike's recovery — was short by exactly
+   nothing. The goroutine count taken in the same read, which Go works out when
+   asked, agreed with the run to within a machine throughout: peak's ramp read
+   458 from the copy and 500 from the goroutines.
+
+   Both halves are repaired. The server works the three counts of what it is
+   holding out where its page is read, which is one atomic load apiece and
+   cheaper than the timer it replaces — the boundary
+   [ADR-076](../../docs/adr/ADR-076-platform-metrics.md) draws, on the side it did
+   not have to name, since both its reasons are about running a query. The run
+   counts a machine when it arrives. And the rule reads the target's answer
+   bracketed by the run's own counts either side of it, with what the fleet
+   recorded leaving in between as the whole of the allowance: no share of the
+   fleet at all.
+
+2. **A night that crossed a limit reported success.** The staging nightly's
+   verdict is worked out, written into the night's record and then returned as
+   nought, so `failed` was green. Five nights on record did this, and the one of
+   2026-09-09 was hiding four registration limits held against a measurement that
+   came back empty on every run ever taken. A failed night exits on its own code
+   now and the workflow passes it through.
+
+3. **A floor no server could reach.** What the hole above was hiding on the other
+   four nights: the relay path is held to five requests a second by a generator
+   holding five sessions, each making one request and then waiting a full second.
+   Five a second is its arithmetic ceiling and needs a server that answers in no
+   time; the nights read 4.926 to 4.935 against one opening a session in 4.9 ms
+   and returning a keystroke through the machine in 3.0 ms.
+   [`loadtest-reachable-floor.test.sh`](../../scripts/tests/loadtest-reachable-floor.test.sh)
+   computes each session-driven scenario's ceiling from the profile's sessions,
+   the requests a journey makes and the pause it takes, and refuses a floor at or
+   above it.
+
+4. **A limit read off a run that measured nothing.** volume-8000's headline error
+   was a registration tail of 4.6 seconds against a limit of 500 ms, from a run
+   the verdict two steps earlier had already voided — on a profile that read
+   396 ms the night before. The rows reader and the evaluator are now one script
+   the four venues share, and it prints an invalid run's numbers without letting
+   them decide anything.
 
 
 **F8 — five faults between the families and a green night, found 2026-09-11.**
@@ -378,6 +438,7 @@ next Sunday run is still the proof that a real core comes back readable.
 | F10 | **Done** | Three faults on one night, one per family: a refused question read as an absent fleet, a ladder voided by the wind-down behind the rung it found, and a soak target linked without the symbols its core walk reads. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-119](../../docs/adr/ADR-119-finding-a-leak.md) |
 | F11 | **Done** | A bundle reported 439 machines in a fleet it had filed 10,520 of: the run's summary counted the survivors rather than the arrivals, and dropped the timings of every machine the load severed. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md) |
 | F12 | **Done** | The three register entries paid down: a phase carries the target's own count of the fleet, every profile's limits are read off the run's own evidence, and registration's middle case and tail are blocking. [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md) |
+| F13 | **Done** | The count F12 added was of one population read at two moments, and it refused every family on its first night; beside it, a night that crossed a limit reported success, the limit it was crossing could not be reached by any server, and an invalid run's numbers were being judged. [ADR-076](../../docs/adr/ADR-076-platform-metrics.md), [ADR-082](../../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md) |
 
 ### What the first dispatched runs measured, 2026-09-09
 

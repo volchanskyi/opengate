@@ -22,6 +22,10 @@ func TestAMachineThatCompletesLeavesTheConnectedCount(t *testing.T) {
 	var started atomic.Int64
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, noteArrival func()) agentResult {
 		started.Add(1)
+		// A machine reports its arrival where a real one does — the moment it
+		// is connected, handshook and registered — because that is what puts it
+		// in the fleet at all.
+		noteArrival()
 		select {
 		case <-release:
 		case <-ctx.Done():

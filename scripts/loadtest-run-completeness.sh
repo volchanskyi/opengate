@@ -27,6 +27,10 @@
 #   LOADTEST_GATE_BREACHES       the limits the profile declared and this night
 #                                crossed, written by loadtest-gate-check.sh
 #
+# Exits: 0 the night held, 2 it could not be asked, 3 it did not measure the
+# system, 4 it measured the system and the system crossed a limit. Both 3 and 4
+# are red; only 3 keeps the night's rows out of the trend.
+#
 # Usage: loadtest-run-completeness.sh <loadtest-summary.json> [completeness.json]
 set -euo pipefail
 
@@ -195,10 +199,24 @@ main() {
     return 3
   fi
 
+  # A night that crossed a limit measured the system and the system was slow, so
+  # its rows still enter the trend — and the night goes red, which is what a
+  # finding about the system is for.
+  #
+  # It did not. The verdict was worked out, written into the record and then
+  # returned as nought: five nights recorded themselves as failed and reported
+  # success, and one of them was carrying four registration limits held against a
+  # measurement that came back empty on every run ever taken.
   if [ "$result" = "failed" ]; then
     while IFS= read -r finding; do
-      [ -z "$finding" ] || echo "::warning::${finding}" >&2
+      [ -z "$finding" ] || echo "::error::${finding}" >&2
     done <<<"$findings"
+    while IFS= read -r breach; do
+      [ -z "$breach" ] || echo "::error::${breach}" >&2
+    done <<<"$gates"
+    [ -z "$breached" ] || echo "::error::marks breached: $(printf '%s' "$breached" | tr '\n' ' ')" >&2
+    echo "::error::this night crossed a limit it is held to." >&2
+    return 4
   fi
 
   return 0
