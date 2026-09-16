@@ -185,3 +185,22 @@ func TestStartDBPoolUpdaterToleratesAnUnwiredSource(t *testing.T) {
 	})
 	require.InDelta(t, 0, testutil.ToFloat64(m.DBPoolConnections.WithLabelValues("open")), 0)
 }
+
+// TestRegistrationDurationBucketsAreReadableByWhatReadsTheSeries keeps the
+// widest arrival this server can describe available to the things that have to
+// clear it. A load harness holds still while the target admits machines it has
+// already accepted, and how long it is willing to wait has to exceed the
+// slowest registration there is a bucket for — a figure it would otherwise have
+// to keep a second copy of.
+func TestRegistrationDurationBucketsAreReadableByWhatReadsTheSeries(t *testing.T) {
+	buckets := RegistrationDurationBuckets()
+
+	require.NotEmpty(t, buckets)
+	require.Equal(t, registrationDurationBuckets, buckets)
+	for i := 1; i < len(buckets); i++ {
+		require.Greater(t, buckets[i], buckets[i-1], "buckets are in ascending order")
+	}
+
+	buckets[0] = -1
+	require.NotEqual(t, -1.0, registrationDurationBuckets[0], "the caller gets a copy, not the series' own bounds")
+}

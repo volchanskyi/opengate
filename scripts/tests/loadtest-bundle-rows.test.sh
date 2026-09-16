@@ -71,7 +71,7 @@ bundle_observing() {
     shift 2
   done
   jq -n --argjson o "$(printf '%s\n' "${series[@]+"${series[@]}"}" | jq -sc '.')" '{
-    schema_version: 10,
+    schema_version: 11,
     run: {
       id: "quic-agents-1",
       commit: "0b5d1f2c3a4e5d6f7089abcdef0123456789abcd",

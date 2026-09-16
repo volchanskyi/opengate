@@ -183,18 +183,33 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetR
 	saw := fleet.Outcomes().Since(began)
 	seconds := finishedAt.Sub(startedAt).Seconds()
 
+	// Closed on the phase's own boundary, before the census below is allowed to
+	// hold the run still. The work the target does while it catches up with its
+	// own fleet belongs to neither phase, and charging it to this one against
+	// this one's clock reports a busy-ness nobody measured.
+	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
+
 	// The run's own count of its arrived machines, the target's account of the
 	// same population, and the run's count again — in that order, so the
 	// target's answer is bracketed in time by the run's rather than compared
 	// against one taken at a different moment. A phase reporting the run's
 	// count alone reports whether its own wind-down code ran.
+	//
+	// The census is given the count to account for, because the run's count
+	// leads the target's by the target's own admission work and a target that
+	// is merely behind catches up the moment the run stops offering arrivals.
+	// It holds still until it does, and says how long that took.
 	heldBefore := fleet.Connected()
 	departedBefore := fleet.Outcomes().Departed
-	targetAgents, targetGoroutines, censusAbsent := target.Census.Take()
+	census := target.Census.Take(func() int {
+		// The same floor the validity rule applies, asked live: what the run was
+		// holding before it asked, less what the fleet has recorded leaving
+		// since. It falls as machines leave, so a fleet shrinking under the
+		// question is not waited on for a catch-up that can never happen.
+		return heldBefore - int(fleet.Outcomes().Departed-departedBefore)
+	}, clock)
 	held := fleet.Connected()
 	departedDuring := fleet.Outcomes().Departed - departedBefore
-
-	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
 
 	return PhaseResult{
 		Name:      phase.Name,
@@ -219,9 +234,13 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetR
 		AchievedConnectedAgents:          held,
 		// The other end's count of it, and the reading that bounds that count
 		// below. Absent where the target could not be asked.
-		TargetConnectedAgents: targetAgents,
-		TargetGoroutines:      targetGoroutines,
-		TargetCensusAbsent:    censusAbsent,
+		TargetConnectedAgents: census.Agents,
+		TargetGoroutines:      census.Goroutines,
+		TargetCensusAbsent:    census.Absent,
+		// How long the target took to account for the fleet the run was
+		// holding. It is a reading of how far behind its own arrivals the
+		// target was, which nothing else produces.
+		TargetCensusWaitedMs: millis(census.Waited),
 		// The two terms the counts are allowed to differ by: what the run was
 		// holding before it asked, and what left before the answer came back.
 		ConnectedAgentsBeforeCensus: heldBefore,

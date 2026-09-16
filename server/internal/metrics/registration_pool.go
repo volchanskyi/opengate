@@ -96,6 +96,20 @@ func (f SQLPoolStatter) PoolStats() DBPoolStats {
 // buckets exist so a storm shows as a tail rather than as a flat +Inf.
 var registrationDurationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
+// RegistrationDurationBuckets returns the bounds registration timing is
+// reported in, widest last.
+//
+// The last of them is the slowest arrival this server can describe, and that
+// makes it a fact other things are held to rather than an implementation
+// detail: a load harness waiting on the target to admit machines it has already
+// accepted has to be willing to wait longer than that, and a limit written
+// above it can never fire. Both would otherwise keep a copy of the figure, and
+// a vocabulary with two homes is the defect the outcome names beside it exist
+// to avoid.
+func RegistrationDurationBuckets() []float64 {
+	return append([]float64(nil), registrationDurationBuckets...)
+}
+
 // newRegistrationAndPoolMetrics builds the registration and pool collectors.
 // They are assembled here rather than inline in NewMetrics so the instrument,
 // its vocabulary and its seeding stay in one file.

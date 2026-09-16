@@ -85,7 +85,7 @@ EOF
 bundle() {
   local verdict="$1" tail="$2"
   jq -n --arg verdict "$verdict" --argjson tail "$tail" '{
-    schema_version: 10,
+    schema_version: 11,
     run: {commit: "deadbeef", environment: "runner", finished_at: "2026-09-15T12:00:00Z"},
     verdict: {result: $verdict, reasons: (if $verdict == "invalid" then ["the fleet was not there"] else [] end)},
     observations: [
@@ -147,7 +147,7 @@ fi
 
 # A bundle carrying no verdict at all is the same thing: whether the run
 # measured anything is unknown, and unknown is not permission to judge it.
-jq -n '{schema_version: 10, run: {}, observations: []}' >"$WORK/bundle.json"
+jq -n '{schema_version: 11, run: {}, observations: []}' >"$WORK/bundle.json"
 run_reader
 if [ "$STATUS" -ge 2 ]; then
   pass "a bundle with no verdict fails loudly"

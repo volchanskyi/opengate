@@ -45,6 +45,9 @@ All three families went red, and one gate is behind almost all of it
 ([34968860276](https://github.com/volchanskyi/opengate/actions/runs/34968860276),
 [34953772071](https://github.com/volchanskyi/opengate/actions/runs/34953772071),
 [34919207472](https://github.com/volchanskyi/opengate/actions/runs/34919207472)).
+Items 1, 4 and 6 are three delays between two counts of one population, found
+one under the other over three nights — the run's, the target's, and the one
+underneath both that belongs to neither end.
 
 1. **Two counts of one population, taken at two different moments.** F12's first
    item put the target's own count of the fleet beside the run's, with a share of
@@ -110,6 +113,25 @@ All three families went red, and one gate is behind almost all of it
    396 ms the night before. The rows reader and the evaluator are now one script
    the four venues share, and it prints an invalid run's numbers without letting
    them decide anything.
+
+6. **A third delay, under both halves of the first.** The half the presence
+   repair left, found on the night it was dispatched
+   ([35045724710](https://github.com/volchanskyi/opengate/actions/runs/35045724710)).
+   Eight legs, and the three with room agreed to within a machine while the two
+   saturated ones did not: 63 of 7,946 on volume-8000 and 56 of 1,947 on the
+   quarter-processor rung, with nothing failing, nothing severed and nothing
+   leaving. A machine has dialled, handshaken and asked to register before the
+   target has put it in the map it counts, and between those two moments the
+   target reads that machine's customer and its name out of the database — so
+   the run's count leads the target's by the arrival rate times those reads.
+   Divide each shortfall by its rate and the
+   answer is 1.8 and 7.0 seconds, against targets whose own registration figure
+   averaged 0.7 and 9.6 seconds on the same runs; and the goroutine count taken
+   in the same read agreed with the run rather than with the target, so those
+   machines were connections the target was holding. The run waits it out rather
+   than allowing for it: it asks again until the target accounts for the fleet,
+   and the phase records how long it held still, which is a reading of how far
+   behind its own arrivals the target was. Bundle schema 11.
 
 
 **F8 — five faults between the families and a green night, found 2026-09-11.**
