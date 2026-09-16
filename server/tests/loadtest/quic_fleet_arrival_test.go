@@ -36,7 +36,7 @@ func newHeldStarter() *heldStarter {
 	return &heldStarter{arrive: make(chan struct{}), failAt: map[int]bool{}}
 }
 
-func (h *heldStarter) start(ctx context.Context, index int, noteArrival func()) agentResult {
+func (h *heldStarter) start(ctx context.Context, index int, presence fleetPresence) agentResult {
 	h.mu.Lock()
 	h.started++
 	fails := h.failAt[index]
@@ -52,8 +52,9 @@ func (h *heldStarter) start(ctx context.Context, index int, noteArrival func()) 
 		return agentResult{err: ctx.Err()}
 	}
 
-	noteArrival()
+	presence.Arrived()
 	<-ctx.Done()
+	presence.Left()
 	return agentResult{connectDur: time.Millisecond}
 }
 
@@ -132,4 +133,49 @@ func TestAMachineStoodDownBeforeArrivingDidNotDepart(t *testing.T) {
 	assert.Equal(t, int64(0), fleet.Outcomes().Departed,
 		"nothing that never arrived can have departed")
 	assert.Equal(t, 0, fleet.Connected())
+}
+
+// A machine whose connection broke is not one of the connected while it is
+// away, and is again once it is back.
+//
+// This is the half that a count of "arrived and not finished" cannot state. A
+// machine that flapped was counted for the whole of its absence, so a phase
+// published a level that included machines attached to nothing — and the
+// server, counting what was actually attached, disagreed by exactly them. On a
+// quarter-processor target holding two thousand machines it was 46 of them, and
+// on the volume family's eight thousand it was 57.
+//
+// The arrival tally is the other number and does not move: a machine that came
+// back is the same machine returning, so the run's count of arrivals stays one.
+func TestAMachineAwayFromItsConnectionIsNotOneOfTheConnected(t *testing.T) {
+	t.Parallel()
+
+	away := make(chan struct{})
+	back := make(chan struct{})
+	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
+		presence.Arrived()
+		<-away
+		presence.Left()
+		<-back
+		presence.Arrived()
+		<-ctx.Done()
+		return agentResult{connectDur: time.Millisecond}
+	})
+	defer fleet.Stop()
+
+	require.NoError(t, fleet.HoldConnected(0, 1))
+	awaitConnected(t, fleet, 1)
+	assert.Equal(t, int64(1), fleet.Outcomes().Arrived)
+
+	close(away)
+	awaitConnected(t, fleet, 0)
+	assert.Equal(t, int64(1), fleet.Outcomes().Arrived,
+		"a machine that lost its connection did not un-arrive")
+	assert.Equal(t, int64(1), fleet.Outcomes().Departed,
+		"the connection that ended is what the census window allows for")
+
+	close(back)
+	awaitConnected(t, fleet, 1)
+	assert.Equal(t, int64(1), fleet.Outcomes().Arrived,
+		"a machine that came back is the same machine returning, counted once")
 }

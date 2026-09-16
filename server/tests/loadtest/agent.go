@@ -17,14 +17,14 @@ import (
 // until the run says otherwise.
 
 func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts loadOptions,
-	noteArrival func(),
+	presence fleetPresence,
 ) agentResult {
 	// The deadline covers connecting and registering, plus however long this
 	// machine was asked to stay. A fixed budget would cut a held-open fleet
 	// short and report the run's own timeout as the server dropping machines.
 	ctx, cancel := context.WithTimeout(context.Background(), agentDeadline+opts.holdFor)
 	defer cancel()
-	return runAgentWithContext(ctx, credentials, addr, plan, opts, noteArrival)
+	return runAgentWithContext(ctx, credentials, addr, plan, opts, presence)
 }
 
 // runAgentWithContext is one machine's whole life, bounded by the caller's
@@ -36,12 +36,13 @@ func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts 
 // machine that comes back after an outage is the same machine — the server
 // knows it by its certificate, and re-enrolling would put a second machine in
 // the customer's list every time a link flapped.
-// noteArrival is called the moment this machine is part of the fleet, so a
-// fleet walking phases can count an arrival in the phase it happened in rather
-// than in whichever phase the machine's life ended in. A run with nobody
-// keeping a tally passes nil.
+// presence is how this machine says it is attached, and later that it is not.
+// Both halves fire per connection, so a fleet walking phases counts an arrival
+// in the phase it happened in rather than in whichever phase the machine's life
+// ended in — and stops counting a machine that is between connections. A run
+// with nobody keeping a tally passes neither half.
 func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr string,
-	plan tenantAgent, opts loadOptions, noteArrival func(),
+	plan tenantAgent, opts loadOptions, presence fleetPresence,
 ) agentResult {
 	tlsConfig, err := credentials.forAgent(ctx, plan)
 	if err != nil {
@@ -56,7 +57,14 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 	return persistThrough(ctx, opts, func(ctx context.Context) agentResult {
 		thisConnection := opts
 		thisConnection.holdFor = time.Until(leaveAt)
-		return serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection, noteArrival)
+		res := serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection, presence.Arrived)
+		// This connection is over, whichever way it ended. One that never
+		// registered was never among the attached, so it has nothing to give
+		// back — and the machine may yet come back on another.
+		if !res.arrivedAt.IsZero() && presence.Left != nil {
+			presence.Left()
+		}
+		return res
 	})
 }
 

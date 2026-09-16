@@ -33,7 +33,7 @@ func aCancelledStart(ctx context.Context) agentResult {
 }
 
 func TestAMachineTheRunStoodDownIsNotCountedAsAFailureToArrive(t *testing.T) {
-	fleet := NewQUICFleet(func(ctx context.Context, _ int, _ func()) agentResult {
+	fleet := NewQUICFleet(func(ctx context.Context, _ int, _ fleetPresence) agentResult {
 		return aCancelledStart(ctx)
 	})
 
@@ -49,11 +49,11 @@ func TestAMachineTheRunStoodDownIsNotCountedAsAFailureToArrive(t *testing.T) {
 // A machine the server would not take is still a failure, and a wind-down
 // happening around it does not launder it.
 func TestAMachineTheServerWouldNotTakeIsStillAFailure(t *testing.T) {
-	fleet := NewQUICFleet(func(_ context.Context, index int, noteArrival func()) agentResult {
+	fleet := NewQUICFleet(func(_ context.Context, index int, presence fleetPresence) agentResult {
 		if index == 0 {
 			return agentResult{err: fmt.Errorf("enroll: context deadline exceeded")}
 		}
-		noteArrival()
+		presence.Arrived()
 		return agentResult{}
 	})
 
@@ -68,9 +68,10 @@ func TestAMachineTheServerWouldNotTakeIsStillAFailure(t *testing.T) {
 // A machine that had already arrived and is then stood down is neither: it
 // turned up, and the run ending its life is what the run is for.
 func TestAnArrivedMachineStoodDownIsCountedAsArrived(t *testing.T) {
-	fleet := NewQUICFleet(func(ctx context.Context, _ int, noteArrival func()) agentResult {
-		noteArrival()
+	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
+		presence.Arrived()
 		<-ctx.Done()
+		presence.Left()
 		return agentResult{err: ctx.Err()}
 	})
 

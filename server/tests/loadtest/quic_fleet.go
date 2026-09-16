@@ -20,18 +20,38 @@ import (
 // bookkeeping — who is up, who never arrived, and what each one's timings were —
 // and that is exercised without a server on the other end.
 
-// StartAgent is one machine's whole life. It reports its own arrival — the
-// moment it is connected, handshook and registered — by calling noteArrival,
-// and returns when the context is cancelled, or earlier if the machine could
-// not connect at all.
+// fleetPresence is how a machine says whether it is attached.
 //
-// The arrival is signalled where it happens rather than read off the result,
+// Both halves fire per connection rather than per machine: a machine that lost
+// its link and came back is attached again, and a count of what the fleet is
+// holding has to say so. What stays once-only is the run's tally of arrivals —
+// a machine that flapped twenty times arrived once, and counting it twenty
+// times would report a fleet that never stopped growing.
+//
+// The distinction is the one a phase's level is read against. Counting a
+// machine for the whole of an outage published a level that included machines
+// attached to nothing, and the server — counting what was actually attached —
+// disagreed by exactly them.
+type fleetPresence struct {
+	// Arrived is called the moment this connection is registered.
+	Arrived func()
+	// Left is called when a connection that had registered ends, however it
+	// ends. A connection that never registered was never one of the attached
+	// and has nothing to give back.
+	Left func()
+}
+
+// StartAgent is one machine's whole life. It says whether it is attached
+// through the presence handed to it, and returns when the context is cancelled,
+// or earlier if the machine could not connect at all.
+//
+// Presence is signalled where it happens rather than read off the result,
 // because a phase is a window in time and a machine that arrives inside one is
 // held long past its end. Counting arrivals at the return counts them in
 // whichever phase the machine's life happened to end in — which for a fleet
 // held to the end of the walk is no phase at all, so every phase of every
 // profiled run reported no arrivals against an offer it had met.
-type StartAgent func(ctx context.Context, index int, noteArrival func()) agentResult
+type StartAgent func(ctx context.Context, index int, presence fleetPresence) agentResult
 
 // ProbeRoundTrip dials one machine, takes it all the way to registered, and
 // hangs up — reporting how long that took.
@@ -180,19 +200,14 @@ func (f *QUICFleet) startOne(after time.Duration) {
 			// the level, and it has nothing to report either way.
 			return
 		}
-		result := f.start(ctx, index, func() { f.noteArrival(&arrived) })
+		result := f.start(ctx, index, fleetPresence{
+			Arrived: func() { f.noteArrival(&arrived) },
+			Left:    f.noteDeparture,
+		})
 
 		f.mu.Lock()
 		f.results = append(f.results, result)
 		f.tallyLocked(result, arrived.Load())
-		// A machine that arrived and has now ended has left the fleet, however
-		// it ended. Counted here rather than at the wind-down, because the
-		// wind-down cancels a machine and the machine is gone when its own life
-		// finishes — and only one of those two moments happens exactly once.
-		if arrived.Load() {
-			f.connected--
-			f.outcomes.Departed++
-		}
 		// A machine that has ended is not one of the connected, whichever way it
 		// ended. Removing only the ones that errored made the count a count of
 		// machines started: a machine that finished its hold normally stayed
@@ -211,20 +226,32 @@ func (f *QUICFleet) startOne(after time.Duration) {
 	}()
 }
 
-// noteArrival counts one machine reaching registered, once.
+// noteArrival records one connection reaching registered.
 //
-// A machine that comes back after an outage is the same machine returning,
-// which persistThrough counts as a reconnection rather than as a second
-// arrival — so the flag it is given is what decides, not the number of times
-// the machine said so.
+// The count of what is attached moves every time; the run's tally of arrivals
+// moves only the first, because a machine that comes back after an outage is
+// the same machine returning rather than a second one. The flag it is given is
+// what tells the two apart.
 func (f *QUICFleet) noteArrival(arrived *atomic.Bool) {
-	if !arrived.CompareAndSwap(false, true) {
-		return
-	}
+	first := arrived.CompareAndSwap(false, true)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.outcomes.Arrived++
 	f.connected++
+	if first {
+		f.outcomes.Arrived++
+	}
+}
+
+// noteDeparture records one connection that had registered ending.
+//
+// It is the other side of noteArrival and fires for every connection, so a
+// machine between two of them is not one of the attached — which is what a
+// phase's level and the target's own count are compared as.
+func (f *QUICFleet) noteDeparture() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connected--
+	f.outcomes.Departed++
 }
 
 // stopOne winds down the most recently started machine.

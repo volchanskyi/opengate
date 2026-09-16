@@ -186,7 +186,7 @@ func TestAMachineStartedAgainReconnectsRatherThanEnrolling(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
-		res := start(ctx, i, nil)
+		res := start(ctx, i, fleetPresence{})
 		cancel()
 		// Every start got as far as dialling, which is what says the machine was
 		// given back after the one before it. A start that had been refused an
@@ -211,5 +211,5 @@ func TestAStartWithNobodyFreeReportsThatRatherThanDoublingUp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 
-	assert.ErrorIs(t, start(ctx, 0, nil).err, ErrEstateExhausted)
+	assert.ErrorIs(t, start(ctx, 0, fleetPresence{}).err, ErrEstateExhausted)
 }

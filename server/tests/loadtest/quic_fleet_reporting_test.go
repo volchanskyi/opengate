@@ -96,7 +96,7 @@ func TestFleetReportsWhatArrivedAndWhatDidNot(t *testing.T) {
 	})
 
 	t.Run("no round trip is taken by a fleet with no prober", func(t *testing.T) {
-		fleet := NewQUICFleet(func(ctx context.Context, _ int, noteArrival func()) agentResult {
+		fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
 			<-ctx.Done()
 			return agentResult{}
 		})

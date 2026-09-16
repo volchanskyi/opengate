@@ -20,7 +20,7 @@ type startCounter struct {
 	failFrom int
 }
 
-func (s *startCounter) start(ctx context.Context, index int, noteArrival func()) agentResult {
+func (s *startCounter) start(ctx context.Context, index int, presence fleetPresence) agentResult {
 	s.mu.Lock()
 	s.started++
 	shouldFail := s.failFrom > 0 && index >= s.failFrom
@@ -30,8 +30,9 @@ func (s *startCounter) start(ctx context.Context, index int, noteArrival func())
 		return agentResult{err: errors.New("dial refused")}
 	}
 
-	noteArrival()
+	presence.Arrived()
 	<-ctx.Done()
+	presence.Left()
 
 	s.mu.Lock()
 	s.stopped++
