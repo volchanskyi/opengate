@@ -9,7 +9,22 @@
 # minute night completes, and a leak detector dividing what the target failed to
 # give back by the operations between two readings has almost no denominator to
 # divide by. The ten cycles below end and restart two hundred and fifty machines
-# each, so the same five hours finish five thousand.
+# each, so the same five hours finish two thousand seven hundred and fifty.
+#
+# That figure is measured rather than projected, from soak run 35066887837 of
+# 2026-09-16 — the first of this family to reach its end: 4h44m01s, 2,750
+# machine-lives arriving over an arrival window of 4h30m01s, which is 10.2 a
+# minute, with nothing failing and the target's goroutines going 30 to 28 across
+# the whole of it. A projection had it at five thousand by counting each cycle's
+# whole level rather than what the cycle actually replaces: a cycle climbs from
+# two hundred and fifty to five hundred and falls back, so it offers two hundred
+# and fifty arrivals and not five hundred.
+#
+# What the denominator buys is what it divides. At 2,750 the run read nought
+# retained goroutines per operation, and a handful of goroutines of runtime
+# noise is worth under 0.002 each — three hundred times under the half that
+# fails a run, which is the margin the leak this family exists for would have
+# to cross.
 #
 # The machines that come back are the machines that left. An estate does not
 # grow when a site's link flaps, so neither does this one: a machine enrols when
