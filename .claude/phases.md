@@ -29,13 +29,13 @@
 | Documentation | Three trees behind a seam gate, live state as a gate rather than an aspiration, diagrams as text, and the state files as a capped index and ledger. [ADR-039](../docs/adr/ADR-039-diagrams-as-code.md), [ADR-080](../docs/adr/ADR-080-documentation.md). |
 | Fault tolerance | Faults injected from outside the process — a test harness by substitution, staging-scoped tooling, and a link shaper in the machine-facing path — plus the nightly network drill. [ADR-055](../docs/adr/ADR-055-fault-injection.md). |
 | Relay session lifetime | A handler parked on a hijacked request context stranded two goroutines per session until staging hit its memory limit. Fixed, and the gate classes that were blind to it closed. [ADR-093](../docs/adr/ADR-093-relay-session-lifetime.md), [ADR-095](../docs/adr/ADR-095-two-listeners.md). |
-| Load testing | What makes a run valid, where a run happens, one home for the numbers it is judged by, a venue ceiling no profile may ask past, and two counts of one fleet taken at one instant. [ADR-076](../docs/adr/ADR-076-platform-metrics.md), [ADR-082](../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md), [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md), [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md). |
+| Load testing | What makes a run valid, where a run happens, one home for the numbers it is judged by, a venue ceiling no profile may ask past, and two counts of one fleet taken at one instant, the run holding still for a target still admitting what it accepted. [ADR-076](../docs/adr/ADR-076-platform-metrics.md), [ADR-082](../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md), [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md), [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md). |
 | Gate honesty | A benchmark measures the code rather than its own harness, and a coverage report is written in the coordinates of whatever reads it. [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md), [ADR-091](../docs/adr/ADR-091-coverage-reports.md). |
+| Seeing inside a leak | A long run keeps the target's profiles on an interval and reports what grew at a named line; a core taken off the running server says what still holds the heaviest objects. [ADR-119](../docs/adr/ADR-119-finding-a-leak.md). |
 
 ## In Progress
 
 | Phase | Summary |
 |-------|---------|
-| Seeing inside a leak | A long run keeps the target's profiles on an interval and reports what grew at a named line; a core taken off the running server says what still holds the heaviest objects. [ADR-119](../docs/adr/ADR-119-finding-a-leak.md). |
 
 ## Planned
