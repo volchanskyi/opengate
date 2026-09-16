@@ -147,17 +147,17 @@ func startRetentionSweepLoop(
 // the next pass. A zero field is refused rather than defaulted — a schedule
 // half-filled in is a worker that never runs, and a ticker built from zero
 // panics on the spot.
-// ProductionGaugeInterval is how often the shipped binary refreshes the
-// in-memory runtime counts.
+// ProductionGaugeInterval is how often the shipped binary reads the connection
+// pool's statistics.
 //
-// It is here rather than in the binary because a reader of those counts has to
-// know how stale one can be. A load run compares its own count of the fleet
-// against the server's and would otherwise refuse a phase for climbing, so the
-// interval has one home and both ends read it.
+// The pool answers under its own lock, which every connection taken and given
+// back also holds, so this one is read on a timer rather than where the page is
+// built. The counts of what the process is holding are not: they are single
+// values already in memory, and the page reads them when it is asked.
 const ProductionGaugeInterval = 5 * time.Second
 
 type BackgroundSchedule struct {
-	// Gauges is how often the in-memory runtime counts are read.
+	// Gauges is how often the connection pool's statistics are read.
 	Gauges time.Duration
 	// DBSize is how often the database's on-disk size is measured.
 	DBSize time.Duration
@@ -217,11 +217,6 @@ func (a *Assembly) StartBackgroundWorkers(ctx context.Context, sched BackgroundS
 		return err
 	}
 
-	go appmetrics.StartGaugeUpdater(ctx, a.Metrics, appmetrics.GaugeSource{
-		ActiveSessions:      a.Relay.ActiveSessionCount,
-		ConnectedAgents:     a.Agents.ConnectedAgentCount,
-		ConnectedMPSDevices: a.AMT.ConnectedDeviceCount,
-	}, sched.Gauges)
 	go appmetrics.StartDBSizeUpdater(ctx, a.Metrics, a.Store, a.Logger, sched.DBSize)
 	go appmetrics.StartDBPoolUpdater(ctx, a.Metrics,
 		appmetrics.SQLPoolStatter(a.Store.PoolStats), sched.Gauges)

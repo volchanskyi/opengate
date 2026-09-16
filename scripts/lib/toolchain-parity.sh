@@ -27,6 +27,7 @@
 #   toolchain_rust_expected CHANNEL RUSTUP_CHECK_OUTPUT
 #   toolchain_gomod_pin GO_MOD_PATH
 #   toolchain_go_effective GO_VERSION_OUTPUT
+#   toolchain_go_advice LOCAL PIN
 #   toolchain_node_latest_for_major MAJOR DIST_INDEX_JSON
 #   toolchain_ci_node_major WORKFLOW_DIR
 #   toolchain_versions_match LOCAL EXPECTED
@@ -77,6 +78,25 @@ toolchain_gomod_pin() {
 # download rather than what ran, so only the real line is read.
 toolchain_go_effective() {
   printf '%s\n' "$1" | sed -n 's/^go version \(go[0-9][^ ]*\).*/\1/p' | head -1
+}
+
+# toolchain_go_advice LOCAL PIN — the command that makes this machine run the
+# module's pinned toolchain, which depends on which way the drift goes.
+#
+# GOTOOLCHAIN=auto only ever upgrades: handed a module pinned above the `go` on
+# PATH it fetches the pin and re-execs into it, and handed one pinned below it
+# runs the newer install and says nothing. So a workstation whose Go rolled ahead
+# of the project — a snap on a moving track will, eventually — needs the pin
+# named rather than left to auto, and telling it to unset a variable that was
+# already unset points the reader at nothing.
+toolchain_go_advice() {
+  local local_version="$1" pin="$2"
+  if [ -n "$local_version" ] \
+    && [ "$(printf '%s\n%s\n' "${local_version#go}" "${pin#go}" | sort -V | head -1)" = "${pin#go}" ]; then
+    printf 'GOTOOLCHAIN=%s\n' "$pin"
+    return 0
+  fi
+  printf 'unset GOTOOLCHAIN\n'
 }
 
 # toolchain_node_latest_for_major MAJOR DIST_INDEX_JSON — the newest vMAJOR.x
@@ -154,7 +174,7 @@ toolchain_parity_check() {
   go_local="$(toolchain_go_effective "$(cd "$root/server" && go version 2>&1)")"
   if ! toolchain_versions_match "$go_local" "$go_pin"; then
     echo "✗ Go in server/ runs ${go_local:-nothing}, but go.mod pins $go_pin." >&2
-    echo "    unset GOTOOLCHAIN  # let the module's toolchain directive select the version" >&2
+    echo "    $(toolchain_go_advice "$go_local" "$go_pin")  # run what go.mod pins; put it in .env so every step of the run sees it" >&2
     drift=1
   fi
 

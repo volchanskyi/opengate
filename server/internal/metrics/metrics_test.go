@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,15 +10,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 )
-
-// zeroGaugeSource is a GaugeSource whose every callback reports zero.
-func zeroGaugeSource() GaugeSource {
-	return GaugeSource{
-		ActiveSessions:      func() int { return 0 },
-		ConnectedAgents:     func() int { return 0 },
-		ConnectedMPSDevices: func() int { return 0 },
-	}
-}
 
 // TestObserveDeviceLogPull records raw-log broker pulls against the pull-count
 // and pull-duration metrics, keyed by outcome. The ok count is the audited
@@ -130,68 +120,6 @@ func TestObserveBackfillDecision(t *testing.T) {
 	// The granted-rate gauge reflects the most recent grant's rate; a defer
 	// leaves it unchanged.
 	require.InDelta(t, 1800, testutil.ToFloat64(m.EdgeBackfillGrantRate), 0)
-}
-
-// TestStartGaugeUpdater_StopsOnCancel verifies the updater returns when its
-// context is cancelled rather than leaking the ticker goroutine.
-func TestStartGaugeUpdater_StopsOnCancel(t *testing.T) {
-	m := NewMetrics(prometheus.NewRegistry())
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		StartGaugeUpdater(ctx, m, zeroGaugeSource(), time.Millisecond)
-		close(done)
-	}()
-
-	cancel()
-	require.Eventually(t, func() bool {
-		select {
-		case <-done:
-			return true
-		default:
-			return false
-		}
-	}, time.Second, 5*time.Millisecond, "updater should return after context cancellation")
-}
-
-// The gauge updater keeps reading its source until it is told to stop, and
-// stops when it is. A gauge that stopped refreshing reports the number it held
-// when it stopped, which reads exactly like a system that has not changed.
-func TestStartGaugeUpdaterKeepsReadingUntilItIsStopped(t *testing.T) {
-	m := NewMetrics(prometheus.NewRegistry())
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	var sessions atomic.Int64
-	sessions.Store(5)
-	src := zeroGaugeSource()
-	src.ActiveSessions = func() int { return int(sessions.Load()) }
-
-	done := make(chan struct{})
-	go func() {
-		StartGaugeUpdater(ctx, m, src, time.Millisecond)
-		close(done)
-	}()
-
-	require.Eventually(t, func() bool {
-		return testutil.ToFloat64(m.RelayActiveSessions) == 5
-	}, time.Second, 5*time.Millisecond)
-
-	sessions.Store(8)
-	require.Eventually(t, func() bool {
-		return testutil.ToFloat64(m.RelayActiveSessions) == 8
-	}, time.Second, 5*time.Millisecond)
-
-	cancel()
-	require.Eventually(t, func() bool {
-		select {
-		case <-done:
-			return true
-		default:
-			return false
-		}
-	}, time.Second, 5*time.Millisecond)
 }
 
 type dbSizerFunc func(context.Context) (int64, error)

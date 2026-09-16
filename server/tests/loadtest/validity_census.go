@@ -2,40 +2,42 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/volchanskyi/opengate/server/internal/app"
 )
 
 // A level a phase publishes is not a level anything held.
 //
-// `achieved_connected_agents` is `len(running)` over the machines the fleet has
-// not wound down, which is bookkeeping the wind-down itself maintains: it
-// answers whether the wind-down code ran, and the wind-down code ran. The
-// conservation bracket reads the target at the run's start and at its end, so
-// every phase between them went unwatched — and two families published a
-// recovery figure describing a target still carrying the full fleet on every
-// night they ran, with no gate anywhere disagreeing.
+// `achieved_connected_agents` is the run's own count of the machines that
+// arrived and have not ended. That is one end of a conversation: it says the
+// run's bookkeeping ran. The conservation bracket reads the target at the run's
+// start and at its end, so every phase between them went unwatched — and two
+// families published a recovery figure describing a target still carrying the
+// full fleet on every night they ran, with no gate anywhere disagreeing.
 //
 // These are the rules that disagree, over the target's own account of the same
 // population, taken where the phase takes its own.
 
-// minTargetFleetFraction is how much of the fleet a phase claims to be holding
-// the target has to be holding too.
+// The two counts are of one population and describe one instant. The run counts
+// its own arrived machines, asks the target, and counts again, so the target's
+// answer is bracketed by the run's; and the target works its count out where the
+// page is read rather than copying it in on a timer, so its answer is the
+// population at the moment of the question.
 //
-// The two counts are of one population, kept independently by the two ends, and
-// measured against the assembled server they matched exactly: two hundred
-// machines held read 200 and five hundred read 500, every sample. So the
-// tolerance is not room for the pair to differ — it is room for the interval the
-// server's own count is refreshed on, which is app.ProductionGaugeInterval, and
-// for a machine leaving inside it.
+// Both halves of that had to be true before this rule could say anything. A run
+// counting machines it had only queued to dial claimed two thousand on a
+// quarter-processor target where registering took eight seconds and a hundred
+// and thirty-seven of them had not arrived. A target copying its count in every
+// five seconds answered with the fleet of five seconds ago, which on a climb is
+// short by the arrival rate times the interval: eight machines at 1.7 arrivals a
+// second, sixty-four at 13.3, two hundred at 35.2, and a phase holding five
+// hundred refused for a server "holding" four hundred and fifty-eight. The
+// goroutine count in the same read — which Go works out when asked — agreed with
+// the run throughout.
 //
-// It is a floor rather than an equality, and only one direction is a finding. A
-// target holding fewer machines than the phase claims is a level the harness
-// invented; a target holding more is a count that has not yet seen a wind-down
-// the harness has already done — every profile ends by standing its fleet down
-// inside a phase shorter than the refresh, so an equality here would invalidate
-// the drain of every run ever taken.
-const minTargetFleetFraction = 0.98
+// So there is no tolerance here, and deliberately none: a share of the fleet
+// cannot express a quantity that has nothing to do with fleet size, and a share
+// wide enough to swallow one is wide enough to swallow the finding. What is
+// allowed is what the fleet itself recorded leaving between the two readings,
+// which is a count rather than an estimate.
 
 // minTargetGoroutinesPerAgent is what the target's goroutine count has to clear
 // for the fleet the phase claims.
@@ -48,21 +50,25 @@ const minTargetFleetFraction = 0.98
 // server costs per machine.
 const minTargetGoroutinesPerAgent = 1.0
 
-// censusRampSteps is how many equal steps a phase climbs across its own length
-// in, which is where server/tests/loadtest/sequence.go holds it.
+// censusFleetFloor is the fewest machines the run can have been holding at the
+// instant the target answered.
 //
-// It is here because the last of those steps is how long the phase held the
-// level it reports, and that is what decides whether the target's count had
-// time to see it.
-const censusRampSteps = rampSteps
+// The population changes by machines arriving and machines leaving. Between the
+// run's two counts it can only have dipped below both of them by machines that
+// left, and the fleet counts those, so this is a bound rather than a guess.
+func censusFleetFloor(phase PhaseResult) int {
+	lowest := phase.AchievedConnectedAgents
+	if phase.ConnectedAgentsBeforeCensus < lowest {
+		lowest = phase.ConnectedAgentsBeforeCensus
+	}
+	return lowest - int(phase.DeparturesDuringCensus)
+}
 
 // censusReasons collects the ways a phase's level was a level nobody held.
 //
-// The level a phase publishes is `len(running)` over the machines the fleet has
-// not wound down, which is bookkeeping the wind-down maintains: it says the
-// wind-down code ran. These two put the target's own account beside it — its
-// count of the same population, and the goroutines that bound that count below
-// — so a phase describing a load the target was not carrying says so.
+// These two put the target's own account beside the run's — its count of the
+// same population, and the goroutines that bound that count below — so a phase
+// describing a load the target was not carrying says so.
 //
 // It invalidates rather than fails. A phase whose target did not hold the fleet
 // it counted did not measure the system under that load, and the numbers beside
@@ -80,23 +86,14 @@ func censusReasons(phase PhaseResult) []string {
 		return nil
 	}
 
-	// The target keeps its count on a timer, so a reading of it describes some
-	// instant inside the last interval rather than the instant it was taken.
-	// A phase climbs across its whole length in equal steps, so the level it
-	// reports is the level it held for the last of them — and where that is
-	// shorter than the interval, the count beside it still describes a level
-	// the climb has already left. The spike family's spike is thirty seconds,
-	// three seconds a step, so judging it here would refuse it for climbing.
-	// The pair still travels in the bundle; it is the rule that stands down.
-	if held := phase.FinishedAt.Sub(phase.StartedAt) / censusRampSteps; held < app.ProductionGaugeInterval {
-		return nil
-	}
-
 	var reasons []string
-	if float64(*phase.TargetConnectedAgents) < float64(claimed)*minTargetFleetFraction {
+	// Only a shortfall is a finding. A target holding more than the run counted
+	// is a machine that arrived while the question was in flight — the run's own
+	// count catching up, not a fleet that was never there.
+	if floor := censusFleetFloor(phase); *phase.TargetConnectedAgents < floor {
 		reasons = append(reasons, fmt.Sprintf(
-			"phase %q counted %d machines and the target was holding %d (floor %.0f%% of the count), so the level it published is not a load the system carried",
-			phase.Name, claimed, *phase.TargetConnectedAgents, minTargetFleetFraction*100))
+			"phase %q was holding %d machines and the target was holding %d, with %d having left while the question was asked, so the level it published is not a load the system carried",
+			phase.Name, floor, *phase.TargetConnectedAgents, phase.DeparturesDuringCensus))
 	}
 	if *phase.TargetGoroutines < float64(claimed)*minTargetGoroutinesPerAgent {
 		reasons = append(reasons, fmt.Sprintf(

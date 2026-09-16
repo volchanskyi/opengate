@@ -55,9 +55,15 @@ type QUICFleet struct {
 	// down, in the order it was asked for. A machine that never arrived keeps
 	// its place here after leaving running, which is what stops the next step
 	// of a ramp from dialling a replacement for it.
-	order   []int
-	next    int
-	results []agentResult
+	order []int
+	// connected is the machines that arrived and have not ended. It is a count
+	// of the same population the server keeps its own count of, which is what
+	// lets the two be compared: `running` is every machine the run has queued
+	// to dial, and a machine waiting its turn or still registering is one the
+	// server has never heard of.
+	connected int
+	next      int
+	results   []agentResult
 	// outcomes is what the machines have seen, tallied as each one ends. It is
 	// cumulative because a phase is the difference between two readings of it.
 	outcomes FleetOutcomes
@@ -179,6 +185,14 @@ func (f *QUICFleet) startOne(after time.Duration) {
 		f.mu.Lock()
 		f.results = append(f.results, result)
 		f.tallyLocked(result, arrived.Load())
+		// A machine that arrived and has now ended has left the fleet, however
+		// it ended. Counted here rather than at the wind-down, because the
+		// wind-down cancels a machine and the machine is gone when its own life
+		// finishes — and only one of those two moments happens exactly once.
+		if arrived.Load() {
+			f.connected--
+			f.outcomes.Departed++
+		}
 		// A machine that has ended is not one of the connected, whichever way it
 		// ended. Removing only the ones that errored made the count a count of
 		// machines started: a machine that finished its hold normally stayed
@@ -210,6 +224,7 @@ func (f *QUICFleet) noteArrival(arrived *atomic.Bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.outcomes.Arrived++
+	f.connected++
 }
 
 // stopOne winds down the most recently started machine.
@@ -280,11 +295,18 @@ func (f *QUICFleet) tallyLocked(result agentResult, arrived bool) {
 	}
 }
 
-// Connected is how many machines are actually up.
+// Connected is how many machines have arrived and not yet ended.
+//
+// It is not the level: the level is every machine the run has asked for, and
+// the difference between the two is the finding. Reading `len(running)` made it
+// the level in all but name — a machine joins that map when it is queued to
+// dial, before it has dialled, handshook or registered — so a phase published a
+// level nobody was holding and the check that puts the server's own count
+// beside it had nothing comparable to compare.
 func (f *QUICFleet) Connected() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.running)
+	return f.connected
 }
 
 // Outcomes is what this fleet's machines have seen so far.

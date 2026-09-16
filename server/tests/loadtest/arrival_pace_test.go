@@ -27,15 +27,20 @@ func TestTheClimbIsSpreadOverTheWindowItIsGiven(t *testing.T) {
 		began := time.Now()
 		require.NoError(t, fleet.HoldConnected(400*time.Millisecond, 20))
 
-		// The level is the run's own bookkeeping and it is true at once, so the
-		// step after this one asks for the level it was going to ask for.
-		assert.Equal(t, 20, fleet.Connected())
-		// The dialling is not. A burst would have every machine away before
+		// The dialling is spread. A burst would have every machine away before
 		// this line runs.
 		assert.Less(t, starter.startedCount(), 20)
 
+		// The level, unlike the dialling, is true at once — so the step after
+		// this one asks for the level it was going to ask for. Asking again for
+		// the level already asked for while the climb is still in flight adds
+		// nothing: a level that were only true once the machines had landed
+		// would dial twenty more here and end at forty.
+		require.NoError(t, fleet.HoldConnected(0, 20))
+
 		require.Eventually(t, func() bool { return starter.startedCount() == 20 },
 			5*time.Second, 5*time.Millisecond)
+		assert.Equal(t, 20, starter.startedCount(), "twenty asked for, twenty dialled")
 		// And it took about the window it was given rather than no time at all,
 		// which is the whole of the difference between an offer and a burst.
 		assert.GreaterOrEqual(t, time.Since(began), 300*time.Millisecond)
@@ -83,9 +88,11 @@ func TestTheClimbIsSpreadOverTheWindowItIsGiven(t *testing.T) {
 
 		began := time.Now()
 		require.NoError(t, fleet.HoldConnected(time.Minute, 2))
-		assert.Equal(t, 2, fleet.Connected())
-		// A machine leaving is not an arrival, so nothing about it is paced.
+		// A machine leaving is not an arrival, so nothing about it is paced:
+		// the window is a minute and the wind-down does not wait for it.
 		assert.Less(t, time.Since(began), 10*time.Second)
+		require.Eventually(t, func() bool { return fleet.Connected() == 2 },
+			5*time.Second, 5*time.Millisecond)
 	})
 }
 

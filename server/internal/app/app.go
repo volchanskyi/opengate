@@ -394,6 +394,19 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		AlertBudget: alertStore,
 	})
 
+	// What the exposition says about the fleet is read off these three tallies
+	// where the page is built, so a reader of the page sees what the process is
+	// holding at that instant. Bound here rather than with the background
+	// workers: the counts are part of what the product is, and a harness that
+	// stands the product up without starting a worker still gets an honest page.
+	if err := appMetrics.BindRuntimeCounts(appmetrics.GaugeSource{
+		ActiveSessions:      agentRelay.ActiveSessionCount,
+		ConnectedAgents:     agentSrv.ConnectedAgentCount,
+		ConnectedMPSDevices: amtSvc.ConnectedDeviceCount,
+	}); err != nil {
+		return nil, fmt.Errorf("app: publish the runtime counts: %w", err)
+	}
+
 	return &Assembly{
 		API:             srv,
 		Internal:        newInternalServer(cfg.InternalListen, metricsRegistry),

@@ -44,6 +44,11 @@ type FleetOutcomes struct {
 	// rate past a declared ceiling. Counting those as faults makes a correctly
 	// enforced limit look like a defect and buries the real ones.
 	Rejected int64
+	// Departed is machines that had arrived and whose lives have since ended,
+	// however they ended. It is the other end of Arrived, and it is what says
+	// how much of a difference between two counts of one population is the
+	// population itself changing between the two readings.
+	Departed int64
 	// StoodDown is machines the run cancelled before they ever registered,
 	// which is what a wind-down does to every start still reaching for the
 	// server when the level comes down.
@@ -63,6 +68,7 @@ func (o FleetOutcomes) Attempted() int64 { return o.Arrived + o.Failed }
 func (o FleetOutcomes) Since(earlier FleetOutcomes) FleetOutcomes {
 	return FleetOutcomes{
 		Arrived:   o.Arrived - earlier.Arrived,
+		Departed:  o.Departed - earlier.Departed,
 		Failed:    o.Failed - earlier.Failed,
 		Severed:   o.Severed - earlier.Severed,
 		Rejected:  o.Rejected - earlier.Rejected,
@@ -176,12 +182,16 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetR
 	saw := fleet.Outcomes().Since(began)
 	seconds := finishedAt.Sub(startedAt).Seconds()
 
-	// The level the harness believes it holds, and the target's own account of
-	// the same population, taken here with nothing between them — the two are
-	// only comparable while they describe one instant, and a phase reporting
-	// the first alone reports whether its own wind-down code ran.
-	held := fleet.Connected()
+	// The run's own count of its arrived machines, the target's account of the
+	// same population, and the run's count again — in that order, so the
+	// target's answer is bracketed in time by the run's rather than compared
+	// against one taken at a different moment. A phase reporting the run's
+	// count alone reports whether its own wind-down code ran.
+	heldBefore := fleet.Connected()
+	departedBefore := fleet.Outcomes().Departed
 	targetAgents, targetGoroutines, censusAbsent := target.Census.Take()
+	held := fleet.Connected()
+	departedDuring := fleet.Outcomes().Departed - departedBefore
 
 	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
 
@@ -211,10 +221,14 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetR
 		TargetConnectedAgents: targetAgents,
 		TargetGoroutines:      targetGoroutines,
 		TargetCensusAbsent:    censusAbsent,
-		LatencyP50Ms:          millis(percentile(samples, 50)),
-		LatencyP95Ms:          millis(percentile(samples, 95)),
-		LatencyP99Ms:          millis(percentile(samples, 99)),
-		ErrorRate:             saw.ErrorRate(),
+		// The two terms the counts are allowed to differ by: what the run was
+		// holding before it asked, and what left before the answer came back.
+		ConnectedAgentsBeforeCensus: heldBefore,
+		DeparturesDuringCensus:      departedDuring,
+		LatencyP50Ms:                millis(percentile(samples, 50)),
+		LatencyP95Ms:                millis(percentile(samples, 95)),
+		LatencyP99Ms:                millis(percentile(samples, 99)),
+		ErrorRate:                   saw.ErrorRate(),
 		// What the target did with the allowance it was given while this phase
 		// ran, beside the wait times the phase produced. Absent where it could
 		// not be read.

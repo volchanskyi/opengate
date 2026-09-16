@@ -224,9 +224,8 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          scripts/loadtest-bundle-rows.sh \
+          scripts/perf-bundle-limits.sh load/profiles/scaling.yaml \
             "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json" /tmp/scaling-rows.json
-          scripts/loadtest-gate-check.sh load/profiles/scaling.yaml /tmp/scaling-rows.json
 
       - name: Tear the stack down
         if: always()
@@ -393,9 +392,8 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          scripts/loadtest-bundle-rows.sh \
+          scripts/perf-bundle-limits.sh "${{ matrix.path }}" \
             "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" /tmp/volume-rows.json
-          scripts/loadtest-gate-check.sh "${{ matrix.path }}" /tmp/volume-rows.json
 
       # The volume family's whole finding is this number, and it was written into
       # a file beside the bundle that nothing downstream opened. Folding it in is
@@ -599,9 +597,8 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          scripts/loadtest-bundle-rows.sh \
+          scripts/perf-bundle-limits.sh "${{ matrix.path }}" \
             "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json" /tmp/${{ matrix.profile }}-rows.json
-          scripts/loadtest-gate-check.sh "${{ matrix.path }}" /tmp/${{ matrix.profile }}-rows.json
 
       - name: Tear the stack down
         if: always()

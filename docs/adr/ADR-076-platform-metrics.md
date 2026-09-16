@@ -23,9 +23,25 @@ the binary, not by anything a customer can create.
 series that appears only once something goes wrong cannot be alerted on, because
 its absence and its zero are the same thing to a query.
 
-**The two gauges are refreshed on a timer, not computed while being scraped.** A
-scrape must not run a query. A refresh that fails leaves the previous answer
-standing, because a database hiccup should not look like the fleet going quiet.
+**A gauge that has to ask the database is refreshed on a timer; one the process
+already holds is read where the page is built.** A read of the page must not run
+a query, and a refresh that fails must leave the previous answer standing rather
+than look like the fleet going quiet — both of which are facts about a query, so
+the pack's two aggregates sit on a timer, as do the connection pool's statistics,
+which answer under the lock every connection taken and given back also holds.
+
+Neither reason reaches a number already in memory. The counts of what the process
+is holding — relay sessions, connected agents, connected MPS devices — are one
+atomic read apiece, so they are worked out when the page is read and the number
+on it is the number now. A copy of them refreshed every five seconds was read as
+a fact about the present by everything downstream: a load run comparing its own
+count of the fleet against the server's saw a shortfall of the arrival rate times
+that interval, while the goroutine count in the same read — worked out when asked
+— agreed with the run to within a machine. A phase holding five hundred machines
+was refused for a server "holding" four hundred and fifty-eight
+([ADR-082](ADR-082-load-run-validity.md)). Until a count has something to ask it
+publishes nothing at all, because a nought there is a reading that says the fleet
+is empty.
 
 **Only a stored alert counts as created**, so a reconnect replaying alerts
 already recorded does not inflate the rate.

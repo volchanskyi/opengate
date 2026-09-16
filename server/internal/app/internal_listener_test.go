@@ -108,3 +108,38 @@ func TestPublicListenerKeepsTheLivenessProbe(t *testing.T) {
 	assembly.API.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	assert.Equal(t, http.StatusOK, rec.Code, "/healthz must stay on the listener the kubelet probes")
 }
+
+// TestTheExpositionCarriesWhatTheProcessIsHolding proves the three runtime
+// counts reach the page at all, which is the seam between the product being
+// assembled and the page knowing what to ask.
+//
+// They are worked out where the page is built rather than copied in on a timer,
+// so nothing here waits: a process holding no machines says nought, and it says
+// it on the first read. The alternative is a copy up to one refresh interval
+// old, which everything downstream reads as a fact about the present — a load
+// run comparing its own count of the fleet against this one was short by the
+// arrival rate times that interval, and refused a phase holding five hundred
+// machines for a server "holding" four hundred and fifty-eight.
+//
+// A binding nobody made would leave all three absent rather than reporting
+// nought, because a count nobody can take is not a count of nought.
+func TestTheExpositionCarriesWhatTheProcessIsHolding(t *testing.T) {
+	t.Parallel()
+
+	assembly, err := app.Build(context.Background(), baseConfig(t))
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	assembly.Internal.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	page := rec.Body.String()
+	for _, series := range []string{
+		"opengate_agents_connected 0",
+		"opengate_relay_active_sessions 0",
+		"opengate_mps_connected_devices 0",
+	} {
+		assert.True(t, strings.Contains(page, series),
+			"the exposition must carry %q — a load run reads the fleet its target is holding off this page", series)
+	}
+}

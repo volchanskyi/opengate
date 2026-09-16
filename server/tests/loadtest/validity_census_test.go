@@ -13,8 +13,14 @@ import (
 // bookkeeping the wind-down maintains — it answers whether the wind-down code
 // ran — so a phase whose target was holding nothing published a level anyway,
 // and no gate anywhere disagreed. These are the rules that disagree.
+//
+// The two counts are of one population and are taken at one instant: the run
+// counts its own arrived machines, asks the target, and counts again, so the
+// target's answer is bracketed by the run's. What is allowed between them is
+// what the fleet itself recorded leaving, and nothing else.
 
-// heldPhase is a phase holding a level, with the target agreeing about it.
+// heldPhase is a phase holding a level, with the target agreeing about it and
+// nothing leaving while the question was asked.
 func heldPhase(claimed int, targetHolds int, goroutines float64) PhaseResult {
 	start := time.Date(2026, 9, 13, 2, 0, 0, 0, time.UTC)
 	held := targetHolds
@@ -26,6 +32,7 @@ func heldPhase(claimed int, targetHolds int, goroutines float64) PhaseResult {
 		AchievedAgentArrivalsPerSecond: 5,
 		OfferedConnectedAgents:         claimed,
 		AchievedConnectedAgents:        claimed,
+		ConnectedAgentsBeforeCensus:    claimed,
 		ErrorRate:                      0,
 		TargetConnectedAgents:          &held,
 		TargetGoroutines:               &goroutines,
@@ -54,10 +61,9 @@ func TestAPhaseWhoseTargetDoesNotHoldTheFleetIsNotAMeasurement(t *testing.T) {
 		"the reason names both counts")
 }
 
-// The other direction is a gauge, not a missing fleet. The server refreshes its
-// count on an interval, and every profile ends by standing its fleet down inside
-// a phase shorter than that — so a target reporting more than the phase claims
-// is one that has not seen the wind-down yet.
+// The other direction is a machine that arrived while the question was in
+// flight, which is the run's own count catching up rather than a fleet that was
+// never there. Only a shortfall is a finding.
 func TestAPhaseWhoseTargetHoldsMoreThanItClaimsIsStillAMeasurement(t *testing.T) {
 	verdict := classify(func(in *RunInputs) {
 		drain := heldPhase(0, 120, 400)
@@ -68,11 +74,15 @@ func TestAPhaseWhoseTargetHoldsMoreThanItClaimsIsStillAMeasurement(t *testing.T)
 	assert.Equal(t, ResultValid, verdict.Result, "reasons: %v", verdict.Reasons)
 }
 
-// A few machines either way is the refresh interval, not a fleet that was never
-// there.
-func TestAPhaseAFewMachinesShortOfItsClaimIsStillAMeasurement(t *testing.T) {
+// A count the target was never asked for is not a count of nought. A phase that
+// could not read it says why, and is judged on what it does carry.
+func TestAPhaseWithNoCensusIsJudgedOnWhatItDoesCarry(t *testing.T) {
 	verdict := classify(func(in *RunInputs) {
-		in.Phases = []PhaseResult{heldPhase(500, 495, 1500)}
+		phase := heldPhase(500, 0, 0)
+		phase.TargetConnectedAgents = nil
+		phase.TargetGoroutines = nil
+		phase.TargetCensusAbsent = censusAbsentTargetSilent
+		in.Phases = []PhaseResult{phase}
 	})
 
 	assert.Equal(t, ResultValid, verdict.Result, "reasons: %v", verdict.Reasons)
@@ -105,46 +115,15 @@ func TestARungPastTheBreakingPointIsExemptFromBothCounts(t *testing.T) {
 	assert.Equal(t, ResultValid, verdict.Result, "reasons: %v", verdict.Reasons)
 }
 
-// A reading that was not taken is not a reading of nought. A phase with no
-// census of the target is one nobody could ask, and an unasked question is
-// neither a pass nor a failure.
-func TestAPhaseWithNoCensusIsJudgedOnWhatItDoesCarry(t *testing.T) {
-	verdict := classify(func(in *RunInputs) {
-		phase := heldPhase(500, 0, 0)
-		phase.TargetConnectedAgents = nil
-		phase.TargetGoroutines = nil
-		phase.TargetCensusAbsent = censusAbsentTargetSilent
-		in.Phases = []PhaseResult{phase}
-	})
-
-	assert.Equal(t, ResultValid, verdict.Result, "reasons: %v", verdict.Reasons)
-}
-
-// The two counts are comparable only where the target has had time to see the
-// level. The server refreshes its own count on an interval, and a phase climbs
-// across its whole length in equal steps — so a phase whose last step is
-// shorter than that interval closes while the count beside it still describes a
-// level the climb has already left. The spike family's own spike is thirty
-// seconds, which is three seconds a step: its count would read the level from
-// five steps back and the phase would be refused for climbing.
-func TestAPhaseShorterThanTheTargetsRefreshIsNotJudgedOnTheTargetsCount(t *testing.T) {
+// A short phase is judged like any other. The target works its count out when
+// the page is read, so there is no interval for a phase to be shorter than —
+// the spike family's thirty-second spike says what it was holding just as the
+// five-minute steady does.
+func TestAShortPhaseIsJudgedOnTheTargetsCountLikeAnyOther(t *testing.T) {
 	verdict := classify(func(in *RunInputs) {
 		phase := heldPhase(2000, 1700, 5200)
 		phase.Name = "spike"
 		phase.FinishedAt = phase.StartedAt.Add(30 * time.Second)
-		in.Phases = []PhaseResult{phase}
-	})
-
-	assert.Equal(t, ResultValid, verdict.Result, "reasons: %v", verdict.Reasons)
-}
-
-// And the same phase held long enough for the count to catch up is judged on
-// it. The difference is the phase's own length, not what it was holding.
-func TestAPhaseHeldLongEnoughIsJudgedOnTheTargetsCount(t *testing.T) {
-	verdict := classify(func(in *RunInputs) {
-		phase := heldPhase(2000, 1700, 5200)
-		phase.Name = "steady"
-		phase.FinishedAt = phase.StartedAt.Add(5 * time.Minute)
 		in.Phases = []PhaseResult{phase}
 	})
 

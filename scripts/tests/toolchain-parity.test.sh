@@ -122,6 +122,19 @@ check "effective toolchain is read from go version output" \
 check "a go version banner with no version yields nothing" \
   "" "$(toolchain_go_effective 'go: downloading go1.26.6')"
 
+# What to do about the drift depends on which way it goes, and the gate used to
+# name only one of the two. GOTOOLCHAIN=auto upgrades into the module's pin and
+# never steps down into it, so a `go` on PATH that is newer than the pin runs
+# instead of it — and the advice to unset a variable that was already unset sent
+# a reader looking at the wrong thing. A workstation's snap rolled to 1.27.1
+# while the project pinned 1.26.7, and that is the case it could not describe.
+check "a local Go behind the pin is told to let auto fetch it" \
+  "unset GOTOOLCHAIN" "$(toolchain_go_advice 'go1.26.4' 'go1.26.7')"
+check "a missing local Go is told the same" \
+  "unset GOTOOLCHAIN" "$(toolchain_go_advice '' 'go1.26.7')"
+check "a local Go ahead of the pin is told to name the pin" \
+  "GOTOOLCHAIN=go1.26.7" "$(toolchain_go_advice 'go1.27.1' 'go1.26.7')"
+
 echo
 echo "node parsing and comparison:"
 

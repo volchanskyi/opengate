@@ -560,7 +560,9 @@ jobs:
           # A run that measured nothing is invalid, and an invalid run does not
           # enter the trend: absorbed as data it pulls the window median down,
           # and the next genuinely slow night then compares favourably and
-          # passes. Exit 3 is that verdict; the job goes red on it.
+          # passes. Exit 3 is that verdict. Exit 4 is a night that did measure
+          # the system and found it past a limit, whose rows do enter the trend.
+          # The job goes red on either.
           exit "$COMPLETENESS_STATUS"
 
       # The raw k6 exports ship alongside the canonical summary. Without them a
