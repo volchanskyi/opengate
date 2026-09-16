@@ -133,6 +133,31 @@ underneath both that belongs to neither end.
    and the phase records how long it held still, which is a reading of how far
    behind its own arrivals the target was. Bundle schema 11.
 
+   Dispatched on the repair
+   ([35066878276](https://github.com/volchanskyi/opengate/actions/runs/35066878276),
+   [35066880206](https://github.com/volchanskyi/opengate/actions/runs/35066880206)),
+   the wait measured what the shortfalls predicted: 8.4 seconds on the
+   quarter-processor rung against 7.0 predicted, and 1.7 on volume-8000 against
+   1.8. Every count then matched — 1931 against 1933, 7930 against 7941 — and
+   every leg the census had refused came back valid, staging included, where the
+   two phases that had been eleven and eight machines short waited 3.5 and 5.0
+   seconds and then agreed exactly. The load-test family is green end to end.
+
+7. **A limit bracketed by nights of a load its leg no longer offers.** What the
+   census refusal was hiding on the volume family's largest leg, and the only
+   thing still red after item 6. Registration's tail there read 396 to 482 ms
+   across four nights; WS4's change to offer the technician load the profiles
+   declare put it at 4,510 to 5,773 across the next four, with the target's
+   processor use going from 38–62 to 85–87 per cent. The two smaller legs carry
+   the same technician load and read 6.5 and 5.0 ms, so the step is the venue at
+   the top of a sweep driven to what it has been shown to hold rather than the
+   write path — and what that ceiling still owes, that the machines arrive, the
+   night met at 7,994 of 8,000 with no failures. The ceiling now sits between
+   the widest of the four readings and the histogram's last boundary, with the
+   readings beside it, and [ADR-101](../../docs/adr/ADR-101-load-profiles-and-limits.md)
+   carries the rule the two halves of: a limit is bracketed by nights of the
+   load its leg offers, and a leg whose load changes re-earns its limits.
+
 
 **F8 — five faults between the families and a green night, found 2026-09-11.**
 The estate filing WS4 landed had never once succeeded, and it took both nightly

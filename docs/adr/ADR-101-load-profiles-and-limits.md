@@ -42,6 +42,19 @@ limit set from a belief rather than from nights of readings fires on the
 measurement's own noise the first time it is able to fire, and a limit everybody
 has learned to ignore protects nothing.
 
+**A limit is bracketed by nights of the load its leg offers, and a leg whose
+load changes re-earns its limits.** They are two halves of one statement, and
+leaving the second unsaid cost a red night that read like a product regression.
+The volume family's registration ceiling of 500 ms was bracketed by four nights
+reading 396 to 482 ms; the family then began offering the technician load its
+profiles declare, and its largest leg went to 4,510 to 5,773 ms across the next
+four, with the target's processor use going from 38–62 to 85–87 per cent. Its
+two smaller legs carry the same technician load and read 6.5 and 5.0 ms, so the
+step is the venue at the top of a sweep driven to what it has been shown to
+hold, not the write path. A limit inherited across that change is a limit on an
+experiment that is no longer being run, and it says nothing about the one that
+is.
+
 **A technician-side figure travels as an offer, never as an achievement**, until
 something on that side measures it.
 

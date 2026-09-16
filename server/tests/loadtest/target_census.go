@@ -148,14 +148,16 @@ func (c TargetCensus) Take(floor func() int, clock Clock) CensusReading {
 	// exactly the target already struggling to answer.
 	reading := c.read()
 	began := clock.Now()
-	for reading.Absent == "" && *reading.Agents < floor() && clock.Now().Sub(began) < censusSettleLimit {
+	waited := time.Duration(0)
+	for reading.Absent == "" && *reading.Agents < floor() && waited < censusSettleLimit {
 		clock.Sleep(censusSettleInterval)
 		// A target that answered and then stopped answering leaves the run with
 		// a number it can no longer bracket, so the census says the target went
 		// quiet rather than reporting a fleet it half-heard.
 		reading = c.read()
+		waited = clock.Now().Sub(began)
 	}
-	reading.Waited = clock.Now().Sub(began)
+	reading.Waited = waited
 	return reading
 }
 

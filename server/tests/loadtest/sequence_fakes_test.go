@@ -83,10 +83,18 @@ func alwaysRoomToRun() NodeReading {
 
 // testClock advances only when the sequencer asks it to, so a six-minute profile
 // is walked in microseconds and the boundaries it records are exact.
+//
+// tickOnNow is time passing while nothing sleeps, which is what a real clock
+// does between two readings of it. It is how a case tells a duration somebody
+// spent apart from one that is the cost of asking what time it is.
 type testClock struct {
-	now time.Time
+	now       time.Time
+	tickOnNow time.Duration
 }
 
-func (c *testClock) Now() time.Time { return c.now }
+func (c *testClock) Now() time.Time {
+	c.now = c.now.Add(c.tickOnNow)
+	return c.now
+}
 
 func (c *testClock) Sleep(d time.Duration) { c.now = c.now.Add(d) }
