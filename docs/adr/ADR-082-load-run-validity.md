@@ -88,7 +88,13 @@ between them is counted rather than estimated.** Both halves of that had to be
 made true before the rule could say anything. The run counts a machine as
 connected when it has arrived, not when it has been queued to dial: on a
 quarter-processor target where registering took eight seconds, a hundred and
-thirty-seven of two thousand had not arrived. The target works its count out
+thirty-seven of two thousand had not arrived. And it counts a machine only while
+it is attached: a machine whose link broke is away until it is back, so both
+halves of presence are reported per connection while the run's tally of arrivals
+stays once-only — a machine that flapped twenty times arrived once. Counting an
+absent machine published a level that included machines attached to nothing, and
+the server, counting what was attached, disagreed by exactly them: 46 of 1,959
+on the quarter-processor rung and 57 of 7,947 on the volume family's largest. The target works its count out
 where its page is read rather than copying it in on a timer
 ([ADR-076](ADR-076-platform-metrics.md)): a copy refreshed every five seconds
 answers with the fleet of five seconds ago, which on a climb is short by the

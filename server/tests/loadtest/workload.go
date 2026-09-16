@@ -144,14 +144,14 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 func estateStart(roster *agentRoster, credentials agentCredentials, addr string, opts loadOptions,
 	filer *estateFiler,
 ) StartAgent {
-	return func(ctx context.Context, _ int, noteArrival func()) agentResult {
+	return func(ctx context.Context, _ int, presence fleetPresence) agentResult {
 		machine, giveBack, ok := roster.take()
 		if !ok {
 			return agentResult{err: ErrEstateExhausted}
 		}
 		defer giveBack()
 		return runAgentWithContext(ctx, credentials, addr, machine, opts,
-			arrivalOf(noteArrival, filer, machine))
+			fleetPresence{Arrived: arrivalOf(presence.Arrived, filer, machine), Left: presence.Left})
 	}
 }
 
@@ -193,7 +193,7 @@ func runFlat(agents int, agentPlan []tenantAgent, credentials agentCredentials,
 			defer wg.Done()
 			machine := agentPlan[idx]
 			results[idx] = runAgent(credentials, addr, machine, opts,
-				arrivalOf(nil, filer, machine))
+				fleetPresence{Arrived: arrivalOf(nil, filer, machine)})
 		}(i)
 	}
 	wg.Wait()
@@ -238,7 +238,7 @@ func phaseProbe(agentPlan []tenantAgent, credentials agentCredentials, addr stri
 		hostname:    agentPlan[0].hostname + "-probe",
 	}
 	return func(ctx context.Context) (time.Duration, error) {
-		result := runAgentWithContext(ctx, credentials, addr, plan, probeOpts, nil)
+		result := runAgentWithContext(ctx, credentials, addr, plan, probeOpts, fleetPresence{})
 		if result.err != nil {
 			return 0, result.err
 		}

@@ -44,10 +44,11 @@ type FleetOutcomes struct {
 	// rate past a declared ceiling. Counting those as faults makes a correctly
 	// enforced limit look like a defect and buries the real ones.
 	Rejected int64
-	// Departed is machines that had arrived and whose lives have since ended,
-	// however they ended. It is the other end of Arrived, and it is what says
-	// how much of a difference between two counts of one population is the
-	// population itself changing between the two readings.
+	// Departed is connections that had registered and have since ended, however
+	// they ended. It is the other end of a machine being attached rather than
+	// of a machine existing — one that flaps counts a departure each time — and
+	// it is what says how much of a difference between two counts of one
+	// population is the population itself changing between the two readings.
 	Departed int64
 	// StoodDown is machines the run cancelled before they ever registered,
 	// which is what a wind-down does to every start still reaching for the

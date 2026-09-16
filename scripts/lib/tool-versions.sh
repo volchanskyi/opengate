@@ -80,6 +80,21 @@ export TOOL_VERSION_GREMLINS="0.6.0"
 # other row makes, spelled the way this module publishes versions.
 export TOOL_VERSION_VIEWCORE="v0.0.0-20260908162731-ac862fd6552b"
 
+# --- installed by the workstation, and by CI through an action ----------------
+#
+# These were resolving themselves. The Makefile told six tools to install at
+# whatever version came out that day and the fuzz and CI workflows fetched three
+# more by bare name, so nine installs had chosen a version on somebody's behalf —
+# three of them contradicting a row above. It is not theoretical: staticcheck
+# stopped working outright when the Go it had been built with fell behind the
+# code it analyses, and the failure surfaced inside a gauntlet step whose subject
+# is dead code.
+export TOOL_VERSION_STATICCHECK="0.7.0"
+export TOOL_VERSION_GOSEC="2.29.0"
+export TOOL_VERSION_CARGO_FUZZ="0.13.2"
+export TOOL_VERSION_CARGO_NEXTEST="0.9.129"
+export TOOL_VERSION_CARGO_LLVM_COV="0.8.5"
+
 # --- deliberately floating ---------------------------------------------------
 #
 # Three toolchains float on purpose, because CI asks for a channel rather than a

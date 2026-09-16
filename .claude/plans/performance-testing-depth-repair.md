@@ -91,7 +91,20 @@ All three families went red, and one gate is behind almost all of it
    the requests a journey makes and the pause it takes, and refuses a floor at or
    above it.
 
-4. **A limit read off a run that measured nothing.** volume-8000's headline error
+4. **A machine between two connections was still counted as one of the fleet.**
+   The half the first repair left, found on the night it was dispatched
+   ([35041460997](https://github.com/volchanskyi/opengate/actions/runs/35041460997)).
+   With the run counting arrivals rather than dials, every ramp matched its
+   target exactly — 499 against 499 on the quarter-processor rung, where the
+   night before it read 500 against 478 — and three steady phases still came up
+   short: 46 of 1,959, 57 of 7,947, 3 of 1,997, with nothing failing and no
+   machine severed. A machine whose link breaks re-dials, and the run counted it
+   throughout because it had arrived once. So presence is reported per
+   connection now, both halves, while the tally of arrivals stays once-only: a
+   machine that flapped twenty times arrived once, and is one of the fleet only
+   while it is attached.
+
+5. **A limit read off a run that measured nothing.** volume-8000's headline error
    was a registration tail of 4.6 seconds against a limit of 500 ms, from a run
    the verdict two steps earlier had already voided — on a profile that read
    396 ms the night before. The rows reader and the evaluator are now one script

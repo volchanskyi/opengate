@@ -47,14 +47,31 @@ number, and the parity sweep holds every workflow's copy equal to it. A version
 re-typed into an installer is the second home the manifest exists to prevent, and
 the sweep fails on it.
 
-### An install names its version
+### An install names its version, wherever the install is written
 
-`cargo install <tool>`, `go install <pkg>@latest`, `pip install <pkg>` and
-`--git <url>` with no `--rev` all resolve at run time, which means the build is
-of something nobody has compiled before. The sweep refuses each shape. Where a
-tool genuinely needs an unreleased tree — the cross-compiler does — the answer is
-a pinned **rev**, not a floating branch: same tree, and a decision that lands in
-a diff.
+`cargo install <tool>`, `go install <pkg>@latest`, `pip install <pkg>`, an
+action asked for a bare `tool:` name, and `--git <url>` with no `--rev` all
+resolve at run time, which means the build is of something nobody has compiled
+before. The sweep refuses each shape. Where a tool genuinely needs an unreleased
+tree — the cross-compiler does — the answer is a pinned **rev**, not a floating
+branch: same tree, and a decision that lands in a diff.
+
+The sweep reads the Makefile and the install scripts as well as the workflows,
+because an install is an install wherever it is written and it could only see one
+of the three. The Makefile told six tools to install at whatever resolved that
+day and two workflows fetched three more by bare name — nine installs that had
+chosen a version on somebody's behalf, three of them contradicting a row this
+manifest already carried. It is not theoretical: `staticcheck` stopped working
+outright once the Go that built it fell behind the code it analyses, and the
+failure surfaced inside a gauntlet step whose subject is dead code, as an error
+about export-data formats.
+
+The workstation's installs are spelled once, in
+[`require-tool.sh`](../../scripts/require-tool.sh), which builds each command
+from the manifest — so a Makefile target asks for a tool by name and there is no
+second number to drift. A site that reads the manifest rather than repeating its
+number is held to a stronger form of the same rule: it cannot disagree, by
+construction.
 
 ### The runner image is named
 
