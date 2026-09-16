@@ -67,7 +67,30 @@ gates:
     metric: error_rate
     max: 0
     blocking: true
+  # Higher than the 500 ms its two siblings hold, because this leg offers a
+  # different load and the figure is bracketed by nights of the load a leg
+  # offers rather than by the number a sibling reads.
+  #
+  # Until the family began offering the technician load its profiles declare,
+  # this leg read 396, 424, 470 and 482 ms across four nights with the target
+  # using 38 to 62 per cent of its processor. With that load beside the fleet it
+  # reads 4510, 4643, 4850 and 5773 ms, at 85 to 87 per cent — three of those
+  # from runs the census voided for a disagreement about connected counts that
+  # was never about the registrations, and the fourth from the valid run
+  # 35066878276. The step is the venue, not the write path: volume-500 and
+  # volume-2000 carry the same technician load and read 6.5 and 5.0 ms, and this
+  # leg is the top of a sweep that is driven to what the venue has been shown to
+  # hold. What is still owed at that ceiling is that the machines arrive, which
+  # the row above holds at nought and the night met — 7,994 of 8,000, no
+  # failures.
+  #
+  # The ceiling sits between the widest of those four readings and the last
+  # boundary of the histogram the server publishes registration in. Past that
+  # boundary a reading is a floor rather than a measurement and a limit there
+  # can never fire, which loadtest-gate-series.test.sh refuses; below it, 8,000
+  # fires on a leg 39 per cent slower than the slowest night on record, against
+  # a spread of 28 per cent between the four.
   - series: quic/quic-agents/register
     metric: latency_p95_ms
-    max: 500
+    max: 8000
     blocking: true

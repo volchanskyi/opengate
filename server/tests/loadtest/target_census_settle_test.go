@@ -158,3 +158,21 @@ func TestTheWaitClearsTheWidestArrivalTheTargetCanReport(t *testing.T) {
 	assert.Less(t, censusSettleInterval, widest,
 		"and asks often enough to see a target catching up")
 }
+
+// A wait of nought is a wait of nought. The healthy legs are the ones that ask
+// once, and a span measured across a loop nobody entered reports the cost of
+// reading the clock instead — every settled phase of every green night then
+// carries a figure that is not the zero its meaning calls for.
+func TestAPhaseThatWaitedForNothingSaysNought(t *testing.T) {
+	t.Parallel()
+
+	clock := &testClock{now: time.Unix(1_800_000_000, 0), tickOnNow: time.Millisecond}
+	held := 500.0
+	census := TargetCensus{Read: func() (TargetHealth, bool) {
+		return TargetHealth{Read: true, Goroutines: 1529, AgentsConnected: &held}, true
+	}}
+
+	reading := census.Take(holding(500), clock)
+
+	assert.Zero(t, reading.Waited, "a target that answered for the whole fleet was not waited on at all")
+}
