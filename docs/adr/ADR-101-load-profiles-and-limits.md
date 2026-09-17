@@ -71,10 +71,12 @@ family is for.
 **A technician-side figure travels as an offer, never as an achievement**, until
 something on that side measures it.
 
-**Where a night has no browser-side half, its limits are read off its own
-evidence.** Seven profiles run on a throwaway stack with no browser-side
-generator on it, so the join that builds canonical rows for the everyday night
-cannot happen there and every limit they declared was read by nothing. The
+**Where a night has no browser-side half to join, its limits are read off its
+own evidence.** Every profile but the staging night's runs on a throwaway
+stack, and the join that builds canonical rows out of a browser-side export and
+the machine-side output happens on that night and nowhere else — so every limit
+the rest declared was read by nothing, whether or not a generator ran beside
+their fleet. The
 evidence bundle is turned into the same canonical rows and handed to the same
 one evaluator; a second evaluator would be a second set of numbers to keep
 level. The reader emits only the series a limit names, the two sides are held
@@ -159,6 +161,18 @@ folds the journeys into its bundle, and its curve refuses a leg that carries no
 technician reading — a leg without one varied its variable against nothing that
 could feel it, which is how a scaling curve came to be flat from one processor
 upwards while every leg looked fine.
+
+**An endurance run offers the operation whose cost it is measuring.** The leak
+that family exists for stranded two goroutines on a relay session that had
+*finished*, and the family churned machines rather than sessions: its profile
+declared one to three sessions held open through every phase and nothing on the
+venue offered any, so five hours walked the arrival path thousands of times and
+the path the defect sat on not once. The browser-side generator the sweep legs
+run offers both of that profile's technician numbers there too, and the harness
+answers each session's machine side — which is also what puts the sessions into
+the denominator the conservation reading divides by, taking it from a few
+thousand machine-lives to those plus tens of thousands of finished sessions. The
+leg re-earns its own limits in the same change, by the rule above.
 
 **A ladder declares what counts as failing**, and the run reports the last step
 that held, the step that failed, and the reading that decided — plus how many steps it

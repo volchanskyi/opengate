@@ -21,16 +21,22 @@
 # to surface later as a field nobody can explain.
 #
 # Usage:
-#   loadtest-bundle-merge.sh <bundle.json> [--weight <fixture-weight.json>] [--journeys <k6-export.json>]
+#   loadtest-bundle-merge.sh <bundle.json> [--weight <fixture-weight.json>] [--journeys <k6-export.json>]...
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 <bundle.json> [--weight <fixture-weight.json>] [--journeys <k6-export.json>]" >&2
+  echo "usage: $0 <bundle.json> [--weight <fixture-weight.json>] [--journeys <k6-export.json>]..." >&2
 }
 
 # journeys_from turns a browser-side export into the bundle's own journey shape.
 # Only the named journeys are carried: every other series in that export belongs
 # to the request path rather than to a screen somebody opens.
+#
+# A session's round trip is one of them. The endurance family's whole subject is
+# what a finished session costs, so the generator that opens one has to reach
+# the bundle the same way the screens do — and the metric keeps the name the
+# trend already knows it by, because renaming it would make five nights of
+# stored work incomparable to answer a question about where it is written down.
 #
 # The statistics are read whichever way the exporter nests them. k6 v1.x writes
 # them flat on the metric and v0.x nested them under "values", and reading only
@@ -52,17 +58,21 @@ journeys_from() {
         | map(select(.key | startswith($name + "{phase:")))
         | first | .value) // null;
     def stats($name): (windowed($name) // .metrics[$name] // {}) | (.values // .);
+    def carried: startswith("journey_") and endswith("_ms");
+    def named:
+      if . == "relay_msg_latency_ms" then "relay-session-echo"
+      else (ltrimstr("journey_") | rtrimstr("_ms") | gsub("_"; "-")) end;
 
     . as $doc
     | [
         $doc.metrics
         | keys[]
-        | select(startswith("journey_") and endswith("_ms"))
         | split("{")[0]
+        | select(carried or . == "relay_msg_latency_ms")
       ]
     | unique
     | map(. as $metric | ($doc | stats($metric)) as $s | {
-        name: ($metric | ltrimstr("journey_") | rtrimstr("_ms") | gsub("_"; "-")),
+        name: ($metric | named),
         requests: ($s.count // 0 | floor),
         error_rate: 0,
         latency_p50_ms: ($s["p(50)"] // $s.med // 0),
@@ -72,7 +82,12 @@ journeys_from() {
 }
 
 main() {
-  local bundle="" weight="" journeys="" merged=0
+  local bundle="" weight="" merged=0
+  # Every export named, because two generators run beside one walk and each
+  # writes a file of its own. A second fold that replaced the first would report
+  # success while throwing the earlier scenario's numbers away, which is this
+  # script's own defect arrived at by overwriting rather than by never writing.
+  local -a journeys=()
   if [ "$#" -lt 1 ]; then
     usage
     return 2
@@ -87,7 +102,7 @@ main() {
         shift 2
         ;;
       --journeys)
-        journeys="${2:-}"
+        journeys+=("${2:-}")
         shift 2
         ;;
       *)
@@ -101,7 +116,7 @@ main() {
     echo "::error::there is no evidence bundle at $bundle to fold anything into." >&2
     return 1
   fi
-  if [ -z "$weight" ] && [ -z "$journeys" ]; then
+  if [ -z "$weight" ] && [ "${#journeys[@]}" -eq 0 ]; then
     echo "::error::nothing was named to merge, so this call would report success for no work." >&2
     return 2
   fi
@@ -123,19 +138,22 @@ main() {
     merged=$((merged + 1))
   fi
 
-  if [ -n "$journeys" ]; then
-    if [ ! -s "$journeys" ]; then
-      echo "::error::$journeys holds no export, so this night's journeys would reach the evidence as a null." >&2
-      return 1
-    fi
-    local rows
-    rows="$(journeys_from "$journeys")"
-    if [ "$(jq 'length' <<<"$rows")" -eq 0 ]; then
-      echo "::error::$journeys names no journeys, so the screens this night timed are not in it." >&2
-      return 1
-    fi
-    updated="$(jq --argjson j "$rows" '.journeys = $j' <<<"$updated")"
-    merged=$((merged + 1))
+  if [ "${#journeys[@]}" -gt 0 ]; then
+    local exported rows all='[]'
+    for exported in "${journeys[@]}"; do
+      if [ ! -s "$exported" ]; then
+        echo "::error::$exported holds no export, so this night's journeys would reach the evidence as a null." >&2
+        return 1
+      fi
+      rows="$(journeys_from "$exported")"
+      if [ "$(jq 'length' <<<"$rows")" -eq 0 ]; then
+        echo "::error::$exported names no journeys, so the screens this night timed are not in it." >&2
+        return 1
+      fi
+      all="$(jq -c --argjson rows "$rows" '. + $rows' <<<"$all")"
+      merged=$((merged + 1))
+    done
+    updated="$(jq --argjson j "$(jq -c 'sort_by(.name)' <<<"$all")" '.journeys = $j' <<<"$updated")"
   fi
 
   printf '%s\n' "$updated" >"$bundle"

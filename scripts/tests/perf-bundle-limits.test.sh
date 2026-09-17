@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # A limit is read off a run that measured something.
 #
-# Seven profiles run on venues with no browser-side export to join, so what their
-# limits are read against is the run's own evidence bundle. That bundle also
+# Every profile but the staging night's runs where there is no export to join, so
+# what their limits are read against is the run's own evidence bundle. That bundle also
 # carries the run's verdict about itself, and where the verdict is invalid the
 # numbers beside it are readings of something else — the run says so itself, in
 # the sentence the verdict step prints.

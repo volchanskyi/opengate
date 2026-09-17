@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -38,6 +39,44 @@ func (s *startCounter) start(ctx context.Context, index int, presence fleetPrese
 	s.stopped++
 	s.mu.Unlock()
 	return agentResult{connectDur: 5 * time.Millisecond, handshakeDur: time.Millisecond}
+}
+
+// liveIndexes stands in for dialling and remembers which machines are still
+// connected, so a test can say which ones a wind-down took rather than only how
+// many of them it took.
+type liveIndexes struct {
+	mu   sync.Mutex
+	live map[int]bool
+}
+
+func (l *liveIndexes) start(ctx context.Context, index int, presence fleetPresence) agentResult {
+	l.mu.Lock()
+	if l.live == nil {
+		l.live = map[int]bool{}
+	}
+	l.live[index] = true
+	l.mu.Unlock()
+
+	presence.Arrived()
+	<-ctx.Done()
+	presence.Left()
+
+	l.mu.Lock()
+	delete(l.live, index)
+	l.mu.Unlock()
+	return agentResult{connectDur: 5 * time.Millisecond, handshakeDur: time.Millisecond}
+}
+
+// indexes is the machines still connected, in the order the run asked for them.
+func (l *liveIndexes) indexes() []int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]int, 0, len(l.live))
+	for index := range l.live {
+		out = append(out, index)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // awaitConnected waits for the fleet to report the level asked for.
