@@ -6,9 +6,9 @@
 # and what that reads is an array of rows keyed by source/scenario/phase. Those
 # rows are built from a browser-side export joined to the machine-side harness's
 # text output, which happens in the load test's publish step and nowhere else.
-# Seven other profiles declare limits and run on venues that produce no such
-# join: the throwaway stack has no browser-side generator on it at all, so every
-# number those profiles are judged by was read by nothing.
+# Every other profile declares limits and runs on the throwaway stack, where
+# that join does not happen — so every number those profiles are judged by was
+# read by nothing, whether or not a generator ran beside their fleet.
 #
 # What those venues do produce is this bundle. So the rows come out of it here,
 # and the one evaluator reads them unchanged — a second evaluator would be a

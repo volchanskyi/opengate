@@ -147,34 +147,61 @@ the relay scenario say which of the two it hit when the fleet read comes back
 empty: a fleet that never arrived, or one the server forgot. Fix what that
 names.
 
-### The endurance run is five hours of machine churn, not eight, and its sessions are not churning
+### Five hours of churn is untested against the eight hours it replaced
 
 [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) settled the length: an
 unchanging fleet finishes one operation per machine however long it is held, so
 five hours of the fleet coming and going finish ten times what eight idle ones
 would, and five fits inside the six a scheduled job is killed at.
 
-Two things are owed against that. The churn is machines, not sessions — a
-session opening and closing is the operation the leak class this family exists
-for was actually stranding goroutines on. `soak.yaml` declares three sessions
-and three technician arrivals a second through each of its ten busy phases and
-nothing offers them, so those numbers describe an intention rather than a fact.
-And a leak that only shows past five hours would not be found: the profile's own
-reasoning is that churn buys more than length, and that claim is untested against
-the eight-hour version it replaced.
+What is still owed is the comparison. A leak that only shows past five hours
+would not be found here, and the profile's own reasoning — that churn buys more
+than length — has never been tried against the eight-hour version it replaced.
 
-The first half is no longer blocked. The runner venue has a browser-side leg —
-[`loadtest-k6-alongside.sh`](../scripts/loadtest-k6-alongside.sh) joins the walk
-where it is, and both perf-stack families run one — so pointing
-[`soak.yml`](../.github/workflows/soak.yml) at it is the same three steps, plus
-the `workload_name` bump a load-shape change owes
-([ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md)).
+**Pay-down trigger:** a leak found in the field that five hours of churn did not
+surface, at which point the longer run is built and the two are compared.
 
-**Pay-down trigger:** immediate for the first half, on any run of this family
-that is not already booked — the change alters what a five-hour walk measures, so
-it lands between runs rather than under one. For the second: a leak found in the
-field that five hours of churn did not surface, at which point the longer run is
-built and the two are compared.
+### The endurance run's connect ceiling is watched, not enforced
+
+[`soak.yaml`](../load/profiles/soak.yaml) now offers the technician load it
+declares, and a leg whose load changes re-earns its limits
+([ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md)). Its 2,000 ms
+ceiling on how long a machine takes to connect was bracketed by nights with
+nothing beside the fleet at all, so it is reported rather than enforced until
+nights of the load the leg now offers exist. The aggregate error rate stays
+blocking: the volume family made the same change at a harder venue and its
+machines went on arriving.
+
+This family runs weekly, so the readings arrive a week apart and the first of
+them is also the first evidence of what a session costs this target.
+
+**Pay-down trigger:** the first valid endurance night with the technician load
+beside the fleet, and each one after it. Set the ceiling from what those nights
+read, with the runs that established it beside the figure, and make it blocking
+again — or, if they say the connect path is not what a technician load moves,
+say that instead.
+
+### Five profiles declare sessions their venue never opens
+
+Every profile in [`load/profiles`](../load/profiles/) declares
+`operator_arrivals_per_second` and `sessions`, and those are technician-side
+numbers a machine-side harness cannot offer. Three venues now offer them and
+five profiles are still short: `peak`, `spike` and `breakpoint` run with no
+browser-side generator at all, and `scaling`, `volume-500`, `volume-2000` and
+`volume-8000` run one that offers the journeys and holds no session open.
+
+What that costs is different per family and worth saying rather than fixing in
+one sweep. A capacity ladder that opens no session finds the load a server gives
+out under for a load nobody runs — a technician holding a remote session is the
+expensive thing the product does, and the rung it would give out at is not the
+rung it reports. A sweep that varies its estate against journeys alone is the
+shape [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md) already names,
+one field over.
+
+**Pay-down trigger:** per family, the next piece of work that touches its leg;
+and immediately for any family whose finding is a capacity claim, since that is
+the one a reader acts on. A profile that turns out not to want sessions declares
+`sessions: 0` rather than a number nothing offers.
 
 ### The reference walk reads the Go runtime's own internals, and one job a week looks
 

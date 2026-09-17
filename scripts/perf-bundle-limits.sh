@@ -2,8 +2,8 @@
 # Read a profile's limits against a run's own evidence, where the run measured
 # something.
 #
-# Seven profiles run on venues with no browser-side generator, so the rows their
-# limits are read against come out of the harness's evidence bundle
+# Every profile but the staging night's runs where that night's join does not
+# happen, so the rows their limits are read against come out of the evidence bundle
 # (scripts/loadtest-bundle-rows.sh) and go to the one evaluator every limit is
 # read by (scripts/loadtest-gate-check.sh). This is the two of them in one place,
 # because four workflow steps were calling them as a pair and a pair spelled out

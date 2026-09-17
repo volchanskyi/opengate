@@ -72,6 +72,38 @@ func TestFleetHoldsTheLevelItIsAskedFor(t *testing.T) {
 		awaitConnected(t, fleet, 2)
 	})
 
+	// A machine that arrived early outlives every wind-down.
+	//
+	// The endurance family's browser-side generator reads the fleet once, in its
+	// own setup, and opens sessions against what it found there for the rest of
+	// a five-hour walk. That is a measurement only while the machines it named
+	// are still connected: a session asked for against a machine that has left
+	// is refused, and the refusal reads as the server failing rather than as the
+	// run pointing at a machine the run itself wound down.
+	//
+	// What makes it hold is that a wind-down takes the machines asked for last.
+	// The generator starts once the estate is filed, which is the first phase's
+	// level reached, so the machines it names are the earliest ones — and a
+	// churning profile only ever falls back to that first level.
+	t.Run("a wind-down takes the machines asked for last", func(t *testing.T) {
+		live := &liveIndexes{}
+		fleet := NewQUICFleet(live.start)
+		defer fleet.Stop()
+
+		require.NoError(t, fleet.HoldConnected(0, 6))
+		awaitConnected(t, fleet, 6)
+
+		require.NoError(t, fleet.HoldConnected(time.Second, 2))
+		awaitConnected(t, fleet, 2)
+		// Its own wait: a machine leaves the connected when its life ends, which
+		// is before the fake has finished recording that it did.
+		require.Eventually(t, func() bool { return len(live.indexes()) == 2 },
+			2*time.Second, 10*time.Millisecond, "the wind-down should have finished")
+
+		assert.Equal(t, []int{0, 1}, live.indexes(),
+			"the machines that arrived first should be the ones still connected")
+	})
+
 	t.Run("stopping ends every machine it started", func(t *testing.T) {
 		starter := &startCounter{}
 		fleet := NewQUICFleet(starter.start)

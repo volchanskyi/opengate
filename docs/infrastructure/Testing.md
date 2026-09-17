@@ -1001,13 +1001,17 @@ through, and it identifies itself by declaring `gave_out:`; in exchange it owes 
 rung at or below the ceiling and one above, or nothing in it can be named as the
 last that held. See [ADR-107](../adr/ADR-107-where-a-run-happens.md).
 
-On that venue the generator runs inside a declared processor and memory
+On the sweep legs the generator runs inside a declared processor and memory
 allowance of its own
 ([`loadtest-generator-share.sh`](../../scripts/loadtest-generator-share.sh)), so
 the stack's four consumers are four declarations rather than three and a
 remainder. A machine that cannot grant one says so and the run goes ahead
 unbounded, and the bundle's headroom scope is what says which of the two
-happened.
+happened. The endurance run takes the remainder instead: its stack's three
+services declare well under half the runner's processors between them and the
+load offered beside its fleet is small, so what is left over is far more than
+the harness asks for — and the bundle's headroom is the reading that would say
+otherwise rather than an assumption that it cannot happen.
 
 A runner is x86_64 and production is ARM64, so every family but the first
 produces comparisons — between fixture sizes, between processor counts, between
@@ -1023,6 +1027,16 @@ eight holding still. Holding a connection is not work: an unchanging fleet
 finishes one operation per machine for the whole run, which leaves a leak
 detector almost nothing to divide by, and five hours also fits inside the six a
 scheduled job is killed at. Its ten cycles end and restart 250 machines each.
+
+It offers the technician load its profile declares alongside that, from the same
+browser-side generator the sweep legs run: a rate of journeys, and one to three
+sessions held open through every phase. The sessions are the point of it. The
+leak this family was written for stranded two goroutines on a session that had
+*finished*, so a run opening none never performs the operation it exists to
+watch — and they count twice over, because the harness answers each session's
+machine side and those answers join the machine-lives in the denominator the
+conservation reading divides by. Both generators' numbers are folded into the
+run's own evidence bundle beside the machine side.
 
 #### What leaked, and what holds it
 

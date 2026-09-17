@@ -137,6 +137,54 @@ assert_eq "the weighing survives the journeys" "1398101" \
 assert_eq "the journeys survive the weighing" "2" \
   "$(jq -r '.journeys | length' "$WORK/bundle.json")"
 
+# A session round trip is a journey too.
+#
+# The endurance family's whole subject is what a finished session costs, so the
+# generator that opens one has to reach the bundle the same way the screens do.
+# The metric keeps the name the trend already knows it by; what changes is that
+# the reader carries it.
+fresh_bundle
+jq -n '{
+  metrics: {
+    "relay_msg_latency_ms": { "p(50)": 12.0, med: 12.0, "p(95)": 44.5, count: 54000 },
+    "http_req_duration":    { "p(50)": 4.9, med: 4.9, "p(95)": 9.0, count: 108000 }
+  }
+}' >"$WORK/relay.json"
+run_merge "$WORK/bundle.json" --journeys "$WORK/relay.json"
+assert_eq "a session export merges" "0" "$STATUS"
+assert_eq "the session round trip is carried" "relay-session-echo" \
+  "$(jq -r '.journeys[0].name' "$WORK/bundle.json")"
+assert_eq "it carries its own tail" "44.5" \
+  "$(jq -r '.journeys[0].latency_p95_ms' "$WORK/bundle.json")"
+assert_eq "and how many sessions timed it" "54000" \
+  "$(jq -r '.journeys[0].requests' "$WORK/bundle.json")"
+
+# Two generators run beside one walk, so two exports fold into one bundle. A
+# second fold that replaced the first would report success while throwing the
+# earlier scenario's numbers away — the same absence this merge exists to make
+# visible, arrived at by overwriting rather than by never writing.
+fresh_bundle
+fresh_export
+run_merge "$WORK/bundle.json" --journeys "$WORK/export.json" --journeys "$WORK/relay.json"
+assert_eq "two exports merge together" "0" "$STATUS"
+assert_eq "both scenarios' journeys are carried" "3" \
+  "$(jq -r '.journeys | length' "$WORK/bundle.json")"
+assert_eq "they are carried in name order" "device-detail device-list relay-session-echo" \
+  "$(jq -r '[.journeys[].name] | join(" ")' "$WORK/bundle.json")"
+assert_eq "the screens survive the sessions" "88.5" \
+  "$(jq -r '.journeys[] | select(.name == "device-list") | .latency_p95_ms' "$WORK/bundle.json")"
+
+# One of two exports missing is still a generator that timed nothing, and the
+# bundle must not come back carrying the half that worked as though it were the
+# night's whole technician reading.
+fresh_bundle
+fresh_export
+: >"$WORK/relay.json"
+run_merge "$WORK/bundle.json" --journeys "$WORK/export.json" --journeys "$WORK/relay.json"
+assert_eq "one empty export of two fails" "1" "$STATUS"
+assert_eq "and the bundle is left as it was" "null" \
+  "$(jq -r '.journeys // "null" | if type == "array" then "array" else . end' "$WORK/bundle.json")"
+
 # A merge with nothing to merge is a step reporting success for no work.
 fresh_bundle
 run_merge "$WORK/bundle.json"

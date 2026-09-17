@@ -60,6 +60,16 @@ env:
   # problem.
   SOAK_SNAPSHOT_EVERY: 5m
   SOAK_WALK_DIR: soak-bundle/reference-walk
+  # The browser-side generator, and everything it refuses to run without. The
+  # exports land inside the bundle directory so the raw readings travel with the
+  # evidence they were folded into, rather than in a temp directory the job
+  # destroys. Two steps read these — the one that starts the generator and the
+  # one that folds what it wrote — so they are declared once here.
+  K6_VERSION: v1.6.1
+  K6_BIN: /tmp/k6
+  LOADTEST_BASE_URL: http://127.0.0.1:8080
+  LOADTEST_PROFILE: load/profiles/soak.yaml
+  LOADTEST_K6_SUMMARY_DIR: soak-bundle/k6
 
 jobs:
   soak:
@@ -98,6 +108,16 @@ jobs:
           go install golang.org/x/debug/cmd/viewcore@v0.0.0-20260908162731-ac862fd6552b
           echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
 
+      # The technician load runs beside the fleet, so the generator that offers
+      # it is fetched before the five-hour walk rather than after it.
+      - name: Install k6
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
+
       - name: Record what this runner actually is
         run: |
           set -euo pipefail
@@ -118,11 +138,59 @@ jobs:
       # ones over them. A run that grew its own fleet for five hours would be
       # answering the volume question and the endurance one at once, and neither
       # of them cleanly.
+      #
+      # The technician load the profile declares runs beside the fleet: three
+      # journeys a second and three sessions held open through each busy phase.
+      # It used to run nowhere, so those numbers described an intention rather
+      # than a fact — and the sessions are the half that matters here, because
+      # the leak this family exists for stranded two goroutines on a *finished*
+      # relay session. Five hours of churn that opens no session never performs
+      # the operation the leak attaches to.
+      #
+      # The generator picks the machines it will open sessions against once, from
+      # the fleet as it stands when the estate is filed — which is the first
+      # phase's level — and a wind-down takes the machines asked for last, so
+      # what it picked is what stays connected for the whole walk. The handful
+      # that arrive in the seconds between the estate being filed and the
+      # generator reading it are wound down at the first quiet phase, and a
+      # session asked for against one of those is refused; it moves nothing this
+      # run is judged on. The order that rests on is held by
+      # server/tests/loadtest/quic_fleet_test.go rather than assumed.
+      #
+      # It is also the denominator. The harness counts the machine sides it
+      # answers as completed operations beside the machine-lives, so the
+      # conservation reading the whole family is judged by goes from dividing by
+      # a few thousand arrivals to dividing by those plus every session opened
+      # and closed across the walk.
+      #
+      # The generator is not given a processor allowance of its own. The stack's
+      # three services declare well under half the runner's processors between
+      # them, the load offered here is three journeys a second and three
+      # sessions, and the harness holding this fleet is the same one that holds
+      # sixteen times as many inside a single processor on the sweep venue.
+      # What the run reports about its own room is in the bundle's headroom
+      # either way, so a generator that did run short says so rather than being
+      # assumed not to have.
       - name: Walk the soak profile, building its fleet first
+        env:
+          LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-soak
+          # The stack is created by this job and thrown away at the end of it, is
+          # reachable only from inside the runner, and holds nothing but the
+          # fleet this run invented. The password is generated per run all the
+          # same, so nothing fixed is ever written down.
+          SOAK_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Soak!
         run: |
           set -euo pipefail
-          mkdir -p "$SOAK_BUNDLE_DIR"
+          mkdir -p "$SOAK_BUNDLE_DIR" "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          scripts/loadtest-k6-alongside.sh /tmp/soak-quic.txt api-baseline relay-throughput &
+          K6_LEG=$!
+          # The harness's own exit code, read rather than acted on: 1 is a fleet
+          # that half arrived, which is a measurement. What judges it is the
+          # verdict step below, and failing here on the count is a second
+          # verdict nobody wrote down. Errexit is turned off around it because a
+          # status read after an unguarded command is a branch nothing reaches.
+          set +e
           scripts/loadtest-quic-run.sh /tmp/soak-quic.txt -- \
             /tmp/loadtest \
               -agents=500 \
@@ -140,22 +208,37 @@ jobs:
               -fixture-password="$SOAK_FIXTURE_PASSWORD" \
               -fixture-bootstrap \
               -fixture-seed=1 \
+              -relay-sessions \
               -leak-snapshot-every="$SOAK_SNAPSHOT_EVERY" \
               -bundle="$SOAK_BUNDLE_DIR/soak"
-        env:
-          # The stack is created by this job and thrown away at the end of it, is
-          # reachable only from inside the runner, and holds nothing but the
-          # fleet this run invented. The password is generated per run all the
-          # same, so nothing fixed is ever written down.
-          SOAK_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Soak!
+          walk=$?
+          set -e
+          wait "$K6_LEG"
+          if [ "$walk" -gt 1 ]; then
+            echo "::error::the harness did not complete a run (exit $walk)." >&2
+            exit "$walk"
+          fi
+
+      # The technician numbers are timed by generators in other processes and
+      # written to files of their own. Folding them in is what gives them a
+      # reader: the bundle is the artifact that outlives this machine, and a
+      # measurement nobody reads is a run that happens to share a profile.
+      - name: Fold the technician numbers into the run's evidence
+        run: |
+          set -euo pipefail
+          scripts/loadtest-bundle-merge.sh \
+            "$SOAK_BUNDLE_DIR/soak/bundle.json" \
+            --journeys "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json" \
+            --journeys "$LOADTEST_K6_SUMMARY_DIR/relay-throughput.json"
 
       - name: Read the verdict the run wrote about itself
         if: always()
         run: scripts/perf-bundle-verdict.sh "$SOAK_BUNDLE_DIR/soak/bundle.json"
 
       # And the numbers the profile says this run is judged by, read off its own
-      # evidence — this venue produces no browser-side export to join, which is
-      # why every limit this profile declares had gone unread.
+      # evidence. The rows that reader builds are the machine side, which is
+      # what the limits below are held against; the technician numbers beside
+      # them are folded into the bundle and reported rather than gated.
       - name: Read the profile's limits against the run's own rows
         if: always()
         run: |
