@@ -14,6 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE="$REPO_ROOT/deploy/docker-compose.perf.yml"
 WORKFLOW="$REPO_ROOT/.github/workflows/perf-stack.yml"
+# shellcheck source=scripts/lib/loadtest-profile.sh
+. "$REPO_ROOT/scripts/lib/loadtest-profile.sh"
 
 PASS=0
 FAIL=0
@@ -335,6 +337,123 @@ for family in volume scaling; do
   else
     fail "the $family family runs a browser-side generator ($runs) and folds its journeys ($folds), which do not agree"
   fi
+done
+
+# --- A capacity claim is made about the load the product actually costs -------
+#
+# Both families answer "how many machines can one processor hold", which is the
+# kind of finding a reader acts on. They answered it for a fleet that is
+# connected and idle: nobody was watching a screen. A technician holding a remote
+# session is the expensive thing the product does, so a ceiling read without one
+# is a ceiling for a load that never happens.
+#
+# Every profile on both families declares `sessions`, and a declared number
+# nothing offers is an intention rather than a fact — the same gap the endurance
+# family closed, one venue over. The scenarios are read off the invocation rather
+# than listed here, so a scenario added to or taken off a leg is judged by what
+# it offers.
+#
+# A scenario's executor says which of the two technician numbers it offers:
+# arrivals are a rate of journeys, sessions are a count held open, and neither
+# stands in for the other.
+scenarios_on() {
+  local block="$1" invocation word
+  invocation="$(grep -oE 'loadtest-k6-alongside\.sh[^&]*' <<<"$block" | head -1 || true)"
+  local -a words=()
+  read -r -a words <<<"$invocation"
+  # Everything after the script and the harness's output path is a scenario.
+  for word in "${words[@]:2}"; do
+    case "$word" in
+      -* | '' | '&' | \\) continue ;;
+      *) printf '%s\n' "$word" ;;
+    esac
+  done
+}
+
+for family in volume scaling; do
+  block="$(job_block "$family")"
+
+  # What this family's legs declare, read off the profiles the job itself names.
+  declared_sessions=0
+  profiles_read=0
+  while IFS= read -r profile; do
+    [ -n "$profile" ] || continue
+    [ -f "$REPO_ROOT/$profile" ] || continue
+    profiles_read=$((profiles_read + 1))
+    if phases="$(profile_phases "$REPO_ROOT/$profile" 2>/dev/null)"; then
+      declared_sessions=$((declared_sessions + $(jq '[.[] | select(.sessions > 0)] | length' <<<"$phases")))
+    fi
+  done < <(grep -oE 'load/profiles/[a-z0-9.-]+\.yaml' <<<"$block" | sort -u)
+
+  if [ "$profiles_read" -gt 0 ]; then
+    pass "the $family family names $profiles_read profile(s) this gate can read"
+  else
+    fail "the $family family names no readable profile, so every check below holds it to nothing"
+  fi
+
+  # A family declaring no session satisfies every check below by asking for
+  # nothing, which is the vacuous pass this would otherwise report forever.
+  if [ "$declared_sessions" -gt 0 ]; then
+    pass "the $family family's profiles declare held sessions in $declared_sessions phase(s)"
+  else
+    fail "the $family family's profiles declare no session, so its capacity claim is about an idle fleet by declaration"
+  fi
+
+  offers_sessions=no
+  while IFS= read -r scenario; do
+    [ -n "$scenario" ] || continue
+    script="$REPO_ROOT/load/k6/scenarios/$scenario.js"
+    if [ ! -f "$script" ]; then
+      fail "the $family family names scenario $scenario and there is no such script"
+      continue
+    fi
+    grep -q 'sessionScenarios' "$script" && offers_sessions=yes
+  done < <(scenarios_on "$block")
+
+  if [ "$declared_sessions" -eq 0 ] || [ "$offers_sessions" = yes ]; then
+    pass "the sessions the $family family declares are held open beside its fleet"
+  else
+    fail "the $family family declares sessions and no scenario on its leg holds one open, so its capacity claim is read with nobody watching a screen"
+  fi
+
+  # The machine side has to answer as well as the browser side asking. A session
+  # has two ends: the generator opens the operator's, and the harness joins the
+  # machine's and echoes. Without that flag the browser side times a frame
+  # nobody sends back.
+  if [ "$declared_sessions" -eq 0 ] || grep -q -- '-relay-sessions' <<<"$block"; then
+    pass "the $family family's harness joins the machine side of a session and echoes"
+  else
+    fail "the $family family's harness is not told to answer a session request, so the browser side times a frame nobody sends back"
+  fi
+
+  # And every scenario the leg runs is folded, in both directions: a leg that
+  # starts a generator and folds nothing has produced readings in a directory
+  # the job destroys, and one that folds an export nothing wrote fails on the
+  # night rather than here.
+  folded=0
+  while IFS= read -r scenario; do
+    [ -n "$scenario" ] || continue
+    if grep -q -- "--journeys[^|]*$scenario\.json" <<<"$block"; then
+      folded=$((folded + 1))
+    else
+      fail "the $family family offers $scenario and folds its numbers nowhere"
+    fi
+  done < <(scenarios_on "$block")
+  if [ "$folded" -gt 0 ]; then
+    pass "the $family family folds $folded scenario(s) it runs into its own evidence"
+  else
+    fail "the $family family folds no scenario it runs, so this sweep checked nothing"
+  fi
+
+  while IFS= read -r export_name; do
+    [ -n "$export_name" ] || continue
+    if grep -qxF "$export_name" <<<"$(scenarios_on "$block")"; then
+      pass "the export the $family family folds for $export_name is one its leg produces"
+    else
+      fail "the $family family folds $export_name's export and its leg never runs it"
+    fi
+  done < <(grep -oE '\-\-journeys [^ ]+' <<<"$block" \
+    | sed -nE 's|.*/([a-z0-9-]+)\.json.*|\1|p' | sort -u)
 done
 
 # --- The bundle's verdict is read back ----------------------------------------

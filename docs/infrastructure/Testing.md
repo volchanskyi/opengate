@@ -942,6 +942,21 @@ journeys, timed in another pod.
 [`loadtest-bundle-merge.sh`](../../scripts/loadtest-bundle-merge.sh) folds those
 into the bundle and fails when there is nothing to fold.
 
+It folds one more thing from the same export: how many of the run's requests the
+server refused at the door, beside how many it made. The server counts requests
+per address, so a night whose presented addresses were not believed spends one
+allowance between every virtual user — it fills with refusals, reds the
+error-rate gate, and is shaped exactly like a night against a slow server. The
+count is what tells a broken test setup from a finding about the product. It is
+not free in the export: what k6 publishes about failures is a single pass/fail
+rate with no breakdown by status, so the scenarios count it themselves, through
+the one request client they all share, and a nought is recorded on every answered
+request so a clean night's series exists rather than being absent. The merge
+refuses an export that made requests and carries no count of them, and
+[`perf-bundle-verdict.sh`](../../scripts/perf-bundle-verdict.sh) prints the share
+beside the verdict — with a note, not a gate, past one per cent
+([ADR-116](../adr/ADR-116-forwarded-addresses.md)).
+
 Both schemas, their validation and the verdict rules live in
 [`server/tests/loadtest/`](../../server/tests/loadtest) and are exercised by that
 package's tests.
@@ -979,12 +994,24 @@ because one night is one sample per leg and two nights from the same code have
 disagreed about the shape.
 
 Each leg also runs a browser-side generator from its own profile beside the
-fleet, folds the journeys into its bundle, and its curve refuses a leg that
+fleet, folds what it timed into its bundle, and its curve refuses a leg that
 carries no technician reading. Whatever a family holds constant has to be
 something its variable can move, and machines arriving is not: that cost barely
 changes with the second processor or with the size of the estate already in the
 database, which is how a scaling curve came to be flat from one processor upwards
 while every leg looked fine.
+
+Both halves of the profile's technician load, because both are declared and they
+are different loads: a rate of journeys is screens opened, and `sessions` is a
+count held open. What each sweep publishes is a capacity claim — how many
+machines a processor holds, what an estate of a given size costs — and a
+technician remoted into a machine is the expensive thing the product does, so a
+figure read with nobody watching a screen describes a load that never happens.
+The harness answers each session's machine side on these venues for the same
+reason it does on the endurance one, and
+[`perf-stack.test.sh`](../../scripts/tests/perf-stack.test.sh) holds each family
+to offering what its own profiles declare and to folding what it offers, in both
+directions.
 [ADR-101](../adr/ADR-101-load-profiles-and-limits.md) is
 the decision behind all of that, and behind the two things that made the sweeps
 readable in the first place: the rungs sit below what the rest of the stack

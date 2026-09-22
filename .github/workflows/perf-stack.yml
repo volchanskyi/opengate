@@ -149,6 +149,18 @@ jobs:
       # varied processors against was five hundred machines arriving, which is
       # the cheapest thing the server does — and that is why its curve was flat
       # from one processor upwards.
+      #
+      # Both halves of that load, because the profile declares both. The journeys
+      # are a rate of screens opened; the sessions are a count held open, and
+      # they are the half this family's finding most depends on. What this sweep
+      # answers is how many machines a processor holds, which is a claim a reader
+      # acts on — and a technician remoted into a machine is the expensive thing
+      # the product does. A ceiling read with nobody watching a screen is a
+      # ceiling for a load that never happens.
+      #
+      # The harness answers the machine side of those sessions and echoes on it,
+      # which is what makes the browser side's round trip a measurement rather
+      # than a wait for a frame nobody sends back.
       - name: Run the scaling profile, building its fleet first
         env:
           LOADTEST_BASE_URL: http://127.0.0.1:8080
@@ -165,7 +177,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$PERF_BUNDLE_DIR" "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
-          scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline &
+          scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
           K6_LEG=$!
           # The harness's own exit code, read rather than acted on: 1 is a fleet
           # that half arrived, which is a measurement. What judges it is the
@@ -190,6 +202,7 @@ jobs:
               -fixture-password="$PERF_FIXTURE_PASSWORD" \
               -fixture-bootstrap \
               -fixture-seed=1 \
+              -relay-sessions \
               -bundle="$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}"
           walk=$?
           set -e
@@ -208,7 +221,8 @@ jobs:
           set -euo pipefail
           scripts/loadtest-bundle-merge.sh \
             "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json" \
-            --journeys /tmp/perf-k6/api-baseline.json
+            --journeys /tmp/perf-k6/api-baseline.json \
+            --journeys /tmp/perf-k6/relay-throughput.json
 
       - name: Read the verdict the run wrote about itself
         if: always()
@@ -321,12 +335,20 @@ jobs:
       # load that could not feel it, which is why three legs a night differing
       # by sixteen times the machines returned registration tails inside a
       # hundred milliseconds of each other.
+      #
+      # Both halves of that load, because the profiles declare both. The
+      # journeys are a rate of screens opened; the sessions are a count held
+      # open, and the harness answers the machine side of each and echoes. This
+      # family states how much a fleet of a given size costs, which is a claim a
+      # reader acts on, and a technician remoted into a machine is the expensive
+      # thing the product does — so a figure read with nobody watching a screen
+      # describes a load that never happens.
       - name: Run the volume profile, building its fleet first
         run: |
           set -euo pipefail
           mkdir -p "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
-          scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline &
+          scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
           K6_LEG=$!
           # The harness's own exit code, read rather than acted on: 1 is a fleet
           # that half arrived, which is a measurement. What judges it is the
@@ -351,6 +373,7 @@ jobs:
               -fixture-password="$PERF_FIXTURE_PASSWORD" \
               -fixture-bootstrap \
               -fixture-seed=1 \
+              -relay-sessions \
               -bundle="$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}"
           walk=$?
           set -e
@@ -380,7 +403,8 @@ jobs:
           set -euo pipefail
           scripts/loadtest-bundle-merge.sh \
             "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" \
-            --journeys /tmp/perf-k6/api-baseline.json
+            --journeys /tmp/perf-k6/api-baseline.json \
+            --journeys /tmp/perf-k6/relay-throughput.json
 
       - name: Read the verdict the run wrote about itself
         if: always()

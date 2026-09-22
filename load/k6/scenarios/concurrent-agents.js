@@ -1,9 +1,12 @@
-import http from "k6/http";
 import { check } from "k6";
+// The request client is the shared one rather than k6's own: it is the single
+// place that sees every request this run makes, which is what lets the run say
+// how many of them the server turned away at the door.
 import {
   anonymousHeaders,
   authHeaders,
   devicesUrl,
+  http,
   printCleanupManifest,
   registerMember,
   visibleSiteIds,

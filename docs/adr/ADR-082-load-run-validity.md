@@ -150,7 +150,12 @@ always empty and limits that can never fire.
 
 **The relay is measured through a relay.** The generator opens the technician's
 side of a real session and times its own frame coming back while the harness
-holds the machine's side and echoes.
+holds the machine's side and echoes. Where its fleet read offers no machine to
+open one against, it names which of two things it met — nothing ever enrolled,
+or machines present that the server is no longer holding, which is what its
+record looks like after a restart. One is the machine side and the other is the
+target, and the answer is in the list the read just fetched. The restart itself
+is caught by the bracket below rather than inferred from this.
 
 **A phase is the difference between two readings of a running tally**, which is
 the only way to separate a phase from the run around it when a machine reports

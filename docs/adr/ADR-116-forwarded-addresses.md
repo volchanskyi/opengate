@@ -21,8 +21,19 @@ address the connection came from.
 per-caller limit is measured per caller rather than being hit at once by one
 generator pretending to be a fleet.
 
+**A run counts how much of what it asked was refused, and carries the count into
+its own evidence.** The chain that makes a presented address believed runs
+through five files and a cluster, and only the files half is checkable as text:
+whether the generator pods became endpoints of the named service in time, and
+whether the resolver answered for them, is a fact about the night. A night where
+they did not is a night spent behind one allowance — it fills with refusals,
+reds the error-rate gate, and is shaped exactly like a night against a slow
+server. What k6 publishes about failures is a single pass/fail rate with no
+breakdown by status, so the count is taken by the scenarios themselves, through
+the one request client they all share, and read back beside the run's verdict.
+
 ## Consequences
 
 Adding a proxy means naming it in the deployment. An unnamed proxy is not
-trusted, which fails visibly rather than silently attributing everything to one
-address.
+trusted, and the run says so in a number rather than in the shape of a slow
+night: a broken test setup and a product regression stop looking the same.

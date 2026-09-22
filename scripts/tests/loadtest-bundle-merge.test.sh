@@ -59,7 +59,9 @@ fresh_export() {
     metrics: {
       journey_device_list_ms:   { type: "trend", values: { med: 41.0, "p(95)": 88.5, count: 1200 } },
       journey_device_detail_ms: { type: "trend", values: { med: 60.0, "p(95)": 140.25, count: 600 } },
-      http_req_duration:        { type: "trend", values: { med: 7.0, "p(95)": 12.0, count: 7228 } }
+      http_req_duration:        { type: "trend", values: { med: 7.0, "p(95)": 12.0, count: 7228 } },
+      http_reqs:                { type: "counter", values: { count: 7228, rate: 40.1 } },
+      requests_refused:         { type: "counter", values: { count: 0, rate: 0 } }
     }
   }' >"$WORK/export.json"
 }
@@ -112,7 +114,9 @@ jq -n '{
     "journey_device_list_ms":        { "p(50)": 41.0, med: 41.0, "p(95)": 88.5, count: 1200 },
     "journey_device_list_ms{phase:steady}": { "p(50)": 39.0, med: 39.0, "p(95)": 80.0, count: 900 },
     "journey_device_detail_ms":      { "p(50)": 60.0, med: 60.0, "p(95)": 140.25, count: 600 },
-    "http_req_duration":             { "p(50)": 7.0, med: 7.0, "p(95)": 12.0, count: 7228 }
+    "http_req_duration":             { "p(50)": 7.0, med: 7.0, "p(95)": 12.0, count: 7228 },
+    "http_reqs":                     { count: 7228, rate: 40.1 },
+    "requests_refused":              { count: 0, rate: 0 }
   }
 }' >"$WORK/export.json"
 run_merge "$WORK/bundle.json" --journeys "$WORK/export.json"
@@ -147,7 +151,9 @@ fresh_bundle
 jq -n '{
   metrics: {
     "relay_msg_latency_ms": { "p(50)": 12.0, med: 12.0, "p(95)": 44.5, count: 54000 },
-    "http_req_duration":    { "p(50)": 4.9, med: 4.9, "p(95)": 9.0, count: 108000 }
+    "http_req_duration":    { "p(50)": 4.9, med: 4.9, "p(95)": 9.0, count: 108000 },
+    "http_reqs":            { count: 108000, rate: 6.0 },
+    "requests_refused":     { count: 12, rate: 0.0007 }
   }
 }' >"$WORK/relay.json"
 run_merge "$WORK/bundle.json" --journeys "$WORK/relay.json"
@@ -208,9 +214,82 @@ assert_eq "and the bundle is left as it was" "null" \
 # An export carrying no journeys is a generator that timed no screens, which is
 # the absence this merge exists to make visible.
 fresh_bundle
-jq -n '{ metrics: { http_req_duration: { type: "trend", values: { med: 7.0 } } } }' >"$WORK/export.json"
+jq -n '{ metrics: {
+  http_req_duration: { type: "trend", values: { med: 7.0 } },
+  http_reqs:         { type: "counter", values: { count: 10 } },
+  requests_refused:  { type: "counter", values: { count: 0 } }
+} }' >"$WORK/export.json"
 run_merge "$WORK/bundle.json" --journeys "$WORK/export.json"
 assert_eq "an export naming no journeys fails" "1" "$STATUS"
+
+# --- what the run's requests were answered with -------------------------------
+#
+# A night where the generator's presented addresses were not believed looks
+# exactly like a night where the server was slow: both fill with refusals, both
+# red the same error-rate gate, and nothing anywhere says which. The server
+# counts requests per address and answers over the allowance with 429, so the
+# count of those is the reading that separates the two — a broken test setup from
+# a finding about the product.
+#
+# It is not in the export for free. The failure figure k6 publishes is one
+# pass/fail rate with no breakdown by status, so the scenarios count the refusals
+# themselves and this carries the count into the one artifact that outlives the
+# metrics store.
+fresh_bundle
+fresh_export
+run_merge "$WORK/bundle.json" --journeys "$WORK/export.json"
+assert_eq "a night nobody was refused says so" "0" \
+  "$(jq -r '.refusals.refused' "$WORK/bundle.json")"
+assert_eq "beside how many requests it made" "7228" \
+  "$(jq -r '.refusals.requests' "$WORK/bundle.json")"
+
+# Two generators run beside one walk, and the run was refused or it was not —
+# so the reading is the whole run's rather than whichever export folded last.
+fresh_bundle
+fresh_export
+jq -n '{
+  metrics: {
+    "relay_msg_latency_ms": { "p(50)": 12.0, med: 12.0, "p(95)": 44.5, count: 54000 },
+    "http_reqs":            { count: 108000, rate: 6.0 },
+    "requests_refused":     { count: 12, rate: 0.0007 }
+  }
+}' >"$WORK/relay.json"
+run_merge "$WORK/bundle.json" --journeys "$WORK/export.json" --journeys "$WORK/relay.json"
+assert_eq "two exports merge together" "0" "$STATUS"
+assert_eq "every scenario's refusals are counted" "12" \
+  "$(jq -r '.refusals.refused' "$WORK/bundle.json")"
+assert_eq "against every scenario's requests" "115228" \
+  "$(jq -r '.refusals.requests' "$WORK/bundle.json")"
+
+# A counter nobody incremented is left out of the export entirely, so its absence
+# means "no refusal happened" and "this scenario never counted" at once — which
+# is the false green the reading exists to close. The scenarios add a nought on
+# every answered request so the series always exists; an export that made
+# requests and carries no count of them did not.
+fresh_bundle
+jq -n '{
+  metrics: {
+    "journey_device_list_ms": { med: 41.0, "p(95)": 88.5, count: 1200 },
+    "http_reqs":              { count: 7228, rate: 40.1 }
+  }
+}' >"$WORK/uncounted.json"
+run_merge "$WORK/bundle.json" --journeys "$WORK/uncounted.json"
+assert_eq "an export that counted no refusals at all fails" "1" "$STATUS"
+assert_eq "and the bundle is left as it was" "null" \
+  "$(jq -r '.refusals // "null" | if type == "object" then "object" else . end' "$WORK/bundle.json")"
+
+# And a share of nothing is not a share. An export naming no request cannot say
+# nothing was turned away, because nothing was asked.
+fresh_bundle
+jq -n '{
+  metrics: {
+    "journey_device_list_ms": { med: 41.0, "p(95)": 88.5, count: 1200 },
+    "http_reqs":              { count: 0, rate: 0 },
+    "requests_refused":       { count: 0, rate: 0 }
+  }
+}' >"$WORK/silent.json"
+run_merge "$WORK/bundle.json" --journeys "$WORK/silent.json"
+assert_eq "an export naming no request at all fails" "1" "$STATUS"
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

@@ -387,6 +387,22 @@ func (c CleanupProof) Clean() bool {
 	return c.OrphanUsers == 0 && c.OrphanDevices == 0 && c.OrphanTenants == 0 && c.OrphanPods == 0
 }
 
+// RefusalCount is what the run's browser-side generators asked for and how much
+// of it the server turned away at the door.
+//
+// The server counts requests per address, and a run whose presented addresses
+// are not believed spends one allowance between every virtual user: it fills
+// with refusals, reds the error-rate gate, and produces a night shaped exactly
+// like one against a slow server. One of those is a broken test setup and the
+// other is a finding about the product, and the count is what tells them apart.
+//
+// Both numbers, because one is a share of the other and a refusal count without
+// the requests it is out of says nothing about a run's size.
+type RefusalCount struct {
+	Requests int64 `json:"requests"`
+	Refused  int64 `json:"refused"`
+}
+
 // Bundle is one run's whole evidence.
 type Bundle struct {
 	SchemaVersion     int             `json:"schema_version"`
@@ -408,6 +424,12 @@ type Bundle struct {
 	// asked to watch — which is not the same as a run that watched and found
 	// nothing, and the two must never arrive as the same document.
 	Leak *LeakTrail `json:"leak_trail,omitempty"`
+	// Refusals is how much of what the run asked for the server turned away.
+	// It is folded in beside the journeys by the same step, so it is absent on
+	// a venue that runs no browser-side generator — and absent rather than
+	// nought, because nought refusals out of nought requests is the cleanest
+	// night that could ever be reported and no run produced it.
+	Refusals *RefusalCount `json:"refusals,omitempty"`
 }
 
 // WriteTo validates the bundle and writes it into dir, returning the path. An

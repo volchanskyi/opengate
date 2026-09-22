@@ -245,3 +245,50 @@ func TestARunWithNoFixtureCarriesNoFilingCount(t *testing.T) {
 	require.NoError(t, b.Validate())
 	assert.Nil(t, b.Fixture.FiledDevices)
 }
+
+// A night refused at the door is not a night the server was slow.
+//
+// The server counts requests per address, and a run whose presented addresses
+// are not believed spends one allowance between every virtual user: it fills
+// with refusals, reds the error-rate gate, and reports a shape indistinguishable
+// from a slow server. One is a broken test setup and one is a finding about the
+// product. The browser-side generator counts the refusals beside the requests it
+// made, and scripts/loadtest-bundle-merge.sh folds both into the evidence, so the
+// schema carries a home for them rather than a key a later reader invents.
+func TestABundleCarriesWhatTheRunWasRefused(t *testing.T) {
+	b := completeBundle()
+	b.Refusals = &RefusalCount{Requests: 115_228, Refused: 12}
+
+	path, err := b.WriteTo(t.TempDir())
+	require.NoError(t, err)
+
+	read, err := LoadBundle(path)
+	require.NoError(t, err)
+	require.NotNil(t, read.Refusals, "the reading must survive a round trip, or the merge writes a key nothing reads")
+	assert.Equal(t, int64(115_228), read.Refusals.Requests)
+	assert.Equal(t, int64(12), read.Refusals.Refused)
+
+	var generic map[string]any
+	data, err := json.Marshal(read)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &generic))
+	assert.Contains(t, generic, "refusals", "the merge writes this key, so the schema names it")
+}
+
+// And a run nobody asked about is not a run nobody refused.
+//
+// Absent rather than nought, for the reason every other optional section of this
+// bundle is: a venue with no browser-side generator took no such reading, and a
+// nought there would read as the cleanest night ever measured.
+func TestABundleWithNoGeneratorDeclaresNoRefusalReading(t *testing.T) {
+	b := completeBundle()
+	require.Nil(t, b.Refusals)
+
+	data, err := json.Marshal(b)
+	require.NoError(t, err)
+
+	var generic map[string]any
+	require.NoError(t, json.Unmarshal(data, &generic))
+	assert.NotContains(t, generic, "refusals",
+		"a run that took no such reading must not report nought requests refused")
+}
