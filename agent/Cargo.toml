@@ -36,7 +36,7 @@ tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 portable-pty = "0.9"
 url = "2"
-webrtc = "0.20"
+webrtc = "0.21"
 
 gethostname = "1.1"
 sysinfo = "0.39"
