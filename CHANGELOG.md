@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.105.0] - 2026-09-22
+
+### Added
+- **loadtest:** three readings a night could not take
+
 ## [v0.104.0] - 2026-09-17
 
 ### Added
