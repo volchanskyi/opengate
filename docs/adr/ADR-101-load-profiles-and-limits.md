@@ -157,10 +157,19 @@ variable a family holds constant has to be something the variable can move, and
 machines arriving is not: the cost of a machine arriving barely changes with the
 size of the estate already in the database, or with the second processor. So a
 sweep leg runs a browser-side generator from its own profile beside the fleet,
-folds the journeys into its bundle, and its curve refuses a leg that carries no
+folds what it timed into its bundle, and its curve refuses a leg that carries no
 technician reading — a leg without one varied its variable against nothing that
 could feel it, which is how a scaling curve came to be flat from one processor
 upwards while every leg looked fine.
+
+Both of the profile's technician numbers, because both are declared and they are
+different loads: a rate of journeys is screens opened, and `sessions` is a count
+held open. What each sweep publishes is a capacity claim — how many machines a
+processor holds, what an estate of a given size costs — and a technician remoted
+into a machine is the expensive thing the product does, so a ceiling read with
+nobody watching a screen is a ceiling for a load that never happens. The harness
+answers each session's machine side on these venues for the same reason it does
+on the endurance one.
 
 **An endurance run offers the operation whose cost it is measuring.** The leak
 that family exists for stranded two goroutines on a relay session that had

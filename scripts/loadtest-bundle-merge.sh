@@ -81,6 +81,27 @@ journeys_from() {
     | sort_by(.name)' "$1"
 }
 
+# refusals_from prints one export's request count and how many of those requests
+# the server turned away at the door, as two numbers on one line.
+#
+# The server counts requests per address and answers over the allowance with a
+# refusal, so a night whose presented addresses were not believed fills with
+# them — and it looks exactly like a night where the server was slow, because
+# both red the same error-rate gate. The count is what separates a broken test
+# setup from a finding about the product, and nothing was carrying it: what k6
+# publishes about failures is one pass/fail rate with no breakdown by status, so
+# the scenarios count the refusals themselves.
+#
+# The statistics are read whichever way the exporter nests them, for the reason
+# journeys_from gives. The whole run rather than the measured phase: a request
+# refused during the ramp was still refused.
+refusals_from() {
+  jq -r '
+    def stats($name): (.metrics[$name] // {}) | (.values // .);
+    [(stats("http_reqs").count // -1), (stats("requests_refused").count // -1)]
+    | map(floor) | @tsv' "$1"
+}
+
 main() {
   local bundle="" weight="" merged=0
   # Every export named, because two generators run beside one walk and each
@@ -139,7 +160,7 @@ main() {
   fi
 
   if [ "${#journeys[@]}" -gt 0 ]; then
-    local exported rows all='[]'
+    local exported rows all='[]' asked turned_away requests=0 refused=0
     for exported in "${journeys[@]}"; do
       if [ ! -s "$exported" ]; then
         echo "::error::$exported holds no export, so this night's journeys would reach the evidence as a null." >&2
@@ -151,9 +172,36 @@ main() {
         return 1
       fi
       all="$(jq -c --argjson rows "$rows" '. + $rows' <<<"$all")"
+
+      # What this scenario was answered with, beside what it asked.
+      #
+      # A counter nobody incremented is left out of the export entirely, so its
+      # absence would mean "nobody was refused" and "this scenario never counted"
+      # at once — the false green the reading exists to close. The scenarios add
+      # a nought on every answered request so the series always exists, and an
+      # export that made requests without one did not count them.
+      # An export jq cannot read leaves both empty, which the two checks below
+      # name; ending the merge here instead would say nothing about why.
+      asked=""
+      turned_away=""
+      IFS=$'\t' read -r asked turned_away < <(refusals_from "$exported" 2>/dev/null) || true
+      if [ "${asked:--1}" -le 0 ]; then
+        echo "::error::$exported names no request the run made, so it cannot say that nothing was turned away." >&2
+        return 1
+      fi
+      if [ "${turned_away:--1}" -lt 0 ]; then
+        echo "::error::$exported counted no refusals at all, so a night refused at the door reads the same as one that was not." >&2
+        return 1
+      fi
+      requests=$((requests + asked))
+      refused=$((refused + turned_away))
       merged=$((merged + 1))
     done
     updated="$(jq --argjson j "$(jq -c 'sort_by(.name)' <<<"$all")" '.journeys = $j' <<<"$updated")"
+    updated="$(
+      jq --argjson requests "$requests" --argjson refused "$refused" \
+        '.refusals = { requests: $requests, refused: $refused }' <<<"$updated"
+    )"
   fi
 
   printf '%s\n' "$updated" >"$bundle"

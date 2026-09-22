@@ -41,6 +41,7 @@ API="$ROOT/server/internal/api/api.go"
 SCENARIO_DIR="$ROOT/load/k6/scenarios"
 PROFILE_DIR="$ROOT/load/profiles"
 SESSION_LIB="$ROOT/load/k6/lib/session.js"
+RATELIMIT="$ROOT/server/internal/api/ratelimit.go"
 WORKFLOW="$ROOT/.github/workflows/load-test.yml"
 CHART="$ROOT/deploy/helm/opengate"
 # shellcheck source=scripts/lib/loadtest-profile.sh
@@ -166,6 +167,58 @@ for f in "${scenarios[@]}"; do
     pass "$name takes its headers from the shared session helper"
   else
     fail "$name takes its headers from the shared session helper, which is what presents the address"
+  fi
+done
+
+# --- and whether it held is a reading the night takes ------------------------
+#
+# Every link above is checked here as text, which is what a sweep over files can
+# do. Whether the chain actually held on a given night is a different question,
+# and it had no answer at all: a night whose presented addresses were not
+# believed fills with refusals and reds the error-rate gate, which is exactly
+# what a night against a slow server does. One is a broken test setup and one is
+# a finding about the product, and nothing anywhere separated them.
+#
+# What k6 publishes about failures is one pass/fail rate with no breakdown by
+# status, so the count is one the scenarios take themselves — through the shared
+# helper, which is the only place that sees every request the run makes.
+if grep -q 'new Counter("requests_refused")' "$SESSION_LIB"; then
+  pass "the shared session helper counts what the server refused"
+else
+  fail "the shared session helper counts no refusal, so a night refused at the door reads the same as one that was not"
+fi
+
+# On every answered request, including the ones that were not refused. A k6
+# counter nobody increments is left out of the export entirely, so a series that
+# only appears once something is refused means "nobody was refused" and "this
+# scenario never counted" at once — which is the false green the count exists to
+# close, and which scripts/loadtest-bundle-merge.sh refuses an export for.
+if grep -qE 'refused\.add\(.*\? 1 : 0\)' "$SESSION_LIB"; then
+  pass "it adds a nought on a request that was answered, so the series exists on a clean night"
+else
+  fail "it counts only refusals, so an export without the series cannot be told from a night nobody was refused"
+fi
+
+# The status is the one the server actually refuses with, read off the limiter
+# rather than restated: a count of the wrong number is a reading of nothing that
+# reports a clean night forever.
+if [ ! -f "$RATELIMIT" ]; then
+  fail "server/internal/api/ratelimit.go is readable, so what the limiter answers with can be read"
+elif grep -q 'http.StatusTooManyRequests' "$RATELIMIT" && grep -q 'REFUSED_STATUS = 429' "$SESSION_LIB"; then
+  pass "the status counted is the one the limiter answers with (429)"
+else
+  fail "the status the helper counts is not the one the limiter answers with"
+fi
+
+# And every request goes through that helper. A scenario reaching for k6/http
+# itself makes requests the count never sees, so the reading would be a share of
+# an unknown part of the run.
+for f in "${scenarios[@]}"; do
+  name="$(basename "$f" .js)"
+  if grep -qE '^import http from "k6/http"' "$f"; then
+    fail "$name asks k6 for the request client directly, so the requests it makes are outside the count"
+  else
+    pass "$name makes its requests through the shared helper"
   fi
 done
 

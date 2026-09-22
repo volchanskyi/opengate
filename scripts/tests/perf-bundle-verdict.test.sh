@@ -93,6 +93,68 @@ echo 'not json' >"$WORK/bundle.json"
 run_check
 assert_eq "an unreadable bundle fails the step" "1" "$STATUS"
 
+# --- what the run's requests were answered with -------------------------------
+#
+# A night whose presented addresses were not believed fills with refusals and
+# reds the error-rate gate, which is exactly what a night against a slow server
+# does. The count that separates them is folded into the bundle, and a reading
+# nobody prints is a field in an artifact somebody has to know to go and open —
+# so the step that reads the verdict reads this beside it.
+jq -n '{
+  verdict: { result: "valid", reasons: [] },
+  refusals: { requests: 115228, refused: 0 }
+}' >"$WORK/bundle.json"
+run_check
+assert_eq "a run nobody refused still exits 0" "0" "$STATUS"
+if grep -q '115228' "$WORK/out.txt" && grep -qi 'refus' "$WORK/out.txt"; then
+  pass "what the run asked for and what it was refused are both printed"
+else
+  fail "the refusal reading is printed beside the verdict"
+fi
+# And a clean night is not warned about. A note that fires on every run is a
+# note nobody reads, which is where the reading would end up.
+if grep -q '::warning' "$WORK/out.txt"; then
+  fail "a run nobody refused must not be warned about, or the note fires every night and says nothing"
+else
+  pass "a run nobody refused draws no note"
+fi
+
+# A bundle whose reading is not a number is one this reader cannot speak about,
+# and it must stay quiet rather than end the step it is a passenger on.
+jq -n '{
+  verdict: { result: "valid", reasons: [] },
+  refusals: { requests: "lots", refused: null }
+}' >"$WORK/bundle.json"
+run_check
+assert_eq "an unreadable refusal reading does not fail the step" "0" "$STATUS"
+
+# A run mostly turned away measured the limiter rather than the server, and that
+# is a finding about the night's own setup. It is said rather than gated: no
+# night of this reading has been taken yet, so a ceiling here would be a number
+# nobody has bracketed.
+jq -n '{
+  verdict: { result: "failed", reasons: ["phase \"steady\" error rate 0.42 is past the ceiling"] },
+  refusals: { requests: 40000, refused: 32000 }
+}' >"$WORK/bundle.json"
+run_check
+assert_eq "a run refused at the door is still a run that reported" "0" "$STATUS"
+if grep -qi 'address' "$WORK/out.txt" || grep -qi 'address' "$WORK/err.txt"; then
+  pass "a run mostly turned away says the presented addresses may not have been believed"
+else
+  fail "a run mostly turned away must name the presented addresses as the thing to check"
+fi
+
+# And a venue with no browser-side generator took no such reading, which is not
+# a night nobody was refused.
+bundle_with valid
+run_check
+assert_eq "a run that took no such reading still exits 0" "0" "$STATUS"
+if grep -qi 'refus' "$WORK/out.txt"; then
+  fail "a run that took no refusal reading must not report one"
+else
+  pass "a run that took no refusal reading reports none"
+fi
+
 # A path is required; guessing one would read a bundle from another shard.
 STATUS=0
 "$CHECK" >/dev/null 2>&1 || STATUS=$?

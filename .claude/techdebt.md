@@ -122,31 +122,6 @@ derived partly from `TypeId`, and auto-update is the largest restart cause,
 so a cache that misses on rebuilt binaries would close this by decision
 rather than by code.
 
-### A held fleet can be invisible to the read the relay scenario makes
-
-The relay scenario reads the fleet and keeps the machines whose status is
-`online`. Run 33565000569 has the harness reporting 100 of 100 agents connected
-and holding for eight and a half minutes, and the read taken four minutes fifty
-into that hold returning no online machine at all — so the scenario failed for
-want of something the fleet was holding open the whole time. The two nights
-after it were green, which makes it intermittent rather than a broken read.
-
-The server sets every online device offline when it starts
-([`internal/app/app.go`](../server/internal/app/app.go)), so a server that
-restarts under the run's own load would empty the read while the agents stay
-connected, and the fleet would come back only as each machine re-registers.
-That is the leading candidate and it is not evidence: no reading of that pod's
-restart count was taken at the time, and the node the run shares carries two
-processors for staging and production together.
-
-**Pay-down trigger:** the run already brackets itself with two readings of its
-target ([ADR-082](../docs/adr/ADR-082-load-run-validity.md)),
-and a restart between them is what that bracket is for — so read the server's
-own uptime and restart count into the evidence bundle beside the rest, and have
-the relay scenario say which of the two it hit when the fleet read comes back
-empty: a fleet that never arrived, or one the server forgot. Fix what that
-names.
-
 ### Five hours of churn is untested against the eight hours it replaced
 
 [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) settled the length: an
@@ -181,27 +156,25 @@ read, with the runs that established it beside the figure, and make it blocking
 again — or, if they say the connect path is not what a technician load moves,
 say that instead.
 
-### Five profiles declare sessions their venue never opens
+### Three profiles declare sessions their venue never opens
 
 Every profile in [`load/profiles`](../load/profiles/) declares
 `operator_arrivals_per_second` and `sessions`, and those are technician-side
-numbers a machine-side harness cannot offer. Three venues now offer them and
-five profiles are still short: `peak`, `spike` and `breakpoint` run with no
-browser-side generator at all, and `scaling`, `volume-500`, `volume-2000` and
-`volume-8000` run one that offers the journeys and holds no session open.
+numbers a machine-side harness cannot offer. `peak`, `spike` and `breakpoint`
+are the ones still short, and they are short of both: their venue runs no
+browser-side generator at all and has no step that installs one.
 
-What that costs is different per family and worth saying rather than fixing in
-one sweep. A capacity ladder that opens no session finds the load a server gives
-out under for a load nobody runs — a technician holding a remote session is the
-expensive thing the product does, and the rung it would give out at is not the
-rung it reports. A sweep that varies its estate against journeys alone is the
-shape [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md) already names,
-one field over.
+A capacity ladder that opens no session finds the load a server gives out under
+for a load nobody runs — a technician holding a remote session is the expensive
+thing the product does, and the rung it would give out at is not the rung it
+reports. `breakpoint` is the one to weigh before it is wired: it declares 160
+held sessions on top of 16,000 machines on a shared runner, so what that
+generator needs of the machine is a reading to take before the leg offers it.
 
-**Pay-down trigger:** per family, the next piece of work that touches its leg;
-and immediately for any family whose finding is a capacity claim, since that is
-the one a reader acts on. A profile that turns out not to want sessions declares
-`sessions: 0` rather than a number nothing offers.
+**Pay-down trigger:** the next piece of work that touches this venue's leg, and
+a headroom reading for `breakpoint` before its sessions are offered. A profile
+that turns out not to want sessions declares `sessions: 0` rather than a number
+nothing offers.
 
 ### The reference walk reads the Go runtime's own internals, and one job a week looks
 
@@ -249,28 +222,6 @@ one sign-in, so the bucket would have moved from one address to one account.
 
 **Pay-down trigger:** any work on the request path, or the first customer report
 of a refused page during a busy moment.
-
-### The trusted-proxy list is a dependency the load run has and nothing else states
-
-The same ADR's chain runs through five files: the chart's service selects a
-label, the workflow's generator pods carry it, the chart's trusted list names
-that service, the browser-side scenarios present from the shared helper, and the
-machine-side harness presents per machine.
-[`loadtest-rate-budget.test.sh`](../scripts/tests/loadtest-rate-budget.test.sh)
-holds all five level, which is what a sweep over text can do. What it cannot
-check is the cluster: whether the generator pods actually became endpoints of
-that service in time, and whether the resolver answered for them. A night where
-they did not looks exactly like a night the server was slow — the run fills with
-429s and the error-rate gate reds.
-
-The reading that would settle it is the run's own: a phase whose requests were
-refused at the limiter is a phase whose presented addresses were not believed,
-and the refusal count is already in the k6 export as `http_req_failed` broken
-down by status.
-
-**Pay-down trigger:** the first night that reds on an error rate the server
-cannot explain, or the next piece of work that touches the generator pods.
-
 
 ## Severity: Low
 

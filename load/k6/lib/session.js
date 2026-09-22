@@ -11,7 +11,63 @@
 // down what it created. A load run that cannot say what it made cannot remove
 // it, and residue accumulates one uncleaned run at a time until every account
 // in the environment belongs to a load test.
-import http from "k6/http";
+import client from "k6/http";
+import { Counter } from "k6/metrics";
+
+/**
+ * The status the server answers a request it will not serve with. Read against
+ * the limiter that writes it by scripts/tests/loadtest-rate-budget.test.sh, so
+ * a count of the wrong number cannot sit here reporting clean nights.
+ */
+const REFUSED_STATUS = 429;
+
+/**
+ * How many of this run's requests the server turned away at the door.
+ *
+ * The server counts requests per address, and a night whose presented addresses
+ * were not believed spends one allowance between every virtual user — so it
+ * fills with refusals, reds the error-rate gate, and looks exactly like a night
+ * against a slow server. One is a broken test setup and one is a finding about
+ * the product, and nothing separated them: what k6 publishes about failures is
+ * a single pass/fail rate with no breakdown by status.
+ *
+ * A nought is added on every answered request, not only on a refusal. A k6
+ * counter nobody increments is left out of the export entirely, so a series that
+ * appeared only once something was refused would mean "nobody was refused" and
+ * "this scenario never counted" at once — and scripts/loadtest-bundle-merge.sh
+ * refuses an export that made requests and carries no count of them.
+ */
+const refused = new Counter("requests_refused");
+
+/**
+ * Count one answer, and hand it back to the caller unchanged.
+ *
+ * Exported for the one answer that does not come back through the client below:
+ * a WebSocket upgrade, which k6 opens through a module of its own. The allowance
+ * is spent per address whatever the request was for, so an upgrade refused at
+ * the door belongs in the same count.
+ */
+export function counted(response) {
+  refused.add(response && response.status === REFUSED_STATUS ? 1 : 0);
+  return response;
+}
+
+/**
+ * The request client every scenario uses, in place of k6's own.
+ *
+ * It is the one place that sees every request a run makes — the journeys, the
+ * sessions, and the setup reads below — which is what makes the count above a
+ * count of the whole run rather than of whichever call sites somebody
+ * remembered. A scenario reaching for `k6/http` itself is refused by
+ * scripts/tests/loadtest-rate-budget.test.sh.
+ *
+ * The verbs are the ones the scenarios use. A scenario needing another adds it
+ * here, which is the point: there is no second way to make a request.
+ */
+export const http = {
+  get: (url, params) => counted(client.get(url, params)),
+  post: (url, body, params) => counted(client.post(url, body, params)),
+};
 
 /**
  * The marker every load-test identity carries, in its local part and its
@@ -199,18 +255,21 @@ export function devicesUrl(baseUrl, siteId) {
 }
 
 /**
- * Ids of the devices currently online. A session can only be opened against a
- * machine that is connected, so a scenario that needs one asks for the fleet
- * and keeps the ones that answer.
+ * The whole fleet as the server answered with it, rather than the part of it a
+ * scenario wants.
+ *
+ * A session can only be opened against a machine that is connected, so the
+ * scenario that needs one keeps the machines that answer — but which machines
+ * were *there* is the half that says why an empty answer is empty, and a reader
+ * that filtered here threw it away before anybody could look. fleet.js decides
+ * on what this returns.
  */
-export function onlineDeviceIds(baseUrl, token) {
+export function readFleet(baseUrl, token) {
   const resp = http.get(devicesUrl(baseUrl), { headers: authHeaders(token) });
   if (resp.status !== 200) {
     throw new Error(`setup: list devices returned ${resp.status}: ${resp.body}`);
   }
-  return (resp.json() || [])
-    .filter((device) => device.status === "online")
-    .map((device) => device.id);
+  return resp.json() || [];
 }
 
 /**

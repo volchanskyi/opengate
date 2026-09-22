@@ -8,7 +8,6 @@
 // It has to be that, because three gate ceilings are named after this series,
 // and a number filled from anything else leaves those ceilings measuring
 // something they were never calibrated against.
-import http from "k6/http";
 // k6/ws rather than the newer module: ws.connect blocks the iteration until the
 // socket closes, which is what lets one iteration send a frame, wait for it, and
 // record the round trip as a single measurement. The promise-based module would
@@ -16,12 +15,19 @@ import http from "k6/http";
 import ws from "k6/ws";
 import { check, fail, sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
+// The request client is the shared one rather than k6's own: it is the single
+// place that sees every request this run makes, which is what lets the run say
+// how many of them the server turned away at the door. The upgrade below is
+// opened through a module of its own, so it is counted by hand.
 import {
   authHeaders,
-  onlineDeviceIds,
+  counted,
+  http,
   printCleanupManifest,
+  readFleet,
   registerMember,
 } from "../lib/session.js";
+import { emptyFleetReason, onlineIds } from "../lib/fleet.js";
 import {
   measuredThresholds,
   phases,
@@ -66,10 +72,19 @@ export const options = {
 
 export function setup() {
   const member = registerMember(BASE_URL, "relay");
-  const devices = onlineDeviceIds(BASE_URL, member.token);
-  if (devices.length === 0) {
+  const fleet = readFleet(BASE_URL, member.token);
+  const devices = onlineIds(fleet);
+
+  // Two things end this run and they need different work, so the read says
+  // which one it met rather than reporting the shape they share. A fleet that
+  // never arrived is the machine side; a fleet the server is no longer holding
+  // is the server. The night that made this worth saying had a hundred of a
+  // hundred machines connected while this read came back empty.
+  const shortfall = emptyFleetReason(fleet);
+  if (shortfall) {
     fail(
-      "setup: no online machine to open a session against — the QUIC harness must be holding a fleet connected while this scenario runs"
+      `setup: no online machine to open a session against — ${shortfall}. ` +
+        "The QUIC harness must be holding a fleet connected while this scenario runs."
     );
   }
   return { token: member.token, email: member.email, devices };
@@ -99,7 +114,7 @@ export default function (data) {
   const sentAt = Date.now();
   let echoed = false;
 
-  const res = ws.connect(relayUrl, {}, function (socket) {
+  const res = counted(ws.connect(relayUrl, {}, function (socket) {
     socket.on("open", () => socket.sendBinary(PROBE.buffer));
 
     // The frame this operator sent has come back through the machine, so the
@@ -124,7 +139,7 @@ export default function (data) {
     // A machine that never answers is the finding; the socket is closed so the
     // iteration ends rather than holding a relay entry open for the run.
     socket.setTimeout(() => socket.close(), ECHO_TIMEOUT_MS);
-  });
+  }));
 
   check(res, { "relay upgraded": (r) => r && r.status === 101 });
   check(echoed, { "frame returned from the machine": (ok) => ok === true });
