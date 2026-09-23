@@ -40,7 +40,7 @@ After completing significant work, update [`phases.md`](.claude/phases.md) and [
 | [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, deleting a plan when its work lands, ADRs as live state | `pretooluse-write-guard.sh` |
 | [`rules/tool-versions.md`](.claude/rules/tool-versions.md) | one version, written down once — local and CI provision from the same manifest | `tool-version-parity.test.sh`, `toolchain-parity.sh` |
 | [`rules/cache-hygiene.md`](.claude/rules/cache-hygiene.md) | reclaim local build caches after every push | `post-push-clean-caches.sh`, `posttooluse-cache-clean.sh` |
-| [`rules/ci-cd-determinism.md`](.claude/rules/ci-cd-determinism.md) | a CI/CD step whose work was refused must not report success | `ci-cd-determinism.test.sh`, `assert-cache-written.sh` |
+| [`rules/ci-cd-determinism.md`](.claude/rules/ci-cd-determinism.md) | a CI/CD step whose work was refused must not report success — including the one that would have told you | `ci-cd-determinism.test.sh`, `alert-delivery.test.sh`, `assert-cache-written.sh` |
 | [`rules/docs-live-state.md`](.claude/rules/docs-live-state.md) | docs and comments describe live state only; the three-tree seam | `docs-live-state.test.sh`, `docs-seam.test.sh` |
 | [`rules/resource-conservation.md`](.claude/rules/resource-conservation.md) | a completed operation gives back what it took; a counter is not a measurement | `conservation_test.go`, `hijacked-request-context.yaml` |
 

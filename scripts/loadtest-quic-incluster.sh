@@ -105,6 +105,11 @@ usage() {
 # one of these, so a call that does not arrive costs the answer rather than the
 # run.
 pod_sh() {
+  # Not retried: every caller of this either loops over it already — three
+  # attempts before it refuses to guess whether the pod holds a fleet — or reads
+  # a blank as the answer. A retry inside those multiplies the wait before a pod
+  # that is never going to answer is treated as one, and the whole point of the
+  # refusal is that it happens rather than being retried into a guess.
   kubectl -n "$NAMESPACE" exec "$POD" -- sh -c "$1"
 }
 
@@ -172,6 +177,9 @@ pod_status() {
 
 # launch makes one attempt and says whether the pod is now holding a harness.
 launch() {
+  # Not retried here: the caller's own loop is the retry, and it re-reads what
+  # the pod did with the previous attempt before making another. A retry inside
+  # it would launch a second fleet against the same server without that reading.
   if kubectl -n "$NAMESPACE" exec "$POD" -- \
     sh -c "$LAUNCHER" loadtest-fleet-launcher "$POD_LOG" "$POD_STATUS" "$@"; then
     return 0

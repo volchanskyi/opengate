@@ -296,7 +296,11 @@ func (f *QUICFleet) forgetLocked(index int) {
 //
 // A refusal the server made on purpose is held apart from both: counting a
 // correctly enforced limit as a defect makes the limit look broken and buries
-// the real failures underneath it.
+// the real failures underneath it. Which answers count as one is decided where
+// the status code is, in postEnrollment — a refusal here is only ever a spent
+// credential, an expired one, or a rate past a declared ceiling. A server that
+// broke comes back as something else and lands in the failure count, which is
+// what keeps this arm from emptying the error rate.
 // A machine the run itself stood down before it arrived is held apart from
 // both, for the same reason: the wind-down cancelled it, so it never asked the
 // system anything. Counted as a failure it is indistinguishable from a server
@@ -308,6 +312,8 @@ func (f *QUICFleet) tallyLocked(result agentResult, arrived bool) {
 	case arrived:
 	case errors.Is(result.err, context.Canceled):
 		f.outcomes.StoodDown++
+	case errors.Is(result.err, ErrEnrollmentRefused):
+		f.outcomes.Rejected++
 	default:
 		f.outcomes.Failed++
 	}
@@ -316,9 +322,6 @@ func (f *QUICFleet) tallyLocked(result agentResult, arrived bool) {
 	}
 	if errors.Is(result.err, ErrHeldPeerGone) {
 		f.outcomes.Severed++
-	}
-	if errors.Is(result.err, ErrEnrollmentRefused) {
-		f.outcomes.Rejected++
 	}
 }
 

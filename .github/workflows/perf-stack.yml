@@ -506,6 +506,12 @@ jobs:
             # and a path assembled at run time is invisible to all of them.
             path: load/profiles/peak.yaml
             title: Busy morning (peak)
+            # The profile declares held technician sessions and a rate of screens
+            # opened, and until now this venue offered neither — so what the leg
+            # measured was a busy morning with nobody watching a screen, which is
+            # a load nobody runs. A technician remoted into a machine is the
+            # expensive thing the product does.
+            journeys: true
             # The estate the profile draws from. It has to cover the profile's
             # own highest level: a machine that cannot be given an identity has
             # not arrived, and a run short of the level it declared is a
@@ -516,12 +522,20 @@ jobs:
           - profile: spike
             path: load/profiles/spike.yaml
             title: Link came back (spike)
+            journeys: true
             agents: '2000'
             hold: 7m
             minutes: 45
           - profile: breakpoint
             path: load/profiles/breakpoint.yaml
             title: Raise it until it gives (breakpoint)
+            # Alone in still declaring sessions nobody opens. This leg raises the
+            # fleet until the server gives out — sixteen thousand machines on a
+            # shared runner, with a hundred and sixty held sessions on top — so
+            # what that generator needs of the runner is a reading to take before
+            # the leg offers it. The harness reports its own headroom on every
+            # leg now, so the reading is takeable.
+            journeys: false
             # The ladder now reaches sixteen thousand, so the estate has to. At
             # about 400 KB of generator memory a machine over a 1.25 GiB
             # baseline — measured on the peak and breakpoint bundles — that is
@@ -568,11 +582,30 @@ jobs:
       # fleet's own account of what arrived, and the harness reads its own
       # headroom beside it. A leg whose generator ran out reports that and is
       # marked invalid rather than answering wrongly.
+      # The browser-side half of the load the profile declares. It runs beside
+      # the fleet, from the same profile, and the harness answers the machine
+      # side of those sessions and echoes on them — which is what makes the
+      # browser side's round trip a measurement rather than a wait for a frame
+      # nobody sends back.
+      - name: Install k6
+        if: matrix.journeys
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
+
       - name: Walk the ${{ matrix.profile }} profile, building its fleet first
         run: |
           set -euo pipefail
-          mkdir -p "$PERF_BUNDLE_DIR"
+          mkdir -p "$PERF_BUNDLE_DIR" "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          K6_LEG=""
+          if [ "${JOURNEYS:-false}" = "true" ]; then
+            scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
+            K6_LEG=$!
+          fi
           # The harness's own exit code, read rather than acted on: 1 is a fleet
           # that half arrived, which is a measurement. What judges it is the
           # verdict step below, and failing here on the count is a second
@@ -596,9 +629,11 @@ jobs:
               -fixture-password="$PERF_FIXTURE_PASSWORD" \
               -fixture-bootstrap \
               -fixture-seed=1 \
+              -relay-sessions="${JOURNEYS:-false}" \
               -bundle="$PERF_BUNDLE_DIR/${{ matrix.profile }}"
           walk=$?
           set -e
+          [ -z "$K6_LEG" ] || wait "$K6_LEG"
           if [ "$walk" -gt 1 ]; then
             echo "::error::the harness did not complete a run (exit $walk)." >&2
             exit "$walk"
@@ -609,6 +644,25 @@ jobs:
           # fleet this run invented. The password is generated per run all the
           # same, so nothing fixed is ever written down.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+          LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
+          K6_BIN: /tmp/k6
+          # Both halves of what the profile declares: the journeys are a rate of
+          # screens opened, the sessions are a count held open, and a leg that
+          # offers one of them is still measuring a load nobody runs.
+          JOURNEYS: ${{ matrix.journeys }}
+
+      # The technician numbers are timed by a generator in another process and
+      # written to a file of its own. Folding them into the leg is what gives
+      # them a reader: the verdict and the limits below are read from the bundle,
+      # and a measurement nobody reads is a run that happens to share a profile.
+      - name: Fold the technician journeys into the leg
+        if: matrix.journeys
+        run: |
+          set -euo pipefail
+          scripts/loadtest-bundle-merge.sh \
+            "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json" \
+            --journeys /tmp/perf-k6/api-baseline.json \
+            --journeys /tmp/perf-k6/relay-throughput.json
 
       - name: Read the verdict the run wrote about itself
         if: always()
@@ -674,3 +728,54 @@ jobs:
         run: |
           set -euo pipefail
           scripts/perf-scaling-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Say so when the night was lost.
+  #
+  # Every nightly here published its verdict into its own result and nothing
+  # read it: a run that died, was cancelled, or was killed at its timeout went
+  # red on a page nobody opens. The alert path is the part that makes a red run
+  # a thing somebody knows about.
+  alert:
+    name: Say so if the night was lost
+    # Five jobs and no gate job, so the alert is a job rather than a step
+    # pasted five times. It runs on a fresh runner whatever happened upstream,
+    # which is what a step inside a job killed at its own timeout cannot do.
+    needs: [scaling, scaling-curve, shapes, volume, volume-curve]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: observability
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Say what this night was
+        # `needs.<job>.result` rather than `failure()`: the result is a fact
+        # about the job named, and it is what the repository's other gate jobs
+        # already read. It also tells a cancel from a failure, which matters —
+        # one of them is somebody's decision and the other is a lost night.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          RESULTS: scaling=${{ needs.scaling.result }} scaling-curve=${{ needs['scaling-curve'].result }} shapes=${{ needs.shapes.result }} volume=${{ needs.volume.result }} volume-curve=${{ needs['volume-curve'].result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          LOST=""
+          for entry in $RESULTS; do
+            name="${entry%%=*}"
+            result="${entry#*=}"
+            case "$result" in
+              success | skipped) ;;
+              *) LOST="${LOST}  - ${name}: ${result}"$'\n' ;;
+            esac
+          done
+          if [ -z "$LOST" ]; then
+            echo "Nothing to say: every job finished."
+            exit 0
+          fi
+          scripts/telegram-alert.sh "$(printf 'The performance stack did not finish:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"

@@ -20,6 +20,11 @@
 # Usage: loadtest-k6-incluster.sh run [k6 args...]
 set -euo pipefail
 
+# A dropped connection to the cluster is what has been costing nights here;
+# see the helper for which calls may be repeated and which may not.
+# shellcheck source=scripts/lib/kubectl-retry.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/kubectl-retry.sh"
+
 main() {
   local pod="${LOADTEST_K6_POD:-}"
   local namespace="${NAMESPACE:-opengate-staging}"
@@ -42,6 +47,10 @@ main() {
   done
 
   local status=0
+  # Not retried: this exec carries the workload and runs for as long as the
+  # scenario does. A dropped connection does not kill the process in the pod, so
+  # a second attempt would put a second generator on the same server while the
+  # first is still going — two loads, one measurement, and neither reproducible.
   kubectl -n "$namespace" exec "$pod" -- "$pod_k6" "$@" || status=$?
 
   # Copied whatever the run produced, including after an abort: a partial export
@@ -72,11 +81,14 @@ main() {
 collect_export() {
   local namespace="$1" pod="$2" export_path="$3" refusal=""
 
-  if refusal="$(kubectl -n "$namespace" cp "$pod:$export_path" "$export_path" 2>&1)"; then
+  # The scenario's own numbers, pulled back out. Short, idempotent, and the run
+  # is already over — a connection dropped here discards work that finished.
+  if refusal="$(kubectl_retry -n "$namespace" cp "$pod:$export_path" "$export_path" 2>&1)"; then
     return 0
   fi
 
-  if kubectl -n "$namespace" exec "$pod" -- test -f "$export_path" >/dev/null 2>&1; then
+  # And the question of why, which is only asked once the copy has failed.
+  if kubectl_retry -n "$namespace" exec "$pod" -- test -f "$export_path" >/dev/null 2>&1; then
     echo "::warning::$export_path is inside $pod and could not be copied out: $refusal" >&2
   else
     echo "::warning::k6 wrote no summary export at $export_path inside $pod" >&2

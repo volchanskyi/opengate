@@ -9,6 +9,7 @@ library	scripts/lib/victoriametrics-prereq.sh	-	Precommit prerequisite functions
 library	scripts/lib/toolchain-parity.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
 library	scripts/lib/tool-versions.sh	-	The pinned-version table is sourced by the install scripts, the gauntlet prereq and the parity test.
 library	scripts/lib/mutation-shards.sh	-	Go mutation shard split sourced by the Makefile and the mutation-workflow test.
+library	scripts/lib/kubectl-retry.sh	-	The cluster-call retry is sourced by the nightlies and the in-cluster k6 launcher, which each set their own policy.
 library	scripts/lib/loadtest-profile.sh	-	Profile readers are sourced by the gate check, the regression check and their tests.
 library	scripts/lib/sonar-reference-branch.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
 library	scripts/lib/loadtest-venue-ceilings.sh	-	The measured venue ceilings are sourced by the ceiling sweep.

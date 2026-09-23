@@ -273,3 +273,55 @@ jobs:
           path: ${{ env.SOAK_BUNDLE_DIR }}
           if-no-files-found: error
           retention-days: 90
+
+  # Say so when the night was lost.
+  #
+  # Every nightly here published its verdict into its own result and nothing
+  # read it: a run that died, was cancelled, or was killed at its timeout went
+  # red on a page nobody opens. The alert path is the part that makes a red run
+  # a thing somebody knows about.
+  alert:
+    name: Say so if the night was lost
+    # The run is one job with a timeout barely over what it takes, and a job
+    # killed at its timeout may run no step at all — which is precisely the
+    # night worth alerting on. So the alert is a job of its own, on a runner of
+    # its own, reading the result rather than sitting inside it.
+    needs: [soak]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: observability
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Say what this night was
+        # `needs.<job>.result` rather than `failure()`: the result is a fact
+        # about the job named, and it is what the repository's other gate jobs
+        # already read. It also tells a cancel from a failure, which matters —
+        # one of them is somebody's decision and the other is a lost night.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          RESULTS: soak=${{ needs.soak.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          LOST=""
+          for entry in $RESULTS; do
+            name="${entry%%=*}"
+            result="${entry#*=}"
+            case "$result" in
+              success | skipped) ;;
+              *) LOST="${LOST}  - ${name}: ${result}"$'\n' ;;
+            esac
+          done
+          if [ -z "$LOST" ]; then
+            echo "Nothing to say: every job finished."
+            exit 0
+          fi
+          scripts/telegram-alert.sh "$(printf 'The endurance run did not finish:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"

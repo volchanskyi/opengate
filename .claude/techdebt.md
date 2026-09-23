@@ -136,45 +136,24 @@ than length — has never been tried against the eight-hour version it replaced.
 **Pay-down trigger:** a leak found in the field that five hours of churn did not
 surface, at which point the longer run is built and the two are compared.
 
-### The endurance run's connect ceiling is watched, not enforced
+### `breakpoint` declares sessions its venue never opens
 
-[`soak.yaml`](../load/profiles/soak.yaml) now offers the technician load it
-declares, and a leg whose load changes re-earns its limits
-([ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md)). Its 2,000 ms
-ceiling on how long a machine takes to connect was bracketed by nights with
-nothing beside the fleet at all, so it is reported rather than enforced until
-nights of the load the leg now offers exist. The aggregate error rate stays
-blocking: the volume family made the same change at a harder venue and its
-machines went on arriving.
-
-This family runs weekly, so the readings arrive a week apart and the first of
-them is also the first evidence of what a session costs this target.
-
-**Pay-down trigger:** the first valid endurance night with the technician load
-beside the fleet, and each one after it. Set the ceiling from what those nights
-read, with the runs that established it beside the figure, and make it blocking
-again — or, if they say the connect path is not what a technician load moves,
-say that instead.
-
-### Three profiles declare sessions their venue never opens
-
-Every profile in [`load/profiles`](../load/profiles/) declares
+[`breakpoint.yaml`](../load/profiles/breakpoint.yaml) declares
 `operator_arrivals_per_second` and `sessions`, and those are technician-side
-numbers a machine-side harness cannot offer. `peak`, `spike` and `breakpoint`
-are the ones still short, and they are short of both: their venue runs no
-browser-side generator at all and has no step that installs one.
+numbers a machine-side harness cannot offer. Its leg installs no browser-side
+generator, so the twenty held sessions it names are a number in a file.
 
 A capacity ladder that opens no session finds the load a server gives out under
 for a load nobody runs — a technician holding a remote session is the expensive
 thing the product does, and the rung it would give out at is not the rung it
-reports. `breakpoint` is the one to weigh before it is wired: it declares 160
-held sessions on top of 16,000 machines on a shared runner, so what that
-generator needs of the machine is a reading to take before the leg offers it.
+reports. This is the one to weigh before it is wired: it declares 160 held
+sessions on top of 16,000 machines on a shared runner, so what that generator
+needs of the machine is a reading to take before the leg offers it.
 
-**Pay-down trigger:** the next piece of work that touches this venue's leg, and
-a headroom reading for `breakpoint` before its sessions are offered. A profile
-that turns out not to want sessions declares `sessions: 0` rather than a number
-nothing offers.
+**Pay-down trigger:** a headroom reading for `breakpoint` at its full ladder,
+which [`generator_headroom.go`](../server/tests/loadtest/generator_headroom.go)
+now reports on every leg. A profile that turns out not to want sessions declares
+`sessions: 0` rather than a number nothing offers.
 
 ### The reference walk reads the Go runtime's own internals, and one job a week looks
 

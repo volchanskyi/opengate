@@ -36,6 +36,7 @@
 ## In Progress
 
 | Phase | Summary |
+| Nightly gates and alerting | One send that fails when the message did not arrive, an alert path on every scheduled workflow, the cluster's monitoring configuration rendered and read back, a retry for the short cluster calls that were costing nights, and a repeated advisory that escalates. [ADR-123](../docs/adr/ADR-123-alert-delivery.md), [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md). |
 |-------|---------|
 
 ## Planned

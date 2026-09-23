@@ -50,18 +50,15 @@ Tests must pass before AND after the refactor. To touch the source, *first* touc
 
 ### Rust unit tests, which live in the file they cover
 
-Rust keeps a module's unit tests inside it, in a `#[cfg(test)] mod tests` block.
-A branch that adds nothing but tests to such a file therefore has no test-shaped
-path anywhere in it, and a classifier that reads paths alone sees a source
-change and refuses the commit — a false refusal on a branch that did exactly
-what the mandate asks.
+Rust keeps a module's unit tests inside it, so a branch that adds nothing but
+tests to such a file has no test-shaped path in it, and a path-only classifier
+would refuse a commit that did exactly what the mandate asks.
 
 So the classifier reads the diff for Rust files: a change whose every touched
 line falls at or after the file's own `#[cfg(test)]` attribute is a test change.
-A file changed above that line as well is a source change and stays one, which
-is what keeps the exemption from becoming a way through. It is Rust's alone —
-Go and TypeScript keep their tests in files of their own, which the paths
-already name.
+A file changed above that line as well is a source change and stays one, which is
+what keeps the exemption from becoming a way through. Rust's alone — Go and
+TypeScript keep their tests in files of their own.
 
 ### Generated code
 

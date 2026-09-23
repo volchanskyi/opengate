@@ -92,9 +92,12 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 
 	tally := fleet.Outcomes()
 	assert.EqualValues(t, 2, tally.Arrived)
-	assert.EqualValues(t, 3, tally.Failed, "three machines never reached registered")
+	assert.EqualValues(t, 2, tally.Failed,
+		"two machines did not get in; the third was refused by a limit doing its job")
 	assert.EqualValues(t, 1, tally.Severed, "a machine whose held connection went away is a fault")
 	assert.EqualValues(t, 1, tally.Rejected, "a refusal the server made on purpose is the system working")
+	assert.EqualValues(t, 4, tally.Attempted(),
+		"and a refusal leaves the denominator with the numerator, or the share it produces is of a fleet that was never asked")
 }
 
 // D10. The phase's latency was the last finished machine's connect time, which

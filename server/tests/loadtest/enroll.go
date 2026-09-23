@@ -138,6 +138,31 @@ func signingRequest(opts EnrollOptions) (*ecdsa.PrivateKey, []byte, error) {
 // system.
 var ErrEnrollmentRefused = errors.New("enrollment refused")
 
+// ErrEnrollmentFailed is the other answer: the server broke, or the harness
+// asked it something wrong. It is a machine that did not get in, and it belongs
+// in the error rate.
+//
+// The two are separated here rather than at the tally, because the tally cannot
+// see a status code. Everything that is not one of the refusals below is one of
+// these — including the 503 a red night actually read, which had been labelled
+// "the server declining on purpose" alongside a spent credential.
+var ErrEnrollmentFailed = errors.New("enrollment failed")
+
+// deliberateRefusals are the answers this endpoint chooses to give. Read off the
+// handler and the rate limiter rather than assumed: it is unauthenticated, so it
+// never answers 401 or 403, and it is exactly these three that the comment on
+// ErrEnrollmentRefused describes — a credential that was never valid, a spent or
+// expired one, and a rate past a ceiling the server enforces on purpose.
+//
+// A bad signing request is the harness sending something wrong and a 5xx is the
+// server broken. Neither is a limit working, and counting them as one is how a
+// server that had stopped answering would report a perfect run.
+var deliberateRefusals = map[int]bool{
+	http.StatusNotFound:        true,
+	http.StatusGone:            true,
+	http.StatusTooManyRequests: true,
+}
+
 func postEnrollment(ctx context.Context, opts EnrollOptions, csrPEM []byte) (*enrollResponse, error) {
 	body, err := json.Marshal(map[string]string{"csr_pem": string(csrPEM)})
 	if err != nil {
@@ -163,7 +188,11 @@ func postEnrollment(ctx context.Context, opts EnrollOptions, csrPEM []byte) (*en
 
 	if resp.StatusCode != http.StatusOK {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("%w with %d: %s", ErrEnrollmentRefused, resp.StatusCode, bytes.TrimSpace(detail))
+		outcome := ErrEnrollmentFailed
+		if deliberateRefusals[resp.StatusCode] {
+			outcome = ErrEnrollmentRefused
+		}
+		return nil, fmt.Errorf("%w with %d: %s", outcome, resp.StatusCode, bytes.TrimSpace(detail))
 	}
 
 	var decoded enrollResponse

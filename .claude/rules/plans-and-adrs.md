@@ -14,11 +14,10 @@ All agent plans must be created in **this repo's** `.claude/plans/` directory (i
 **Enforced by:** [`scripts/tests/plans-retirement.test.sh`](../../scripts/tests/plans-retirement.test.sh) (gauntlet shell-tests step). **No bypass.**
 
 A plan is a working document. Once its implementation has landed, what it
-described lives in the code, in [`/docs`](../../docs/) and in the ADRs — the
-plan is a second, stale account of the same thing. So the commit that lands a
-plan's final implementation MUST also `git rm` the plan, and add its
-[`phases.md`](../phases.md) row in the same commit. Do not leave it for
-"later"; that has been forgotten repeatedly.
+described lives in the code, in [`/docs`](../../docs/) and in the ADRs — the plan
+is a second, stale account of the same thing. The commit that lands a plan's
+final implementation MUST also `git rm` the plan and add its
+[`phases.md`](../phases.md) row in the same commit.
 
 `phases.md` rows link no plan. The consistency gate refuses one that does.
 

@@ -380,7 +380,9 @@ fi
 
 # And the profile it names is actually put there, or the flag points at a path
 # inside a pod that holds no such file.
-if grep -qE 'kubectl .*cp .*LOADTEST_PROFILE' "$WORKFLOW"; then
+# Either spelling of the call: the short idempotent copies here go through the
+# retry, and whether the copy happens is the question, not how it is written.
+if grep -qE 'kubectl(_retry)? .*cp .*LOADTEST_PROFILE' "$WORKFLOW"; then
   pass "the profile is copied into the pod that reads it"
 else
   fail "nothing copies the profile into the pod, so the harness reads a file that is not there"

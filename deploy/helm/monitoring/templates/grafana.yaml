@@ -126,10 +126,15 @@ spec:
               mountPath: /etc/grafana/provisioning/alerting
               readOnly: true
       volumes:
-        # Ephemeral (ADR-035, free-tier block-volume cap): datasources, the
-        # dashboards, and alerting are provisioned from the ConfigMaps below and
-        # the admin password re-seeds from the Secret on every start, so a restart
-        # only loses UI-created annotations / alert-state history — not config.
+        # Ephemeral, because the free-tier block-volume allowance is spent on
+        # things that have to survive. Everything this Grafana serves is read
+        # from a file on every start: the datasources, the dashboards, the alert
+        # rules, the destination they route to, and the admin password out of the
+        # Secret. What lives here and only here is what Grafana writes about
+        # itself — the annotations somebody drew on a graph, the history of which
+        # alert was firing when, and anything created through the user interface.
+        # A file-provisioned destination is read-only in that interface for
+        # exactly this reason: what cannot be changed there cannot be lost here.
         - name: data
           emptyDir: {}
         - name: tmp

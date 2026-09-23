@@ -132,3 +132,53 @@ jobs:
           name: playwright-report-cross-browser
           path: web/playwright-report/
           retention-days: 14
+
+  # Say so when the night was lost.
+  #
+  # Every nightly here published its verdict into its own result and nothing
+  # read it: a run that died, was cancelled, or was killed at its timeout went
+  # red on a page nobody opens. The alert path is the part that makes a red run
+  # a thing somebody knows about.
+  alert:
+    name: Say so if the night was lost
+    # The browsers this covers are the ones the ordinary pipeline does not, so
+    # a night it loses is a night nothing else was watching.
+    needs: [e2e]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: observability
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Say what this night was
+        # `needs.<job>.result` rather than `failure()`: the result is a fact
+        # about the job named, and it is what the repository's other gate jobs
+        # already read. It also tells a cancel from a failure, which matters —
+        # one of them is somebody's decision and the other is a lost night.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          RESULTS: e2e=${{ needs.e2e.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          LOST=""
+          for entry in $RESULTS; do
+            name="${entry%%=*}"
+            result="${entry#*=}"
+            case "$result" in
+              success | skipped) ;;
+              *) LOST="${LOST}  - ${name}: ${result}"$'\n' ;;
+            esac
+          done
+          if [ -z "$LOST" ]; then
+            echo "Nothing to say: every job finished."
+            exit 0
+          fi
+          scripts/telegram-alert.sh "$(printf 'The cross-browser run did not finish:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"

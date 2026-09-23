@@ -391,6 +391,93 @@ else
   fail "a workflow step reads an exit status errexit has already acted on:$status_bad"
 fi
 
+# --- a short cluster call a nightly cannot afford to lose ---------------------
+#
+# A drill died three minutes and forty-nine seconds in because a `chmod` inside
+# a pod that was already created and ready had its connection dropped — twelve
+# steps of setup, then nothing measured. The health check seven lines below it
+# retries sixty times over two minutes; the calls above it got one attempt each.
+# The same signature has cost three nights across the drill and the load tests,
+# roughly one a month, and no retry helper existed anywhere.
+#
+# The narrowness is the interesting half, because three of the four kinds of
+# call here must never be repeated: a probe whose failure *is* the measurement
+# the drill is taking during a deliberate network fault; a long-lived exec
+# carrying the workload, where a dropped connection does not kill the process in
+# the pod and a second attempt runs a second generator against the same server;
+# and a non-idempotent write, where a transport drop cannot say whether the
+# statement landed. A blanket wrapper would corrupt every fault measurement the
+# drill takes.
+#
+# So each call is either routed through the helper or carries its own reason for
+# not being, one comment per call — the convention the coverage exclusions
+# already set, for the same reason: an exemption whose reason is not written
+# next to it cannot be reviewed and will never be removed.
+
+# The nightlies this covers, and the scripts they reach through. `cd.yml` and
+# the drill it calls are deliberately outside it: they carry a different risk
+# profile, they run under a person who is already watching, and they are not
+# what is costing nights.
+RETRY_SCOPE=(
+  ".github/workflows/network-drill.yml"
+  ".github/workflows/load-test.yml"
+  "scripts/loadtest-k6-incluster.sh"
+  "scripts/loadtest-quic-incluster.sh"
+  "scripts/loadtest-cleanup.sh"
+  "deploy/scripts/pg-app-role-sql.sh"
+  "deploy/scripts/loadtest-account-sql.sh"
+)
+
+retry_bad=""
+retry_calls=0
+for relative in "${RETRY_SCOPE[@]}"; do
+  file="$REPO_ROOT/$relative"
+  [ -f "$file" ] || {
+    retry_bad="$retry_bad"$'\n'"      $relative is in the retry sweep's scope and is not there"
+    continue
+  }
+  # Read each call whole. These are written across continuations, and a
+  # line-at-a-time sweep sees a fragment of the call and none of the reason
+  # above it.
+  while IFS=$'\t' read -r line rendered; do
+    retry_calls=$((retry_calls + 1))
+    grep -qF 'kubectl_retry' <<<"$rendered" && continue
+    grep -qF 'Not retried' <<<"$rendered" && continue
+    retry_bad="$retry_bad"$'\n'"      $relative:$line is a bare cluster call with no reason beside it"
+  done < <(awk '
+    # Carry the comment block above each call, so a reason written there is part
+    # of what the call is read as. A blank line ends the block and a line of code
+    # does not: a reason written above `launch() {` is a reason written about the
+    # call inside it, and a sweep that lost it there would ask for the same
+    # sentence twice.
+    /^[[:space:]]*$/ { comments = ""; next }
+    /^[[:space:]]*#/ { comments = comments $0 "\n"; next }
+    {
+      joined = $0
+      start = NR
+      while (joined ~ /\\[[:space:]]*$/ && (getline next_line) > 0) {
+        sub(/\\[[:space:]]*$/, "", joined)
+        joined = joined " " next_line
+      }
+      if (joined ~ /kubectl[^|&;]*(exec|cp)[[:space:]]/) {
+        block = comments joined
+        gsub(/\t/, " ", block)
+        gsub(/\n/, " ", block)
+        printf "%d\t%s\n", start, block
+        comments = ""
+      }
+    }
+  ' "$file")
+done
+
+if [ "$retry_calls" -eq 0 ]; then
+  fail "the cluster-call sweep reached no call at all, so it is asserting an absence it never tested"
+elif [ -z "$retry_bad" ]; then
+  pass "each of $retry_calls cluster calls in the nightlies is retried or says why it is not"
+else
+  fail "a cluster call in a nightly is neither retried nor exempt:$retry_bad"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

@@ -217,6 +217,9 @@ jobs:
       - name: Stage k6 harness in cluster
         run: |
           set -euo pipefail
+          # A dropped connection to the cluster is what has been costing
+          # nights here; see the helper for which calls may be repeated.
+          . scripts/lib/kubectl-retry.sh
           LOADTEST_K6_POD="k6-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "LOADTEST_K6_POD=$LOADTEST_K6_POD" >>"$GITHUB_ENV"
 
@@ -241,11 +244,15 @@ jobs:
             --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"600m","memory":"768Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_K6_POD" 120
-          kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
-          kubectl -n "$NAMESPACE" cp /tmp/k6 "$LOADTEST_K6_POD:/tmp/k6"
-          kubectl -n "$NAMESPACE" cp load/. "$LOADTEST_K6_POD:/tmp/load"
-          kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- chmod 0755 /tmp/k6
-          kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- /tmp/k6 version
+          # The pod is created and ready by here, so what is left to fail is the
+          # connection — and it has, on a night that died one second after
+          # launch. All five are short, idempotent and repeatable, which is what
+          # makes them safe to ask for twice.
+          kubectl_retry -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
+          kubectl_retry -n "$NAMESPACE" cp /tmp/k6 "$LOADTEST_K6_POD:/tmp/k6"
+          kubectl_retry -n "$NAMESPACE" cp load/. "$LOADTEST_K6_POD:/tmp/load"
+          kubectl_retry -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- chmod 0755 /tmp/k6
+          kubectl_retry -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- /tmp/k6 version
 
       # The QUIC harness is staged and started before k6, and it holds its fleet
       # connected for the whole k6 window. The relay scenario opens the
@@ -282,6 +289,10 @@ jobs:
           # for the reason the deploy uses it: a psql argv is readable by every
           # process in the Postgres pod and is recorded verbatim in the API
           # server's exec audit entry.
+          #
+          # Not retried: a connection dropped part-way through cannot say whether
+          # the statements landed, so a second attempt is either a no-op or a
+          # duplicate and nothing here can tell which.
           ACCOUNT_EMAIL="$LOADTEST_SERVICE_ACCOUNT" ACCOUNT_PASSWORD="$PASSWORD" \
             deploy/scripts/loadtest-account-sql.sh \
             | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
@@ -291,6 +302,9 @@ jobs:
       - name: Stage QUIC harness in cluster
         run: |
           set -euo pipefail
+          # A dropped connection to the cluster is what has been costing
+          # nights here; see the helper for which calls may be repeated.
+          . scripts/lib/kubectl-retry.sh
           LOADTEST_POD="quic-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "LOADTEST_POD=$LOADTEST_POD" >>"$GITHUB_ENV"
 
@@ -310,8 +324,9 @@ jobs:
             --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_POD" 120
-          kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
-          kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
+          # Same shape: short, idempotent staging into a pod already up.
+          kubectl_retry -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
+          kubectl_retry -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
 
           # The profile travels with the harness, because the harness reads it
           # from inside the pod and the pod holds no checkout. A path that
@@ -322,7 +337,7 @@ jobs:
           #
           # The in-pod path is exported rather than rebuilt at the call site, so
           # the copy and the flag cannot name two different files.
-          kubectl -n "$NAMESPACE" cp "$LOADTEST_PROFILE" \
+          kubectl_retry -n "$NAMESPACE" cp "$LOADTEST_PROFILE" \
             "$LOADTEST_POD:/tmp/$(basename "$LOADTEST_PROFILE")"
           echo "LOADTEST_POD_PROFILE=/tmp/$(basename "$LOADTEST_PROFILE")" >>"$GITHUB_ENV"
 
@@ -447,8 +462,13 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          # A dropped connection to the cluster is what has been costing
+          # nights here; see the helper for which calls may be repeated.
+          . scripts/lib/kubectl-retry.sh
           mkdir -p loadtest-bundle
-          kubectl -n "$NAMESPACE" cp "$LOADTEST_POD:/tmp/loadtest-bundle/bundle.json" \
+          # The night's own evidence, pulled back out of the pod. A dropped
+          # connection here discards a run that has already finished.
+          kubectl_retry -n "$NAMESPACE" cp "$LOADTEST_POD:/tmp/loadtest-bundle/bundle.json" \
             loadtest-bundle/quic-agents.json 2>/dev/null \
             || echo "::warning::the QUIC harness wrote no evidence bundle"
 
@@ -479,6 +499,10 @@ jobs:
             # and on standard input and never inside -c, so written the other way
             # the server receives the colon literally, answers with a syntax
             # error, and the spent credential outlives the run.
+            #
+            # Not retried: a connection dropped part-way through cannot say
+            # whether the delete landed, and it is already tolerant of its own
+            # failure — the next deploy's reset is the backstop.
             kubectl -n "$NAMESPACE" exec -i "$POSTGRES_POD" -- \
               psql -U opengate -d opengate -q \
                 -v marker="opengate-loadtest" <<'SQL' || true
@@ -500,6 +524,8 @@ jobs:
             -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
             -o jsonpath='{.items[0].metadata.name}')"
           test -n "$POSTGRES_POD"
+          # Not retried: this is the handle a non-idempotent write is made
+          # through, and a transport drop cannot say whether the statement landed.
           LOADTEST_PSQL="kubectl -n $NAMESPACE exec -i $POSTGRES_POD -- psql -U opengate -d opengate" \
             scripts/loadtest-cleanup.sh loadtest-cleanup.json
 
@@ -703,7 +729,11 @@ jobs:
           retention-days: 90
 
       - name: Push to VictoriaMetrics
-        run: ./scripts/loadtest-vm-push.sh loadtest-rows.json
+        # The consecutive-night counts ride along, because the check that reads
+        # them next night has no other memory: each bad night enters the window
+        # the next is judged against, so an advisory left to itself raises its
+        # own comparison point until it goes quiet.
+        run: ./scripts/loadtest-vm-push.sh loadtest-rows.json loadtest-p99-streaks.json
 
       - name: Write GITHUB_STEP_SUMMARY
         run: |
@@ -725,45 +755,36 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Telegram alert on regression
-        if: steps.check.outputs.regression == '1'
+      - name: Say what this night was
+        # Runs whatever happened above it, and the message names which of the
+        # three it was. The shape this replaces was gated on a flag an earlier
+        # step in this job produced, so a night that died before that step said
+        # nothing at all: the louder the failure, the more certain the silence.
+        #
+        # And the send below reports a refused delivery rather than swallowing
+        # it. It can afford to — the verdict this run carries is read by a job of
+        # its own, so a Telegram outage reddens this job and hides nothing.
+        if: always()
         env:
-          BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
-          CHAT: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ steps.check.outputs.regression }}
           ALERT_TEXT: ${{ steps.check.outputs.alert_text }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
         run: |
-          set -uo pipefail
-          if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
-            echo "::warning::Telegram secrets not set; skipping alert (regression still reported via workflow exit)."
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+            echo "Nothing to say: the run finished and nothing was found."
             exit 0
           fi
-
-          getme_http=$(curl -sS --max-time 10 \
-            -o /tmp/telegram-getme.json \
-            -w '%{http_code}' \
-            "https://api.telegram.org/bot${BOT}/getMe" 2>/dev/null || echo "curl_error")
-          if [ "$getme_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-getme.json >/dev/null 2>&1; then
-            echo "::error::Telegram getMe returned HTTP ${getme_http} — DEPLOY_TELEGRAM_BOT_TOKEN appears invalid or revoked."
-            cat /tmp/telegram-getme.json 2>/dev/null || echo "(no body)"
-            exit 0
+          if [ "${FINDING:-0}" = "1" ]; then
+            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Load Test Trends" (opengate-loadtest-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          else
+            MSG="$(printf 'Load-test trend: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
+              "$JOB_STATUS" "$RUN_URL")"
           fi
-
-          MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard \"Load Test Trends\" (opengate-loadtest-trend)' \
-            "$ALERT_TEXT" "$RUN_URL")"
-          send_http=$(curl -sS --max-time 30 \
-            -o /tmp/telegram-send.json \
-            -w '%{http_code}' \
-            -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
-            --data-urlencode "chat_id=${CHAT}" \
-            --data-urlencode "text=${MSG}" \
-            --data-urlencode "disable_web_page_preview=true" 2>/dev/null || echo "curl_error")
-          if [ "$send_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-send.json >/dev/null 2>&1; then
-            echo "::error::Telegram sendMessage returned HTTP ${send_http}."
-            cat /tmp/telegram-send.json 2>/dev/null || echo "(no body)"
-            exit 0
-          fi
-          echo "Telegram alert delivered"
+          scripts/telegram-alert.sh "$MSG"
 
       - name: Remove OCI credentials
         if: always()
