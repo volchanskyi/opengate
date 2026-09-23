@@ -8,9 +8,10 @@
 #   3. Identity must equal "Ivan Volchanskyi <ivan.volchanskyi@gmail.com>".
 #   4. Branch must not be main.
 #   5. Branch must not be behind upstream (best-effort; offline → skip).
-#   6. scripts/precommit-gauntlet.sh must exit 0 — runs EVERY check from
-#      the /precommit skill (lints, tests, coverage thresholds, security
-#      audits, benchmarks, e2e, sonar). This is the actual enforcement;
+#   6. scripts/precommit-gauntlet.sh must exit 0 — lints, tests, coverage
+#      thresholds, security audits, benchmarks, e2e, sonar. The script is the
+#      single source of truth for what a commit must pass, and this hook is
+#      the only thing that runs it as a gate. This is the actual enforcement;
 #      there is no forgeable marker. Refreshing a hash file does NOT let
 #      a commit through.
 #   7. TDD backup check via scripts/tdd-check.sh.

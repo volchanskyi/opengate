@@ -47,7 +47,7 @@ is_code() {
 # Final fallback is the repo's root commit so the function never errors out
 # in a fresh repo without remotes.
 resolve_base() {
-  local ref
+  local ref roots
   for ref in origin/dev dev origin/main main; do
     if git rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
       if git merge-base HEAD "$ref" 2>/dev/null; then
@@ -55,7 +55,11 @@ resolve_base() {
       fi
     fi
   done
-  git rev-list --max-parents=0 HEAD 2>/dev/null | head -1
+  # The root commit is taken off a variable rather than through `head`, which
+  # stops reading at the first line and leaves `git` a failed write that
+  # pipefail reports as a repository with no root at all.
+  roots="$(git rev-list --max-parents=0 HEAD 2>/dev/null || true)"
+  printf '%s\n' "${roots%%$'\n'*}"
 }
 
 # rust_change_is_inline_tests_only BASE PATH — is every line this branch

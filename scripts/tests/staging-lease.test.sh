@@ -67,7 +67,16 @@ done
 
 # Greedy `.*` would swallow the closing quote, so the value is taken whole and
 # unquoted afterwards.
-field() { sed -n "s/^ *$1: \(.*\)$/\1/p" "$2" | head -1 | sed 's/^"//; s/"$//'; }
+# The first line is taken off a variable rather than through `head`, which
+# stops reading there and leaves `sed` a failed write that pipefail reports as
+# a field the file does not carry.
+field() {
+  local found
+  found="$(sed -n "s/^ *$1: \(.*\)$/\1/p" "$2" || true)"
+  found="${found%%$'\n'*}"
+  found="${found#\"}"
+  printf '%s\n' "${found%\"}"
+}
 
 # The API server decodes acquireTime and renewTime as MicroTime — RFC3339 with
 # exactly six digits of fractional seconds — and refuses the whole object when

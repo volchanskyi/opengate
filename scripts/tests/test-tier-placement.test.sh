@@ -100,7 +100,11 @@ serial=""
 while IFS= read -r file; do
   # awk over each test function's first line of body.
   while IFS= read -r name; do
-    grep -A 2 "^func $name(t \*testing.T) {" "$file" | grep -q 't.Parallel()' \
+    # The function's opening lines go into a variable rather than through the
+    # pipe: `grep -q` stops at its first match, and pipefail would report the
+    # writer's failed write as a test that does not call t.Parallel().
+    opening="$(grep -A 2 "^func $name(t \*testing.T) {" "$file" || true)"
+    grep -qF 't.Parallel()' <<<"$opening" \
       || serial="$serial ${file#"$ROOT/"}:$name"
   done < <(grep -oE '^func (Test[A-Za-z0-9_]+)\(t \*testing\.T\)' "$file" | awk '{print $2}' | sed 's/(t.*//')
 done < <(find "$ACCEPTANCE" -name '*_test.go' | sort)

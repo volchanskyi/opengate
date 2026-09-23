@@ -4,131 +4,93 @@
 [`.claude/hooks/pretooluse-test-value-guard.sh`](../hooks/pretooluse-test-value-guard.sh)
 (write time) and
 [`scripts/tests/test-value.test.sh`](../../scripts/tests/test-value.test.sh)
-(gauntlet shell-tests step), both over the single analyser
+(gauntlet shell-tests step), both over
 [`scripts/test-value-check.sh`](../../scripts/test-value-check.sh).
 **No bypass.**
 
-Companion to [`tests-determinism.md`](tests-determinism.md), which says a test
-must always run. This says what it must run *against*.
+Companion to [`tests-determinism.md`](tests-determinism.md), which governs
+whether a test runs. This governs what it runs against.
 
-## The rule
+## The rules
 
 ### A test exercises the shipped module, never a copy of it
 
-Copying production code into a test file and asserting on the copy produces a
-test that passes for as long as the copy is correct, which is forever — the copy
-is never edited again. The shipped code beside it can be deleted outright and
-nothing goes red. Coverage counts the copy's lines as covered, because they
-execute.
+- Production code is not copied into a test file and asserted on.
 
 ### A test must not drive production code
 
-When a module is awkward to test, the answer is a test approach that works
-against the module as written — not an export, a factory or a seam that exists
-only so a test can reach it. Mock a genuine third-party boundary, capture what
-the module registers at load, and invoke the real code.
-
-The one sanctioned seam in this repository is the fault-injection substitution
-point, supplied at test time rather than compiled into the shipped binary
-([`ci-cd-determinism.md`](ci-cd-determinism.md)).
+- No export, factory or seam exists only so a test can reach it.
+- Mock a genuine third-party boundary, capture what the module registers at
+  load, and invoke the real code.
+- The one sanctioned seam is the fault-injection substitution point, supplied at
+  test time rather than compiled into the shipped binary
+  ([`ci-cd-determinism.md`](ci-cd-determinism.md)).
 
 ### A test leaves the environment as it found it
 
-A global or prototype reassignment with no restore makes a test's verdict depend
-on what ran before it and changes the verdict of everything that runs after. Put
-the assignment behind a `try`/`finally` or an `afterEach` that puts the original
-back. The reference shape is `web/src/features/devices/DeviceList.test.tsx`: it
-captures `Element.prototype.getBoundingClientRect`, replaces it inside a `try`,
-restores it in the `finally`, and names the two mutants it exists to kill.
+- A global or prototype reassignment is restored in a `try`/`finally`, an
+  `afterEach` or an `afterAll`.
+- Reference shape: `web/src/features/devices/DeviceList.test.tsx`.
 
 ### A test asserts behaviour the product has
 
-Two classes of test cannot fail and are deleted on sight rather than maintained:
+Two classes are deleted on sight:
 
-- **A test of the test.** `const msg: ControlMessage = { type: 'RelayReady' };
-  expect(msg.type).toBe('RelayReady')` builds a literal and asserts the field it
-  just set. TypeScript types erase at compile time, so no production code runs.
-  Same for a store's "initial state" test asserting a literal equals itself, and
-  for a compile-time trait check whose body cannot fail at runtime because
-  non-compliance would not compile.
-- **A test of behaviour that does not exist.** A documented no-op has no return
-  worth pinning; a test that pins it pins the absence of a feature.
-
-Testing a third-party library is the same defect wearing different clothes —
-asserting that xterm's stylesheet imports is a test of xterm.
+- **A test of the test** — building a literal and asserting the field just set;
+  a store's "initial state" test asserting a literal equals itself; a
+  compile-time trait check whose body cannot fail at runtime.
+- **A test of behaviour that does not exist** — pinning a documented no-op, or
+  asserting a third-party library's own behaviour.
 
 ## What is deliberately not banned
 
-The tempting rule is to grade tests by the shape of their assertions and delete
-the weak-looking ones. **The measurement says that rule deletes working tests.**
-Grading every web test file by assertion form against the nightly breakage report
-inverted the expected correlation:
+Assertion shape is not evidence of value. Measured against the nightly breakage
+report:
 
 | Test-file weakness by assertion shape | Mean unnoticed-breakage rate |
 |---|---|
 | ≥30% "weak" assertions | 5.8% |
 | <10% "weak" assertions | 9.3% |
 
-So none of the following is refused, and a cleanup that removes them is a
-regression, not a tidy-up:
+None of the following is refused, and removing them is a regression:
 
-- **A presence-only assertion whose query pins a literal string or an accessible
-  name.** `getByText('Permissions')` throws when the text is absent, so the query
-  *is* the assertion.
-- **A styling assertion where colour is the product signal.** The maintenance
-  badge's text is constant; its colour is the only thing that says how long a
-  machine has been left in the window. Same for rollout tone, the highlighted
-  drop zone during a device drag, and which log facet is selected.
-- **A page-structure walk.** `closest('li')` scopes an assertion to one row, and
-  `container.querySelector('script')` + `toBeNull` is the only way to assert that
-  a comment containing `<img src=x onerror=…>` rendered as characters — an
-  element with no accessible role cannot be asserted absent through a role query.
-- **A `*_does_not_panic` test on a real path.** `NullServiceLifecycle` and
-  `NullInput` are selected at runtime on a machine without systemd, so a
-  technician clicking remote desktop on a container-hosted machine is exercising
-  shipped behaviour.
-- **A seam test pinning a client constant against an external contract.** These
-  touch no branch and catch nothing in a mutation run, and they are the only
-  thing standing between a renamed server-side status and a blank screen.
+- A presence-only assertion whose query pins a literal string or an accessible
+  name.
+- A styling assertion where colour is the product signal.
+- A page-structure walk — `closest('li')` to scope an assertion to one row,
+  `container.querySelector('script')` + `toBeNull` to assert an injected tag
+  rendered as characters.
+- A `*_does_not_panic` test on a real path. `NullServiceLifecycle` and
+  `NullInput` are selected at runtime on a machine without systemd.
+- A seam test pinning a client constant against an external contract.
 
-**Do not trade detection for tidiness.** A change that lowers the caught-rate is
-not a cleanup, whatever it does to the line count.
+A change that lowers the caught-rate is not a cleanup.
 
 ## What the hook refuses
 
-Only what the evidence supports, over web test files, judged on the content the
-tool call would produce:
+Over web test files, judged on the content the tool call would produce:
 
 1. **A test that never binds the primary export of the module it is named for.**
-   A test beside `foo.ts` must bind `foo`'s own export (`foo`, or the camel-case
-   of a hyphenated name), by name or through a namespace import. A module with no
-   export of that name has no primary export and the check does not apply.
+   A test beside `foo.ts` binds `foo`'s own export (`foo`, or the camel-case of
+   a hyphenated name), by name or through a namespace import. A module with no
+   export of that name is out of scope.
 2. **A global or prototype reassignment with no restore**, where a restore is an
    assignment to the same target inside a `finally`, an `afterEach` or an
    `afterAll`.
 
-Everything else above is prose the reviewer applies, not a pattern a script
-matches — deliberately, because the "not banned" section is the part the data
-supports and a matcher cannot judge.
+Everything else above is applied by the reviewer, not matched by a script.
 
 Exemptions live in `ALLOWLIST_PRIMARY_EXPORT` in
-[`scripts/test-value-check.sh`](../../scripts/test-value-check.sh), each with a
-comment naming the defect it covers. An exemption is re-earned, not kept: the
-sweep fails on an entry whose file now passes, so it cannot outlive its reason.
+[`test-value-check.sh`](../../scripts/test-value-check.sh), each with a comment
+naming the defect it covers. The sweep fails on an entry whose file now passes.
 
 ## Proving the suite still fails when the code is broken
 
-A caught-rate is a number the suite reports about itself. The check that it means
-anything is to break the product and watch the suite go red. Each of these must
-fail a named test; one that stays green is a gap to close before anything nearby
-is deleted:
+Each of these must fail a named test; one that stays green is a gap to close:
 
 - stop the byte-unit ladder at GB, and a 3 TB fileserver reads "1024 GB";
-- bind disk *free* where disk *total* belongs, and a full disk reads as empty;
-- drop a repository query's tenant clause, and one customer's machines appear
-  under another;
+- bind disk *free* where disk *total* belongs;
+- drop a repository query's tenant clause;
 - return 200 with an empty body where a log pull should refuse with 403;
-- stop incrementing an enrolment token's use count, and an exhausted token keeps
-  enrolling machines;
-- invert the maintenance-window check, and alerts fire through a customer's
-  approved patch window.
+- stop incrementing an enrolment token's use count;
+- invert the maintenance-window check.

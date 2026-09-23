@@ -2,7 +2,7 @@ name: Docs Validate
 
 # Mermaid syntax validation. Catches a malformed fence (including experimental
 # C4) before GitHub would render an error box. The same validator runs as a
-# step in the local /precommit gauntlet, so this job is the CI backstop. The
+# step in the local precommit gauntlet, so this job is the CI backstop. The
 # validator uses the official Mermaid parser pinned in
 # tools/mermaid-validate/package-lock.json; GitHub's renderer is the
 # authoritative check, this job is a fast pre-filter.

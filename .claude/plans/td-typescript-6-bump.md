@@ -49,14 +49,14 @@ client; fix TS6 breakages; prove `npm ci` is clean.
 3. `npm run generate:api` — confirm codegen still works against the OpenAPI spec.
 4. `tsc --noEmit` / `npm run build`; fix breakages.
 5. Align `typescript-eslint` to a TS6-supporting version if needed; `npm run lint`.
-6. `/precommit` → commit → `/refactor` → `/precommit` → commit → push.
+6. commit → `/refactor` → commit → push.
 
 ## 6. Quality metrics / acceptance
 
 - [ ] `npm ci` succeeds with TS 6 (the exact failure mode is gone).
 - [ ] `npm run generate:api` produces unchanged-or-correct types.
 - [ ] `tsc`/build/lint green; the `build-image` Docker build passes.
-- [ ] `/precommit` green.
+- [ ] The precommit gauntlet green.
 
 ## 7. NFRs
 

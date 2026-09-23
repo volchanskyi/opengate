@@ -199,7 +199,7 @@ test-parse-tfplan:
 
 # L2 — Secrets scanning. Default mode scans git history; --no-git would scan
 # the working tree but pulls in gitignored build artifacts. Pre-commit-side
-# `gitleaks protect --staged` lives in the /precommit skill.
+# `gitleaks protect --staged` lives in scripts/precommit-gauntlet.sh.
 secrets-scan:
 	@command -v gitleaks >/dev/null 2>&1 || { echo "ERROR: gitleaks not found. Install: https://github.com/gitleaks/gitleaks/releases"; exit 1; }
 	gitleaks detect --config .gitleaks.toml --no-banner --redact

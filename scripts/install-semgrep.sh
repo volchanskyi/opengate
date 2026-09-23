@@ -45,7 +45,15 @@ log() { printf '[install-semgrep] %s\n' "$1" >&2; }
 
 # Parse the X.Y.Z version out of `semgrep --version`, robust to any extra
 # notice lines the tool may emit. grep -oE never selects a non-version line.
-semgrep_version_of() { "$1" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1; }
+# The first line is taken from a variable rather than through `head`, which
+# stops reading at that line and leaves the writer a failed write that pipefail
+# reports as the function's answer.
+semgrep_version_of() {
+  local reported versions
+  reported="$("$1" --version 2>/dev/null || true)"
+  versions="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$reported" || true)"
+  printf '%s\n' "${versions%%$'\n'*}"
+}
 
 # Already at the pinned version on PATH? No-op.
 if command -v semgrep >/dev/null 2>&1; then

@@ -90,9 +90,13 @@ postgres_block() {
     in_svc { print }
   ' "$COMPOSE"
 }
-if postgres_block | grep -qE '^[[:space:]]+tmpfs:'; then
+# Read once into a variable: piped into `grep -q` the reader stops at its
+# first match, and pipefail reports the writer's failed write as a service that
+# names neither thing.
+POSTGRES_BLOCK="$(postgres_block)"
+if grep -qE '^[[:space:]]+tmpfs:' <<<"$POSTGRES_BLOCK"; then
   fail "the database writes to tmpfs, so a fixture would have no measurable size"
-elif postgres_block | grep -q 'perf-postgres:/var/lib/postgresql/data'; then
+elif grep -qF 'perf-postgres:/var/lib/postgresql/data' <<<"$POSTGRES_BLOCK"; then
   pass "the database writes to a volume, so a fixture has a measurable size"
 else
   fail "the database names no data volume"
@@ -286,7 +290,7 @@ job_block() {
     in_job { print }
   ' "$WORKFLOW"
 }
-for family in volume scaling; do
+for family in volume scaling shapes; do
   block="$(job_block "$family")"
   if grep -q -- '-enroll-url=' <<<"$block"; then
     pass "the $family family asks the server to sign, so it holds the server's own authority"
@@ -304,7 +308,7 @@ else
   fail "the scaling family measures against an empty database, so its data is not the profile's"
 fi
 
-# --- A sweep offers the technician load it varies things against --------------
+# --- A leg is the unit, because a family's legs do not all offer the same load -
 #
 # The volume family varies how much data is already there. Reading is what more
 # data slows, and the only reader this venue had was machines arriving — the
@@ -312,30 +316,194 @@ fi
 # of the fleet already in the database. So the sweep varied its variable against
 # a load that could not feel it, which is the same shape that left the scaling
 # curve flat from one processor upwards.
-for family in volume scaling; do
+#
+# Held at family level these checks answer the wrong question for a family whose
+# legs differ. The shape family's three legs are one job, and `journeys` varies
+# across them: two open the sessions their profiles declare and the third does
+# not. A family-level check reads the one generator invocation in the block,
+# finds it, and reports the whole family covered — crediting the leg that offers
+# nothing with the load its neighbours offer. So the unit here is the leg.
+#
+# legs_of <family> — one record per leg: its profile, then whether that leg
+# offers a browser-side generator.
+#
+# A family whose legs vary the profile spells them in `matrix.include`; one that
+# varies something else names its profile once in the run block. A leg that
+# declares `journeys:` has said which it is, and where none does, every leg of a
+# family that starts a generator offers one.
+legs_of() {
+  local family="$1" block default_offers include profile
   block="$(job_block "$family")"
-  if grep -q 'loadtest-k6-alongside\.sh' <<<"$block"; then
-    pass "the $family family offers the technician load its profiles declare"
-  else
-    fail "the $family family declares a technician load in its profiles and offers none, so it varies its variable against machines arriving and nothing else"
+  default_offers=false
+  grep -q 'loadtest-k6-alongside\.sh' <<<"$block" && default_offers=true
+
+  include="$(awk '
+    /^        include:[[:space:]]*$/ { inc = 1; next }
+    inc && /^        [^ ]/ { inc = 0 }
+    inc { print }
+  ' <<<"$block")"
+
+  if [ -z "$include" ]; then
+    profile="$(grep -oE 'load/profiles/[a-z0-9.-]+\.yaml' <<<"$block" | sort -u)"
+    printf '%s\t%s\n' "$profile" "$default_offers"
+    return 0
   fi
+
+  awk -v fallback="$default_offers" '
+    function flush() {
+      if (seen) printf "%s\t%s\n", path, (journeys == "" ? fallback : journeys)
+    }
+    /^          - / {
+      flush()
+      seen = 1; path = ""; journeys = ""
+      line = $0
+      sub(/^          - /, "", line)
+      $0 = "            " line
+    }
+    /^            path:[[:space:]]/ {
+      v = $0; sub(/^[[:space:]]*path:[[:space:]]*/, "", v); path = v; next
+    }
+    /^            journeys:[[:space:]]/ {
+      v = $0; sub(/^[[:space:]]*journeys:[[:space:]]*/, "", v); journeys = v; next
+    }
+    END { flush() }
+  ' <<<"$include"
+}
+
+# folds_gate <block> — the condition on the step that folds the browser-side
+# numbers in, or empty where nothing gates it.
+folds_gate() {
+  awk '
+    /^      - name:/ { cond = "" }
+    /^        if:/ { c = $0; sub(/^[[:space:]]*if:[[:space:]]*/, "", c); cond = c }
+    /--journeys/ { print cond; exit }
+  ' <<<"$1"
+}
+
+# A leg that declares a technician load and deliberately offers none, with the
+# reason it is that way. An exemption is re-earned: the sweep fails on an entry
+# whose leg now offers a generator, so one cannot outlive what it was for.
+declare -A OFFERS_NO_JOURNEYS=(
+  # This leg raises the fleet until the server gives out — sixteen thousand
+  # machines on a shared runner, with a hundred and sixty held sessions on top.
+  # What that generator would need of the runner is a reading to take before the
+  # leg offers it, and the harness reports its own headroom on every leg now, so
+  # the reading is takeable.
+  ["shapes load/profiles/breakpoint.yaml"]="the ladder's generator allowance is a reading still to be taken"
+)
+
+# Every leg names a profile this gate can read, and there is at least one, so a
+# sweep that stopped enumerating legs fails rather than passing over an empty
+# list.
+legs_read=0
+for family in volume scaling shapes; do
+  while IFS=$'\t' read -r profile journeys; do
+    if [ -z "$profile" ]; then
+      fail "the $family family has a leg that names no profile, so every check below holds it to nothing"
+      continue
+    fi
+    if [ ! -f "$REPO_ROOT/$profile" ]; then
+      fail "the $family family names $profile and there is no such profile"
+      continue
+    fi
+    legs_read=$((legs_read + 1))
+  done < <(legs_of "$family")
 done
+if [ "$legs_read" -gt 0 ]; then
+  pass "the three families present $legs_read leg(s) this gate can read"
+else
+  fail "no leg was enumerated at all, so every check below is asserting an absence it never tested"
+fi
+
+# A leg that declares a technician load offers one. Where it deliberately does
+# not, the exemption is written down and re-earned here.
+exempt_unused=""
+for family in volume scaling shapes; do
+  while IFS=$'\t' read -r profile journeys; do
+    [ -n "$profile" ] && [ -f "$REPO_ROOT/$profile" ] || continue
+    phases="$(profile_phases "$REPO_ROOT/$profile" 2>/dev/null)" || continue
+    declares="$(jq '[.[] | select(.sessions > 0 or .arrivals_per_second > 0)] | length' <<<"$phases")"
+    key="$family $profile"
+    exempt="${OFFERS_NO_JOURNEYS[$key]:-}"
+
+    if [ "$declares" -eq 0 ]; then
+      fail "the $family family's $profile declares no technician load at all, so its capacity claim is about an idle fleet by declaration"
+    elif [ "$journeys" = true ]; then
+      if [ -n "$exempt" ]; then
+        exempt_unused="$exempt_unused"$'\n'"      $key"
+      else
+        pass "$family's $(basename "$profile" .yaml) leg offers the technician load its profile declares"
+      fi
+    elif [ -n "$exempt" ]; then
+      pass "$family's $(basename "$profile" .yaml) leg offers none, for a reason written down: $exempt"
+    else
+      fail "the $family family's $profile declares a technician load in $declares phase(s) and its leg offers none, so it varies its variable against machines arriving and nothing else"
+    fi
+  done < <(legs_of "$family")
+done
+if [ -z "$exempt_unused" ]; then
+  pass "every written-down exemption still describes a leg that offers nothing"
+else
+  fail "a leg is exempted from offering a technician load and now offers one, so the exemption has outlived its reason:$exempt_unused"
+fi
 
 # And what a browser-side generator times is written into another process's
-# file. A family that starts one and never folds it in has produced numbers in a
-# temp directory that travel nowhere; a family that folds without starting one
-# folds an export that was never written. Both directions, because either alone
-# is satisfied by doing neither.
-for family in volume scaling; do
+# file. A leg that starts one and never folds it in has produced readings in a
+# directory the job destroys; one that folds without starting one folds an
+# export that was never written. Both directions, per leg, because a family
+# whose legs differ is satisfied at family level by doing each once.
+for family in volume scaling shapes; do
   block="$(job_block "$family")"
-  runs=no
-  folds=no
-  grep -q 'loadtest-k6-alongside\.sh' <<<"$block" && runs=yes
-  grep -q -- '--journeys' <<<"$block" && folds=yes
-  if [ "$runs" = "$folds" ]; then
-    pass "the $family family's technician numbers are offered and folded together"
+  gate="$(folds_gate "$block")"
+  folds_at_all=no
+  grep -q -- '--journeys' <<<"$block" && folds_at_all=yes
+
+  while IFS=$'\t' read -r profile journeys; do
+    [ -n "$profile" ] || continue
+    runs="$journeys"
+    folds=false
+    if [ "$folds_at_all" = yes ]; then
+      case "$gate" in
+        '') folds=true ;;
+        *matrix.journeys*) folds="$journeys" ;;
+        *) folds=true ;;
+      esac
+    fi
+    if [ "$runs" = "$folds" ]; then
+      pass "$family's $(basename "$profile" .yaml) leg offers and folds its technician numbers together"
+    else
+      fail "$family's $(basename "$profile" .yaml) leg runs a browser-side generator ($runs) and folds its journeys ($folds), which do not agree"
+    fi
+  done < <(legs_of "$family")
+done
+
+# And the two halves of a leg walk the same shape. The generator reads its walk
+# from LOADTEST_PROFILE and the harness from -profile, and nothing about either
+# name says they are the same decision — so a leg can offer fifteen journeys a
+# second against a fleet arriving to a different profile's ramp, and every
+# number it produces is about a night nobody scheduled.
+#
+# A family whose legs vary the profile spells it through the matrix, so what is
+# compared is the expression rather than a resolved path: the check is that one
+# decision reaches both halves.
+for family in volume scaling shapes; do
+  block="$(job_block "$family")"
+  grep -q 'loadtest-k6-alongside\.sh' <<<"$block" || continue
+
+  generator_walks="$(sed -n 's/^[[:space:]]*LOADTEST_PROFILE:[[:space:]]*//p' <<<"$block" | sed -n 1p)"
+  # The value is taken whole rather than to the first space: a matrix expression
+  # carries spaces of its own, and cutting at one compares half a name.
+  harness_walks="$(sed -n 's/^[[:space:]]*-profile=//p' <<<"$block" | sed -n 1p)"
+  harness_walks="${harness_walks%%[[:space:]]\\}"
+  harness_walks="${harness_walks#\"}"
+  harness_walks="${harness_walks%\"}"
+
+  if [ -z "$generator_walks" ]; then
+    fail "the $family family starts a browser-side generator and names no profile for it, so the generator is refused where it stands and the leg offers no technician load at all"
+  elif [ "$generator_walks" = "$harness_walks" ]; then
+    pass "the $family family's generator and harness walk the same profile ($generator_walks)"
   else
-    fail "the $family family runs a browser-side generator ($runs) and folds its journeys ($folds), which do not agree"
+    fail "the $family family's generator walks $generator_walks and its harness walks $harness_walks, so the two halves of the leg offer different shapes"
   fi
 done
 
@@ -370,66 +538,52 @@ scenarios_on() {
   done
 }
 
-for family in volume scaling; do
+for family in volume scaling shapes; do
   block="$(job_block "$family")"
 
-  # What this family's legs declare, read off the profiles the job itself names.
-  declared_sessions=0
-  profiles_read=0
-  while IFS= read -r profile; do
-    [ -n "$profile" ] || continue
-    [ -f "$REPO_ROOT/$profile" ] || continue
-    profiles_read=$((profiles_read + 1))
-    if phases="$(profile_phases "$REPO_ROOT/$profile" 2>/dev/null)"; then
-      declared_sessions=$((declared_sessions + $(jq '[.[] | select(.sessions > 0)] | length' <<<"$phases")))
+  # The sessions a leg declares are held open beside its fleet, and the harness
+  # answers the machine end of them. A leg that offers no generator is judged by
+  # the exemption above rather than twice here.
+  while IFS=$'\t' read -r profile journeys; do
+    [ -n "$profile" ] && [ -f "$REPO_ROOT/$profile" ] || continue
+    [ "$journeys" = true ] || continue
+    leg="$(basename "$profile" .yaml)"
+
+    phases="$(profile_phases "$REPO_ROOT/$profile" 2>/dev/null)" || continue
+    declared_sessions="$(jq '[.[] | select(.sessions > 0)] | length' <<<"$phases")"
+    [ "$declared_sessions" -gt 0 ] || continue
+
+    offers_sessions=no
+    while IFS= read -r scenario; do
+      [ -n "$scenario" ] || continue
+      script="$REPO_ROOT/load/k6/scenarios/$scenario.js"
+      if [ ! -f "$script" ]; then
+        fail "the $family family names scenario $scenario and there is no such script"
+        continue
+      fi
+      grep -q 'sessionScenarios' "$script" && offers_sessions=yes
+    done < <(scenarios_on "$block")
+
+    if [ "$offers_sessions" = yes ]; then
+      pass "the sessions $family's $leg leg declares are held open beside its fleet"
+    else
+      fail "$family's $leg leg declares sessions in $declared_sessions phase(s) and no scenario on it holds one open, so its capacity claim is read with nobody watching a screen"
     fi
-  done < <(grep -oE 'load/profiles/[a-z0-9.-]+\.yaml' <<<"$block" | sort -u)
 
-  if [ "$profiles_read" -gt 0 ]; then
-    pass "the $family family names $profiles_read profile(s) this gate can read"
-  else
-    fail "the $family family names no readable profile, so every check below holds it to nothing"
-  fi
-
-  # A family declaring no session satisfies every check below by asking for
-  # nothing, which is the vacuous pass this would otherwise report forever.
-  if [ "$declared_sessions" -gt 0 ]; then
-    pass "the $family family's profiles declare held sessions in $declared_sessions phase(s)"
-  else
-    fail "the $family family's profiles declare no session, so its capacity claim is about an idle fleet by declaration"
-  fi
-
-  offers_sessions=no
-  while IFS= read -r scenario; do
-    [ -n "$scenario" ] || continue
-    script="$REPO_ROOT/load/k6/scenarios/$scenario.js"
-    if [ ! -f "$script" ]; then
-      fail "the $family family names scenario $scenario and there is no such script"
-      continue
+    if grep -q -- '-relay-sessions' <<<"$block"; then
+      pass "$family's $leg leg has a harness that joins the machine side of a session and echoes"
+    else
+      fail "$family's $leg leg is not told to answer a session request, so the browser side times a frame nobody sends back"
     fi
-    grep -q 'sessionScenarios' "$script" && offers_sessions=yes
-  done < <(scenarios_on "$block")
+  done < <(legs_of "$family")
 
-  if [ "$declared_sessions" -eq 0 ] || [ "$offers_sessions" = yes ]; then
-    pass "the sessions the $family family declares are held open beside its fleet"
-  else
-    fail "the $family family declares sessions and no scenario on its leg holds one open, so its capacity claim is read with nobody watching a screen"
-  fi
+  # The scenarios a family runs and the exports it folds are one invocation and
+  # one list, shared by every leg that reaches them, so they are read once. Both
+  # directions: a leg that starts a generator and folds nothing has produced
+  # readings in a directory the job destroys, and a fold naming an export
+  # nothing runs fails on the night rather than here.
+  grep -q 'loadtest-k6-alongside\.sh' <<<"$block" || continue
 
-  # The machine side has to answer as well as the browser side asking. A session
-  # has two ends: the generator opens the operator's, and the harness joins the
-  # machine's and echoes. Without that flag the browser side times a frame
-  # nobody sends back.
-  if [ "$declared_sessions" -eq 0 ] || grep -q -- '-relay-sessions' <<<"$block"; then
-    pass "the $family family's harness joins the machine side of a session and echoes"
-  else
-    fail "the $family family's harness is not told to answer a session request, so the browser side times a frame nobody sends back"
-  fi
-
-  # And every scenario the leg runs is folded, in both directions: a leg that
-  # starts a generator and folds nothing has produced readings in a directory
-  # the job destroys, and one that folds an export nothing wrote fails on the
-  # night rather than here.
   folded=0
   while IFS= read -r scenario; do
     [ -n "$scenario" ] || continue

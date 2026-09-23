@@ -195,9 +195,14 @@ launch() {
 # fleet has an answer, and it is in its output.
 await_fleet() {
   local deadline=$((SECONDS + START_TIMEOUT))
-  local status
+  local status log
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if pod_log | grep -qF "$FLEET_ANNOUNCEMENT"; then
+    # The log is read into a variable rather than piped. `grep -q` stops at its
+    # first match, and a pod log is comfortably larger than a pipe will hold —
+    # so the writer's failed write would be reported as an announcement that
+    # never came, and the wait would run out against a fleet that had started.
+    log="$(pod_log)"
+    if grep -qF "$FLEET_ANNOUNCEMENT" <<<"$log"; then
       echo "the QUIC fleet is holding in $POD"
       return 0
     fi

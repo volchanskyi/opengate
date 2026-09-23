@@ -100,7 +100,12 @@ fi
 # The line a step's name is on, or empty. Steps in this workflow are at six
 # spaces, so a name matched at any other depth is something else.
 step_line() {
-  { grep -nF -- "      - name: $1" "$WORKFLOW" || true; } | head -n 1 | cut -d: -f1
+  # Matched into a variable first: `head` stops at the first line, and pipefail
+  # reports the writer's failed write as a step that is not in the workflow.
+  local found
+  found="$(grep -nF -- "      - name: $1" "$WORKFLOW" || true)"
+  found="${found%%$'\n'*}"
+  printf '%s\n' "${found%%:*}"
 }
 
 # Everything from a step's name up to the next step at the same depth.

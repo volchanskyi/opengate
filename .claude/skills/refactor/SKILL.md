@@ -2,12 +2,12 @@
 name: refactor
 description: |
   Post-commit refactoring of newly added code. Improves readability and performance
-  without changing business logic. Run after all pre-commit checks pass.
+  without changing business logic. Run after a commit lands, before pushing.
 ---
 
 # Post-Commit Refactoring
 
-After all pre-commit checks pass, refactor the newly added code. DO NOT CHANGE BUSINESS LOGIC.
+After a commit lands, refactor the newly added code. DO NOT CHANGE BUSINESS LOGIC.
 
 ## Constraints
 
