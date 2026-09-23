@@ -12,6 +12,27 @@ export VM_EXCLUDE_COMMIT="${VM_EXCLUDE_COMMIT:-$COMMIT_SHA}"
 WINDOW_DAYS=14
 MIN_WINDOW_SAMPLES=3
 
+# How many nights in a row an advisory has to fire before it stops being an
+# advisory. The tail it was written for ran three and each of them printed a line
+# and returned success.
+#
+# It needs a counter because the comparison silences itself. Each bad night
+# enters the window the next one is judged against, and the window is a median
+# over commits rather than over nights — so three nights on one commit collapse
+# to one point and the window held five: 61.1, 68.8, 85.7, 373.0, 396.9. One more
+# bad night on a new commit takes the median from 85.7 to 229.4, the threshold
+# from 343 to 917, and a 390 ms night goes quiet with the slowdown recorded as
+# normal.
+P99_ESCALATE_NIGHTS=3
+
+# How far back a previous night's count is looked for. A nightly cadence puts the
+# last one inside a day; three gives room for a night that did not run without
+# reaching back far enough to pick up a count from a different fortnight.
+P99_STREAK_LOOKBACK_DAYS=3
+
+# Where this run writes what it counted, for the push that follows it.
+P99_STREAK_FILE="${P99_STREAK_FILE:-loadtest-p99-streaks.json}"
+
 # Frozen tolerance bands, calibrated offline from the live VM series.
 # Deliberately broad: staging load crosses GitHub-hosted runners, a kubectl
 # port-forward, and a shared free-tier OKE cluster, so run-to-run variance is
@@ -232,6 +253,48 @@ error_rate_regression_line() {
   fi
 }
 
+# The consecutive-night count each series carried out of its last run, keyed the
+# same way the window is. It is read from the store the run already writes to, so
+# nothing new has to persist between nights and a re-run never reads its own.
+streak_map() {
+  local selector window map
+  selector="loadtest_p99_advisory_streak{$(vm_query_selector 'env="ci"')}"
+  window="[${P99_STREAK_LOOKBACK_DAYS}d]"
+  map="$(
+    vm_query_window "last_over_time(${selector}${window})" \
+      | awk -F'\t' '
+        {
+          sig = $1; val = $2
+          source = ""; scenario = ""; phase = ""; workload = ""
+          n = split(sig, parts, ",")
+          for (i = 1; i <= n; i++) {
+            split(parts[i], kv, "=")
+            if (kv[1] == "source") source = kv[2]
+            if (kv[1] == "scenario") scenario = kv[2]
+            if (kv[1] == "phase") phase = kv[2]
+            if (kv[1] == "workload") workload = kv[2]
+          }
+          if (source == "" || scenario == "" || phase == "") next
+          print source "/" scenario "/" phase "/" workload "\t" val
+        }
+      ' | jq -Rn '
+        [ inputs
+          | split("\t")
+          | select(length >= 2)
+          | { key: .[0], value: (.[1] | tonumber) }
+        ] | from_entries
+      ' 2>/dev/null || true
+  )"
+  [[ -n "$map" ]] && printf '%s\n' "$map" || printf '{}\n'
+}
+
+streak_entry() {
+  local map="$1" source="$2" scenario="$3" phase="$4" workload="${5:-}"
+  jq -r \
+    --arg key "${source}/${scenario}/${phase}/${workload}" \
+    '.[$key] // 0' <<<"$map" 2>/dev/null || printf '0\n'
+}
+
 p99_advisory_line() {
   local source="$1" scenario="$2" phase="$3" current="$4" window="$5" workload="$6"
   local series="${source}/${scenario}/${phase}"
@@ -255,7 +318,10 @@ regression_check() {
   local branch="${GITHUB_REF_NAME:-dev}"
   local regression_lines=()
   local p99_lines=()
+  local streak_rows=()
+  local streaks
   local row source scenario phase workload p50 p95 p99 rps error_rate line
+  streaks="$(streak_map)"
 
   while IFS= read -r row; do
     source="$(jq -r '.source // "unknown"' <<<"$row")"
@@ -289,9 +355,35 @@ regression_check() {
     fi
     if [ -n "$p99" ]; then
       line="$(p99_advisory_line "$source" "$scenario" "$phase" "$p99" "$window" "$workload")"
-      [ -z "$line" ] || p99_lines+=("$line")
+      # Every series gets a count, whether or not it is advisory tonight. A
+      # count that is only written on the nights it is not nought cannot say
+      # whether the quiet nights in between were quiet or absent, and putting a
+      # nought back is what makes three separate bad nights over a fortnight
+      # different from three in a row.
+      local previous streak
+      previous="$(streak_entry "$streaks" "$source" "$scenario" "$phase" "$workload")"
+      if [ -n "$line" ]; then
+        streak="$(awk -v p="$previous" 'BEGIN { printf "%d", p + 1 }')"
+        p99_lines+=("${line} (${streak} consecutive nights)")
+        if num_ge "$streak" "$P99_ESCALATE_NIGHTS"; then
+          regression_lines+=("${source}/${scenario}/${phase} latency_p99_ms has been past its window for ${streak} consecutive nights — an advisory that repeats is a finding, and this one raises its own comparison point until it goes quiet")
+        fi
+      else
+        streak=0
+      fi
+      streak_rows+=("$(jq -nc \
+        --arg source "$source" --arg scenario "$scenario" --arg phase "$phase" \
+        --arg workload "$workload" --argjson streak "$streak" \
+        '{source: $source, scenario: $scenario, phase: $phase, workload: $workload, streak: $streak}')")
     fi
   done < <(jq -c '.[]' <<<"$rows")
+
+  # What the next night reads this one's count out of.
+  if ((${#streak_rows[@]})); then
+    printf '%s\n' "${streak_rows[@]}" | jq -s '.' >"$P99_STREAK_FILE"
+  else
+    printf '[]\n' >"$P99_STREAK_FILE"
+  fi
 
   local line
   for line in "${p99_lines[@]}"; do

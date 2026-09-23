@@ -152,7 +152,11 @@ jobs:
           # reports is the node's. Reading it here rather than inside the remote
           # shell keeps the module paths below expanded by this shell, where
           # they can be seen.
+          # Not retried: these describe the node for the record and already answer
+          # with a blank rather than failing. A retry would buy a fuller record at
+          # the cost of holding the drill up for one.
           node_read() { kubectl -n monitoring exec "$EXPORTER" -- sh -c "$1" 2>/dev/null || true; }
+          # Not retried: same reason — it answers "unknown" rather than failing.
           K="$(kubectl -n monitoring exec "$EXPORTER" -- uname -r 2>/dev/null || echo unknown)"
           MODULES="/host/root/lib/modules/${K}"
           {
@@ -242,6 +246,10 @@ jobs:
           # hours earlier. The statements are idempotent, and they go over
           # standard input because a psql argv is readable by every process in
           # the Postgres pod and is recorded in the exec audit entry.
+          #
+          # Not retried: a connection dropped part-way through cannot say whether
+          # the statements landed, so a second attempt is either a no-op or a
+          # duplicate and nothing here can tell which.
           ACCOUNT_EMAIL="$DRILL_SERVICE_ACCOUNT" ACCOUNT_PASSWORD="$PASSWORD" \
             deploy/scripts/loadtest-account-sql.sh \
             | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
@@ -266,6 +274,9 @@ jobs:
       - name: Mint the enrolment credential the machines spend
         run: |
           set -euo pipefail
+          # Not retried: this runs while the drill is holding a network fault open,
+          # so a call that does not come back is the reading the drill is taking.
+          # Repeating it until it works measures the absence of the fault.
           probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
 
           TOKEN="$(probe -X POST "$DRILL_API_URL/api/v1/auth/login" \
@@ -295,6 +306,9 @@ jobs:
       - name: Start the link shaper
         run: |
           set -euo pipefail
+          # A dropped connection to the cluster is what has been costing
+          # nights here; see the helper for which calls may be repeated.
+          . scripts/lib/kubectl-retry.sh
           SHAPER_POD="netdrill-shaper-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "SHAPER_POD=$SHAPER_POD" >>"$GITHUB_ENV"
           # The seed is the run's own, recorded in the evidence, so a night can
@@ -306,9 +320,14 @@ jobs:
             deploy/scripts/netfault-shaper-pod.sh \
             | kubectl -n "$NAMESPACE" apply -f -
           deploy/scripts/wait-for-pod-ready.sh "$SHAPER_POD" 180
-          kubectl -n "$NAMESPACE" cp /tmp/netfault "$SHAPER_POD:/tmp/netfault"
-          kubectl -n "$NAMESPACE" exec "$SHAPER_POD" -- chmod 0755 /tmp/netfault
-          kubectl -n "$NAMESPACE" exec "$SHAPER_POD" -- touch /tmp/ready
+          # The pod is created and ready by here, so what is left to fail is the
+          # connection. It already has: a night died at the chmod below with
+          # `error sending request: ... EOF`, after twelve steps of setup and
+          # before anything was measured. All three are short, idempotent and
+          # repeatable, which is what makes them safe to ask for twice.
+          kubectl_retry -n "$NAMESPACE" cp /tmp/netfault "$SHAPER_POD:/tmp/netfault"
+          kubectl_retry -n "$NAMESPACE" exec "$SHAPER_POD" -- chmod 0755 /tmp/netfault
+          kubectl_retry -n "$NAMESPACE" exec "$SHAPER_POD" -- touch /tmp/ready
 
           SHAPER_IP="$(kubectl -n "$NAMESPACE" get pod "$SHAPER_POD" -o jsonpath='{.status.podIP}')"
           test -n "$SHAPER_IP"
@@ -316,6 +335,9 @@ jobs:
           echo "SHAPER_URL=http://${SHAPER_IP}:9091" >>"$GITHUB_ENV"
 
           for _ in $(seq 1 60); do
+            # Not retried: the loop around this call is the retry, sixty times over
+            # two minutes, and a retry inside a retry multiplies the wait for a pod
+            # that is never going to answer.
             if kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- \
               curl -sS --max-time 5 "http://${SHAPER_IP}:9091/healthz" >/dev/null 2>&1; then
               echo "the shaper is answering"
@@ -332,6 +354,9 @@ jobs:
       - name: Start the real machine, with its path through the shaper
         run: |
           set -euo pipefail
+          # A dropped connection to the cluster is what has been costing
+          # nights here; see the helper for which calls may be repeated.
+          . scripts/lib/kubectl-retry.sh
           MACHINE_POD="netdrill-machine-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "MACHINE_POD=$MACHINE_POD" >>"$GITHUB_ENV"
 
@@ -343,14 +368,19 @@ jobs:
             | kubectl -n "$NAMESPACE" apply -f -
 
           deploy/scripts/wait-for-pod-ready.sh "$MACHINE_POD" 180
-          kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- mkdir -p /tmp/agent
-          kubectl -n "$NAMESPACE" cp /tmp/mesh-agent "$MACHINE_POD:/tmp/mesh-agent"
-          kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- chmod 0755 /tmp/mesh-agent
-          kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- touch /tmp/ready
+          # Same shape as the shaper above: short, idempotent setup into a pod
+          # that is already up, where the only failure of interest is transport.
+          kubectl_retry -n "$NAMESPACE" exec "$MACHINE_POD" -- mkdir -p /tmp/agent
+          kubectl_retry -n "$NAMESPACE" cp /tmp/mesh-agent "$MACHINE_POD:/tmp/mesh-agent"
+          kubectl_retry -n "$NAMESPACE" exec "$MACHINE_POD" -- chmod 0755 /tmp/mesh-agent
+          kubectl_retry -n "$NAMESPACE" exec "$MACHINE_POD" -- touch /tmp/ready
 
       - name: Wait for the machine to arrive, and learn which one it is
         run: |
           set -euo pipefail
+          # Not retried: this runs while the drill is holding a network fault open,
+          # so a call that does not come back is the reading the drill is taking.
+          # Repeating it until it works measures the absence of the fault.
           probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
           for _ in $(seq 1 60); do
             DEVICE_ID="$(probe "$DRILL_API_URL/api/v1/devices" \
@@ -372,6 +402,9 @@ jobs:
       - name: Start the simulated fleet behind the same shaper
         run: |
           set -euo pipefail
+          # A dropped connection to the cluster is what has been costing
+          # nights here; see the helper for which calls may be repeated.
+          . scripts/lib/kubectl-retry.sh
           FLEET_POD="netdrill-fleet-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "FLEET_POD=$FLEET_POD" >>"$GITHUB_ENV"
 
@@ -386,8 +419,10 @@ jobs:
             --overrides='{"spec":{"hostAliases":[{"ip":"'"$SHAPER_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$FLEET_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","2700"],"resources":{"requests":{"cpu":"25m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep 2700
           deploy/scripts/wait-for-pod-ready.sh "$FLEET_POD" 120
-          kubectl -n "$NAMESPACE" cp /tmp/loadtest "$FLEET_POD:/tmp/loadtest"
-          kubectl -n "$NAMESPACE" exec "$FLEET_POD" -- chmod 0755 /tmp/loadtest
+          # And the fleet binary. A dropped copy here loses the whole drill for a
+          # connection that would have worked on the next attempt.
+          kubectl_retry -n "$NAMESPACE" cp /tmp/loadtest "$FLEET_POD:/tmp/loadtest"
+          kubectl_retry -n "$NAMESPACE" exec "$FLEET_POD" -- chmod 0755 /tmp/loadtest
 
           # The fleet is held for the whole drill, so every scenario has the herd
           # in place rather than standing one up per scenario. The harness is
@@ -546,6 +581,9 @@ jobs:
             echo "no in-cluster client or credential; the machines are left for the next deploy's reset"
             exit 0
           fi
+          # Not retried: this runs while the drill is holding a network fault open,
+          # so a call that does not come back is the reading the drill is taking.
+          # Repeating it until it works measures the absence of the fault.
           probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
 
           MINE="$(probe "$DRILL_API_URL/api/v1/devices" \
@@ -693,32 +731,36 @@ jobs:
             fi
           } >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Telegram alert on regression
-        if: steps.check.outputs.regression == '1'
+      - name: Say what this night was
+        # Runs whatever happened above it, and the message names which of the
+        # three it was. The shape this replaces was gated on a flag an earlier
+        # step in this job produced, so a night that died before that step said
+        # nothing at all: the louder the failure, the more certain the silence.
+        #
+        # And the send below reports a refused delivery rather than swallowing
+        # it. It can afford to — the verdict this run carries is read by a job of
+        # its own, so a Telegram outage reddens this job and hides nothing.
+        if: always()
         env:
-          BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
-          CHAT: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ steps.check.outputs.regression }}
           ALERT_TEXT: ${{ steps.check.outputs.alert_text }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
         run: |
-          set -uo pipefail
-          if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
-            echo "::warning::Telegram secrets not set; the regression is still reported by the workflow's own result."
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+            echo "Nothing to say: the run finished and nothing was found."
             exit 0
           fi
-          MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Network Drill Trends" (opengate-network-drill-trend)' \
-            "$ALERT_TEXT" "$RUN_URL")"
-          send_http=$(curl -sS --max-time 30 -o /tmp/telegram-send.json -w '%{http_code}' \
-            -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
-            --data-urlencode "chat_id=${CHAT}" \
-            --data-urlencode "text=${MSG}" \
-            --data-urlencode "disable_web_page_preview=true" 2>/dev/null || echo "curl_error")
-          if [ "$send_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-send.json >/dev/null 2>&1; then
-            echo "::error::Telegram sendMessage returned HTTP ${send_http}."
-            cat /tmp/telegram-send.json 2>/dev/null || echo "(no body)"
-            exit 0
+          if [ "${FINDING:-0}" = "1" ]; then
+            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Network Drill Trends" (opengate-network-drill-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          else
+            MSG="$(printf 'Network drill: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
+              "$JOB_STATUS" "$RUN_URL")"
           fi
-          echo "Telegram alert delivered"
+          scripts/telegram-alert.sh "$MSG"
 
       - name: Remove OCI credentials
         if: always()

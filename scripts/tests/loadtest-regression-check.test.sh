@@ -51,7 +51,13 @@ case "${VM_PROFILE:-seeded}" in
   empty) ;;
   invalid) printf '%s\n' 'not-json' ;;
   seeded)
-    if grep -q '/api/v1/export' <<<"$args"; then
+    if grep -q 'loadtest_p99_advisory_streak' <<<"$args"; then
+      # The consecutive-night count the previous run left behind. Empty means
+      # no prior sample, which is a series that has never been advisory.
+      if [ -n "${STREAK_PRIOR:-}" ]; then
+        vec "$(s quic quic-agents connect "$STREAK_PRIOR")"
+      fi
+    elif grep -q '/api/v1/export' <<<"$args"; then
       # Previous error_rate sample for the exact source/scenario/phase selector.
       printf '%s\n' '{"metric":{"__name__":"loadtest_error_rate","source":"quic","scenario":"quic-agents","phase":"aggregate","commit":"older","env":"ci"},"values":[0.001],"timestamps":[1000]}'
     elif grep -q 'count_over_time' <<<"$args"; then
@@ -81,6 +87,10 @@ run_check() {
     export VM_NAMESPACE="observability"
     export VM_SERVICE="private-vm"
     export GITHUB_SHA="deadbeef"
+    # The consecutive-night counts land in the work directory rather than
+    # wherever the suite happened to be run from. A test that leaves a file in
+    # the tree is a test that changes what the next one sees.
+    export P99_STREAK_FILE="${P99_STREAK_FILE:-$WORK/streaks.json}"
     "$CHECK" "$summary"
   )
 }
@@ -233,6 +243,88 @@ rc=0
 out="$(run_check "$WORK/same-workload.json" 2>&1)" || rc=$?
 assert_eq "the established workload is still judged against its window" "1" "$rc"
 assert_contains "and by its window median" "window median" "$out"
+
+# --- a repeated advisory escalates instead of absorbing itself ----------------
+#
+# The slowest one percent of registrations went from 50 ms to 397 ms and three
+# nights in a row printed an advisory and returned success. Nothing counted the
+# consecutive nights, and the check silences itself: each bad night enters the
+# window it is compared against, so the comparison point climbs until a bad night
+# is no longer four times anything.
+#
+# It is not a slow drift. The window is a median over commits, so three nights on
+# one commit collapse to one point, and the whole window at the time held five —
+# 61.1, 68.8, 85.7, 373.0, 396.9. One more bad night on a new commit takes the
+# median from 85.7 to 229.4, the threshold from 343 to 917, and a 390 ms night
+# goes quiet with the slowdown recorded as normal.
+#
+# So the advisory carries how many nights it has been running, read back from the
+# same store the run already writes to, and the third one is a finding rather
+# than a line in a summary.
+# run_streak PRIOR SUMMARY — drives the check with a given prior streak for the
+# series the advisory fires on. The two extra names ride into the same runner the
+# other cases use, so what differs between a case here and a case above is the
+# count that came back and nothing else.
+run_streak() {
+  local prior="$1" summary="$2"
+  STREAK_PRIOR="$prior" P99_STREAK_FILE="$WORK/streaks.json" run_check "$summary"
+}
+
+# streak_of SOURCE SCENARIO PHASE — what tonight's run recorded for one series.
+streak_of() {
+  jq -r --arg s "$1" --arg c "$2" --arg p "$3" \
+    '[.[] | select(.source == $s and .scenario == $c and .phase == $p)][0].streak // "none"' \
+    "$WORK/streaks.json" 2>/dev/null || printf 'none\n'
+}
+
+write_summary "$WORK/p99-streak.json" '[
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":220,"latency_p99_ms":5000,"workload":"w1","commit":"deadbeef","env":"ci"}
+]'
+
+# The first bad night. A finding needs more than one reading, so it reports and
+# passes — which is what the advisory has always done.
+rm -f "$WORK/streaks.json"
+rc=0
+out="$(run_streak "" "$WORK/p99-streak.json" 2>&1)" || rc=$?
+assert_eq "the first advisory night passes" "0" "$rc"
+assert_contains "and prints the advisory" "P99_ADVISORY:" "$out"
+assert_eq "and records it as the first night" "1" "$(streak_of quic quic-agents connect)"
+
+# The second. Still reporting, still passing.
+rm -f "$WORK/streaks.json"
+rc=0
+out="$(run_streak "1" "$WORK/p99-streak.json" 2>&1)" || rc=$?
+assert_eq "the second advisory night passes" "0" "$rc"
+assert_eq "and counts two" "2" "$(streak_of quic quic-agents connect)"
+assert_not_contains "and raises nothing yet" "REGRESSION_ALERT:" "$out"
+
+# The third is the finding. It fails the run, which is the only signal that
+# reaches a person — the alert path is downstream of the run's own result.
+rm -f "$WORK/streaks.json"
+rc=0
+out="$(run_streak "2" "$WORK/p99-streak.json" 2>&1)" || rc=$?
+assert_eq "the third consecutive advisory night fails the run" "1" "$rc"
+assert_contains "and raises an alert" "REGRESSION_ALERT:" "$out"
+assert_contains "naming the series" "quic/quic-agents/connect" "$out"
+assert_contains "and how many nights it has run" "3 consecutive nights" "$out"
+assert_eq "and counts three" "3" "$(streak_of quic quic-agents connect)"
+
+# A night that clears resets the count, so three separate bad nights spread over
+# a fortnight are not reported as a run of three.
+write_summary "$WORK/p99-clear.json" '[
+  {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":220,"latency_p99_ms":400,"workload":"w1","commit":"deadbeef","env":"ci"}
+]'
+rm -f "$WORK/streaks.json"
+rc=0
+out="$(run_streak "2" "$WORK/p99-clear.json" 2>&1)" || rc=$?
+assert_eq "a night that clears passes" "0" "$rc"
+assert_not_contains "and prints no advisory" "P99_ADVISORY:" "$out"
+assert_eq "and puts the count back to nothing" "0" "$(streak_of quic quic-agents connect)"
+
+# The count is read back from the store rather than kept anywhere in the run, so
+# the query that reads it is part of what the run does.
+assert_contains "the streak is read from the trend store" "loadtest_p99_advisory_streak" "$(cat "$WORK/kubectl.args")"
+assert_contains "and the read excludes tonight's own sample" 'commit!="deadbeef"' "$(cat "$WORK/kubectl.args")"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

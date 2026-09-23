@@ -13,14 +13,12 @@ change".
 
 ## Why
 
-The caches are enormous and grow without bound: the Rust `agent/target` tree and
-Docker's build cache each reach tens of GB, and every `make e2e` / gauntlet run
-adds a fresh layer set. Left alone they fill the WSL disk and break local
-development outright — the machine stops being able to build, test, or run
-anything.
+The Rust `agent/target` tree and Docker's build cache each reach tens of GB, and
+every `make e2e` or gauntlet run adds a fresh layer set. Left alone they fill the
+disk and the machine stops being able to build, test or run anything.
 
-Nothing reclaimed is precious. Production runs on OKE, and every cleared item is
-a **rebuild**, never a re-download.
+Nothing reclaimed is precious: every cleared item is a **rebuild**, never a
+re-download.
 
 ## What gets cleared
 

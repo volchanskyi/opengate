@@ -37,6 +37,8 @@ jobs:
     # `observability` provides the secrets without the required_reviewers
     # gate that `staging` / `production` have.
     environment: observability
+    outputs:
+      drift: ${{ steps.plan.outputs.exitcode }}
     steps:
       - uses: actions/checkout@v7
 
@@ -153,57 +155,6 @@ jobs:
             drift-summary.json
           retention-days: 30
 
-      - name: Telegram alert
-        # Never fails the step — same rationale as mutation.yml's Telegram
-        # step. Drift is the workflow-level failure signal (see "Fail
-        # workflow on drift" below); the Telegram channel is observability.
-        if: steps.plan.outputs.exitcode == '2'
-        env:
-          BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
-          CHAT: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
-          RUN: ${{ github.run_id }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -uo pipefail
-          if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
-            echo "::warning::Telegram secrets not set; skipping alert (drift still reported via workflow exit)."
-            exit 0
-          fi
-          # Pre-flight: validate the bot token. 404 from getMe means the
-          # token doesn't match any bot (revoked / wrong value pasted).
-          getme_http=$(curl -sS --max-time 10 \
-            -o /tmp/telegram-getme.json \
-            -w '%{http_code}' \
-            "https://api.telegram.org/bot${BOT}/getMe" 2>/dev/null || echo "curl_error")
-          if [ "$getme_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-getme.json >/dev/null 2>&1; then
-            echo "::error::Telegram getMe returned HTTP ${getme_http} — DEPLOY_TELEGRAM_BOT_TOKEN appears invalid or revoked."
-            echo "Telegram API response body:"
-            cat /tmp/telegram-getme.json 2>/dev/null || echo "(no body)"
-            exit 0
-          fi
-          bot_username="$(jq -r '.result.username // "unknown"' /tmp/telegram-getme.json)"
-          echo "Bot token verified via getMe (bot: @${bot_username}) ✓"
-
-          # Plan output can exceed Telegram's 4 KB limit. Truncate to 3500 chars;
-          # full output remains in the workflow artifacts (above).
-          MSG="$(head -c 3500 drift.txt)"
-          TEXT="$(printf '⚠️ Terraform drift detected on dev (run %s):\n\n%s\n\nRun: %s' \
-            "$RUN" "$MSG" "$RUN_URL")"
-          send_http=$(curl -sS --max-time 30 \
-            -o /tmp/telegram-send.json \
-            -w '%{http_code}' \
-            -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
-            --data-urlencode "chat_id=${CHAT}" \
-            --data-urlencode "text=${TEXT}" \
-            --data-urlencode "disable_web_page_preview=true" 2>/dev/null || echo "curl_error")
-          if [ "$send_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-send.json >/dev/null 2>&1; then
-            echo "::error::Telegram sendMessage returned HTTP ${send_http}. Common cause when getMe succeeds but sendMessage fails: DEPLOY_TELEGRAM_CHAT_ID points at a chat the bot isn't a member of."
-            echo "Telegram API response body:"
-            cat /tmp/telegram-send.json 2>/dev/null || echo "(no body)"
-            exit 0
-          fi
-          echo "Telegram alert delivered ✓"
-
       # Trend pushes run against in-cluster Services via kubectl (the cluster API
       # endpoint is reachable without a JIT NSG rule, so no firewall teardown).
       - name: OCI + kubeconfig setup
@@ -222,12 +173,136 @@ jobs:
         if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
         run: ./scripts/terraform-drift-vm-push.sh drift-summary.json
 
-      - name: Fail workflow on drift (audit trail)
-        if: steps.plan.outputs.exitcode == '2'
+      - name: Say what this night was
+        # Runs whatever happened above it, and the message names which of the
+        # three it was. The shape this replaces was gated on the plan's own exit
+        # code, so a night that died before the plan ran said nothing at all:
+        # the louder the failure, the more certain the silence.
+        #
+        # And the send below reports a refused delivery rather than swallowing
+        # it. It can afford to — the verdict is read by a job of its own now, so
+        # a Telegram outage reddens this job and hides nothing.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ steps.plan.outputs.exitcode }}
+          RUN: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
         run: |
-          echo "Drift detected — see Telegram alert and uploaded artifacts."
-          exit 1
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "2" ]; then
+            echo "Nothing to say: the plan ran and the infrastructure matches what is declared."
+            exit 0
+          fi
+          if [ "${FINDING:-0}" = "2" ]; then
+            MSG="$(printf 'Terraform drift on dev (run %s):\n\n%s\n\nRun: %s' \
+              "$RUN" "$(cat drift.txt 2>/dev/null || echo '(the plan output did not survive)')" "$RUN_URL")"
+          else
+            MSG="$(printf 'Infrastructure drift: the night did not finish (%s), so nothing was compared.\n\nRun: %s' \
+              "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"
 
       - name: Remove OCI credentials
         if: always()
         uses: ./.github/actions/oci-kube-teardown
+
+  # What the cluster was actually given, against what this repository declares.
+  #
+  # The monitoring stack's ConfigMaps carry every alert rule, every dashboard and
+  # every scrape target. Two of them were created once by hand and re-created by
+  # nothing, and the third belongs to a chart that had not been upgraded in over
+  # a hundred days. So the cluster evaluated seven of the thirteen rules declared
+  # here, served nine of thirteen dashboards, and scraped none of the
+  # per-container series — including the ones the rule written to detect exactly
+  # that gap reads. A rule could be added, pinned by a gate, reviewed, merged,
+  # and never exist.
+  #
+  # This job is that comparison, in the workflow whose subject is already the
+  # deployed state drifting from the declared one.
+  monitoring-config:
+    name: The configuration the cluster holds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: observability
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      - name: Give the cluster what this commit declares, then ask for it back
+        env:
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+        run: deploy/scripts/monitoring-config-apply.sh
+
+      # The destination is provisioned from a file, so it survives a pod being
+      # rescheduled. Whether a message actually arrives is a different fact, and
+      # it is the only one worth trusting: the configuration above can be right
+      # in every particular and still reach nobody.
+      #
+      # It runs whatever happened above it, because proving the channel does not
+      # depend on the configuration being current — the send goes to Telegram
+      # directly. And this job cannot alert through the channel it is testing, so
+      # the workflow's own result is the signal that survives a send nobody got.
+      - name: Send a message through the channel the alerts use
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ]; then
+            MSG="$(printf 'The nightly alert channel is alive, and the cluster holds the monitoring configuration this commit declares.\n\nRun: %s' "$RUN_URL")"
+          else
+            MSG="$(printf 'Monitoring configuration: the check did not finish (%s). Either the cluster holds something other than what is declared, or this channel is the thing that is broken.\n\nRun: %s' \
+              "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
+
+  # Separate from the job that sends, so a refused delivery cannot take the
+  # night's verdict with it.
+  gate:
+    name: Infrastructure drift gate
+    needs: [drift, monitoring-config]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Fail workflow red on drift
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.drift.result }}" != "success" ]; then
+            echo "::error::The drift plan did not finish; see that job."
+            exit 1
+          fi
+          if [ "${{ needs['monitoring-config'].result }}" != "success" ]; then
+            echo "::error::The cluster's monitoring configuration is not the one this commit declares; see that job."
+            exit 1
+          fi
+          if [ "${{ needs.drift.outputs.drift }}" = "2" ]; then
+            echo "::error::Terraform drift detected — see the run's artifacts and the Telegram alert."
+            exit 1
+          fi
+          echo "No drift, and the cluster holds what this commit declares."

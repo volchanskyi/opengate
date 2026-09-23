@@ -50,13 +50,16 @@ loki:
 
 grafana:
   image: docker.io/grafana/grafana-oss:11.6.0
-  # No PVC: /var/lib/grafana is an emptyDir (ADR-035). All config is provisioned
-  # from ConfigMaps, so the only state lost on restart is annotations/alert history.
+  # No PVC: /var/lib/grafana is an emptyDir. Every piece of configuration is
+  # provisioned from a ConfigMap and re-read on every start, so what a restart
+  # loses is what Grafana wrote about itself — annotations and alert-state
+  # history.
   rootUrl: ""    # set to https://<domain>/grafana when fronted by an ingress
-  # Dashboard JSONs are NOT duplicated into the chart. Create the
-  # ConfigMap from the canonical files at deploy time (see NOTES.txt):
-  #   kubectl -n <ns> create configmap <name> \
-  #     --from-file=deploy/grafana/provisioning/dashboards
+  # Dashboard JSONs are NOT duplicated into the chart. The ConfigMap is rendered
+  # from the canonical files and read back by
+  # deploy/scripts/monitoring-config-apply.sh, which the nightly drift workflow
+  # runs — so what the cluster holds is what the repository declares, checked
+  # rather than assumed.
   dashboardsConfigMap: grafana-dashboards
   resources:
     requests:

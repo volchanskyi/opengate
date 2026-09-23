@@ -1,7 +1,24 @@
-# Telegram contact point is configured manually via the Grafana UI.
-# File-based provisioning of Telegram is blocked by a Grafana bug (#69950):
-# numeric chat IDs are unmarshaled as JSON numbers instead of strings,
-# causing a startup crash. No YAML-level workaround exists.
+# Where a firing alert goes.
+#
+# The chat id reaches this file as a quoted literal, substituted in by
+# deploy/scripts/monitoring-config-apply.sh. Grafana's own environment-variable
+# substitution cannot fill it: the value is read back as a JSON number and the
+# server refuses to start. The bot token has no such problem — a token is not a
+# number — so it stays a variable and stays in the Secret.
+#
+# Provisioned from a file rather than through the API or the UI because a file is
+# re-read on every pod start. Grafana's database lives on a volume that does not
+# outlive the pod, so anything written through the other two routes is a
+# destination that lasts until the next reschedule.
 apiVersion: 1
 
-contactPoints: []
+contactPoints:
+  - orgId: 1
+    name: telegram
+    receivers:
+      - uid: telegram-nightlies
+        type: telegram
+        settings:
+          bottoken: $TELEGRAM_BOT_TOKEN
+          chatid: "__TELEGRAM_CHAT_ID__"
+          disable_web_page_preview: true

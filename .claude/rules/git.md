@@ -13,26 +13,20 @@ All work happens on `dev`. No exceptions.
 
 ## Why `dev` also pulls `main`
 
-`dev` is where the work happens and `main` is downstream of it, so the second
-pull looks redundant. It is not: a few things reach `main` without passing
-through `dev`, and nothing carries them back.
+Some things reach `main` without passing through `dev`, and nothing carries them
+back.
 
 Dependabot **security** updates are the recurring case. Every ecosystem in
-[`dependabot.yml`](../../.github/dependabot.yml) sets `target-branch: dev`, and
-routine version bumps honour it — but a security update ignores `target-branch`
-and always opens against the repository's default branch, which is `main`. So
-the one class of dependency change that matters most is the one class `dev`
-never sees.
+[`dependabot.yml`](../../.github/dependabot.yml) sets `target-branch: dev` and
+routine version bumps honour it, but a security update ignores `target-branch`
+and opens against the default branch, which is `main`.
 
-What that costs is a gate failing on `dev` for something already fixed on
-`main`: the lockfile audits read the current advisory database rather than the
-diff, so `dev` keeps failing every commit — including a docs-only one — until
-the fix is carried across. It stranded a patched `browserslist` for `web` and a
-patched `dompurify` and `mermaid` for `tools/mermaid-validate`, the latter for
-months, because no gate on `dev` was even looking at that second lockfile.
+The cost is a gate failing on `dev` for something already fixed on `main`: the
+lockfile audits read the current advisory database rather than the diff, so `dev`
+keeps failing every commit — including a docs-only one — until the fix is carried
+across.
 
-Pulling `main` at the start of the work is what closes it. Do it before the
-first commit, not after a gate has already gone red.
+Pull `main` before the first commit, not after a gate has gone red.
 
 ## Commit / Push Atomicity
 

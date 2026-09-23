@@ -2,37 +2,29 @@
 
 **Enforced by:**
 [`scripts/tests/ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
-(gauntlet shell-tests step) and
-[`scripts/assert-cache-written.sh`](../../scripts/assert-cache-written.sh)
+and [`scripts/tests/alert-delivery.test.sh`](../../scripts/tests/alert-delivery.test.sh)
+(gauntlet shell-tests step),
+[`scripts/assert-cache-written.sh`](../../scripts/assert-cache-written.sh) and
+[`deploy/scripts/monitoring-config-apply.sh`](../../deploy/scripts/monitoring-config-apply.sh)
 (in the workflows themselves). **No bypass.**
 
-A workflow step whose work was **refused** must not report success. This is the
-same defect class as a test that skips itself
-([`tests-determinism.md`](tests-determinism.md)) — the run is green, the work
-never happened, and the only way anyone finds out is by going to look.
-
-## What it cost
-
-The deploy's cache token carries read scope only. Two saves were refused on
-every run for two months, each printing a warning and exiting zero, each step
-green: the deploy-state entry the pre-flight skip stood on, and a toolchain
-cache added later that never once wrote. A skip that had been firing on 45.8%
-of runs went to zero, and the agent cross-build paid a cold start every time.
-Nothing in any run's conclusion said so.
+A step whose work was **refused** must not report success. Same defect class as a
+test that skips itself ([`tests-determinism.md`](tests-determinism.md)): the run
+is green, the work never happened, and the only way to find out is to go and
+look.
 
 ## The rule
 
 ### Read back what you wrote
 
 A cache entry written under a key we chose is asserted to exist, through the
-cache API, before the job that wrote it is allowed to pass. The warning text is
-not the signal — it is a string in a log nobody reads, and it changes when the
-action does. The key coming back out is the signal.
+cache API, before the job that wrote it may pass. The warning text is not the
+signal — it is a string in a log nobody reads, and it changes when the action
+does. The key coming back out is the signal.
 
-[`assert-cache-written.sh`](../../scripts/assert-cache-written.sh) does the
-asking. It fails on an absent key **and** on a cache list it could not read: a
-guard that answers yes when it cannot ask is the false green it was written to
-close.
+[`assert-cache-written.sh`](../../scripts/assert-cache-written.sh) fails on an
+absent key **and** on a cache list it could not read: a guard that answers yes
+when it cannot ask is the false green it exists to close.
 
 Where the save happens in an action's post step, the read-back is a separate job
 with a `needs:` on the one that wrote — a post step runs after every step of its
@@ -40,177 +32,105 @@ own job, so nothing inside that job can see the result.
 
 ### An artifact nobody wrote is not an artifact
 
-The same reasoning covers what a job hands to the job after it. `upload-artifact`
-answers an empty file set with a warning and a zero exit, so a step that produced
-nothing is green and the gap surfaces later, somewhere else, as an aggregate that
-will not add up — naming neither what is missing nor why.
+`upload-artifact` answers an empty file set with a warning and a zero exit, so a
+step that produced nothing is green and the gap surfaces later as an aggregate
+that will not add up, naming neither what is missing nor why.
 
-Every artifact [`mutation.yml`](../../.github/workflows/mutation.yml) uploads is
-an input to the aggregation that scores the night, so every one of its uploads
-sets `if-no-files-found: error`. The shard is where the absence is known, so the
-shard is where it fails. This matters most where the step already swallows its
-tool's exit code on purpose — a surviving mutant is not a build failure, which
-leaves the report coming back out as the only signal that any work happened.
+Every artifact something downstream reads sets `if-no-files-found: error`, and
+the shard that produced it is where it fails. This matters most where the step
+already swallows its tool's exit code on purpose — a surviving mutant is not a
+build failure, which leaves the report as the only signal that any work
+happened.
 
-The setting is not blanket policy: an upload whose files are genuinely optional —
-a fuzz crash that usually does not exist — says `ignore` and means it. The rule
-binds an artifact **something downstream reads**.
+Not blanket policy: an upload whose files are genuinely optional — a fuzz crash
+that usually does not exist — says `ignore` and means it.
 
 ### A check that asserts an absence proves it reached something first
 
-The two rules above are about a step that produced nothing. This one is about a
-step that *read* nothing, which is harder to see, because a check written as an
-absence is satisfied by the absence of the whole conversation.
-
-The smoke run through the public edge asserts that the exposition and the
-profiler are not what the edge answers with. An empty body matches neither
-pattern, and no status at all is not `404` — so a request that resolved nowhere,
-was refused, or died in a TLS handshake reports the boundary green. `curl` says
-so plainly, writing `000` for a transfer that never happened, and nothing was
-reading it.
+A check written as an absence is satisfied by the absence of the whole
+conversation. An empty body matches no pattern, and no status at all is not
+`404`, so a request that resolved nowhere, was refused, or died in a TLS
+handshake reports the boundary green. `curl` writes `000` for a transfer that
+never happened.
 
 So every absence-shaped check in
-[`smoke-test.sh`](../../deploy/scripts/smoke-test.sh) asks `edge_answered` first,
-and the target it is pointed at is named rather than assumed: an Ingress matches
-on a Host header, which need not be a name any public resolver answers for, so
-the run is handed the address its controller published alongside the scheme that
-edge actually serves. [`smoke-test-edge.test.sh`](../../scripts/tests/smoke-test-edge.test.sh)
-drives the script against a stub edge that keeps the boundary, one that breaks
-it, and one that is not there at all, and requires a different verdict from each.
+[`smoke-test.sh`](../../deploy/scripts/smoke-test.sh) asks `edge_answered`
+first, and the target is named rather than assumed: an Ingress matches on a Host
+header, which need not be a name any public resolver answers for, so the run is
+handed the address its controller published alongside the scheme that edge
+serves. [`smoke-test-edge.test.sh`](../../scripts/tests/smoke-test-edge.test.sh)
+drives it against an edge that keeps the boundary, one that breaks it, and one
+that is not there, and requires a different verdict from each.
 
-The generalisation is worth stating, because absence-shaped checks are common in
-a deploy gate: *the port is closed*, *the header is gone*, *the path is not
-served*, *no secret appears in the log*. Every one of them passes on a target
-that was never contacted. Whatever asserts the absence has to first prove it was
-talking to something.
+The generalisation, because absence-shaped checks are common in a deploy gate —
+*the port is closed*, *the header is gone*, *the path is not served*, *no secret
+appears in the log*: every one passes against a target that was never contacted.
+Whatever asserts the absence proves first that it was talking to something.
 
 ### Do not declare a write you cannot make
 
 A workflow whose cache token cannot write declares no cache at all — not an
 explicit cache action, not a toolchain cache, and not the cache half of a setup
-action, whose save is refused just as quietly as any other. Losing the restore
-alongside it is the price; a permanently refused save that reports success is
-not a trade worth making.
+action, whose save is refused just as quietly. Losing the restore is the price; a
+permanently refused save that reports success is not a trade worth making.
 
-[`cd.yml`](../../.github/workflows/cd.yml) is that workflow today. What it needs
-to know about the running deployment it reads off the cluster, and the binary it
-used to build cold it takes as an artifact from
+[`cd.yml`](../../.github/workflows/cd.yml) is that workflow. What it needs to
+know about the running deployment it reads off the cluster, and the binary it
+would build cold it takes as an artifact from
 [`build-image.yml`](../../.github/workflows/build-image.yml), whose token does
-write. See [ADR-086](../../docs/adr/ADR-086-deploy-reads-the-cluster.md).
+write.
 
 ### A tool a workflow builds is built from a graph somebody has tested
 
-`cargo install <tool>` re-resolves that tool's entire dependency graph to
-"latest compatible versions" every time it runs, so a workflow that installs one
-is compiling software nobody has ever compiled before. It does not fail as a
-version bump or an advisory. It fails as a compile error deep inside a
-transitive crate, in a job whose subject is something else — and it is invisible
-on a workstation, where the tool was installed once and is never rebuilt again.
+`cargo install <tool>` re-resolves that tool's entire dependency graph to latest
+compatible versions on every run, so a workflow that installs one compiles
+software nobody has compiled before. It fails as a compile error deep inside a
+transitive crate, in a job whose subject is something else, and it is invisible
+on a workstation where the tool was installed once.
 
-That is how a green gauntlet sat beside a red Security Audit: the workstation's
-`cargo-audit` was years old and working, while CI rebuilt it every run and one
-day resolved a `tinyvec` that does not compile. Two of the three installs that
-lacked `--locked` were building the release cross-compiler.
-
-So every `cargo install` in a workflow passes `--locked`, which uses the
-lockfile the tool's own authors tested — the only build there is evidence
-about. [`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
-holds all of them to it.
+Every `cargo install` in a workflow passes `--locked`, which uses the lockfile
+the tool's own authors tested — the only build there is evidence about.
 
 ### A read is spelled as a read
 
-The rules above are about a step whose work was refused. This one is about a
-step that was never the step anybody wrote, because the tool picked a different
-one — and the error it comes back with describes the wrong thing entirely.
+`gh api` chooses its own request method: a read normally, and a write the moment
+any `-f`, `-F`, `--field` or `--raw-field` is present. Those flags are also how a
+read narrows what it asks for, so filtering a listing turns it into a write
+against an address that only answers reads. Every such address answers `404 Not
+Found`, which reads as *that workflow does not exist* rather than *you asked the
+wrong way* — and the shapes built around these calls treat a run that cannot be
+found as a reason to stand down quietly.
 
-`gh api` chooses its own request method: a plain read normally, and a write the
-moment any `-f`, `-F`, `--field` or `--raw-field` is present. Those flags are
-also how a read narrows what it asks for, so the ordinary act of filtering a
-listing turns it into a write against an address that only answers reads. Every
-such address answers with `404 Not Found`, which reads as *that workflow does
-not exist* rather than *you asked the wrong way*. Under `set -euo pipefail` the
-step then dies pointing at the wrong thing, and the shapes built around these
-calls make it worse: a run that cannot be found is exactly the condition they
-are written to treat as a reason to stand down quietly.
+So every `gh api` passing a field flag states its method.
 
-The nightly link drill lost a night to it. Its search for the image build
-carrying the machine binary passed three filters, so it was posted, so it was
-refused, so the step reported no machine to measure — on a repository where that
-build had succeeded hours earlier and its binary was sitting in the artifact
-store the whole time. The same call sits on the deploy's manual path, where it
-had never yet been asked.
-
-So every `gh api` that passes a field flag states its method rather than letting
-the tool infer one, and
-[`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
-holds all of them to it — reading each invocation whole, across the line
-continuations they are written over, and counting what it reached so a sweep
-that matched nothing fails instead of passing.
-
-The generalisation is the one worth carrying: **where a tool infers a verb from
-the arguments, the verb is written down.** An inferred verb is a decision nobody
-recorded, and it surfaces as an error about the noun.
+The generalisation: **where a tool infers a verb from the arguments, the verb is
+written down.** An inferred verb is a decision nobody recorded, and it surfaces
+as an error about the noun.
 
 ### An input a script refuses to run without is named where it is called
 
-The section above is about a caller that left the verb to the tool. This one is
-about a caller that left an input to nobody at all — and it is the harder half,
-because the script says plainly what it needs and the saying is what nothing
-reads.
+A script that documents an input as required, or refuses to start without one,
+holds a contract with every workflow that calls it, and nothing reads that
+contract. A name is checkable from the text alone.
 
-[`loadtest-quic-incluster.sh`](../../scripts/loadtest-quic-incluster.sh) launches
-the fleet harness into the pod named in `LOADTEST_POD`, documents it as required
-and refuses without it. The nightly link drill stands up several pods and holds
-this one in `FLEET_POD`, a name the shim has never heard of, so the call was
-refused at its first line. The drill had started the machine, the shaper and the
-probe, minted its credentials and waited for the machine to come online — twelve
-steps of setup — and then measured nothing, on a cluster where every piece it
-needed was already up and answering.
-
-The refusal was loud and immediate, which is what makes the shape worth a rule
-rather than a fix: nothing about it was subtle at run time, and it still cost two
-nights, because the only place it could be discovered was a scheduled run against
-a live cluster. A name is checkable from the text alone, and it was checked by
-nothing.
-
-So a workflow step that calls a script names every input that script refuses to
-run without, and
-[`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
-sweeps for it: the required inputs are read off each script — the `:?` refusals
-the shell itself makes, and the `(required)` entries in the script's own
-Environment header — and looked for in the calling job together with the
-workflow-level `env` that job inherits, which is the scope a name can actually
-reach, since `$GITHUB_ENV` does not cross a job boundary. Like the sweep above it
-counts the calls it reached, so a sweep that matched nothing fails.
+The sweep reads the required inputs off each script — the `:?` refusals the shell
+makes, and the `(required)` entries in its Environment header — and looks for
+them in the calling job together with the workflow-level `env` that job inherits,
+which is the scope a name can reach, since `$GITHUB_ENV` does not cross a job
+boundary.
 
 The generalisation: **a contract stated in one file and satisfied in another is
-checked in neither unless something is made to read both.** Where the two are
-text, that something is a sweep, and it costs less than one night of a nightly.
+checked in neither unless something is made to read both.**
 
 ### A status a step branches on is read with errexit turned off
 
-The rules above are about a step that produced nothing, read nothing, or wrote
-nothing. This one is about a step that wrote the branch and never reached it.
+GitHub runs every `run:` block under `bash -e`. A step that wants to interpret an
+exit code writes `cmd; rc=$?; if [ "$rc" -eq 2 ]; then …` — and under errexit a
+non-zero `cmd` ends the step *at* `cmd`. The `rc=$?` never runs, the branch below
+it is unreachable, and the step reports the failure it was written to interpret.
+`set -uo pipefail` does not help: it turns two options on and none off.
 
-GitHub runs every `run:` block under `bash -e`. A step that wants to interpret a
-command's exit code writes `cmd; rc=$?; if [ "$rc" -eq 2 ]; then …` — and under
-errexit a non-zero `cmd` ends the step *at* `cmd`. The `rc=$?` never runs, the
-branch below it is unreachable, and the step reports the failure it was written
-to interpret. `set -uo pipefail` at the top of the block does not help: it turns
-two options on and none off.
-
-The nightly link drill lost a night to it in both of its jobs. The publish job's
-regression check captured the script's output into a variable, read `$?` on the
-next line and printed the output on the line after — so a night with a finding
-died at the assignment, printed nothing at all, and never reached the branch that
-raises the Telegram alert. The finding underneath was a reading of a healthy
-machine that the drill was calling slow, and it had been invisible for as long as
-the shape had existed. The scenario loop in the other job carries the same shape
-around exit code 2, which the comment beside it calls "not a failed drill" — the
-one outcome the loop can never see.
-
-So a block that reads `$?` turns errexit off around the command first, and back
-on after:
+A block that reads `$?` turns errexit off around the command and back on after:
 
 ```bash
 set +e
@@ -219,70 +139,106 @@ rc=$?
 set -e
 ```
 
-The status may also be taken on the failing command's own line — `cmd || rc=$?`
-— which errexit does not fire on, because a command on the left of `||` is
-tested rather than run for its success.
+The status may also be taken on the failing command's own line — `cmd || rc=$?` —
+which errexit does not fire on, because a command on the left of `||` is tested
+rather than run for its success.
 
-[`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
-sweeps every workflow for it, reading each `run:` block whole, and counts what it
-reached so a sweep that matched nothing fails. It demonstrates the defect first —
-running both shapes and requiring the unguarded one to lose its branch — so a
-guard that has stopped reproducing anything fails rather than quietly policing a
-non-problem.
+The generalisation: **a fact the shell has already acted on is not a fact the
+script can still read.** Errexit is a decision; a script that wants to make that
+decision itself says so.
 
-The generalisation is the same one the inferred verb has: **a fact the shell has
-already acted on is not a fact the script can still read.** Errexit is a
-decision; a script that wants to make that decision itself has to say so.
+### An alert conditioned on a healthy run cannot report an unhealthy one
+
+A send runs under `always()` and decides for itself, reading the job's own status
+beside whatever flag it was watching. A condition that depends on an earlier step
+having succeeded is unreachable on the night with the most to report.
+
+The message names which of the three happened — a finding, a failure, or a
+cancellation — because they call for different responses.
+
+Where a job can die before its steps run, the alert is a **job**, not a step: a
+job killed at its timeout may run no step at all. A separate job with `needs:`
+and `if: always()` starts on a fresh runner whatever happened upstream, and it
+reads `needs.<job>.result` rather than calling `failure()` — the result is a fact
+about the job named, and it distinguishes a cancellation from a failure.
+
+### A refused send is a failure
+
+[`telegram-alert.sh`](../../scripts/telegram-alert.sh) is the only path to the
+alert chat, and it fails on a refused token, a chat the bot is not in, a 200
+carrying `ok:false`, an absent credential, and a request that reached nothing. A
+send that returns success for a message nobody received is this file's subject
+wearing different clothes.
+
+It can fail safely because the verdict lives elsewhere: each of these workflows
+carries its regression verdict in a gate job of its own. Where one job both
+publishes the verdict and sends, something downstream reads that verdict off
+`needs.<job>.result` — otherwise a refused send and a clean night are the same
+colour.
+
+### A configuration the cluster was never given is not a configuration
+
+Alert rules, dashboards and scrape targets are rendered from this repository,
+applied, and read back. The apply is not the guarantee: an apply that lands
+nothing answers exactly like one that lands everything. Without the read-back a
+rule can be added, pinned by a gate, reviewed, merged, and never exist.
+
+The alert destination is provisioned from a file rather than through the API or
+the user interface. Grafana's database is on an ephemeral volume, so anything
+written the other two ways lasts until the next reschedule, and a nightly check
+that notices it died is a repair loop standing in for configuration. The
+trade-off is that a file-provisioned destination is read-only in the interface:
+routing and silencing become changes to this repository.
+
+And one nightly job sends a real message through the channel and fails when it
+does not arrive, because everything above can hold and still reach nobody. That
+job cannot alert through the channel it is testing, so the workflow's result is
+the signal that survives.
 
 ### An exemption is re-earned
 
 The list of workflows that may not cache is a statement about tokens, not about
-places. If a workflow gains write scope — a trusted trigger would do it — the
-row comes out and the cache comes back, in the same commit that proves it.
+places. A workflow that gains write scope loses the row and gains the cache, in
+the same commit that proves it.
 
 ### A budget covers every term, including the one nothing counts
 
-The rules above are about a step that produced nothing, read nothing, or wrote
-nothing. This one is about a step that was *predicted* — a pre-flight that
-projects a job's cost and refuses the ones that will not fit. Such a projection is
-only as good as the terms it carries, and the term it leaves out is invisible
-precisely because nothing counts it.
+A pre-flight that projects a job's cost is only as good as the terms it carries,
+and the term it leaves out is invisible precisely because nothing counts it. A
+mutation shard's wall clock has a second term beside `mutants × per-mutant cost`:
+gremlins gives every mutant a leash of the coverage run's elapsed time times a
+coefficient, and a mutant that removes a loop's exit condition holds a worker for
+all of it. Such a mutant is recorded as `TIMED OUT` — neither a kill nor a
+survivor — so it moves no score and appears in no report field.
 
-The mutation pre-flight projected each Go shard as `mutants × per-mutant cost`
-and cleared them all. `go-domain-alerts` was projected at 31 minutes and was shot
-at the 90-minute cap, taking the night's canonical score row with it, because a
-shard's wall clock has a second term: gremlins gives every mutant a leash of the
-coverage run's elapsed time times a coefficient, and a mutant that removes a
-loop's exit condition never terminates and holds a worker for all of it. At the
-coefficient then in force that leash was 46 to 75 minutes — comparable to the
-whole cap, on a shard whose entire projected cost was 31.
-
-The term hid well. gremlins records such a mutant as `TIMED OUT`, which is
-neither a kill nor a survivor, so it moves no score and appears in no report
-field; the only trace is wall clock. It also corrupted the first term, because the
-per-mutant costs were being measured as `elapsed_time / mutants_total` — dividing
-one mutant's leash across all of them. That read `go-updates-certificates` at 21
-seconds a mutant when 143 of its 144 finished in 106 seconds, and it is why the
-declared costs had drifted in both directions at once.
-
-So: **a projection states every term of the cost, and a term that is a bound is
-bounded where it is set.** The leash is now declared per shard
+**A projection states every term of the cost, and a term that is a bound is
+bounded where it is set.** The leash is declared per shard
 ([`mutation-shards.sh`](../../scripts/lib/mutation-shards.sh)) and added to the
-projection, the per-mutant cost is measured over the mutants that *finish*, and
+projection; the per-mutant cost is measured over the mutants that *finish*; and
 the coefficient in [`.gremlins.yaml`](../../server/.gremlins.yaml) is held by
 [`mutation-workflow.test.sh`](../../scripts/tests/mutation-workflow.test.sh) to a
-value whose leash still fits in what a fully-spent shard has left of the cap — so
-a mutant that starts blocking between one nightly and the next, before any run has
-declared it, still cannot carry the job past the cap alone.
+value whose leash fits in what a fully-spent shard has left of the cap.
 
 The generalisation: wherever a gate answers *will this fit*, the answer is worth
-no more than the slowest thing it forgot to add up. A cost that no counter
-reports is the one to go looking for.
+no more than the slowest thing it forgot to add up.
+
+## What the sweeps do
+
+Each sweep demonstrates its defect first — running both shapes and requiring the
+broken one to lose — so a guard that has stopped reproducing anything fails
+rather than policing a non-problem. Each reads its subject whole, joining line
+continuations and reading workflows as structure rather than as text, and counts
+what it reached, so a sweep that matched nothing fails instead of passing.
 
 ## Scope
 
 The read-back covers every cache write whose key we choose. A cache an action
-computes and writes entirely on its own — the container layer cache, the scanner
-databases inside `trivy-action` and `setup-qemu-action` — declares nothing a
-static gate can see and names no key a caller can assert. Those are outside what
-this rule can hold, and saying so is part of the rule rather than a gap in it.
+computes and writes on its own — the container layer cache, the scanner databases
+inside `trivy-action` and `setup-qemu-action` — declares nothing a static gate
+can see and names no key a caller can assert. Those are outside what this rule
+can hold, and saying so is part of the rule rather than a gap in it.
+
+The alert sweep covers what a schedule runs, because a scheduled run is one
+nobody is watching. `cd.yml` has no alert path and is deliberately outside it: a
+deploy is triggered by someone already watching. Whether that remains true is a
+separate question, recorded here rather than left as a gap.

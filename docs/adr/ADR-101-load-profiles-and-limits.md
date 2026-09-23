@@ -68,8 +68,52 @@ the leg still owes at that ceiling is that its machines arrive, which its
 aggregate holds at nought, and the shape across the family's legs is what the
 family is for.
 
+**A verdict is never stricter than the figure that decides whether the leg
+measured anything.** `safety.max_error_rate` is what a run stops itself at, and
+it is also what decides whether a phase measured its target at all — so a limit
+below it can fail a leg the run has already certified as a valid measurement, and
+the whole band between the two reads that way.
+
+The scaling family's bottom rung is where that showed. It runs the server on a
+quarter of a processor at 95.6 per cent busy, which is the only place here
+deliberately driven past saturation while still judged on whether its machines
+arrived; held at nought it discarded two nights running, for one machine in two
+thousand and then for two. The rung's own curve says why a machine gave up there
+— 6.5 seconds to list the fleet at a quarter of a processor against 17
+milliseconds at a half — and an unmeasured leg silently flattens the curve it is
+part of, which is the outcome the family exists to avoid. Its arrival limit is
+now half of that profile's own write-off line: stated as a share of it rather
+than independently, so the two cannot come to disagree.
+
+Four other profiles hold the same measurement at nought and keep it. What
+distinguishes this one is the venue, not the number — volume-8000 holds nought at
+eight thousand machines on 87 per cent of one processor and its machines keep
+arriving.
+
+**A watched limit is set or removed once the nights it was waiting for exist.**
+The endurance run's 2,000 ms connect ceiling was reported rather than enforced
+while the leg began offering the technician load its profile declares, since the
+figure had been bracketed by nights with nothing beside the fleet at all. The
+night that settles it has run: 4 hours 44 minutes, valid, 38,481 completed
+operations against 2,750 before sessions were added, no errors, no goroutine
+growth, and machines connecting in 2 ms. Three orders of magnitude clear, which
+says the technician load is not what moves the connect path — so the figure
+carries across unchanged and is enforced.
+
 **A technician-side figure travels as an offer, never as an achievement**, until
 something on that side measures it.
+
+**A profile that declares technician load runs somewhere that offers it.** Both
+halves, because the profile declares both: the journeys are a rate of screens
+opened and the sessions are a count held open. A capacity ladder that opens no
+session finds the load a server gives out under for a load nobody runs — a
+technician remoted into a machine is the expensive thing the product does, and
+the rung it would give out at is not the rung the run reports. `peak` and `spike`
+declared twenty held sessions apiece at a venue that installed no generator;
+they now run one. `breakpoint` is the one still short, deliberately: a hundred
+and sixty sessions on top of sixteen thousand machines on a shared runner is a
+generator cost to read before the leg offers it, and the harness reports its own
+headroom on every leg, so the reading is takeable.
 
 **Where a night has no browser-side half to join, its limits are read off its
 own evidence.** Every profile but the staging night's runs on a throwaway

@@ -51,14 +51,12 @@ flowchart LR
 | Monitoring values | [`values.yaml`](../../deploy/helm/monitoring/values.yaml) |
 | App chart and overlays | [`deploy/helm/opengate`](../../deploy/helm/opengate) |
 | Grafana dashboards and alerting ConfigMaps | [`deploy/grafana/provisioning`](../../deploy/grafana/provisioning) |
+| Applying that configuration to the cluster | [`monitoring-config-apply.sh`](../../deploy/scripts/monitoring-config-apply.sh) |
 | VictoriaMetrics scrape config | [`vmagent-scrape.yaml`](../../deploy/helm/monitoring/files/vmagent-scrape.yaml) |
 | Edge Sentinel stream aggregation | [`edge-sentinel-stream-aggr.yaml`](../../deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml) |
 | Promtail pod-log config | [`promtail-config.yaml`](../../deploy/helm/monitoring/files/promtail-config.yaml) |
 | Loki retention/config | [`loki-config.yml`](../../deploy/helm/monitoring/files/loki-config.yml) |
 | CI trend VM transport | [`scripts/lib/vm-push.sh`](../../scripts/lib/vm-push.sh) |
-| CI trend-store decision | [ADR-038](../adr/ADR-038-ci-trend-store.md) |
-| Load-test regression decision | [ADR-038](../adr/ADR-038-ci-trend-store.md) |
-| Edge Sentinel telemetry-store decision | [ADR-044](../adr/ADR-044-telemetry-ingest.md) |
 
 ## Components
 
@@ -347,9 +345,35 @@ and pushes to Loki via
 
 Grafana dashboards and alerting files are canonical in
 [`deploy/grafana/provisioning`](../../deploy/grafana/provisioning). The monitoring
-chart intentionally does not duplicate dashboard JSON; its
-[`NOTES.txt`](../../deploy/helm/monitoring/templates/NOTES.txt) documents creating
-ConfigMaps from the canonical files.
+chart intentionally does not duplicate dashboard JSON.
+
+What the cluster holds is rendered from those files, applied and then asked for
+back by
+[`monitoring-config-apply.sh`](../../deploy/scripts/monitoring-config-apply.sh),
+which refuses on a difference and restarts only what changed. It covers the
+alerting ConfigMap, the dashboards ConfigMap and the scrape configuration, and
+the nightly [`terraform-drift.yml`](../../.github/workflows/terraform-drift.yml)
+runs it — so the configuration the cluster evaluates is compared against the one
+this repository declares every night. The apply is not what makes that true; the
+read-back is, for the reason
+[`ci-cd-determinism.md`](../../.claude/rules/ci-cd-determinism.md) gives.
+
+Alerts route to one Telegram destination, provisioned from
+[`contact-points.yml`](../../deploy/grafana/provisioning/alerting/contact-points.yml)
+and [`notification-policies.yml`](../../deploy/grafana/provisioning/alerting/notification-policies.yml).
+Both are files rather than user-interface or API objects, because Grafana's own
+database is on an ephemeral volume here and only a file is re-read on every pod
+start. The chat id is substituted into the file as a quoted literal by the
+applier, since Grafana reads a substituted numeric field back as a number and
+refuses to start. A file-provisioned destination is read-only in the user
+interface, which is what keeps it from being changed by hand — and means routing
+and silencing are changes to this repository. See
+[ADR-123](../adr/ADR-123-alert-delivery.md).
+
+The same nightly job sends a real message through the bot and fails when it does
+not arrive. Everything above can be correct and still reach nobody, and that job
+cannot alert through the channel it is testing, so the workflow's own result is
+the signal that survives.
 
 The rule set in
 [`alert-rules.yml`](../../deploy/grafana/provisioning/alerting/alert-rules.yml)

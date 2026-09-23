@@ -202,6 +202,133 @@ STATUS=0
 "$CHECK" "$WORK/profile.yaml" "$WORK/nope.json" >/dev/null 2>&1 || STATUS=$?
 assert_eq "an absent summary fails" "2" "$STATUS"
 
+# --- the shipped scaling profile, at the rung it deliberately saturates -------
+#
+# The scaling family holds the load and the data constant and varies the
+# processors, so the answer is a shape rather than a point. Its bottom rung runs
+# the server on a quarter of a processor at 95.6% busy, and that rung is the only
+# place in the repository deliberately driven past saturation while still judged
+# on whether its machines arrived.
+#
+# Held at nought, it failed two nights running for one machine in two thousand
+# and then for two: 1989 and 1985 of 2000 arrived, one enrolment timing out and
+# one refused with a request timeout. The rung's own curve says why — 6.5 s to
+# list the fleet at a quarter of a processor against 17 ms at a half — and a
+# machine that gave up there is the measurement rather than a defect. Both nights
+# were discarded, which is the one outcome the profile's own comment warns
+# against: an unmeasured leg silently flattens the curve it is part of.
+#
+# What the limit is stated against is the run's own write-off line. The same
+# figure decides whether a phase measured the target at all, so a verdict
+# stricter than it can fail a leg the run has already certified as a valid
+# measurement — and the whole band between the two reads that way.
+SCALING="$REPO_ROOT/load/profiles/scaling.yaml"
+[ -f "$SCALING" ] || {
+  echo "FAIL: $SCALING missing" >&2
+  exit 1
+}
+
+# scaling_rows renders the machine-side rows a scaling leg publishes, at a given
+# share of machines that did not arrive.
+scaling_rows() {
+  jq -n --argjson rate "$1" '[
+    { source: "quic", scenario: "quic-agents", phase: "aggregate",
+      error_rate: $rate, latency_p95_ms: 55, rps: 25 },
+    { source: "quic", scenario: "quic-agents", phase: "connect",
+      latency_p95_ms: 55, error_rate: $rate }
+  ]' >"$WORK/summary.json"
+}
+
+run_scaling() {
+  STATUS=0
+  "$CHECK" "$SCALING" "$WORK/summary.json" "$WORK/breaches.json" \
+    >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
+  OUT="$(cat "$WORK/out.txt" "$WORK/err.txt")"
+}
+
+# Every machine in: the leg passes, which it always did.
+scaling_rows 0
+run_scaling
+assert_eq "scaling: a leg every machine reached passes" "0" "$STATUS"
+
+# The two nights that were thrown away. 1989 of 2000 is 0.00055; 1985 of 2000
+# with two failures is 0.001006, which is the figure the gate printed.
+scaling_rows 0.00055
+run_scaling
+assert_eq "scaling: the 09-18 reading (1 machine in 2000) passes" "0" "$STATUS"
+scaling_rows 0.0010065425264217413
+run_scaling
+assert_eq "scaling: the 09-19 reading (2 machines in 2000) passes" "0" "$STATUS"
+
+# And a leg that stopped working still fails. Five percent of a fleet not
+# arriving is not a saturated rung reporting its saturation.
+scaling_rows 0.05
+run_scaling
+assert_eq "scaling: a leg that stopped working fails" "1" "$STATUS"
+assert_contains "scaling: the breach names the arrivals" "quic/quic-agents/aggregate" "$OUT"
+
+# The limit is stated as a share of the run's own write-off line rather than
+# independently of it, so a leg the run certified as valid can never be failed
+# by the verdict beside it. A rung nothing judges is what the profile's comment
+# warns against, so the limit is not simply removed either.
+SCALING_READ="$(python3 "$SCRIPT_DIR/fixtures/scaling-error-gate.py" "$SCALING")"
+SCALING_GATE="$(cut -f1 <<<"$SCALING_READ")"
+SCALING_SAFETY="$(cut -f2 <<<"$SCALING_READ")"
+if [ -n "$SCALING_GATE" ] && awk -v g="$SCALING_GATE" -v s="$SCALING_SAFETY" 'BEGIN { exit !(g > 0 && g <= s) }'; then
+  pass "scaling: the verdict sits inside the run's own write-off line ($SCALING_GATE <= $SCALING_SAFETY)"
+else
+  fail "scaling: the verdict sits inside the run's own write-off line (gate=[$SCALING_GATE] safety=[$SCALING_SAFETY])"
+fi
+
+# --- the endurance run's connect ceiling, enforced rather than watched --------
+#
+# The ceiling was reported rather than enforced while the leg's load changed
+# underneath it: it had been bracketed by nights with nothing beside the fleet
+# at all, and the volume family making the same change saw its comparable figure
+# go from about 400 ms to between 4,510 and 9,443. A ceiling carried across that
+# would fail a night for the load the night was asked to apply.
+#
+# The night that settles it exists. A valid endurance run of 4h44m with the
+# technician load beside the fleet completed 38,481 operations against 2,750
+# before sessions were added, with no errors and no goroutine growth, and its
+# machines connected in 2 ms. The technician load is not what moves the connect
+# path, so the figure carries across unchanged and stops being a number nothing
+# consults.
+SOAK="$REPO_ROOT/load/profiles/soak.yaml"
+[ -f "$SOAK" ] || {
+  echo "FAIL: $SOAK missing" >&2
+  exit 1
+}
+
+soak_rows() {
+  jq -n --argjson p95 "$1" '[
+    { source: "quic", scenario: "quic-agents", phase: "aggregate",
+      error_rate: 0, latency_p95_ms: 20, rps: 25 },
+    { source: "quic", scenario: "quic-agents", phase: "connect",
+      latency_p95_ms: $p95, error_rate: 0 }
+  ]' >"$WORK/summary.json"
+}
+
+run_soak() {
+  STATUS=0
+  "$CHECK" "$SOAK" "$WORK/summary.json" "$WORK/breaches.json" \
+    >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
+  OUT="$(cat "$WORK/out.txt" "$WORK/err.txt")"
+}
+
+# The night that established it: 2 ms, three orders of magnitude clear.
+soak_rows 2
+run_soak
+assert_eq "soak: the night that established the ceiling passes" "0" "$STATUS"
+
+# And a night past it fails rather than being written down. This is the whole
+# change: the same reading used to be recorded and the run went green.
+soak_rows 4000
+run_soak
+assert_eq "soak: a night past the ceiling fails the run" "1" "$STATUS"
+assert_contains "soak: the breach names the connect path" "quic/quic-agents/connect" "$OUT"
+assert_lacks "soak: and does not merely report it" "reported, not enforced" "$OUT"
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Failures:\n' >&2

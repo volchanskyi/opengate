@@ -201,14 +201,19 @@ gates:
     metric: error_rate
     max: 0.01
     blocking: true
-  # Watched rather than enforced, until nights of the load this leg now offers
-  # bracket it. The 2,000 ms was bracketed by nights with nothing beside the
-  # fleet at all, and the same change on the volume family took its comparable
-  # figure from about 400 ms to between 4,510 and 9,443, with the target's
-  # processor use going from 38–62 to 85–87 per cent. A ceiling carried across
-  # that is a ceiling on an experiment that is no longer being run, and it would
-  # fail a night for the load the night was asked to apply.
+  # The night that settles this one has now run. The 2,000 ms was bracketed by
+  # nights with nothing beside the fleet at all, and the same change on the
+  # volume family took its comparable figure from about 400 ms to between 4,510
+  # and 9,443 — so the ceiling was reported rather than enforced until nights of
+  # the load this leg now offers existed.
+  #
+  # One does: a valid run of 4h44m with the technician load beside the fleet,
+  # 38,481 completed operations against 2,750 before sessions were added, no
+  # errors, no goroutine growth, and machines connecting in 2 ms. Three orders of
+  # magnitude clear. What that says is that the technician load is not what moves
+  # the connect path, so the figure carries across unchanged and stops being a
+  # number nothing consults.
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
     max: 2000
-    blocking: false
+    blocking: true

@@ -9,12 +9,16 @@ Out-of-band objects this chart references (create BEFORE / alongside install):
          --from-literal=TELEGRAM_BOT_TOKEN=... \
          --from-literal=TELEGRAM_CHAT_ID=...
 
-  2. Grafana dashboards + alerting ConfigMaps, built from the canonical files
-     (NOT duplicated into the chart):
-       kubectl -n {{ .Release.Namespace }} create configmap {{ .Values.grafana.dashboardsConfigMap }} \
-         --from-file=deploy/grafana/provisioning/dashboards
-       kubectl -n {{ .Release.Namespace }} create configmap grafana-alerting \
-         --from-file=deploy/grafana/provisioning/alerting
+  2. Grafana dashboards + alerting ConfigMaps, and the scrape configuration.
+     These are rendered from the canonical files and read back, rather than
+     created by hand — an apply nobody re-ran is how the cluster came to hold
+     seven of thirteen alert rules and none of the per-container series:
+
+       TELEGRAM_CHAT_ID=... NAMESPACE={{ .Release.Namespace }} \
+         deploy/scripts/monitoring-config-apply.sh
+
+     The nightly infrastructure-drift workflow runs the same script, so what the
+     cluster holds is compared with what the repository declares every night.
 
 Validate (runbook §4 — these need a live OKE node):
   - promtail reads pod logs: if /var/log/pods is root-only on the node OS, set

@@ -1,5 +1,17 @@
-# Notification policies are configured manually via the Grafana UI
-# alongside the Telegram contact point (see contact-points.yml).
+# Every alert goes to the Telegram chat the nightlies report into.
+#
+# One route, no matchers: a rule that fires is a rule somebody should see, and a
+# tree of exceptions is how a destination comes to be one nothing reaches.
+# Grouping is by rule and by the instance that raised it, so two machines
+# breaching the same rule arrive as two messages rather than one.
 apiVersion: 1
 
-policies: []
+policies:
+  - orgId: 1
+    receiver: telegram
+    group_by:
+      - alertname
+      - grafana_folder
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

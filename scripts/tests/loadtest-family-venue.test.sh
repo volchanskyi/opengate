@@ -117,6 +117,86 @@ while IFS= read -r row; do
   fi
 done <<<"$table_rows"
 
+# --- A profile that declares sessions is run somewhere that opens them --------
+#
+# Every profile declares `operator_arrivals_per_second` and `sessions`, and both
+# are technician-side numbers a machine-side harness cannot offer on its own.
+# They are offered by a browser-side generator running beside the fleet, and the
+# leg has to install one and fold what it timed back into the bundle.
+#
+# Three profiles declared them at a venue that did neither, so twenty held
+# technician sessions apiece were a number in a file. A capacity ladder that
+# opens no session finds the load a server gives out under for a load nobody
+# runs — a technician remoted into a machine is the expensive thing the product
+# does, and the rung it would give out at is not the rung the run reports.
+#
+# So a profile declares sessions and its venue offers them, or it declares none.
+
+# declares_sessions PROFILE — does this profile ask for technician load in any
+# phase? Read off the file rather than assumed, because the answer is the whole
+# question.
+declares_sessions() {
+  python3 "$SCRIPT_DIR/fixtures/profile-declares-sessions.py" "$PROFILE_DIR/$1.yaml"
+}
+
+# venue_of PROFILE — the workflow job that names this profile's path, as the
+# text of that job. A path a matrix assembles at run time is invisible here,
+# which is why the matrix spells its profile paths out.
+venue_of() {
+  python3 "$SCRIPT_DIR/fixtures/profile-venue.py" "$WORKFLOW_DIR" "load/profiles/$1.yaml"
+}
+
+# The one venue deliberately still short, and the reason, beside the name.
+# `breakpoint` raises the fleet until the server gives out: sixteen thousand
+# machines on a shared runner, with a hundred and sixty held sessions on top.
+# What that generator would need of the runner is a reading to take before the
+# leg offers it, and the reading now exists on every other leg — so this entry
+# comes out when it has been taken, rather than being kept.
+SESSIONS_NOT_YET_OFFERED=(breakpoint)
+
+exempt_from_sessions() {
+  local candidate="$1" entry
+  for entry in "${SESSIONS_NOT_YET_OFFERED[@]}"; do
+    [ "$entry" = "$candidate" ] && return 0
+  done
+  return 1
+}
+
+checked_venues=0
+for profile in "${profiles[@]}"; do
+  wants="$(declares_sessions "$profile")"
+  [ "$wants" = "yes" ] || continue
+  if exempt_from_sessions "$profile"; then
+    pass "$profile is the one venue whose generator cost is still to be read"
+    continue
+  fi
+  checked_venues=$((checked_venues + 1))
+  venue="$(venue_of "$profile")"
+  if [ -z "$venue" ]; then
+    fail "$profile declares technician load and no job names it"
+    continue
+  fi
+  # The generator that opens the sessions, and the step that gives what it timed
+  # a reader. A leg that runs the generator and never folds its numbers in has
+  # applied the load and thrown away the measurement.
+  if grep -qF "Install k6" <<<"$venue"; then
+    pass "$profile runs somewhere that installs the browser-side generator"
+  else
+    fail "$profile declares technician load at a venue that installs no generator"
+  fi
+  if grep -qF "loadtest-bundle-merge.sh" <<<"$venue"; then
+    pass "$profile's venue folds what the generator timed into the leg"
+  else
+    fail "$profile's venue times technician load and folds none of it in"
+  fi
+done
+
+if [ "$checked_venues" -gt 0 ]; then
+  pass "the sweep reached $checked_venues profiles declaring technician load"
+else
+  fail "the sweep reached no profile declaring technician load, so it checked nothing"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Failures:\n' >&2

@@ -51,9 +51,24 @@ gates:
   # owes equally is that its machines arrived at all: a leg where they did not
   # measured nothing, and an unmeasured leg silently flattens the curve it is
   # part of.
+  #
+  # Ten machines in two thousand, which is half of what `safety.max_error_rate`
+  # above writes a run off at. Stating it as a share of that figure rather than
+  # independently is what keeps the two from disagreeing: the same figure decides
+  # whether a phase measured its target at all, so a verdict stricter than it can
+  # fail a leg the run has already certified as a valid measurement.
+  #
+  # Held at nought it did exactly that, twice. The bottom rung runs the server on
+  # a quarter of a processor at 95.6 per cent busy — the only place here
+  # deliberately driven past saturation while still judged on arrivals — and 1989
+  # of 2000 machines arrived on one night and 1985 on the next, one enrolment
+  # timing out and one refused with a request timeout. The rung's own curve says
+  # why: 6.5 seconds to list the fleet at a quarter of a processor against 17
+  # milliseconds at a half. A machine that gave up there is the measurement. Both
+  # nights were discarded, which is the outcome the note above warns about.
   - series: quic/quic-agents/aggregate
     metric: error_rate
-    max: 0
+    max: 0.005
     blocking: true
   # Loose enough that the bottom rung clears it — half a processor connected a
   # fleet at 55 ms — so this fires on a leg that has stopped working rather than

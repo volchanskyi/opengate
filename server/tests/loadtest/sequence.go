@@ -65,6 +65,15 @@ type FleetOutcomes struct {
 // Attempted is how many machines produced an outcome either way.
 func (o FleetOutcomes) Attempted() int64 { return o.Arrived + o.Failed }
 
+// Measured says whether the error rate beside it is a reading of anything.
+//
+// A refusal counts in neither term above, so a fleet refused entirely at a
+// declared ceiling has attempted nothing and its error rate comes back as zero
+// through the guard against dividing by nothing rather than through anything
+// having been measured. That zero and a clean run's zero are the same number and
+// different facts, and a reader cannot tell them apart without this.
+func (o FleetOutcomes) Measured() bool { return o.Attempted() > 0 }
+
 // Since is what happened between an earlier reading and this one.
 func (o FleetOutcomes) Since(earlier FleetOutcomes) FleetOutcomes {
 	return FleetOutcomes{
