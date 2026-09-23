@@ -242,62 +242,211 @@ fi
 # decisions made at a distance from the text that carries them, and both come
 # back as an error about something else.
 #
-# The name has to be reachable from the call, so the scope searched is the
-# calling job plus the workflow-level env every job inherits. $GITHUB_ENV does
-# not cross a job boundary and neither does this check.
+# Three things decide whether a requirement is visible at all, and a sweep that
+# reads any of them too narrowly holds a contract nobody signed:
+#
+#   * where the refusal is written. `: "${VAR:?…}"` on a line of its own is one
+#     shape; the same refusal written where the value is used —
+#     `--env "URL=${VAR:?…}"` — is the commoner one, and a sweep that reads only
+#     the first finds nothing to check in a script built out of the second.
+#   * which file holds it. A requirement belongs to the process, not to the path
+#     a workflow happens to spell. A wrapper hands its whole environment to what
+#     it starts, so a sweep that stops at the named file asks the one script in
+#     the chain that requires nothing. What the wrapper sets for itself is
+#     subtracted: a name it exports before starting the inner script is
+#     satisfied.
+#   * which job is answering. A name is reachable from the job that holds it and
+#     from the workflow-level env every job inherits — and from nowhere else. A
+#     scope that pools every job naming the script lets the one that sets the
+#     variable answer on behalf of the one that does not, which is the whole
+#     question turned around.
+#
+# The performance stack's peak and spike legs were all three at once: three
+# inputs refused inline, behind a wrapper, in a workflow whose other two jobs
+# name them. Each night both legs walked their fleet, offered no technician load
+# at all, and failed an hour in.
+env_demo="$(mktemp -d)"
+trap 'rm -rf "$env_demo"' EXIT
+
+# required_env_of prints the inputs one script refuses to run without.
 required_env_of() {
+  local body
+  body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
   {
-    # The refusal the shell itself makes: `: "${VAR:?…}"`.
-    grep -oE '^: *"\$\{[A-Z][A-Z0-9_]*:\?' "$1" | grep -oE '[A-Z][A-Z0-9_]*' || true
+    # The refusal the shell makes, wherever it is written: on a line of its
+    # own, or inline at the point the value is used.
+    grep -oE '\$\{[A-Z][A-Z0-9_]*:\?' <<<"$body" | grep -oE '[A-Z][A-Z0-9_]*' || true
     # The script's own account of itself, in its Environment header.
     grep -E '^#[[:space:]]+[A-Z][A-Z0-9_]*([[:space:]]|$).*\(required\)' "$1" \
       | grep -oE '^#[[:space:]]+[A-Z][A-Z0-9_]*' | grep -oE '[A-Z][A-Z0-9_]*' || true
   } | sort -u
 }
 
-# The calling job's text, with the workflow-level env prepended.
-calling_scope() {
-  awk -v want="$2" '
+# provided_env_of prints the names a script sets for itself, which its caller
+# therefore does not have to name.
+provided_env_of() {
+  local body
+  body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
+  grep -oE '(^|[[:space:];&(]|export[[:space:]]+)[A-Z][A-Z0-9_]*=' <<<"$body" \
+    | grep -oE '[A-Z][A-Z0-9_]*' | sort -u
+}
+
+# scripts_run_by prints the repository scripts a script runs or sources, by
+# basename, which is what survives being spelled through $SCRIPT_DIR or $ROOT.
+scripts_run_by() {
+  local body
+  body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
+  grep -oE '[a-z0-9][a-z0-9-]*\.sh' <<<"$body" | sort -u || true
+}
+
+declare -A SCRIPT_BY_BASE=()
+while IFS= read -r tracked; do
+  SCRIPT_BY_BASE["$(basename "$tracked")"]="$tracked"
+done < <(git -C "$REPO_ROOT" ls-files '*.sh')
+
+# required_env_closure prints everything the process a call starts refuses to
+# run without — the named script's own refusals, and those of every script it
+# runs or sources that the named one does not satisfy itself.
+required_env_closure() {
+  local rel="$1" seen="${2:-}" path provided child childrel
+  case " $seen " in *" $rel "*) return 0 ;; esac
+  path="$REPO_ROOT/$rel"
+  [ -f "$path" ] || return 0
+  required_env_of "$path"
+  provided="$(provided_env_of "$path")"
+  while IFS= read -r child; do
+    [ -n "$child" ] || continue
+    childrel="${SCRIPT_BY_BASE[$child]:-}"
+    [ -n "$childrel" ] && [ "$childrel" != "$rel" ] || continue
+    required_env_closure "$childrel" "$seen $rel" \
+      | { grep -vxF -e "$provided" || true; }
+  done < <(scripts_run_by "$path")
+}
+
+# The workflow-level env every job inherits: everything above `jobs:`.
+workflow_env_of() { awk '/^jobs:[[:space:]]*$/ { exit } { print }' "$1"; }
+
+job_names_of() {
+  awk '
     /^jobs:[[:space:]]*$/ { injobs = 1; next }
-    !injobs { pre = pre $0 "\n"; next }
-    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
-      if (block != "" && index(block, want)) out = out block
-      block = ""
-    }
-    { block = block $0 "\n" }
-    END {
-      if (block != "" && index(block, want)) out = out block
-      printf "%s%s", pre, out
-    }
+    injobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { n = $1; sub(/:$/, "", n); print n }
   ' "$1"
 }
 
+job_block_of() {
+  awk -v want="$2" '
+    /^jobs:[[:space:]]*$/ { injobs = 1; next }
+    !injobs { next }
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { n = $1; sub(/:$/, "", n); inwant = (n == want) }
+    inwant { print }
+  ' "$1"
+}
+
+# The defect first, so a sweep that has stopped reproducing anything fails
+# rather than policing a non-problem. One inner script refusing an input
+# inline, one wrapper that starts it, and a workflow whose first job names the
+# input and whose second does not.
+cat >"$env_demo/inner.sh" <<'DEMO'
+#!/usr/bin/env bash
+set -euo pipefail
+run --env "URL=${DEMO_ONLY_NEEDED:?DEMO_ONLY_NEEDED must be set}"
+DEMO
+cat >"$env_demo/wrapper.sh" <<'DEMO'
+#!/usr/bin/env bash
+set -euo pipefail
+"$ROOT/scripts/inner.sh" one two
+DEMO
+cat >"$env_demo/flow.yml" <<'DEMO'
+name: demo
+env:
+  UNRELATED: yes
+jobs:
+  names-it:
+    steps:
+      - run: scripts/wrapper.sh
+        env:
+          DEMO_ONLY_NEEDED: set-here
+  does-not:
+    steps:
+      - run: scripts/wrapper.sh
+DEMO
+
+# The line-form reader the sweep used to be, kept only to be shown losing.
+required_env_lineform() {
+  grep -oE '^: *"\$\{[A-Z][A-Z0-9_]*:\?' "$1" | grep -oE '[A-Z][A-Z0-9_]*' || true
+}
+
+if [ -z "$(required_env_lineform "$env_demo/inner.sh")" ]; then
+  pass "a refusal written where the value is used is invisible to a line-form reader"
+else
+  fail "the inline-refusal direction no longer reproduces"
+fi
+if [ "$(required_env_of "$env_demo/inner.sh")" = "DEMO_ONLY_NEEDED" ]; then
+  pass "and is read by this sweep"
+else
+  fail "this sweep does not read a refusal written where the value is used"
+fi
+
+if [ -z "$(required_env_of "$env_demo/wrapper.sh")" ]; then
+  pass "a wrapper requires nothing of its own, so the named file answers nothing"
+else
+  fail "the wrapper direction no longer reproduces"
+fi
+
+demo_scope_pooled="$(workflow_env_of "$env_demo/flow.yml")
+$(job_block_of "$env_demo/flow.yml" names-it)
+$(job_block_of "$env_demo/flow.yml" does-not)"
+demo_scope_job="$(workflow_env_of "$env_demo/flow.yml")
+$(job_block_of "$env_demo/flow.yml" does-not)"
+if grep -qE '(^|[^A-Z0-9_])DEMO_ONLY_NEEDED[=:]' <<<"$demo_scope_pooled" \
+  && ! grep -qE '(^|[^A-Z0-9_])DEMO_ONLY_NEEDED[=:]' <<<"$demo_scope_job"; then
+  pass "a scope pooling every calling job lets one answer for another; one job's scope does not"
+else
+  fail "the pooled-scope direction no longer reproduces"
+fi
+
+# --- and nothing in the repository is written that way ------------------------
+#
+# The membership test is a here-string rather than a pipe: `grep -q` stops at
+# its first match, and a writer piped into it loses the race on a file large
+# enough to fill the pipe — so a workflow that does call the script reads as one
+# that does not, on some runs and not others. See rules/assertion-determinism.md.
 env_bad=""
 env_calls=0
 while IFS= read -r script; do
   case "$script" in scripts/tests/*) continue ;; esac
-  vars="$(required_env_of "$REPO_ROOT/$script" || true)"
+  vars="$(required_env_closure "$script" | sort -u)"
   [ -n "$vars" ] || continue
   for wf in "$WORKFLOWS"/*.yml; do
+    wf_body="$(grep -vE '^[[:space:]]*#' "$wf" || true)"
     # A mention in a comment is not a call.
-    grep -vE '^[[:space:]]*#' "$wf" | grep -qF "$script" || continue
-    env_calls=$((env_calls + 1))
-    scope="$(calling_scope "$wf" "$script")"
-    for var in $vars; do
-      grep -qE "(^|[^A-Z0-9_])${var}[=:]" <<<"$scope" && continue
-      env_bad="$env_bad"$'\n'"      $(basename "$wf") calls $script without $var"
-    done
+    grep -qF "$script" <<<"$wf_body" || continue
+    wf_env="$(workflow_env_of "$wf")"
+    while IFS= read -r job; do
+      [ -n "$job" ] || continue
+      block="$(job_block_of "$wf" "$job")"
+      block_body="$(grep -vE '^[[:space:]]*#' <<<"$block" || true)"
+      grep -qF "$script" <<<"$block_body" || continue
+      env_calls=$((env_calls + 1))
+      scope="$wf_env"$'\n'"$block"
+      for var in $vars; do
+        grep -qE "(^|[^A-Z0-9_])${var}[=:]" <<<"$scope" && continue
+        env_bad="$env_bad"$'\n'"      $(basename "$wf") job '$job' calls $script without $var"
+      done
+    done < <(job_names_of "$wf")
   done
 done < <(git -C "$REPO_ROOT" ls-files '*.sh')
 
 if [ "$env_calls" -eq 0 ]; then
   fail "the required-input sweep reached no call at all, so it is asserting an absence it never tested"
 elif [ -z "$env_bad" ]; then
-  pass "each of $env_calls workflow calls names every input its script refuses to run without"
+  pass "each of $env_calls workflow jobs names every input the process it starts refuses to run without"
 else
   fail "a script refuses to run without an input its caller never names:$env_bad"
 fi
 
+rm -rf "$env_demo"
+trap - EXIT
 # --- a status read after errexit has already killed the shell ----------------
 #
 # A step that wants to branch on a command's exit code writes the shape

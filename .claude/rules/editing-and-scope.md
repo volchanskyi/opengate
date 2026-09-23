@@ -4,23 +4,35 @@
 
 ### Read the whole file before editing numbered or globally-ordered structures
 
-Numbered lists, ADR indexes, phases tables, OpenAPI parameter orderings, migration files, changelog entries — these are silent invariants. A partial insert that doesn't renumber the rest rots cross-references elsewhere in the file (e.g. "see step 17" prose downstream).
+Numbered lists, ADR indexes, phases tables, OpenAPI parameter orderings,
+migration files and changelog entries carry silent invariants. A partial insert
+that does not renumber the rest rots cross-references elsewhere in the file.
 
-Before editing such a structure: `Read` the whole file, then `grep` for ordinal cross-references (`step [0-9]+`, `step #[0-9]+`, `section [0-9]\.[0-9]`, `phase [A-Z]:`) and consolidate the renumber into one Edit/Write.
+Before editing such a structure: `Read` the whole file, then `grep` for ordinal
+cross-references (`step [0-9]+`, `step #[0-9]+`, `section [0-9]\.[0-9]`,
+`phase [A-Z]:`) and consolidate the renumber into one Edit/Write.
 
-### Never claim "SKIP" passes in /precommit
+### Never claim "SKIP" passes in the gauntlet
 
-A pre-commit step that exits 0 because the underlying tool isn't on `$PATH` is a setup defect, not a pass — it appears clean locally but fails in CI. If a tool is missing, fail loudly with a clear setup message; don't write `|| echo "SKIP"`.
+A pre-commit step that exits 0 because the tool is not on `$PATH` is a setup
+defect, not a pass. Fail loudly with a clear setup message; never write
+`|| echo "SKIP"`.
 
 ### Zero manual installation steps for the agent
 
-Anything environment-specific (desktop tray, GUI shims, platform-only crates) must auto-detect at install time and silently no-op on unsupported environments. No `--flags`, no separate install scripts, no "also run X on desktop machines" documentation. One install command handles every fleet machine.
+Anything environment-specific — desktop tray, GUI shims, platform-only crates —
+auto-detects at install time and silently no-ops on unsupported environments. No
+`--flags`, no separate install scripts, no "also run X on desktop machines"
+documentation. One install command handles every fleet machine.
 
 ## Scope rules
 
 ### No operational scripts in refactor/audit plans unless explicitly requested
 
-Backup scripts, retention jobs, alerting routines, and similar operational tooling are out of scope for codebase audits and refactoring efforts. Propose them separately when a user need surfaces. Hardening phases focus on configuration changes (resource limits, CI gates, alert rules), not new operational scripts.
+Backup scripts, retention jobs, alerting routines and similar operational
+tooling are out of scope for codebase audits and refactoring. Propose them
+separately when a user need surfaces. Hardening phases focus on configuration
+changes — resource limits, CI gates, alert rules — not new operational scripts.
 
 ### /docs is the canonical developer documentation
 
@@ -37,9 +49,17 @@ describe how we build, deploy and run it?*
 | [`docs/infrastructure/`](../../docs/infrastructure/) | How it runs — cluster, IaC, CI/CD, observability, test tooling |
 
 Enforced by
-[`scripts/tests/docs-seam.test.sh`](../../scripts/tests/docs-seam.test.sh): every
-chapter lives in exactly one tree, appears in exactly one
+[`scripts/tests/docs-seam.test.sh`](../../scripts/tests/docs-seam.test.sh):
+every chapter lives in exactly one tree, appears in exactly one
 [`Home.md`](../../docs/Home.md) row, and no product chapter links a `deploy/`,
 `.github/`, `Makefile` or `scripts/` path.
 
-Read [`/docs/README.md`](../../docs/README.md) before editing any doc — it defines the non-negotiable conventions: (1) **link, don't paraphrase** — do not copy numbers, versions, flags, or paths into prose, link to the source; (2) **every ADR describes live state** — edit them in place to keep them accurate (including the combined 001–012 log), and delete one whose decision leaves nothing behind; (3) **docs and comments describe live state only** — never narrate removed/retired things ([`docs-live-state.md`](docs-live-state.md)).
+Read [`/docs/README.md`](../../docs/README.md) before editing any doc. Its
+non-negotiable conventions:
+
+1. **Link, don't paraphrase** — never copy numbers, versions, flags or paths
+   into prose; link to the source.
+2. **Every ADR describes live state** — edit in place, delete one whose decision
+   leaves nothing behind.
+3. **Docs and comments describe live state only** —
+   [`docs-live-state.md`](docs-live-state.md).

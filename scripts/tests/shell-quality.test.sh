@@ -121,5 +121,36 @@ else
   fail "cargo module snapshot disables ambient tracing filters"
 fi
 
+# The local runner and the commit-time gate disagree about nothing.
+#
+# The gate in scripts/precommit-gauntlet.sh executes each test file, so one
+# without its executable bit fails there. A runner that hands the same file to
+# `bash` instead runs it happily, and the missing bit surfaces only once a
+# commit attempt has already spent the rest of the gauntlet on it.
+demo_dir="$TMP_DIR/execbit"
+mkdir -p "$demo_dir"
+cat >"$demo_dir/sample.test.sh" <<'DEMO'
+#!/usr/bin/env bash
+echo ran
+DEMO
+chmod -x "$demo_dir/sample.test.sh"
+
+if bash "$demo_dir/sample.test.sh" >/dev/null 2>&1; then
+  pass "a test file with no executable bit still runs when handed to bash"
+else
+  fail "the masking direction no longer reproduces"
+fi
+if ! "$demo_dir/sample.test.sh" >/dev/null 2>&1; then
+  pass "and is refused when executed, which is how the gate runs it"
+else
+  fail "a non-executable file was executed"
+fi
+
+if grep -qF 'not executable:' "$RUNNER" && grep -qF '[ -x ' "$RUNNER"; then
+  pass "the runner refuses a test file the gate could not execute"
+else
+  fail "the runner hands test files to bash, so a missing executable bit is invisible until a commit attempt"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -41,7 +41,7 @@ Local invocations:
 | Where | Command | What |
 |---|---|---|
 | Full repo scan | `make secrets-scan` | History + working tree (mirrors CI exactly) |
-| Pre-commit guard | `gitleaks protect --staged --config .gitleaks.toml` | Scans only staged hunks — the trip wire in the [`/precommit` skill](../../.claude/skills/precommit/SKILL.md) step 6.1 |
+| Pre-commit guard | `gitleaks protect --staged --config .gitleaks.toml` | Scans only staged hunks — the trip wire in the [precommit gauntlet](../../scripts/precommit-gauntlet.sh) |
 
 Test fixtures with deliberate fake credentials (e.g. [`deploy/tests/fixtures/leaked-secret.txt`](../../deploy/tests/fixtures/leaked-secret.txt)) prove the scanner's wiring without leaking real values: if the canary stops triggering, the scanner has regressed.
 

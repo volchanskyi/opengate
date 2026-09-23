@@ -3,7 +3,7 @@
 # Used by:
 #   - `make secrets-scan` (full repo scan)
 #   - .github/workflows/ci.yml config-lint job (CI gate)
-#   - /precommit skill (pre-commit guard via `gitleaks protect --staged`)
+#   - scripts/precommit-gauntlet.sh (commit-time guard via `gitleaks protect --staged`)
 #
 # Reference: https://github.com/gitleaks/gitleaks
 #

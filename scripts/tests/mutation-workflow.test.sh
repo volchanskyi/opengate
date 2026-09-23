@@ -1159,10 +1159,16 @@ status_upload_line="$(line_of 'name:[[:space:]]*Upload mutation run status')"
 status_push_line="$(line_of 'mutation-status-vm-push\.sh')"
 incomplete_line="$(line_of 'name:[[:space:]]*Fail a mutation run with no complete leg')"
 
+# The step's following lines go into variables rather than through a pipe:
+# `grep -q` stops at its first match, and pipefail reports the writer's failed
+# write as a step that declares neither thing.
+upload_next5="$(grep -A5 -E 'name:[[:space:]]*Upload mutation run status' "$WORKFLOW" || true)"
+upload_next8="$(grep -A8 -E 'name:[[:space:]]*Upload mutation run status' "$WORKFLOW" || true)"
+
 if [ -n "$status_build_line" ] && [ -n "$status_upload_line" ] \
   && [ "$status_build_line" -lt "$status_upload_line" ] \
-  && grep -A5 -E 'name:[[:space:]]*Upload mutation run status' "$WORKFLOW" | grep -qE 'if:[[:space:]]*always\(\)' \
-  && grep -A8 -E 'name:[[:space:]]*Upload mutation run status' "$WORKFLOW" | grep -qE 'name:[[:space:]]*mutation-run-status'; then
+  && grep -qE 'if:[[:space:]]*always\(\)' <<<"$upload_next5" \
+  && grep -qE 'name:[[:space:]]*mutation-run-status' <<<"$upload_next8"; then
   pass "workflow builds then always uploads mutation-run-status"
 else
   fail "workflow must build status before an if:always mutation-run-status upload"

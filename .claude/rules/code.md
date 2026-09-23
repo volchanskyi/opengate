@@ -2,14 +2,14 @@
 
 ## Comments
 
-Code, config, and workflow comments describe the **current** behavior only —
-never narrate what was removed, retired, or replaced (say what the code does
-now, not what it stopped doing). See [`docs-live-state.md`](docs-live-state.md).
+Code, config, and workflow comments describe the **current** behavior only.
+Never narrate what was removed, retired, or replaced. See
+[`docs-live-state.md`](docs-live-state.md).
 
 ## Rust
 
 - `thiserror` for library crate errors, `anyhow` for binary crates only
-- No `unwrap()` in production code — use `?` operator
+- No `unwrap()` in production code — use the `?` operator
 - `#[non_exhaustive]` on all public enums
 - `tokio` for async, `tracing` for logging
 - All public items documented with `///` doc comments

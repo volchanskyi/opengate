@@ -96,8 +96,13 @@ run_tests() {
   )
 
   [ "${#tests[@]}" -gt 0 ] || die "no shell tests found"
+  # Executed, not handed to `bash`, because that is how the commit-time gate in
+  # scripts/precommit-gauntlet.sh runs them. A file without its executable bit
+  # fails there; running it through an interpreter here would hide that until a
+  # commit attempt had already spent the rest of the gauntlet.
   for test_file in "${tests[@]}"; do
-    bash "$test_file"
+    [ -x "$test_file" ] || die "not executable: ${test_file#"$ROOT/"} — chmod +x it"
+    "$test_file"
   done
 }
 

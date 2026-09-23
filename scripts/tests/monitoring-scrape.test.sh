@@ -113,13 +113,18 @@ RBAC_FILE="$REPO_ROOT/deploy/helm/monitoring/templates/victoriametrics.yaml"
 # the very sentence saying it was not made.
 rbac_rules() { sed 's/[[:space:]]*#.*$//' "$RBAC_FILE"; }
 
-if rbac_rules | grep -qF 'nodes/metrics'; then
+# Read once into a variable. Piped into `grep -q` the reader stops at its first
+# match and pipefail reports the writer's failed write as an absent grant —
+# which passes the check below that asserts a grant is absent.
+RBAC_RULES="$(rbac_rules)"
+
+if grep -qF 'nodes/metrics' <<<"$RBAC_RULES"; then
   pass "the scraper may read the kubelet's metrics subresource"
 else
   fail "the scraper's ClusterRole must grant nodes/metrics, or the cAdvisor scrape is refused"
 fi
 
-if rbac_rules | grep -qF 'nodes/proxy'; then
+if grep -qF 'nodes/proxy' <<<"$RBAC_RULES"; then
   fail "the scraper's ClusterRole grants nodes/proxy, which it does not need and which permits privilege escalation"
 else
   pass "the scraper holds no node-proxy grant"

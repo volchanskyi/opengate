@@ -293,7 +293,7 @@ cd web && npx vitest run
 
 ### Coverage enforcement
 
-All three languages enforce a minimum line-coverage threshold both in CI and locally (via `/precommit`). The enforced values live in the coverage steps of [`ci.yml`](../../.github/workflows/ci.yml) (search for `THRESHOLD` and `fail-under-lines`) — the commands below mirror them:
+All three languages enforce a minimum line-coverage threshold both in CI and locally (via the [precommit gauntlet](../../scripts/precommit-gauntlet.sh)). The enforced values live in the coverage steps of [`ci.yml`](../../.github/workflows/ci.yml) (search for `THRESHOLD` and `fail-under-lines`) — the commands below mirror them:
 
 ```bash
 # Go — coverage; only test scaffolding and generated code are filtered out

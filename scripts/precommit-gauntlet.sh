@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # precommit-gauntlet.sh — single source of truth for the precommit checks.
 #
-# Runs EVERY mandatory check from .claude/skills/precommit/SKILL.md in order.
+# Runs EVERY mandatory check in order; this file defines what they are.
 # Invoked by:
-#   - the /precommit skill (informational; same checks, same exits)
 #   - .claude/hooks/pretooluse-git-commit-guard.sh (enforcement; the hook is
 #     the gate, no marker bypass possible)
+#   - by hand, to run the same checks without attempting a commit
 #
 # Exit 0 = all checks passed. Exit 1 = a check failed (the failing check's
 # output is printed to stderr above the exit). Exit 2 = prerequisite missing

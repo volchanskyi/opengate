@@ -64,13 +64,17 @@ pmat_version_ok() {
 # pmat_resolve_base — merge-base of HEAD with the first available baseline ref.
 # Falls back to the repo root commit so a fresh repo without remotes still works.
 pmat_resolve_base() {
-  local ref
+  local ref roots
   for ref in "$PMAT_BASELINE_REF" origin/dev dev origin/main main; do
     if git rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
       git merge-base HEAD "$ref" 2>/dev/null && return 0
     fi
   done
-  git rev-list --max-parents=0 HEAD 2>/dev/null | head -1
+  # The root commit is taken off a variable rather than through `head`, which
+  # stops reading at the first line and leaves `git` a failed write that
+  # pipefail reports as a repository with no root at all.
+  roots="$(git rev-list --max-parents=0 HEAD 2>/dev/null || true)"
+  printf '%s\n' "${roots%%$'\n'*}"
 }
 
 # pmat_is_gofmt_only_test <file> <base> — true iff <file> is a Go *test* file

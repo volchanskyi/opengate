@@ -103,14 +103,20 @@ sceg_justified() {
 
 # sceg_rust_ignore <file> — print the cargo-llvm-cov --ignore-filename-regex value.
 sceg_rust_ignore() {
-  grep -oE -- "--ignore-filename-regex[= ]+[\"'][^\"']+[\"']" "$1" 2>/dev/null \
-    | sed -E "s/.*[\"']([^\"']+)[\"']/\1/" | head -1
+  # Matched into a variable, then the first line taken off it. `head` stops at
+  # that line, and pipefail turns the writer's failed write into the answer.
+  local found
+  found="$(grep -oE -- "--ignore-filename-regex[= ]+[\"'][^\"']+[\"']" "$1" 2>/dev/null \
+    | sed -E "s/.*[\"']([^\"']+)[\"']/\1/" || true)"
+  printf '%s\n' "${found%%$'\n'*}"
 }
 
 # sceg_go_ignore <file> — print the grep -v -E pattern applied to coverage.out.
 sceg_go_ignore() {
-  grep -oE -- "grep -v -E [\"'][^\"']+[\"'] coverage\.out" "$1" 2>/dev/null \
-    | sed -E "s/grep -v -E [\"']([^\"']+)[\"'] coverage\.out/\1/" | head -1
+  local found
+  found="$(grep -oE -- "grep -v -E [\"'][^\"']+[\"'] coverage\.out" "$1" 2>/dev/null \
+    | sed -E "s/grep -v -E [\"']([^\"']+)[\"'] coverage\.out/\1/" || true)"
+  printf '%s\n' "${found%%$'\n'*}"
 }
 
 # sceg_base — the committed ref the working tree is compared against.
@@ -123,8 +129,8 @@ sceg_base() {
 }
 
 # sceg_snapshot_worktree — build a throwaway index holding staged, unstaged and
-# untracked changes, so the diff sees the split as it exists at /precommit time
-# (before `git add`). Echoes the index path, or "" outside a work tree.
+# untracked changes, so the diff sees the split as it exists in the work tree
+# rather than only in the index. Echoes the index path, or "" outside a work tree.
 sceg_snapshot_worktree() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     echo ""

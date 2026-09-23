@@ -43,8 +43,11 @@ local_file="$repo/.claude/settings.local.json"
 [ -f "$tracked" ] || exit 0
 
 # Was settings.json already staged? (Need to re-stage after rebalance.)
+# Read into a variable rather than piped: `grep -q` stops at its first match,
+# and under pipefail the writer's failed write becomes the pipeline's answer.
+staged_settings="$(git -C "$repo" diff --cached --name-only -- .claude/settings.json)"
 was_staged=false
-if git -C "$repo" diff --cached --name-only -- .claude/settings.json | grep -q .; then
+if [ -n "$staged_settings" ]; then
   was_staged=true
 fi
 

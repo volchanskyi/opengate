@@ -106,6 +106,45 @@ fi
 # Scoped to scripts that enable pipefail, since that is what promotes the write
 # error into the pipeline's verdict. The count is kept so a sweep that reached
 # nothing — a moved tree, a broken glob — fails rather than passing silently.
+#
+# The writer is not named. Reading only `printf` and `echo` on the left of the
+# pipe describes where the defect was first found rather than what it is: any
+# writer feeding a reader that can exit early is the same race. The sweep that
+# read only those two passed for months over its own required-input check,
+# `grep -v … | grep -qF "$script"`, which was losing a workflow it had matched
+# on roughly two runs in three — so the check ran, found the call, and reported
+# no call at all.
+#
+# The readers are the ones that stop before their input ends: `grep -q`, `grep
+# -m`, `grep -l`, `grep -L` and `head`.
+#
+# What is read is the pipeline's *position*. A pipeline whose status lands in an
+# `if`, an `&&`, an `||` or a bare statement is one whose verdict is read as a
+# fact about the data, which is where a lost match becomes a wrong answer. A
+# pipeline inside `$( … )` is feeding a variable, so command substitutions are
+# removed — depth-aware, since the text inside them routinely carries its own
+# brackets — before the line is matched.
+strip_substitutions() {
+  awk '{
+    out = ""; depth = 0; n = length($0)
+    for (i = 1; i <= n; i++) {
+      c = substr($0, i, 1)
+      if (depth == 0 && c == "$" && substr($0, i + 1, 1) == "(") { depth = 1; i++; continue }
+      if (depth > 0) {
+        if (c == "(") depth++
+        else if (c == ")") depth--
+        continue
+      }
+      out = out c
+    }
+    print out
+  }'
+}
+
+# A single `|` — not `||`, which is a branch rather than a pipe — feeding a
+# reader that can stop before its input ends.
+EARLY_EXIT_READER='(^|[^|])\|[[:space:]]*(grep([[:space:]]+-[a-zA-Z]+)*[[:space:]]+-[a-zA-Z]*[qlmL][a-zA-Z]*|head)([[:space:]]|$)'
+
 scanned=0
 offenders=""
 while IFS= read -r file; do
@@ -116,14 +155,16 @@ while IFS= read -r file; do
   # at the end of one and `grep -q` starting the next. Joining continuations
   # before matching is what makes the sweep see those; the commit and push
   # guards are both written that way.
-  while IFS= read -r hit; do
-    offenders="$offenders  $file:$hit"$'\n'
-  done < <(awk '
+  joined="$(awk '
     { line = line $0; nr = nr ? nr : NR }
     /(\||\\)[[:space:]]*$/ { sub(/\\[[:space:]]*$/, "", line); next }
     { print nr ":" line; line = ""; nr = 0 }
     END { if (line != "") print nr ":" line }
-  ' "$ROOT/$file" | grep -E '(printf|echo)[^|]*\| *grep -q' || true)
+  ' "$ROOT/$file" | grep -vE '^[0-9]+:[[:space:]]*#' | strip_substitutions)"
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    offenders="$offenders  $file:$hit"$'\n'
+  done < <(grep -E "$EARLY_EXIT_READER" <<<"$joined" || true)
 done < <(git -C "$ROOT" ls-files -- 'scripts/*.sh' 'scripts/**/*.sh' 'deploy/**/*.sh' '.claude/**/*.sh')
 
 if [ "$scanned" -eq 0 ]; then

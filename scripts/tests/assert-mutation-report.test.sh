@@ -62,7 +62,7 @@ if [ "${result%%|*}" != "0" ]; then
 else
   fail "an absent report must fail the shard"
 fi
-if printf '%s' "${result#*|}" | grep -q 'gremlins'; then
+if grep -qF 'gremlins' <<<"${result#*|}"; then
   pass "the failure names the tool that was refused"
 else
   fail "the failure must name the tool (got: ${result#*|})"

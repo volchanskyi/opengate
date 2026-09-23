@@ -77,7 +77,11 @@ for rule in "edge-sentinel-1m:1m" "edge-sentinel-1h:1h"; do
 done
 
 # Defense in depth: no rollup anywhere may emit min/max/last centrally.
-if grep -E '^  outputs:' "$AGGR_FILE" | grep -qE '\b(min|max|last)\b'; then
+# The first match is read into a variable rather than piped: `grep -q` stops
+# there, and pipefail reports the writer's failed write as an absence — which
+# on a check written as an absence is a pass.
+aggr_outputs="$(grep -E '^  outputs:' "$AGGR_FILE" || true)"
+if grep -qE '\b(min|max|last)\b' <<<"$aggr_outputs"; then
   fail "no central rollup may emit min/max/last — they ~4x active series past the 50k budget"
 else
   pass "no central rollup emits min/max/last"

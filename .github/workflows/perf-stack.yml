@@ -644,6 +644,13 @@ jobs:
           # fleet this run invented. The password is generated per run all the
           # same, so nothing fixed is ever written down.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+          # What the browser-side generator is handed: the walk it joins, the
+          # address it presents at, and a name for the identities it creates.
+          # The profile is the same one the harness walks, because the two
+          # halves of a leg offering different shapes is a load nobody runs.
+          LOADTEST_PROFILE: ${{ matrix.path }}
+          LOADTEST_BASE_URL: http://127.0.0.1:8080
+          LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.profile }}
           LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
           K6_BIN: /tmp/k6
           # Both halves of what the profile declares: the journeys are a rate of
