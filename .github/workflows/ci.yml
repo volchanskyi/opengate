@@ -70,13 +70,13 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@0758d235715de2f3551eacc980d9ae8fce9342c3 # v2
+      - uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
           tool: cargo-nextest@0.9.129
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@0758d235715de2f3551eacc980d9ae8fce9342c3 # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov@0.8.5
       # The instrumented run is the canonical execution of the workspace suite:
@@ -871,7 +871,7 @@ jobs:
         run: terraform -chdir=deploy/terraform validate
 
       # Terraform linting
-      - uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6
+      - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6
         with:
           # Authenticate the tflint release download so it uses the 5000/hr token
           # budget instead of the 60/hr anonymous limit (anonymous fetches
@@ -933,12 +933,12 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
-      - uses: github/codeql-action/init@v4.37.9
+      - uses: github/codeql-action/init@v4.38.1
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.37.9
-      - uses: github/codeql-action/analyze@v4.37.9
+      - uses: github/codeql-action/autobuild@v4.38.1
+      - uses: github/codeql-action/analyze@v4.38.1
         with:
           category: go
 
@@ -951,11 +951,11 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4.37.9
+      - uses: github/codeql-action/init@v4.38.1
         with:
           languages: javascript-typescript
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v4.37.9
+      - uses: github/codeql-action/analyze@v4.38.1
         with:
           category: javascript-typescript
 
@@ -969,12 +969,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: github/codeql-action/init@v4.37.9
+      - uses: github/codeql-action/init@v4.38.1
         with:
           languages: rust
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.37.9
-      - uses: github/codeql-action/analyze@v4.37.9
+      - uses: github/codeql-action/autobuild@v4.38.1
+      - uses: github/codeql-action/analyze@v4.38.1
         with:
           category: rust
 
@@ -1131,7 +1131,7 @@ jobs:
         id: sonar_action
         if: env.SONAR_TOKEN != ''
         continue-on-error: true
-        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8
+        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8
         with:
           args: -Dsonar.qualitygate.wait=true
       - uses: ./.github/actions/docker-hub-mirror
