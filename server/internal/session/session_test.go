@@ -218,6 +218,7 @@ func TestInstrumented_ObservesListActiveForDevice(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "session.ListActiveForDevice", obs.calls[0].op)
+	assert.True(t, obs.calls[0].ok)
 }
 
 func TestInstrumented_ObservesDelete(t *testing.T) {
@@ -229,6 +230,7 @@ func TestInstrumented_ObservesDelete(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "session.Delete", obs.calls[0].op)
+	assert.True(t, obs.calls[0].ok)
 }
 
 func TestInstrumented_ObservesDeleteRelaySessionError(t *testing.T) {

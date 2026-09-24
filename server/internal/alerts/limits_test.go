@@ -48,6 +48,13 @@ func TestCeilingsAreEditableUpToAHardMaximum(t *testing.T) {
 	// first value past it.
 	require.NoError(t, ValidateLimits(budget(org, MaxOrganizationHourlyCeiling, MaxDeviceHourlyCeiling)))
 	require.NoError(t, ValidateLimits(DefaultLimits(org)))
+
+	// And one is allowed at the other end, for the same reason: the floor is a
+	// budget of nothing, not a budget of one. A customer who wants to hear about
+	// the first firing an hour and nothing after it is asking for something the
+	// setting is for, and refusing it would push them to switch the rule off.
+	require.NoError(t, ValidateLimits(budget(org, 1, 1)),
+		"a budget of one alert an hour is the smallest budget, not an absent one")
 }
 
 // A customer with no stored row is on the shipped budget, which is not the same
