@@ -1,41 +1,92 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-09-14. -->
+<!-- Last reviewed: 2026-09-23. -->
 
 ## Severity: Medium
 
-### The mutation score has not recovered from the rules and alerts surface
+### Most of the Go mutation gap is not a test gap
 
-Two legs, one cause and one way to pay it down, so they are one entry.
+The Go leg reads 86.0 against the 88.2 the register has been carrying as its
+target, and the shape of the shortfall is not what the number suggests.
 
-The go leg reads 85.9 against the 88.2 it carried before that surface landed.
-The nightly is green — the check in
-[`mutation-summarize.sh`](../scripts/mutation-summarize.sh) compares each run
-with the one before it and holds an absolute floor of 85.0, and 85.9 clears both
-— so what is owed is the 2.3 points, not a red run.
+Of 3 530 Go mutants in the run of 2026-09-23, 3 038 are killed. Of the 492 that
+are not, 396 are marked as reached by no test and 96 are reached by a test that
+fails to catch them. **241 of that 396 cannot be caught by any test that could be
+written**, for two distinct reasons:
 
-The shape says new surface arriving under-tested rather than existing tests
-weakening. Of the 3 485 go mutants in the run of 2026-09-12, 392 sit in code no
-test reaches at all, against 97 that a test reaches and fails to kill: reaching
-the code is the larger half of the work by four to one.
+- **157 sit on package-level `const` and `var` declarations** — SQL assembled by
+  concatenation (`organizationSelect + "WHERE " + tenantPredicate`), and
+  durations and sizes (`5 * time.Second`, `16 * 1024 * 1024`). A declaration of
+  that kind is worked out when the package compiles and never appears in a Go
+  coverage profile, so the survey marks it unreached whatever the tests do. Most
+  do not compile when mutated at all — `"a" - "b"` is not Go.
+- **84 sit on a `switch` statement's `case` expression.** Go's coverage profile
+  opens a block at the case *body*, never at the expression, so the survey finds
+  no block on that line, marks the mutant unreached, and skips it without running
+  it. This is a property of the measurement, not of the tests: in
+  [`alerts/noise.go`](../server/internal/alerts/noise.go),
+  [`rules/clamp.go`](../server/internal/rules/clamp.go) and
+  [`app/app.go`](../server/internal/app/app.go), every branch is exercised and
+  `go test -coverprofile` shows each block hit, while the survey reports their
+  `case` lines unreached.
 
-That target is stated against the measurement as it stands and survives the
-narrowed coverage survey unedited: the survey change moves no mutant and no score
-([ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md)).
+What is left is 148 genuinely untested statements and the 96 survivors, and not
+all of those move either: **about a fifth of the survivors are equivalent
+mutants**, where the change produces identical behaviour and no test can tell the
+difference. Measured over the whole rules shard: of its 31 survivors 19 are now
+caught, 6 are provably equivalent — a comparator reached only when the values
+differ, so `<` and `<=` agree; an `append` of a slice guarded on that slice's own
+length; a stage population that computes the same number either way — and 6 are
+unassessed. The movable pool is therefore nearer 190 than 244, and 88.2 needs 76
+of it.
 
-The web leg clears its own floor by half a point, 85.5 against 85.0. That margin
-is thin enough that the next tranche of web surface needs its survivors covered
-as it lands rather than after the leg reds.
+Where they are: 92 of the 148 are in the load-test harness under
+`server/tests/loadtest/`, which scores 87.3% against shipped code's 85.5% and is
+therefore not what is holding the leg down. The rest are spread thin, the largest
+single files being
+[`organization/instrumented.go`](../server/internal/organization/instrumented.go)
+(7), [`amt/transport/mps.go`](../server/internal/amt/transport/mps.go) (6) and
+[`dbtx/tx.go`](../server/internal/dbtx/tx.go) (5). The survivors are the
+better-value half; with the rules and wrapper ones taken, the largest clusters
+left are [`app/app.go`](../server/internal/app/app.go) (4),
+[`lifecycle/orchestrator.go`](../server/internal/lifecycle/orchestrator.go) (4),
+and three apiece in
+[`amt/transport/mps_conn.go`](../server/internal/amt/transport/mps_conn.go),
+[`device/postgres_device.go`](../server/internal/device/postgres_device.go),
+[`relay/relay.go`](../server/internal/relay/relay.go) and
+[`rules/catalogue_lock.go`](../server/internal/rules/catalogue_lock.go).
 
-**Pay-down trigger:** this is measured per shard, so it pays down per shard
-rather than in one pass. Take the shards covering the rules and alerts code,
-kill what a test can kill, and carve out what the run proves equivalent with the
-reason written next to it. A file's survivor list is the unit of work — reading
-it off a local run costs less than a nightly and names the assertions that are
-missing. The trigger is go reaching 88.2 and web holding a margin it is not one
-bad night from losing, both on their own rather than by moving either figure
-down to meet the score.
+The nightly is green throughout: [`mutation-summarize.sh`](../scripts/mutation-summarize.sh)
+compares each run with the one before and holds an absolute floor of 85.0.
+
+The web leg clears that floor by 0.3 points, 85.3 against 85.0. The next tranche
+of web surface needs its survivors covered as it lands rather than after the leg
+reds.
+
+**Pay-down trigger:** two separable pieces of work, and the first decides how
+much the second is worth.
+
+1. The survey's blindness to a `case` expression is a defect in the gate, not in
+   the tests, and it is 84 mutants — a third of everything that is movable. Fix
+   or replace the coverage matching so a mutant on a case expression is run
+   rather than skipped, and the score moves without a line of test code. Until
+   that is done, a target expressed as a single percentage is measuring the tool
+   as much as the suite.
+2. For the rest, the survivors are worth more per unit of effort than the
+   untested statements, and a file's survivor list names the assertions that are
+   missing. This pays down per shard rather than in one pass.
+
+   **A local run has to cap its workers to be read at all.** Gremlins verifies a
+   mutant by running the whole package's test binary, and defaults its worker
+   count to the machine's cores. On a 24-core workstation, 24 mutants run their
+   package's tests at once against one Postgres, the database-backed tests in
+   that package flake, the run exits non-zero, and the mutant is recorded as
+   killed. The rules shard reads 3 survivors that way against the nightly's 31,
+   on an identical tree with the pinned tool and the same invocation; at
+   `--workers 1` the four `binding.go` mutants the nightly names come back alive.
+   Pass `--workers` at or below the runner's core count, or a local run reports
+   work as already done.
 
 ### Load-test identities live in the default tenant
 
@@ -380,17 +431,28 @@ series and its assertion were withdrawn rather than left to fail nightly.
 a product defect rather than a testing gap. The drill's withdrawn alert-replay
 assertion returns in the same change that gives the sink a drain.
 
-### Edge-Sentinel audited command-line redaction not wired into sampler output
+### No path emits a redacted command line, and the one that redacts is unreachable
 
-`redact_cmdline` is implemented and tested in the agent ML redaction module, but
-the live sampler currently stores only a process basename plus optional
-`cmdline_hash`; it does not emit redacted command lines. That is intentional for
-WS-2's default-off local sampler, but the audited on-demand flow must wire the
-redactor before any raw command-line text leaves the agent.
+`redact_cmdline` is implemented and tested in the agent ML redaction module. It
+has two call sites and neither puts a redacted command line on the wire.
 
-**Pay-down trigger:** when an audited command-line collection/reporting path is
-added, route command lines through `redact_cmdline` before serialization and add
-an end-to-end test that proves secrets are redacted in the emitted payload.
+The live sampler ([`ml/sampler.rs`](../agent/crates/mesh-agent-core/src/ml/sampler.rs))
+stores a process basename plus an optional `cmdline_hash` — a hash, not redacted
+text — which is what WS-2's local sampler is meant to do.
+
+The other is evidence composition
+([`alerts/evidence.rs`](../agent/crates/mesh-agent-core/src/alerts/evidence.rs)),
+which runs process basenames and log samples through the redactor when it builds
+an alert's evidence. That is the right wiring, and nothing reaches it:
+`compose_evidence` has no production call site, because it sits behind the same
+dead alert pipeline described under "An alert a machine raises never reaches the
+server". So the redaction that is in place has never run outside a test.
+
+**Pay-down trigger:** two, in order. The alert pipeline gaining a producer makes
+the existing evidence redaction live, and the end-to-end test that proves secrets
+are redacted in the emitted payload belongs in that change. Separately, when an
+audited command-line collection path is added, route command lines through
+`redact_cmdline` before serialization — no path emits command-line text today.
 
 ### ADR-035 — residual external uptime/DNS follow-ups (user-owned)
 
@@ -418,17 +480,45 @@ business-logic change deferred until upload is implemented.
 
 **Pay-down trigger:** revisit when file upload is implemented (closes the last equivalent mutant).
 
+### The React family is pinned exactly, to hold first paint under its budget
+
+`react`, `react-dom`, `react-router` and the two matching `@types` packages carry
+exact versions in [`web/package.json`](../web/package.json) rather than the caret
+ranges everything else uses.
+
+React 19.3.0 and react-router 8.4.0 add about 31.5 kB of uncompressed code to the
+entry chunk — 9.3 kB compressed — which puts first paint at 101,750 bytes against
+the 100,000 the budget in [`.size-limit.json`](../web/.size-limit.json) allows.
+The growth is in the libraries rather than in this application's own code, and it
+is real rather than an artefact of how it is measured: vite's own gzip figures
+move from 93.61 kB to 103.03 kB across the same pair of builds.
+
+The exact pins are load-bearing. A caret range holds nothing once the lockfile is
+regenerated — `npm install` on a clean tree resolves to the newest version the
+range admits, and the budget fails again.
+
+Giving the framework its own named chunk would move the number without moving the
+download, because unlike uPlot and xterm it is on the first-paint path. So the
+choice is to hold the versions or to find the space.
+
+**Pay-down trigger:** the next React or router update worth taking. Find roughly
+10 kB of compressed first-paint code that can load on demand instead — the entry
+chunk is where to look, since the lazy route chunks are already budgeted
+separately — then take the updates and restore the caret ranges in the same
+change. Raising the budget instead is not the trade: it absorbs the regression
+and removes the only thing that noticed.
+
 ### `web/package.json` TypeScript pinned to ^5.9.3 — `openapi-typescript` peer conflict
 
 TypeScript is pinned to `^5.9.3` because `openapi-typescript@7.13.0` (used by
 `npm run generate:api`) declares `peerDependencies: { typescript: "^5.x" }`. A
 lenient `npm install` resolves past the conflict, but a clean `npm ci` (the
 `build-image.yml` Docker build, `node:24-alpine`) fails hard with `ERESOLVE` on
-TypeScript 6.x.
+any newer major. The published TypeScript major is 7, so the pin is two behind.
 
-**Pay-down trigger:** revisit once `openapi-typescript` ships a release supporting
-TypeScript 6.x (`npm view openapi-typescript versions` / its peerDependencies
-range), then bump both together.
+**Pay-down trigger:** revisit once `openapi-typescript` ships a release whose
+`typescript` peer range admits the current major (`npm view openapi-typescript
+peerDependencies`), then bump both together.
 
 ### `reopen_window` has no per-rule override
 

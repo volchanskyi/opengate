@@ -239,6 +239,7 @@ func TestInstrumented_ObservesListForUser(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "notifications.WebPush.ListForUser", obs.calls[0].op)
+	assert.True(t, obs.calls[0].ok)
 }
 
 func TestInstrumented_ObservesDelete(t *testing.T) {
@@ -250,6 +251,7 @@ func TestInstrumented_ObservesDelete(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "notifications.WebPush.Delete", obs.calls[0].op)
+	assert.True(t, obs.calls[0].ok)
 }
 
 // endpointsOf projects subscription endpoints for membership assertions.

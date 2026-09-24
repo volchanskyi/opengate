@@ -219,6 +219,7 @@ func TestInstrumentedUsers_ObservesGetByEmail(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "auth.User.GetByEmail", obs.calls[0].op)
+	assert.False(t, obs.calls[0].ok, "a lookup that found nobody is not a successful call")
 }
 
 func TestInstrumentedUsers_ObservesList(t *testing.T) {
@@ -231,6 +232,7 @@ func TestInstrumentedUsers_ObservesList(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "auth.User.List", obs.calls[0].op)
+	assert.True(t, obs.calls[0].ok)
 }
 
 func TestInstrumentedUsers_ObservesDelete(t *testing.T) {
@@ -242,4 +244,5 @@ func TestInstrumentedUsers_ObservesDelete(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "auth.User.Delete", obs.calls[0].op)
+	assert.True(t, obs.calls[0].ok)
 }

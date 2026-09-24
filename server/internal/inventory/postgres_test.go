@@ -162,3 +162,31 @@ func TestPostgresInventorySanitizesFields(t *testing.T) {
 	require.Len(t, got, 1, "unknown kinds must be dropped")
 	assert.Equal(t, KindContainer, got[0].Kind)
 }
+
+// A caller asking for no particular number of rows gets the repository's own
+// bound, not nothing. The distinction matters because the substitution happens
+// on a non-positive limit: a read that passed the caller's zero straight into
+// the query would answer "this machine has no inventory" for every machine,
+// which reads as a clean estate rather than as a missing argument.
+func TestListForDeviceSubstitutesTheDefaultLimitForANonPositiveOne(t *testing.T) {
+	t.Parallel()
+
+	repo, ctx, dev := newInventoryFixture(t)
+	ts := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, repo.Replace(ctx, dev, ts, []Component{
+		{Kind: KindPort, Name: "postgres", Proto: "tcp", Port: 5432},
+		{Kind: KindService, Name: "sshd"},
+	}))
+
+	for _, limit := range []int{0, -1} {
+		got, err := repo.ListForDevice(ctx, dev, limit)
+		require.NoError(t, err)
+		assert.Len(t, got, 2,
+			"a limit of %d means the repository's own bound, not an empty answer", limit)
+	}
+
+	// A positive limit is the caller's, and is honoured as given.
+	got, err := repo.ListForDevice(ctx, dev, 1)
+	require.NoError(t, err)
+	assert.Len(t, got, 1, "a positive limit is the caller's own")
+}
