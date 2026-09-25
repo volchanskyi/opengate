@@ -15,11 +15,17 @@ const HOUR: i64 = 3_600 * SECOND;
 fn alert(id: &str) -> EdgeAlert {
     EdgeAlert {
         rule_id: id.to_string(),
+        rule_version: 1,
         severity: AlertSeverity::Warning,
         ts_micros: 0,
+        window_start_micros: 0,
+        window_end_micros: 0,
+        metric: String::new(),
+        value: None,
         subject: "kernel".to_string(),
         summary: "something happened".to_string(),
-        evidence: vec!["a redacted line".to_string()],
+        evidence: Vec::new(),
+        evidence_codec: String::new(),
         origin: AlertOrigin::Live,
     }
 }
@@ -309,4 +315,98 @@ fn a_ceiling_of_nothing_is_ignored() {
     let sink = AlertSink::new(64, 2);
     sink.set_ceiling(0);
     assert_eq!(sink.push(alert("a"), 0), PushOutcome::Queued);
+}
+
+/// A send that failed hands its alerts back, and they come out again oldest
+/// first. The alternative is losing exactly the alerts raised while the link
+/// was breaking, which is when a machine most needs to be heard.
+#[test]
+fn alerts_handed_back_after_a_failed_send_are_queued_again() {
+    let sink = roomy();
+    for id in ["first", "second", "third"] {
+        sink.push(alert(id), 0);
+    }
+
+    let mut drained = sink.drain();
+    let sent = drained.remove(0);
+    assert_eq!(sent.rule_id, "first");
+    sink.return_unsent(drained);
+
+    let rule_ids: Vec<String> = sink.drain().into_iter().map(|a| a.rule_id).collect();
+    assert_eq!(
+        rule_ids,
+        vec!["second".to_string(), "third".to_string()],
+        "what did not go stays queued, in the order it was raised"
+    );
+}
+
+/// An alert handed back was already admitted once. Charging the hourly
+/// allowance again would let a flapping link spend a machine's whole budget on
+/// alerts it has not managed to deliver even once.
+#[test]
+fn handing_an_alert_back_does_not_spend_the_allowance_twice() {
+    let sink = AlertSink::new(64, 3);
+    for id in ["a", "b", "c"] {
+        sink.push(alert(id), 0);
+    }
+    assert_eq!(
+        sink.push(alert("over"), 0),
+        PushOutcome::SuppressedByCeiling,
+        "three is the whole allowance"
+    );
+
+    sink.return_unsent(sink.drain());
+
+    assert_eq!(sink.stats().queued, 3, "all three are held again");
+    assert_eq!(
+        sink.stats().suppressed_by_ceiling,
+        1,
+        "and the hand-back cost nothing further"
+    );
+}
+
+/// Alerts arriving while a send was in flight are newer than the ones handed
+/// back, so the hand-back goes in front of them. An incident still reads
+/// forwards.
+#[test]
+fn alerts_handed_back_go_in_front_of_what_arrived_meanwhile() {
+    let sink = roomy();
+    sink.push(alert("older"), 0);
+    let unsent = sink.drain();
+    sink.push(alert("newer"), 0);
+
+    sink.return_unsent(unsent);
+
+    let rule_ids: Vec<String> = sink.drain().into_iter().map(|a| a.rule_id).collect();
+    assert_eq!(rule_ids, vec!["older".to_string(), "newer".to_string()]);
+}
+
+/// The queue is bounded whichever direction an alert enters from, and a
+/// hand-back does not change which end gives way. The undelivered alerts are
+/// the older ones, so an overflowing hand-back loses them rather than the
+/// alerts describing what the machine is doing now — a reconnect that delivered
+/// a stale backlog in preference to the present would answer the wrong
+/// question. Every loss is counted, so the trade is visible rather than silent.
+#[test]
+fn a_hand_back_past_the_bound_still_gives_way_at_the_old_end() {
+    let sink = AlertSink::new(2, 20);
+    sink.push(alert("one"), 0);
+    sink.push(alert("two"), 0);
+    let unsent = sink.drain();
+    sink.push(alert("three"), 0);
+    sink.push(alert("four"), 0);
+
+    sink.return_unsent(unsent);
+
+    let rule_ids: Vec<String> = sink.drain().into_iter().map(|a| a.rule_id).collect();
+    assert_eq!(
+        rule_ids,
+        vec!["three".to_string(), "four".to_string()],
+        "what the machine is doing now outranks what it could not deliver"
+    );
+    assert_eq!(
+        sink.stats().dropped_oldest,
+        2,
+        "and what the bound cost is counted rather than lost quietly"
+    );
 }

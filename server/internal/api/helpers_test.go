@@ -30,6 +30,21 @@ import (
 // hand-written fake.
 type stubAgentGetter struct {
 	agents map[protocol.DeviceID]AgentControl
+	// refreshedFor records which customers, and which tenants, were told to
+	// re-read their rules. A change an administrator makes is only real once it
+	// has left for the machines, so a case can assert it did.
+	refreshedFor     []uuid.UUID
+	refreshedTenants []uuid.UUID
+}
+
+func (s *stubAgentGetter) RefreshAlertRules(_ context.Context, organizationID uuid.UUID) int {
+	s.refreshedFor = append(s.refreshedFor, organizationID)
+	return len(s.agents)
+}
+
+func (s *stubAgentGetter) RefreshAlertRulesForTenant(_ context.Context, tenantID uuid.UUID) int {
+	s.refreshedTenants = append(s.refreshedTenants, tenantID)
+	return len(s.agents)
 }
 
 func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) AgentControl {

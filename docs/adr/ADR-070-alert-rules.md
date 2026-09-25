@@ -37,7 +37,10 @@ and has no table of its own.
 1. **Definitions are versioned YAML compiled into the server.** Immutable per
    identifier and version, checked against digests. A cost gate runs at build
    time, per rule and across the whole pack, so an unaffordable rule cannot
-   ship.
+   ship. Every definition states how bad its alerts are, and a rule that reads
+   the machine's own log records states no reading, no comparison and no line —
+   it is registered rather than evaluated centrally, and costs the machine
+   nothing per rule because one bounded poll a minute covers the whole pack.
 2. **Bindings live in Postgres**, keyed down the tenancy ladder. A customer
    chooses which rules apply and at what boundary; it cannot change what a rule
    means.
@@ -61,8 +64,19 @@ time. Membership in a stage is computed per machine, not stored. The first stage
 has a floor of five machines, bounded by the fleet, and holds until it has been
 quiet for long enough to mean something.
 
-**Stopping a rule is a row, not a release.** A kill on the rollout row stops it
-everywhere it applies, immediately.
+**Stopping a rule is a row, not a release, and it does not wait.** A kill on the
+rollout row stops it everywhere it applies. A machine's link is held open for as
+long as it is healthy, so a change delivered only on registration would be
+delivered only when something unrelated broke — the change goes out to that
+customer's connected machines as it is made, and to an offline machine as it
+arrives. Retuning travels the same path, because a boundary nobody's machines
+are comparing against is a row in a table.
+
+**A rule's revision and its severity travel with it.** An alert is identified by
+the machine, the rule, that revision and the window it fired for, so a machine
+that was never told which revision it is running could raise nothing the server
+accepts. Severity orders the queue, and an alert that states none cannot be
+ordered in it.
 
 **The endpoint enforces its own budget**, over what a rule actually cost rather
 than what it was projected to cost — per rule, so one expensive rule cannot

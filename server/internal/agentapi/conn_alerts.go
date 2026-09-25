@@ -48,6 +48,22 @@ const (
 	// two numbers for one contract would let a blob be storable and unreadable.
 	maxEvidenceInflatedBytes = protocol.MaxEvidenceInflatedBytes
 
+	// maxBackfilledAlertBacklog is how far back a finding out of history may
+	// reach. It is how long an alert is kept, not how long a metric sample is:
+	// the two are different facts with different homes, and borrowing the
+	// sample's ninety days here refused most of what a machine's own store can
+	// answer. A device holds months of minute-by-minute history and the whole
+	// point of re-running a new rule over it is to find what it would have
+	// caught, so a finding from five months ago is one a technician can still
+	// open — the retention sweep ages a row from the day it *arrived*, exactly
+	// so that a legitimately old finding gets a full year of somebody's
+	// attention rather than being deleted on the day it lands.
+	//
+	// Past this the alert is refused rather than clamped: the window start is
+	// the alert's identity, and pulling it to a bound would make the same alert
+	// resolve to a different row on every reconnect.
+	maxBackfilledAlertBacklog = 365 * 24 * time.Hour
+
 	// fallbackGroupWindow is how long two firings stay one room when the rule
 	// that raised them cannot be resolved. A quarter of an hour is the shortest
 	// hold any shipped rule declares, so it can only ever under-group.
@@ -59,6 +75,7 @@ const (
 	alertDropSeverityUnknown      = "alert_severity_unknown"
 	alertDropIdentityIncomplete   = "alert_identity_incomplete"
 	alertDropRuleUnknown          = "alert_rule_unknown"
+	alertDropRuleStopped          = "alert_rule_stopped"
 	alertDropTimestampOutOfRange  = "alert_timestamp_out_of_range"
 	alertDropEvidenceCodecUnknown = "alert_evidence_codec_unknown"
 	alertDropEvidenceUndecodable  = "alert_evidence_undecodable"
@@ -129,6 +146,16 @@ func (a *AgentConn) validatedAlert(msg *protocol.ControlMessage) (alerts.Alert, 
 	// can see and nobody can act on.
 	if !a.shipsRule(msg.RuleID) {
 		a.dropTelemetry(alertDropRuleUnknown, "rule_id", msg.RuleID)
+		return alerts.Alert{}, false
+	}
+	// A rule the customer stopped raises nothing in their queue. For a rule
+	// about a reading that is already true, because a stopped rule never
+	// reaches the machine. A rule about the machine's own words is carried by
+	// the machine's own log reader and goes on matching whatever anybody set,
+	// so the stop is applied here — under its own reason, because a customer
+	// switching a rule off and a machine inventing one are different facts.
+	if !a.customerWants(msg.RuleID) {
+		a.dropTelemetry(alertDropRuleStopped, "rule_id", msg.RuleID)
 		return alerts.Alert{}, false
 	}
 	if !alertTimestampsInRange(msg, time.Now().UTC()) {
@@ -281,6 +308,32 @@ func (a *AgentConn) observeAlertOutcome(outcome alerts.Outcome, alert alerts.Ale
 	}
 }
 
+// customerWants reports whether this customer still receives alerts from the
+// rule an alert names.
+//
+// Only rules about the machine's own words are answered here; everything else
+// is stopped by never reaching the machine. A connection that has not been told
+// which rules the customer wants admits them all: refusing a fleet's alerts
+// over a wiring detail is a far larger harm than filing one for a rule somebody
+// stopped, and the stop takes effect on the machine's next reconnect either
+// way.
+func (a *AgentConn) customerWants(ruleID string) bool {
+	if a.wantedEventRules == nil || !a.watchesEvents(ruleID) {
+		return true
+	}
+	_, wanted := a.wantedEventRules[ruleID]
+	return wanted
+}
+
+// watchesEvents reports whether the named rule reads the machine's own words.
+func (a *AgentConn) watchesEvents(ruleID string) bool {
+	if a.ruleCatalog == nil {
+		return false
+	}
+	def, ok := a.ruleCatalog.Lookup(ruleID)
+	return ok && def.WatchesEvents()
+}
+
 // shipsRule reports whether this build has a definition for the rule an alert
 // names. A connection wired without a catalogue cannot answer, and refusing
 // every alert on that basis would silence a fleet over a wiring detail.
@@ -319,11 +372,11 @@ func hasAlertIdentity(msg *protocol.ControlMessage) bool {
 //
 // A retroactive finding is legitimately old — answering "has this happened
 // before?" over months of local history is the whole point of it — so the
-// backward bound widens to the same retention the backfill path uses.
+// backward bound widens to how long an alert is kept.
 func alertTimestampsInRange(msg *protocol.ControlMessage, now time.Time) bool {
 	backlog := maxTelemetryBacklog
 	if isBackfilled(msg) {
-		backlog = backfillRetentionSecs * time.Second
+		backlog = maxBackfilledAlertBacklog
 	}
 	floor, ceiling := now.Add(-backlog), now.Add(maxTelemetrySkew)
 	for _, ts := range []int64{msg.WindowStartTS, msg.WindowEndTS, msg.ObservedTS} {

@@ -16,7 +16,23 @@ use mesh_agent_core::alerts::{
     RetroHold, RetroPlan, RetroScan, RetroStep, RetroUnsupported, DEVICE_HOURLY_CEILING,
 };
 use mesh_agent_core::ml::store_sink::{SERIES_DISK, SERIES_DISK_AWAIT_MS, SERIES_DISK_QUEUE_DEPTH};
-use mesh_protocol::{AlertComparator, RuleCoverageState, RulePredicate, RuleTerm, ThresholdRule};
+use mesh_protocol::{
+    AlertComparator, AlertEvidence, AlertSeverity, HistoryPoint, RuleCoverageState, RulePredicate,
+    RuleTerm, ThresholdRule,
+};
+
+/// The readings a finding actually ships, read back out of the packed evidence.
+/// What the far end stores is this blob, so this is the only reading that says
+/// what a technician will see behind the finding.
+fn shipped_readings(alert: &EdgeAlert) -> Vec<HistoryPoint> {
+    let evidence = AlertEvidence::decode(&alert.evidence, &alert.evidence_codec)
+        .expect("a finding's evidence must read back");
+    evidence
+        .series
+        .into_iter()
+        .flat_map(|series| series.points)
+        .collect()
+}
 
 /// Bucket-aligned, so a second's timestamp and its minute bucket line up and
 /// every expectation can be read off the offset from here.
@@ -31,6 +47,8 @@ const SCAN_NOW_MICROS: i64 = 1_900_000_000 * MICROS_PER_SEC;
 fn disk_critical() -> ThresholdRule {
     ThresholdRule {
         id: "disk-critical".to_string(),
+        version: 1,
+        severity: AlertSeverity::Critical,
         metric: "disk.used_percent".to_string(),
         comparator: AlertComparator::Gte,
         threshold: 90.0,
@@ -170,7 +188,7 @@ fn three_episodes_in_history_produce_three_backfilled_findings() {
         assert_eq!(alert.origin, AlertOrigin::Backfilled);
         assert_eq!(alert.rule_id, "disk-critical");
         assert!(
-            !alert.evidence.is_empty(),
+            !shipped_readings(alert).is_empty(),
             "a finding carries the readings behind it"
         );
     }
@@ -646,6 +664,8 @@ fn a_rule_with_two_sides_reads_both_at_the_same_minute() {
 
     let slow_and_backed_up = ThresholdRule {
         id: "disk-slow".to_string(),
+        version: 1,
+        severity: AlertSeverity::Warning,
         metric: "disk.await_ms".to_string(),
         comparator: AlertComparator::Gt,
         threshold: 20.0,
@@ -810,40 +830,46 @@ fn a_finding_says_what_the_rule_means_and_shows_the_readings_behind_it() {
             "the subject names the metric the finding is about"
         );
 
-        // The readings behind it are the run-up, oldest first, each labelled by
-        // how far before the firing minute it was read.
+        // The readings behind it are the run-up to the firing minute, oldest
+        // first, under the name of the dimension the rule watched.
+        let evidence = AlertEvidence::decode(&alert.evidence, &alert.evidence_codec)
+            .expect("a finding's evidence must read back");
+        assert_eq!(
+            evidence.series.len(),
+            1,
+            "a scan over history looked at one dimension and says so"
+        );
+        assert_eq!(
+            evidence.series[0].dim, "disk.used_percent",
+            "the series names the dimension the rule watched"
+        );
         assert!(
-            !alert.evidence.is_empty(),
+            evidence.ranked.is_empty(),
+            "a scan computes no ranking, so it claims none"
+        );
+
+        let readings = shipped_readings(alert);
+        assert!(
+            !readings.is_empty(),
             "a finding carries the readings behind it"
         );
-        let last = alert.evidence.last().unwrap();
         assert!(
-            last.starts_with("as it fired: disk.used_percent = "),
-            "the last reading is the one the rule fired on, got {last:?}"
+            readings.windows(2).all(|w| w[0].ts < w[1].ts),
+            "readings run oldest first, got {readings:?}"
         );
-        for earlier in &alert.evidence[..alert.evidence.len() - 1] {
-            assert!(
-                earlier.contains(" min earlier: disk.used_percent = "),
-                "an earlier reading says how long before the firing minute it was, got {earlier:?}"
-            );
-        }
-        let minutes_back: Vec<i64> = alert.evidence[..alert.evidence.len() - 1]
-            .iter()
-            .map(|line| {
-                line.split(' ')
-                    .next()
-                    .and_then(|n| n.parse::<i64>().ok())
-                    .unwrap_or_else(|| panic!("an earlier reading starts with its age: {line:?}"))
-            })
-            .collect();
+        let fired_on = readings.last().unwrap();
         assert!(
-            minutes_back.windows(2).all(|w| w[0] > w[1]),
-            "readings run oldest first, got {minutes_back:?}"
+            fired_on.ts <= alert.window_end_micros / MICROS_PER_SEC,
+            "the last reading is no later than the minute the rule fired on"
         );
         assert!(
-            alert.evidence.iter().any(|line| line.contains("= 9")),
-            "the readings show the machine over its line, got {:?}",
-            alert.evidence
+            readings.iter().any(|point| point.value >= 90.0),
+            "the readings show the machine over its line, got {readings:?}"
+        );
+        assert_eq!(
+            alert.value,
+            Some(fired_on.value),
+            "the alert names the reading that crossed the line"
         );
     }
 }

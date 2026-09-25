@@ -104,7 +104,10 @@ func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope setting
 	// A machine with no customer on its ladder has nothing to resolve against.
 	// It takes the pack as it shipped rather than anyone else's numbers.
 	if scope.OrganizationID == uuid.Nil {
-		return RuleSet{Rules: resolveAll(definitions, rules.Device{Scope: scope}, nil, nil)}, nil
+		return RuleSet{
+			Rules:      resolveAll(definitions, rules.Device{Scope: scope}, nil, nil),
+			EventRules: wantedEventRules(definitions, uuid.Nil, nil),
+		}, nil
 	}
 
 	bindings, err := p.store.ListBindings(ctx, scope.OrganizationID)
@@ -123,6 +126,7 @@ func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope setting
 	}
 	return RuleSet{
 		Rules:               resolveAll(definitions, machine, bindings, rollouts),
+		EventRules:          wantedEventRules(definitions, scope.OrganizationID, rollouts),
 		DeviceHourlyCeiling: p.ceilingFor(ctx, scope.OrganizationID),
 	}, nil
 }
@@ -157,6 +161,16 @@ func resolveAll(
 ) []protocol.ThresholdRule {
 	out := make([]protocol.ThresholdRule, 0, len(definitions))
 	for _, def := range definitions {
+		// A rule that watches the machine's own words is already on the machine:
+		// the phrases it matches are what that machine's log reader is built
+		// around. Sent down this path it would reach the evaluator that compares
+		// readings, which would report a rule it cannot evaluate — and the whole
+		// estate would then read as not watching a rule that is watching all of
+		// it, which is the exact failure the coverage accounting exists to
+		// prevent.
+		if def.WatchesEvents() {
+			continue
+		}
 		rollout := rules.RolloutFor(rollouts, machine.Scope.OrganizationID, def.ID)
 		if !rollout.Reaches(machine.Scope.DeviceID, machine.FleetSize) {
 			continue
@@ -164,6 +178,31 @@ func resolveAll(
 		out = append(out, rules.Resolve(def, machine, bindings))
 	}
 	return out
+}
+
+// wantedEventRules names which rules about the machine's own words this
+// customer still wants.
+//
+// The staged reach a rule about a reading is subject to has no meaning here: a
+// rule the machine carries cannot be given to a tenth of an estate and withheld
+// from the rest, because it is already on every machine. What does carry over
+// is the stop — switching a rule off, or killing it — and that is what this
+// answers.
+func wantedEventRules(
+	definitions []rules.Definition,
+	organizationID uuid.UUID,
+	rollouts map[string]rules.Rollout,
+) map[string]struct{} {
+	wanted := make(map[string]struct{})
+	for _, def := range definitions {
+		if !def.WatchesEvents() {
+			continue
+		}
+		if rules.RolloutFor(rollouts, organizationID, def.ID).Delivers() {
+			wanted[def.ID] = struct{}{}
+		}
+	}
+	return wanted
 }
 
 // fleetSizeFor counts the customer's estate, which sizes any stage they are

@@ -114,6 +114,7 @@ func TestLoadCatalogueRejectsACatalogueOverTheFleetBudget(t *testing.T) {
 	for i := range count {
 		fmt.Fprintf(&b, `  - id: filler-%d
     version: 1
+    severity: warning
     summary: Fills the budget.
     metric: cpu.total
     comparator: gte

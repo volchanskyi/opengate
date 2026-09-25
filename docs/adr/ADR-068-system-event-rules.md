@@ -41,7 +41,28 @@ deliver later would deliver a pile of noise the moment the window closed.
 
 **One bounded sink per device, and every limit counts what it cost.** The sink
 has a ceiling; a refusal is recorded as a refusal, so the ceiling is visible
-rather than silently shaping what anyone sees.
+rather than silently shaping what anyone sees. The sink is drained on the
+machine's heartbeat, and a send that fails hands back what did not go so the
+reconnect offers it again — into a duplicate check, so a re-delivery resolves to
+the row already written.
+
+**The matching stays on the machine; the rest of the rule is registered
+centrally.** The phrases and exclusions are what the machine's log reader is
+made of, so they are compiled into it. What the server holds for each of these
+rules is its name, its revision, how bad it is and where its alerts belong —
+which is the whole of what it takes to accept an alert, place it in a room, and
+let an administrator stop one. A rule the server has never heard of has every
+alert it raises refused, which reads exactly like a machine that raised none.
+
+**Stopping one is enforced where the alert arrives.** A rule about a reading is
+stopped by not being sent; one the machine carries itself goes on matching
+whatever anybody set, so the customer's decision is applied at admission and the
+refusal is counted under its own reason.
+
+**A machine that cannot read its own log says so.** Every rule in the pack is
+reported as one that machine cannot evaluate, rather than reported not at all. A
+standing hole in what an estate is watched for reads completely differently from
+a machine that is merely quiet.
 
 ## Consequences
 

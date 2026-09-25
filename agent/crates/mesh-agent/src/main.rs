@@ -505,6 +505,17 @@ async fn main() -> Result<()> {
     // breach-carrying summaries from `health_rx`.
     let alert_rules_mailbox: edge_sentinel::AlertRulesMailbox =
         std::sync::Arc::new(std::sync::Mutex::new(None));
+    // Where every producer on this machine puts what it raises: the sampler
+    // when a reading crosses a line, the system-event watch when the machine
+    // says something about itself, and the retroactive scan when a new rule
+    // finds what it would have caught. One queue, so one bound and one hourly
+    // allowance cover the machine rather than each producer separately.
+    let alert_sink = mesh_agent_core::alerts::AlertSink::default();
+    // What the rules reading this machine's own log can answer for. The watch
+    // publishes it once, and the sampler carries it to the server beside the
+    // rules it evaluates itself.
+    let event_coverage: event_watch::EventCoverage =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let (health_tx, health_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HEALTH_TELEMETRY_CAP);
     // Live host-metric windows produced by the sampler reach the control loop
@@ -519,6 +530,8 @@ async fn main() -> Result<()> {
         let alerts = edge_sentinel::AlertWiring {
             rules: alert_rules_mailbox.clone(),
             health_tx,
+            alert_sink: alert_sink.clone(),
+            event_coverage: event_coverage.clone(),
         };
         edge_sentinel::spawn_sampler(
             shared_sink.clone(),
@@ -543,11 +556,9 @@ async fn main() -> Result<()> {
     let _edge_discovery = edge_sentinel::spawn_discovery(discovery_tx, maintenance.clone());
 
     // System-event rules: the curated pack reads the host log on a bounded
-    // poll and raises into the shared alert sink. The sink is where every edge
-    // alert producer writes; it is bounded and rate-limited per device, and it
-    // counts what either limit costs.
-    let alert_sink = mesh_agent_core::alerts::AlertSink::default();
-    let _event_watch = event_watch::spawn_event_watch(alert_sink.clone(), maintenance.clone());
+    // poll and raises into the shared alert sink.
+    let _event_watch =
+        event_watch::spawn_event_watch(alert_sink.clone(), maintenance.clone(), event_coverage);
 
     // Re-running a newly arrived rule over the history this device already
     // holds. The ruleset it compares against is what the control loop last
@@ -781,6 +792,15 @@ async fn main() -> Result<()> {
                         }
                     }
                     if telemetry_lost {
+                        break;
+                    }
+
+                    // Then the alerts every producer on this machine raised.
+                    // They go last because an alert is the one thing here that
+                    // cannot be taken again later: there is no path for asking
+                    // the machine afterwards, so what is on the message is the
+                    // whole of what will ever be known about that moment.
+                    if !send_queued_alerts(&mut conn, &alert_sink).await {
                         break;
                     }
                 }
@@ -1252,6 +1272,61 @@ fn should_skip_version(incoming: &str) -> bool {
     }
 }
 
+/// Hands over every alert this machine has queued, and answers whether the
+/// connection is still usable.
+///
+/// An alert is the only thing on this channel that cannot be taken again later:
+/// there is no path for asking the machine afterwards, so what does not get
+/// through is gone unless it is kept. So a send that fails hands the rest back
+/// — including the one that failed — and the reconnect delivers them into the
+/// far end's duplicate check, which resolves a re-delivery to the row already
+/// written rather than to a second one.
+async fn send_queued_alerts<S: mesh_agent_core::ControlStream>(
+    conn: &mut mesh_agent_core::AgentConnection<S>,
+    sink: &mesh_agent_core::alerts::AlertSink,
+) -> bool {
+    let mut queued = sink.drain();
+    if queued.is_empty() {
+        return true;
+    }
+    let raised = queued.len();
+
+    let mut sent = 0;
+    while let Some(alert) = queued.first() {
+        if let Err(e) = conn
+            .send_control(mesh_agent_core::alerts::alert_message(alert))
+            .await
+        {
+            warn!(
+                error = %e, rule_id = %alert.rule_id, sent, unsent = queued.len(),
+                "alert send failed, will reconnect and offer them again"
+            );
+            sink.return_unsent(queued);
+            return false;
+        }
+        debug!(
+            rule_id = %alert.rule_id, subject = %alert.subject, summary = %alert.summary,
+            "alert sent"
+        );
+        queued.remove(0);
+        sent += 1;
+    }
+
+    // What either limit cost this machine is carried beside what it delivered,
+    // so a queue that lost entries says so rather than reading as a quiet
+    // machine.
+    let stats = sink.stats();
+    if stats.dropped_oldest > 0 || stats.suppressed_by_ceiling > 0 {
+        warn!(
+            raised,
+            dropped_oldest = stats.dropped_oldest,
+            suppressed_by_ceiling = stats.suppressed_by_ceiling,
+            "this machine has lost alerts to its own limits"
+        );
+    }
+    true
+}
+
 /// Sends an `AgentUpdateAck` control message, ignoring send failures.
 async fn send_update_ack<S: mesh_agent_core::ControlStream>(
     conn: &mut mesh_agent_core::AgentConnection<S>,
@@ -1335,6 +1410,10 @@ fn agent_capabilities(has_local_store: bool) -> Vec<mesh_protocol::AgentCapabili
         AgentCapability::DeviceLogs,
         AgentCapability::Discovery,
         AgentCapability::ThresholdAlerts,
+        // Every machine composes an alert's evidence where it fires and sends
+        // the alert with that evidence attached, so nothing is ever asked of it
+        // afterwards.
+        AgentCapability::Alerts,
     ];
     if has_local_store {
         caps.push(AgentCapability::Backfill);

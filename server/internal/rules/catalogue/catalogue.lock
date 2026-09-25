@@ -10,8 +10,13 @@
 #   go test ./internal/rules/ -run TestEmbeddedCatalogueMatchesItsCommittedLock
 # names any rule that drifted.
 
-disk-critical   1 fa56320fa43cc97c6d310cb2bb8785599a17f0ab7211a7ba8031e6166766f941
-cpu-saturated   1 168692ea9fb988d6c8d186ae6d2935fb588556e4ae098bc6e1ebbdffa55fe615
-memory-pressure 1 e7eb8446bd36175ad19c70eb96f78ab8e11daf1d66b16fa2ee4cc9c35ae5f484
-io-stalled      1 3927650a68d8d27bdb843b6bf63c2f23ba27ad20eca35cb5a317ba6213528995
-disk-slow       1 07168056276c9640e10457cf49bff5f5debd2de0add06c3fe8da92454c639fd2
+cpu-saturated          1 fb4fdb69ac7111b9a68e6485f62a9a84f4c1a549271069f1126e4c6175b898fd
+disk-critical          1 002a28d93babbeaf772b59a7d57bee3bd97c59e1288405fdeedd38d1bccdbfd1
+disk-slow              1 a922a939a51bc76d241b838c50f927e157be8f1ef60430f6ff97cc48702349c1
+io-stalled             1 d57a413d9e4d20d3717726f59ce924758ff6e18312fb052685df97d9bc708b8f
+linux-ata-reset        1 430e4a11a025f4a61df73c0ea6f7e09b3b487f77990c7cb92cfe44b858ed5a0c
+linux-hung-task        1 c4d02d0dc5d2e4d88e8dc5725e795cfc905d7b00c24de0416fdca576ba96b114
+linux-oom-kill         1 6cdcb48c86a3fad93c95b78c3bdb88633b11cc6903f358f1a16f1e1775e14d56
+linux-service-errors   1 f45910b1fda03bc8fcd850e66daa52ff1f2cb32aca54fdb9cb953f16ff076b94
+linux-thermal-throttle 1 407ab449f6cd71d66fa21a490879252def2c8d22197b8a3493d06e3bd425359e
+memory-pressure        1 50366feb5210dc42fce2bba0c4cf216de6ddad52150988606a7afe9ffef84c68

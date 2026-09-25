@@ -106,7 +106,10 @@ counter), the content checks
 severity outside the closed set, an incomplete idempotency key, a rule this
 build does not ship, timestamps outside the window that kind of alert is allowed
 and evidence that names an unreadable codec or does not decode, plus
-`alert_duplicate` for a reconnect replaying one already stored,
+`alert_rule_stopped` for a rule the customer switched off — which only a rule
+the machine's own log reader carries can raise, because one about a reading is
+stopped by not being sent — `alert_duplicate` for a reconnect replaying one
+already stored,
 `alert_organization_unknown` for a machine whose customer cannot be resolved,
 and `alert_organization_ceiling` for a customer's spent hourly budget.
 
@@ -116,7 +119,9 @@ bound and still persisted, so only its timestamp changes. An alert is refused
 instead — its window start is part of the identity a reconnect replay resolves
 against, so pulling that to a bound would land the same alert on a different row
 each time and duplicate it rather than deduplicate it. A retroactive finding is
-legitimately old, so its backward bound is the wider backfill retention. The
+legitimately old — a machine's own store reaches months back and answering "has
+this happened before?" over it is the whole point — so its backward bound is how
+long an alert is kept rather than how long a metric sample is. The
 live-path bounds sit next to the handlers in
 [`conn_telemetry.go`](../../server/internal/agentapi/conn_telemetry.go);
 reconnect backfill keeps its own far wider retention floor in

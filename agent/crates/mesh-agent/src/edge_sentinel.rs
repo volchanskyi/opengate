@@ -7,10 +7,19 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::clock::unix_now;
+use crate::event_watch::EventCoverage;
+use mesh_agent_core::alerts::{
+    pack_evidence, AlertOrigin, AlertSeverity, AlertSink, DimSeries, EdgeAlert, EvidenceSource,
+    Firing, SERIES_DIMS, SERIES_SPAN_SECS,
+};
+use mesh_agent_core::correlate::{
+    correlate_snapshot, CorrelationLimits, CorrelationWindow, Ranked,
+};
 use mesh_agent_core::maintenance::{MaintenanceGate, MaintenanceTransition};
 use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
-use mesh_agent_core::ml::store_sink::LocalStoreSink;
-use mesh_protocol::{ControlMessage, ThresholdRule};
+use mesh_agent_core::ml::sampler::MetricSample;
+use mesh_agent_core::ml::store_sink::{dim_series, LocalStoreSink};
+use mesh_protocol::{ControlMessage, HistoryPoint, ProcessReportEntry, ThresholdRule};
 
 /// The sampler-owned local store, shared with the WS-15 backfill coordinator on
 /// the control loop. The sampler holds the lock only for the sub-millisecond
@@ -101,6 +110,151 @@ pub(crate) fn spawn_discovery(
             std::thread::sleep(DISCOVERY_INTERVAL);
         }
     })
+}
+
+/// What every rule is doing on this machine: the ones this sampler evaluates,
+/// and the ones the log watch answers for. The estate counts every rule against
+/// the whole fleet, so a rule reported by neither would read as a rule nobody
+/// pushed rather than one watching every machine.
+fn all_coverage(
+    evaluator: &mesh_agent_core::alerts::AlertEvaluator,
+    events: &EventCoverage,
+) -> Vec<mesh_protocol::RuleCoverage> {
+    let mut coverage = evaluator.coverage();
+    if let Ok(reported) = events.lock() {
+        coverage.extend(reported.iter().cloned());
+    }
+    coverage
+}
+
+/// Raise one alert for a rule that has just started firing.
+///
+/// The evidence is assembled here rather than at delivery, because this is the
+/// only moment it exists: central keeps a sixty-second average per dimension
+/// and there is no path for asking the machine later, so a ten-second collapse
+/// that explains the incident is on this message or it is nowhere.
+///
+/// The window is the stretch the rule actually held over, so a re-delivery
+/// after a broken link resolves to the row already written.
+fn raise_alert(
+    alerts: &AlertSink,
+    store: Option<&SharedSink>,
+    sample: &MetricSample,
+    firing: &Firing,
+    now: i64,
+) {
+    let packed = pack_evidence(&EvidenceSource {
+        ranked: &ranked_dimensions(store, firing.at),
+        readings: &readings_behind(store, &ranked_dimensions(store, firing.at), firing.at),
+        processes: &running_now(sample),
+        log_lines: &[],
+        event_ts: firing.at,
+    });
+    let outcome = alerts.push(
+        EdgeAlert {
+            rule_id: firing.rule_id.clone(),
+            // The revision the machine is actually running, which is the one
+            // the server sent with the rule.
+            rule_version: firing.rule_version,
+            severity: edge_severity(firing.severity),
+            ts_micros: firing.at.saturating_mul(MICROS_PER_SEC),
+            window_start_micros: firing.since.saturating_mul(MICROS_PER_SEC),
+            window_end_micros: firing.at.saturating_mul(MICROS_PER_SEC),
+            metric: firing.metric.clone(),
+            value: Some(firing.value),
+            subject: firing.metric.clone(),
+            summary: String::new(),
+            evidence: packed.bytes,
+            evidence_codec: packed.codec.to_string(),
+            origin: AlertOrigin::Live,
+        },
+        now.saturating_mul(MICROS_PER_SEC),
+    );
+    debug!(
+        rule_id = %firing.rule_id, metric = %firing.metric, value = firing.value,
+        ?outcome, "edge-sentinel raised an alert"
+    );
+}
+
+/// How this machine spells a severity the server sent it. The set is closed on
+/// both sides, so this is a spelling rather than a decision.
+fn edge_severity(severity: mesh_protocol::AlertSeverity) -> AlertSeverity {
+    match severity {
+        mesh_protocol::AlertSeverity::Info => AlertSeverity::Info,
+        mesh_protocol::AlertSeverity::Critical => AlertSeverity::Critical,
+        _ => AlertSeverity::Warning,
+    }
+}
+
+/// Which of this machine's readings broke pattern around the event, ranked by
+/// the machine itself. A machine with no local store answers with nothing
+/// rather than with a ranking of one dimension it happened to have.
+fn ranked_dimensions(store: Option<&SharedSink>, at: i64) -> Vec<Ranked> {
+    let Some(window) = CorrelationWindow::new(
+        at.saturating_sub(EVIDENCE_BASELINE_SECS),
+        at,
+        at.saturating_sub(EVIDENCE_SPAN_SECS),
+        at.saturating_add(EVIDENCE_SPAN_SECS),
+    ) else {
+        return Vec::new();
+    };
+    let Some(snapshot) = store.and_then(|s| s.lock().ok()?.snapshot().ok()) else {
+        return Vec::new();
+    };
+    correlate_snapshot(&snapshot, &window, &CorrelationLimits::default())
+        .map(|ranking| ranking.ranked)
+        .unwrap_or_default()
+}
+
+/// The readings behind the dimensions that ranked highest. A dimension whose
+/// readings the store has already evicted costs the alert its series and
+/// nothing else.
+fn readings_behind(store: Option<&SharedSink>, ranked: &[Ranked], at: i64) -> Vec<DimSeries> {
+    let Some(snapshot) = store.and_then(|s| s.lock().ok()?.snapshot().ok()) else {
+        return Vec::new();
+    };
+    let (from, to) = (
+        at.saturating_sub(EVIDENCE_SPAN_SECS),
+        at.saturating_add(EVIDENCE_SPAN_SECS).saturating_add(1),
+    );
+    ranked
+        .iter()
+        .take(SERIES_DIMS)
+        .filter_map(|r| {
+            let series = dim_series(&r.dim)?;
+            let points = snapshot
+                .range_raw(series, from, to)
+                .ok()?
+                .into_iter()
+                .map(|(sample, _anomaly)| HistoryPoint {
+                    ts: sample.ts,
+                    value: sample.value,
+                })
+                .collect();
+            Some(DimSeries {
+                dim: r.dim.clone(),
+                points,
+            })
+        })
+        .collect()
+}
+
+/// What was running at the instant the rule fired, busiest first. The basenames
+/// are redacted by the composer on their way in, because a process name is a
+/// free-text field a host chose.
+fn running_now(sample: &MetricSample) -> Vec<ProcessReportEntry> {
+    sample
+        .processes
+        .iter()
+        .map(|p| ProcessReportEntry {
+            rank: u32::from(p.rank),
+            basename: p.basename.clone(),
+            cmdline_hash: p.cmdline_hash.clone(),
+            pid: p.pid,
+            cpu: p.cpu,
+            mem: p.mem,
+        })
+        .collect()
 }
 
 /// Build the WS-19 breach-carrying `AgentHealthSummary` for emission. Only the
@@ -239,7 +393,30 @@ pub(crate) struct AlertWiring {
     /// Breach-carrying `AgentHealthSummary` sink, drained by the control loop on
     /// heartbeat alongside log-rate and discovery telemetry.
     pub health_tx: SyncSender<ControlMessage>,
+    /// Where an alert goes when a rule starts firing. The same queue every
+    /// other producer on this machine writes to, so one machine's whole output
+    /// shares one bound and one hourly allowance.
+    pub alert_sink: AlertSink,
+    /// What the rules reading this machine's own words can answer for. They are
+    /// evaluated by a different watch entirely, but the estate is told what
+    /// every rule is doing in one place, so the report carries both — a rule
+    /// missing from the count reads as a rule nobody pushed.
+    pub event_coverage: EventCoverage,
 }
+
+/// How far either side of the firing instant the evidence's readings reach.
+/// Matches the span the composition contracts for, so what a technician opens
+/// looks the same whichever producer raised it.
+const EVIDENCE_SPAN_SECS: i64 = SERIES_SPAN_SECS;
+
+/// How much history the ranking compares the event against. Long enough to say
+/// what normal looked like on this machine, short enough that a slow drift over
+/// a week is not mistaken for the machine's baseline.
+const EVIDENCE_BASELINE_SECS: i64 = 1_800;
+
+/// Microseconds in a second: the sampler works in one, the alert queue in the
+/// other.
+const MICROS_PER_SEC: i64 = 1_000_000;
 
 /// Samples the required warm-up window before the ensemble can be trained.
 const WARMUP_SAMPLES: usize = 30;
@@ -435,12 +612,23 @@ pub(crate) fn spawn_sampler(
                         alert_eval.set_rules(rules);
                     }
                 }
-                let breaches = alert_eval.evaluate(&sample, now);
-                let breaching = !breaches.is_empty();
+                let firing = alert_eval.evaluate(&sample, now);
+
+                // An episode that has just begun is one thing that happened, so
+                // it raises one alert carrying everything this machine knows
+                // about why — assembled here, at the moment it fired, because
+                // nothing will be asked of the machine afterwards.
+                for started in firing.iter().filter(|f| f.started) {
+                    raise_alert(&alerts.alert_sink, sink.as_ref(), &sample, started, now);
+                }
+
+                let breaching = !firing.is_empty();
+                let breaches = AlertEvaluator::breaches(&firing);
+                let coverage = || all_coverage(&alert_eval, &alerts.event_coverage);
                 if should_emit_health(last_health_emit, now, breaching, last_breaching) {
                     if alerts
                         .health_tx
-                        .try_send(breach_summary(now, breaches, alert_eval.coverage()))
+                        .try_send(breach_summary(now, breaches, coverage()))
                         .is_err()
                     {
                         debug!("edge-sentinel health summary dropped: telemetry channel full");
@@ -461,13 +649,7 @@ pub(crate) fn spawn_sampler(
                     let bitmask = pack_bitmask(&anomaly_bits);
                     if alerts
                         .health_tx
-                        .try_send(anomaly_summary(
-                            now,
-                            rate,
-                            bitmask,
-                            Vec::new(),
-                            alert_eval.coverage(),
-                        ))
+                        .try_send(anomaly_summary(now, rate, bitmask, Vec::new(), coverage()))
                         .is_err()
                     {
                         debug!("edge-sentinel anomaly summary dropped: telemetry channel full");

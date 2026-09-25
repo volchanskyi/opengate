@@ -7,7 +7,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---- Stage 2: Build Go server ----
-FROM golang:1.26-alpine AS server-build
+FROM golang:1.27-alpine AS server-build
 # What the linker keeps. The default drops the symbol table and the debugging
 # information, which is what every image this repository ships wants.
 #

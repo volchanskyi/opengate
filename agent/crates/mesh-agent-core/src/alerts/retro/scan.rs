@@ -9,15 +9,16 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Instant;
 
-use mesh_protocol::{AlertComparator, ThresholdRule};
+use mesh_protocol::{AlertComparator, HistoryPoint, ThresholdRule};
 
 use crate::ml::store_sink::DimReadings;
 
 use super::super::evaluator::AlertEvaluator;
-use super::super::sink::{AlertOrigin, AlertSink, EdgeAlert};
+use super::super::evidence::pack_metric_evidence;
+use super::super::sink::{AlertOrigin, AlertSeverity, AlertSink, EdgeAlert};
 use super::{
     floor_to_minute, RetroBudget, RetroCursor, RetroError, RetroHistory, RetroPlan, RetroStats,
-    RetroStep, EVIDENCE_READINGS, MICROS_PER_SEC, RETRO_BUCKET_SECS, RETRO_SEVERITY,
+    RetroStep, EVIDENCE_READINGS, MICROS_PER_SEC, RETRO_BUCKET_SECS,
 };
 
 /// One rule being re-run over one device's history.
@@ -259,14 +260,31 @@ impl RetroScan {
     }
 
     /// The finding for a rule that started firing at `bucket`.
+    ///
+    /// The window is the stretch the rule required, ending at the minute it
+    /// finally fired: that is what the rule looked at, and its start is the
+    /// identity the far end resolves a re-delivery by, so it has to be worked
+    /// out from the rule rather than from when the scan happened to reach it.
     fn finding(&self, bucket: i64) -> EdgeAlert {
+        let packed = pack_metric_evidence(self.plan.metric, &self.readings(), bucket);
         EdgeAlert {
             rule_id: self.plan.rule.id.clone(),
-            severity: RETRO_SEVERITY,
+            rule_version: self.plan.rule.version,
+            // As bad as the rule that found it says it is. A finding out of
+            // history is the same failure as a live one — it simply happened
+            // before anybody was watching for it.
+            severity: edge_severity(self.plan.rule.severity),
             ts_micros: bucket.saturating_mul(MICROS_PER_SEC),
+            window_start_micros: bucket
+                .saturating_sub(i64::from(self.plan.rule.sustain_secs))
+                .saturating_mul(MICROS_PER_SEC),
+            window_end_micros: bucket.saturating_mul(MICROS_PER_SEC),
+            metric: self.plan.metric.to_string(),
+            value: self.recent.back().map(|&(_, value)| value),
             subject: self.plan.metric.to_string(),
             summary: self.summary(),
-            evidence: self.evidence(bucket),
+            evidence: packed.bytes,
+            evidence_codec: packed.codec.to_string(),
             origin: AlertOrigin::Backfilled,
         }
     }
@@ -290,19 +308,24 @@ impl RetroScan {
         )
     }
 
-    /// The readings behind a finding, oldest first.
-    fn evidence(&self, bucket: i64) -> Vec<String> {
+    /// The readings behind a finding, oldest first. They are the rule's own
+    /// dimension over the minutes leading up to the moment it fired — the only
+    /// thing a scan over history has to show, since nothing was running to
+    /// observe and no other dimension was read.
+    fn readings(&self) -> Vec<HistoryPoint> {
         self.recent
             .iter()
-            .map(|&(ts, value)| {
-                let minutes = bucket.saturating_sub(ts) / RETRO_BUCKET_SECS;
-                if minutes == 0 {
-                    format!("as it fired: {} = {value:.2}", self.plan.metric)
-                } else {
-                    format!("{minutes} min earlier: {} = {value:.2}", self.plan.metric)
-                }
-            })
+            .map(|&(ts, value)| HistoryPoint { ts, value })
             .collect()
+    }
+}
+
+/// How this machine spells a severity the server sent it.
+fn edge_severity(severity: mesh_protocol::AlertSeverity) -> AlertSeverity {
+    match severity {
+        mesh_protocol::AlertSeverity::Info => AlertSeverity::Info,
+        mesh_protocol::AlertSeverity::Critical => AlertSeverity::Critical,
+        _ => AlertSeverity::Warning,
     }
 }
 

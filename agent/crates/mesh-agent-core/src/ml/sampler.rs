@@ -10,7 +10,7 @@ use super::primary_iface::resolve_primary_iface;
 use super::redact::cmdline_hash;
 
 /// One ranked process entry from a host sample.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProcessSample {
     /// Stable rank within this sample; rank is the future series key.
     pub rank: u8,
@@ -18,6 +18,12 @@ pub struct ProcessSample {
     pub basename: String,
     /// Optional hash of the full command line for audited on-demand flows.
     pub cmdline_hash: Option<String>,
+    /// The operating system's identifier for the process.
+    pub pid: u32,
+    /// Share of the machine's processors this process was using, in percent.
+    pub cpu: f64,
+    /// Resident memory, in bytes.
+    pub mem: f64,
 }
 
 /// Host-level metric snapshot consumed by the local detector.
@@ -368,6 +374,13 @@ impl MetricSampler for SysinfoSampler {
                     rank: process_rank(index),
                     basename: basename_of(process.exe(), process.name()),
                     cmdline_hash,
+                    // What the process was doing at this instant. The list is
+                    // already sorted on it, so a reader who sees the ranking
+                    // without the numbers has to take the order on trust — and
+                    // "the busiest process" means nothing without how busy.
+                    pid: process.pid().as_u32(),
+                    cpu: f64::from(process.cpu_usage()),
+                    mem: process.memory() as f64,
                 }
             })
             .collect();

@@ -298,3 +298,175 @@ func pushedRules(t *testing.T, ac *AgentConn, buf *bytes.Buffer) map[string]prot
 	require.Equal(t, protocol.MsgPushAlertRules, msg.Type)
 	return byRuleID(msg.AlertRules)
 }
+
+// --- a rule change reaching machines that are already connected ---
+//
+// A rule runs on a customer's own machines, on processor time they pay for, so
+// a rule that turns out to be wrong has to be stoppable without waiting for
+// anything. That is only true if the change reaches a machine that is already
+// connected: a healthy link is held open indefinitely, so "when it next
+// registers" can be weeks on a stable estate — long enough for an administrator
+// to switch a rule off, watch the screen say Stopped, and have it go on firing
+// every night.
+
+// TestARuleChangeReachesMachinesAlreadyConnected is the switch doing something.
+func TestARuleChangeReachesMachinesAlreadyConnected(t *testing.T) {
+	t.Parallel()
+
+	contoso, fabrikam := uuid.New(), uuid.New()
+	srv, machines := connectedFleet(t, map[uuid.UUID]int{contoso: 3, fabrikam: 2})
+
+	reached := srv.RefreshAlertRules(context.Background(), contoso)
+
+	assert.Equal(t, 3, reached, "every connected machine of that customer is reached")
+	for _, m := range machines[contoso] {
+		assert.Truef(t, m.received(protocol.MsgPushAlertRules),
+			"%s must be given the ruleset as it now stands", m.name)
+	}
+	for _, m := range machines[fabrikam] {
+		assert.Falsef(t, m.received(protocol.MsgPushAlertRules),
+			"%s belongs to another customer and must be left alone", m.name)
+	}
+}
+
+// A customer with nobody connected is not an error: every machine picks the
+// change up as it arrives, which is what the offline half has always done.
+func TestARuleChangeWithNobodyConnectedReachesNobody(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := connectedFleet(t, map[uuid.UUID]int{uuid.New(): 2})
+
+	assert.Zero(t, srv.RefreshAlertRules(context.Background(), uuid.New()),
+		"a customer with no machines on the wire is reached by nobody, and that is not a failure")
+}
+
+// A rule wrong everywhere is stopped everywhere at once, which is the reason
+// the tenant-wide scope exists. It must reach every machine in the tenant and
+// no machine outside it.
+func TestATenantWideChangeReachesEveryMachineInTheTenant(t *testing.T) {
+	t.Parallel()
+
+	contoso, fabrikam := uuid.New(), uuid.New()
+	srv, machines := connectedFleet(t, map[uuid.UUID]int{contoso: 2, fabrikam: 2})
+
+	reached := srv.RefreshAlertRulesForTenant(context.Background(), theTenant)
+
+	assert.Equal(t, 4, reached, "both customers' machines are in one tenant")
+	for _, fleet := range machines {
+		for _, m := range fleet {
+			assert.Truef(t, m.received(protocol.MsgPushAlertRules), "%s must be reached", m.name)
+		}
+	}
+
+	assert.Zero(t, srv.RefreshAlertRulesForTenant(context.Background(), uuid.New()),
+		"and a stop in one tenant reaches nobody in another")
+}
+
+// One machine that cannot be written to does not cost the rest their change. A
+// connection breaking mid-push is ordinary, and that machine picks the rule up
+// as it reconnects.
+func TestOneUnreachableMachineDoesNotStopTheOthers(t *testing.T) {
+	t.Parallel()
+
+	contoso := uuid.New()
+	srv, machines := connectedFleet(t, map[uuid.UUID]int{contoso: 3})
+	machines[contoso][0].fail = true
+
+	reached := srv.RefreshAlertRules(context.Background(), contoso)
+
+	assert.Equal(t, 2, reached, "the two that could be written to were")
+	assert.False(t, machines[contoso][0].received(protocol.MsgPushAlertRules))
+}
+
+// theTenant is the tenant every machine in the refresh cases belongs to, so a
+// tenant-wide case has something to be wide across.
+var theTenant = uuid.New()
+
+// wiredMachine is one machine on the wire: a connection registered with the
+// server, and the frames written to it.
+type wiredMachine struct {
+	name string
+	conn *AgentConn
+	out  *refusingWriter
+	fail bool
+}
+
+// received reports whether the machine was written one of these.
+func (m *wiredMachine) received(msgType protocol.ControlMessageType) bool {
+	codec := &protocol.Codec{}
+	reader := bytes.NewReader(m.out.written.Bytes())
+	for {
+		frame, payload, err := codec.ReadFrame(reader)
+		if err != nil {
+			return false
+		}
+		if frame != protocol.FrameControl {
+			continue
+		}
+		msg, err := codec.DecodeControl(payload)
+		if err != nil {
+			return false
+		}
+		if msg.Type == msgType {
+			return true
+		}
+	}
+}
+
+// refusingWriter is a machine's stream, which the case can break. A connection
+// dying mid-push is ordinary, and what matters is that it costs that machine
+// and nobody else.
+type refusingWriter struct {
+	written bytes.Buffer
+	machine *wiredMachine
+}
+
+func (w *refusingWriter) Write(p []byte) (int, error) {
+	if w.machine != nil && w.machine.fail {
+		return 0, errors.New("the link to this machine broke")
+	}
+	return w.written.Write(p)
+}
+
+func (w *refusingWriter) Read([]byte) (int, error) { return 0, errors.New("nothing to read") }
+func (w *refusingWriter) Close() error             { return nil }
+
+// connectedFleet brings up a server holding one connection per machine, spread
+// across the customers named. Every machine is in one tenant, because that is
+// what a tenant-wide case is about.
+func connectedFleet(t *testing.T, estates map[uuid.UUID]int) (*AgentServer, map[uuid.UUID][]*wiredMachine) {
+	t.Helper()
+
+	srv := &AgentServer{logger: testLogger()}
+	fleet := make(map[uuid.UUID][]*wiredMachine, len(estates))
+
+	for org, size := range estates {
+		for i := range size {
+			deviceID := uuid.New()
+			machine := &wiredMachine{name: fmt.Sprintf("machine-%d-of-%s", i, org)}
+			machine.out = &refusingWriter{machine: machine}
+			machine.conn = &AgentConn{
+				DeviceID:     deviceID,
+				TenantID:     theTenant,
+				Capabilities: []protocol.AgentCapability{protocol.CapThresholdAlerts},
+				stream:       machine.out,
+				codec:        &protocol.Codec{},
+				settings: fixedReader{scope: settings.Scope{
+					DeviceID:       deviceID,
+					OrganizationID: org,
+					TenantID:       theTenant,
+				}},
+				alertRules: newRolloutProvider(t, &fakeRuleConfig{}, nil),
+				logger:     testLogger(),
+			}
+			// The machine has been given a ruleset once, which is what a
+			// connected machine always has: it is registered.
+			require.NoError(t, machine.conn.pushAlertRules(context.Background()))
+			machine.out.written.Reset()
+
+			srv.conns.Store(deviceID, machine.conn)
+			fleet[org] = append(fleet[org], machine)
+		}
+	}
+	return srv, fleet
+}

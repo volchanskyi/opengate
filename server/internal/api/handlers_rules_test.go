@@ -38,14 +38,31 @@ func TestRulesReportCoverageThatAddsUpToTheFleet(t *testing.T) {
 	assert.Equal(t, 1, catalogue.FleetSize)
 	require.NotEmpty(t, catalogue.Rules)
 
+	watchingWords := 0
 	for _, rule := range catalogue.Rules {
 		total := rule.Coverage.Active + rule.Coverage.Throttled +
 			rule.Coverage.Unsupported + rule.Coverage.Unknown
 		assert.Equalf(t, catalogue.FleetSize, total,
 			"rule %s must account for every machine in the estate", rule.Id)
 		assert.NotEmpty(t, rule.Summary, "a rule a person reads has to say what it is for")
-		assert.NotEmpty(t, rule.Tunable, "the numbers a customer may retune are what this surface is for")
+		assert.NotEmptyf(t, rule.Severity, "rule %s must say how bad it is", rule.Id)
+
+		if rule.Kind == Event {
+			// A rule reading the machine's own log records compares no number,
+			// so there is nothing to retune and nothing to show a line for.
+			// What an administrator can still do is stop it, which is the
+			// control that matters for a rule that turns out to be noisy.
+			watchingWords++
+			assert.Emptyf(t, rule.Tunable, "rule %s watches words, so it has no numbers to retune", rule.Id)
+			assert.Nilf(t, rule.Metric, "rule %s watches words, so it names no reading", rule.Id)
+			assert.Nilf(t, rule.Threshold, "rule %s watches words, so it has no line to cross", rule.Id)
+			continue
+		}
+		assert.NotEmptyf(t, rule.Tunable, "rule %s watches a reading, so it has numbers a customer may retune", rule.Id)
+		assert.NotNilf(t, rule.Metric, "rule %s watches a reading and must name it", rule.Id)
 	}
+	assert.Positive(t, watchingWords,
+		"the screen must show the rules that read the machine's own words, or an administrator cannot stop one")
 }
 
 // TestRulesExposeNoAuthoringSurface. Rules are data in a bounded grammar

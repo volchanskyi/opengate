@@ -150,7 +150,7 @@ Every scenario is three phases: baseline, fault, recovery.
 
 | Scenario | The fault | What is measured |
 |---|---|---|
-| S1 | the site goes dark for a length drawn from the run's own seed, and comes back on a healthy link | whether the machine came back on its own, how long the site waited and how long the reconnect itself took, and how much of the hole its absence left in the customer's charts filled in |
+| S1 | the site goes dark for a length drawn from the run's own seed, and comes back on a healthy link | whether the machine came back on its own, how long the site waited and how long the reconnect itself took, how much of the hole its absence left in the customer's charts filled in, and whether the alert it raised while nobody could hear it arrived afterwards |
 | S2 | the same outage, recovered over a 2 Mbit/s uplink shared by every machine | the worst staleness of the live readings while the site catches up, how much of the herd was behind the link while it did, and whether any machine lost its connection doing it |
 | S3 | the connection stays up and a fifth of what the machine sends is lost | whether the machine holds its connection or churns |
 | S4 | a third of a second each way, then the machine returns on a new address | whether the session survives the new address, and — recorded separately — whether the machine reconnected instead |
@@ -158,6 +158,15 @@ Every scenario is three phases: baseline, fault, recovery.
 S4's two numbers are recorded together on purpose. A migration that does not
 happen and a link that breaks look identical from the outside: both end at the
 idle timeout. Only the pair tells them apart.
+
+S1 also makes the machine find something wrong while it is dark. Readings fill
+back in afterwards, but an alert cannot: there is no high-resolution history
+behind a signal to go back to and no path for asking the machine later, so an
+outage that swallows one swallows the incident and nothing anywhere says the
+machine was ever in trouble. The scenario aims a rule at what that machine's own
+disk is actually doing rather than at a number written down here — a machine
+whose disk is under the lowest line the rule allows cannot be armed, and the
+scenario says it could not observe rather than reporting a pass.
 
 S1's reconnect numbers are a pair for a related reason. What a site waits
 through is measured from the moment the link is handed back to the moment the
@@ -220,7 +229,7 @@ Executor legend: **H** = Go harness (in-process) · **IG** = ingress annotations
 | Edge 504 | IG | The proxy read timeout is shorter than the backend takes; public client times out; cleanup restores `2xx`. | on restore |
 | Pod deletion | RUN | Replacement pod ready within the **120 s** SLO; clients reconnect. | **≤ 120 s** |
 | Bad rollout | RUN | Rollout fails readiness; Helm rollback restores the prior image healthy. | ≤ 180 s rollback |
-| Machine outage, healthy recovery (S1) | ND | The machine comes back unaided and the hole in its charts fills to at least 95 %. | **≤ 120 s** for the site to be watching it again, **≤ 35 s** for the reconnect itself |
+| Machine outage, healthy recovery (S1) | ND | The machine comes back unaided, the hole in its charts fills to at least 95 %, and the alert it raised in the dark opens a room in the customer's queue. | **≤ 120 s** for the site to be watching it again, **≤ 35 s** for the reconnect itself |
 | Machine outage, thin-uplink recovery (S2) | ND | Live readings stay fresh while the site catches up; no machine loses its connection. | ≤ 90 s staleness |
 | One-way packet loss (S3) | ND | The machine holds its connection; no offline transition, no flap. | n/a — held throughout |
 | Satellite delay and re-addressing (S4) | ND | The connection stays open at 300 ms each way, and the session survives the machine returning on a new address. | ≤ 90 s after the change |

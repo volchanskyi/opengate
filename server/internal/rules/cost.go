@@ -35,7 +35,16 @@ func predicateCost(predicate protocol.RulePredicate, windowSecs uint32) uint64 {
 
 // RuleCost is a rule's whole evaluation cost: its own condition plus every
 // extra one it requires.
+//
+// A rule about the machine's own words costs nothing per rule. The machine
+// reads its log on one bounded poll a minute and runs the whole pack over what
+// comes back, so a further matcher in that pack asks the machine for nothing
+// further — and charging each one against a budget measured in retained
+// readings would refuse a pack the machine reads for free.
 func RuleCost(def Definition) uint64 {
+	if def.WatchesEvents() {
+		return 0
+	}
 	cost := predicateCost(def.Predicate(), def.WindowSecs)
 	for _, term := range def.All {
 		cost = saturatingAdd(cost, predicateCost(term.Predicate(), term.WindowSecs))

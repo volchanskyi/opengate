@@ -369,6 +369,107 @@ outage_seconds() {
   printf '%s\n' "$((FAULT_SECONDS - FAULT_SPREAD_SECONDS / 2 + SHAPER_SEED % FAULT_SPREAD_SECONDS))"
 }
 
+# --- an alert raised while the link is down -----------------------------------
+#
+# A machine that finds something wrong while it cannot reach anybody holds the
+# alert and offers it when the link comes back. That is the one thing on this
+# channel that cannot be taken again later — there is no high-resolution history
+# behind a signal and no path for asking the machine afterwards — so an outage
+# that loses it loses the incident outright.
+#
+# The rule is tuned against what this machine's own disk is actually doing
+# rather than against a number written here. What a shared node's disk is doing
+# is not this drill's to decide, and a rule aimed at a line the machine is
+# nowhere near would measure nothing while looking like a pass.
+
+# The rule the drill arms. It is one the product ships, so the alert it raises
+# is one the product accepts.
+ALERT_DRILL_RULE="disk-critical"
+# The shortest hold the rule allows, so the firing lands inside an outage rather
+# than after it.
+ALERT_DRILL_SUSTAIN=60
+# How far under the machine's own reading the line is set. Far enough that a
+# reading drifting down a point during the outage does not clear it, close
+# enough that it is still the machine's real disk being watched.
+ALERT_DRILL_MARGIN=5
+# The lowest line the rule may be tuned to. A machine whose disk is under this
+# cannot be armed at all, which is a drill that could not observe rather than a
+# product that failed.
+ALERT_DRILL_FLOOR=50
+# The customer whose rule this run tuned, so the teardown can put it back. It
+# outlives the scenario's own variables because the teardown runs after them.
+ARMED_ORG=""
+
+api_post() {
+  probe_curl -X POST -H "Authorization: Bearer ${API_TOKEN:-}" \
+    -H 'Content-Type: application/json' --data "$2" "$SERVER_URL$1"
+}
+
+api_put() {
+  probe_curl -X PUT -H "Authorization: Bearer ${API_TOKEN:-}" \
+    -H 'Content-Type: application/json' --data "$2" "$SERVER_URL$1"
+}
+
+# The fullest mount on the machine, as a whole percentage, read from the machine
+# itself. This is the same number its own sampler compares against the rule.
+machine_disk_percent() {
+  kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- \
+    sh -c "df -P | awk 'NR>1 {gsub(/%/,\"\",\$5); if (\$5+0 > m) m=\$5+0} END {print m+0}'" 2>/dev/null
+}
+
+# The customer the machine belongs to, which is whose rule is being tuned.
+machine_organization() {
+  device_row | jq -r '.organization_id // empty' 2>/dev/null
+}
+
+# Tune the rule to a line this machine is already past, held for the shortest
+# span it allows. The change reaches the machine on the connection it is already
+# holding, so nothing is restarted to make it take effect — which is what lets
+# it be armed a second before the link goes dark.
+arm_the_alert() {
+  local org="$1" line="$2"
+  ARMED_ORG="$org"
+  api_put "/api/v1/rules/$ALERT_DRILL_RULE/bindings?organization_id=$org" \
+    "$(jq -cn --arg org "$org" --argjson line "$line" --argjson hold "$ALERT_DRILL_SUSTAIN" \
+      '{level: "organization", level_key: $org, params: {threshold: $line, sustain_secs: $hold}}')" \
+    >/dev/null
+}
+
+# Put the rule back the way it ships, whatever the scenario found. A drill that
+# left a customer's estate tuned to fire on every machine would be worse than
+# one that measured nothing.
+disarm_the_alert() {
+  local org="$ARMED_ORG"
+  [ -n "$org" ] || return 0
+  ARMED_ORG=""
+  probe_curl -X DELETE -H "Authorization: Bearer ${API_TOKEN:-}" \
+    "$SERVER_URL/api/v1/rules/$ALERT_DRILL_RULE/bindings?organization_id=$org&level=organization&level_key=$org" \
+    >/dev/null 2>&1 || true
+}
+
+# How many rooms this machine's alerts have opened for the armed rule.
+rooms_for_the_armed_rule() {
+  local body
+  body="$(api_get "/api/v1/investigations?device_id=$DEVICE_ID&rule_id=$ALERT_DRILL_RULE")" || return 1
+  jq -r '[.items[]?] | length' <<<"$body"
+}
+
+# Wait for the alert the machine raised in the dark to arrive, bounded by the
+# recovery budget. Answers how long it took, or nothing when it never came.
+wait_until_the_alert_arrives() {
+  local from="$1" budget="$2" deadline rooms
+  deadline=$(($(date +%s) + budget))
+  while [ "$(date +%s)" -le "$deadline" ]; do
+    rooms="$(rooms_for_the_armed_rule)" || rooms=""
+    if [ -n "$rooms" ] && [ "$rooms" -gt 0 ] 2>/dev/null; then
+      printf '%s\n' "$(($(date +%s) - from))"
+      return 0
+    fi
+    sleep "$POLL_SECONDS"
+  done
+  return 1
+}
+
 # --- what the scenario produces ----------------------------------------------
 
 # One measurement. The labels are the ones the trend is sliced by; the value is
@@ -472,10 +573,29 @@ THIN_UPLINK='{"rate_bits_per_sec":2000000,"max_queue_ms":1000}'
 # rather than stalling: a stalled connection never exercises reconnect at all.
 run_s1() {
   local dark_from dark_to restored restored_epoch online_at ratio filled_at outage
+  local org disk line replayed_in
 
   impair "$PASS_THROUGH"
   open_counters
   hold "$BASELINE_SECONDS"
+
+  # Arm the machine to find something wrong while it is dark. The rule is aimed
+  # at this machine's own disk, and the drill says so rather than guessing: a
+  # node under the lowest line the rule allows cannot be armed, which is a
+  # scenario that could not observe rather than a product that failed.
+  org="$(machine_organization)" \
+    || inconclusive "the drill could not read which customer its machine belongs to"
+  [ -n "$org" ] \
+    || inconclusive "the drill's machine belongs to no customer, so no rule can be tuned for it"
+  disk="$(machine_disk_percent)" \
+    || inconclusive "the drill could not read its machine's own disk"
+  line=$((disk - ALERT_DRILL_MARGIN))
+  [ "$line" -ge "$ALERT_DRILL_FLOOR" ] 2>/dev/null \
+    || inconclusive "this machine's fullest mount is at ${disk}%, and the rule cannot be tuned below ${ALERT_DRILL_FLOOR}% — there is no line here it is already past"
+  trap 'disarm_the_alert; clear_the_link' EXIT
+  arm_the_alert "$org" "$line" \
+    || inconclusive "the drill could not tune the rule it measures the replay with"
+  emit netdrill_alert_line real "$line"
 
   outage="$(outage_seconds)"
   dark_from="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -504,6 +624,17 @@ run_s1() {
 
   ratio="$(gap_fill_ratio "$dark_from" "$dark_to" || echo 0)"
   emit netdrill_gap_fill_ratio real "$ratio"
+
+  # The alert the machine raised while nobody could hear it. It is held on the
+  # machine through the outage and offered when the link returns, so what this
+  # measures is whether the incident survived the dark rather than whether the
+  # machine noticed.
+  if replayed_in="$(wait_until_the_alert_arrives "$restored" "$RECOVERY_SECONDS")"; then
+    emit netdrill_alerts_replayed real 1
+    emit netdrill_alert_replay_seconds real "$replayed_in"
+  else
+    emit netdrill_alerts_replayed real 0
+  fi
 
   read_counters recovery
   emit_shaper_counters "$COUNTERS"

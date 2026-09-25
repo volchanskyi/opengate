@@ -51,7 +51,7 @@ export TOOL_VERSION_YAMLLINT="1.38.0"
 export TOOL_VERSION_GITLEAKS="8.21.2"
 export TOOL_VERSION_ACTIONLINT="1.7.12"
 export TOOL_VERSION_PMAT="3.17.0"
-export TOOL_VERSION_GO_ARCH_LINT="1.15.0"
+export TOOL_VERSION_GO_ARCH_LINT="1.19.0"
 export TOOL_VERSION_CARGO_AUDIT="0.22.1"
 export TOOL_VERSION_CARGO_DENY="0.19.6"
 export TOOL_VERSION_CARGO_MODULES="0.26.0"
@@ -89,7 +89,7 @@ export TOOL_VERSION_VIEWCORE="v0.0.0-20260908162731-ac862fd6552b"
 # stopped working outright when the Go it had been built with fell behind the
 # code it analyses, and the failure surfaced inside a gauntlet step whose subject
 # is dead code.
-export TOOL_VERSION_STATICCHECK="0.7.0"
+export TOOL_VERSION_STATICCHECK="0.8.1"
 export TOOL_VERSION_GOSEC="2.29.0"
 export TOOL_VERSION_CARGO_FUZZ="0.13.2"
 export TOOL_VERSION_CARGO_NEXTEST="0.9.129"

@@ -188,3 +188,97 @@ func TestAnIncidentIdFromAnotherTenantIsIndistinguishableFromAMissingOne(t *test
 	assert.Equal(t, invented.Status, real.Status,
 		"a room that exists and a room that does not must answer the same to somebody who may see neither")
 }
+
+// foldedAlert is one alert as the room it landed in lists it.
+type foldedAlert struct {
+	ID         uuid.UUID `json:"id"`
+	RuleID     string    `json:"rule_id"`
+	Severity   string    `json:"severity"`
+	Backfilled bool      `json:"backfilled"`
+	ObservedAt time.Time `json:"observed_at"`
+}
+
+// investigation is a room opened, with what folded into it.
+type investigation struct {
+	Incident incident      `json:"incident"`
+	Alerts   []foldedAlert `json:"alerts"`
+}
+
+// openIncident reads one room the way the browser does.
+func (a *Technician) openIncident(id uuid.UUID) investigation {
+	a.t.Helper()
+	var room investigation
+	reply := a.Get(a.InCustomer("/api/v1/investigations/" + id.String()))
+	require.Equalf(a.t, http.StatusOK, reply.Status, "opening the room failed: %s", reply.Text())
+	reply.Into(&room)
+	return room
+}
+
+// raiseWordAlert is a machine reporting something it found in its own log.
+//
+// A rule reading the machine's own words compares no number, so the alert names
+// no reading and carries no value that crossed a line — the record itself is
+// the evidence, and the machine redacted it before the alert existed. The
+// window is the instant the record was written, at both ends: a log line is a
+// moment rather than a stretch.
+func (m *Machine) raiseWordAlert(ruleID string) {
+	m.t.Helper()
+
+	packed, err := msgpack.Marshal(protocol.AlertEvidence{
+		LogSamples: []string{"Out of memory: Killed process 4242 (reporting-svc)"},
+	})
+	require.NoError(m.t, err)
+	var compressed bytes.Buffer
+	writer, err := flate.NewWriter(&compressed, flate.BestSpeed)
+	require.NoError(m.t, err)
+	_, err = writer.Write(packed)
+	require.NoError(m.t, err)
+	require.NoError(m.t, writer.Close())
+
+	severity := protocol.AlertSeverityCritical
+	backfilled := false
+	at := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+
+	m.Send(&protocol.ControlMessage{
+		Type:          protocol.MsgAgentAlert,
+		AlertID:       uuid.NewString(),
+		RuleID:        ruleID,
+		RuleVersion:   1,
+		Severity:      &severity,
+		WindowStartTS: at.Unix(),
+		WindowEndTS:   at.Unix(),
+		ObservedTS:    at.Unix(),
+		Backfilled:    &backfilled,
+		EvidenceCodec: protocol.EvidenceCodec,
+		Evidence:      compressed.Bytes(),
+	})
+}
+
+// raiseFinding is a machine reporting what a newly arrived rule would have
+// caught, found by re-running it over the history the machine already held.
+//
+// It is stamped with the minute it happened rather than the minute it was
+// found, which is what keeps a whole scan from reading as a fleet-wide outage
+// happening right now.
+func (m *Machine) raiseFinding(ruleID string, happenedAt time.Time) {
+	m.t.Helper()
+
+	severity := protocol.AlertSeverityWarning
+	backfilled := true
+	value := 97.5
+	at := happenedAt.UTC().Truncate(time.Second)
+
+	m.Send(&protocol.ControlMessage{
+		Type:          protocol.MsgAgentAlert,
+		AlertID:       uuid.NewString(),
+		RuleID:        ruleID,
+		RuleVersion:   1,
+		Severity:      &severity,
+		Metric:        "cpu.total",
+		Value:         &value,
+		WindowStartTS: at.Add(-5 * time.Minute).Unix(),
+		WindowEndTS:   at.Unix(),
+		ObservedTS:    at.Unix(),
+		Backfilled:    &backfilled,
+	})
+}

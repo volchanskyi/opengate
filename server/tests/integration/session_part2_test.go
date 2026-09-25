@@ -42,6 +42,17 @@ func (g serverAgentGetter) ListConnectedAgents() []api.AgentControl {
 	return out
 }
 
+// An administrator's rule change riding out to the machines already holding the
+// old one. It is the real path here, because these cases run a real agent
+// server: a change made in one of them reaches the connections it is holding.
+func (g serverAgentGetter) RefreshAlertRules(ctx context.Context, organizationID uuid.UUID) int {
+	return g.srv.RefreshAlertRules(ctx, organizationID)
+}
+
+func (g serverAgentGetter) RefreshAlertRulesForTenant(ctx context.Context, tenantID uuid.UUID) int {
+	return g.srv.RefreshAlertRulesForTenant(ctx, tenantID)
+}
+
 func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	t.Helper()
 	return newSessionTestEnvWithAPITimeout(t, 0)

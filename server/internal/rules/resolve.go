@@ -53,7 +53,14 @@ func Resolve(def Definition, device Device, bindings []Binding) protocol.Thresho
 	}
 
 	return protocol.ThresholdRule{
-		ID:          def.ID,
+		ID: def.ID,
+		// The definition's own revision, not a count of retunings: a customer's
+		// number is configuration, while a change of meaning is a new
+		// definition. An alert raised against this rule names this revision.
+		Version: wireVersion(def.Version),
+		// How bad this rule's alerts are, stated once in the catalogue and
+		// carried to the machine that raises them.
+		Severity:    def.WireSeverity(),
 		Metric:      metric,
 		Comparator:  def.Comparator(),
 		Threshold:   value("threshold"),
@@ -63,6 +70,20 @@ func Resolve(def Definition, device Device, bindings []Binding) protocol.Thresho
 		WindowSecs:  uint32(value("window_secs")),
 		All:         wireTerms(def.All),
 	}
+}
+
+// wireVersion is a definition's revision as the wire carries it.
+//
+// The loader refuses a revision outside this range, so the answer below is the
+// same statement read from the other end. A revision that did not survive the
+// conversion would arrive as a different number, and an alert's identity is
+// built on it — so one that cannot be carried is carried as nothing, which the
+// far end refuses outright rather than filing an alert nobody can trace back.
+func wireVersion(version int) uint32 {
+	if version < minRuleVersion || uint64(version) > maxRuleVersion {
+		return 0
+	}
+	return uint32(version)
 }
 
 // wireTerms converts a definition's extra conditions to their wire form. Terms

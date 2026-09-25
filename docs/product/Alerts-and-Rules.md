@@ -24,6 +24,10 @@ Two kinds of rule produce alerts:
 | [Threshold rules](#threshold-alerts) | Numeric readings — the vitals | A mount filling, a disk whose service time is drifting upward |
 | [System-event rules](#system-event-alerts) | The machine's own log records | A task hung for two minutes, a process killed to reclaim memory, a processor throttling itself on heat |
 
+Every rule states how bad its alerts are, and the alert carries that from the
+machine. It is what orders the triage queue: a disk about to stop accepting
+writes and one that merely feels slow are not the same news.
+
 > **Alerts never page anyone directly.** Every alert is folded into an incident
 > and worked from the triage queue in [Investigations](./Investigations.md).
 > Browser notifications carry device and session events only.
@@ -158,10 +162,13 @@ handful of machines, then a tenth of them, then all of them.
 - A floor of a handful of machines keeps a stage meaningful on a small estate,
   where a percentage of a dozen machines is nobody.
 
-**Stopping a rule needs no deploy.** A kill reaches a connected machine at the
-next push of its ruleset, and an offline one as it reconnects — whichever comes
-first. A kill outranks the stage, so the canary machines proving the rule lose it
-too. The operator surface for all of this is in
+**Stopping a rule needs no deploy, and no waiting.** A machine's link stays open
+for as long as it is healthy, so a change that waited for the machine to connect
+again would be waiting for something unrelated to break it. A stop, a resume and
+a retuned number all go out to that customer's connected machines as the
+administrator makes them, and to an offline machine as it arrives. A stop
+outranks the stage, so the first machines proving a rule lose it too. The
+operator surface for all of this is in
 [Rule Administration](./Rule-Administration.md#rollout).
 
 ### "Has this happened before?"
@@ -216,6 +223,19 @@ log.
 A curated pack of Linux rules reads those records from the systemd journal, and
 one further rule counts something no single record says: one service producing
 errors over and over for a day.
+
+The phrases each of these matches on are built into the machine, because they
+are what its log reader is made of. What the server holds for one is the rest of
+the rule — its name, its revision, how bad it is, and where its alerts belong —
+which is what lets an alert from it be accepted, placed in a room and switched
+off. So they appear beside the threshold rules in
+[Rule Administration](./Rule-Administration.md), with a stop switch and nothing
+to retune, because there is no number in them to tune.
+
+A machine that cannot read its own log at all — a container, or a platform this
+agent reads no log on — reports every rule in the pack as one it cannot
+evaluate, rather than reporting nothing. A standing hole in what the estate is
+watched for reads completely differently from a machine that is merely quiet.
 
 **Exclusions matter as much as matches.** Every subsystem that reports a failure
 also reports its recovery, usually naming the same component in nearly the same

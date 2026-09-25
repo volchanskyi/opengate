@@ -8,6 +8,20 @@
   },
   "benchmarks": [
     {
+      "name": "BenchmarkAdmitAlert",
+      "lang": "go",
+      "ns_op": 8700,
+      "bytes_op": 40750,
+      "allocs_op": 7
+    },
+    {
+      "name": "BenchmarkAdmitAlertWithFullEvidence",
+      "lang": "go",
+      "ns_op": 13200,
+      "bytes_op": 40740,
+      "allocs_op": 7
+    },
+    {
       "name": "BenchmarkCodec_DecodeControl",
       "lang": "go",
       "ns_op": 1402.5,

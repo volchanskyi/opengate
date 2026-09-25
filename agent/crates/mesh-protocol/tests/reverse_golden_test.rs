@@ -386,6 +386,35 @@ fn reverse_golden_push_alert_rules() {
         rules[1..].iter().all(|rule| rule.all.is_empty()),
         "only the first fixture rule carries a conjunction"
     );
+
+    // Each rule's revision arrives as the server stated it. An alert names the
+    // revision that fired, so a machine that lost this field could raise
+    // nothing the server accepts — and none of the fixture's revisions is one,
+    // so a defaulted field fails here rather than coinciding.
+    //
+    // So does how bad the rule is, which the machine puts on every alert it
+    // raises. The fixture cycles all three, so an agent that dropped the field
+    // would read a broken machine as the mildest of them and file it where
+    // nobody looks.
+    let severities = [
+        AlertSeverity::Critical,
+        AlertSeverity::Warning,
+        AlertSeverity::Info,
+    ];
+    for (offset, rule) in rules.iter().enumerate() {
+        let want = u32::try_from(offset).expect("fixture index fits") + 2;
+        assert_eq!(
+            rule.version, want,
+            "{} must arrive carrying the revision the server sent",
+            rule.id
+        );
+        assert_eq!(
+            rule.severity,
+            severities[offset % severities.len()],
+            "{} must arrive carrying how bad the server said it is",
+            rule.id
+        );
+    }
 }
 
 #[test]

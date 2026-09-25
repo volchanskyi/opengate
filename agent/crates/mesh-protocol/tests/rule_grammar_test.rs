@@ -9,15 +9,17 @@
 //! the extension still decodes.
 
 use mesh_protocol::{
-    canonical_rule_metric, AlertComparator, ControlMessage, Frame, RuleCoverage, RuleCoverageState,
-    RulePredicate, RuleTerm, ThresholdRule, MAX_RULE_TERMS, MAX_RULE_WINDOW_SECS, RULE_METRICS,
-    RULE_METRIC_ALIASES,
+    canonical_rule_metric, AlertComparator, AlertSeverity, ControlMessage, Frame, RuleCoverage,
+    RuleCoverageState, RulePredicate, RuleTerm, ThresholdRule, MAX_RULE_TERMS,
+    MAX_RULE_WINDOW_SECS, RULE_METRICS, RULE_METRIC_ALIASES,
 };
 
 /// A minimal instant rule on a canonical metric.
 fn rule(metric: &str) -> ThresholdRule {
     ThresholdRule {
         id: "r".to_string(),
+        version: 1,
+        severity: AlertSeverity::Warning,
         metric: metric.to_string(),
         comparator: AlertComparator::Gt,
         threshold: 90.0,
@@ -120,6 +122,8 @@ fn rule_with_every_grammar_field_round_trips() {
     let msg = ControlMessage::PushAlertRules {
         rules: vec![ThresholdRule {
             id: "disk-wearing-out".to_string(),
+            version: 4,
+            severity: AlertSeverity::Critical,
             metric: "disk.await_ms".to_string(),
             comparator: AlertComparator::Gte,
             threshold: 20.0,

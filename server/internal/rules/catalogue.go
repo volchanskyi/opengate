@@ -24,6 +24,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -79,6 +80,31 @@ var predicateVocabulary = map[string]protocol.RulePredicate{
 // tunableFields are the fields a customer binding may override. They are the
 // numbers on the rule, never its shape: retuning a threshold is configuration,
 // while changing the metric or the predicate is a different rule.
+const (
+	// minRuleVersion is the first revision a definition may declare. Counting
+	// from one leaves nothing for an absent revision to be mistaken for.
+	minRuleVersion = 1
+	// maxRuleVersion is the last one the wire can carry, which is what bounds
+	// it: an alert names the revision that fired, so a revision that did not
+	// survive the journey would identify an alert as something else.
+	maxRuleVersion = uint64(math.MaxUint32)
+)
+
+// KindEvent names a rule that watches the machine's own log records. A rule
+// that names no kind watches a reading, which is what every rule in the file
+// was before this one existed.
+const KindEvent = "event"
+
+// severityVocabulary maps the file's spelling of how bad a rule is to the enum
+// an alert carries. The set is closed at the database too, so a severity
+// outside it would be a write that fails rather than a screen that renders
+// nothing.
+var severityVocabulary = map[string]protocol.AlertSeverity{
+	"info":     protocol.AlertSeverityInfo,
+	"warning":  protocol.AlertSeverityWarning,
+	"critical": protocol.AlertSeverityCritical,
+}
+
 var tunableFields = map[string]bool{
 	"threshold":    true,
 	"clear":        true,
@@ -123,6 +149,23 @@ func (t Term) Predicate() protocol.RulePredicate { return predicateVocabulary[t.
 type Definition struct {
 	ID      string `yaml:"id" json:"id"`
 	Version int    `yaml:"version" json:"version"`
+	// Kind is what the rule watches. Empty is a rule about a reading, which is
+	// what every rule was when the file held only those; KindEvent is a rule
+	// about the words the machine writes about itself.
+	//
+	// The two are evaluated by different machinery on the endpoint and only one
+	// of them travels: a rule about a reading is sent to the machine and
+	// compared there, while the phrases a rule about words matches on are what
+	// the machine's log reader is built around and stay compiled into it. What
+	// this file carries for one of those is the rest of the rule — its name,
+	// its revision, how bad it is, and where its alerts belong — which is
+	// exactly what the server needs to accept an alert, place it in a room and
+	// let an administrator stop it.
+	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
+	// Severity is how bad this rule's alerts are. It orders the queue: a rule
+	// that stated none would file a disk about to stop accepting writes beside
+	// one that merely feels slow.
+	Severity string `yaml:"severity" json:"severity"`
 	// Summary says what the rule is for, in an operator's words. It is
 	// documentation rather than behavior, and is deliberately outside the
 	// immutability digest so a clearer wording is not a version bump.
@@ -151,6 +194,15 @@ type Definition struct {
 	// Tunable declares which parameters a customer binding may override, and how
 	// far. A parameter absent here cannot be bound at all.
 	Tunable map[string]Bounds `yaml:"tunable" json:"tunable"`
+}
+
+// WatchesEvents reports whether this rule reads the machine's own words rather
+// than one of its readings.
+func (d Definition) WatchesEvents() bool { return d.Kind == KindEvent }
+
+// WireSeverity resolves the rule's severity to the enum an alert carries.
+func (d Definition) WireSeverity() protocol.AlertSeverity {
+	return severityVocabulary[d.Severity]
 }
 
 // Comparator resolves the rule's comparison to the wire enum.

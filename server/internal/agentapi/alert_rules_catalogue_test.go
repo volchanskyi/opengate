@@ -107,7 +107,14 @@ func TestCatalogueProviderServesTheShippedPackByDefault(t *testing.T) {
 
 	cat, err := rules.Embedded()
 	require.NoError(t, err)
-	assert.Len(t, got.Rules, len(cat.All()), "every shipped rule should reach a customer who configured nothing")
+	watchingReadings := 0
+	for _, def := range cat.All() {
+		if !def.WatchesEvents() {
+			watchingReadings++
+		}
+	}
+	assert.Len(t, got.Rules, watchingReadings,
+		"every shipped rule about a reading should reach a customer who configured nothing")
 
 	indexed := byRuleID(got.Rules)
 	disk, ok := indexed["disk-critical"]
@@ -189,6 +196,7 @@ func TestCatalogueProviderResolvesLegacyMetricNamesEndToEnd(t *testing.T) {
 rules:
   - id: legacy-memory
     version: 1
+    severity: warning
     summary: Written before the vitals rename.
     metric: mem.used
     comparator: gte
@@ -200,6 +208,7 @@ rules:
     group_window_secs: 300
   - id: legacy-disk
     version: 1
+    severity: warning
     summary: Written before the vitals rename.
     metric: disk.used
     comparator: gte

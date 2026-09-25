@@ -203,9 +203,22 @@ a supply-chain weapon aimed at every customer estate — so everything a rule ca
 say is expressible in [`ThresholdRule`](../../agent/crates/mesh-protocol/src/control.rs)
 and analysable from its declared fields alone.
 
-Each rule names a metric, a comparator, a fire threshold, a hysteresis `clear`
-boundary on the safe side of it, and the seconds a breach must hold before it
-fires. Beyond that it declares:
+Each rule names its own revision, how bad its alerts are, a metric, a
+comparator, a fire threshold, a hysteresis `clear` boundary on the safe side of
+it, and the seconds a breach must hold before it fires.
+
+The first two travel because the machine puts them on every alert the rule
+raises. An alert is identified by the machine, the rule, that revision and the
+window it fired for, so a machine that was never told which revision it is
+running could raise nothing the server accepts; and a queue ordered by severity
+cannot order an alert that states none.
+
+`PushAlertRules` is sent as a machine registers, and again whenever an
+administrator changes what that customer's machines should be running. A healthy
+link is held open indefinitely, so a change that waited for the next
+registration would wait for something unrelated to break it.
+
+Beyond that a rule declares:
 
 | Field | Meaning |
 |---|---|

@@ -52,18 +52,25 @@ type AgentConn struct {
 	// deny-list (older tests); nil is treated as not tombstoned.
 	isTombstoned func() bool
 
-	stream         io.ReadWriter
-	codec          *protocol.Codec
-	devices        device.Repository
-	hardware       device.HardwareRepository
-	deviceUpdates  updater.DeviceUpdateRepository
-	telemetry      telemetry.NumericWriter
-	processes      telemetry.ProcessRepository
-	inventory      inventory.Repository
-	scheduler      *BackfillScheduler
-	alertRules     AlertRuleProvider
-	alertStore     AlertRecorder
-	ruleCatalog    *rules.Catalogue
+	stream        io.ReadWriter
+	codec         *protocol.Codec
+	devices       device.Repository
+	hardware      device.HardwareRepository
+	deviceUpdates updater.DeviceUpdateRepository
+	telemetry     telemetry.NumericWriter
+	processes     telemetry.ProcessRepository
+	inventory     inventory.Repository
+	scheduler     *BackfillScheduler
+	alertRules    AlertRuleProvider
+	alertStore    AlertRecorder
+	ruleCatalog   *rules.Catalogue
+	// wantedEventRules is which rules about the machine's own words this
+	// customer still receives alerts from, read beside the ruleset this
+	// connection was given. Nil means nobody has said, which admits them all.
+	wantedEventRules map[string]struct{}
+	// organizationID is the customer this machine belongs to, learned when its
+	// ruleset was resolved. Guarded by metaMu with the rest of the snapshot.
+	organizationID uuid.UUID
 	coverage       *RuleCoverageStore
 	ruleCoverage   UnsupportedCoverageStore
 	settings       settings.Reader
@@ -139,6 +146,15 @@ type AgentMeta struct {
 	OS           string
 	Arch         string
 	AgentVersion string
+	// OrganizationID and TenantID are where this machine sits in the tenancy
+	// ladder, learned when its ruleset was resolved. They are here so a change
+	// an administrator makes can find that customer's connected machines
+	// without asking the database whose each one is.
+	//
+	// Zero until the machine has been given a ruleset, which is a machine no
+	// change has anything to refresh on.
+	OrganizationID uuid.UUID
+	TenantID       uuid.UUID
 }
 
 // Meta returns a consistent snapshot of the agent's registration metadata under
@@ -148,10 +164,12 @@ func (a *AgentConn) Meta() AgentMeta {
 	a.metaMu.RLock()
 	defer a.metaMu.RUnlock()
 	return AgentMeta{
-		DeviceID:     a.DeviceID,
-		OS:           a.OS,
-		Arch:         a.Arch,
-		AgentVersion: a.AgentVersion,
+		DeviceID:       a.DeviceID,
+		OS:             a.OS,
+		Arch:           a.Arch,
+		AgentVersion:   a.AgentVersion,
+		OrganizationID: a.organizationID,
+		TenantID:       a.TenantID,
 	}
 }
 

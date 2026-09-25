@@ -17,6 +17,7 @@ const validYAML = `
 rules:
   - id: disk-critical
     version: 1
+    severity: critical
     summary: A disk is nearly full.
     metric: disk.used_percent
     comparator: gte
@@ -208,6 +209,13 @@ func TestEmbeddedCatalogueLoadsAndIsImmutable(t *testing.T) {
 	for _, def := range cat.All() {
 		assert.NotEmpty(t, def.Summary, "%s must say what it is for", def.ID)
 		assert.NotEmpty(t, def.GroupBy, "%s must say what its alerts are about", def.ID)
+		assert.NotEmpty(t, def.Severity, "%s must say how bad it is", def.ID)
+		if def.WatchesEvents() {
+			// A rule reading the machine's own words watches no reading, so
+			// there is no name here to hold against the fleet's vocabulary.
+			assert.Empty(t, def.Metric, "%s watches words, so it names no reading", def.ID)
+			continue
+		}
 		_, ok := protocol.CanonicalRuleMetric(def.Metric)
 		assert.True(t, ok, "%s watches %s, which the fleet does not collect", def.ID, def.Metric)
 	}

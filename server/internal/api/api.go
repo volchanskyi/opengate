@@ -64,10 +64,19 @@ type AgentControl interface {
 	Meta() agentapi.AgentMeta
 }
 
-// AgentGetter finds connected agents by device ID or lists all.
+// AgentGetter finds connected agents by device ID or lists all, and carries an
+// administrator's rule change out to the machines already holding the old one.
 type AgentGetter interface {
 	GetAgent(deviceID db.DeviceID) AgentControl
 	ListConnectedAgents() []AgentControl
+	// RefreshAlertRules re-resolves and delivers the ruleset to every connected
+	// machine of one customer, answering how many were reached. A rule runs on
+	// the customer's own machines, so a rule that turns out to be wrong has to
+	// be stoppable without waiting for a link to break.
+	RefreshAlertRules(ctx context.Context, organizationID uuid.UUID) int
+	// RefreshAlertRulesForTenant does the same for every customer in one
+	// tenant, which is the reach a tenant-wide stop asks for.
+	RefreshAlertRulesForTenant(ctx context.Context, tenantID uuid.UUID) int
 }
 
 // CertProvider gives access to the server CA certificate and agent CSR signing.

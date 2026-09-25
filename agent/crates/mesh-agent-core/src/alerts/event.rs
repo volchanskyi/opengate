@@ -34,8 +34,14 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
+use mesh_protocol::{RuleCoverage, RuleCoverageState};
+
+use crate::alerts::evidence::{pack_evidence, EvidenceSource};
 use crate::alerts::sink::{AlertOrigin, AlertSeverity, EdgeAlert};
-use crate::ml::redact::redact_log_line;
+
+/// Microseconds in a second: records are stamped in one and evidence windows
+/// are stated in the other.
+const MICROS_PER_SEC: i64 = 1_000_000;
 
 /// Distinct record keys retained at the cursor's own instant. Reaching this
 /// would need more records than a microsecond-resolution clock can distinguish,
@@ -130,6 +136,11 @@ impl EventMatcher {
 pub struct EventRule {
     /// How the catalogue identifies this rule.
     pub rule_id: String,
+    /// Which revision of this rule the machine is running. It travels with
+    /// every alert the rule raises, because the far end identifies an alert by
+    /// the rule *and* its revision: a rule whose meaning changes is a new
+    /// revision, so an alert raised last week still means what it meant then.
+    pub version: u32,
     /// How bad it is when it fires.
     pub severity: AlertSeverity,
     /// What it means, in the words a technician reads first.
@@ -151,7 +162,8 @@ impl EventRule {
     pub fn linux_pack() -> Vec<Self> {
         vec![
             Self {
-                rule_id: "linux.hung_task".to_string(),
+                rule_id: "linux-hung-task".to_string(),
+                version: 1,
                 severity: AlertSeverity::Warning,
                 summary: "a task was blocked for over two minutes".to_string(),
                 matcher: EventMatcher {
@@ -161,7 +173,8 @@ impl EventRule {
                 },
             },
             Self {
-                rule_id: "linux.oom_kill".to_string(),
+                rule_id: "linux-oom-kill".to_string(),
+                version: 1,
                 severity: AlertSeverity::Critical,
                 summary: "the kernel killed a process to reclaim memory".to_string(),
                 matcher: EventMatcher {
@@ -174,7 +187,8 @@ impl EventRule {
                 },
             },
             Self {
-                rule_id: "linux.ata_reset".to_string(),
+                rule_id: "linux-ata-reset".to_string(),
+                version: 1,
                 severity: AlertSeverity::Warning,
                 summary: "a disk stopped responding and its bus was reset".to_string(),
                 matcher: EventMatcher {
@@ -187,7 +201,8 @@ impl EventRule {
                 },
             },
             Self {
-                rule_id: "linux.thermal_throttle".to_string(),
+                rule_id: "linux-thermal-throttle".to_string(),
+                version: 1,
                 severity: AlertSeverity::Warning,
                 summary: "the processor slowed itself down under thermal load".to_string(),
                 matcher: EventMatcher {
@@ -212,6 +227,11 @@ impl EventRule {
 pub struct ServiceErrorRule {
     /// How the catalogue identifies this rule.
     pub rule_id: String,
+    /// Which revision of this rule the machine is running. It travels with
+    /// every alert the rule raises, because the far end identifies an alert by
+    /// the rule *and* its revision: a rule whose meaning changes is a new
+    /// revision, so an alert raised last week still means what it meant then.
+    pub version: u32,
     /// How bad it is when it fires.
     pub severity: AlertSeverity,
     /// Errors from one service inside the window that constitute "repeatedly".
@@ -227,7 +247,8 @@ pub struct ServiceErrorRule {
 impl Default for ServiceErrorRule {
     fn default() -> Self {
         Self {
-            rule_id: "linux.service_errors".to_string(),
+            rule_id: "linux-service-errors".to_string(),
+            version: 1,
             severity: AlertSeverity::Warning,
             threshold: 10,
             window_secs: 24 * 60 * 60,
@@ -361,6 +382,35 @@ pub struct EventPack {
 }
 
 impl EventPack {
+    /// What this pack is doing on this machine, one entry per rule.
+    ///
+    /// Every rule reports, including on a machine that cannot answer any of
+    /// them: a rule missing from the count is indistinguishable from a rule
+    /// nobody pushed, and a machine with no host log reader — a container, or a
+    /// platform this build reads no log on — is a standing hole in the estate's
+    /// monitoring rather than a machine that happens to be quiet.
+    ///
+    /// Taken from the pack's own rows rather than from anything running, so a
+    /// machine that returned before starting its watch still reports.
+    #[must_use]
+    pub fn coverage(
+        rules: &[EventRule],
+        services: &ServiceErrorRule,
+        can_read_its_log: bool,
+    ) -> Vec<RuleCoverage> {
+        let state = if can_read_its_log {
+            RuleCoverageState::Active
+        } else {
+            RuleCoverageState::Unsupported
+        };
+        rules
+            .iter()
+            .map(|rule| rule.rule_id.clone())
+            .chain(std::iter::once(services.rule_id.clone()))
+            .map(|rule_id| RuleCoverage { rule_id, state })
+            .collect()
+    }
+
     /// A pack watching from `start_micros` onward. Rule instances are supplied
     /// rather than assumed, so the catalogue decides what a device watches for
     /// and this type only decides what watching means.
@@ -479,14 +529,14 @@ impl EventPack {
             .rules
             .iter()
             .filter(|rule| rule.matcher.matches(event.level, event.message))
-            .map(|rule| EdgeAlert {
-                rule_id: rule.rule_id.clone(),
-                severity: rule.severity,
-                ts_micros: event.ts_micros,
-                subject: event.unit.to_string(),
-                summary: rule.summary.clone(),
-                evidence: vec![redact_log_line(event.message)],
-                origin: AlertOrigin::Live,
+            .map(|rule| {
+                alert_for(
+                    &rule.rule_id,
+                    rule.version,
+                    rule.severity,
+                    rule.summary.clone(),
+                    event,
+                )
             })
             .collect();
 
@@ -507,19 +557,59 @@ impl EventPack {
         }
 
         let rule = &self.services.rule;
-        vec![EdgeAlert {
-            rule_id: rule.rule_id.clone(),
-            severity: rule.severity,
-            ts_micros: event.ts_micros,
-            subject: event.unit.to_string(),
-            summary: format!(
+        vec![alert_for(
+            &rule.rule_id,
+            rule.version,
+            rule.severity,
+            format!(
                 "{} logged {} errors within {} hours",
                 event.unit,
                 rule.threshold,
                 rule.window_secs / 3_600
             ),
-            evidence: vec![redact_log_line(event.message)],
-            origin: AlertOrigin::Live,
-        }]
+            event,
+        )]
+    }
+}
+
+/// One record's alert, as every rule in the pack raises it.
+///
+/// A record is a moment rather than a stretch, so the window it fired for is
+/// that instant at both ends — the far end needs a window that runs forwards,
+/// and inventing a span around a single line would claim the rule looked at
+/// something it did not.
+///
+/// The record itself is the evidence, redacted by the composer on its way in.
+/// A rule watching the machine's own words watches no reading, so the alert
+/// names no dimension and carries no value that crossed a line.
+fn alert_for(
+    rule_id: &str,
+    version: u32,
+    severity: AlertSeverity,
+    summary: String,
+    event: &HostEvent<'_>,
+) -> EdgeAlert {
+    let line = event.message.to_string();
+    let packed = pack_evidence(&EvidenceSource {
+        ranked: &[],
+        readings: &[],
+        processes: &[],
+        log_lines: std::slice::from_ref(&line),
+        event_ts: event.ts_micros.div_euclid(MICROS_PER_SEC),
+    });
+    EdgeAlert {
+        rule_id: rule_id.to_string(),
+        rule_version: version,
+        severity,
+        ts_micros: event.ts_micros,
+        window_start_micros: event.ts_micros,
+        window_end_micros: event.ts_micros,
+        metric: String::new(),
+        value: None,
+        subject: event.unit.to_string(),
+        summary,
+        evidence: packed.bytes,
+        evidence_codec: packed.codec.to_string(),
+        origin: AlertOrigin::Live,
     }
 }

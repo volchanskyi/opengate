@@ -34,6 +34,11 @@ type noAgentsConnected struct{}
 func (noAgentsConnected) GetAgent(uuid.UUID) api.AgentControl     { return nil }
 func (noAgentsConnected) ListConnectedAgents() []api.AgentControl { return nil }
 
+// A change an administrator makes with nobody on the wire reaches nobody, which
+// is not a failure: every machine is given it as it arrives.
+func (noAgentsConnected) RefreshAlertRules(context.Context, uuid.UUID) int          { return 0 }
+func (noAgentsConnected) RefreshAlertRulesForTenant(context.Context, uuid.UUID) int { return 0 }
+
 // stubAMT is a test double for amt.Operator that always returns "not connected".
 type stubAMT struct{}
 

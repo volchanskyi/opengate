@@ -205,6 +205,56 @@ pub fn encode_evidence(evidence: &mut AlertEvidence) -> Result<EncodedEvidence, 
     })
 }
 
+/// Compose and pack in one step, for a producer that has nothing to do with a
+/// packing failure.
+///
+/// Evidence that will not serialize costs the alert its detail and never the
+/// alert: a machine in trouble still says so, with nothing behind it. An empty
+/// blob names no codec, because a codec on nothing reads as evidence that
+/// exists.
+#[must_use]
+pub fn pack_evidence(source: &EvidenceSource<'_>) -> EncodedEvidence {
+    pack(compose_evidence(source))
+}
+
+/// Everything one dimension's own readings say about a moment, for a finding
+/// raised over stored history.
+///
+/// A scan over history computes no ranking — it re-runs one rule over
+/// reconstructed minutes, and the dimension the rule watched is the only one it
+/// looked at. Claiming a ranking it never computed would put a score in front
+/// of a technician that means nothing, so the series travels on its own.
+#[must_use]
+pub fn pack_metric_evidence(dim: &str, points: &[HistoryPoint], event_ts: i64) -> EncodedEvidence {
+    let windowed = window_points(points, event_ts);
+    let series = if windowed.is_empty() {
+        Vec::new()
+    } else {
+        vec![EvidenceSeries {
+            // A dimension label comes from a compiled table and is not supposed
+            // to be able to carry a secret. "Supposed to" is not a property
+            // anything checks at run time, and redacting a short string costs
+            // nothing against being wrong once.
+            dim: redact_log_line(dim),
+            points: windowed,
+        }]
+    };
+    pack(AlertEvidence {
+        series,
+        ..AlertEvidence::default()
+    })
+}
+
+/// Encode what was composed, answering with nothing at all when it will not
+/// encode.
+fn pack(mut evidence: AlertEvidence) -> EncodedEvidence {
+    encode_evidence(&mut evidence).unwrap_or(EncodedEvidence {
+        bytes: Vec::new(),
+        codec: "",
+        truncated: false,
+    })
+}
+
 /// Readings inside the event window, capped at [`SERIES_MAX_POINTS`].
 ///
 /// The cap keeps the readings nearest the event: whatever the window holds, the

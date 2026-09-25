@@ -74,3 +74,4 @@
 | 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |
 | 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |
 | 123 | An alert channel is proven by a delivered message; the cluster's monitoring configuration is rendered, applied and read back | [ADR-123](../docs/adr/ADR-123-alert-delivery.md) |
+| 124 | An alert a machine raises reaches the queue: drained on the heartbeat, re-offered after a failed send, and a rule change reaching machines already connected | [ADR-124](../docs/adr/ADR-124-an-alert-reaches-the-queue.md) |

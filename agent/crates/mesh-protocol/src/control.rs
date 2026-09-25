@@ -163,6 +163,18 @@ pub struct ThresholdRule {
     /// Stable rule id, used to attribute a breach and to preserve evaluation
     /// state across an identical rule re-push.
     pub id: String,
+    /// Which revision of the definition this is. An alert's identity is
+    /// `(device, rule, revision, window start)`, so the machine has to be told
+    /// which revision it is running before it can raise an alert the server
+    /// will accept. A retuned number is not a new revision — it is the same
+    /// definition with a different threshold.
+    #[serde(default)]
+    pub version: u32,
+    /// How bad this rule's alerts are. It travels with the rule so the machine
+    /// states it on every alert it raises: a queue ordered by severity cannot
+    /// order an alert that states none.
+    #[serde(default)]
+    pub severity: AlertSeverity,
     /// Watched sampler dimension, resolved through [`canonical_rule_metric`].
     /// A metric outside that vocabulary never fires and is counted
     /// `unsupported`.

@@ -50,14 +50,16 @@ mod event;
 mod evidence;
 mod retro;
 mod sink;
+mod transport;
 
 pub use evidence::{
-    compose_evidence, encode_evidence, DimSeries, EncodedEvidence, EvidenceSource, LOG_SAMPLES,
-    PROCESS_ROWS, RANKED_DIMS, SERIES_DIMS, SERIES_MAX_POINTS, SERIES_SPAN_SECS,
+    compose_evidence, encode_evidence, pack_evidence, pack_metric_evidence, DimSeries,
+    EncodedEvidence, EvidenceSource, LOG_SAMPLES, PROCESS_ROWS, RANKED_DIMS, SERIES_DIMS,
+    SERIES_MAX_POINTS, SERIES_SPAN_SECS,
 };
 
 pub use evaluator::{
-    rule_cost, AlertEvaluator, RULE_BUDGET_READINGS_PER_SEC, RULE_BUDGET_WINDOW_SECS,
+    rule_cost, AlertEvaluator, Firing, RULE_BUDGET_READINGS_PER_SEC, RULE_BUDGET_WINDOW_SECS,
 };
 pub use event::{EventLevel, EventMatcher, EventPack, EventRule, HostEvent, ServiceErrorRule};
 pub use retro::{
@@ -69,3 +71,9 @@ pub use sink::{
     AlertOrigin, AlertSeverity, AlertSink, EdgeAlert, PushOutcome, SinkStats, DEFAULT_CAPACITY,
     DEVICE_HOURLY_CEILING,
 };
+pub use transport::alert_message;
+
+/// How evidence leaving this machine is packed. Named on every alert that
+/// carries any, so the far end refuses a blob it cannot read rather than
+/// storing something unreadable beside the alert.
+pub use mesh_protocol::EVIDENCE_CODEC;

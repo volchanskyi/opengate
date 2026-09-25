@@ -56,8 +56,16 @@ const ATTENTION = new Map<NoiseLevel, number>([
   ['high', 3],
 ]);
 
-/** What the rule watches, and what counts as bad. Description, not a control. */
+/**
+ * What the rule watches, and what counts as bad. Description, not a control.
+ *
+ * A rule reading the machine's own log records compares no number, so it has no
+ * reading, no comparison and no line to show — what it watches is what it says
+ * it watches. Rendering the absence as a comparison would read as a rule
+ * somebody left half-written, and rendering a zero would read as a setting.
+ */
 export function watchWording(rule: Rule): string {
+  if (rule.kind === 'event') return rule.summary;
   return `${rule.metric} ${COMPARATOR_WORDING.get(rule.comparator) ?? rule.comparator} ${rule.threshold}`;
 }
 
