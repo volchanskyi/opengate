@@ -1394,10 +1394,9 @@ components:
         [
           id,
           version,
+          kind,
+          severity,
           summary,
-          metric,
-          comparator,
-          threshold,
           group_by,
           group_window_secs,
           evidence,
@@ -1412,17 +1411,30 @@ components:
           type: string
         version:
           type: integer
+        kind:
+          $ref: "#/components/schemas/RuleKind"
+        severity:
+          allOf:
+            - $ref: "#/components/schemas/IncidentSeverity"
+          description: >-
+            How bad this rule's alerts are. It orders the queue, so every rule
+            states one.
         summary:
           type: string
           description: What the rule is for, in an operator's words.
         metric:
           type: string
+          description: >-
+            The reading it watches. Absent for a rule that watches the machine's
+            own words, which compares no number.
         comparator:
           type: string
           enum: [gt, lt, gte, lte]
+          description: Absent for a rule that watches the machine's own words.
         threshold:
           type: number
           format: double
+          description: Absent for a rule that watches the machine's own words.
         sustain_secs:
           type: integer
         group_by:
@@ -1451,6 +1463,18 @@ components:
           $ref: "#/components/schemas/RuleCoverage"
         noise:
           $ref: "#/components/schemas/RuleNoise"
+
+    RuleKind:
+      type: string
+      description: >-
+        What a rule watches. `reading` compares one of the machine's numbers
+        against a line, and is sent to the machine to be evaluated there.
+        `event` reads the machine's own log records; the phrases it matches are
+        built into the machine, so what is held here is the rest of the rule —
+        its name, its revision, how bad it is, and where its alerts belong. A
+        rule about words has no numbers to retune, and is stopped rather than
+        tuned.
+      enum: [reading, event]
 
     RuleNoiseLevel:
       type: string
