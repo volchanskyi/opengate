@@ -67,9 +67,25 @@ reschedule.
 **The cluster's monitoring configuration is rendered, applied and read back.**
 [`monitoring-config-apply.sh`](../../deploy/scripts/monitoring-config-apply.sh)
 renders the three ConfigMaps from the canonical files, applies what differs,
-asks for it back, and refuses on a difference. It restarts only what changed. The
-nightly infrastructure-drift workflow runs it, so the cluster is compared with
-the repository every night rather than at an install nobody repeated.
+asks for it back, and refuses on a difference. It restarts only what changed,
+each reader once, by the kind the chart runs it as — the store is a StatefulSet,
+and its applier's test reads the kinds from the chart rather than trusting a
+name. The nightly infrastructure-drift workflow runs it, so the cluster is
+compared with the repository every night rather than at an install nobody
+repeated. The chart those ConfigMaps belong beside follows the same way: the
+production deploy upgrades the monitoring release from it every time, so a
+permission or argument the chart gains is not left waiting on a hand install.
+
+**A message carries what the reader needs to act, and nothing Grafana keeps for
+itself.** Grafana is reachable only through a port-forward, so the message is
+the whole of what the person reading it has. Every rule states, in its own
+units, the reading and the line it crossed (`observed`) and the first thing to
+look at (`check`);
+[`message-templates.yml`](../../deploy/grafana/provisioning/alerting/message-templates.yml)
+prints those with the series' own labels and the time it began, says "no data"
+in words when that is the finding, and leaves out Grafana's bookkeeping labels.
+The text is sent unparsed, because summaries carry characters Telegram refuses
+as HTML.
 
 **And a real message goes through the channel every night.** All of the above can
 be correct and still reach nobody. That job cannot alert through the channel it

@@ -259,6 +259,29 @@ mod tests {
 
     const START: i64 = 1_700_000_000 * MICROS_PER_SEC;
 
+    /// Every rule in the pack is reported either way: evaluated on a machine
+    /// that can read its own log, and unevaluable on one that cannot — never
+    /// left out, which would read as a machine nobody has heard from.
+    #[test]
+    fn every_rule_in_the_pack_is_reported_whether_or_not_the_log_can_be_read() {
+        let coverage: EventCoverage = Arc::new(Mutex::new(Vec::new()));
+
+        publish_coverage(&coverage, true);
+        let readable = coverage.lock().unwrap().clone();
+        assert!(!readable.is_empty(), "the pack states what it watches");
+        assert!(readable
+            .iter()
+            .all(|c| c.state == mesh_protocol::RuleCoverageState::Active));
+
+        publish_coverage(&coverage, false);
+        let unreadable = coverage.lock().unwrap().clone();
+        assert_eq!(unreadable.len(), readable.len(), "no rule drops out");
+        assert!(unreadable
+            .iter()
+            .all(|c| c.state == mesh_protocol::RuleCoverageState::Unsupported));
+        assert!(unreadable.iter().any(|c| c.rule_id == "linux-oom-kill"));
+    }
+
     /// A matching record reaches the sink as an alert, and the same record on
     /// the next overlapping poll does not reach it again.
     #[test]

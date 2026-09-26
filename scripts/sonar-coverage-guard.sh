@@ -268,6 +268,16 @@ scov_line_hits() {
       | awk -F: -v p="$path" '$1 == p && NF >= 3 { print $2, $3 }'
     return 0
   fi
+  # The branch holds whichever analysis finished last, and a CI scan of the
+  # previous push can land between this run's upload and this read. Its hits
+  # describe other content, and laid over this change's line numbers they read
+  # as coverage of lines nobody tested. So they count only where the branch
+  # holds the file exactly as the working tree does; otherwise nothing is
+  # printed and the caller reads the reports this run produced.
+  local analysed
+  analysed="$("$CURL_BIN" -s -u "$SONAR_TOKEN:" \
+    "$SONAR_API/api/sources/raw?key=$SONAR_PROJECT:$path&branch=$SONAR_BRANCH" 2>/dev/null)"
+  [ -f "$path" ] && [ -n "$analysed" ] && [ "$analysed" = "$(cat "$path")" ] || return 0
   "$CURL_BIN" -s -u "$SONAR_TOKEN:" \
     "$SONAR_API/api/sources/lines?key=$SONAR_PROJECT:$path&branch=$SONAR_BRANCH" \
     | jq -r '.sources[]? | select(has("lineHits")) | "\(.line) \(.lineHits)"' 2>/dev/null

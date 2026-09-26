@@ -252,18 +252,18 @@ func (a *AgentConn) sendControl(msg *protocol.ControlMessage) error {
 	return nil
 }
 
-func (a *AgentConn) requireCapability(cap protocol.AgentCapability) error {
+func (a *AgentConn) requireCapability(required protocol.AgentCapability) error {
 	// setMeta replaces the slice wholesale rather than mutating it in place, so
 	// copying the header under the read lock and iterating outside is race-safe.
 	a.metaMu.RLock()
 	caps := a.Capabilities
 	a.metaMu.RUnlock()
 	for _, advertised := range caps {
-		if advertised == cap {
+		if advertised == required {
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: %s", ErrCapabilityNotAdvertised, cap)
+	return fmt.Errorf("%w: %s", ErrCapabilityNotAdvertised, required)
 }
 
 // writeFrame writes a single framed message to the agent stream while

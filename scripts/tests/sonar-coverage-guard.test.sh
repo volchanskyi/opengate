@@ -264,6 +264,42 @@ SCOV_REPORT_ROOT="$REPORTS/empty" \
   SCOV_LINES_OVERRIDE="other/file.go:1:5" \
   assert_rc "no figures anywhere → rc 2, never a pass" 2 scov_check_diff
 
+# --- hits describe the content they were measured on --------------------------
+#
+# The branch holds whichever analysis finished last. A CI scan of the previous
+# push that lands between this run's upload and this read replaces it, and its
+# hit counts describe the previous content: laid over this change's line
+# numbers they read as coverage of lines nobody tested. That is how a change
+# with 116 untested lines passed here and read 63.6% in CI. So what the branch
+# says counts only when the branch holds the file as the working tree does.
+WORKTREE="$(mktemp -d)"
+mkdir -p "$WORKTREE/server/internal/app"
+seq 1 15 >"$WORKTREE/server/internal/app/background.go"
+
+cat >"$STUB_DIR/curl-by-url" <<'STUB'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    *api/sources/raw*) printf '%s' "$STUB_RAW"; exit 0 ;;
+    *api/sources/lines*) printf '%s' "$STUB_LINES_JSON"; exit 0 ;;
+  esac
+done
+exit 1
+STUB
+chmod +x "$STUB_DIR/curl-by-url"
+
+export STUB_LINES_JSON='{"sources":[{"line":10,"lineHits":0},{"line":11,"lineHits":0}]}'
+cd "$WORKTREE" || exit 1
+STUB_RAW="$(seq 1 15)" CURL_BIN="$STUB_DIR/curl-by-url" SONAR_TOKEN=stub \
+  assert_rc "hits from an analysis of this content are used" 1 scov_check_diff
+STUB_RAW="$(seq 1 9)" CURL_BIN="$STUB_DIR/curl-by-url" SONAR_TOKEN=stub \
+  assert_ok "hits from an analysis of other content give way to the report" scov_check_diff
+STUB_RAW="" CURL_BIN="$STUB_DIR/curl-by-url" SONAR_TOKEN=stub \
+  assert_ok "an analysis that cannot show its source gives way to the report" scov_check_diff
+cd - >/dev/null || exit 1
+rm -rf "$WORKTREE"
+unset STUB_LINES_JSON
+
 unset SCOV_CHANGED_OVERRIDE SCOV_TOUCHED_OVERRIDE SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
 
 # --- A file the gate does not cover is not a file whose coverage went missing --

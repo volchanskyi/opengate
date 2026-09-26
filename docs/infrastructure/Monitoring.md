@@ -6,7 +6,11 @@ OpenGate monitoring runs inside the same OKE cluster as the application. The
 topology is the Helm chart at
 [`deploy/helm/monitoring`](../../deploy/helm/monitoring), deployed as the
 `monitoring` Helm release; the production and staging app releases run in their
-own namespaces alongside it.
+own namespaces alongside it. The production deploy in
+[`cd.yml`](../../.github/workflows/cd.yml) upgrades that release from the chart
+each time it runs, with
+[`values-production.yaml`](../../deploy/helm/monitoring/values-production.yaml)
+and the deploy's domain, so what the chart declares is what the cluster runs.
 
 Production monitoring is entirely Kubernetes-native, delivered by that release.
 
@@ -369,6 +373,14 @@ refuses to start. A file-provisioned destination is read-only in the user
 interface, which is what keeps it from being changed by hand — and means routing
 and silencing are changes to this repository. See
 [ADR-123](../adr/ADR-123-alert-delivery.md).
+
+A message is written by
+[`message-templates.yml`](../../deploy/grafana/provisioning/alerting/message-templates.yml)
+from two annotations every rule carries: `observed`, the reading in the rule's
+own units beside the line it crossed, and `check`, the first thing to look at.
+The message adds the series' labels and when the alert began, says "no data" in
+words when the query returned nothing, and leaves out the labels Grafana keeps
+for itself.
 
 The same nightly job sends a real message through the bot and fails when it does
 not arrive. Everything above can be correct and still reach nobody, and that job

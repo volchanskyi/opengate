@@ -47,7 +47,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 serde_json = "1"
 
 semver = "1"
-image = "0.25"
+# JPEG is the only format the desktop session encodes, so the other codecs —
+# and the dependency trees behind them — stay out of the agent.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

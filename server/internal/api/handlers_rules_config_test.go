@@ -309,4 +309,28 @@ func TestAWriteNamingNoCustomerActsOnTheTenantsOwn(t *testing.T) {
 	// All of it landed on the tenant's own customer, which is the one the
 	// estate's machines are filed under.
 	assert.True(t, e.killed(t, e.org, "disk-critical"))
+
+	// And the screen that made those changes, still with no customer picked,
+	// shows them. A read that looked somewhere else would show an administrator
+	// a rule still running after they stopped it.
+	listed := doRequest(e.srv, http.MethodGet, testPathRules, e.adminToken, nil)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	var catalogue RuleCatalogue
+	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &catalogue))
+	var diskCritical *Rule
+	for i := range catalogue.Rules {
+		if catalogue.Rules[i].Id == "disk-critical" {
+			diskCritical = &catalogue.Rules[i]
+		}
+	}
+	require.NotNil(t, diskCritical)
+	assert.True(t, diskCritical.Rollout.Kill, "the list shows the stop")
+	assert.True(t, diskCritical.Rollout.Enabled, "and the rollout it was given")
+
+	detail := doRequest(e.srv, http.MethodGet, testPathRules+"/disk-critical", e.adminToken, nil)
+	require.Equal(t, http.StatusOK, detail.Code, detail.Body.String())
+	var shown RuleDetail
+	require.NoError(t, json.Unmarshal(detail.Body.Bytes(), &shown))
+	assert.True(t, shown.Rule.Rollout.Kill, "the rule's own page shows the stop")
+	assert.NotEmpty(t, shown.Bindings, "and the tuning made for that customer")
 }

@@ -238,6 +238,31 @@ else
   fail "a dispatched tag has no way to reach the run that built its agent"
 fi
 
+# --- the monitoring release follows its chart ---------------------------------
+#
+# The monitoring chart was installed by hand once and never again, so what it
+# gained afterwards — the permission the container scrape needs, the store's
+# aggregation argument — never reached the cluster, and the alert for that
+# scrape fired on a configuration the repository had long since fixed. The
+# production deploy upgrades it from the chart every time.
+PROD_BLOCK="$(awk '
+  /^  deploy-production-k8s:/ { inside = 1 }
+  inside && /^  [a-z][a-z0-9-]*:$/ && !/deploy-production-k8s/ { exit }
+  inside { print }
+' "$WORKFLOW")"
+MON_UPGRADE="$(grep -E 'helm upgrade --install monitoring deploy/helm/monitoring' <<<"$PROD_BLOCK" || true)"
+if [ -n "$MON_UPGRADE" ]; then
+  pass "the production deploy upgrades the monitoring release from its chart"
+else
+  fail "the production deploy never upgrades the monitoring release, so the cluster runs whatever was installed by hand"
+fi
+if grep -qF -- '-f deploy/helm/monitoring/values-production.yaml' <<<"$PROD_BLOCK" \
+  && [ -f "$SCRIPT_DIR/../../deploy/helm/monitoring/values-production.yaml" ]; then
+  pass "with the production overlay the release was installed with"
+else
+  fail "the monitoring upgrade must apply deploy/helm/monitoring/values-production.yaml"
+fi
+
 # --- the deploy forwards the internal listener, and proves the edge does not ---
 #
 # The exposition and the profiler answer on the server's second listener. A

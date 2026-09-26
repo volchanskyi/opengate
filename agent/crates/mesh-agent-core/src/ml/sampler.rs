@@ -771,6 +771,28 @@ mod tests {
         assert_eq!(rates, (Some(0.0), Some(0.0)));
     }
 
+    /// The busiest processes come back busiest first, each with the numbers
+    /// behind its place — a ranking without them has to be taken on trust.
+    #[test]
+    fn the_busiest_processes_come_back_with_the_numbers_behind_their_rank() {
+        let mut sampler = SysinfoSampler::new(3).expect("top-N 3 is valid");
+        let sample = sampler.sample().expect("the host can be sampled");
+
+        assert!(
+            (1..=3).contains(&sample.processes.len()),
+            "a running host has processes, and no more than were asked for"
+        );
+        assert!(
+            sample.processes.windows(2).all(|w| w[0].cpu >= w[1].cpu),
+            "busiest first"
+        );
+        for process in &sample.processes {
+            assert!(process.pid > 0, "{} names its process", process.basename);
+            assert!(process.cpu.is_finite() && process.cpu >= 0.0);
+            assert!(process.mem.is_finite() && process.mem >= 0.0);
+        }
+    }
+
     #[test]
     fn top_process_count_must_fit_in_a_rank_byte() {
         assert!(matches!(

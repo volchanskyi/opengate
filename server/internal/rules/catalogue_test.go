@@ -174,6 +174,35 @@ func TestLoadCatalogueRejectsMalformedDefinitions(t *testing.T) {
 			wantErr: "tunable",
 		},
 		{
+			name:    "an id with capitals",
+			mutate:  func(y string) string { return strings.ReplaceAll(y, "id: disk-critical", "id: Disk-Critical") },
+			wantErr: "lower-case",
+		},
+		{
+			// A rule that cannot say what it is for is one nobody reading the
+			// alert can act on.
+			name:    "no summary",
+			mutate:  func(y string) string { return strings.ReplaceAll(y, "    summary: A disk is nearly full.\n", "") },
+			wantErr: "summary is required",
+		},
+		{
+			name: "coverage names a reading the fleet does not collect",
+			mutate: func(y string) string {
+				return y + "    coverage_requires: [disk.spinning_rust]\n"
+			},
+			wantErr: "coverage_requires",
+		},
+		{
+			// A further condition is compared on the machine exactly like the
+			// first, so it is held to the same vocabulary, and the refusal says
+			// which one.
+			name: "a further condition outside the vocabulary",
+			mutate: func(y string) string {
+				return y + "    all:\n      - metric: disk.spinning_rust\n        comparator: gt\n        threshold: 1\n        predicate: Instant\n"
+			},
+			wantErr: "term 0: metric",
+		},
+		{
 			name:    "tunable bounds are inverted",
 			mutate:  func(y string) string { return strings.ReplaceAll(y, "{min: 50, max: 99}", "{min: 99, max: 50}") },
 			wantErr: "bounds",

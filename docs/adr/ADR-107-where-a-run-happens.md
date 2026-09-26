@@ -44,7 +44,9 @@ Processor time is taken in turns rather than used up, so a reading during the
 run is partly a reading of the run itself.
 
 **The endurance run is five hours with churn**, not eight holding still. Holding
-still exercises nothing after the first minute.
+still exercises nothing after the first minute, and eight is not a length this
+venue offers: a scheduled job is killed at six. Five is the longest run that
+finishes, so the churn is where the operations come from.
 
 **The cron names an order, not a time.** The families are sequenced by measured
 duration across five workflows, so they do not collide.

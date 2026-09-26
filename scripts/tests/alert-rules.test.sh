@@ -201,6 +201,79 @@ else
   fail "container-oom-killed must carry severity: critical"
 fi
 
+# --- what a message carries ---------------------------------------------------
+#
+# A message read on a phone is the whole of what the person reading it has. The
+# default one printed "Value: [no value]", every internal label Grafana adds and
+# a paragraph of rationale — and not the reading, the line it crossed, where, or
+# what to look at first. So every rule says, in its own units, what it saw, and
+# names the first thing to check.
+unexplained="$(
+  python3 - "$RULES_FILE" <<'PY'
+import sys, yaml
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = yaml.safe_load(fh)
+
+for group in doc.get("groups", []):
+    for rule in group.get("rules", []):
+        ann = rule.get("annotations", {})
+        observed = ann.get("observed", "")
+        # The reading is the reduced value. Guarded, because a rule firing on
+        # no data has no values and an unguarded field renders as an error.
+        if "with $values.B" not in observed:
+            print(f"{rule['uid']}: observed must render $values.B inside a with")
+        if not ann.get("check", "").strip():
+            print(f"{rule['uid']}: check must name the first thing to look at")
+PY
+)"
+if [ -z "$unexplained" ]; then
+  pass "every rule says what it saw and what to check first"
+else
+  fail "rules a message cannot explain: $unexplained"
+fi
+
+ALERTING_DIR="$(dirname "$RULES_FILE")"
+message_problems="$(
+  python3 - "$ALERTING_DIR" <<'PY'
+import pathlib, sys, yaml
+
+root = pathlib.Path(sys.argv[1])
+docs = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in root.glob("*.yml")}
+
+templates = [t for d in docs.values() for t in (d.get("templates") or [])]
+body = "\n".join(t.get("template", "") for t in templates)
+if '{{ define "opengate.telegram" }}' not in body:
+    print("no template defines opengate.telegram")
+
+# What the template must print, and the internal labels it must not.
+for needle in (".Annotations.summary", ".Annotations.observed", ".Annotations.check",
+               ".StartsAt", '"NoData"', '"Error"'):
+    if needle not in body:
+        print(f"the template does not print {needle}")
+for internal in ("ref_id", "datasource_uid", "grafana_state_reason", "grafana_folder"):
+    if f'"{internal}"' not in body:
+        print(f"the template does not leave out {internal}")
+
+receivers = [r for d in docs.values() for cp in (d.get("contactPoints") or [])
+             for r in cp.get("receivers", [])]
+for r in receivers:
+    s = r.get("settings", {})
+    if 'template "opengate.telegram"' not in s.get("message", ""):
+        print(f"{r.get('uid')}: the message does not use opengate.telegram")
+    # Summaries carry '>' and '&'; parsed as HTML they are refused by Telegram.
+    if s.get("parse_mode") != "None":
+        print(f"{r.get('uid')}: parse_mode must be None so the text is sent as written")
+if not receivers:
+    print("no contact point receivers")
+PY
+)"
+if [ -z "$message_problems" ]; then
+  pass "the Telegram message is the template that prints the reading, the place and the check"
+else
+  fail "the Telegram message: $message_problems"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf '  - %s\n' "${FAILURES[@]}" >&2

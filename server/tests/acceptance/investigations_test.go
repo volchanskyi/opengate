@@ -182,10 +182,10 @@ func TestAnIncidentIdFromAnotherTenantIsIndistinguishableFromAMissingOne(t *test
 	room := admin.awaitIncident()
 
 	outsider := product.TechnicianIn(product.arrangeSeparateTenant("Northwind"))
-	real := outsider.Get("/api/v1/investigations/" + room.ID.String())
+	existing := outsider.Get("/api/v1/investigations/" + room.ID.String())
 	invented := outsider.Get("/api/v1/investigations/" + uuid.NewString())
 
-	assert.Equal(t, invented.Status, real.Status,
+	assert.Equal(t, invented.Status, existing.Status,
 		"a room that exists and a room that does not must answer the same to somebody who may see neither")
 }
 

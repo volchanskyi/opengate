@@ -378,7 +378,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Logger:                logger,
 		WebDir:                cfg.WebDir,
 		Metrics:               appMetrics,
-		Lifetime:              ctx,
+		Lifetime:              ctx.Done(),
 		// The triage queue reads the same store the ingest path writes, and the
 		// rules view is the compiled pack beside how far each rule has reached
 		// and how much of an estate it is watching — the last read comes from

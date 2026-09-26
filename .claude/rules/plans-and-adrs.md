@@ -51,6 +51,20 @@ pointers with just enough text to let a reader choose a link:
 - A row that cannot say what shipped inside its cap is describing a decision,
   and belongs in an ADR.
 
+### Adding a techdebt entry
+
+**MANDATORY, every session.** A new entry in [`techdebt.md`](../techdebt.md) is
+never written without the user's say-so.
+
+- Resolve a debt found during the work, in the same change. Registering it is
+  not a substitute for fixing it.
+- Where it cannot be resolved, ask the user first. The question carries a
+  summary in plain language — what is wrong, what it costs, and what would fix
+  it — with no jargon, no terms of art, and no file or tool names standing in
+  for an explanation.
+- Write the entry only after the user agrees.
+- Editing or removing an existing entry is not covered by this rule.
+
 ## ADRs
 
 - Every ADR describes **live state**. ADRs are edited in place to stay accurate;

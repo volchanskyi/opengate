@@ -1,0 +1,49 @@
+# What a Telegram message says.
+#
+# Read on a phone, the message is the whole of what the reader has: Grafana
+# itself is reachable only through a port-forward. So it carries the reading in
+# the rule's own units and the line it crossed, the series it is about, since
+# when, and the first thing to check — and leaves out the labels Grafana adds
+# for its own bookkeeping.
+#
+# A rule firing on no data has no reading, which is itself the finding: the
+# thing that should be reporting is not. That is said in words rather than as
+# an empty value.
+apiVersion: 1
+
+templates:
+  - orgId: 1
+    name: opengate-telegram
+    template: |
+      {{ define "opengate.telegram" }}{{ range $i, $a := .Alerts }}{{ if $i }}
+
+      {{ end }}{{ template "opengate.telegram.alert" $a }}{{ end }}{{ end }}
+
+      {{ define "opengate.telegram.alert" -}}
+      {{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} [{{ .Labels.severity }}] {{ .Labels.alertname }}
+      {{ .Annotations.summary }}
+
+      {{ if eq .Labels.grafana_state_reason "NoData" -}}
+      Observed: no data. The query returned no series, so what should be reporting is not.
+      {{- else if eq .Labels.grafana_state_reason "Error" -}}
+      Observed: the query itself failed: {{ .Annotations.Error }}
+      {{- else -}}
+      Observed: {{ .Annotations.observed }}
+      {{- end }}
+      {{ template "opengate.telegram.where" .Labels }}Since: {{ .StartsAt.UTC.Format "2006-01-02 15:04 UTC" }}
+      {{- if eq .Status "resolved" }}, resolved {{ .EndsAt.UTC.Format "15:04 UTC" }}{{ end }}
+      {{ if eq .Status "firing" }}Check: {{ .Annotations.check }}{{ end }}
+      {{- end }}
+
+      {{ define "opengate.telegram.where" -}}
+      {{ $where := "" -}}
+      {{ range .SortedPairs -}}
+      {{ $internal := or (eq .Name "alertname") (eq .Name "severity") (eq .Name "grafana_folder") -}}
+      {{ $internal = or $internal (eq .Name "ref_id") (eq .Name "datasource_uid") (eq .Name "grafana_state_reason") -}}
+      {{ if not $internal -}}
+      {{ $where = printf "%s %s=%s" $where .Name .Value -}}
+      {{ end -}}
+      {{ end -}}
+      {{ if $where }}Where:{{ $where }}
+      {{ end -}}
+      {{ end }}

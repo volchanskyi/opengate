@@ -106,23 +106,6 @@ flight.
 its own tenant, create its users and machines inside it, and reduce cleanup to
 removing the tenant.
 
-### The Always-Free processor grant is asserted by two gates and confirmed by none
-
-[`compute.rego`](../policy/terraform/compute.rego) and the Terraform guards in
-the `oke` and `compute` modules now both refuse above 2 processors / 12 GB, which
-is the stricter of the two figures that were in the repository. Whether Oracle's
-current grant is that or 4 / 24 is not settled: the OCI limits API exposes only
-the paid service limit, so nothing queryable can answer it.
-
-Holding both gates at the stricter figure is safe in the direction that matters —
-a plan sized to it passes either gate — but it may be refusing capacity the
-tenancy is entitled to, and nothing in the repository records which.
-
-**Pay-down trigger:** the next time a second node or a larger shape is wanted.
-Read the grant from the OCI console, set both gates to it, and record the figure
-in an ADR. The block-storage grant is exactly full independently of this, so no
-instance can be added until 50 GB is released whichever way it goes.
-
 ### Multi-tenant membership API and web tenant switcher deferred
 
 WS-0 satisfies "web carries tenant context" by retaining the JWT `tenant` claim in the
@@ -172,20 +155,6 @@ agent binary still matches its own persisted cache — the config hash is
 derived partly from `TypeId`, and auto-update is the largest restart cause,
 so a cache that misses on rebuilt binaries would close this by decision
 rather than by code.
-
-### Five hours of churn is untested against the eight hours it replaced
-
-[ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) settled the length: an
-unchanging fleet finishes one operation per machine however long it is held, so
-five hours of the fleet coming and going finish ten times what eight idle ones
-would, and five fits inside the six a scheduled job is killed at.
-
-What is still owed is the comparison. A leak that only shows past five hours
-would not be found here, and the profile's own reasoning — that churn buys more
-than length — has never been tried against the eight-hour version it replaced.
-
-**Pay-down trigger:** a leak found in the field that five hours of churn did not
-surface, at which point the longer run is built and the two are compared.
 
 ### `breakpoint` declares sessions its venue never opens
 

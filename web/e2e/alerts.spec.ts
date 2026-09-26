@@ -34,6 +34,11 @@ const READING_RULES = [
   "disk-slow",
 ];
 
+/** The session lives in the browser's storage, so an API call names it itself. */
+function auth(token: string) {
+  return { headers: { Authorization: `Bearer ${token}` } };
+}
+
 type Rule = {
   id: string;
   kind: "reading" | "event";
@@ -46,9 +51,10 @@ type Rule = {
 
 test.describe("the rules the product actually ships", () => {
   test("every rule the machines can raise is one the product knows about", async ({
-    adminPage,
+    request,
+    adminUser,
   }) => {
-    const reply = await adminPage.request.get("/api/v1/rules");
+    const reply = await request.get("/api/v1/rules", auth(adminUser.token));
     expect(reply.status()).toBe(200);
     const { rules } = (await reply.json()) as { rules: Rule[] };
 
@@ -65,9 +71,11 @@ test.describe("the rules the product actually ships", () => {
   });
 
   test("a rule watching the machine's own words has no numbers to retune", async ({
-    adminPage,
+    request,
+    adminUser,
   }) => {
-    const reply = await adminPage.request.get("/api/v1/rules");
+    const reply = await request.get("/api/v1/rules", auth(adminUser.token));
+    expect(reply.status()).toBe(200);
     const { rules } = (await reply.json()) as { rules: Rule[] };
     const byId = new Map(rules.map((r) => [r.id, r]));
 
@@ -108,10 +116,13 @@ test.describe("the rules the product actually ships", () => {
 
   test("an administrator can stop a rule the machines carry themselves", async ({
     adminPage,
+    request,
+    adminUser,
   }) => {
     const ruleId = "linux-thermal-throttle";
 
-    const stopped = await adminPage.request.post(`/api/v1/rules/${ruleId}/stop`, {
+    const stopped = await request.post(`/api/v1/rules/${ruleId}/stop`, {
+      ...auth(adminUser.token),
       data: { scope: "organization", stopped: true },
     });
     expect(stopped.status(), await stopped.text()).toBe(204);
@@ -123,7 +134,8 @@ test.describe("the rules the product actually ships", () => {
     } finally {
       // Put it back, so a spec that runs after this one reads the pack as it
       // ships rather than as this one left it.
-      const resumed = await adminPage.request.post(`/api/v1/rules/${ruleId}/stop`, {
+      const resumed = await request.post(`/api/v1/rules/${ruleId}/stop`, {
+        ...auth(adminUser.token),
         data: { scope: "organization", stopped: false },
       });
       expect(resumed.status()).toBe(204);
@@ -131,9 +143,10 @@ test.describe("the rules the product actually ships", () => {
   });
 
   test("a real machine says it sends its alerts with the evidence attached", async ({
-    adminPage,
+    request,
+    adminUser,
   }) => {
-    const reply = await adminPage.request.get("/api/v1/devices");
+    const reply = await request.get("/api/v1/devices", auth(adminUser.token));
     expect(reply.status()).toBe(200);
     const devices = (await reply.json()) as { hostname: string; capabilities: string[] }[];
 

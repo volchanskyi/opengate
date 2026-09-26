@@ -97,6 +97,17 @@ func TestLoadCatalogueRefusesAMalformedRuleAboutWords(t *testing.T) {
 			because: "a rule watching words watches no reading, and naming one is a rule written wrong",
 		},
 		{
+			name: "a further condition",
+			replace: [2]string{"    kind: event\n",
+				"    kind: event\n    all:\n      - metric: cpu.total\n        comparator: gt\n        threshold: 1\n        predicate: Instant\n"},
+			because: "the reader matches words; there is no reading for a further condition to compare",
+		},
+		{
+			name:    "a number to retune",
+			replace: [2]string{"    kind: event\n", "    kind: event\n    tunable:\n      threshold: {min: 1, max: 2}\n"},
+			because: "a rule with no line to cross has nothing an operator could move",
+		},
+		{
 			name:    "a kind nobody ships",
 			replace: [2]string{"kind: event", "kind: telepathy"},
 			because: "a rule this build cannot evaluate is refused rather than ignored",
@@ -110,6 +121,7 @@ func TestLoadCatalogueRefusesAMalformedRuleAboutWords(t *testing.T) {
 			require.NotEqual(t, eventYAML, broken, "the case must actually break something")
 			_, err := loadFixture(t, broken)
 			require.Error(t, err, c.because)
+			assert.Contains(t, err.Error(), "linux-oom-kill", "the refusal names the rule")
 		})
 	}
 }

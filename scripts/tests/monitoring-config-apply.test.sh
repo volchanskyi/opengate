@@ -86,7 +86,14 @@ case "${args[0]:-}" in
     echo "configmap/$name configured"
     ;;
   rollout)
-    echo "restarted"
+    # A restart names a workload the chart actually runs, by the kind it runs
+    # as. Anything else is the NotFound a real cluster answers with.
+    target="${args[2]:-}"
+    if ! grep -qxF -- "$target" "$FAKE_KUBECTL_WORKLOADS"; then
+      echo "Error from server (NotFound): $target not found" >&2
+      exit 1
+    fi
+    echo "$target restarted"
     ;;
   *)
     echo "unexpected kubectl call: $*" >&2
@@ -95,6 +102,23 @@ case "${args[0]:-}" in
 esac
 FAKE_KUBECTL
 chmod +x "$WORK/bin/kubectl"
+
+# The workloads the monitoring chart runs, as `kind/name`, read from the chart
+# rather than written here, so a workload that changes kind changes what the
+# stub cluster holds.
+python3 - "$REPO_ROOT/deploy/helm/monitoring/templates" >"$WORK/workloads" <<'CHART'
+import pathlib, re, sys
+for f in sorted(pathlib.Path(sys.argv[1]).glob("*.yaml")):
+    text = f.read_text()
+    comp = re.search(r'mon\.componentName" \(list \. "([^"]+)"\)', text)
+    for kind in re.findall(r"^kind: (Deployment|StatefulSet)$", text, re.M):
+        if comp:
+            print(f"{kind.lower()}/monitoring-{comp.group(1)}")
+CHART
+[ -s "$WORK/workloads" ] || {
+  echo "FAIL: no workloads read from the monitoring chart" >&2
+  exit 1
+}
 
 run_apply() {
   local mode="$1" out="$2"
@@ -105,6 +129,7 @@ run_apply() {
     FAKE_KUBECTL_MODE="$mode" \
     FAKE_KUBECTL_STATE="$WORK/state" \
     FAKE_KUBECTL_CALLS="$WORK/calls" \
+    FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
     TELEGRAM_CHAT_ID="-1001234567890" \
     bash "$APPLY" "$@" >"$out" 2>&1
 }
@@ -218,6 +243,7 @@ if PATH="$WORK/bin:$PATH" \
   FAKE_KUBECTL_MODE=accept \
   FAKE_KUBECTL_STATE="$WORK/state" \
   FAKE_KUBECTL_CALLS="$WORK/calls" \
+  FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
   TELEGRAM_CHAT_ID='"-1001234567890"' \
   bash "$APPLY" >"$OUT" 2>&1; then
   fail "a chat id carrying its own quotes is refused"
@@ -232,6 +258,7 @@ if PATH="$WORK/bin:$PATH" \
   FAKE_KUBECTL_MODE=accept \
   FAKE_KUBECTL_STATE="$WORK/state" \
   FAKE_KUBECTL_CALLS="$WORK/calls" \
+  FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
   TELEGRAM_CHAT_ID='' \
   bash "$APPLY" >"$OUT" 2>&1; then
   fail "an absent chat id is refused rather than provisioned empty"
@@ -256,6 +283,27 @@ if grep -qF "unchanged" "$WORK/second.out"; then
 else
   fail "and says the configuration was already current (out=[$(cat "$WORK/second.out")])"
 fi
+
+# --- a first run restarts each reader once, by the kind it runs as -----------
+#
+# Every ConfigMap changes on an empty cluster, so every reader is restarted. A
+# restart addressed to a kind the workload is not is a NotFound that fails the
+# night after the configuration already landed, and the next night reads
+# "unchanged" and restarts nothing: the store never reads its new scrape file.
+rm -f "$WORK"/state/*.json
+if run_apply accept "$WORK/restart.out"; then
+  pass "a run that changes every ConfigMap restarts the workloads that read them"
+else
+  fail "a run that changes every ConfigMap restarts the workloads that read them (out=[$(cat "$WORK/restart.out")])"
+fi
+for workload in deployment/monitoring-grafana statefulset/monitoring-victoriametrics; do
+  n="$(grep -cxF -- "-n monitoring rollout restart $workload" "$WORK/calls" || true)"
+  if [ "$n" = "1" ]; then
+    pass "$workload is restarted exactly once"
+  else
+    fail "$workload is restarted exactly once (restarted $n times)"
+  fi
+done
 
 # --- a ConfigMap is applied whole, and keeps what the cluster put on it --------
 #

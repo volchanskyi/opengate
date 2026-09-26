@@ -46,7 +46,13 @@ func (s *Server) ListRules(ctx context.Context, request ListRulesRequestObject) 
 		return nil, err
 	}
 	coverage := s.coverageFor(ctx, organizationID, counts.Total)
-	rollouts := s.rolloutsFor(ctx, organizationID)
+	// A rollout belongs to one customer, and a screen with none picked changes
+	// the tenant's own, so that is the one whose rollouts it shows.
+	customer, err := s.customerOrDefault(ctx, request.Params.OrganizationId)
+	if err != nil {
+		return nil, err
+	}
+	rollouts := s.rolloutsFor(ctx, customer)
 	noise := s.noiseFor(ctx, organizationID)
 
 	definitions := s.ruleCatalogue.All()

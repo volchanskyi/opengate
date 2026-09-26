@@ -233,12 +233,13 @@ type ServerConfig struct {
 	// is still consuming, and the budget the answer must arrive inside. Zero
 	// selects defaultRelayPingInterval.
 	RelayPingInterval time.Duration
-	// Lifetime is cancelled when the process is shutting down. It is the only
+	// Lifetime is closed when the process is shutting down. It is the only
 	// cancellation a relay handler can act on: websocket.Accept hijacks the
 	// connection, which untracks it, so neither the request context nor
-	// Server.Shutdown can reach a handler parked on a live session. Nil selects
-	// context.Background(), which parks such a handler until its session ends.
-	Lifetime context.Context
+	// Server.Shutdown can reach a handler parked on a live session. A nil
+	// channel is never closed, which parks such a handler until its session
+	// ends.
+	Lifetime <-chan struct{}
 }
 
 // Server is the HTTP API server.
@@ -297,7 +298,7 @@ type Server struct {
 	requestTimeout  time.Duration
 	peerWaitTimeout time.Duration
 	pingInterval    time.Duration
-	lifetime        context.Context
+	lifetime        <-chan struct{}
 }
 
 // resolveAuditHandlers returns the per-domain Handlers from cfg, or
@@ -409,9 +410,6 @@ func NewServer(cfg ServerConfig) *Server {
 		peerWaitTimeout: cfg.RelayPeerTimeout,
 		pingInterval:    cfg.RelayPingInterval,
 		lifetime:        cfg.Lifetime,
-	}
-	if s.lifetime == nil {
-		s.lifetime = context.Background()
 	}
 	if s.requestTimeout <= 0 {
 		s.requestTimeout = defaultRequestTimeout

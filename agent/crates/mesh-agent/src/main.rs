@@ -534,11 +534,13 @@ async fn main() -> Result<()> {
             event_coverage: event_coverage.clone(),
         };
         edge_sentinel::spawn_sampler(
-            shared_sink.clone(),
-            Some(alerts),
-            Some(host_metric_tx),
+            edge_sentinel::SamplerOutputs {
+                sink: shared_sink.clone(),
+                alerts: Some(alerts),
+                host_metric_tx: Some(host_metric_tx),
+                load: host_load.clone(),
+            },
             maintenance.clone(),
-            host_load.clone(),
         )
     };
 
@@ -1645,5 +1647,98 @@ mod tests {
     fn test_parse_ed25519_pubkey_empty() {
         let key = parse_ed25519_pubkey("").unwrap_err();
         assert!(key.to_string().contains("32 bytes"));
+    }
+
+    // --- delivering what the machine raised -------------------------------
+
+    fn queued_alert(rule_id: &str, window_start_secs: i64) -> mesh_agent_core::alerts::EdgeAlert {
+        mesh_agent_core::alerts::EdgeAlert {
+            rule_id: rule_id.to_string(),
+            rule_version: 1,
+            severity: mesh_agent_core::alerts::AlertSeverity::Warning,
+            ts_micros: window_start_secs * 1_000_000,
+            window_start_micros: window_start_secs * 1_000_000,
+            window_end_micros: window_start_secs * 1_000_000,
+            metric: "cpu.total".to_string(),
+            value: Some(95.0),
+            subject: "cpu.total".to_string(),
+            summary: String::new(),
+            evidence: Vec::new(),
+            evidence_codec: String::new(),
+            origin: mesh_agent_core::alerts::AlertOrigin::Live,
+        }
+    }
+
+    fn connection(
+        stream: tokio::io::DuplexStream,
+    ) -> mesh_agent_core::AgentConnection<
+        mesh_agent_core::AsyncControlStream<tokio::io::DuplexStream>,
+    > {
+        mesh_agent_core::AgentConnection::new(mesh_agent_core::AsyncControlStream::new(stream))
+    }
+
+    /// Everything the machine raised goes out on the heartbeat, oldest first,
+    /// and the queue is empty afterwards.
+    #[tokio::test]
+    async fn queued_alerts_go_out_in_the_order_they_were_raised() {
+        let sink = mesh_agent_core::alerts::AlertSink::default();
+        sink.push(
+            queued_alert("disk-critical", 1_700_000_000),
+            1_700_000_000_000_000,
+        );
+        sink.push(
+            queued_alert("cpu-saturated", 1_700_000_060),
+            1_700_000_060_000_000,
+        );
+
+        let (agent_end, server_end) = tokio::io::duplex(64 * 1024);
+        let mut agent = connection(agent_end);
+        let mut server = connection(server_end);
+
+        assert!(send_queued_alerts(&mut agent, &sink).await, "the link held");
+        for expected in ["disk-critical", "cpu-saturated"] {
+            match server.receive_control().await.expect("an alert frame") {
+                mesh_protocol::ControlMessage::AgentAlert { rule_id, .. } => {
+                    assert_eq!(rule_id, expected);
+                }
+                other => panic!("expected AgentAlert, got {other:?}"),
+            }
+        }
+        assert!(sink.drain().is_empty(), "nothing is left to send");
+    }
+
+    /// An empty queue sends nothing and reports the link as fine.
+    #[tokio::test]
+    async fn an_empty_queue_sends_nothing() {
+        let sink = mesh_agent_core::alerts::AlertSink::default();
+        let (agent_end, _server_end) = tokio::io::duplex(1024);
+        let mut agent = connection(agent_end);
+        assert!(send_queued_alerts(&mut agent, &sink).await);
+    }
+
+    /// A link that breaks mid-send hands back every alert that did not go,
+    /// including the one that failed, so the reconnect offers them again.
+    #[tokio::test]
+    async fn a_broken_link_hands_back_what_did_not_go() {
+        let sink = mesh_agent_core::alerts::AlertSink::default();
+        sink.push(
+            queued_alert("disk-critical", 1_700_000_000),
+            1_700_000_000_000_000,
+        );
+        sink.push(
+            queued_alert("cpu-saturated", 1_700_000_060),
+            1_700_000_060_000_000,
+        );
+
+        let (agent_end, server_end) = tokio::io::duplex(1024);
+        drop(server_end);
+        let mut agent = connection(agent_end);
+
+        assert!(
+            !send_queued_alerts(&mut agent, &sink).await,
+            "the caller is told the link is gone"
+        );
+        let back: Vec<_> = sink.drain().into_iter().map(|a| a.rule_id).collect();
+        assert_eq!(back, vec!["disk-critical", "cpu-saturated"]);
     }
 }

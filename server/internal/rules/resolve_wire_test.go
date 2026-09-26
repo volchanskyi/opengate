@@ -49,3 +49,20 @@ func TestTheRuleReachingAMachineCarriesHowBadItIs(t *testing.T) {
 		"a disk about to stop accepting writes is not the same news as a slow one")
 	assert.Equal(t, protocol.AlertSeverityWarning, slow.Severity)
 }
+
+// A revision the wire cannot carry is carried as nothing, which the far end
+// refuses outright, rather than as a different number that would identify an
+// alert as some other revision's.
+func TestARevisionTheWireCannotCarryIsCarriedAsNothing(t *testing.T) {
+	t.Parallel()
+
+	for version, want := range map[int]uint32{
+		-1:                      0,
+		0:                       0,
+		1:                       1,
+		int(maxRuleVersion):     uint32(maxRuleVersion),
+		int(maxRuleVersion) + 1: 0,
+	} {
+		assert.Equal(t, want, wireVersion(version), "revision %d", version)
+	}
+}

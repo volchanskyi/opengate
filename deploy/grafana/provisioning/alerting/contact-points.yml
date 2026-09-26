@@ -22,3 +22,8 @@ contactPoints:
           bottoken: $TELEGRAM_BOT_TOKEN
           chatid: "__TELEGRAM_CHAT_ID__"
           disable_web_page_preview: true
+          # The reading, the place and the first check, from
+          # message-templates.yml. Sent as written: summaries carry '>' and
+          # '&', which Telegram refuses when it parses the text as HTML.
+          message: '{{ template "opengate.telegram" . }}'
+          parse_mode: None

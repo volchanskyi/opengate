@@ -77,9 +77,6 @@ var predicateVocabulary = map[string]protocol.RulePredicate{
 	"WindowMean": protocol.RulePredicateWindowMean,
 }
 
-// tunableFields are the fields a customer binding may override. They are the
-// numbers on the rule, never its shape: retuning a threshold is configuration,
-// while changing the metric or the predicate is a different rule.
 const (
 	// minRuleVersion is the first revision a definition may declare. Counting
 	// from one leaves nothing for an absent revision to be mistaken for.
@@ -103,13 +100,6 @@ var severityVocabulary = map[string]protocol.AlertSeverity{
 	"info":     protocol.AlertSeverityInfo,
 	"warning":  protocol.AlertSeverityWarning,
 	"critical": protocol.AlertSeverityCritical,
-}
-
-var tunableFields = map[string]bool{
-	"threshold":    true,
-	"clear":        true,
-	"sustain_secs": true,
-	"window_secs":  true,
 }
 
 // Bounds is the range a tunable parameter may be set to. A binding outside it is
@@ -227,7 +217,11 @@ func (d Definition) Digest() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ShippedParam returns the definition's own value for a tunable parameter.
+// ShippedParam returns the definition's own value for a tunable parameter, and
+// whether name is one. The names it answers for are the fields a customer
+// binding may override: the numbers on the rule, never its shape — retuning a
+// threshold is configuration, while changing the metric or the predicate is a
+// different rule.
 func (d Definition) ShippedParam(name string) (float64, bool) {
 	switch name {
 	case "threshold":

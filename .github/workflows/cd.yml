@@ -636,6 +636,18 @@ jobs:
             --wait --timeout 5m
           kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
 
+      # The monitoring release follows its chart on every production deploy, so a
+      # permission or argument the chart gains reaches the cluster rather than
+      # waiting for somebody to repeat an install by hand.
+      - name: Helm upgrade monitoring
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+        run: |
+          helm upgrade --install monitoring deploy/helm/monitoring -n monitoring \
+            -f deploy/helm/monitoring/values-production.yaml \
+            --set domain="$DOMAIN" \
+            --wait --timeout 5m
+
       - name: Port-forward + smoke test
         run: |
           kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 18081:8081 >/tmp/pf.log 2>&1 &

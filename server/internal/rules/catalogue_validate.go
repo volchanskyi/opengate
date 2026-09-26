@@ -27,6 +27,21 @@ func validateDefinition(def Definition, index int) error {
 		return fmt.Errorf("rule %s: "+format, append([]any{where}, args...)...)
 	}
 
+	if err := validateIdentity(def, fail); err != nil {
+		return err
+	}
+	if err := validateWhatItWatches(def, fail); err != nil {
+		return err
+	}
+	if err := validateGrouping(def, fail); err != nil {
+		return err
+	}
+	return validateTunable(def, fail)
+}
+
+// validateIdentity checks what an alert raised by the rule is identified and
+// ordered by: its id, its revision, what it is for and how bad it is.
+func validateIdentity(def Definition, fail func(string, ...any) error) error {
 	if def.ID == "" {
 		return fail("id is required")
 	}
@@ -45,11 +60,12 @@ func validateDefinition(def Definition, index int) error {
 		return fail("severity %q is not one of info, warning, critical — "+
 			"a queue ordered by severity cannot order a rule that states none", def.Severity)
 	}
+	return nil
+}
 
-	if err := validateWhatItWatches(def, fail); err != nil {
-		return err
-	}
-
+// validateGrouping checks what the rule's alerts are about, what they carry and
+// which machines can answer for it.
+func validateGrouping(def Definition, fail func(string, ...any) error) error {
 	if len(def.GroupBy) == 0 {
 		return fail("group_by is required — a rule must say what its alerts are about")
 	}
@@ -71,8 +87,7 @@ func validateDefinition(def Definition, index int) error {
 			return fail("coverage_requires %q is outside the metric vocabulary", metric)
 		}
 	}
-
-	return validateTunable(def, fail)
+	return nil
 }
 
 // validateWhatItWatches checks the half of a rule that differs by kind.
@@ -84,23 +99,7 @@ func validateDefinition(def Definition, index int) error {
 // rule written wrong rather than one with a field to spare.
 func validateWhatItWatches(def Definition, fail func(string, ...any) error) error {
 	if def.WatchesEvents() {
-		for name, value := range map[string]string{
-			"metric":     def.Metric,
-			"comparator": def.ComparatorName,
-			"predicate":  def.PredicateName,
-		} {
-			if value != "" {
-				return fail("a rule watching the machine's own words names no %s, got %q",
-					name, value)
-			}
-		}
-		if len(def.All) > 0 {
-			return fail("a rule watching the machine's own words has no further conditions")
-		}
-		if len(def.Tunable) > 0 {
-			return fail("a rule watching the machine's own words has no numbers to retune")
-		}
-		return nil
+		return validateEventRule(def, fail)
 	}
 	if def.Kind != "" {
 		return fail("kind %q is not a kind of rule this build evaluates", def.Kind)
@@ -110,12 +109,34 @@ func validateWhatItWatches(def Definition, fail func(string, ...any) error) erro
 		return err
 	}
 	for i, term := range def.All {
-		if err := validateCondition(term.Metric, term.ComparatorName, term.PredicateName,
-			func(format string, args ...any) error {
-				return fail("term %d: "+format, append([]any{i}, args...)...)
-			}); err != nil {
+		failTerm := func(format string, args ...any) error {
+			return fail("term %d: "+format, append([]any{i}, args...)...)
+		}
+		if err := validateCondition(term.Metric, term.ComparatorName, term.PredicateName, failTerm); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateEventRule checks a rule about the machine's own words states none of
+// the comparison a rule about a reading is made of.
+func validateEventRule(def Definition, fail func(string, ...any) error) error {
+	for name, value := range map[string]string{
+		"metric":     def.Metric,
+		"comparator": def.ComparatorName,
+		"predicate":  def.PredicateName,
+	} {
+		if value != "" {
+			return fail("a rule watching the machine's own words names no %s, got %q",
+				name, value)
+		}
+	}
+	if len(def.All) > 0 {
+		return fail("a rule watching the machine's own words has no further conditions")
+	}
+	if len(def.Tunable) > 0 {
+		return fail("a rule watching the machine's own words has no numbers to retune")
 	}
 	return nil
 }
@@ -146,15 +167,12 @@ func validateTunable(def Definition, fail func(string, ...any) error) error {
 
 	for _, name := range names {
 		bounds := def.Tunable[name]
-		if !tunableFields[name] {
+		shipped, ok := def.ShippedParam(name)
+		if !ok {
 			return fail("tunable %q is not a parameter a binding can set", name)
 		}
 		if bounds.Min > bounds.Max {
 			return fail("tunable %q has inverted bounds %s", name, bounds)
-		}
-		shipped, ok := def.ShippedParam(name)
-		if !ok {
-			return fail("tunable %q has no shipped value", name)
 		}
 		if !bounds.Contains(shipped) {
 			return fail("shipped %s of %s is outside its own declared bounds %s",

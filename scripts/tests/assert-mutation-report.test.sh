@@ -87,6 +87,44 @@ else
   fail "cargo-mutants' outcomes.json must pass (got: $result)"
 fi
 
+# --- a Stryker report whose covered mutants ran no tests measured nothing ------
+#
+# A test runner whose per-test filter matches nothing runs zero tests against
+# every mutant and reports each one survived: a well-formed report, a score of
+# nought, and a regression alert about tests that were never run. The report
+# says so itself — a mutant tests cover, completed by none of them.
+cat >"$WORK/stryker-ran-nothing.json" <<'REPORT'
+{"files":{"src/a.ts":{"mutants":[
+  {"id":"1","status":"Survived","coveredBy":["t1","t2"],"testsCompleted":0},
+  {"id":"2","status":"NoCoverage","coveredBy":[],"testsCompleted":0}
+]}}}
+REPORT
+result="$(run_guard stryker "$WORK/stryker-ran-nothing.json")"
+if [ "${result%%|*}" != "0" ]; then
+  pass "a Stryker report whose covered mutants ran no tests fails the shard"
+else
+  fail "a Stryker report whose covered mutants ran no tests must fail the shard"
+fi
+if grep -qF 'ran no tests' <<<"${result#*|}"; then
+  pass "and says the tests never ran, rather than that they were weak"
+else
+  fail "and must say the tests never ran (got: ${result#*|})"
+fi
+
+cat >"$WORK/stryker-ran.json" <<'REPORT'
+{"files":{"src/a.ts":{"mutants":[
+  {"id":"1","status":"Survived","coveredBy":["t1"],"testsCompleted":1},
+  {"id":"2","status":"Killed","coveredBy":["t1"],"testsCompleted":1},
+  {"id":"3","status":"NoCoverage","coveredBy":[],"testsCompleted":0}
+]}}}
+REPORT
+result="$(run_guard stryker "$WORK/stryker-ran.json")"
+if [ "${result%%|*}" = "0" ]; then
+  pass "a Stryker report whose surviving mutants were tested passes"
+else
+  fail "a Stryker report whose surviving mutants were tested must pass (got: $result)"
+fi
+
 # --- the guard refuses to answer without being told what to look for ------------
 result="$(run_guard)"
 if [ "${result%%|*}" = "2" ]; then
