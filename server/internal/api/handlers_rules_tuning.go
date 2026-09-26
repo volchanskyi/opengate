@@ -46,6 +46,9 @@ func (s *Server) PutRuleBinding(ctx context.Context, request PutRuleBindingReque
 		return nil, err
 	}
 
+	// A retuned number is no use sitting in a table: the machines are what
+	// compare against it.
+	s.deliverRuleChange(ctx, organizationID, false)
 	s.auditLog(ctx, ContextUserID(ctx), "rule.binding.set", request.RuleId,
 		fmt.Sprintf("level=%s params=%v", request.Body.Level, request.Body.Params))
 	return PutRuleBinding200JSONResponse(bindingToAPI(binding)), nil

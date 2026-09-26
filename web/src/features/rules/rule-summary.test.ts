@@ -30,7 +30,8 @@ function noise(over: Partial<Noise> = {}): Noise {
 
 function rule(over: Partial<Rule> = {}): Rule {
   return {
-    id: 'disk-critical', version: 1, summary: 'A disk about to fill',
+    id: 'disk-critical', version: 1, kind: 'reading', severity: 'critical',
+    summary: 'A disk about to fill',
     metric: 'disk.used_percent', comparator: 'gte', threshold: 90,
     group_by: ['device'], group_window_secs: 300, evidence: ['vitals'],
     coverage_requires: ['disk.used_percent'], tunable: {},
@@ -44,6 +45,20 @@ describe('what a rule is doing, in an operator\'s words', () => {
   it('says what the rule watches without implying the logic is editable', () => {
     expect(watchWording(rule())).toBe('disk.used_percent at or above 90');
     expect(watchWording(rule({ comparator: 'lt', threshold: 5 }))).toBe('disk.used_percent below 5');
+  });
+
+  // A rule reading the machine's own log records compares no number, so there
+  // is no reading, no comparison and no line to show. Rendering the absence as
+  // "undefined at or above undefined" would read as a rule nobody finished
+  // writing, and rendering a zero would read as a setting.
+  it('says what a rule watching the machine own words watches', () => {
+    const words = rule({
+      id: 'linux-oom-kill', kind: 'event', severity: 'critical',
+      summary: 'The kernel killed a process to reclaim memory.',
+      metric: undefined, comparator: undefined, threshold: undefined,
+      coverage_requires: [],
+    });
+    expect(watchWording(words)).toBe('The kernel killed a process to reclaim memory.');
   });
 
   it('says how far the rule has reached', () => {

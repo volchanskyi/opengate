@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
@@ -377,7 +378,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Logger:                logger,
 		WebDir:                cfg.WebDir,
 		Metrics:               appMetrics,
-		Lifetime:              ctx,
+		Lifetime:              ctx.Done(),
 		// The triage queue reads the same store the ingest path writes, and the
 		// rules view is the compiled pack beside how far each rule has reached
 		// and how much of an estate it is watching — the last read comes from
@@ -529,6 +530,14 @@ func (g agentControlGetter) GetAgent(deviceID db.DeviceID) api.AgentControl {
 		return nil // typed-nil *AgentConn → interface nil
 	}
 	return ac
+}
+
+func (g agentControlGetter) RefreshAlertRules(ctx context.Context, organizationID uuid.UUID) int {
+	return g.srv.RefreshAlertRules(ctx, organizationID)
+}
+
+func (g agentControlGetter) RefreshAlertRulesForTenant(ctx context.Context, tenantID uuid.UUID) int {
+	return g.srv.RefreshAlertRulesForTenant(ctx, tenantID)
 }
 
 func (g agentControlGetter) ListConnectedAgents() []api.AgentControl {

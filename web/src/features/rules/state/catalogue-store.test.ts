@@ -12,7 +12,7 @@ type Rule = components['schemas']['Rule'];
 
 function rule(over: Partial<Rule> = {}): Rule {
   return {
-    id: 'cpu.sustained', version: 3, summary: 'CPU pinned for two minutes',
+    id: 'cpu.sustained', version: 3, kind: 'reading', severity: 'critical', summary: 'CPU pinned for two minutes',
     metric: 'cpu.busy_pct', comparator: 'gt', threshold: 90, group_by: ['device_id'],
     group_window_secs: 900, evidence: ['series'], coverage_requires: ['cpu.busy_pct'],
     tunable: {},

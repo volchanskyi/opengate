@@ -27,4 +27,19 @@ if [ ! -s "$REPORT" ]; then
   exit 1
 fi
 
+# A Stryker test runner whose per-test filter matches nothing runs zero tests
+# against every mutant and reports each one survived. The report is well formed
+# and the score is nought, so nothing above catches it; what gives it away is a
+# mutant that tests cover and that none of them completed against.
+if [ "$TOOL" = "stryker" ]; then
+  untested="$(jq '[.files[].mutants[]
+    | select(.status == "Survived" and ((.coveredBy // []) | length) > 0 and .testsCompleted == 0)]
+    | length' "$REPORT")"
+  if [ "$untested" -gt 0 ]; then
+    echo "::error::assert-mutation-report: stryker ran no tests against ${untested} mutants that tests cover, and reported each one survived." \
+      "That is the test runner failing to select the tests, not the tests failing to kill the mutants, so this shard's score measures nothing." >&2
+    exit 1
+  fi
+fi
+
 echo "assert-mutation-report: ${TOOL} wrote ${REPORT}"

@@ -131,6 +131,14 @@ check_floor() {
       num_lt "$current" 1 \
         && REGRESSIONS+=("${scenario}/${victim} ${metric}: the session did not survive the machine returning on a new address — every customer with a rebooting router carries a nightly gap")
       ;;
+    netdrill_alerts_replayed)
+      # An alert is the only thing on this channel that cannot be taken again
+      # later: there is no history behind a signal to go back to and no path for
+      # asking the machine afterwards. An outage that swallows one swallows the
+      # incident, and nothing anywhere says a machine was ever in trouble.
+      num_lt "$current" 1 \
+        && REGRESSIONS+=("${scenario}/${victim} ${metric}: the alert the machine raised while it was dark never arrived — every outage costs the incidents raised inside it, and nothing says so")
+      ;;
   esac
   return 0
 }

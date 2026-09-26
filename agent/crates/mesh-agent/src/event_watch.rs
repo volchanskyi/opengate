@@ -12,6 +12,7 @@
 //! floor is asked of the pack rather than assumed here, so a rule that watches
 //! something less severe widens the read by existing.
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tracing::{debug, info, warn};
@@ -20,7 +21,7 @@ use mesh_agent_core::alerts::{
     AlertSink, EventLevel, EventPack, EventRule, HostEvent, ServiceErrorRule,
 };
 use mesh_agent_core::maintenance::MaintenanceGate;
-use mesh_protocol::LogEntry;
+use mesh_protocol::{LogEntry, RuleCoverage};
 
 use crate::clock::unix_micros;
 use crate::host_logs::{self, LogSource};
@@ -185,9 +186,17 @@ fn poll_filter(now_micros: i64, level: EventLevel) -> LogFilter {
 pub(crate) fn spawn_event_watch(
     sink: AlertSink,
     maintenance: MaintenanceGate,
+    coverage: EventCoverage,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
-        let Some(source) = host_logs::resolve_host_source() else {
+        let source = host_logs::resolve_host_source();
+        // Published before anything else, and published either way. A machine
+        // that cannot read its own log is a standing hole in what the estate is
+        // watching for, and saying nothing would leave it counted as a machine
+        // nobody has heard from — which reads as a machine that is merely
+        // offline rather than one these rules can never answer for.
+        publish_coverage(&coverage, source.is_some());
+        let Some(source) = source else {
             info!("no host log reader on this platform; system-event rules are not evaluated");
             return;
         };
@@ -209,6 +218,21 @@ pub(crate) fn spawn_event_watch(
             poll_once(&mut watch, source, now);
         }
     })
+}
+
+/// What this machine can answer for, shared with whatever reports to the
+/// server. Empty until the watch has looked.
+pub(crate) type EventCoverage = Arc<Mutex<Vec<RuleCoverage>>>;
+
+/// States what the pack can do on this machine, for the next report.
+fn publish_coverage(coverage: &EventCoverage, can_read_its_log: bool) {
+    if let Ok(mut slot) = coverage.lock() {
+        *slot = EventPack::coverage(
+            &EventRule::linux_pack(),
+            &ServiceErrorRule::default(),
+            can_read_its_log,
+        );
+    }
 }
 
 /// One poll: read the window, evaluate it, sink what fires.
@@ -235,6 +259,29 @@ mod tests {
 
     const START: i64 = 1_700_000_000 * MICROS_PER_SEC;
 
+    /// Every rule in the pack is reported either way: evaluated on a machine
+    /// that can read its own log, and unevaluable on one that cannot — never
+    /// left out, which would read as a machine nobody has heard from.
+    #[test]
+    fn every_rule_in_the_pack_is_reported_whether_or_not_the_log_can_be_read() {
+        let coverage: EventCoverage = Arc::new(Mutex::new(Vec::new()));
+
+        publish_coverage(&coverage, true);
+        let readable = coverage.lock().unwrap().clone();
+        assert!(!readable.is_empty(), "the pack states what it watches");
+        assert!(readable
+            .iter()
+            .all(|c| c.state == mesh_protocol::RuleCoverageState::Active));
+
+        publish_coverage(&coverage, false);
+        let unreadable = coverage.lock().unwrap().clone();
+        assert_eq!(unreadable.len(), readable.len(), "no rule drops out");
+        assert!(unreadable
+            .iter()
+            .all(|c| c.state == mesh_protocol::RuleCoverageState::Unsupported));
+        assert!(unreadable.iter().any(|c| c.rule_id == "linux-oom-kill"));
+    }
+
     /// A matching record reaches the sink as an alert, and the same record on
     /// the next overlapping poll does not reach it again.
     #[test]
@@ -253,7 +300,7 @@ mod tests {
 
         let alerts = sink.drain();
         assert_eq!(alerts.len(), 1, "the overlapping poll adds nothing");
-        assert_eq!(alerts[0].rule_id, "linux.oom_kill");
+        assert_eq!(alerts[0].rule_id, "linux-oom-kill");
         assert_eq!(alerts[0].severity, AlertSeverity::Critical);
     }
 

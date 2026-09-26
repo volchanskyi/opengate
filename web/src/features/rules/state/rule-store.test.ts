@@ -18,7 +18,7 @@ type RuleDetail = components['schemas']['RuleDetail'];
 function detail(threshold = 90): RuleDetail {
   return {
     rule: {
-      id: 'disk-critical', version: 1, summary: 'A disk about to fill',
+      id: 'disk-critical', version: 1, kind: 'reading', severity: 'critical', summary: 'A disk about to fill',
       metric: 'disk.used_percent', comparator: 'gte', threshold,
       group_by: ['device'], group_window_secs: 300, evidence: ['vitals'],
       coverage_requires: ['disk.used_percent'],

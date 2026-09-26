@@ -2,7 +2,7 @@ module github.com/volchanskyi/opengate/server
 
 go 1.26.0
 
-toolchain go1.26.7
+toolchain go1.27.1
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
@@ -16,7 +16,7 @@ require (
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
 	github.com/prometheus/common v0.71.0
-	github.com/quic-go/quic-go v0.62.0
+	github.com/quic-go/quic-go v0.63.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0

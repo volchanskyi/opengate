@@ -8,6 +8,7 @@ rules:
 
   - id: disk-critical
     version: 1
+    severity: critical
     summary: A disk is nearly full and will stop accepting writes.
     metric: disk.used_percent
     comparator: gte
@@ -27,6 +28,7 @@ rules:
 
   - id: cpu-saturated
     version: 1
+    severity: warning
     summary: A machine has been pinned at full CPU long enough to be slow to use.
     metric: cpu.total
     comparator: gte
@@ -44,6 +46,7 @@ rules:
 
   - id: memory-pressure
     version: 1
+    severity: critical
     summary: A machine is nearly out of memory and about to start killing processes.
     metric: mem.used_percent
     comparator: gte
@@ -61,6 +64,7 @@ rules:
 
   - id: io-stalled
     version: 1
+    severity: warning
     summary: Work on this machine is spending its time waiting for storage.
     # Read from the kernel's own pressure accounting, which is per-host. A
     # containerized agent cannot take this reading at all, so it reports the rule
@@ -86,6 +90,7 @@ rules:
 
   - id: disk-slow
     version: 1
+    severity: warning
     summary: A disk is taking long enough to answer that everything on it feels slow.
     metric: disk.await_ms
     comparator: gte
@@ -103,3 +108,73 @@ rules:
       clear: {min: 1, max: 4999}
       sustain_secs: {min: 60, max: 3600}
       window_secs: {min: 60, max: 1800}
+
+  # Rules about what the machine says about itself.
+  #
+  # Some failures cross no line because nothing about them is a number: a
+  # process killed to reclaim memory, a task stuck for two minutes, a disk that
+  # stopped answering its bus. The machine reports every one of those about
+  # itself, in words, in its own log.
+  #
+  # The phrases each rule matches on — and the exclusions that keep a recovery
+  # from reading as a failure — are what the machine's log reader is built
+  # around, so they live on the machine. What is here is the rest of the rule:
+  # what it is called, which revision it is, how bad it is, and where its alerts
+  # belong. Without these rows the server has never heard of the rule and
+  # refuses everything it raises.
+  #
+  # There is nothing to retune, because there is no number. An administrator can
+  # still stop one, which is the control that matters for a rule that turns out
+  # to be noisy on a particular estate.
+
+  - id: linux-oom-kill
+    version: 1
+    kind: event
+    severity: critical
+    summary: The kernel killed a process to reclaim memory.
+    # Grouped on the machine: one host reclaiming memory repeatedly is one
+    # problem, and the processes it picks are a symptom rather than the story.
+    group_by: [device]
+    group_window_secs: 900
+    evidence: [recent_logs]
+
+  - id: linux-hung-task
+    version: 1
+    kind: event
+    severity: warning
+    summary: A task was blocked for over two minutes.
+    group_by: [device]
+    group_window_secs: 900
+    evidence: [recent_logs]
+
+  - id: linux-ata-reset
+    version: 1
+    kind: event
+    severity: warning
+    summary: A disk stopped responding and its bus was reset.
+    # A failing disk link resets again and again over hours, so the room stays
+    # open longer than one that is about a single moment.
+    group_by: [device]
+    group_window_secs: 1800
+    evidence: [recent_logs]
+
+  - id: linux-thermal-throttle
+    version: 1
+    kind: event
+    severity: warning
+    summary: The processor slowed itself down under thermal load.
+    group_by: [device]
+    group_window_secs: 1800
+    evidence: [recent_logs]
+
+  - id: linux-service-errors
+    version: 1
+    kind: event
+    severity: warning
+    summary: One service has been logging errors repeatedly.
+    # A service failing steadily for a day is one thing nobody has noticed, and
+    # the count behind it already spans a day, so firings an hour apart are the
+    # same thing rather than two.
+    group_by: [device]
+    group_window_secs: 3600
+    evidence: [recent_logs]

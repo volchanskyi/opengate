@@ -122,16 +122,20 @@ done
 # file the same way, so a ConfigMap that changed has to be picked up. Only one
 # that changed: a nightly that restarted Grafana every night would trade a stale
 # configuration for a daily outage of the dashboards.
-restart() {
-  kubectl -n "$NAMESPACE" rollout restart "$1" >/dev/null
-  echo "restarted $1 so it reads what it was just given"
-}
-
+#
+# A workload is named by the kind the chart runs it as, and restarted once
+# however many of its ConfigMaps changed.
+readers=()
 for name in "${changed[@]:-}"; do
   case "$name" in
-    grafana-alerting | grafana-dashboards) restart "deployment/monitoring-grafana" ;;
-    monitoring-victoriametrics-scrape) restart "deployment/monitoring-victoriametrics" ;;
+    grafana-alerting | grafana-dashboards) readers+=("deployment/monitoring-grafana") ;;
+    monitoring-victoriametrics-scrape) readers+=("statefulset/monitoring-victoriametrics") ;;
   esac
+done
+
+for workload in $(printf '%s\n' "${readers[@]:-}" | sort -u); do
+  kubectl -n "$NAMESPACE" rollout restart "$workload" >/dev/null
+  echo "restarted $workload so it reads what it was just given"
 done
 
 if [ "${#changed[@]}" -eq 0 ]; then

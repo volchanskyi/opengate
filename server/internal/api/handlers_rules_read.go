@@ -34,14 +34,22 @@ func (s *Server) GetRule(ctx context.Context, request GetRuleRequestObject) (Get
 		return nil, err
 	}
 
+	// What a customer has set — the rollout, the tuning, the clamps — belongs to
+	// one customer, and a screen with none picked changes the tenant's own; so
+	// that is the one it shows. The fleet it is read against stays the scope
+	// that was asked for.
+	customer, err := s.customerOrDefault(ctx, request.Params.OrganizationId)
+	if err != nil {
+		return nil, err
+	}
 	detail := RuleDetail{
 		Rule: ruleToAPI(definition,
-			s.rolloutsFor(ctx, organizationID)[definition.ID],
+			s.rolloutsFor(ctx, customer)[definition.ID],
 			s.coverageFor(ctx, organizationID, counts.Total)[definition.ID],
 			counts.Total,
 			s.noiseFor(ctx, organizationID)[definition.ID]),
-		Bindings: bindingsToAPI(s.bindingsFor(ctx, organizationID, definition.ID)),
-		Clamps:   clampsToAPI(s.clampsFor(ctx, organizationID, definition.ID)),
+		Bindings: bindingsToAPI(s.bindingsFor(ctx, customer, definition.ID)),
+		Clamps:   clampsToAPI(s.clampsFor(ctx, customer, definition.ID)),
 	}
 	return GetRule200JSONResponse(detail), nil
 }

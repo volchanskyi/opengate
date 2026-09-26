@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
+
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
@@ -47,6 +49,7 @@ func (s *Server) PutRuleRollout(ctx context.Context, request PutRuleRolloutReque
 		return nil, err
 	}
 
+	s.deliverRuleChange(ctx, organizationID, false)
 	s.auditLog(ctx, ContextUserID(ctx), "rule.rollout.set", request.RuleId,
 		fmt.Sprintf("enabled=%t canary=%d%% staged=%d%%",
 			stored.Enabled, stored.CanaryPercent, stored.StagedPercent))
@@ -91,6 +94,7 @@ func (s *Server) StopRule(ctx context.Context, request StopRuleRequestObject) (S
 		return nil, err
 	}
 
+	s.deliverRuleChange(ctx, organizationID, request.Body.Scope == RuleStopScopeTenant)
 	s.auditLog(ctx, ContextUserID(ctx), stopAction(request.Body.Stopped), request.RuleId,
 		fmt.Sprintf("scope=%s", request.Body.Scope))
 	return StopRule204Response{}, nil
@@ -121,4 +125,36 @@ func stopAction(stopped bool) string {
 		return "rule.stop"
 	}
 	return "rule.resume"
+}
+
+// deliverRuleChange carries an administrator's change out to the machines that
+// are already connected.
+//
+// A rule runs on the customer's own machines, on processor time they pay for,
+// so a rule that turns out to be wrong has to be stoppable without waiting for
+// anything. A healthy link is held open indefinitely — a machine re-registers
+// only when something breaks it — so leaving the change for the next
+// registration means leaving it for days on a stable estate, while the screen
+// says it took effect.
+//
+// The push is best effort and never fails the change. What was asked for is
+// already stored, a machine that could not be written to takes it as it
+// reconnects, and refusing an administrator's stop because one link was in a
+// bad state would be the worse answer.
+func (s *Server) deliverRuleChange(ctx context.Context, organizationID uuid.UUID, tenantWide bool) {
+	if s.agents == nil {
+		return
+	}
+	if tenantWide {
+		tenant, ok := dbtx.TenantFromContext(ctx)
+		if !ok {
+			return
+		}
+		s.logger.Info("delivered a tenant-wide rule change",
+			"tenant_id", tenant.TenantID, "machines", s.agents.RefreshAlertRulesForTenant(ctx, tenant.TenantID))
+		return
+	}
+	s.logger.Info("delivered a rule change",
+		"organization_id", organizationID,
+		"machines", s.agents.RefreshAlertRules(ctx, organizationID))
 }

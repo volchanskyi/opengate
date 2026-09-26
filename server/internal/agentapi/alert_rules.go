@@ -35,6 +35,17 @@ type AlertRuleProvider interface {
 type RuleSet struct {
 	Rules               []protocol.ThresholdRule
 	DeviceHourlyCeiling uint32
+	// EventRules names which rules about the machine's own words this customer
+	// still wants, keyed by rule id.
+	//
+	// They are not in Rules and never travel, because the machine's log reader
+	// already carries them. What it cannot carry is the customer's decision to
+	// stop one: the matching goes on whatever anybody set, so the stop is kept
+	// here and applied where the alert arrives. Absent from this set means the
+	// customer switched it off or it was killed, and the alert is refused under
+	// its own counted reason rather than filed into a queue somebody chose to
+	// stop watching.
+	EventRules map[string]struct{}
 }
 
 // StaticAlertRuleProvider serves a minimal default ruleset to every tenant, with
@@ -112,11 +123,38 @@ func (a *AgentConn) pushAlertRules(ctx context.Context) error {
 	if a.alertRules == nil {
 		return nil
 	}
-	ruleset, err := a.alertRules.RulesFor(ctx, a.settingsScope(ctx))
+	scope := a.settingsScope(ctx)
+	ruleset, err := a.alertRules.RulesFor(ctx, scope)
 	if err != nil {
 		return fmt.Errorf("assemble alert rules: %w", err)
 	}
+	// Kept until the next push. Rules about the machine's own words never
+	// travel, so this is the only place the customer's decision to stop one can
+	// be applied — and it is read here, beside the ruleset, rather than queried
+	// again on every alert that arrives. The customer is remembered with it, so
+	// a change that customer makes can find this connection again.
+	a.rememberRuleset(scope.OrganizationID, ruleset.EventRules)
 	return a.SendPushAlertRules(ctx, ruleset)
+}
+
+// rememberRuleset records what this connection was last given, under the same
+// guard as the rest of the snapshot so a concurrent read cannot tear it.
+func (a *AgentConn) rememberRuleset(organizationID uuid.UUID, wanted map[string]struct{}) {
+	a.metaMu.Lock()
+	defer a.metaMu.Unlock()
+	a.organizationID = organizationID
+	a.wantedEventRules = wanted
+}
+
+// PushAlertRules re-resolves this machine's ruleset and delivers it.
+//
+// It is what makes an administrator's change reach a machine that is already
+// connected. A healthy link is held open indefinitely, so waiting for the next
+// registration means waiting for something unrelated to break it — long enough
+// for somebody to switch a rule off, watch the screen say so, and have it go on
+// firing every night.
+func (a *AgentConn) PushAlertRules(ctx context.Context) error {
+	return a.pushAlertRules(ctx)
 }
 
 // settingsScope reads the machine's place in the tenancy ladder. Alerts and
@@ -135,4 +173,51 @@ func (a *AgentConn) settingsScope(ctx context.Context) settings.Scope {
 		return known
 	}
 	return scope
+}
+
+// RefreshAlertRules re-resolves and delivers the ruleset to every connected
+// machine of one customer, and answers how many were reached.
+//
+// This is what an administrator's change rides out on. Each machine's ruleset
+// is resolved for its own place in the tenancy ladder, so this is a resolve per
+// machine rather than one ruleset copied about: a threshold aimed at the file
+// servers must not reach the workstations beside them.
+//
+// A machine that cannot be written to costs itself and nobody else. A
+// connection breaking mid-push is ordinary, and that machine is given the
+// change as it reconnects — which is the same path an offline machine has
+// always taken.
+func (s *AgentServer) RefreshAlertRules(ctx context.Context, organizationID uuid.UUID) int {
+	return s.refreshRules(ctx, func(meta AgentMeta) bool {
+		return meta.OrganizationID == organizationID
+	})
+}
+
+// RefreshAlertRulesForTenant does the same for every customer in one tenant. It
+// is the delivery half of the tenant-wide stop, which exists because the reason
+// to stop a rule is usually that it is wrong everywhere.
+func (s *AgentServer) RefreshAlertRulesForTenant(ctx context.Context, tenantID uuid.UUID) int {
+	return s.refreshRules(ctx, func(meta AgentMeta) bool {
+		return meta.TenantID == tenantID
+	})
+}
+
+// refreshRules pushes to every connected machine the filter selects. A machine
+// that has never been given a ruleset has nothing to refresh and is skipped:
+// its scope is not known yet, and it will be given the current one when it is.
+func (s *AgentServer) refreshRules(ctx context.Context, selects func(AgentMeta) bool) int {
+	reached := 0
+	for _, conn := range s.ListConnectedAgents() {
+		meta := conn.Meta()
+		if meta.OrganizationID == uuid.Nil || !selects(meta) {
+			continue
+		}
+		if err := conn.PushAlertRules(ctx); err != nil {
+			s.logger.Warn("push changed alert rules failed",
+				"device_id", meta.DeviceID, "error", err)
+			continue
+		}
+		reached++
+	}
+	return reached
 }

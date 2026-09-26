@@ -38,6 +38,10 @@ After completing significant work:
 
 - Update [`phases.md`](.claude/phases.md) and
   [`techdebt.md`](.claude/techdebt.md).
+- **Never add a techdebt entry without asking first.** Resolve what you find.
+  Where it truly cannot be resolved, ask the user before writing it, with a
+  summary in plain language — no jargon
+  ([`plans-and-adrs.md`](.claude/rules/plans-and-adrs.md#adding-a-techdebt-entry)).
 - Delete the plan.
 - For an architectural decision, add an ADR file in [`docs/adr/`](docs/adr/)
   plus an index row in [`decisions.md`](.claude/decisions.md).

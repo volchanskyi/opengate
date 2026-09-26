@@ -54,10 +54,15 @@ var capabilityOutcomes = map[string][]string{
 	},
 	"Alerts-and-Rules.md": {
 		"TestARuleReachesAMachineAndItsBreachComesBackAsAnAlert",
+		"TestAFailureThatCrossesNoLineStillReachesTheQueue",
+		"TestAFindingOutOfHistoryBelongsWhereItHappened",
 	},
 	"Rule-Administration.md": {
 		"TestATunedThresholdReachesOneCustomerAndNotTheOther",
 		"TestAStopSwitchReachesMachinesAlreadyCarryingTheRule",
+		"TestARuleTheCustomerStoppedRaisesNothingInTheirQueue",
+		"TestAStoppedRuleReachesAMachineThatNeverDisconnects",
+		"TestARetunedThresholdReachesAMachineThatNeverDisconnects",
 	},
 	"Investigations.md": {
 		"TestAnAlertBecomesAnIncidentATechnicianClosesWithACause",

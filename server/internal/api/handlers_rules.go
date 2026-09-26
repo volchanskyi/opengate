@@ -46,7 +46,13 @@ func (s *Server) ListRules(ctx context.Context, request ListRulesRequestObject) 
 		return nil, err
 	}
 	coverage := s.coverageFor(ctx, organizationID, counts.Total)
-	rollouts := s.rolloutsFor(ctx, organizationID)
+	// A rollout belongs to one customer, and a screen with none picked changes
+	// the tenant's own, so that is the one whose rollouts it shows.
+	customer, err := s.customerOrDefault(ctx, request.Params.OrganizationId)
+	if err != nil {
+		return nil, err
+	}
+	rollouts := s.rolloutsFor(ctx, customer)
 	noise := s.noiseFor(ctx, organizationID)
 
 	definitions := s.ruleCatalogue.All()
@@ -99,10 +105,9 @@ func ruleToAPI(
 	out := Rule{
 		Id:               definition.ID,
 		Version:          definition.Version,
+		Kind:             ruleKindToAPI(definition),
+		Severity:         IncidentSeverity(definition.Severity),
 		Summary:          definition.Summary,
-		Metric:           definition.Metric,
-		Comparator:       RuleComparator(definition.ComparatorName),
-		Threshold:        definition.Threshold,
 		GroupBy:          orEmpty(definition.GroupBy),
 		GroupWindowSecs:  int(definition.GroupWindowSecs),
 		Evidence:         orEmpty(definition.Evidence),
@@ -112,11 +117,27 @@ func ruleToAPI(
 		Coverage:         coverageToAPI(coverage, fleetSize),
 		Noise:            noiseToAPI(noise),
 	}
+	// A rule watching the machine's own words compares no number, so it names
+	// no reading, no comparison and no line. Sending zeros for those would put
+	// a threshold of nought on a screen somebody could read as a setting.
+	if !definition.WatchesEvents() {
+		metric, comparator, threshold := definition.Metric,
+			RuleComparator(definition.ComparatorName), definition.Threshold
+		out.Metric, out.Comparator, out.Threshold = &metric, &comparator, &threshold
+	}
 	if definition.SustainSecs > 0 {
 		sustain := int(definition.SustainSecs)
 		out.SustainSecs = &sustain
 	}
 	return out
+}
+
+// ruleKindToAPI says what a rule watches, in the vocabulary the screen reads.
+func ruleKindToAPI(definition rules.Definition) RuleKind {
+	if definition.WatchesEvents() {
+		return Event
+	}
+	return Reading
 }
 
 // noiseFor reads how noisy each rule has been for this customer. A read that

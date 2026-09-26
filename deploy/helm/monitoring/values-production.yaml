@@ -1,0 +1,8 @@
+# Production overlay for the monitoring release, applied by the production
+# deploy beside the application chart. The domain arrives from the deploy's own
+# secret, as it does for the application chart.
+
+promtail:
+  # Node log files are root-owned on the OKE workers, so the tailer reads them as
+  # root.
+  runAsRoot: true

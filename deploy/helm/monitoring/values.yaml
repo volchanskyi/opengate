@@ -28,7 +28,10 @@ victoriametrics:
   # rendered -retentionPeriod argument, pinned by
   # scripts/tests/monitoring-retention.test.sh.
   retention: 30d
-  storage: 50Gi
+  # What the StatefulSet's volume template asks for, which cannot change once the
+  # set exists. The oci-bv class provisions its 50 GB minimum whatever is asked,
+  # so the disk behind this is 50 GB either way.
+  storage: 10Gi
   resources:
     requests:
       cpu: 100m
@@ -71,8 +74,8 @@ grafana:
 
 promtail:
   image: docker.io/grafana/promtail:3.5.0
-  # promtail reads node pod logs. If the node OS makes /var/log/pods
-  # root-only, flip runAsRoot=true at cutover (validate on OKE — runbook §4).
+  # promtail reads node pod logs. Where the node OS makes /var/log/pods
+  # root-only it runs as root; values-production.yaml sets that for OKE.
   runAsRoot: false
   resources:
     requests:

@@ -26,7 +26,7 @@ function rollout(over: Partial<Rule['rollout']> = {}): Rule['rollout'] {
 function detail(over: Partial<RuleDetailData> = {}): RuleDetailData {
   return {
     rule: {
-      id: 'disk-critical', version: 2, summary: 'A disk about to fill',
+      id: 'disk-critical', version: 2, kind: 'reading', severity: 'critical', summary: 'A disk about to fill',
       metric: 'disk.used_percent', comparator: 'gte', threshold: 90, sustain_secs: 300,
       group_by: ['device'], group_window_secs: 300, evidence: ['vitals'],
       coverage_requires: ['disk.used_percent'],

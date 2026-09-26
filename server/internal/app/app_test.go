@@ -190,3 +190,16 @@ func TestAgentControlGetterConvertsAMissingAgentToANilInterface(t *testing.T) {
 	assert.Nil(t, assembly.AgentControl.GetAgent(uuid.New()))
 	assert.Empty(t, assembly.AgentControl.ListConnectedAgents())
 }
+
+// A rule change is carried to the machines the agent server holds, through the
+// same bridge; with none connected it reaches none, rather than reporting a
+// delivery that did not happen.
+func TestAgentControlGetterCarriesARuleChangeToNoMachineWhenNoneAreConnected(t *testing.T) {
+	t.Parallel()
+
+	assembly, err := app.Build(context.Background(), baseConfig(t))
+	require.NoError(t, err)
+
+	assert.Zero(t, assembly.AgentControl.RefreshAlertRules(context.Background(), uuid.New()))
+	assert.Zero(t, assembly.AgentControl.RefreshAlertRulesForTenant(context.Background(), uuid.New()))
+}

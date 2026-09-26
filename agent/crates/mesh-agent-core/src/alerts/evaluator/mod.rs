@@ -1,5 +1,6 @@
 use mesh_protocol::{
-    AlertBreach, AlertComparator, RuleCoverage, RuleCoverageState, ThresholdRule, MAX_RULE_TERMS,
+    AlertBreach, AlertComparator, AlertSeverity, RuleCoverage, RuleCoverageState, ThresholdRule,
+    MAX_RULE_TERMS,
 };
 
 use crate::ml::sampler::MetricSample;
@@ -86,6 +87,41 @@ impl RuleBudget {
     }
 }
 
+/// One rule that is firing on this instant's readings.
+///
+/// `started` is what separates the moment a rule *begins* firing from the
+/// seconds it goes on firing afterwards. A disk that sits over its line for ten
+/// hours is one thing that happened, not thirty-six thousand: the whole episode
+/// is what a fleet board asks about, and only its start is what opens an
+/// incident. Both answers come out of one evaluation, because stepping the
+/// state machine twice would advance it twice.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct Firing {
+    /// Which rule is firing.
+    pub rule_id: String,
+    /// Which revision of it this machine is running. It travels onto every
+    /// alert the rule raises, because the far end identifies an alert by the
+    /// rule *and* its revision.
+    pub rule_version: u32,
+    /// How bad the rule says this is. Stated by whoever wrote the rule, carried
+    /// to this machine with it, and put on the alert unchanged — a queue
+    /// ordered by severity cannot order an alert that states none.
+    pub severity: AlertSeverity,
+    /// The dimension it watched, under the name the fleet collects it by.
+    pub metric: String,
+    /// The reading that crossed the line.
+    pub value: f64,
+    /// When the breach began holding. The same instant as `at` for a rule with
+    /// no hold — a span of nothing is still a span, and it never runs
+    /// backwards.
+    pub since: i64,
+    /// The instant these readings were taken.
+    pub at: i64,
+    /// Whether this is the instant the rule started firing.
+    pub started: bool,
+}
+
 /// A rule plus its live evaluation state.
 struct RuleEntry {
     rule: ThresholdRule,
@@ -117,8 +153,9 @@ impl RuleEntry {
     }
 
     /// Evaluate every condition and advance the state machine, returning the
-    /// number the rule's own condition produced while it is firing.
-    fn step(&mut self, sample: &DimReadings, ts: i64) -> Option<f64> {
+    /// number the rule's own condition produced while it is firing, and whether
+    /// the breach behind it began.
+    fn step(&mut self, sample: &DimReadings, ts: i64) -> Option<(f64, i64, bool)> {
         // A rule that spent past its allowance is not evaluated again on this
         // machine. Only a different rule arriving re-arms it, so a reconnect
         // re-pushing the same ruleset cannot spend the allowance a second time.
@@ -190,8 +227,18 @@ impl RuleEntry {
             .zip(&values)
             .any(|(condition, &value)| condition.cleared(value));
 
+        let before = self.state;
         self.state = advance(self.state, self.rule.sustain_secs, breaching, cleared, ts);
-        matches!(self.state, RuleState::Firing).then(|| values[0])
+        if !matches!(self.state, RuleState::Firing) {
+            return None;
+        }
+        // Where the breach began: the instant the hold started counting, or
+        // this one for a rule with no hold, which goes straight to firing.
+        let since = match before {
+            RuleState::Pending { since } => since,
+            _ => ts,
+        };
+        Some((values[0], since, !matches!(before, RuleState::Firing)))
     }
 }
 
@@ -276,7 +323,7 @@ impl AlertEvaluator {
 
     /// Evaluate every rule against the second `sample` describes and return the
     /// firing breaches. A rule this device cannot evaluate never fires.
-    pub fn evaluate(&mut self, sample: &MetricSample, ts: i64) -> Vec<AlertBreach> {
+    pub fn evaluate(&mut self, sample: &MetricSample, ts: i64) -> Vec<Firing> {
         self.evaluate_readings(&DimReadings::of_sample(sample), ts)
     }
 
@@ -286,12 +333,14 @@ impl AlertEvaluator {
     /// retroactive scan with a minute rebuilt from the local store — the same
     /// state machine either way, so a rule cannot mean one thing now and
     /// something else over history.
-    pub fn evaluate_readings(&mut self, readings: &DimReadings, ts: i64) -> Vec<AlertBreach> {
-        let mut breaches = Vec::new();
+    pub fn evaluate_readings(&mut self, readings: &DimReadings, ts: i64) -> Vec<Firing> {
+        let mut firing = Vec::new();
         for entry in &mut self.entries {
-            if let Some(value) = entry.step(readings, ts) {
-                breaches.push(AlertBreach {
+            if let Some((value, since, started)) = entry.step(readings, ts) {
+                firing.push(Firing {
                     rule_id: entry.rule.id.clone(),
+                    rule_version: entry.rule.version,
+                    severity: entry.rule.severity,
                     // The canonical name, whatever the rule was written in, so
                     // nothing downstream sees two names for one thing.
                     metric: entry
@@ -300,10 +349,28 @@ impl AlertEvaluator {
                         .and_then(|conditions| conditions.first())
                         .map_or_else(|| entry.rule.metric.clone(), |c| c.metric.to_string()),
                     value,
+                    since,
+                    at: ts,
+                    started,
                 });
             }
         }
-        breaches
+        firing
+    }
+
+    /// What every firing rule is doing, in the shape the fleet board reads. The
+    /// whole episode, not only its start: a board answers "what is wrong right
+    /// now".
+    #[must_use]
+    pub fn breaches(firing: &[Firing]) -> Vec<AlertBreach> {
+        firing
+            .iter()
+            .map(|f| AlertBreach {
+                rule_id: f.rule_id.clone(),
+                metric: f.metric.clone(),
+                value: f.value,
+            })
+            .collect()
     }
 
     /// What every installed rule is doing on this device, one entry per rule.

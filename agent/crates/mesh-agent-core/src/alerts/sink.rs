@@ -77,18 +77,42 @@ pub enum AlertOrigin {
 pub struct EdgeAlert {
     /// Which rule fired, as the catalogue identifies it.
     pub rule_id: String,
+    /// Which revision of that rule fired. Part of the alert's identity at the
+    /// far end, which refuses a revision of nothing: a rule edited after this
+    /// was raised does not retroactively change what fired.
+    pub rule_version: u32,
     /// How bad the rule says this is.
     pub severity: AlertSeverity,
     /// When the record that fired the rule was written, in microseconds since
     /// the Unix epoch. For a backfilled finding this is when the thing
-    /// *happened*, which is generally nowhere near when it was found.
+    /// *happened*, which is generally nowhere near when it was found — the
+    /// incident sorts by this, so a freeze from three weeks ago belongs three
+    /// weeks back rather than at the top of today's queue.
     pub ts_micros: i64,
+    /// Start of the stretch the rule decided on, in microseconds. Part of the
+    /// alert's identity, so a replay after a failed send resolves to the row
+    /// already written rather than to a second one.
+    pub window_start_micros: i64,
+    /// End of that stretch, in microseconds. Never before its start.
+    pub window_end_micros: i64,
+    /// The dimension the rule watched, under the name the fleet collects it by.
+    /// Empty for a rule that watches the machine's own words rather than a
+    /// reading.
+    pub metric: String,
+    /// The reading that crossed the line, absent for the same reason `metric`
+    /// can be empty.
+    pub value: Option<f64>,
     /// What the alert is about — the service or subsystem the record came from.
     pub subject: String,
     /// What the rule means, in words a technician reads first.
     pub summary: String,
-    /// The redacted record(s) the rule matched.
-    pub evidence: Vec<String>,
+    /// Everything this machine knew about why the rule fired, composed and
+    /// packed at the moment it fired. Empty is a legal alert: a machine that
+    /// had nothing to attach still says it is in trouble.
+    pub evidence: Vec<u8>,
+    /// How `evidence` was packed. Empty exactly when `evidence` is, because a
+    /// codec naming an empty blob reads as evidence that exists.
+    pub evidence_codec: String,
     /// Whether this happened now or is being reported out of history.
     pub origin: AlertOrigin,
 }
@@ -194,14 +218,7 @@ impl AlertSink {
         inner.admitted.push_back(now_micros);
 
         inner.queue.push_back(alert);
-        let mut dropped = false;
-        while inner.queue.len() > inner.capacity {
-            inner.queue.pop_front();
-            inner.dropped_oldest += 1;
-            dropped = true;
-        }
-
-        if dropped {
+        if inner.trim_to_capacity() > 0 {
             PushOutcome::DroppedOldest
         } else {
             PushOutcome::Queued
@@ -213,6 +230,28 @@ impl AlertSink {
     /// not the batch.
     pub fn drain(&self) -> Vec<EdgeAlert> {
         self.lock().queue.drain(..).collect()
+    }
+
+    /// Takes back alerts a delivery attempt could not hand over.
+    ///
+    /// They go in front of whatever arrived while the attempt was in flight,
+    /// because they are older and an incident reads forwards. The ceiling is
+    /// **not** charged again: these alerts were admitted when they were raised,
+    /// and charging a machine for them on every failed attempt would let a
+    /// flapping link spend its whole allowance on alerts nobody ever received.
+    ///
+    /// The bound still applies. A hand-back bigger than the room left drops the
+    /// oldest and counts it, exactly as a push does — losing an alert quietly is
+    /// the one thing this queue may never do.
+    pub fn return_unsent(&self, alerts: Vec<EdgeAlert>) {
+        if alerts.is_empty() {
+            return;
+        }
+        let mut inner = self.lock();
+        for alert in alerts.into_iter().rev() {
+            inner.queue.push_front(alert);
+        }
+        inner.trim_to_capacity();
     }
 
     /// Sets how many alerts this device may raise in a rolling hour.
@@ -246,6 +285,19 @@ impl AlertSink {
 }
 
 impl Inner {
+    /// Drops the oldest until the queue is inside its bound, and answers how
+    /// many that cost. Every loss is counted, whichever end the overflow
+    /// entered from.
+    fn trim_to_capacity(&mut self) -> u64 {
+        let mut dropped = 0;
+        while self.queue.len() > self.capacity {
+            self.queue.pop_front();
+            self.dropped_oldest += 1;
+            dropped += 1;
+        }
+        dropped
+    }
+
     /// Forgets admissions that have aged out of the rolling window.
     fn expire_admitted(&mut self, now_micros: i64) {
         while let Some(&oldest) = self.admitted.front() {

@@ -105,3 +105,14 @@ shard runs, and that is still the harness shard's module-wide one.
   it is handed — rather than checking the unit map alone, and it refuses an
   unanchored exclude alternative and a shard whose walk cannot reach its own
   units.
+- A leg whose test runner selected no tests measures nothing, and says so.
+  [`assert-mutation-report.sh`](../../scripts/assert-mutation-report.sh) refuses
+  a Stryker report holding a surviving mutant that tests cover and none of them
+  completed against — the shape a runner that matches no test names leaves, a
+  well-formed report scoring nought. The leg fails as incomplete rather than
+  publishing a regression about tests that never ran. Stryker's vitest runner
+  leaves exactly that on Vitest 5, which matches a test's name against its suite
+  chain joined by `' > '` while the runner joins it with a space
+  (stryker-js#6210); [`web/patches/`](../../web/patches/) carries the one-line
+  correction, applied on every install, against the runner version pinned
+  exactly beside it.

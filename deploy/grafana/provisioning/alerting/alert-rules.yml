@@ -42,6 +42,10 @@ groups:
           severity: critical
         annotations:
           summary: "OpenGate server health check is failing"
+          observed: '{{ with $values.B }}up = {{ printf "%.0f" .Value }} (fires below 1){{ end }}'
+          check: >-
+            kubectl -n opengate get pods -l app.kubernetes.io/component=server, then kubectl -n opengate logs
+            deploy/opengate-server --previous
           description: "The server has been unreachable for more than 1 minute."
 
       - uid: disk-usage-critical
@@ -79,6 +83,9 @@ groups:
           severity: critical
         annotations:
           summary: "Disk usage is above 90%"
+          observed: '{{ with $values.B }}root filesystem {{ printf "%.1f" .Value }}% used (fires above 90%){{ end }}'
+          check: >-
+            on the node: du -xh --max-depth=2 / | sort -h | tail; container images and logs are the usual growth
           description: "Root filesystem usage has exceeded 90%. Immediate action required."
 
   - orgId: 1
@@ -122,6 +129,9 @@ groups:
           severity: warning
         annotations:
           summary: "p99 HTTP latency exceeds 2 seconds"
+          observed: '{{ with $values.B }}p99 request time {{ printf "%.2f" .Value }}s (fires above 2s){{ end }}'
+          check: >-
+            the OpenGate Overview dashboard, latency by route; then the Postgres dashboard for slow queries
           description: "The 99th percentile request duration has been above 2s for 5 minutes."
 
       - uid: high-error-rate
@@ -160,6 +170,9 @@ groups:
           severity: warning
         annotations:
           summary: "HTTP 5xx error rate exceeds 5%"
+          observed: '{{ with $values.B }}{{ printf "%.1f" .Value }}% of requests answered 5xx (fires above 5%){{ end }}'
+          check: >-
+            kubectl -n opengate logs deploy/opengate-server --since=15m | grep -i error
           description: "More than 5% of HTTP requests are returning 5xx errors."
 
       - uid: disk-usage-warning
@@ -197,6 +210,9 @@ groups:
           severity: warning
         annotations:
           summary: "Disk usage is above 75%"
+          observed: '{{ with $values.B }}root filesystem {{ printf "%.1f" .Value }}% used (fires above 75%){{ end }}'
+          check: >-
+            on the node: du -xh --max-depth=2 / | sort -h | tail; container images and logs are the usual growth
           description: "Root filesystem usage has exceeded 75%. Plan cleanup or expansion."
 
       - uid: memory-usage-high
@@ -234,6 +250,9 @@ groups:
           severity: warning
         annotations:
           summary: "Memory usage is above 80%"
+          observed: '{{ with $values.B }}{{ printf "%.1f" .Value }}% of node memory in use (fires above 80%){{ end }}'
+          check: >-
+            kubectl top pods -A --sort-by=memory | head
           description: "System memory utilization has exceeded 80%."
 
       - uid: server-process-restarted
@@ -271,6 +290,11 @@ groups:
           severity: warning
         annotations:
           summary: "The OpenGate server process was replaced"
+          observed: >-
+            {{ with $values.B }}{{ printf "%.0f" .Value }} restarts in the last 15 minutes (fires above 0){{ end }}
+          check: >-
+            kubectl -n opengate get pods -l app.kubernetes.io/component=server and read Last State; OOMKilled is a
+            memory kill, Completed with a new ReplicaSet is a deploy
           description: >-
             process_start_time_seconds moved, so the server is a different
             process than it was fifteen minutes ago. A rolling deploy is the
@@ -316,6 +340,10 @@ groups:
           severity: warning
         annotations:
           summary: "The kubelet's container metrics are not reaching the store"
+          observed: '{{ with $values.B }}{{ printf "%.0f" .Value }} kubelet scrapes answering (fires below 1){{ end }}'
+          check: >-
+            the VictoriaMetrics targets page (/targets) for the kubernetes-cadvisor job and its last error; a 403 is
+            the nodes/metrics authorisation
           description: >-
             Nothing is answering the cAdvisor scrape, so the two alerts below
             this one have no data to fire on and would stay silent through
@@ -364,6 +392,10 @@ groups:
           severity: warning
         annotations:
           summary: "A container is walking up to its memory limit"
+          observed: >-
+            {{ with $values.B }}working set at {{ humanizePercentage .Value }} of its limit (fires above 80%){{ end }}
+          check: >-
+            kubectl -n {{ $labels.namespace }} top pod {{ $labels.pod }} --containers, and whether the rise follows load
           description: >-
             The container's working set has been above 80% of its own cgroup
             limit for ten minutes. The node may have memory to spare and this
@@ -409,6 +441,11 @@ groups:
           severity: critical
         annotations:
           summary: "A container was killed for exceeding its memory limit"
+          observed: >-
+            {{ with $values.B }}{{ printf "%.0f" .Value }} memory kills in the last 15 minutes (fires above 0){{ end
+            }}
+          check: >-
+            kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }}: Last State and the limit it was killed at
           description: >-
             The kernel took this container for memory. The series names which
             one, which is the question that otherwise costs hours: a node-wide
@@ -452,6 +489,11 @@ groups:
           severity: warning
         annotations:
           summary: "Edge-Sentinel telemetry drop ratio exceeds 5%"
+          observed: >-
+            {{ with $values.B }}{{ printf "%.1f" .Value }}% of edge telemetry dropped over 10 minutes (fires above
+            5%){{ end }}
+          check: >-
+            opengate_edge_telemetry_drops_total by reason, to see which bound is refusing
           description: >-
             Server-side telemetry bounds are dropping more than 5% of accepted
             messages over 10 minutes; anomaly summaries or host windows may be
@@ -493,6 +535,9 @@ groups:
           severity: warning
         annotations:
           summary: "The curated rule pack is raising far more alerts than its ceilings are sized for"
+          observed: '{{ with $values.B }}{{ printf "%.1f" .Value }} alerts per device per day (fires above 5){{ end }}'
+          check: >-
+            the Rule Rollout And Triage dashboard, per-rule panel: one rule_id carrying the rise, or the whole pack
           description: >-
             Stored alerts per device per day are above 5, projected from the last
             30 minutes. At that rate a large customer's hourly ceiling starts
@@ -537,6 +582,11 @@ groups:
           severity: warning
         annotations:
           summary: "Alerts are being refused past a customer's hourly ceiling"
+          observed: >-
+            {{ with $values.B }}{{ printf "%.3f" .Value }} alerts a second refused past a ceiling (fires above 0){{
+            end }}
+          check: >-
+            the Rule Rollout And Triage dashboard for which rule is driving the volume
           description: >-
             An alert is the only carrier of the detail behind a signal — there is
             no path for asking the endpoint again — so every refusal here is an

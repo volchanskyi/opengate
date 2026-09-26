@@ -15,8 +15,8 @@
 use mesh_agent_core::alerts::{rule_cost, AlertEvaluator, RULE_BUDGET_READINGS_PER_SEC};
 use mesh_agent_core::ml::sampler::{MetricSample, ProcessSample};
 use mesh_protocol::{
-    AlertComparator, RuleCoverageState, RulePredicate, RuleTerm, ThresholdRule, MAX_RULE_TERMS,
-    MAX_RULE_WINDOW_SECS,
+    AlertComparator, AlertSeverity, RuleCoverageState, RulePredicate, RuleTerm, ThresholdRule,
+    MAX_RULE_TERMS, MAX_RULE_WINDOW_SECS,
 };
 
 /// Build a metric sample with every reading present. `disk` is the fullest
@@ -80,6 +80,8 @@ fn rule(
 ) -> ThresholdRule {
     ThresholdRule {
         id: id.to_string(),
+        version: 1,
+        severity: AlertSeverity::Warning,
         metric: metric.to_string(),
         comparator,
         threshold,
@@ -1175,4 +1177,149 @@ fn a_changed_rule_gets_its_allowance_back() {
         RuleCoverageState::Active,
         "the retuned rule runs"
     );
+}
+
+// --- the moment a rule starts firing, as distinct from the whole episode ---
+//
+// A disk that sits over its line for ten hours is one thing that happened, not
+// thirty-six thousand. The breach signal reports the whole episode, because a
+// fleet board asks "what is wrong right now"; an alert is raised once, at the
+// start, because an incident asks "what happened". Both readings come out of
+// the same evaluation, or the state machine would have to be stepped twice and
+// would advance twice.
+
+/// One firing, whatever else the instant produced.
+fn only_firing(firings: &[mesh_agent_core::alerts::Firing]) -> &mesh_agent_core::alerts::Firing {
+    assert_eq!(firings.len(), 1, "exactly one rule is firing here");
+    &firings[0]
+}
+
+/// The instant a rule fires is the instant it says it started. Every second
+/// after that it is still firing and no longer starting.
+#[test]
+fn a_rule_says_it_started_once_and_then_goes_on_firing() {
+    let mut eval = AlertEvaluator::new(vec![rule(
+        "disk-critical",
+        "disk.used_percent",
+        AlertComparator::Gte,
+        90.0,
+        85.0,
+        5,
+    )]);
+    for ts in 0..5 {
+        assert!(eval.evaluate(&sample(10.0, 10.0, 91.0), ts).is_empty());
+    }
+
+    let fired = eval.evaluate(&sample(10.0, 10.0, 91.0), 5);
+    assert!(
+        only_firing(&fired).started,
+        "the instant it fires is the instant it started"
+    );
+
+    for ts in 6..60 {
+        let still = eval.evaluate(&sample(10.0, 10.0, 91.0), ts);
+        assert!(
+            !only_firing(&still).started,
+            "an episode that goes on is not a second thing that happened (ts={ts})"
+        );
+    }
+}
+
+/// A rule that started firing says when the breach began, not when the hold
+/// finally elapsed. That span is the stretch the rule actually looked at, and
+/// it is what an alert's identity is built on — so the two must not be
+/// confused, or the same episode would identify itself differently depending on
+/// how long its hold was.
+#[test]
+fn a_firing_names_the_moment_the_breach_began() {
+    let mut eval = AlertEvaluator::new(vec![rule(
+        "cpu-saturated",
+        "cpu.total",
+        AlertComparator::Gte,
+        95.0,
+        85.0,
+        300,
+    )]);
+    let began = 1_763_000_000;
+    for ts in began..began + 300 {
+        assert!(eval.evaluate(&sample(97.0, 10.0, 10.0), ts).is_empty());
+    }
+
+    let fired = eval.evaluate(&sample(97.0, 10.0, 10.0), began + 300);
+    let firing = only_firing(&fired);
+    assert!(firing.started);
+    assert_eq!(firing.since, began, "the breach began when it began");
+    assert_eq!(firing.at, began + 300, "and the rule fired when it fired");
+    assert_eq!(firing.value, 97.0, "carrying the reading that crossed");
+}
+
+/// A rule with no hold at all starts firing on the reading that crossed, and
+/// says the breach began there. A span of nothing is still a span, and the far
+/// end refuses a window that runs backwards.
+#[test]
+fn a_rule_with_no_hold_begins_where_it_fires() {
+    let mut eval = AlertEvaluator::new(vec![rule(
+        "memory-pressure",
+        "mem.used_percent",
+        AlertComparator::Gte,
+        95.0,
+        85.0,
+        0,
+    )]);
+
+    let fired = eval.evaluate(&sample(10.0, 96.0, 10.0), 4_242);
+    let firing = only_firing(&fired);
+    assert!(firing.started);
+    assert_eq!(firing.since, 4_242);
+    assert_eq!(firing.at, 4_242);
+    assert!(firing.since <= firing.at, "a span never runs backwards");
+}
+
+/// An episode that ends and returns is a second thing that happened. Recovery
+/// has to pass the rule's own clear boundary first — a reading hovering on the
+/// line must not manufacture a queue of incidents.
+#[test]
+fn an_episode_that_ends_and_returns_starts_again() {
+    let mut eval = AlertEvaluator::new(vec![rule(
+        "cpu-saturated",
+        "cpu.total",
+        AlertComparator::Gte,
+        95.0,
+        85.0,
+        0,
+    )]);
+
+    assert!(only_firing(&eval.evaluate(&sample(97.0, 10.0, 10.0), 0)).started);
+    assert!(
+        !only_firing(&eval.evaluate(&sample(90.0, 10.0, 10.0), 1)).started,
+        "still over the clear boundary, so the same episode is still running"
+    );
+    assert!(
+        eval.evaluate(&sample(80.0, 10.0, 10.0), 2).is_empty(),
+        "past the clear boundary, the episode is over"
+    );
+    assert!(
+        only_firing(&eval.evaluate(&sample(97.0, 10.0, 10.0), 3)).started,
+        "and the next one is a second thing that happened"
+    );
+}
+
+/// A firing names the revision of the rule that fired. An alert's identity is
+/// built on it, and the far end refuses a revision of nothing — so a machine
+/// that lost it here could raise nothing anybody receives.
+#[test]
+fn a_firing_names_the_revision_of_the_rule_that_fired() {
+    let mut retuned = rule(
+        "disk-critical",
+        "disk.used_percent",
+        AlertComparator::Gte,
+        90.0,
+        85.0,
+        0,
+    );
+    retuned.version = 7;
+    let mut eval = AlertEvaluator::new(vec![retuned]);
+
+    let fired = eval.evaluate(&sample(10.0, 10.0, 95.0), 0);
+    assert_eq!(only_firing(&fired).rule_version, 7);
 }

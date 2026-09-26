@@ -177,6 +177,18 @@ func stamped(at time.Time) func(*protocol.ControlMessage) {
 	}
 }
 
+// backfilledAt is the same, for a finding a machine produced by re-running a
+// rule over history it already held. It is legitimately old — that is the whole
+// point of it — so it says which kind it is and is measured against the wider
+// bound that kind is allowed.
+func backfilledAt(at time.Time) func(*protocol.ControlMessage) {
+	return func(msg *protocol.ControlMessage) {
+		stamped(at)(msg)
+		yes := true
+		msg.Backfilled = &yes
+	}
+}
+
 func TestHandleAgentAlertAdmission(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
@@ -292,6 +304,25 @@ func TestHandleAgentAlertAdmission(t *testing.T) {
 		{
 			name:       "an alert stamped hours ahead of the server is refused and counted",
 			change:     stamped(now.Add(7 * time.Hour)),
+			payloadLen: 512,
+			wantReason: alertDropTimestampOutOfRange,
+		},
+		{
+			// A machine re-running a new rule over its own history answers
+			// "has this happened before?", and the local store reaches back
+			// months. The answer is worth having: a row is kept for a year
+			// from the day it arrives, so a finding from five months ago is
+			// one a technician can still open and act on.
+			name:       "a finding five months out of history is admitted",
+			change:     backfilledAt(now.Add(-150 * 24 * time.Hour)),
+			payloadLen: 512,
+		},
+		{
+			// And a finding older than the row would be kept for is refused:
+			// admitting it would file something the retention sweep removes
+			// before anybody reads it.
+			name:       "a finding older than an alert is kept for is refused and counted",
+			change:     backfilledAt(now.Add(-400 * 24 * time.Hour)),
 			payloadLen: 512,
 			wantReason: alertDropTimestampOutOfRange,
 		},
@@ -438,4 +469,49 @@ func TestStoredSeverityKeepsTheWiresClosedSet(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = storedSeverity(nil)
 	assert.False(t, ok, "an absent severity is not a severity")
+}
+
+// A rule about the machine's own words cannot be stopped by withholding it: the
+// machine's log reader carries it and goes on matching. So the customer's
+// decision is applied where the alert arrives, and an alert for a rule they
+// stopped is refused under its own reason rather than filed into a queue they
+// chose to stop watching.
+func TestAnAlertForARuleTheCustomerStoppedIsRefusedAndCounted(t *testing.T) {
+	t.Parallel()
+
+	f := alertConn(t)
+	// Everything this customer still wants — and the rule below is not in it.
+	f.conn.wantedEventRules = map[string]struct{}{"linux-hung-task": {}}
+
+	stopped := broken(t, func(m *protocol.ControlMessage) { m.RuleID = "linux-oom-kill" })
+	f.ingest(t, stopped)
+
+	f.dropped(t, alertDropRuleStopped)
+}
+
+// The same machine's other rules are unaffected, and so is every rule about a
+// reading — those are stopped by never reaching the machine, so an alert naming
+// one is an alert the customer still wants.
+func TestStoppingOneRuleDoesNotSilenceTheRest(t *testing.T) {
+	t.Parallel()
+
+	f := alertConn(t)
+	f.conn.wantedEventRules = map[string]struct{}{"linux-hung-task": {}}
+
+	f.ingest(t, wellFormed(t))
+	require.Len(t, f.reachedStore(t, 1), 1,
+		"a rule about a reading is stopped by never being sent, so its alerts still arrive")
+}
+
+// A connection that has not been told which rules a customer wants admits them
+// all. Refusing every alert on a wiring detail would silence a fleet, which is
+// a far larger harm than filing an alert for a rule somebody stopped.
+func TestAConnectionToldNothingAdmitsEveryRule(t *testing.T) {
+	t.Parallel()
+
+	f := alertConn(t)
+	require.Nil(t, f.conn.wantedEventRules)
+
+	f.ingest(t, broken(t, func(m *protocol.ControlMessage) { m.RuleID = "linux-oom-kill" }))
+	require.Len(t, f.reachedStore(t, 1), 1)
 }

@@ -174,7 +174,7 @@ func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn r
 		select {
 		case <-sessionDone:
 			return
-		case <-s.lifetime.Done():
+		case <-s.lifetime:
 			return
 		case <-ticker.C:
 			// A background parent, not the lifetime: a shutdown must not be

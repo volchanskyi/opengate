@@ -30,6 +30,11 @@ screen renders that half as description rather than as a disabled form.
 What an operator changes is: the numbers a rule declares adjustable, which
 machines they apply to, how far the rule has reached, and whether it runs at all.
 
+A rule that reads the machine's own log records declares no numbers at all,
+because there is nothing in it to compare — it matches phrases rather than
+crossing a line. Its row shows what it means in words, and the only thing an
+operator changes about it is whether it runs.
+
 ## The rule list
 
 Anything wanting attention floats to the top — a rule somebody stopped, a rule
@@ -95,9 +100,14 @@ stopping it is an intervention, and afterwards the two have to be tellable apart
 | Property | Behaviour |
 |---|---|
 | Scope | One customer, or every customer in the tenant at once |
+| Connected machines | Reached as the switch is thrown |
 | Offline machines | Stopped when they reconnect |
 | Precedence | A stop outranks the stage — the canary machines proving the rule lose it too |
 | Deploy needed | None |
+
+A retuned number travels the same way. A boundary sitting in a table is not one
+any machine is comparing against, so a change reaches that customer's connected
+machines as it is made rather than the next time each one happens to reconnect.
 
 A rule that misbehaves is pulled back to a smaller population by the rollout
 machinery itself. That is not configuration: there is no field, column or endpoint

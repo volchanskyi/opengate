@@ -97,6 +97,13 @@ func writeReverseGolden(t *testing.T, dir, variant string, encoded []byte) {
 // field and kept its own number would fail rather than coincide.
 const goldenDeviceHourlyCeiling uint32 = 37
 
+// goldenSeverities is cycled across the fixture's rules so all three travel.
+var goldenSeverities = []AlertSeverity{
+	AlertSeverityCritical,
+	AlertSeverityWarning,
+	AlertSeverityInfo,
+}
+
 func goldenAlertRules() []ThresholdRule {
 	predicates := []RulePredicate{
 		RulePredicateInstant,
@@ -120,7 +127,17 @@ func goldenAlertRules() []ThresholdRule {
 			window = uint32(30 * (i%3 + 1))
 		}
 		rules = append(rules, ThresholdRule{
-			ID:          fmt.Sprintf("golden-rule-%02d", i),
+			ID: fmt.Sprintf("golden-rule-%02d", i),
+			// Revisions climb across the fixture, and none of them is one, so an
+			// agent that dropped the field or defaulted it cannot coincide with
+			// what the server sent. A machine that cannot read this cannot raise
+			// an alert the server accepts.
+			Version: uint32(i + 2),
+			// Cycled so every severity reaches the fixture and none of them is
+			// the decoder's own default throughout: an agent that dropped the
+			// field would read every rule as the mildest of the three and file
+			// a broken machine where nobody looks.
+			Severity:    goldenSeverities[i%len(goldenSeverities)],
 			Metric:      metric,
 			Comparator:  AlertComparatorGte,
 			Threshold:   float64(90 - i),

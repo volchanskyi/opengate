@@ -73,7 +73,10 @@ func TestControlMessageRuleFieldsRoundTrip(t *testing.T) {
 			msg: &ControlMessage{
 				Type: MsgPushAlertRules,
 				AlertRules: []ThresholdRule{{
-					ID:          "disk-wearing-out",
+					ID: "disk-wearing-out",
+					// Deliberately not 1: an encoder that dropped the revision
+					// would otherwise round-trip through the default and pass.
+					Version:     4,
 					Metric:      "disk.await_ms",
 					Comparator:  AlertComparatorGte,
 					Threshold:   20,

@@ -29,7 +29,7 @@ permissions:
 
 env:
   RUST_VERSION: stable
-  GO_VERSION: '1.26'
+  GO_VERSION: '1.27'
   NODE_VERSION: '24'
   CARGO_MUTANTS_VERSION: 27.0.0  # pin for reproducible mutation runs (latest as of PR 9 land)
   GREMLINS_VERSION: v0.6.0  # pin Go mutation tool for reproducibility (matches cargo-mutants pinning)

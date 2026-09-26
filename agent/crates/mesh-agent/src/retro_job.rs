@@ -407,12 +407,14 @@ fn current_rules(wiring: &RetroWiring) -> Vec<ThresholdRule> {
 mod tests {
     use super::{after_chunk, host_free_bytes, AfterChunk, RetroLedger};
     use mesh_agent_core::alerts::{RetroCursor, RetroStep};
-    use mesh_protocol::{AlertComparator, RulePredicate, ThresholdRule};
+    use mesh_protocol::{AlertComparator, AlertSeverity, RulePredicate, ThresholdRule};
     use std::time::Duration;
 
     fn rule(id: &str, threshold: f64) -> ThresholdRule {
         ThresholdRule {
             id: id.to_string(),
+            version: 1,
+            severity: AlertSeverity::Warning,
             metric: "disk.used_percent".to_string(),
             comparator: AlertComparator::Gte,
             threshold,

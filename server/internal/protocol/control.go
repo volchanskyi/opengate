@@ -437,7 +437,18 @@ type RuleTerm struct {
 // the plain single-dimension threshold the fleet already runs, and the agent
 // decodes it as such.
 type ThresholdRule struct {
-	ID          string          `msgpack:"id"`
+	ID string `msgpack:"id"`
+	// Version is which revision of the definition this is. It travels because
+	// an alert's identity is (device, rule, revision, window start), and a
+	// machine cannot state a revision nobody sent it. Always emitted, like the
+	// other numbers below: a rule carrying no revision would raise alerts the
+	// server refuses.
+	Version uint32 `msgpack:"version"`
+	// Severity is how bad this rule's alerts are. It travels with the rule so
+	// the machine states it on every alert it raises: an alert that said
+	// nothing about how bad it is would arrive unorderable in a queue that is
+	// ordered by exactly that.
+	Severity    AlertSeverity   `msgpack:"severity"`
 	Metric      string          `msgpack:"metric"`
 	Comparator  AlertComparator `msgpack:"comparator"`
 	Threshold   float64         `msgpack:"threshold"`

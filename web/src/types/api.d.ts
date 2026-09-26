@@ -1876,13 +1876,23 @@ export interface components {
         Rule: {
             id: string;
             version: number;
+            kind: components["schemas"]["RuleKind"];
+            /** @description How bad this rule's alerts are. It orders the queue, so every rule states one. */
+            severity: components["schemas"]["IncidentSeverity"];
             /** @description What the rule is for, in an operator's words. */
             summary: string;
-            metric: string;
-            /** @enum {string} */
-            comparator: "gt" | "lt" | "gte" | "lte";
-            /** Format: double */
-            threshold: number;
+            /** @description The reading it watches. Absent for a rule that watches the machine's own words, which compares no number. */
+            metric?: string;
+            /**
+             * @description Absent for a rule that watches the machine's own words.
+             * @enum {string}
+             */
+            comparator?: "gt" | "lt" | "gte" | "lte";
+            /**
+             * Format: double
+             * @description Absent for a rule that watches the machine's own words.
+             */
+            threshold?: number;
             sustain_secs?: number;
             group_by: string[];
             /** @description How long firings on one key stay one incident, and the hold before an idle one resolves itself. */
@@ -1897,6 +1907,11 @@ export interface components {
             coverage: components["schemas"]["RuleCoverage"];
             noise: components["schemas"]["RuleNoise"];
         };
+        /**
+         * @description What a rule watches. `reading` compares one of the machine's numbers against a line, and is sent to the machine to be evaluated there. `event` reads the machine's own log records; the phrases it matches are built into the machine, so what is held here is the rest of the rule — its name, its revision, how bad it is, and where its alerts belong. A rule about words has no numbers to retune, and is stopped rather than tuned.
+         * @enum {string}
+         */
+        RuleKind: "reading" | "event";
         /**
          * @description How a rule's recent count compares with its own usual rate. Relative to the rule rather than to a shared threshold, so a rule meant to be chatty does not sit permanently red; a rule with no history yet is unknown rather than alarming.
          * @enum {string}

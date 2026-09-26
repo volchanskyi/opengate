@@ -8,8 +8,19 @@
 //! record.
 
 use mesh_agent_core::alerts::{
-    AlertSeverity, EventLevel, EventMatcher, EventPack, EventRule, HostEvent, ServiceErrorRule,
+    AlertSeverity, EdgeAlert, EventLevel, EventMatcher, EventPack, EventRule, HostEvent,
+    ServiceErrorRule,
 };
+use mesh_protocol::{AlertEvidence, RuleCoverageState};
+
+/// The log lines an alert actually ships, read back out of the packed evidence
+/// rather than off the struct that produced it. What the far end stores is this
+/// blob, so this is the only reading that says what a technician will see.
+fn shipped_lines(alert: &EdgeAlert) -> Vec<String> {
+    AlertEvidence::decode(&alert.evidence, &alert.evidence_codec)
+        .expect("an alert's evidence must read back")
+        .log_samples
+}
 
 /// One second in the microsecond scale the pack orders records on.
 const SECOND: i64 = 1_000_000;
@@ -60,7 +71,7 @@ type Case = (&'static str, Record, Record);
 fn corpus() -> Vec<Case> {
     vec![
         (
-            "linux.hung_task",
+            "linux-hung-task",
             (
                 "ERROR",
                 "INFO: task nfsd:1234 blocked for more than 120 seconds.",
@@ -73,7 +84,7 @@ fn corpus() -> Vec<Case> {
             ),
         ),
         (
-            "linux.oom_kill",
+            "linux-oom-kill",
             (
                 "ERROR",
                 "Out of memory: Killed process 4242 (mysqld) total-vm:8192kB",
@@ -86,7 +97,7 @@ fn corpus() -> Vec<Case> {
             ),
         ),
         (
-            "linux.ata_reset",
+            "linux-ata-reset",
             (
                 "ERROR",
                 "ata3.00: exception Emask 0x0 SAct 0x0 SErr 0x0 action 0x6 frozen",
@@ -98,7 +109,7 @@ fn corpus() -> Vec<Case> {
             ),
         ),
         (
-            "linux.thermal_throttle",
+            "linux-thermal-throttle",
             (
                 "ERROR",
                 "CPU2: Core temperature above threshold, cpu clock throttled (total events = 12)",
@@ -121,7 +132,7 @@ fn each_rule_fires_once_for_its_own_record() {
             "{rule_id} must fire exactly once for its own record"
         );
         assert_eq!(
-            alerts[0].evidence.len(),
+            shipped_lines(&alerts[0]).len(),
             1,
             "{rule_id} carries the record that fired it"
         );
@@ -186,7 +197,7 @@ fn a_record_re_presented_by_an_overlapping_poll_fires_once() {
 
     assert_eq!(
         rule_ids(&pack.poll(std::slice::from_ref(&record), false)),
-        vec!["linux.oom_kill".to_string()],
+        vec!["linux-oom-kill".to_string()],
         "the first sight of the record fires"
     );
     assert!(
@@ -335,7 +346,7 @@ fn repeated_service_errors_fire_once_on_crossing() {
     }
     assert_eq!(
         rule_ids(&alerts),
-        vec!["linux.service_errors".to_string()],
+        vec!["linux-service-errors".to_string()],
         "the third error inside the window fires once"
     );
     assert_eq!(
@@ -534,7 +545,7 @@ fn alert_evidence_is_redacted() {
 
     let alerts = pack.poll(&[event(START + SECOND, "ERROR", "kernel", message)], false);
     assert_eq!(alerts.len(), 1);
-    let evidence = alerts[0].evidence.join(" ");
+    let evidence = shipped_lines(&alerts[0]).join(" ");
     for secret in secrets {
         assert!(
             !evidence.contains(secret),
@@ -592,7 +603,8 @@ fn the_pack_states_the_lowest_level_any_rule_can_act_on() {
 
     let lenient = EventPack::new(
         vec![EventRule {
-            rule_id: "test.warn".into(),
+            rule_id: "test-warn".into(),
+            version: 1,
             severity: AlertSeverity::Info,
             summary: "watches warnings".into(),
             matcher: EventMatcher {
@@ -631,10 +643,10 @@ fn the_linux_pack_is_four_distinctly_identified_rules() {
     assert_eq!(
         ids,
         vec![
-            "linux.ata_reset",
-            "linux.hung_task",
-            "linux.oom_kill",
-            "linux.thermal_throttle"
+            "linux-ata-reset",
+            "linux-hung-task",
+            "linux-oom-kill",
+            "linux-thermal-throttle"
         ]
     );
 
@@ -653,4 +665,55 @@ fn the_linux_pack_is_four_distinctly_identified_rules() {
             rule.rule_id
         );
     }
+}
+
+// --- what the estate is told about these rules ---
+//
+// Per rule, every machine in the fleet is exactly one thing, and the states add
+// up to the fleet. A rule quietly watching nobody while reading as healthy is
+// the failure the whole accounting exists to prevent — so a machine that cannot
+// read its own log at all says exactly that, rather than saying nothing and
+// being counted as a machine nobody has heard from.
+
+/// Every rule in the pack reports itself on a machine whose log it can read.
+#[test]
+fn a_machine_that_can_read_its_log_reports_every_rule_as_watching() {
+    let reported =
+        EventPack::coverage(&EventRule::linux_pack(), &ServiceErrorRule::default(), true);
+
+    let ids: Vec<&str> = reported.iter().map(|c| c.rule_id.as_str()).collect();
+    assert!(ids.contains(&"linux-oom-kill"));
+    assert!(ids.contains(&"linux-service-errors"));
+    assert_eq!(
+        reported.len(),
+        EventRule::linux_pack().len() + 1,
+        "every curated rule reports, and so does the repeated-error count"
+    );
+    assert!(
+        reported
+            .iter()
+            .all(|c| c.state == RuleCoverageState::Active),
+        "a machine that can read its own log is watching for all of them"
+    );
+}
+
+/// A machine with no host log reader — a container, or a platform this build
+/// has no reader for — cannot answer these rules at all. That is a standing
+/// hole in the estate's monitoring, and it reads completely differently from a
+/// machine that is merely quiet.
+#[test]
+fn a_machine_that_cannot_read_its_log_says_so_rather_than_going_silent() {
+    let reported = EventPack::coverage(
+        &EventRule::linux_pack(),
+        &ServiceErrorRule::default(),
+        false,
+    );
+
+    assert_eq!(reported.len(), EventRule::linux_pack().len() + 1);
+    assert!(
+        reported
+            .iter()
+            .all(|c| c.state == RuleCoverageState::Unsupported),
+        "claiming a rule watches a machine it produces nothing for is the failure coverage prevents"
+    );
 }

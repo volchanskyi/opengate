@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-09-23. -->
+<!-- Last reviewed: 2026-09-24. -->
 
 ## Severity: Medium
 
@@ -106,23 +106,6 @@ flight.
 its own tenant, create its users and machines inside it, and reduce cleanup to
 removing the tenant.
 
-### The Always-Free processor grant is asserted by two gates and confirmed by none
-
-[`compute.rego`](../policy/terraform/compute.rego) and the Terraform guards in
-the `oke` and `compute` modules now both refuse above 2 processors / 12 GB, which
-is the stricter of the two figures that were in the repository. Whether Oracle's
-current grant is that or 4 / 24 is not settled: the OCI limits API exposes only
-the paid service limit, so nothing queryable can answer it.
-
-Holding both gates at the stricter figure is safe in the direction that matters —
-a plan sized to it passes either gate — but it may be refusing capacity the
-tenancy is entitled to, and nothing in the repository records which.
-
-**Pay-down trigger:** the next time a second node or a larger shape is wanted.
-Read the grant from the OCI console, set both gates to it, and record the figure
-in an ADR. The block-storage grant is exactly full independently of this, so no
-instance can be added until 50 GB is released whichever way it goes.
-
 ### Multi-tenant membership API and web tenant switcher deferred
 
 WS-0 satisfies "web carries tenant context" by retaining the JWT `tenant` claim in the
@@ -172,20 +155,6 @@ agent binary still matches its own persisted cache — the config hash is
 derived partly from `TypeId`, and auto-update is the largest restart cause,
 so a cache that misses on rebuilt binaries would close this by decision
 rather than by code.
-
-### Five hours of churn is untested against the eight hours it replaced
-
-[ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) settled the length: an
-unchanging fleet finishes one operation per machine however long it is held, so
-five hours of the fleet coming and going finish ten times what eight idle ones
-would, and five fits inside the six a scheduled job is killed at.
-
-What is still owed is the comparison. A leak that only shows past five hours
-would not be found here, and the profile's own reasoning — that churn buys more
-than length — has never been tried against the eight-hour version it replaced.
-
-**Pay-down trigger:** a leak found in the field that five hours of churn did not
-surface, at which point the longer run is built and the two are compared.
 
 ### `breakpoint` declares sessions its venue never opens
 
@@ -409,32 +378,10 @@ on, or a second cluster — both of which the free-tier block-volume cap and the
 shared node currently rule out
 ([ADR-055](../docs/adr/ADR-055-fault-injection.md)).
 
-### An alert a machine raises never reaches the server
-
-The agent's alert production side is complete and wired into `main.rs`: a bounded
-`AlertSink`, an event watch, a rule evaluator and a retroactive scanner all write
-into the sink. The server's ingestion side is equally complete —
-`conn_alerts.go` carries ten drop reasons, duplicate suppression and
-reconnect-replay handling. **Nothing connects them.** `AlertSink::drain()` has no
-production call site (its only caller is inside `#[cfg(test)] mod tests`),
-`ControlMessage::AgentAlert` is constructed only in golden tests, and `EdgeAlert`
-has no consumer outside the alerts module. Every alert every machine raises goes
-into a 256-entry ring buffer, ages out under the sink's oldest-first eviction,
-and is discarded; the server's alert machinery has never had a producer.
-
-This surfaced while specifying the network drill, which wanted to ask whether an
-alert raised during an outage arrives on reconnect. It cannot, and not for any
-reason a network fault would find — so the drill's `netdrill_alerts_replayed`
-series and its assertion were withdrawn rather than left to fail nightly.
-
-**Pay-down trigger:** immediate — a silently non-functional alerting pipeline is
-a product defect rather than a testing gap. The drill's withdrawn alert-replay
-assertion returns in the same change that gives the sink a drain.
-
-### No path emits a redacted command line, and the one that redacts is unreachable
+### No path collects a command line to redact
 
 `redact_cmdline` is implemented and tested in the agent ML redaction module. It
-has two call sites and neither puts a redacted command line on the wire.
+has two call sites and neither puts a command line on the wire.
 
 The live sampler ([`ml/sampler.rs`](../agent/crates/mesh-agent-core/src/ml/sampler.rs))
 stores a process basename plus an optional `cmdline_hash` — a hash, not redacted
@@ -443,16 +390,17 @@ text — which is what WS-2's local sampler is meant to do.
 The other is evidence composition
 ([`alerts/evidence.rs`](../agent/crates/mesh-agent-core/src/alerts/evidence.rs)),
 which runs process basenames and log samples through the redactor when it builds
-an alert's evidence. That is the right wiring, and nothing reaches it:
-`compose_evidence` has no production call site, because it sits behind the same
-dead alert pipeline described under "An alert a machine raises never reaches the
-server". So the redaction that is in place has never run outside a test.
+an alert's evidence. That path is live: every alert a machine raises is composed
+there, so a process basename leaving a host goes through `redact_cmdline` on its
+way onto the wire.
 
-**Pay-down trigger:** two, in order. The alert pipeline gaining a producer makes
-the existing evidence redaction live, and the end-to-end test that proves secrets
-are redacted in the emitted payload belongs in that change. Separately, when an
-audited command-line collection path is added, route command lines through
-`redact_cmdline` before serialization — no path emits command-line text today.
+What remains is the other half. No path collects a command line at all — the
+live sampler stores a basename plus a hash of the command line, never its text —
+so the redactor's ability to strip a secret out of one has nowhere to be used.
+
+**Pay-down trigger:** when an audited command-line collection path is added,
+route command lines through `redact_cmdline` before serialization, with the
+end-to-end proof that a secret in one does not reach the wire.
 
 ### ADR-035 — residual external uptime/DNS follow-ups (user-owned)
 

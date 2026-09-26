@@ -30,6 +30,9 @@ computed from file content rather than from blame:
 - The coverage guard asks SonarCloud for the per-line hits it computed, and
   falls back to the coverage reports the scan uploaded. Neither source answering
   is a refusal.
+- SonarCloud's hits count only where its copy of the file is the working tree's.
+  The branch holds whichever analysis finished last, and a CI scan landing
+  between the upload and the read describes other content.
 - The rating guard fails on a bug, vulnerability or unreviewed hotspot on
   changed **main** code, and reports without failing on findings that move no
   gate condition. A finding on an untouched file does not fail the commit.

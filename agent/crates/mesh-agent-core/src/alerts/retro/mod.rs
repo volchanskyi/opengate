@@ -45,7 +45,6 @@ use serde::{Deserialize, Serialize};
 use crate::ml::store_sink::dim_series;
 
 use super::evaluator::window_is_expressible;
-use super::sink::AlertSeverity;
 
 mod scan;
 
@@ -70,12 +69,6 @@ const RETRO_DISK_HEADROOM: f64 = 2.0;
 const EVIDENCE_READINGS: usize = 5;
 
 const MICROS_PER_SEC: i64 = 1_000_000;
-
-/// How bad a backfilled finding is presented as. The wire grammar carries no
-/// severity — the catalogue's severity is applied centrally where the finding
-/// becomes an incident — and a rule that just found itself matching this
-/// machine's history is squarely something a person should look at.
-const RETRO_SEVERITY: AlertSeverity = AlertSeverity::Warning;
 
 /// A failure to read local history.
 #[derive(Debug, thiserror::Error)]

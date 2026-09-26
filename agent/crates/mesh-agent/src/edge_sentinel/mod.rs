@@ -7,7 +7,9 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::clock::unix_now;
-use mesh_agent_core::maintenance::{MaintenanceGate, MaintenanceTransition};
+use crate::event_watch::EventCoverage;
+use mesh_agent_core::alerts::AlertSink;
+use mesh_agent_core::maintenance::MaintenanceGate;
 use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
 use mesh_agent_core::ml::store_sink::LocalStoreSink;
 use mesh_protocol::{ControlMessage, ThresholdRule};
@@ -239,6 +241,15 @@ pub(crate) struct AlertWiring {
     /// Breach-carrying `AgentHealthSummary` sink, drained by the control loop on
     /// heartbeat alongside log-rate and discovery telemetry.
     pub health_tx: SyncSender<ControlMessage>,
+    /// Where an alert goes when a rule starts firing. The same queue every
+    /// other producer on this machine writes to, so one machine's whole output
+    /// shares one bound and one hourly allowance.
+    pub alert_sink: AlertSink,
+    /// What the rules reading this machine's own words can answer for. They are
+    /// evaluated by a different watch entirely, but the estate is told what
+    /// every rule is doing in one place, so the report carries both — a rule
+    /// missing from the count reads as a rule nobody pushed.
+    pub event_coverage: EventCoverage,
 }
 
 /// Samples the required warm-up window before the ensemble can be trained.
@@ -266,33 +277,35 @@ fn emit_host_metric_window(
     }
 }
 
+mod raise;
+mod tick;
+
+pub(crate) use tick::SamplerOutputs;
+use tick::SamplerState;
+
 /// Spawn the Edge-Sentinel sampler task. It samples host metrics once per second,
-/// trains a local anomaly ensemble on a warm-up window, and — when `sink` is
+/// trains a local anomaly ensemble on a warm-up window, and — when a store is
 /// set — persists each raw sample with its inline anomaly bit into the graduated
 /// `LocalTsdb` (the sovereign min/max/last + 1 s raw copy). The store is shared
 /// with the WS-15 backfill coordinator; the sampler holds the lock only for the
-/// per-second append/commit. A `None` sink degrades to log-only sampling.
+/// per-second append/commit. No store degrades to log-only sampling.
 ///
-/// When `alerts` is set, the same 1 s tick also evaluates the tenant-pushed
-/// WS-19 threshold ruleset over the sample and emits a breach-carrying
-/// `AgentHealthSummary` (throttled, breach-driven, silent when nothing breaches).
+/// When alert wiring is set, the same 1 s tick also evaluates the tenant-pushed
+/// WS-19 threshold ruleset over the sample, raises an alert for every rule that
+/// has just started firing, and emits a breach-carrying `AgentHealthSummary`
+/// (throttled, breach-driven, silent when nothing breaches).
 ///
-/// When `host_metric_tx` is set, the same tick folds the sample into a 10 s
-/// average and forwards each closed window as an `AgentMetricWindow` — the live
-/// host-metric stream that lights up the central Telemetry charts continuously
-/// (averaging identical to reconnect-backfill, so the two never diverge). A
-/// window is dropped when the channel is full so a burst never backpressures
-/// control.
+/// When a host-metric channel is set, the same tick folds the sample into a
+/// 10 s average and forwards each closed window as an `AgentMetricWindow` — the
+/// live host-metric stream that lights up the central Telemetry charts
+/// continuously (averaging identical to reconnect-backfill, so the two never
+/// diverge). A window is dropped when the channel is full so a burst never
+/// backpressures control.
 pub(crate) fn spawn_sampler(
-    sink: Option<SharedSink>,
-    alerts: Option<AlertWiring>,
-    host_metric_tx: Option<SyncSender<ControlMessage>>,
+    out: SamplerOutputs,
     maintenance: MaintenanceGate,
-    load: LoadSignal,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
-        use mesh_agent_core::alerts::AlertEvaluator;
-        use mesh_agent_core::ml::ensemble::EdgeMlEnsemble;
         use mesh_agent_core::ml::sampler::{MetricSampler, SysinfoSampler};
 
         let mut sampler = match SysinfoSampler::new(10) {
@@ -302,189 +315,16 @@ pub(crate) fn spawn_sampler(
                 return;
             }
         };
-
-        let mut warmup: Vec<[f32; 3]> = Vec::with_capacity(WARMUP_SAMPLES);
-        let mut ensemble: Option<EdgeMlEnsemble<3>> = None;
-
-        // WS-19 threshold-alert evaluator, fed the tenant ruleset the control
-        // loop pushes into the mailbox. Empty until rules arrive; breach
-        // emission is throttled and breach-driven.
-        let mut alert_eval = AlertEvaluator::new(Vec::new());
-        let mut last_health_emit: Option<i64> = None;
-        let mut last_breaching = false;
-
-        // Rolling window of trained-ensemble anomaly verdicts and the last time a
-        // node anomaly-rate summary was shipped — the signal behind the
-        // fleet-health badge.
-        let mut anomaly_bits: VecDeque<bool> = VecDeque::with_capacity(ANOMALY_WINDOW);
-        let mut last_anomaly_emit: Option<i64> = None;
-
-        // Tracks the maintenance→Active edge so the sampler re-baselines when the
-        // device leaves maintenance.
-        let mut maintenance_edge = MaintenanceTransition::new();
-
-        // Folds 1 s samples into 10 s-average windows for the live central stream.
-        let mut windower = HostMetricWindower::new();
+        let mut state = SamplerState::new();
 
         loop {
             std::thread::sleep(Duration::from_secs(1));
-
-            // Maintenance suppresses all sampler work — no sampling, store write,
-            // or alert evaluation — so the admin's disruptive host changes never
-            // pollute the anomaly baseline or fire a breach. On leaving
-            // maintenance, discard the pre-change ensemble and breach state so the
-            // post-change footprint retrains as the new normal (re-baseline).
-            let in_maintenance = maintenance.in_maintenance();
-            if maintenance_edge.just_exited(in_maintenance) {
-                ensemble = None;
-                warmup.clear();
-                last_health_emit = None;
-                last_breaching = false;
-                anomaly_bits.clear();
-                last_anomaly_emit = None;
-                info!("edge-sentinel: left maintenance, re-baselining anomaly detection");
-            }
-            if in_maintenance {
-                // Discard any partial window so none spans the maintenance
-                // interval; the stream resumes cleanly on the next Active tick.
-                windower.reset();
+            if !state.begin_tick(maintenance.in_maintenance()) {
                 continue;
             }
-
-            let sample = match sampler.sample() {
-                Ok(sample) => sample,
-                Err(e) => {
-                    warn!(error = %e, "edge-sentinel sample failed");
-                    continue;
-                }
-            };
-            let now = unix_now();
-            // Publish how busy the machine is, so background work that should
-            // only run on an idle host has something current to look at.
-            load.report(sample.cpu_total_percent);
-
-            // Live host-metric stream: fold the sample into its 10 s window and
-            // forward any window this tick closed to the control loop.
-            if let Some(tx) = host_metric_tx.as_ref() {
-                emit_host_metric_window(&mut windower, tx, now, &sample);
-            }
-
-            // The ensemble needs a fixed-width vector, and a host with no
-            // measurable mount has no disk-fullness signal to detect — it
-            // contributes a flat 0 to the model rather than an invented reading.
-            // The published vital stays absent; this value never leaves the host.
-            let features = [
-                sample.cpu_total_percent,
-                sample.memory_used_percent,
-                sample.disk_used_percent.unwrap_or(0.0),
-            ];
-            // Cold start: collect a warm-up window, then train once. Until the
-            // ensemble exists, samples are stored with a `false` anomaly bit.
-            let anomaly = match &ensemble {
-                Some(model) => model.is_anomaly(&features),
-                None => {
-                    warmup.push(features);
-                    if warmup.len() >= WARMUP_SAMPLES {
-                        match EdgeMlEnsemble::<3>::train_staggered(
-                            &warmup,
-                            ENSEMBLE_MODELS,
-                            ENSEMBLE_ITERS,
-                        ) {
-                            Ok(model) => {
-                                info!("edge-sentinel anomaly ensemble trained");
-                                ensemble = Some(model);
-                            }
-                            Err(e) => warn!(error = %e, "edge-sentinel ensemble train failed"),
-                        }
-                    }
-                    false
-                }
-            };
-            debug!(
-                cpu = sample.cpu_total_percent,
-                mem = sample.memory_used_percent,
-                disk = ?sample.disk_used_percent,
-                mounts_critical = ?sample.disk_mounts_critical,
-                anomaly,
-                "edge-sentinel sample"
-            );
-
-            // Once the ensemble is trained, feed each verdict into the rolling
-            // window. Warm-up verdicts are meaningless (always false) and excluded
-            // so the emitted rate reflects the trained model only.
-            let trained = ensemble.is_some();
-            if trained {
-                if anomaly_bits.len() == ANOMALY_WINDOW {
-                    anomaly_bits.pop_front();
-                }
-                anomaly_bits.push_back(anomaly);
-            }
-
-            // WS-19: install any freshly-pushed ruleset, evaluate the sample, and
-            // emit a breach-carrying health summary. Emission is throttled to
-            // >= HEALTH_EMIT_INTERVAL_SECS and only fires while a breach is
-            // active (plus one final summary reporting the clear), so a steady
-            // host is silent and a burst never backpressures control.
-            if let Some(alerts) = alerts.as_ref() {
-                if let Ok(mut slot) = alerts.rules.lock() {
-                    if let Some(rules) = slot.take() {
-                        debug!(
-                            count = rules.len(),
-                            "edge-sentinel: alert ruleset installed"
-                        );
-                        alert_eval.set_rules(rules);
-                    }
-                }
-                let breaches = alert_eval.evaluate(&sample, now);
-                let breaching = !breaches.is_empty();
-                if should_emit_health(last_health_emit, now, breaching, last_breaching) {
-                    if alerts
-                        .health_tx
-                        .try_send(breach_summary(now, breaches, alert_eval.coverage()))
-                        .is_err()
-                    {
-                        debug!("edge-sentinel health summary dropped: telemetry channel full");
-                    }
-                    last_health_emit = Some(now);
-                    last_breaching = breaching;
-                }
-
-                // Periodic node anomaly-rate summary: the trained-window rate on a
-                // fixed cadence, carrying a sampler version so the server records
-                // the series behind the fleet-health badge (a steady host emits no
-                // breach summary, so this is the badge's only source). It carries
-                // rule coverage for the same reason — a rule that is quietly
-                // watching nothing on a calm machine is exactly what coverage
-                // exists to surface, and a calm machine sends nothing else.
-                if trained && should_emit_anomaly(last_anomaly_emit, now) {
-                    let rate = window_anomaly_rate(&anomaly_bits);
-                    let bitmask = pack_bitmask(&anomaly_bits);
-                    if alerts
-                        .health_tx
-                        .try_send(anomaly_summary(
-                            now,
-                            rate,
-                            bitmask,
-                            Vec::new(),
-                            alert_eval.coverage(),
-                        ))
-                        .is_err()
-                    {
-                        debug!("edge-sentinel anomaly summary dropped: telemetry channel full");
-                    }
-                    last_anomaly_emit = Some(now);
-                }
-            }
-
-            if let Some(sink) = sink.as_ref() {
-                match sink.lock() {
-                    Ok(mut sink) => {
-                        if let Err(e) = sink.record(now, &sample, anomaly) {
-                            warn!(error = %e, "edge-sentinel store write failed");
-                        }
-                    }
-                    Err(e) => warn!(error = %e, "edge-sentinel store lock poisoned"),
-                }
+            match sampler.sample() {
+                Ok(sample) => state.on_sample(&out, &sample, unix_now()),
+                Err(e) => warn!(error = %e, "edge-sentinel sample failed"),
             }
         }
     })
@@ -516,38 +356,19 @@ pub(crate) fn open_sink(cfg: &StoreConfig) -> Option<LocalStoreSink> {
 
 #[cfg(test)]
 mod tests {
+    use super::test_support::host_sample;
     use super::{
         anomaly_summary, breach_summary, emit_host_metric_window, pack_bitmask,
         should_emit_anomaly, should_emit_health, window_anomaly_rate, ANOMALY_EMIT_INTERVAL_SECS,
         HEALTH_EMIT_INTERVAL_SECS, SAMPLER_VERSION,
     };
     use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
-    use mesh_agent_core::ml::sampler::MetricSample;
     use mesh_protocol::{AlertBreach, ControlMessage};
     use std::collections::VecDeque;
     use std::sync::mpsc::sync_channel;
 
     fn bits(values: &[bool]) -> VecDeque<bool> {
         values.iter().copied().collect()
-    }
-
-    fn host_sample(cpu: f32) -> MetricSample {
-        MetricSample {
-            cpu_total_percent: cpu,
-            memory_used_percent: 50.0,
-            disk_used_percent: Some(50.0),
-            disk_mounts_critical: Some(0),
-            network_rx_bps: Some(0.0),
-            network_tx_bps: Some(0.0),
-            stall_cpu_some: Some(0.0),
-            stall_mem_some: Some(0.0),
-            stall_mem_full: Some(0.0),
-            stall_io_some: Some(0.0),
-            stall_io_full: Some(0.0),
-            disk_await_ms: Some(0.0),
-            disk_queue_depth: Some(0.0),
-            processes: Vec::new(),
-        }
     }
 
     /// A closed window (a sample crossing into a later 10 s bucket) is forwarded
@@ -769,5 +590,74 @@ mod tests {
             500 + ANOMALY_EMIT_INTERVAL_SECS - 1
         ));
         assert!(should_emit_anomaly(last, 500 + ANOMALY_EMIT_INTERVAL_SECS));
+    }
+}
+
+/// Readings, rules and stores the sampler's tests share.
+#[cfg(test)]
+mod test_support {
+    use super::SharedSink;
+    use mesh_agent_core::ml::sampler::{MetricSample, ProcessSample};
+    use mesh_agent_core::ml::store_sink::LocalStoreSink;
+    use mesh_protocol::{AlertComparator, RulePredicate, ThresholdRule};
+    use std::sync::{Arc, Mutex};
+
+    pub(super) const T0: i64 = 1_700_000_000;
+
+    pub(super) fn host_sample(cpu: f32) -> MetricSample {
+        MetricSample {
+            cpu_total_percent: cpu,
+            memory_used_percent: 50.0,
+            disk_used_percent: Some(50.0),
+            disk_mounts_critical: Some(0),
+            network_rx_bps: Some(0.0),
+            network_tx_bps: Some(0.0),
+            stall_cpu_some: Some(0.0),
+            stall_mem_some: Some(0.0),
+            stall_mem_full: Some(0.0),
+            stall_io_some: Some(0.0),
+            stall_io_full: Some(0.0),
+            disk_await_ms: Some(0.0),
+            disk_queue_depth: Some(0.0),
+            processes: Vec::new(),
+        }
+    }
+
+    /// A rule that fires the moment the processor passes 80%.
+    pub(super) fn cpu_rule() -> ThresholdRule {
+        ThresholdRule {
+            id: "cpu-saturated".to_string(),
+            version: 3,
+            severity: mesh_protocol::AlertSeverity::Critical,
+            metric: "cpu.total".to_string(),
+            comparator: AlertComparator::Gt,
+            threshold: 80.0,
+            clear: 80.0,
+            sustain_secs: 0,
+            predicate: RulePredicate::Instant,
+            window_secs: 0,
+            all: Vec::new(),
+        }
+    }
+
+    /// A reading taken while a database dump was the busiest thing running.
+    pub(super) fn busy_sample(cpu: f32) -> MetricSample {
+        let mut sample = host_sample(cpu);
+        sample.processes = vec![ProcessSample {
+            rank: 1,
+            basename: "pg_dump".to_string(),
+            cmdline_hash: None,
+            pid: 4242,
+            cpu: 88.0,
+            mem: 3.5,
+        }];
+        sample
+    }
+
+    /// A store in a fresh directory, committing every reading.
+    pub(super) fn store(dir: &tempfile::TempDir) -> SharedSink {
+        let sink = LocalStoreSink::open(&dir.path().join("tsdb"), 64 * 1024 * 1024, 1)
+            .expect("a store opens in a fresh directory");
+        Arc::new(Mutex::new(sink))
     }
 }

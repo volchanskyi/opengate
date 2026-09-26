@@ -115,8 +115,21 @@ case "$url" in
   *"/healthz") exit "${MOCK_HEALTH_RC:-0}" ;;
   # The chart endpoint's own path contains /devices, so it is matched first.
   *"/metrics?"*) cat "${MOCK_METRICS_FILE:-/dev/null}"; exit "${MOCK_METRICS_RC:-0}" ;;
+  # The triage queue, narrowed to this machine and the rule the drill armed.
+  *"/investigations"*) cat "${MOCK_INCIDENTS_FILE:-/dev/null}"; exit "${MOCK_INCIDENTS_RC:-0}" ;;
+  # Arming and disarming the rule. Neither answers with anything the runner
+  # reads; what matters is whether they were refused.
+  *"/rules/"*"/bindings"*) exit "${MOCK_BINDING_RC:-0}" ;;
   *"/devices"*) cat "${MOCK_DEVICES_FILE:-/dev/null}"; exit "${MOCK_DEVICES_RC:-0}" ;;
 esac
+
+# The machine's own disk, read from the machine rather than assumed. The rule
+# the replay is measured with is aimed at this number.
+for arg in "$@"; do
+  case "$arg" in
+    *"df -P"*) printf '%s\n' "${MOCK_MACHINE_DISK:-0}"; exit "${MOCK_MACHINE_DISK_RC:-0}" ;;
+  esac
+done
 
 # The machine's own account of its reconnect. A drill that takes the figure from
 # a five-second poll of a status the server writes publishes the poll's
@@ -151,9 +164,24 @@ export PATH="$BIN_DIR:$PATH"
 # say anything about the runner reading the real one.
 online_device() {
   cat >"$WORK/devices-online.json" <<JSON
-[{"id":"11111111-1111-1111-1111-111111111111","hostname":"drill-machine","status":"online","last_seen":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}]
+[{"id":"11111111-1111-1111-1111-111111111111","hostname":"drill-machine","status":"online","organization_id":"99999999-9999-4999-8999-999999999999","last_seen":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}]
 JSON
   printf '%s\n' "$WORK/devices-online.json"
+}
+
+# The triage queue holding the room the replayed alert opened. Shaped like the
+# endpoint a technician's queue reads, because that is where the drill asks.
+incidents_holding_one() {
+  cat >"$WORK/incidents-one.json" <<'JSON'
+{"items":[{"id":"aaaaaaaa-1111-4111-8111-222222222222","rule_id":"disk-critical","status":"new","severity":"critical","occurrences":1}]}
+JSON
+  printf '%s\n' "$WORK/incidents-one.json"
+}
+
+# A queue the alert never reached, which is the outage having swallowed it.
+no_incidents() {
+  printf '{"items":[]}\n' >"$WORK/incidents-none.json"
+  printf '%s\n' "$WORK/incidents-none.json"
 }
 
 # The drill's machine plus a herd of simulated ones behind the same link. The
@@ -162,7 +190,7 @@ JSON
 device_list_with_herd() {
   local online="$1" name total i status
   {
-    printf '[{"id":"11111111-1111-1111-1111-111111111111","hostname":"drill-machine","status":"online","last_seen":"%s"}' \
+    printf '[{"id":"11111111-1111-1111-1111-111111111111","hostname":"drill-machine","status":"online","organization_id":"99999999-9999-4999-8999-999999999999","last_seen":"%s"}' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     total=20
     for i in $(seq 0 $((total - 1))); do
@@ -296,6 +324,8 @@ run_drill() {
     NETDRILL_POLL_SECONDS=0 \
     KUBECTL_ARGS="$WORK/kubectl-args.txt" \
     MOCK_COUNTERS_READS="$WORK/counters-reads" \
+    MOCK_MACHINE_DISK="${MOCK_MACHINE_DISK:-82}" \
+    MOCK_INCIDENTS_FILE="${MOCK_INCIDENTS_FILE:-$(incidents_holding_one)}" \
     "$@" \
     "$RUNNER" "$scenario" 2>&1
 }
@@ -378,6 +408,16 @@ args="$(cat "$WORK/kubectl-args.txt")"
 # scenario whose log could not be read still answers the first question.
 assert_contains "S1 says whether the machine came back at all" '"netdrill_reconnected"' "$rows"
 assert_contains "S1 measures how much of the hole was filled" '"netdrill_gap_fill_ratio"' "$rows"
+# An alert is the one thing on this channel that cannot be taken again later.
+# The machine raises it while nobody can hear, holds it, and offers it when the
+# link returns — and a run that never asked would report an outage as clean
+# while the incident inside it was lost.
+assert_contains "S1 says whether the alert raised in the dark came back" \
+  '"netdrill_alerts_replayed"' "$rows"
+assert_contains "S1 measures how long the replayed alert took to arrive" \
+  '"netdrill_alert_replay_seconds"' "$rows"
+assert_contains "S1 publishes the line it aimed the rule at, so the reading can be read against it" \
+  '"netdrill_alert_line"' "$rows"
 assert_contains "S1 measures how long the fill took" '"netdrill_backfill_complete_seconds"' "$rows"
 assert_contains "S1 carries what the link discarded toward the server" \
   '"netdrill_shaper_dropped_to_server"' "$rows"
@@ -390,8 +430,13 @@ assert_contains "every row names the victim it measured" '"victim":"real"' "$row
 
 # The phases have to happen in the order the scenario declares. A recovery
 # commanded before the outage measures the baseline twice.
+#
+# Only what was said to the link counts. The scenario also tunes a rule through
+# the product on its way past, and reading that as an impairment would make the
+# order depend on what else the scenario happens to write.
 instructions() {
-  grep -oE -- '--data \{[^}]*\}' "$WORK/kubectl-args.txt" | sed 's/^--data //'
+  grep -oE -- '--data \{[^}]*\} [^ ]*/impair' "$WORK/kubectl-args.txt" \
+    | sed -E 's/^--data //; s/ [^ ]*\/impair$//'
 }
 order="$(instructions | head -3 | tr '\n' ' ')"
 assert_eq "S1 commands pass, then darkness, then pass again" \
