@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useConnectionStore } from '../session';
@@ -29,6 +29,15 @@ describe('MessengerView', () => {
     render(<MessengerView />);
     expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
+  });
+
+  // Enter sends rather than starting a new line; Shift+Enter keeps the newline.
+  it('Enter is taken by sending, and Shift+Enter is left to the box', () => {
+    render(<MessengerView />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+
+    expect(fireEvent.keyDown(input, { key: 'Enter' })).toBe(false);
+    expect(fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })).toBe(true);
   });
 
   it('renders messages from store', () => {

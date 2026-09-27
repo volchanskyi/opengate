@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { useDeviceStore } from './state/device-store';
 import { useUpdateStore } from './state/update-store';
@@ -565,5 +565,80 @@ describe('DeviceList', () => {
         Element.prototype.getBoundingClientRect = originalRect;
       }
     });
+
+    // The shared observer reports every element it is handed at once, which
+    // hides whether the grid measures itself and whether it watches at all:
+    // either alone gives the same column count. This one records what it is
+    // asked and reports a resize only for what it was told to watch.
+    describe('sizing the grid', () => {
+      class RecordingObserver {
+        static instances: RecordingObserver[] = [];
+        readonly targets = new Set<Element>();
+        disconnected = false;
+        private readonly callback: ResizeObserverCallback;
+        constructor(callback: ResizeObserverCallback) {
+          this.callback = callback;
+          RecordingObserver.instances.push(this);
+        }
+        observe(target: Element) { this.targets.add(target); }
+        unobserve(target: Element) { this.targets.delete(target); }
+        disconnect() { this.disconnected = true; }
+        static resize(target: Element) {
+          for (const observer of RecordingObserver.instances) {
+            if (!observer.targets.has(target)) continue;
+            observer.callback(
+              [{ target, contentRect: target.getBoundingClientRect() } as unknown as ResizeObserverEntry],
+              observer as unknown as ResizeObserver,
+            );
+          }
+        }
+      }
+
+      const gridColumns = () =>
+        (screen.getByText('host-0').closest('div.grid.gap-4') as HTMLElement).style.gridTemplateColumns;
+
+      beforeEach(() => {
+        RecordingObserver.instances = [];
+        vi.stubGlobal('ResizeObserver', RecordingObserver);
+        useDeviceStore.setState({ devices: makeDevices(2) });
+      });
+
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      it('measures itself on mount, before any resize is reported', () => {
+        renderDeviceList();
+        expect(gridColumns()).toBe('repeat(3, minmax(0, 1fr))');
+      });
+
+      it('follows its own width when it is resized', () => {
+        renderDeviceList();
+        const scrollParent = screen.getByText('host-0').closest('div.overflow-auto') as HTMLElement;
+        const originalRect = Element.prototype.getBoundingClientRect;
+        try {
+          Element.prototype.getBoundingClientRect = () =>
+            ({ width: 768, height: 800, top: 0, left: 0, right: 768, bottom: 800, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+          act(() => { RecordingObserver.resize(scrollParent); });
+          expect(gridColumns()).toBe('repeat(2, minmax(0, 1fr))');
+        } finally {
+          Element.prototype.getBoundingClientRect = originalRect;
+        }
+      });
+
+      it('stops watching when it leaves', () => {
+        const { unmount } = renderDeviceList();
+        unmount();
+        const watching = RecordingObserver.instances.filter((o) => o.targets.size > 0 && !o.disconnected);
+        expect(watching).toEqual([]);
+      });
+    });
+  });
+
+  it('opening the list requests the update manifests', () => {
+    const fetchManifests = vi.fn();
+    useUpdateStore.setState({ manifests: [], fetchManifests });
+    renderDeviceList();
+    expect(fetchManifests).toHaveBeenCalledTimes(1);
   });
 });

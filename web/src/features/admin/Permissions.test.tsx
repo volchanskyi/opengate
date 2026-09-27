@@ -77,6 +77,13 @@ describe('Permissions', () => {
     expect(screen.getByRole('heading', { name: 'Permissions' })).toBeInTheDocument();
   });
 
+  it('opening the page requests the groups and the users', () => {
+    renderPermissions();
+    const { fetchGroups, fetchUsers } = useSecurityGroupsStore.getState();
+    expect(fetchGroups).toHaveBeenCalledTimes(1);
+    expect(fetchUsers).toHaveBeenCalledTimes(1);
+  });
+
   it('renders group tabs', () => {
     renderPermissions();
     expect(screen.getByRole('button', { name: /Administrators/i })).toBeInTheDocument();

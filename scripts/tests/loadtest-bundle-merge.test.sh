@@ -16,6 +16,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MERGE="$REPO_ROOT/scripts/loadtest-bundle-merge.sh"
+WEIGH="$REPO_ROOT/scripts/perf-weigh-fixture.sh"
+CLEANUP="$REPO_ROOT/scripts/loadtest-cleanup.sh"
+GOLDEN_WEIGHT="$SCRIPT_DIR/fixtures/fixture-weight.json"
 [ -x "$MERGE" ] || {
   echo "FAIL: $MERGE not executable" >&2
   exit 1
@@ -50,8 +53,90 @@ fresh_bundle() {
   }' >"$WORK/bundle.json"
 }
 
+# The weighing the merge reads is the one the weighing script writes, taken
+# against a stand-in database and metrics store. A fixture written by hand is
+# written in the shape its reader expects: the merge read the series count at
+# the top level, the weighing writes it under `counts`, and every bundle
+# carried nought while the count sat one level down.
+STUB="$WORK/stub"
+STACK="$WORK/stack"
+mkdir -p "$STUB" "$STACK"
+cat >"$STUB/docker" <<'STUB_DOCKER'
+#!/usr/bin/env bash
+# docker exec <container> true  |  docker exec <container> psql ... -tAc <query>
+set -euo pipefail
+[ "$1" = exec ] || exit 1
+[ "$3" = true ] && exit 0
+query="${*: -1}"
+case "$query" in
+  *pg_database_size*) cat "$STUB_STACK/database_bytes" ;;
+  *"FROM devices)"*) cat "$STUB_STACK/devices" ;;
+  *"FROM sites)"*) cat "$STUB_STACK/sites" ;;
+  *"FROM users)"*) cat "$STUB_STACK/users" ;;
+  *"FROM device_processes)"*) cat "$STUB_STACK/process_rows" ;;
+  *)
+    echo "stand-in docker: unexpected query: $query" >&2
+    exit 1
+    ;;
+esac
+STUB_DOCKER
+cat >"$STUB/curl" <<'STUB_CURL'
+#!/usr/bin/env bash
+# The stack's metrics store, answering how many series it holds.
+set -euo pipefail
+case "${*: -1}" in
+  */api/v1/series/count) printf '{"status":"success","data":[%s]}\n' "$(cat "$STUB_STACK/series")" ;;
+  *)
+    echo "curl: (22) The requested URL returned error: 404" >&2
+    exit 22
+    ;;
+esac
+STUB_CURL
+chmod +x "$STUB/docker" "$STUB/curl"
+export STUB_STACK="$STACK"
+
+# stack_holds <database-bytes> <series> <devices> <sites> <users> <process-rows>
+stack_holds() {
+  printf '%s' "$1" >"$STACK/database_bytes"
+  printf '%s' "$2" >"$STACK/series"
+  printf '%s' "$3" >"$STACK/devices"
+  printf '%s' "$4" >"$STACK/sites"
+  printf '%s' "$5" >"$STACK/users"
+  printf '%s' "$6" >"$STACK/process_rows"
+}
+
+# fresh_weight weighs an empty stack, builds a fleet into it, and weighs again —
+# the two readings the volume family takes either side of its build.
 fresh_weight() {
-  jq -n '{ fixture_bytes: 1398101, telemetry_series: 4096 }' >"$WORK/weight.json"
+  stack_holds 9901747 12 0 0 0 0
+  PATH="$STUB:$PATH" bash "$WEIGH" baseline "$WORK/baseline.json" >/dev/null
+  stack_holds 25065139 192012 8000 38 23 23934
+  PATH="$STUB:$PATH" bash "$WEIGH" weigh "$WORK/baseline.json" "$WORK/weight.json" >/dev/null
+}
+
+# A proof the cleanup script writes, against a stand-in database that still
+# holds what its four counts say after the removal ran.
+fresh_proof() {
+  local users="$1" devices="$2" organizations="$3" sites="$4"
+  cat >"$WORK/psql" <<PSQL
+#!/usr/bin/env bash
+query=""
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in
+    -tAc) query="\$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "\$query" ] || { cat >/dev/null; exit 0; }
+case "\$query" in
+  *"FROM users"*) echo $users ;;
+  *"FROM devices"*) echo $devices ;;
+  *"FROM organizations"*) echo $organizations ;;
+  *"FROM sites"*) echo $sites ;;
+esac
+PSQL
+  chmod +x "$WORK/psql"
+  LOADTEST_PSQL="$WORK/psql" "$CLEANUP" "$WORK/cleanup.json" >/dev/null 2>&1 || true
 }
 
 fresh_export() {
@@ -78,12 +163,27 @@ fresh_bundle
 fresh_weight
 run_merge "$WORK/bundle.json" --weight "$WORK/weight.json"
 assert_eq "a weighing merges" "0" "$STATUS"
-assert_eq "the database size lands in the fixture" "1398101" \
+assert_eq "the fixture's own weight lands in the fixture" "15163392" \
   "$(jq -r '.fixture.database_bytes' "$WORK/bundle.json")"
-assert_eq "the series count lands beside it" "4096" \
+assert_eq "the series the fleet occupies in the metrics store land beside it" "192000" \
   "$(jq -r '.fixture.telemetry_series' "$WORK/bundle.json")"
 assert_eq "nothing else in the fixture is disturbed" "500" \
   "$(jq -r '.fixture.devices' "$WORK/bundle.json")"
+assert_eq "the process snapshot rows keep a name of their own" "23934" \
+  "$(jq -r '.counts.process_rows' "$WORK/weight.json")"
+
+# The golden weighing the harness's own reader is tested against was taken by
+# the weighing script on the performance stack. It has to stay the shape the
+# script writes today, or the reader's test is a test of an old shape.
+producer_shape="$(jq -c '[paths(scalars) | map(tostring) | join(".")] | sort' "$WORK/weight.json")"
+golden_shape="$(jq -c '[paths(scalars) | map(tostring) | join(".")] | sort' "$GOLDEN_WEIGHT")"
+assert_eq "the golden weighing is the shape the weighing script writes" "$producer_shape" "$golden_shape"
+
+fresh_bundle
+run_merge "$WORK/bundle.json" --weight "$GOLDEN_WEIGHT"
+assert_eq "the golden weighing's series count reaches the bundle" \
+  "$(jq -r '.counts.telemetry_series' "$GOLDEN_WEIGHT")" \
+  "$(jq -r '.fixture.telemetry_series' "$WORK/bundle.json")"
 
 # The journeys reach the evidence, and only the journeys.
 fresh_bundle
@@ -136,7 +236,7 @@ fresh_weight
 fresh_export
 run_merge "$WORK/bundle.json" --weight "$WORK/weight.json" --journeys "$WORK/export.json"
 assert_eq "both merge together" "0" "$STATUS"
-assert_eq "the weighing survives the journeys" "1398101" \
+assert_eq "the weighing survives the journeys" "15163392" \
   "$(jq -r '.fixture.database_bytes' "$WORK/bundle.json")"
 assert_eq "the journeys survive the weighing" "2" \
   "$(jq -r '.journeys | length' "$WORK/bundle.json")"
@@ -290,6 +390,37 @@ jq -n '{
 }' >"$WORK/silent.json"
 run_merge "$WORK/bundle.json" --journeys "$WORK/silent.json"
 assert_eq "an export naming no request at all fails" "1" "$STATUS"
+
+# --- what the run left behind --------------------------------------------------
+#
+# The harness writes its bundle before the cleanup step runs, so what a run left
+# behind is counted by that step and nowhere else. Its proof was uploaded beside
+# the bundle and never read, while the bundle declared a clean run it had never
+# looked at. The proof is folded in as the cleanup script wrote it.
+fresh_bundle
+fresh_proof 0 0 0 0
+run_merge "$WORK/bundle.json" --cleanup "$WORK/cleanup.json"
+assert_eq "a cleanup proof merges" "0" "$STATUS"
+assert_eq "the bundle says the cleanup was counted" "true" \
+  "$(jq -r '.cleanup.verified' "$WORK/bundle.json")"
+assert_eq "with the four kinds the cleanup counts" \
+  "orphan_devices orphan_organizations orphan_sites orphan_users verified" \
+  "$(jq -r '.cleanup | keys | join(" ")' "$WORK/bundle.json")"
+
+fresh_bundle
+fresh_proof 3 2 1 4
+run_merge "$WORK/bundle.json" --cleanup "$WORK/cleanup.json"
+assert_eq "a proof of residue merges" "0" "$STATUS"
+assert_eq "and the bundle comes out unclean" "3 2 1 4" \
+  "$(jq -r '.cleanup | "\(.orphan_users) \(.orphan_devices) \(.orphan_organizations) \(.orphan_sites)"' "$WORK/bundle.json")"
+
+# A proof nobody wrote is not a clean run.
+fresh_bundle
+: >"$WORK/cleanup.json"
+run_merge "$WORK/bundle.json" --cleanup "$WORK/cleanup.json"
+assert_eq "an empty proof fails" "1" "$STATUS"
+assert_eq "and the bundle is left as it was" "null" \
+  "$(jq -r '.cleanup // "null" | if type == "object" then "object" else . end' "$WORK/bundle.json")"
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

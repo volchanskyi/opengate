@@ -140,31 +140,40 @@ jobs:
       - name: Record what the node's kernel offers
         run: |
           set -euo pipefail
+          . scripts/lib/kubectl-retry.sh
           mkdir -p "$DRILL_EVIDENCE"
-          EXPORTER="$(kubectl -n monitoring get pods -l app.kubernetes.io/name=node-exporter \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          # The chart labels each monitoring component by its role, so the
+          # exporter is found by that label.
+          EXPORTER="$(kubectl_retry -n monitoring get pods -l app.kubernetes.io/component=node-exporter \
+            -o jsonpath='{.items[0].metadata.name}')"
           if [ -z "$EXPORTER" ]; then
-            echo "no node-exporter pod to read the node's modules through" \
-              >"$DRILL_EVIDENCE/node-kernel.txt"
-            exit 0
+            echo "::error::there is no node-exporter pod to read the node's kernel through, so the drill cannot say what the node offers" >&2
+            exit 1
           fi
           # A container shares its node's kernel, so the release the exporter
           # reports is the node's. Reading it here rather than inside the remote
-          # shell keeps the module paths below expanded by this shell, where
-          # they can be seen.
-          # Not retried: these describe the node for the record and already answer
-          # with a blank rather than failing. A retry would buy a fuller record at
-          # the cost of holding the drill up for one.
-          node_read() { kubectl -n monitoring exec "$EXPORTER" -- sh -c "$1" 2>/dev/null || true; }
-          # Not retried: same reason — it answers "unknown" rather than failing.
-          K="$(kubectl -n monitoring exec "$EXPORTER" -- uname -r 2>/dev/null || echo unknown)"
+          # shell keeps the paths below expanded by this shell, where they can be
+          # seen. Every read fails the step when it cannot be made; a count of
+          # nought is an answer.
+          K="$(kubectl_retry -n monitoring exec "$EXPORTER" -- uname -r)"
+          if [ -z "$K" ]; then
+            echo "::error::the node exporter reported no kernel release" >&2
+            exit 1
+          fi
+          CONFIG="/host/root/boot/config-${K}"
           MODULES="/host/root/lib/modules/${K}"
+          NETEM_CONFIG="$(kubectl_retry -n monitoring exec "$EXPORTER" -- \
+            grep -E '^(# )?CONFIG_NET_SCH_NETEM[= ]' "$CONFIG")"
+          NETEM_FILES="$(kubectl_retry -n monitoring exec "$EXPORTER" -- \
+            sh -c "test -r ${MODULES}/modules.dep && find ${MODULES} -name '*netem*' | wc -l")"
+          NETEM_DEPS="$(kubectl_retry -n monitoring exec "$EXPORTER" -- \
+            sh -c "test -r ${MODULES}/modules.dep && { grep -c netem ${MODULES}/modules.dep || true; }")"
           {
             echo "kernel=$K"
-            node_read "zcat /host/root/proc/config.gz | grep NET_SCH_NETEM"
-            echo "netem-files=$(node_read "find ${MODULES} -name '*netem*' | wc -l")"
-            echo "netem-in-modules-dep=$(node_read "grep -c netem ${MODULES}/modules.dep")"
-          } >"$DRILL_EVIDENCE/node-kernel.txt" 2>&1
+            echo "$NETEM_CONFIG"
+            echo "netem-files=$NETEM_FILES"
+            echo "netem-in-modules-dep=$NETEM_DEPS"
+          } >"$DRILL_EVIDENCE/node-kernel.txt"
           cat "$DRILL_EVIDENCE/node-kernel.txt"
 
       - name: Build the link shaper and the fleet harness
@@ -628,7 +637,7 @@ jobs:
 
       - name: Release the staging namespace
         if: always()
-        run: scripts/staging-lease.sh release "$STAGING_LEASE_HOLDER" || true
+        run: scripts/staging-lease.sh release "$STAGING_LEASE_HOLDER"
 
       - name: Remove OCI credentials
         if: always()

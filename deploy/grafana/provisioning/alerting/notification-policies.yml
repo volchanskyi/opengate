@@ -2,8 +2,12 @@
 #
 # One route, no matchers: a rule that fires is a rule somebody should see, and a
 # tree of exceptions is how a destination comes to be one nothing reaches.
-# Grouping is by rule and by the instance that raised it, so two machines
-# breaching the same rule arrive as two messages rather than one.
+# Grouping is by rule, so every series one rule fires for arrives in one
+# message, each printed with its own labels.
+#
+# While a test holds the staging claim, the rules labelled `watches: shared` are
+# silenced by scripts/alert-quiet-period.sh; that silence is the only one this
+# deployment creates.
 apiVersion: 1
 
 policies:

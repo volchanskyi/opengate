@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Fold the readings taken beside a run into the run's own evidence.
 #
-# Two of the numbers a bundle declares are measured by steps other than the
-# harness, and both were reaching nothing. The fleet's weight on disk is read
-# from the database after the fleet exists, which is after the harness has
-# finished; the technician journeys are timed by the browser-side generator,
-# which runs in a different pod. Each wrote its figure into a file of its own
-# that no later reader opened, so the bundle — the one artifact that outlives
-# the metrics store's thirty days — carried a null where the family's whole
-# finding belongs.
+# Three of the things a bundle declares are measured by steps other than the
+# harness. The fleet's weight on disk is read from the database after the fleet
+# exists, which is after the harness has finished; the technician journeys are
+# timed by the browser-side generator, which runs in a different pod; and what
+# the run left behind is counted by the cleanup step, which runs after the
+# harness has written its bundle. Each writes its figures into a file of its
+# own, and this puts them in the bundle — the one artifact that outlives the
+# metrics store's thirty days.
 #
 # This is not a later query of the system under test. The doctrine the bundle is
 # built on refuses those, because a bundle assembled from a query describes the
@@ -21,11 +21,12 @@
 # to surface later as a field nobody can explain.
 #
 # Usage:
-#   loadtest-bundle-merge.sh <bundle.json> [--weight <fixture-weight.json>] [--journeys <k6-export.json>]...
+#   loadtest-bundle-merge.sh <bundle.json> [--weight <fixture-weight.json>]
+#     [--cleanup <cleanup-proof.json>] [--journeys <k6-export.json>]...
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 <bundle.json> [--weight <fixture-weight.json>] [--journeys <k6-export.json>]..." >&2
+  echo "usage: $0 <bundle.json> [--weight <fixture-weight.json>] [--cleanup <cleanup-proof.json>] [--journeys <k6-export.json>]..." >&2
 }
 
 # journeys_from turns a browser-side export into the bundle's own journey shape.
@@ -103,7 +104,7 @@ refusals_from() {
 }
 
 main() {
-  local bundle="" weight="" merged=0
+  local bundle="" weight="" cleanup="" merged=0
   # Every export named, because two generators run beside one walk and each
   # writes a file of its own. A second fold that replaced the first would report
   # success while throwing the earlier scenario's numbers away, which is this
@@ -122,6 +123,10 @@ main() {
         weight="${2:-}"
         shift 2
         ;;
+      --cleanup)
+        cleanup="${2:-}"
+        shift 2
+        ;;
       --journeys)
         journeys+=("${2:-}")
         shift 2
@@ -137,7 +142,7 @@ main() {
     echo "::error::there is no evidence bundle at $bundle to fold anything into." >&2
     return 1
   fi
-  if [ -z "$weight" ] && [ "${#journeys[@]}" -eq 0 ]; then
+  if [ -z "$weight" ] && [ -z "$cleanup" ] && [ "${#journeys[@]}" -eq 0 ]; then
     echo "::error::nothing was named to merge, so this call would report success for no work." >&2
     return 2
   fi
@@ -150,10 +155,34 @@ main() {
       echo "::error::$weight holds no weighing, so the fleet's weight on disk would reach the evidence as a zero." >&2
       return 1
     fi
+    # The series count is read where the weighing writes it, under `counts`.
     updated="$(
-      jq --argjson w "$(jq '{fixture_bytes, telemetry_series}' "$weight")" '
+      jq --argjson w "$(jq '{fixture_bytes, telemetry_series: .counts.telemetry_series}' "$weight")" '
         .fixture.database_bytes = ($w.fixture_bytes // 0)
         | .fixture.telemetry_series = ($w.telemetry_series // 0)
+      ' <<<"$updated"
+    )"
+    merged=$((merged + 1))
+  fi
+
+  # The cleanup step's own proof replaces the harness's statement that nothing
+  # was counted. It is carried as the step counted it, residue and all: a bundle
+  # whose run left something behind says so, and the bundle's own validation
+  # refuses it as unclean.
+  if [ -n "$cleanup" ]; then
+    if [ ! -s "$cleanup" ]; then
+      echo "::error::$cleanup holds no cleanup proof, so what the run left behind would reach the evidence uncounted." >&2
+      return 1
+    fi
+    updated="$(
+      jq --argjson p "$(jq -c '.' "$cleanup")" '
+        .cleanup = {
+          verified: ($p.verified == true),
+          orphan_users: $p.orphan_users,
+          orphan_devices: $p.orphan_devices,
+          orphan_organizations: $p.orphan_organizations,
+          orphan_sites: $p.orphan_sites
+        }
       ' <<<"$updated"
     )"
     merged=$((merged + 1))

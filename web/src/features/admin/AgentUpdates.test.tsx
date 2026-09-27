@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useUpdateStore } from '../devices';
@@ -101,6 +101,23 @@ describe('AgentUpdates', () => {
       max_uses: 0,
       expires_in_hours: 24,
     });
+  });
+
+  it('submitting the token form stays on the page', async () => {
+    render(<AgentUpdates />);
+    await userEvent.click(screen.getByText('Create Token'));
+
+    const form = screen.getByText('Create').closest('form')!;
+    expect(fireEvent.submit(form)).toBe(false);
+  });
+
+  it('copy puts the token on the clipboard', async () => {
+    const user = userEvent.setup();
+    render(<AgentUpdates />);
+
+    await user.click(screen.getByText('Copy'));
+
+    expect(await navigator.clipboard.readText()).toBe(fakeToken.token);
   });
 
   it('deletes enrollment token', async () => {

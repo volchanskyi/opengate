@@ -69,7 +69,7 @@ func completeBundle() *Bundle {
 			At: start.Add(time.Minute), Series: "agents_connected", Value: 500,
 		}},
 		GeneratorHeadroom: Headroom{Measured: true, CPUHeadroomPercent: 55, MemoryUsedPercent: 40},
-		Cleanup:           CleanupProof{Verified: true, OrphanUsers: 0, OrphanDevices: 0, OrphanTenants: 0},
+		Cleanup:           CleanupProof{Verified: true},
 		Verdict:           Verdict{Result: ResultValid},
 	}
 }
@@ -99,7 +99,7 @@ func TestBundleRefusesAMissingMandatorySection(t *testing.T) {
 		{"no phases", func(b *Bundle) { b.Phases = nil }, "phases"},
 		{"a phase with no name", func(b *Bundle) { b.Phases[0].Name = "" }, "name"},
 		{"no observations", func(b *Bundle) { b.Observations = nil }, "observations"},
-		{"no cleanup proof", func(b *Bundle) { b.Cleanup.Verified = false }, "cleanup"},
+		{"no cleanup proof and no reason", func(b *Bundle) { b.Cleanup = CleanupProof{} }, "cleanup"},
 		{"no verdict", func(b *Bundle) { b.Verdict.Result = "" }, "verdict"},
 	}
 
@@ -156,14 +156,38 @@ func TestExpectedRejectionsAreNotFaults(t *testing.T) {
 }
 
 // A run leaves nothing behind. The proof travels with the run rather than being
-// checked once and assumed thereafter.
+// checked once and assumed thereafter, and it covers every kind a run creates.
 func TestBundleRefusesResidue(t *testing.T) {
-	b := completeBundle()
-	b.Cleanup.OrphanUsers = 81
+	cases := map[string]func(*CleanupProof){
+		"accounts":  func(c *CleanupProof) { c.OrphanUsers = 81 },
+		"machines":  func(c *CleanupProof) { c.OrphanDevices = 40 },
+		"customers": func(c *CleanupProof) { c.OrphanOrganizations = 8 },
+		"sites":     func(c *CleanupProof) { c.OrphanSites = 38 },
+	}
+	for kind, leave := range cases {
+		t.Run(kind, func(t *testing.T) {
+			b := completeBundle()
+			leave(&b.Cleanup)
 
+			err := b.Validate()
+			require.Error(t, err, "a run that left %s behind is not clean", kind)
+			assert.Contains(t, err.Error(), "residue")
+		})
+	}
+}
+
+// What a run left behind is counted by the step after it, so a bundle written
+// before that step says why nothing is counted in it — and is readable for
+// saying so. An absence nobody accounts for is still refused.
+func TestAnUncountedCleanupIsReadableOnlyWithItsReason(t *testing.T) {
+	b := completeBundle()
+	b.Cleanup = CleanupProof{NotCounted: "the stack is torn down with the job that built it"}
+	require.NoError(t, b.Validate())
+
+	b.Cleanup = CleanupProof{}
 	err := b.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "residue")
+	assert.Contains(t, err.Error(), "cleanup")
 }
 
 func TestBundleRoundTripsThroughDisk(t *testing.T) {

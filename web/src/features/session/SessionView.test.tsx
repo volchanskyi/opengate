@@ -19,7 +19,9 @@ vi.mock('../messenger/MessengerView', () => ({
   MessengerView: () => <div data-testid="messenger-view">Chat</div>,
 }));
 vi.mock('./SessionToolbar', () => ({
-  SessionToolbar: () => <div data-testid="toolbar">Toolbar</div>,
+  SessionToolbar: ({ onDisconnect }: { onDisconnect: () => void }) => (
+    <button type="button" data-testid="toolbar" onClick={onDisconnect}>Disconnect</button>
+  ),
 }));
 vi.mock('../../lib/api', () => ({
   api: {
@@ -73,6 +75,30 @@ describe('SessionView', () => {
     expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Terminal' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
+  });
+
+  // Leaving the page disconnects too, through the effect's cleanup, but only
+  // after the device list has rendered. The button disconnects first.
+  it('the Disconnect button disconnects before leaving for the device list', () => {
+    const disconnect = vi.fn();
+    useConnectionStore.setState({ connect: vi.fn(), disconnect });
+    let disconnectedBeforeLeaving: number | null = null;
+    function DeviceListMarker() {
+      disconnectedBeforeLeaving ??= disconnect.mock.calls.length;
+      return <p>Devices</p>;
+    }
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/sessions/tok', state: { relayUrl: 'ws://localhost/relay/tok' } }]}>
+        <Routes>
+          <Route path="/sessions/:token" element={<SessionView />} />
+          <Route path="/devices" element={<DeviceListMarker />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+
+    expect(disconnectedBeforeLeaving).toBe(1);
   });
 
   it('defaults to Terminal tab', () => {

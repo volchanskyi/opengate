@@ -52,6 +52,18 @@ describe('useVisibleInterval', () => {
     expect(cb).toHaveBeenCalledTimes(2);
   });
 
+  // A browser can report "visible" again without a hidden in between; each
+  // report must replace the running interval rather than add a second one.
+  it('a repeated visible report keeps one interval running, not two', () => {
+    const cb = vi.fn();
+    renderHook(() => { useVisibleInterval(cb, 1000); });
+
+    act(() => { setVisibility('visible'); });
+    cb.mockClear();
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(cb).toHaveBeenCalledTimes(3);
+  });
+
   it('does not fire a catch-up on the first visible mount', () => {
     const cb = vi.fn();
     renderHook(() => { useVisibleInterval(cb, 1000); });

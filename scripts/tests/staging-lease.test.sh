@@ -58,12 +58,64 @@ fi
 verb=""
 for a in "$@"; do
   case "$a" in
-    get | create | replace | delete)
+    get | create | replace | delete | exec)
       verb="$a"
       break
       ;;
   esac
 done
+
+# The alert quiet period reaches Grafana's silences API from inside its pod:
+# everything after `--` is `sh -c <script> <$0> <method> <path>`. Each open,
+# extension and close is recorded with the silence's comment, which names the
+# holder.
+quiet_call() {
+  local remote=() after="" method path body id comment
+  for a in "$@"; do
+    if [ -n "$after" ]; then
+      remote+=("$a")
+    elif [ "$a" = "--" ]; then
+      after=1
+    fi
+  done
+  method="${remote[4]:-}"
+  path="${remote[5]:-}"
+  [ -f "$FAKE_SILENCES" ] || echo '[]' >"$FAKE_SILENCES"
+  if [ -n "${FAKE_QUIET_REFUSE:-}" ]; then
+    echo '{"message":"Invalid username or password"}'
+    echo "command terminated with exit code 22" >&2
+    exit 22
+  fi
+  case "$method $path" in
+    "GET /silences")
+      cat "$FAKE_SILENCES"
+      ;;
+    "POST /silences")
+      body="$(cat)"
+      id="$(jq -r '.id // empty' <<<"$body")"
+      [ -n "$id" ] || id="s-$(($(jq 'length' "$FAKE_SILENCES") + 1))"
+      jq --arg id "$id" --argjson s "$body" \
+        '[.[] | select(.id != $id)] + [$s + {id: $id, status: {state: "active"}}]' \
+        "$FAKE_SILENCES" >"$FAKE_SILENCES.new"
+      mv "$FAKE_SILENCES.new" "$FAKE_SILENCES"
+      printf 'POST %s\n' "$(jq -r '.comment' <<<"$body")" >>"$FAKE_QUIET_CALLS"
+      printf '{"silenceID":"%s"}\n' "$id"
+      ;;
+    "DELETE /silence/"*)
+      id="${path#/silence/}"
+      comment="$(jq -r --arg id "$id" '.[] | select(.id == $id) | .comment' "$FAKE_SILENCES")"
+      jq --arg id "$id" 'map(if .id == $id then .status.state = "expired" else . end)' \
+        "$FAKE_SILENCES" >"$FAKE_SILENCES.new"
+      mv "$FAKE_SILENCES.new" "$FAKE_SILENCES"
+      printf 'DELETE %s\n' "$comment" >>"$FAKE_QUIET_CALLS"
+      echo '{"message":"silence deleted"}'
+      ;;
+    *)
+      echo "fake kubectl: unhandled quiet-period call: ${remote[*]}" >&2
+      exit 1
+      ;;
+  esac
+}
 
 # Greedy `.*` would swallow the closing quote, so the value is taken whole and
 # unquoted afterwards.
@@ -173,6 +225,10 @@ case "$verb" in
     rm -f "$STATE"
     exit 0
     ;;
+  exec)
+    quiet_call "$@"
+    exit 0
+    ;;
 esac
 echo "fake kubectl: unhandled: $*" >&2
 exit 1
@@ -182,6 +238,9 @@ chmod +x "$FAKE"
 STATE="$WORK/lease.json"
 export FAKE_STATE="$STATE"
 export WORKDIR_IN="$WORK/stdin.yaml"
+export FAKE_SILENCES="$WORK/silences.json"
+export FAKE_QUIET_CALLS="$WORK/quiet-calls.log"
+touch "$FAKE_QUIET_CALLS"
 
 run_lease() {
   NAMESPACE=opengate-staging \
@@ -461,6 +520,19 @@ for wf in "$REPO_ROOT"/.github/workflows/*.yml; do
   else
     fail "$name writes the holder out at $inline call site(s) instead of reading the shared one"
   fi
+
+  # The release is the one step that says the claim was lost mid-run, and a
+  # release whose status is thrown away turns a measurement taken on somebody
+  # else's namespace into a green night.
+  releases="$(grep -c -E 'staging-lease\.sh release' "$wf" || true)"
+  swallowed="$(grep -c -E 'staging-lease\.sh release[^#]*\|\|' "$wf" || true)"
+  if [ "$releases" -eq 0 ]; then
+    fail "$name calls the lease and never releases it"
+  elif [ "$swallowed" -eq 0 ]; then
+    pass "$name lets a claim lost mid-run fail its release"
+  else
+    fail "$name throws away the release's status at $swallowed call site(s), so a claim lost mid-run reads green"
+  fi
 done
 
 # --- D34: a claim is renewed for as long as its holder is still working -------
@@ -612,6 +684,76 @@ elif grep -qi 'lost' <<<"$out"; then
   pass "a claim lost mid-run fails the release rather than passing quietly"
 else
   fail "a claim lost mid-run fails the release rather than passing quietly (got=[$out])"
+fi
+
+# --- the shared alerts are quiet while the claim is held ----------------------
+#
+# A run holding the claim drives the node production shares, so the rules
+# watching that node — its disk, its memory, the containers on it — fire at the
+# run rather than at a fault. The quiet period rides the claim: opened with it,
+# carried forward by every renewal, and ended with it, whichever way the claim
+# ended.
+quiet_calls() { grep -c -E "^$1 .*$2( |\$)" "$FAKE_QUIET_CALLS" || true; }
+
+rm -f "$STATE" "$FAKE_SILENCES"
+: >"$FAKE_QUIET_CALLS"
+run_lease acquire cd-q1 >/dev/null 2>&1 || true
+assert_eq "taking the claim opens a quiet period for its holder" "1" "$(quiet_calls POST cd-q1)"
+
+# Re-taking a claim the run already holds does not stack a second quiet period.
+run_lease acquire cd-q1 >/dev/null 2>&1 || true
+assert_eq "re-taking the claim keeps one quiet period" "1" \
+  "$(jq '[.[] | select(.status.state == "active")] | length' "$FAKE_SILENCES")"
+
+run_lease release cd-q1 >/dev/null 2>&1 || true
+assert_eq "releasing the claim ends its quiet period" "1" "$(quiet_calls DELETE cd-q1)"
+
+# The renewer carries the quiet period forward on every renewal, so a run that
+# outlives one claim duration is not loud for the rest of it.
+rm -f "$STATE" "$FAKE_SILENCES"
+: >"$FAKE_QUIET_CALLS"
+TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-q2 >/dev/null 2>&1 || true
+extended_by_renewer() { [ "$(quiet_calls POST cd-q2)" -ge 2 ]; }
+if wait_until extended_by_renewer; then
+  pass "each renewal extends the quiet period"
+else
+  fail "each renewal extends the quiet period (posts=$(quiet_calls POST cd-q2))"
+fi
+
+# A claim taken from under the run still ends the run's own quiet period, and
+# nobody else's: the thief opened one of its own when it took the claim.
+seed_lease a-thief "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
+wait_until loss_recorded || true
+TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing release cd-q2 >/dev/null 2>&1 || true
+assert_eq "a lost claim still ends its holder's quiet period" "1" "$(quiet_calls DELETE cd-q2)"
+
+# A quiet period that cannot be opened does not cost the night: the claim, the
+# measurement and the verdict go ahead, and the step says what it could not do —
+# in the log and in the run's summary. A missed silence announces itself as the
+# messages it did not hold back.
+rm -f "$STATE" "$FAKE_SILENCES"
+: >"$FAKE_QUIET_CALLS"
+summary="$WORK/step-summary.md"
+: >"$summary"
+if out="$(GITHUB_STEP_SUMMARY="$summary" FAKE_QUIET_REFUSE=1 run_lease acquire cd-q3 2>&1)"; then
+  assert_eq "a refused quiet period still takes the claim" "cd-q3" "$(holder_now)"
+else
+  fail "a refused quiet period still takes the claim (got=[$out])"
+fi
+if grep -q '::warning::' <<<"$out" && grep -qF 'Invalid username or password' <<<"$out"; then
+  pass "the refusal is a warning carrying Grafana's reason"
+else
+  fail "the refusal is a warning carrying Grafana's reason (got=[$out])"
+fi
+if grep -qi 'quiet period' "$summary"; then
+  pass "and the run's summary says the alerts were not held back"
+else
+  fail "and the run's summary says the alerts were not held back (summary=[$(cat "$summary")])"
+fi
+if GITHUB_STEP_SUMMARY="$summary" FAKE_QUIET_REFUSE=1 run_lease release cd-q3 >/dev/null 2>&1; then
+  pass "a refused close does not fail the release"
+else
+  fail "a refused close does not fail the release"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"

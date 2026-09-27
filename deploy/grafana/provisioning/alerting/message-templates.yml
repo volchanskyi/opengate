@@ -4,7 +4,8 @@
 # itself is reachable only through a port-forward. So it carries the reading in
 # the rule's own units and the line it crossed, the series it is about, since
 # when, and the first thing to check — and leaves out the labels Grafana adds
-# for its own bookkeeping.
+# for its own bookkeeping, and `watches`, which the rules carry for the quiet
+# period rather than for the reader.
 #
 # A rule firing on no data has no reading, which is itself the finding: the
 # thing that should be reporting is not. That is said in words rather than as
@@ -40,6 +41,7 @@ templates:
       {{ range .SortedPairs -}}
       {{ $internal := or (eq .Name "alertname") (eq .Name "severity") (eq .Name "grafana_folder") -}}
       {{ $internal = or $internal (eq .Name "ref_id") (eq .Name "datasource_uid") (eq .Name "grafana_state_reason") -}}
+      {{ $internal = or $internal (eq .Name "watches") -}}
       {{ if not $internal -}}
       {{ $where = printf "%s %s=%s" $where .Name .Value -}}
       {{ end -}}

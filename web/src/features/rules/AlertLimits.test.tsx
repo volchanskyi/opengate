@@ -47,6 +47,22 @@ describe('AlertLimits', () => {
     expect(screen.getByText(/At most 200/)).toBeInTheDocument();
   });
 
+  it('opening the page reads the stored ceilings', () => {
+    const fetchLimits = vi.fn().mockResolvedValue(undefined);
+    useAuthStore.setState({ user: { id: 'u1', email: 'x@example.com', is_admin: false } } as never);
+    useAlertLimitsStore.setState({ limits: limits(), isLoading: false, error: null, fetchLimits });
+    render(<MemoryRouter><AlertLimits /></MemoryRouter>);
+    expect(fetchLimits).toHaveBeenCalledTimes(1);
+  });
+
+  it('an administrator typing in the per-machine box sees what they typed', async () => {
+    show(true);
+    const box = screen.getByLabelText('One machine, per hour');
+    await userEvent.clear(box);
+    await userEvent.type(box, '35');
+    expect(box).toHaveValue(35);
+  });
+
   it('says the per-machine one is enforced on the machine, because a stored row changes nothing', () => {
     show(false);
     expect(screen.getByText(/Enforced on the machine itself/)).toBeInTheDocument();

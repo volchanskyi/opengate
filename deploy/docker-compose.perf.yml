@@ -136,9 +136,11 @@ services:
       metrics:
         condition: service_started
 
-  # The stack observes itself. Without a metrics store the run can report
-  # latency and nothing about why: which resource ran out, whether the
-  # connection pool queued, how many series the fixture occupies.
+  # Where the server writes every machine's vitals, as production's does. The
+  # volume family's weighing (scripts/perf-weigh-fixture.sh) reads this store's
+  # own series count before the fleet is built and after, which is how many
+  # series the fleet occupies. What ran out on the server is read from its own
+  # exposition on 8081.
   metrics:
     <<: *perf-restart
     image: docker.io/victoriametrics/victoria-metrics:v1.114.0

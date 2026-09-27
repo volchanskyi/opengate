@@ -167,11 +167,8 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		Journeys:          in.Journeys,
 		Observations:      latencyObservations(finished, connect, handshake, errorRate, in),
 		GeneratorHeadroom: in.Headroom,
-		// The harness holds no long-lived identities of its own: the certificates
-		// it signs live in a directory it removes, so a run that reached this
-		// point left nothing behind to find.
-		Cleanup: CleanupProof{Verified: true},
-		Leak:    in.Leak,
+		Cleanup:           uncountedCleanup(in),
+		Leak:              in.Leak,
 	}
 
 	// Where the ladder broke, for a profile that said what breaking means. It is
@@ -231,6 +228,20 @@ func commitFromEnvironment() string {
 		return sha
 	}
 	return unknownCommit
+}
+
+// uncountedCleanup is the bundle's cleanup section as the harness can write it:
+// uncounted, with the reason.
+//
+// A run creates accounts, customers and machines through the fixture, and the
+// harness has finished before anything is removed. On staging the cleanup step
+// removes and counts them after the run and folds its proof into this bundle; on
+// the disposable stack the whole stack goes with the job, so nothing is counted.
+func uncountedCleanup(in runBundleInputs) CleanupProof {
+	if in.Profile != nil && in.Profile.Environment == EnvRunner {
+		return CleanupProof{NotCounted: "the stack is torn down with the job that built it, so nothing outlives the run to count"}
+	}
+	return CleanupProof{NotCounted: "the cleanup step counts what the run left and folds its proof into this bundle after the run"}
 }
 
 // targetFingerprint is the system under test as whoever started it described
@@ -304,7 +315,7 @@ func fixtureCounts(in runBundleInputs, enrolled int) FixtureCounts {
 
 	if in.FixtureWeight != nil {
 		counts.DatabaseBytes = in.FixtureWeight.DatabaseBytes
-		counts.TelemetrySeries = in.FixtureWeight.TelemetrySeries
+		counts.TelemetrySeries = in.FixtureWeight.Counts.TelemetrySeries
 	}
 	if in.Filer != nil {
 		filed, refused := in.Filer.counts()

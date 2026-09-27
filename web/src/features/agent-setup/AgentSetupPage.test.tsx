@@ -317,6 +317,18 @@ describe('AgentSetupPage', () => {
     expect(await screen.findByText('Copied!')).toBeInTheDocument();
   });
 
+  it('a token\'s own Copy button copies that token, not the install command', async () => {
+    const user = userEvent.setup();
+    render(<AgentSetupPage />);
+
+    const [installCopy, tokenCopy] = screen.getAllByText('Copy');
+    expect(installCopy).toBeDefined();
+    await user.click(tokenCopy!);
+
+    expect(await navigator.clipboard.readText()).toBe(fakeToken.token);
+    expect(await screen.findByText('Copied!')).toBeInTheDocument();
+  });
+
   it('install command contains the active token and the right URL pattern', () => {
     render(<AgentSetupPage />);
     const codeText = screen.getByText(/curl -sL/).textContent ?? '';

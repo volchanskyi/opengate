@@ -111,6 +111,12 @@ jobs:
           printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
           printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
 
+      # The transport asks the kernel for more receive buffer than a runner
+      # allows a socket. The ceilings are production's, and host-wide, so the
+      # server's container gets them as well as the generator.
+      - name: Give the machine-facing path production's buffers
+        run: scripts/perf-stack-quic.sh raise-buffers
+
       - name: Bring the performance stack up
         env:
           PERF_SERVER_CPUS: ${{ matrix.cpus }}
@@ -119,6 +125,12 @@ jobs:
           DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
           export DOCKER_CONFIG
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+
+      # Past Docker's userland proxy: the generator dials the name on the
+      # server's certificate, mapped to the container's own address, and the
+      # harness is told where the server's network counters are.
+      - name: Dial the server by its certificate's name
+        run: scripts/perf-stack-quic.sh map-server
 
       # Every path below is named from the repository root, and the build is
       # pointed at server/ with -C. A step that changes directory instead cannot
@@ -188,7 +200,8 @@ jobs:
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
               -agents=2000 \
-              -addr=127.0.0.1:9090 \
+              -addr=server:9090 \
+              -target-net-counters="$PERF_TARGET_NET_COUNTERS" \
               -default-telemetry \
               -hold=5m \
               -profile=load/profiles/scaling.yaml \
@@ -223,6 +236,11 @@ jobs:
             "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json" \
             --journeys /tmp/perf-k6/api-baseline.json \
             --journeys /tmp/perf-k6/relay-throughput.json
+
+      # Either end asking for more buffer than the kernel gave is a run whose
+      # datagrams were lost before either process saw them.
+      - name: Refuse a run whose ends ran short of receive buffer
+        run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
 
       - name: Read the verdict the run wrote about itself
         if: always()
@@ -298,6 +316,12 @@ jobs:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # The transport asks the kernel for more receive buffer than a runner
+      # allows a socket. The ceilings are production's, and host-wide, so the
+      # server's container gets them as well as the generator.
+      - name: Give the machine-facing path production's buffers
+        run: scripts/perf-stack-quic.sh raise-buffers
+
       - name: Bring the performance stack up
         run: |
           set -euo pipefail
@@ -305,15 +329,21 @@ jobs:
           export DOCKER_CONFIG
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
 
-      # The empty size, before anything is built. The fixture's own weight is the
-      # difference between this and the size after — two readings taken back to
-      # back always differ by nothing, which is a measurement that cannot fail
-      # and cannot inform, and that is what this used to be.
+      # Past Docker's userland proxy: the generator dials the name on the
+      # server's certificate, mapped to the container's own address, and the
+      # harness is told where the server's network counters are.
+      - name: Dial the server by its certificate's name
+        run: scripts/perf-stack-quic.sh map-server
+
+      # The empty stack's database size and series count, before anything is
+      # built. The fixture's own weight is the difference between these and the
+      # readings after — two readings taken back to back always differ by
+      # nothing, which is a measurement that cannot fail and cannot inform.
       - name: Read the empty stack's size
         run: |
           set -euo pipefail
           mkdir -p "$PERF_BUNDLE_DIR"
-          echo "PERF_BASELINE_BYTES=$(bash scripts/perf-weigh-fixture.sh baseline)" >>"$GITHUB_ENV"
+          bash scripts/perf-weigh-fixture.sh baseline /tmp/fixture-baseline.json
 
       - name: Install k6
         run: |
@@ -359,7 +389,8 @@ jobs:
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
               -agents="${{ matrix.agents }}" \
-              -addr=127.0.0.1:9090 \
+              -addr=server:9090 \
+              -target-net-counters="$PERF_TARGET_NET_COUNTERS" \
               -default-telemetry \
               -hold=5m \
               -profile="${{ matrix.path }}" \
@@ -406,6 +437,11 @@ jobs:
             --journeys /tmp/perf-k6/api-baseline.json \
             --journeys /tmp/perf-k6/relay-throughput.json
 
+      # Either end asking for more buffer than the kernel gave is a run whose
+      # datagrams were lost before either process saw them.
+      - name: Refuse a run whose ends ran short of receive buffer
+        run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
+
       - name: Read the verdict the run wrote about itself
         if: always()
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json"
@@ -427,7 +463,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          bash scripts/perf-weigh-fixture.sh weigh "$PERF_BASELINE_BYTES" \
+          bash scripts/perf-weigh-fixture.sh weigh /tmp/fixture-baseline.json \
             "$PERF_BUNDLE_DIR/fixture-weight.json"
           cat "$PERF_BUNDLE_DIR/fixture-weight.json"
           scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" \
@@ -533,8 +569,8 @@ jobs:
             # fleet until the server gives out — sixteen thousand machines on a
             # shared runner, with a hundred and sixty held sessions on top — so
             # what that generator needs of the runner is a reading to take before
-            # the leg offers it. The harness reports its own headroom on every
-            # leg now, so the reading is takeable.
+            # the leg offers it. Each rung now reads the generator's own room, so
+            # a night on this path says what it had at a rung that held.
             journeys: false
             # The ladder now reaches sixteen thousand, so the estate has to. At
             # about 400 KB of generator memory a machine over a 1.25 GiB
@@ -569,12 +605,24 @@ jobs:
           printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
           printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
 
+      # The transport asks the kernel for more receive buffer than a runner
+      # allows a socket. The ceilings are production's, and host-wide, so the
+      # server's container gets them as well as the generator.
+      - name: Give the machine-facing path production's buffers
+        run: scripts/perf-stack-quic.sh raise-buffers
+
       - name: Bring the performance stack up
         run: |
           set -euo pipefail
           DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
           export DOCKER_CONFIG
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+
+      # Past Docker's userland proxy: the generator dials the name on the
+      # server's certificate, mapped to the container's own address, and the
+      # harness is told where the server's network counters are.
+      - name: Dial the server by its certificate's name
+        run: scripts/perf-stack-quic.sh map-server
 
       # The generator and the target share this box on purpose — it is the only
       # venue with enough processors to offer four thousand machines at all — so
@@ -615,7 +663,8 @@ jobs:
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
             /tmp/loadtest \
               -agents="${{ matrix.agents }}" \
-              -addr=127.0.0.1:9090 \
+              -addr=server:9090 \
+              -target-net-counters="$PERF_TARGET_NET_COUNTERS" \
               -default-telemetry \
               -hold="${{ matrix.hold }}" \
               -profile="${{ matrix.path }}" \
@@ -670,6 +719,11 @@ jobs:
             "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json" \
             --journeys /tmp/perf-k6/api-baseline.json \
             --journeys /tmp/perf-k6/relay-throughput.json
+
+      # Either end asking for more buffer than the kernel gave is a run whose
+      # datagrams were lost before either process saw them.
+      - name: Refuse a run whose ends ran short of receive buffer
+        run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
 
       - name: Read the verdict the run wrote about itself
         if: always()

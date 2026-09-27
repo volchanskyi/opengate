@@ -185,6 +185,46 @@ else
   fail "container-memory-against-limit must carry for: 10m"
 fi
 
+# A container with no memory limit reports a limit of nought, and a comparison
+# written after the division filters the quotient rather than the divisor: the
+# ratio comes out +Inf, passes `> 0`, and six unlimited system containers fired
+# in every message all night. The filter belongs on the limit, inside the
+# division.
+if grep -qF '/ (container_spec_memory_limit_bytes{container!="",container!="POD"} > 0)' <<<"$limit_query"; then
+  pass "a container with no memory limit is left out of the ratio rather than read as +Inf"
+else
+  fail "container-memory-against-limit must divide by (container_spec_memory_limit_bytes{...} > 0), the filter on the limit"
+fi
+
+# A working set that hovers at the line fires and resolves on every evaluation:
+# Loki crossed 80% twenty times in one night. The alert clears only once the
+# container is back under 70%, so one crossing is one message.
+thresholds="$(
+  python3 - "$RULES_FILE" <<'PY'
+import sys, yaml
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = yaml.safe_load(fh)
+
+for group in doc.get("groups", []):
+    for rule in group.get("rules", []):
+        if rule.get("uid") != "container-memory-against-limit":
+            continue
+        for item in rule.get("data", []):
+            if item.get("refId") != rule.get("condition"):
+                continue
+            for cond in item.get("model", {}).get("conditions", []):
+                fire = cond.get("evaluator", {})
+                clear = cond.get("unloadEvaluator", {})
+                print(f"{fire.get('type')} {fire.get('params')} {clear.get('type')} {clear.get('params')}")
+PY
+)"
+if [ "$thresholds" = "gt [0.8] lt [0.7]" ]; then
+  pass "the container alert fires above 80% and clears only below 70%"
+else
+  fail "container-memory-against-limit must fire gt 0.8 and clear with unloadEvaluator lt 0.7 (got=[$thresholds])"
+fi
+
 # And when the kill happens anyway, the alert names the container it took —
 # which is the answer this incident cost six hours to reconstruct by hand.
 oom_query="$(rule_query container-oom-killed)"
@@ -200,6 +240,93 @@ if [ "$(rule_field container-oom-killed labels.severity)" = "critical" ]; then
 else
   fail "container-oom-killed must carry severity: critical"
 fi
+
+# --- what each rule watches ---------------------------------------------------
+#
+# One scrape job reads the production and the staging server alike, so a rule
+# over the server's series summed staging into production: seventeen alerts the
+# staging server raised during a network drill read as a production rule pack
+# running at five times its ceiling. Every rule says what it watches. A
+# production rule reads production's namespace on every server selector it
+# holds, and the shared rules — the node and the containers on it — are the ones
+# a test holding the staging claim may quiet.
+#
+# unscoped_selectors <rules-file> prints each server selector a rule holds
+# without production's namespace, each rule whose `watches` is missing or not
+# one of the two, and a closing count of the server selectors it read.
+unscoped_selectors() {
+  python3 - "$1" <<'PY'
+import re, sys, yaml
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = yaml.safe_load(fh)
+
+# A metric name with the matcher block that follows it, if any. Function names
+# and keywords never reach the checks below: only a name the server publishes,
+# or a matcher block naming the server's scrape job, is a server selector.
+selector = re.compile(r'([A-Za-z_:][A-Za-z0-9_:]*)\s*(\{[^}]*\})?')
+read = 0
+for group in doc.get("groups", []):
+    for rule in group.get("rules", []):
+        uid = rule.get("uid", "<no uid>")
+        watches = rule.get("labels", {}).get("watches")
+        if watches not in ("production", "shared"):
+            print(f"{uid}: watches is {watches!r}, not production or shared")
+        for item in rule.get("data", []):
+            expr = " ".join(str(item.get("model", {}).get("expr", "")).split())
+            for name, matchers in selector.findall(expr):
+                matchers = matchers or ""
+                if not (name.startswith("opengate_") or 'job="opengate-server"' in matchers):
+                    continue
+                read += 1
+                if watches != "production":
+                    print(f"{uid}: reads the server's {name} but watches {watches!r}")
+                if 'namespace="opengate"' not in matchers:
+                    print(f"{uid}: {name}{matchers} is not scoped to production")
+print(f"read={read}")
+PY
+}
+
+# The defect first: a rule reading the server with no namespace, which is the
+# shape every server rule had.
+unscoped_demo="$(mktemp)"
+cat >"$unscoped_demo" <<'DEMO'
+groups:
+  - rules:
+      - uid: demo
+        labels: { watches: production }
+        data:
+          - model:
+              expr: sum(rate(opengate_http_requests_total[5m]))
+DEMO
+if grep -qF 'is not scoped to production' <<<"$(unscoped_selectors "$unscoped_demo")"; then
+  pass "a server selector with no namespace is caught"
+else
+  fail "the scope check no longer catches a server selector with no namespace"
+fi
+rm -f "$unscoped_demo"
+
+scope_report="$(unscoped_selectors "$RULES_FILE")"
+scope_read="$(sed -n 's/^read=//p' <<<"$scope_report")"
+scope_problems="$(grep -v '^read=' <<<"$scope_report" || true)"
+if [ "${scope_read:-0}" -eq 0 ]; then
+  fail "the scope check read no server selector, so it asserted an absence it never tested"
+elif [ -z "$scope_problems" ]; then
+  pass "every rule says what it watches, and each of $scope_read server selectors reads production alone"
+else
+  fail "rules reading staging as production: $scope_problems"
+fi
+
+# The rules a quiet period holds back are the shared ones, and the node and its
+# containers are what those watch.
+for uid in disk-usage-critical disk-usage-warning memory-usage-high \
+  cadvisor-scrape-unreachable container-memory-against-limit container-oom-killed; do
+  if [ "$(rule_field "$uid" labels.watches)" = "shared" ]; then
+    pass "$uid watches the shared node"
+  else
+    fail "$uid must carry watches: shared"
+  fi
+done
 
 # --- what a message carries ---------------------------------------------------
 #
@@ -251,7 +378,7 @@ for needle in (".Annotations.summary", ".Annotations.observed", ".Annotations.ch
                ".StartsAt", '"NoData"', '"Error"'):
     if needle not in body:
         print(f"the template does not print {needle}")
-for internal in ("ref_id", "datasource_uid", "grafana_state_reason", "grafana_folder"):
+for internal in ("ref_id", "datasource_uid", "grafana_state_reason", "grafana_folder", "watches"):
     if f'"{internal}"' not in body:
         print(f"the template does not leave out {internal}")
 

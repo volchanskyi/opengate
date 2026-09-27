@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-09-24. -->
+<!-- Last reviewed: 2026-09-27. -->
 
 ## Severity: Medium
 
@@ -60,9 +60,10 @@ and three apiece in
 The nightly is green throughout: [`mutation-summarize.sh`](../scripts/mutation-summarize.sh)
 compares each run with the one before and holds an absolute floor of 85.0.
 
-The web leg clears that floor by 0.3 points, 85.3 against 85.0. The next tranche
-of web surface needs its survivors covered as it lands rather than after the leg
-reds.
+The web leg read 85.3 against that floor on 2026-09-23. Stryker 10's call-removal
+mutator added 55 survivors, which are now covered, and test helpers are not
+scored. The next tranche of web surface needs its survivors covered as it lands
+rather than after the leg reds.
 
 **Pay-down trigger:** two separable pieces of work, and the first decides how
 much the second is worth.
@@ -140,7 +141,7 @@ auto-update, `RestartAgent`, watchdog rollback, a failed connect, a crash
 — comes back to a full mTLS handshake. Ordinary connection drops re-dial
 in process and are unaffected, which bounds this to restarts alone.
 
-Persisting the store is not implementable on the pinned `rustls 0.23.43`:
+Persisting the store is not implementable on the pinned `rustls 0.23.45`:
 the TLS 1.3 client session value is opaque by design — no public codec,
 `pub(crate)` byte accessors, a zeroizing secret — for client-side forward
 secrecy. The `0.24.0-dev.1` prerelease does expose `Tls13Session::encode`
@@ -161,44 +162,22 @@ rather than by code.
 [`breakpoint.yaml`](../load/profiles/breakpoint.yaml) declares
 `operator_arrivals_per_second` and `sessions`, and those are technician-side
 numbers a machine-side harness cannot offer. Its leg installs no browser-side
-generator, so the twenty held sessions it names are a number in a file.
+generator, so the held sessions it names — five at its bottom rung, a hundred
+and sixty at its top — are numbers in a file.
 
 A capacity ladder that opens no session finds the load a server gives out under
 for a load nobody runs — a technician holding a remote session is the expensive
 thing the product does, and the rung it would give out at is not the rung it
-reports. This is the one to weigh before it is wired: it declares 160 held
-sessions on top of 16,000 machines on a shared runner, so what that generator
-needs of the machine is a reading to take before the leg offers it.
+reports. What the generator needs of the runner to offer those sessions beside
+sixteen thousand machines is a reading nobody has: the ladder's one headroom
+figure covered its whole thirty-seven-minute walk, and its top rung held a tenth
+of the machines it asked for, through a path production does not have. Each
+phase now reads the generator's own room, and the machine-facing path is
+production's.
 
-**Pay-down trigger:** a headroom reading for `breakpoint` at its full ladder,
-which [`generator_headroom.go`](../server/tests/loadtest/generator_headroom.go)
-now reports on every leg. A profile that turns out not to want sessions declares
-`sessions: 0` rather than a number nothing offers.
-
-### The reference walk reads the Go runtime's own internals, and one job a week looks
-
-[ADR-119](../docs/adr/ADR-119-finding-a-leak.md)
-gives the endurance run a core dump and a walk back from the heaviest live
-objects to what holds them. The tool that does it reads the runtime's internal
-structures directly — spans, type descriptors, the allocation bitmaps — because
-that is the only way to see the heap as objects rather than as bytes. Those
-structures are unexported implementation and change between Go releases, and
-the module publishes no tagged releases, so the pin is a commit.
-
-What follows is a gap the pin cannot close: a Go toolchain bump can leave the
-walk unable to read a core it took, and the only thing that asks is the weekly
-soak. The shell test beside the script drives it against stub tools, so it holds
-the script's own refusals and says nothing about whether the reader still
-understands this Go. The refusal is loud when it comes — the overview is read
-back before anything else is written — but it comes up to a week after the bump
-that caused it, in a job whose subject is something else entirely.
-
-**Pay-down trigger:** the first Go toolchain bump that breaks the walk, at which
-point the reader's version is moved with the toolchain's and the two are pinned
-together the way `server/go.mod` and the workflows' `go-version` already are.
-Until then the cost is one endurance run's deepest reading, and the profiles
-[ADR-119](../docs/adr/ADR-119-finding-a-leak.md) keeps are
-unaffected — they are symbolised by the target itself.
+**Pay-down trigger:** one night of the ladder on that path, whose readings show
+the generator's room at a rung that held. Offer the sessions then, or declare
+`sessions: 0` if the profile turns out not to want them.
 
 ### Authenticated requests are still counted per address
 
@@ -221,6 +200,32 @@ one sign-in, so the bucket would have moved from one address to one account.
 
 **Pay-down trigger:** any work on the request path, or the first customer report
 of a refused page during a busy moment.
+
+### `make ssh` cannot open a session on the cluster's machine
+
+[ADR-018](../docs/adr/ADR-018-operator-node-access.md) gives an operator a shell
+on the machine the cluster runs on through Oracle's bastion. Oracle only opens
+that session when a small helper program on the machine is switched on, and on
+the cluster's machines it is off. On 2026-09-27 `make ssh` was refused for
+exactly that reason, and reading one kernel setting took a temporary debug pod
+instead.
+
+The helper cannot be switched on where the machines are described. Oracle's
+Terraform provider accepts the setting for a standalone machine and not for a
+cluster's pool of machines, so a machine the cluster replaces comes back with
+it off. What is left today is a debug pod, which needs a healthy cluster, and
+direct login from an allowed address, which keeps a login port open to the
+internet.
+
+The fix is to switch it on through Oracle's own API for every machine in the
+pool, again whenever the pool's machines change, and before `make ssh` opens a
+session. A nightly check then reads the setting back and alerts when a machine
+is without it. The first step is confirming that Oracle's agent, which runs the
+helper, is on the cluster's machine image at all. If it is not, this approach
+is closed and the debug pod becomes the documented path.
+
+**Pay-down trigger:** the next time anyone needs a shell on the cluster's
+machine, or any change to the cluster's machine pool.
 
 ## Severity: Low
 
@@ -278,7 +283,7 @@ migration time rather than by the tests themselves.
 
 ### E2E worker-scoped identities not adopted; Playwright stays single-worker
 
-77 Playwright tests across 21 spec files provision their own account
+82 Playwright tests across 22 spec files provision their own account
 ([`fixtures.ts`](../web/e2e/fixtures.ts)), and `workers: 1` is a deliberate fix
 for `createAdminUser` racing on shared IAM state. Sharing one identity per worker
 would cut account setup and is the prerequisite for raising the worker count.
@@ -296,10 +301,10 @@ empties the Administrators group down to a single member to reach the state it
 asserts, and puts the members back in a `finally`. For the width of that window
 the bootstrap operator is not an admin — and `createAdminUser` promotes every
 admin fixture through exactly that credential
-([`auth-helper.ts`](../web/e2e/helpers/auth-helper.ts)), so any of the 8 spec
+([`auth-helper.ts`](../web/e2e/helpers/auth-helper.ts)), so any of the 9 spec
 files taking `adminUser` or `adminPage` that overlaps the window fails on a
-promotion it had no part in. That is a serialization barrier against a third of
-the suite at any worker count.
+promotion it had no part in. That is a serialization barrier against more than
+a third of the suite at any worker count.
 
 The second is [`device-site-dnd.spec.ts`](../web/e2e/device-site-dnd.spec.ts),
 which holds two sites under the fixed names `Site A` and `Site B` and moves
@@ -345,8 +350,10 @@ the full device list is already fetched for the grid, so `status`/`maintenance`/
 correct and cheap at the current fleet size (the list endpoint has no server-side
 pagination), but at **>20k agents** the unpaginated list fetch itself becomes the
 bottleneck, and filtering should move behind a paginated, server-filtered
-`/devices` query (matching the multiscale-readiness scaling posture). No action
-needed until list-fetch latency shows up in practice.
+`/devices` query. Measured on the volume family's largest leg on 2026-09-26: with
+eight thousand machines on one runner processor, opening the fleet list took
+589 ms at the 95th percentile. No action needed until list-fetch latency shows up
+in practice.
 
 **Pay-down trigger:** device-list fetch latency or payload size becomes a
 problem as the fleet approaches the >20k-agent scaling tier.

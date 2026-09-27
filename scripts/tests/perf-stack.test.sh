@@ -386,10 +386,9 @@ folds_gate() {
 declare -A OFFERS_NO_JOURNEYS=(
   # This leg raises the fleet until the server gives out — sixteen thousand
   # machines on a shared runner, with a hundred and sixty held sessions on top.
-  # What that generator would need of the runner is a reading to take before the
-  # leg offers it, and the harness reports its own headroom on every leg now, so
-  # the reading is takeable.
-  ["shapes load/profiles/breakpoint.yaml"]="the ladder's generator allowance is a reading still to be taken"
+  # What that generator would need of the runner is read rung by rung, and the
+  # sessions follow a night whose readings show its room at a rung that held.
+  ["shapes load/profiles/breakpoint.yaml"]="the generator's room at a rung that held is a reading still to be taken"
 )
 
 # Every leg names a profile this gate can read, and there is at least one, so a
@@ -658,6 +657,67 @@ if [ -z "$behind" ]; then
   pass "the stack is last in the night's order"
 else
   fail "the stack is last in the night's order (not behind:$behind)"
+fi
+
+# --- A machine reaches the server the way it does in production --------------
+#
+# The breakpoint ladder's top rung collapsed to a tenth of the machines it asked
+# for while the target sat at sixty percent of its processor. Two things stood
+# between the ends that production does not have: a runner's kernel capping a
+# socket's receive buffer at 1 MiB against the 7 MiB the transport asks for, and
+# Docker's userland proxy relaying every datagram sent to the loopback's
+# published port. Every job that brings the stack up gives it production's
+# buffers first, dials the server by its certificate's name once it is up, hands
+# the harness the target's network counters, and fails a run either end of which
+# still ran short.
+path_problems="$(
+  python3 - "$WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY'
+import sys, yaml
+
+jobs_read = 0
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    for name, job in doc.get("jobs", {}).items():
+        runs = [str(step.get("run", "")) for step in job.get("steps", [])]
+        up = [i for i, run in enumerate(runs) if "docker compose" in run and " up " in run]
+        if not up:
+            continue
+        jobs_read += 1
+        where = f"{path.rsplit('/', 1)[-1]} job {name}"
+        def first(needle):
+            return next((i for i, run in enumerate(runs) if needle in run), None)
+        raised = first("perf-stack-quic.sh raise-buffers")
+        mapped = first("perf-stack-quic.sh map-server")
+        walked = first("/tmp/loadtest")
+        checked = first("perf-stack-quic.sh check")
+        if raised is None or raised > up[0]:
+            print(f"{where}: the buffers are not raised before the stack starts")
+        if mapped is None or mapped < up[0]:
+            print(f"{where}: the server is not mapped to its certificate's name once the stack is up")
+        if walked is None:
+            print(f"{where}: no harness walk found")
+            continue
+        walk = runs[walked]
+        if "-addr=server:9090" not in walk:
+            print(f"{where}: the harness does not dial the server by its certificate's name")
+        if '-target-net-counters="$PERF_TARGET_NET_COUNTERS"' not in walk:
+            print(f"{where}: the harness is not told where the target's network counters are")
+        if checked is None or checked < walked:
+            print(f"{where}: nothing fails a run whose ends ran short of receive buffer")
+        if "127.0.0.1:9090" in "\n".join(runs):
+            print(f"{where}: something still dials the published port on the loopback")
+print(f"jobs={jobs_read}")
+PY
+)"
+path_jobs="$(sed -n 's/^jobs=//p' <<<"$path_problems")"
+path_problems="$(grep -v '^jobs=' <<<"$path_problems" || true)"
+if [ "${path_jobs:-0}" -eq 0 ]; then
+  fail "no job bringing the stack up was found, so the path checks read nothing"
+elif [ -z "$path_problems" ]; then
+  pass "each of $path_jobs jobs gives the machine-facing path production's buffers and no relay"
+else
+  fail "a job measures the machine-facing path through what production does not have: $path_problems"
 fi
 
 echo

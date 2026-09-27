@@ -97,16 +97,6 @@ func TestACustomersMachinesAreSpreadAcrossTheSitesItHas(t *testing.T) {
 	assert.Greater(t, used, 1, "the majority customer's machines all landed in one of its %d sites", len(majority.SiteIDs))
 }
 
-func TestBuiltFixtureCarriesTheManifestOfWhatToRemove(t *testing.T) {
-	fleet := buildFleet(t, FixtureSmall, 5)
-
-	manifest := fleet.fixture.CleanupManifest()
-	assert.Equal(t, loadTestMarker, manifest.Marker)
-	assert.Len(t, manifest.Users, len(fleet.plan.Users))
-	assert.Equal(t, fleet.plan.Devices, manifest.Devices)
-	assert.NotEmpty(t, manifest.Organizations, "a customer a run created is one it must remove")
-}
-
 func TestFixtureCountsDescribeWhatWasActuallyCreated(t *testing.T) {
 	fleet := buildFleet(t, FixtureLarge, 11)
 

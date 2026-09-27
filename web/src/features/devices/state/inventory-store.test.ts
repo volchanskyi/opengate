@@ -58,6 +58,20 @@ describe('inventory-store', () => {
     expect(useInventoryStore.getState().loading.get('d1')).toBe(false);
   });
 
+  // A retry that succeeds is shown as the inventory it read, not as the error
+  // the attempt before it left behind.
+  it('a successful fetch clears that machine\'s earlier error, and no other machine\'s', async () => {
+    useInventoryStore.setState({
+      errors: new Map([['d1', 'Failed to load inventory.'], ['d2', 'Failed to load inventory.']]),
+    });
+    mockedGet.mockResolvedValue(ok(sampleItems) as never);
+
+    await useInventoryStore.getState().fetchInventory('d1', true);
+
+    expect(useInventoryStore.getState().errors.has('d1')).toBe(false);
+    expect(useInventoryStore.getState().errors.get('d2')).toBe('Failed to load inventory.');
+  });
+
   it('skips a concurrent fetch while one is already in flight', async () => {
     let resolve!: (v: unknown) => void;
     mockedGet.mockReturnValue(new Promise((r) => { resolve = r; }) as never);

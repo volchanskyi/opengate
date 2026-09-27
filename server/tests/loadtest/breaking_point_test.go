@@ -51,6 +51,69 @@ func TestTheLadderNamesTheRungThatHeldAndTheRungThatGave(t *testing.T) {
 	assert.Equal(t, 4, answer.RungsRead)
 }
 
+// Where it gave says what moved, not only which term crossed its line. The
+// 2026-09-26 ladder held eight thousand machines and gave at sixteen thousand
+// on its error rate, and nothing in the bundle said which resource had run out
+// on the way there — the generator's processor, a receive buffer at either end,
+// or the target's allowance. Every resource reading the two rungs both carry is
+// laid side by side, and one that did not move is left out.
+func TestWhereItGaveNamesWhatMovedBetweenTheLastTwoRungs(t *testing.T) {
+	held := rung("step-8000", 8000, 0, 14, busy(45))
+	held.GeneratorCPUHeadroomPercent = float64Of(80)
+	held.GeneratorCPURefusedPercent = float64Of(1)
+	held.GeneratorUDPReceiveErrors = int64Of(0)
+	held.TargetUDPReceiveErrors = int64Of(0)
+
+	gave := rung("step-16000", 16000, 0.3, 6553, busy(60))
+	gave.GeneratorCPUHeadroomPercent = float64Of(12)
+	gave.GeneratorCPURefusedPercent = float64Of(18)
+	gave.GeneratorUDPReceiveErrors = int64Of(48_211)
+	gave.TargetUDPReceiveErrors = int64Of(0)
+
+	answer := FindBreakingPoint(gaveOut(), []PhaseResult{held, gave})
+	require.NotNil(t, answer)
+	assert.Equal(t, []MovedReading{
+		{Reading: "target_busy_percent", Held: 45, Gave: 60},
+		{Reading: "generator_cpu_headroom_percent", Held: 80, Gave: 12},
+		{Reading: "generator_cpu_refused_percent", Held: 1, Gave: 18},
+		{Reading: "generator_udp_receive_errors", Held: 0, Gave: 48_211},
+	}, answer.Moved, "the target's buffers dropped nothing at either rung, so they are not named")
+}
+
+// A reading one of the two rungs could not take is no comparison, and a ladder
+// with no rung that held has nothing to compare the one that gave against.
+func TestOnlyReadingsBothRungsTookAreCompared(t *testing.T) {
+	held := rung("step-8000", 8000, 0, 14, nil)
+	gave := rung("step-16000", 16000, 0.3, 6553, busy(60))
+	gave.GeneratorUDPReceiveErrors = int64Of(48_211)
+
+	answer := FindBreakingPoint(gaveOut(), []PhaseResult{held, gave})
+	require.NotNil(t, answer)
+	assert.Empty(t, answer.Moved)
+
+	first := FindBreakingPoint(gaveOut(), []PhaseResult{gave})
+	require.NotNil(t, first)
+	assert.Empty(t, first.Moved, "the first rung gave, so there is no rung that held to compare it with")
+}
+
+// The run's log says what moved as well as where the ladder gave, so the
+// answer reads without opening the bundle.
+func TestTheLogNamesWhatMovedWhereTheLadderGave(t *testing.T) {
+	out := captureStdout(t, func() {
+		printBreakingPoint(&BreakingPoint{
+			HeldAt: "step-8000", HeldAgents: 8000, GaveAt: "step-16000", GaveAgents: 16000,
+			Reason: "error rate 0.301 is past 0.050", RungsRead: 6,
+			Moved: []MovedReading{{Reading: "generator_udp_receive_errors", Held: 0, Gave: 48211}},
+		})
+	})
+
+	assert.Contains(t, out, "Gave:        step-16000 (16000 machines)")
+	assert.Contains(t, out, "Moved:       generator_udp_receive_errors 0.0 → 48211.0")
+}
+
+func float64Of(v float64) *float64 { return &v }
+func int64Of(v int64) *int64       { return &v }
+
 // Each term stands on its own, so a ladder that gives out slowly rather than by
 // refusing work is still answered.
 func TestEachTermCanBeTheOneThatGives(t *testing.T) {

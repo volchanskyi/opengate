@@ -50,6 +50,15 @@ server:
     size: 1Gi
 
 postgres:
+  # Capped where production's database is capped, so a load that would throttle
+  # production's database throttles this one and a night's numbers say so. The
+  # reservation stays the chart's smaller one: this database holds a night's
+  # fixture rather than anything a customer depends on, and it has peaked at
+  # well under what it reserves.
+  resources:
+    limits:
+      cpu: 250m
+      memory: 384Mi
   storage:
     # Same as the server /data above — staging DB rides an emptyDir, not a block
     # volume (ADR-035). E2E/smoke seed their own fixtures, so the reset is fine.

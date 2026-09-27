@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -153,22 +154,102 @@ func TestTheFixtureCountsMachinesThatEnrolled(t *testing.T) {
 // job that measured it wrote the figure into a file the bundle never read.
 func TestTheFixtureWeightReachesTheBundle(t *testing.T) {
 	in := measuredRun()
-	in.FixtureWeight = &FixtureWeight{DatabaseBytes: 1_398_101, TelemetrySeries: 4_096}
+	in.FixtureWeight = &FixtureWeight{DatabaseBytes: 1_398_101, Counts: FixtureWeightCounts{TelemetrySeries: 4_096}}
 	bundle := buildRunBundle(in)
 
 	assert.EqualValues(t, 1_398_101, bundle.Fixture.DatabaseBytes)
 	assert.EqualValues(t, 4_096, bundle.Fixture.TelemetrySeries)
 }
 
-func TestFixtureWeightIsReadFromWhatTheJobWrote(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "fixture-weight.json")
-	require.NoError(t, os.WriteFile(path,
-		[]byte(`{"fixture_bytes":1398101,"telemetry_series":4096}`), 0o600))
+// What scripts/tests/fixtures/fixture-weight.json holds: the weighing script's
+// own output, taken on the performance stack after five hundred machines had
+// reported their vitals. scripts/tests/loadtest-bundle-merge.test.sh holds the
+// file to the shape the script writes today.
+const (
+	goldenFixtureBytes    = 1_343_488
+	goldenTelemetrySeries = 15_000
+)
+
+// The reader is held to a weighing the weighing script wrote on the performance
+// stack. Its earlier fixture was written in the shape the reader expected, with
+// the series count at the top level, while the script writes it under `counts` —
+// so every bundle carried nought and the test agreed with it.
+func TestFixtureWeightIsReadFromWhatTheWeighingScriptWrote(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "scripts", "tests", "fixtures", "fixture-weight.json")
 
 	weight, err := LoadFixtureWeight(path)
 	require.NoError(t, err)
-	assert.EqualValues(t, 1_398_101, weight.DatabaseBytes)
-	assert.EqualValues(t, 4_096, weight.TelemetrySeries)
+	assert.EqualValues(t, goldenFixtureBytes, weight.DatabaseBytes)
+	assert.EqualValues(t, goldenTelemetrySeries, weight.Counts.TelemetrySeries)
+}
+
+// The run's own bundle never claims a cleanup: the accounts, customers and
+// machines it created are counted by the step after it. Every bundle said
+// verified with nothing left behind, on a venue where nothing ever looked.
+func TestTheHarnessNeverClaimsTheCleanupItDidNotCount(t *testing.T) {
+	bundle := buildRunBundle(measuredRun())
+
+	require.NoError(t, bundle.Validate(), "a bundle that says why nothing is counted is readable")
+	assert.False(t, bundle.Cleanup.Verified)
+	assert.Contains(t, bundle.Cleanup.NotCounted, "cleanup step")
+}
+
+// The disposable stack runs no cleanup at all, because nothing outlives the job
+// that built it. Its bundle says that rather than reporting a count of nought.
+func TestTheDisposableStackSaysWhyNothingIsCounted(t *testing.T) {
+	in := measuredRun()
+	in.Profile = &Profile{Name: "volume-500", SchemaVersion: profileSchemaVersion, Family: FamilyVolume, Environment: EnvRunner}
+	bundle := buildRunBundle(in)
+
+	assert.False(t, bundle.Cleanup.Verified)
+	assert.Contains(t, bundle.Cleanup.NotCounted, "torn down")
+}
+
+// What the cleanup step counted reaches the bundle as it counted it. A proof of
+// residue written by the cleanup script and folded in by the merge the
+// workflows run comes out of this package's own validation as unclean.
+func TestACleanupProofWithResidueComesOutUnclean(t *testing.T) {
+	dir := t.TempDir()
+	path, err := buildRunBundle(measuredRun()).WriteTo(dir)
+	require.NoError(t, err)
+
+	// A database that still holds three accounts, two machines, a customer and
+	// four sites after the removal ran.
+	psql := filepath.Join(dir, "psql")
+	require.NoError(t, os.WriteFile(psql, []byte(`#!/usr/bin/env bash
+query=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -tAc) query="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "$query" ] || { cat >/dev/null; exit 0; }
+case "$query" in
+  *"FROM users"*) echo 3 ;;
+  *"FROM devices"*) echo 2 ;;
+  *"FROM organizations"*) echo 1 ;;
+  *"FROM sites"*) echo 4 ;;
+esac
+`), 0o700))
+	proof := filepath.Join(dir, "cleanup.json")
+	cleanup := exec.Command(filepath.Join(repoRoot(t), "scripts", "loadtest-cleanup.sh"), proof)
+	cleanup.Env = append(os.Environ(), "LOADTEST_PSQL="+psql)
+	_ = cleanup.Run() // It fails on residue, and still writes the proof the merge reads.
+
+	merge := exec.Command(filepath.Join(repoRoot(t), "scripts", "loadtest-bundle-merge.sh"), path, "--cleanup", proof)
+	out, err := merge.CombinedOutput()
+	require.NoErrorf(t, err, "merging the proof failed: %s", out)
+
+	merged, err := LoadBundle(path)
+	require.NoError(t, err)
+	assert.True(t, merged.Cleanup.Verified)
+	assert.EqualValues(t, 3, merged.Cleanup.OrphanUsers)
+	assert.EqualValues(t, 1, merged.Cleanup.OrphanOrganizations)
+	assert.EqualValues(t, 4, merged.Cleanup.OrphanSites)
+	err = merged.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "residue")
 }
 
 // D22. The runner's shape was measured into the job environment and read by

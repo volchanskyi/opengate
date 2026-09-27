@@ -178,9 +178,19 @@ describe('SiteSidebar', () => {
     expect(screen.getByText('Confirm?')).toBeInTheDocument();
     expect(deleteGroupFn).not.toHaveBeenCalled();
 
-    // Second click on same button → actual delete called.
+    // Second click on same button → actual delete called, and the question closes.
     await user.click(screen.getByText('Confirm?'));
     expect(deleteGroupFn).toHaveBeenCalledWith('g1');
+    await waitFor(() => { expect(screen.queryByText('Confirm?')).not.toBeInTheDocument(); });
+  });
+
+  it('adding a site stays on the page rather than submitting it', async () => {
+    const user = userEvent.setup();
+    render(<SiteSidebar />);
+    await user.click(screen.getByText('+ New'));
+
+    const form = screen.getByText('Add').closest('form')!;
+    expect(fireEvent.submit(form)).toBe(false);
   });
 
   it('non-active sites use the gray text style; active uses white-on-gray', () => {
@@ -339,6 +349,27 @@ describe('SiteSidebar', () => {
       fireEvent.drop(dropZone('Unfiled'), { dataTransfer: deviceTransfer() });
 
       await waitFor(() => { expect(updateDeviceSite).not.toHaveBeenCalled(); });
+    });
+
+    // A zone that does not take the drag-over's default is not a drop target,
+    // and a drop whose default is left runs the browser's own navigation.
+    it('a device dragged over a site is accepted there, and its drop is taken', () => {
+      useDeviceStore.setState({ updateDeviceSite: vi.fn().mockResolvedValue(true), fetchDevices: vi.fn() });
+      render(<SiteSidebar />);
+
+      expect(fireEvent.dragOver(dropZone('Site B'), { dataTransfer: deviceTransfer() })).toBe(false);
+      expect(fireEvent.drop(dropZone('Site B'), { dataTransfer: deviceTransfer() })).toBe(false);
+    });
+
+    it('dropping clears the highlight', () => {
+      useDeviceStore.setState({ updateDeviceSite: vi.fn().mockResolvedValue(true), fetchDevices: vi.fn() });
+      render(<SiteSidebar />);
+
+      fireEvent.dragOver(dropZone('Site B'), { dataTransfer: deviceTransfer() });
+      expect(dropZone('Site B')).toHaveClass('ring-2');
+      fireEvent.drop(dropZone('Site B'), { dataTransfer: deviceTransfer() });
+
+      expect(dropZone('Site B')).not.toHaveClass('ring-2');
     });
 
     it('leaving one zone does not clear the highlight on the zone now hovered', () => {

@@ -83,6 +83,9 @@ scrape_configs:
       - source_labels: [container]
         target_label: container
 
+  # Production and staging alike. Every series names the namespace it came from,
+  # and the production alert rules read namespace="opengate" alone, so a test
+  # driving the staging server is never read as production.
   - job_name: opengate-server
     kubernetes_sd_configs:
       - role: endpoints
@@ -95,3 +98,5 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_endpoint_port_name]
         action: keep
         regex: metrics
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace

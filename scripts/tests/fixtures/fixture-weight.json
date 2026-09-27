@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-09-27T06:44:11Z",
+  "baseline_bytes": 9893555,
+  "database_bytes": 11237043,
+  "fixture_bytes": 1343488,
+  "baseline_series": 0,
+  "eviction_margin_bytes": 9663676416,
+  "fits_inside_margin": true,
+  "counts": {
+    "devices": 500,
+    "sites": 38,
+    "users": 21,
+    "process_rows": 1500,
+    "telemetry_series": 15000
+  }
+}

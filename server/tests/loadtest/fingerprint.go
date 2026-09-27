@@ -16,7 +16,8 @@ import (
 // process can read off the machine it is on; the other is known only to
 // whoever started it.
 
-// ReadGeneratorShape is the machine this process runs on, as a fingerprint.
+// ReadGeneratorShape is the generator as a fingerprint: the allowance its own
+// cgroup grants it where there is one, and the machine it runs on otherwise.
 //
 // The disk figure is what is free rather than how big the partition is. A
 // runner's root filesystem is 144 GiB and about 14 GB of it is room a job can
@@ -34,6 +35,10 @@ func ReadGeneratorShape(description string) Fingerprint {
 		shape.MemoryBytes = total * 1024
 	}
 	shape.DiskBytes = freeDiskBytes(os.TempDir())
+	if files, ok := openOwnCgroup(); ok {
+		shape = withinAllowance(shape, files)
+		files.close()
+	}
 	return shape
 }
 

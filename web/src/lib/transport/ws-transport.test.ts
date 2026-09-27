@@ -232,8 +232,23 @@ describe('WSTransport', () => {
     it('closes WebSocket and transitions to disconnected', () => {
       transport.connect('ws://host/relay', 'jwt');
       mockWsInstance.simulateOpen();
+      const socket = mockWsInstance;
       transport.disconnect();
+      expect(socket.close).toHaveBeenCalledTimes(1);
       expect(transport.state).toBe('disconnected');
+    });
+
+    // A second connect replaces the socket; the first must not stay open
+    // beside it, relaying a session nobody is reading.
+    it('connecting again closes the socket it replaces', () => {
+      transport.connect('ws://host/relay', 'jwt');
+      mockWsInstance.simulateOpen();
+      const first = mockWsInstance;
+
+      transport.connect('ws://host/relay', 'jwt');
+
+      expect(first.close).toHaveBeenCalledTimes(1);
+      expect(mockWsInstance).not.toBe(first);
     });
 
     it('is safe to call when already disconnected', () => {

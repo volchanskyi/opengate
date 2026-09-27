@@ -90,32 +90,6 @@ type BuiltFixture struct {
 	EnrollmentToken string `json:"-"`
 }
 
-// FixtureCleanupManifest is what a built fixture obliges the run to remove. It
-// carries the customers as well as the accounts, because a customer created
-// through the API is not selected by any address pattern.
-type FixtureCleanupManifest struct {
-	Marker        string   `json:"marker"`
-	Tenant        string   `json:"tenant"`
-	Users         []string `json:"users"`
-	Organizations []string `json:"organizations"`
-	Devices       int      `json:"devices"`
-}
-
-// CleanupManifest is what this fixture obliges the run to remove.
-func (b BuiltFixture) CleanupManifest() FixtureCleanupManifest {
-	organizations := make([]string, 0, len(b.Customers))
-	for _, customer := range b.Customers {
-		organizations = append(organizations, customer.ID)
-	}
-	return FixtureCleanupManifest{
-		Marker:        loadTestMarker,
-		Tenant:        fmt.Sprintf("%s-tenant", loadTestMarker),
-		Users:         append([]string(nil), b.Users...),
-		Organizations: organizations,
-		Devices:       b.PlannedDevices,
-	}
-}
-
 // Counts is this fixture in the shape a bundle records it.
 //
 // The machine count it can state is the planned one: the machines themselves

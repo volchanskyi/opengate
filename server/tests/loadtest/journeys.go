@@ -89,10 +89,17 @@ func journeyName(metric string) (string, bool) {
 	return strings.ReplaceAll(name, "_", "-"), true
 }
 
-// FixtureWeight is what the fleet actually cost on disk, measured from the
-// database rather than counted from the plan.
+// FixtureWeight is what the fleet actually cost, measured from the database and
+// the metrics store rather than counted from the plan. It is read in the shape
+// scripts/perf-weigh-fixture.sh writes.
 type FixtureWeight struct {
-	DatabaseBytes   int64 `json:"fixture_bytes"`
+	DatabaseBytes int64               `json:"fixture_bytes"`
+	Counts        FixtureWeightCounts `json:"counts"`
+}
+
+// FixtureWeightCounts is the weighing's counts, where the series the fleet
+// occupies in the metrics store are counted beside the rows.
+type FixtureWeightCounts struct {
 	TelemetrySeries int64 `json:"telemetry_series"`
 }
 

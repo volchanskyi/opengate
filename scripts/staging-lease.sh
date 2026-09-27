@@ -36,6 +36,14 @@
 # release, because a measurement taken on somebody else's namespace is not a
 # measurement.
 #
+# Holding the claim also holds back the alerts watching the node staging shares
+# with production (scripts/alert-quiet-period.sh): opened with the claim,
+# extended by every renewal, and closed on release whichever way the claim
+# ended. A quiet period that cannot be opened, extended or closed is a warning
+# and a line in the run's summary, never a failed claim: the night's measurement
+# does not depend on the alert channel, and a missed silence announces itself as
+# the messages it did not hold back.
+#
 # Usage:
 #   NAMESPACE=opengate-staging scripts/staging-lease.sh acquire "cd-run-1234"
 #   NAMESPACE=opengate-staging scripts/staging-lease.sh renew "cd-run-1234"
@@ -55,10 +63,14 @@ KUBECTL="${STAGING_LEASE_KUBECTL:-kubectl}"
 
 : "${NAMESPACE:?NAMESPACE is required}"
 
-# Where the renewer says who it is and what became of it. Both are per lease
-# name, so a machine running two of these at once does not read the other's.
+# Where the renewer says who it is and what became of it. All three are per
+# lease name, so a machine running two of these at once does not read the
+# other's.
 RENEWER_PID_FILE="$STATE_DIR/staging-lease-$LEASE_NAME.pid"
 RENEWER_LOST_FILE="$STATE_DIR/staging-lease-$LEASE_NAME.lost"
+RENEWER_QUIET_FILE="$STATE_DIR/staging-lease-$LEASE_NAME.quiet"
+
+QUIET_PERIOD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/alert-quiet-period.sh"
 
 now_epoch() { date -u +%s; }
 
@@ -133,6 +145,34 @@ lease_is_expired() {
   [ "$(now_epoch)" -gt "$((renew_epoch + duration))" ]
 }
 
+# quiet runs one verb of the alert quiet period for this holder, over the
+# claim's own duration. What it could not do is printed as a warning and written
+# into the run's summary, and it returns non-zero so the renewer can keep the
+# account for the release to print; every caller carries on either way.
+quiet() {
+  local verb="$1" holder="$2" out
+  if out="$(ALERT_QUIET_SECONDS="$TTL_SECONDS" ALERT_QUIET_KUBECTL="$KUBECTL" \
+    "$QUIET_PERIOD" "$verb" "$holder" 2>&1)"; then
+    printf '%s\n' "$out"
+    return 0
+  fi
+  printf '::warning::staging-lease: the alert quiet period could not %s for %s: %s\n' \
+    "$verb" "$holder" "$out"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf -- '- The alert quiet period could not %s for %s, so shared alerts were not held back: %s\n' \
+      "$verb" "$holder" "${out##*$'\n'}" >>"$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+  fi
+  return 1
+}
+
+# claimed is where every way of taking the claim ends: a renewer left behind to
+# keep it, and the shared alerts held back while it is held.
+claimed() {
+  local holder="$1"
+  start_renewing "$holder"
+  quiet open "$holder" || true
+}
+
 # The lock rests on the API refusing a second writer, and each of the two writes
 # has its own single refusal meaning somebody got there first. They are not
 # interchangeable: NotFound is a lost race on a `replace`, where the claim went
@@ -166,7 +206,7 @@ acquire() {
       # makes this safe without a read-then-write window.
       if out="$(lease_manifest "$holder" "$(now_micro)" | $KUBECTL create -f - 2>&1)"; then
         echo "staging-lease: held by $holder"
-        start_renewing "$holder"
+        claimed "$holder"
         return 0
       fi
       if ! create_lost_race "$out"; then
@@ -178,7 +218,7 @@ acquire() {
 
       if [ "$current" = "$holder" ]; then
         echo "staging-lease: already held by $holder"
-        start_renewing "$holder"
+        claimed "$holder"
         return 0
       fi
 
@@ -190,7 +230,7 @@ acquire() {
         if out="$(lease_manifest "$holder" "$(now_micro)" "$resource_version" \
           | $KUBECTL replace -f - 2>&1)"; then
           echo "staging-lease: took over an expired claim from ${current:-nobody}, held by $holder"
-          start_renewing "$holder"
+          claimed "$holder"
           return 0
         fi
         if ! replace_lost_race "$out"; then
@@ -253,6 +293,10 @@ renew() {
 # where the release step reads it. Carrying on would keep a dead claim's holder
 # believing it still held the namespace, which is the state this whole path
 # exists to prevent.
+#
+# Each renewal carries the alert quiet period forward with it. The renewer's
+# output reaches no log, so an extension it could not make is kept for the
+# release to print.
 keep_renewing() {
   local holder="$1" out
   while :; do
@@ -260,6 +304,10 @@ keep_renewing() {
     if ! out="$(renew "$holder" 2>&1)"; then
       printf '%s\n' "${out:-the renewal was refused}" >"$RENEWER_LOST_FILE"
       return 1
+    fi
+    # The summary it inherited belongs to a step that has already finished.
+    if ! out="$(GITHUB_STEP_SUMMARY="" quiet extend "$holder")"; then
+      printf '%s\n' "$out" >>"$RENEWER_QUIET_FILE"
     fi
   done
 }
@@ -270,7 +318,7 @@ keep_renewing() {
 start_renewing() {
   local holder="$1" pid
   stop_renewing
-  rm -f "$RENEWER_LOST_FILE"
+  rm -f "$RENEWER_LOST_FILE" "$RENEWER_QUIET_FILE"
   mkdir -p "$STATE_DIR"
 
   setsid "$0" keep-renewing "$holder" </dev/null >/dev/null 2>&1 &
@@ -305,6 +353,17 @@ release() {
     lost="$(cat "$RENEWER_LOST_FILE")"
     rm -f "$RENEWER_LOST_FILE"
   fi
+  if [ -s "$RENEWER_QUIET_FILE" ]; then
+    cat "$RENEWER_QUIET_FILE"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      printf -- '- The alert quiet period missed %s extension(s) while %s held the claim, so shared alerts were not held back throughout.\n' \
+        "$(grep -c "^::warning::" "$RENEWER_QUIET_FILE")" "$holder" >>"$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+    fi
+  fi
+  rm -f "$RENEWER_QUIET_FILE"
+
+  # Whatever became of the claim, this holder's quiet period ends with it.
+  quiet close "$holder" || true
 
   json="$(read_lease)"
 

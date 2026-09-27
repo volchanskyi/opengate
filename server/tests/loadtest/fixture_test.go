@@ -77,13 +77,10 @@ func TestTheSeedDecidesTheFleetAndNothingElseDoes(t *testing.T) {
 
 // Names carry the run's own marker, because a cleanup that cannot recognise
 // what a run created cannot remove it — and an environment whose every user is
-// residue got there by exactly that gap. The tenant is never the default one: a
-// user created there is a user in the fleet everybody else reads.
+// residue got there by exactly that gap. The cleanup selects on this marker.
 func TestEveryNameCarriesTheLoadTestMarker(t *testing.T) {
 	plan := planned(t, FixtureSmall, 1)
 
-	assert.Contains(t, plan.TenantName, loadTestMarker)
-	assert.NotEqual(t, "default", plan.TenantName)
 	for _, customer := range plan.Customers {
 		assert.Contains(t, customer.Name, loadTestMarker)
 	}
@@ -92,28 +89,10 @@ func TestEveryNameCarriesTheLoadTestMarker(t *testing.T) {
 	}
 }
 
-// The cleanup manifest is produced with the fixture rather than reconstructed
-// afterwards, so what to remove is known before anything is created.
-func TestTheFixturePlanCarriesItsOwnCleanupManifest(t *testing.T) {
-	plan := planned(t, FixtureSmall, 1)
-
-	manifest := plan.CleanupManifest()
-	assert.Equal(t, plan.TenantName, manifest.Tenant)
-	assert.Len(t, manifest.Users, len(plan.Users))
-	assert.Equal(t, plan.Devices, manifest.Devices)
-	assert.Equal(t, loadTestMarker, manifest.Marker)
-}
-
 func TestAnUnknownFixtureSizeIsRefused(t *testing.T) {
 	_, err := PlanFixture("enormous", 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "enormous")
-}
-
-// A fixture is built outside every timed phase. Stating the ownership as a
-// property of the plan keeps it from being re-litigated at each call site.
-func TestAFixtureDeclaresItRunsOutsideTimedPhases(t *testing.T) {
-	assert.False(t, planned(t, FixtureSmall, 1).RunsInsideTimedPhase())
 }
 
 // Two runs must be able to follow each other. A name built from the marker alone

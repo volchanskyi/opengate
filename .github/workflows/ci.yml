@@ -761,10 +761,8 @@ jobs:
           fetch-depth: 0  # gitleaks scans git history
 
       - uses: ./.github/actions/setup-pinned-tools
-      - name: Run shell quality gates
-        run: |
-          make shell-check
-          make shell-test
+      - name: Run shell lint gates
+        run: make shell-check
 
       # GitHub Actions workflow lint
       - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
@@ -824,6 +822,12 @@ jobs:
           tar -xzf /tmp/conftest.tgz -C /tmp conftest
           sudo install -m 0755 /tmp/conftest /usr/local/bin/conftest
           helm version --short && kubeconform -v && conftest --version
+
+      # After helm, because the behavioural tests read what the charts render:
+      # a workflow that selects a pod by label is checked against the labels
+      # the chart actually gives it.
+      - name: Run shell behavioural tests
+        run: make shell-test
 
       # L4 — Built-in policy scanning across terraform/dockerfile/github_actions/helm.
       # Baseline at .checkov.baseline pins the currently-accepted findings; see ADR-015.

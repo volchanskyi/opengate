@@ -185,7 +185,12 @@ processor counter rather than inferred.
 
 **The generator declares its own share** and runs inside a processor allowance
 of its own, so a squeezed generator reports its own starvation rather than
-answering wrongly.
+answering wrongly. Its fingerprint is that allowance rather than the box, and
+each phase reads its room over the phase's own window as well as the run
+reading it across the whole walk: a ladder is mostly its quiet bottom rungs, so
+the whole-run figure says little about the rung that gave. Each phase also
+counts the datagrams each end's kernel dropped at a full receive buffer, which
+is where a machine's packets go missing before either process sees them.
 
 **Each step sits below what the rest of the stack leaves free**, so a step is a
 question about the target and not about the node.
@@ -230,6 +235,21 @@ leg re-earns its own limits in the same change, by the rule above.
 **A ladder declares what counts as failing**, and the run reports the last step
 that held, the step that failed, and the reading that decided — plus how many steps it
 read, because "nothing gave out" is a different answer from "nothing was tried".
+It also reports what ran out: every resource reading the two steps both took —
+the target's processor, the generator's room, each end's dropped datagrams — set
+side by side where it moved, so the answer names a resource and not only a line
+that was crossed.
+
+**The volume family's estate is the machines enrolled.** Its legs hold the
+technician load constant and differ in how many machines are enrolled and
+connected, because a fixture's name does not decide how much data exists and the
+fleet a leg enrols does. What an estate accumulates over months — inventory, the
+audit trail, telemetry history — and whether removing it leaves dead rows or
+cleanup work behind are outside it: a leg lives for minutes, so none of that is
+in it to measure, and weighing stored history would be a family of its own
+rather than a larger leg of this one. What each leg does weigh is the database's
+size and the series its fleet occupies in the metrics store, each against the
+empty stack.
 
 **The profile offers the load and names the window.** The profile's own shape is
 projected into the generator, journeys arrive at a rate rather than all at once, and the

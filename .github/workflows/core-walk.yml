@@ -1,0 +1,59 @@
+name: Core Walk
+
+# The endurance run's reference walk reads the Go runtime's own heap structures
+# out of a core, and those move between Go releases. The reader has no tagged
+# releases, so it is pinned by commit beside the toolchain it has to understand.
+# This runs whenever either pin moves — or the walk itself — and proves the
+# reader still names a live object and follows it back to its root on a core
+# the pinned toolchain wrote, rather than leaving that to the weekly soak.
+on:
+  push:
+    branches: [dev]
+    paths:
+      - server/go.mod
+      - scripts/lib/tool-versions.sh
+      - scripts/core-walk-check.sh
+      - scripts/loadtest-reference-walk.sh
+      - .github/workflows/core-walk.yml
+  workflow_dispatch:
+
+concurrency:
+  group: core-walk
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  walk:
+    name: The pinned reader walks a core the pinned toolchain wrote
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache-dependency-path: server/go.sum
+
+      # gdb brings gcore, which takes the core; the reader is the one the soak
+      # installs, at the same pin.
+      - name: Install the core tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdb
+          go install golang.org/x/debug/cmd/viewcore@v0.0.0-20260908162731-ac862fd6552b
+
+      - name: Walk a core the pinned toolchain wrote
+        run: scripts/core-walk-check.sh /tmp/core-walk
+
+      - name: Upload what the reader said
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-walk
+          path: /tmp/core-walk
+          if-no-files-found: ignore
+          retention-days: 14

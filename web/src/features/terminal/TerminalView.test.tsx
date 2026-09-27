@@ -1,7 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useConnectionStore } from '../session';
+import { useTerminal } from './use-terminal';
 import { TerminalView } from './TerminalView';
+
+vi.mock('./use-terminal', () => ({ useTerminal: vi.fn() }));
 
 vi.mock('../../lib/api', () => ({
   api: {
@@ -9,34 +12,6 @@ vi.mock('../../lib/api', () => ({
     POST: vi.fn(),
     DELETE: vi.fn(),
   },
-}));
-
-vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
-
-// Mock xterm — jsdom doesn't support real terminal rendering
-const mockWrite = vi.fn();
-const mockDispose = vi.fn();
-const mockOnData = vi.fn();
-const mockOnResize = vi.fn();
-const mockOpen = vi.fn();
-const mockFit = vi.fn();
-
-vi.mock('@xterm/xterm', () => ({
-  Terminal: vi.fn().mockImplementation(() => ({
-    write: mockWrite,
-    dispose: mockDispose,
-    onData: mockOnData,
-    onResize: mockOnResize,
-    open: mockOpen,
-    loadAddon: vi.fn(),
-  })),
-}));
-
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: vi.fn().mockImplementation(() => ({
-    fit: mockFit,
-    dispose: vi.fn(),
-  })),
 }));
 
 describe('TerminalView', () => {
@@ -51,6 +26,12 @@ describe('TerminalView', () => {
   it('renders terminal container div', () => {
     render(<TerminalView />);
     expect(document.querySelector('[data-testid="terminal-container"]')).toBeInTheDocument();
+  });
+
+  it('hands its container to the hook that draws the terminal', () => {
+    render(<TerminalView />);
+    const ref = vi.mocked(useTerminal).mock.calls.at(-1)![0];
+    expect(ref.current).toBe(document.querySelector('[data-testid="terminal-container"]'));
   });
 
   it('shows placeholder when disconnected', () => {

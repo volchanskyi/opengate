@@ -82,6 +82,27 @@ describe('TimeSeriesChart adapter', () => {
     expect(inst.destroy).toHaveBeenCalledTimes(1);
   });
 
+  // A chart that leaves while still watching its container resizes a destroyed
+  // canvas on the next layout change.
+  it('stops watching its container on unmount', () => {
+    const observers: { observed: number; disconnected: boolean }[] = [];
+    vi.stubGlobal('ResizeObserver', class {
+      readonly record = { observed: 0, disconnected: false };
+      constructor() { observers.push(this.record); }
+      observe() { this.record.observed++; }
+      unobserve() { /* the chart never unobserves one element */ }
+      disconnect() { this.record.disconnected = true; }
+    });
+    try {
+      const { unmount } = render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} />);
+      expect(observers.filter((o) => o.observed > 0)).toHaveLength(1);
+      unmount();
+      expect(observers.every((o) => o.disconnected)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('applies an explicit finite y-scale range when provided', () => {
     render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} yRange={[0, 100]} />);
     expect(mock.instances[0]!.opts.scales?.y?.range).toEqual([0, 100]);

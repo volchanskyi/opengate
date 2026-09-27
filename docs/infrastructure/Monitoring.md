@@ -371,7 +371,8 @@ start. The chat id is substituted into the file as a quoted literal by the
 applier, since Grafana reads a substituted numeric field back as a number and
 refuses to start. A file-provisioned destination is read-only in the user
 interface, which is what keeps it from being changed by hand — and means routing
-and silencing are changes to this repository. See
+is a change to this repository. The one silence this deployment makes is the
+quiet period below, and the script that makes it is in this repository too. See
 [ADR-123](../adr/ADR-123-alert-delivery.md).
 
 A message is written by
@@ -397,6 +398,37 @@ named there by uid so a refactor cannot quietly drop one. A server process that
 was replaced raises `server-process-restarted` off
 `process_start_time_seconds`, which is already collected and dates the
 replacement to the second.
+
+### What a rule watches
+
+The `opengate-server` scrape job reads the production and the staging server,
+and labels every series with the namespace it came from. Every rule carries a
+`watches` label:
+
+| `watches` | Reads | During a test holding the staging claim |
+|---|---|---|
+| `production` | the server's own series, each selector filtered on `namespace="opengate"` | live |
+| `shared` | the node's disk and memory, and the containers on the node | silenced |
+
+The staging deploy, the load run, the fault drill and the network drill each
+take the staging claim ([`staging-lease.sh`](../../scripts/staging-lease.sh))
+before they touch the cluster, and holding it opens a quiet period
+([`alert-quiet-period.sh`](../../scripts/alert-quiet-period.sh)): a silence on
+`watches=shared`, extended at every renewal of the claim and expired when it is
+released. A quiet period that cannot be opened is a warning in the run and a
+line in its summary, never a failed run. The weekly soak and the performance
+stack run on a runner of their own and take neither. The template leaves
+`watches` out of the message; it is there for the silence.
+
+The container memory rule reads each container's working set against its own
+limit. It has two lines in
+[`alert-rules.yml`](../../deploy/grafana/provisioning/alerting/alert-rules.yml):
+it fires past the upper one and clears only below the lower one, so a working
+set hovering at the line is one message rather than one per evaluation. A
+container with no memory limit has no ceiling to walk up to and is left out of
+the ratio. Loki's and Promtail's limits in
+[`values.yaml`](../../deploy/helm/monitoring/values.yaml) sit their steady
+working sets below the lower line.
 
 Current dashboard files include the app overview, DB performance, PostgreSQL,
 the Edge-Sentinel Logs dashboard (raw-log pull rate/latency and audited reads),
@@ -449,9 +481,10 @@ alerts use GitHub environment secrets directly.
 
 ## Deployment And Validation
 
-The monitoring chart is a Helm release in the `monitoring` namespace. The app CD
-workflow deploys the application releases; monitoring release lifecycle is an
-operator action until explicitly wired into CD.
+The monitoring chart is a Helm release in the `monitoring` namespace. The
+production deploy in [`cd.yml`](../../.github/workflows/cd.yml) upgrades it
+beside the application release, and the nightly drift workflow applies and reads
+back the ConfigMaps it mounts.
 
 Validation sources:
 

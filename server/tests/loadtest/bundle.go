@@ -100,7 +100,16 @@ import (
 // nothing severed and nothing leaving. The run holds still for it rather than
 // allowing for it, and a phase now says how long it held — which is a reading of
 // how far behind its own arrivals the target was.
-const bundleSchemaVersion = 11
+//
+// Version 12 reads what ran out, per phase, and names it where the ladder gave.
+// The generator's room was one reading across the whole walk, so a ladder whose
+// top rung collapsed reported the room its quiet bottom rungs had; each phase
+// now carries the generator's own processor room and both ends' dropped
+// datagrams, and the breaking point sets the last rung that held beside the
+// first that gave for every one of them that moved. The cleanup section is the
+// cleanup step's own count, folded in after the run, and says why where there
+// is none.
+const bundleSchemaVersion = 12
 
 // bundleFileName is what a bundle directory holds.
 const bundleFileName = "bundle.json"
@@ -273,6 +282,21 @@ type PhaseResult struct {
 	LatencyP99Ms float64 `json:"latency_p99_ms,omitempty"`
 	ErrorRate    float64 `json:"error_rate"`
 
+	// GeneratorCPUHeadroomPercent and GeneratorCPURefusedPercent are the
+	// generator's own room over this phase: the share of its processor
+	// allowance it left unused, and the share of the phase it spent runnable
+	// and refused the processor. Absent where the generator has no allowance of
+	// its own to be measured against.
+	GeneratorCPUHeadroomPercent *float64 `json:"generator_cpu_headroom_percent,omitempty"`
+	GeneratorCPURefusedPercent  *float64 `json:"generator_cpu_refused_percent,omitempty"`
+
+	// GeneratorUDPReceiveErrors and TargetUDPReceiveErrors are the datagrams
+	// each end's kernel dropped over this phase because a socket's receive
+	// buffer was full — a machine's packets lost before either process saw
+	// them. Absent for an end whose counters the run cannot read.
+	GeneratorUDPReceiveErrors *int64 `json:"generator_udp_receive_errors,omitempty"`
+	TargetUDPReceiveErrors    *int64 `json:"target_udp_receive_errors,omitempty"`
+
 	// ExpectedRejections is the system working: a refused write past a declared
 	// limit, a duplicate connection closed, an admission deferred. Counting
 	// those as faults makes a correctly enforced limit look like a defect and
@@ -370,21 +394,29 @@ type Headroom struct {
 	CPURefusedPercent *float64 `json:"cpu_refused_percent,omitempty"`
 }
 
-// CleanupProof is the run's account of what it left behind. It travels with the
+// CleanupProof is the account of what the run left behind. It travels with the
 // run rather than being checked once and assumed thereafter, because residue
 // accumulates silently: an environment whose every user is load-test residue
 // got there one uncleaned run at a time.
+//
+// The count is the cleanup step's, folded in by scripts/loadtest-bundle-merge.sh
+// in the four kinds scripts/loadtest-cleanup.sh removes. Until it arrives, and
+// on a venue where nothing outlives the run, the section is uncounted and says
+// why.
 type CleanupProof struct {
-	Verified      bool  `json:"verified"`
-	OrphanUsers   int64 `json:"orphan_users"`
-	OrphanDevices int64 `json:"orphan_devices"`
-	OrphanTenants int64 `json:"orphan_tenants"`
-	OrphanPods    int64 `json:"orphan_pods"`
+	Verified bool `json:"verified"`
+	// NotCounted is why no count is here, where the run can say. An uncounted
+	// section with nothing beside it is a proof somebody dropped.
+	NotCounted          string `json:"not_counted,omitempty"`
+	OrphanUsers         int64  `json:"orphan_users"`
+	OrphanDevices       int64  `json:"orphan_devices"`
+	OrphanOrganizations int64  `json:"orphan_organizations"`
+	OrphanSites         int64  `json:"orphan_sites"`
 }
 
-// Clean reports whether the run left nothing behind.
+// Clean reports whether the count found nothing left behind.
 func (c CleanupProof) Clean() bool {
-	return c.OrphanUsers == 0 && c.OrphanDevices == 0 && c.OrphanTenants == 0 && c.OrphanPods == 0
+	return c.OrphanUsers == 0 && c.OrphanDevices == 0 && c.OrphanOrganizations == 0 && c.OrphanSites == 0
 }
 
 // RefusalCount is what the run's browser-side generators asked for and how much

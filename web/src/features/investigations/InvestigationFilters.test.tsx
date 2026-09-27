@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 import { InvestigationFilters } from './InvestigationFilters';
@@ -78,11 +78,17 @@ describe('InvestigationFilters — rule and device', () => {
   it('clears every narrowing back to the open queue', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
-    render(<InvestigationFilters filters={filters({ severity: ['critical'], ruleId: 'cpu.sustained' })} onChange={onChange} />);
+    render(<InvestigationFilters filters={filters({ severity: ['critical'], ruleId: 'cpu.sustained', deviceId: 'dev-7' })} onChange={onChange} />);
 
     await user.click(screen.getByRole('button', { name: 'Clear' }));
     expect(onChange).toHaveBeenCalledWith(DEFAULT_QUEUE_FILTERS);
-    expect(screen.getByLabelText('Rule')).toHaveValue('');
+    expect(screen.getByLabelText('Rule')).toHaveValue(DEFAULT_QUEUE_FILTERS.ruleId);
+    expect(screen.getByLabelText('Device')).toHaveValue(DEFAULT_QUEUE_FILTERS.deviceId);
+  });
+
+  it('applying the boxes stays on the page rather than submitting it', () => {
+    const { container } = render(<InvestigationFilters filters={filters()} onChange={vi.fn()} />);
+    expect(fireEvent.submit(container.querySelector('form')!)).toBe(false);
   });
 
   it('shows the filters it was given rather than an empty form', () => {
