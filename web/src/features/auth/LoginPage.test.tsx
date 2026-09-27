@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router';
@@ -34,6 +34,11 @@ describe('LoginPage', () => {
       isLoading: false,
       error: null,
     });
+  });
+
+  it('signing in stays on the page rather than submitting it', () => {
+    const { container } = renderLogin();
+    expect(fireEvent.submit(container.querySelector('form')!)).toBe(false);
   });
 
   it('renders email and password inputs', () => {

@@ -17,8 +17,25 @@ and waited until something timed out.
 it asks for.** A table binds the two and is checked against the workflows,
 so a profile with nowhere to run fails rather than sitting unscheduled.
 
-**Staging is production-shaped**, reserving and capped at what production
-reserves, so a number measured there means something about production.
+**Staging is production-shaped where a run can feel it.** Its server reserves
+and is capped at exactly what production's is, and its database is capped where
+production's is, so a number measured there means something about production.
+The database keeps a smaller reservation than production's: it holds a night's
+fixture rather than anything a customer depends on, and the node's reservations
+are nearly spoken for. Production's pair reserves what it is capped at, which is
+what puts it last in the eviction order.
+
+**On the runner, a machine reaches the target the way it does in
+production.** The transport asks the kernel for a 7 MiB receive buffer on every
+socket and a runner allows a socket 1 MiB, so the generator and the server ran
+on what the cap left them; and a generator dialling the loopback's published
+port reached the server through Docker's userland proxy, a third process
+relaying every datagram inside neither side's allowance. The runner is given the
+buffer ceilings production's node has, and the generator dials the name on the
+server's certificate mapped to the container's own address
+([`perf-stack-quic.sh`](../../scripts/perf-stack-quic.sh)). A run either end of
+which still got less buffer than it asked for fails. The runner's ceiling was
+read on the relayed path and stands until a run on this one walks the rung.
 
 **Every time limit around a run is derived from the run's own length** — how
 long the pod lives, how long the verdict is waited for, how long the credential

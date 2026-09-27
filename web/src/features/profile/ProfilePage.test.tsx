@@ -30,6 +30,11 @@ describe('ProfilePage', () => {
     expect(screen.getByDisplayValue('Test User')).toBeInTheDocument();
   });
 
+  it('saving stays on the page rather than submitting it', () => {
+    const { container } = render(<ProfilePage />);
+    expect(fireEvent.submit(container.querySelector('form')!)).toBe(false);
+  });
+
   it('returns null when no user', () => {
     useAuthStore.setState({ user: null });
     const { container } = render(<ProfilePage />);

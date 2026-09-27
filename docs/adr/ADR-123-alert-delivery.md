@@ -31,6 +31,15 @@ among the six missing was the one written to detect that per-container metrics
 were not being collected — which they were not, because the scrape job it reads
 had never been applied either.
 
+Once messages arrived, most of them were about the tests. One scrape job reads
+the production and the staging server and kept nothing naming which, so every
+rule over the server summed the two: seventeen alerts the staging server raised
+during a network drill read as production's rule pack running at five times its
+ceiling. The rules watching the node fired at every nightly test that drove it
+on purpose, and a container memory rule filtered its quotient rather than its
+divisor, so six containers with no memory limit read as +Inf in every message
+all night.
+
 The repository's own note said file provisioning of a Telegram destination was
 impossible on this Grafana. Re-tested, that is nearly right and the conclusion
 drawn from it was too broad: what fails is environment-variable substitution into
@@ -91,11 +100,52 @@ as HTML.
 be correct and still reach nobody. That job cannot alert through the channel it
 is testing, so the workflow's own result is the signal that survives.
 
+**Every rule says what it watches, and production's rules watch production
+alone.** One scrape job reads the production and the staging server, and it
+labels each series with the namespace it came from. A rule labelled
+`watches: production` reads `namespace="opengate"` on every server series it
+holds, so a test driving the staging server is never read as production. A
+rule labelled `watches: shared` watches what the two environments share: the
+node's disk and memory, and the containers on it.
+[`alert-rules.test.sh`](../../scripts/tests/alert-rules.test.sh) holds both
+halves.
+
+**A test holding the staging claim quiets the shared rules, and only for as
+long as it holds it.** The staging deploy, the load run and both drills run on
+the node production runs on and drive it hard on purpose, so the shared rules
+report the test rather than a fault.
+[`alert-quiet-period.sh`](../../scripts/alert-quiet-period.sh) silences
+`watches=shared` for the holder of the claim, and
+[`staging-lease.sh`](../../scripts/staging-lease.sh) drives it: opened when the
+claim is taken, extended to a claim's duration from then at every renewal, and
+expired on release whichever way the claim ended. It rides the claim rather than
+a clock because a scheduled run starts hours after its cron, and every run that
+touches the cluster already takes the claim; the weekly soak and the
+performance stack run on a runner of their own and take neither. A run that
+dies holding it leaves the node quiet for no longer than its claim could have
+held the namespace. Grafana is reached from inside its own pod, with the
+password the pod already holds.
+
+**A quiet period that cannot be opened does not fail the run.** The claim, the
+measurement and the verdict go ahead; the step prints the refusal as a warning
+and writes it into the run's summary. A missed silence announces itself as the
+messages it did not hold back, and a night's measurement does not depend on the
+alert channel.
+
 ## Consequences
 
 A file-provisioned destination is read-only in Grafana's user interface. That is
-the point — nobody can silently break it — and it also means an operator can no
-longer route or silence by hand. Chosen, rather than discovered later.
+the point — nobody can silently break it — and it also means an operator cannot
+route by hand. Chosen, rather than discovered later. Silences are not
+provisioned objects; the one this deployment creates is the quiet period, and
+it lives in Grafana's own state, which a pod restart forgets — the next renewal
+opens it again.
+
+While a test holds the claim, the shared rules are quiet: a disk or memory
+problem on the node that starts during a test is reported when the quiet period
+ends, and only if it is still there. Production's own rules stay live
+throughout, and none of them sees staging, so a staging server that fails during
+a test is reported by that test's verdict rather than by the alert channel.
 
 A malformed provisioning file stops Grafana starting, taking the dashboards with
 it. Loud rather than silent is the right direction, but it means the file needs a

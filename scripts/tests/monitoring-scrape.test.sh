@@ -59,6 +59,18 @@ else
   fail "OpenGate server scrape must keep the 'metrics' endpoint port and no other"
 fi
 
+# The job reads the production and the staging server alike, and a series with
+# nothing naming its environment sums the two: a rule over the server read
+# staging's drill as production's rule pack running at five times its ceiling.
+# Production's rules filter on the namespace this carries.
+if grep -qF 'names: [opengate, opengate-staging]' <<<"$server_block" \
+  && grep -qF 'source_labels: [__meta_kubernetes_namespace]' <<<"$server_block" \
+  && grep -qF 'target_label: namespace' <<<"$server_block"; then
+  pass "every server series names the environment it came from"
+else
+  fail "the opengate-server job must copy __meta_kubernetes_namespace into a namespace label"
+fi
+
 # The kubelet's cAdvisor endpoint is the only place a container's working set
 # against its own limit exists. Nothing else in this cluster publishes it: the
 # node exporter reads the node, and a pod at 90% of its cgroup ceiling is

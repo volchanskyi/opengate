@@ -24,7 +24,7 @@ func TestAPhaseCarriesTheTargetsOwnAccountOfTheFleet(t *testing.T) {
 		return TargetHealth{Read: true, Goroutines: held*3 + 29, AgentsConnected: &held}, true
 	}}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, TargetReading{Census: census})
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, PhaseReadings{Census: census})
 	require.NoError(t, err)
 
 	require.Len(t, results, 3)
@@ -56,7 +56,7 @@ func TestThePairOfCountsIsTakenAtTheSameLevel(t *testing.T) {
 		return TargetHealth{Read: true, Goroutines: held * 3, AgentsConnected: &held}, true
 	}}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, TargetReading{Census: census})
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, PhaseReadings{Census: census})
 	require.NoError(t, err)
 
 	require.Len(t, seen, len(results), "one reading per phase, taken as the phase closes")
@@ -75,7 +75,7 @@ func TestAPhaseAccountsForACensusItCouldNotTake(t *testing.T) {
 
 	silent := TargetCensus{Read: func() (TargetHealth, bool) { return TargetHealth{}, false }}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, TargetReading{Census: silent})
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, PhaseReadings{Census: silent})
 	require.NoError(t, err)
 
 	for _, result := range results {

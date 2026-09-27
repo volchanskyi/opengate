@@ -50,51 +50,16 @@ type UserPlan struct {
 	Admin bool   `json:"admin"`
 }
 
-// CleanupManifest is what a run must remove afterwards. It is produced with the
-// plan rather than reconstructed from what is found later, so what to remove is
-// known before anything is created — including when the run dies halfway.
-type CleanupManifest struct {
-	Marker  string   `json:"marker"`
-	Tenant  string   `json:"tenant"`
-	Users   []string `json:"users"`
-	Devices int      `json:"devices"`
-}
-
 // FixturePlan is a whole fleet, decided before anything is created.
 type FixturePlan struct {
 	Size FixtureSize `json:"size"`
 	Seed uint64      `json:"seed"`
-
-	// TenantName is the run's own tenant. Load-test identities never live in
-	// the default tenant: a user created there is a user in the fleet everybody
-	// else reads.
-	TenantName string `json:"tenant_name"`
 
 	Customers []CustomerPlan `json:"customers"`
 	Users     []UserPlan     `json:"users"`
 
 	Sites   int `json:"sites"`
 	Devices int `json:"devices"`
-}
-
-// RunsInsideTimedPhase is always false. Building a fleet is thousands of writes
-// and it would be the largest thing in any phase it shared, so it happens
-// before the clock starts. Stating it here keeps it from being re-argued at
-// each call site.
-func (p FixturePlan) RunsInsideTimedPhase() bool { return false }
-
-// CleanupManifest is what this plan obliges the run to remove.
-func (p FixturePlan) CleanupManifest() CleanupManifest {
-	emails := make([]string, len(p.Users))
-	for i, user := range p.Users {
-		emails[i] = user.Email
-	}
-	return CleanupManifest{
-		Marker:  loadTestMarker,
-		Tenant:  p.TenantName,
-		Users:   emails,
-		Devices: p.Devices,
-	}
 }
 
 // PlanFixture decides a whole fleet from a size and a seed.
@@ -105,10 +70,9 @@ func PlanFixture(size FixtureSize, seed uint64) (FixturePlan, error) {
 	}
 
 	plan := FixturePlan{
-		Size:       size,
-		Seed:       seed,
-		TenantName: fmt.Sprintf("%s-tenant", loadTestMarker),
-		Devices:    devices,
+		Size:    size,
+		Seed:    seed,
+		Devices: devices,
 	}
 
 	// One source of variation, seeded once: every varying decision below draws

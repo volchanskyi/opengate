@@ -529,6 +529,19 @@ jobs:
           LOADTEST_PSQL="kubectl -n $NAMESPACE exec -i $POSTGRES_POD -- psql -U opengate -d opengate" \
             scripts/loadtest-cleanup.sh loadtest-cleanup.json
 
+      # The harness writes its bundle before anything is removed, so the bundle
+      # says its cleanup is uncounted until the proof above is folded in —
+      # residue and all.
+      - name: Fold the cleanup proof into the evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -s loadtest-bundle/quic-agents.json ]; then
+            echo "there is no evidence bundle to fold the cleanup proof into"
+            exit 0
+          fi
+          scripts/loadtest-bundle-merge.sh loadtest-bundle/quic-agents.json --cleanup loadtest-cleanup.json
+
       - name: Build canonical load-test summary
         if: always()
         run: |

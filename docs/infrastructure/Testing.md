@@ -1047,7 +1047,21 @@ hardware. Staging is the one venue on the hardware production actually runs on,
 which is what its row is for. The runner families' stack is
 [`deploy/docker-compose.perf.yml`](../../deploy/docker-compose.perf.yml), and the
 volume family also weighs the fixture it built with
-[`scripts/perf-weigh-fixture.sh`](../../scripts/perf-weigh-fixture.sh).
+[`scripts/perf-weigh-fixture.sh`](../../scripts/perf-weigh-fixture.sh): the
+database's size and the series the fleet occupies in the stack's metrics store,
+each against the empty stack. The harness's own reader and the merge are both
+tested against a weighing that script wrote on the stack, held to the script's
+current shape.
+
+On every runner leg the machine-facing path is production's
+([`perf-stack-quic.sh`](../../scripts/perf-stack-quic.sh)): the runner is given
+the receive-buffer ceilings production's node has before the stack starts, and
+the generator dials the name on the server's certificate, mapped to the
+container's own address, rather than the published port Docker relays. A run
+either end of which still got less receive buffer than the transport asked for
+fails. Each phase carries the generator's own room over that phase and the
+datagrams each end's kernel dropped, and a ladder's breaking point sets the rung
+that held beside the rung that gave for every one of those that moved.
 
 The endurance run is five hours with the fleet coming and going rather than
 eight holding still. Holding a connection is not work: an unchanging fleet
@@ -1180,9 +1194,13 @@ Every name a run creates carries the run's marker and its own seed, so two night
 never ask the server for the same customer.
 [`scripts/loadtest-cleanup.sh`](../../scripts/loadtest-cleanup.sh) removes what
 matches — accounts, customers, sites and machines — and counts each kind, and
-that count travels in the bundle: a run that says it left nothing has to have
-looked, and a kind that is removed but never counted is a kind whose residue
-nobody can see. The statements are held to the live schema by a test in
+[`loadtest-bundle-merge.sh`](../../scripts/loadtest-bundle-merge.sh) folds that
+count into the bundle after the run, residue and all: a run that says it left
+nothing has to have looked, and a kind that is removed but never counted is a
+kind whose residue nobody can see. The harness writes its bundle before anything
+is removed, so its own cleanup section is uncounted and says why; on the
+disposable stack nothing outlives the job and the bundle says that rather than
+counting nought. The statements are held to the live schema by a test in
 [`server/tests/loadtest/`](../../server/tests/loadtest) that runs the script
 against a database the migrations built, so a column that moves fails the day it
 moves rather than the next night.

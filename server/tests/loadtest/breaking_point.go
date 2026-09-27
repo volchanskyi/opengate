@@ -59,6 +59,55 @@ type BreakingPoint struct {
 	// the count travels, and a bundle carrying an answer that read no rung is
 	// refused.
 	RungsRead int `json:"rungs_read"`
+	// Moved is what changed between the rung that held and the rung that gave:
+	// every resource reading both rungs took, where the two differ. Reason says
+	// which term crossed its line; this says what ran out on the way there —
+	// the generator's processor, a receive buffer at either end, or the target's
+	// own allowance.
+	Moved []MovedReading `json:"moved,omitempty"`
+}
+
+// MovedReading is one resource reading at the last rung that held and at the
+// first that gave.
+type MovedReading struct {
+	Reading string  `json:"reading"`
+	Held    float64 `json:"held"`
+	Gave    float64 `json:"gave"`
+}
+
+// resourceReadings are the readings a phase takes of something that can run
+// out, in the order they are reported, each with how to read it off a phase.
+var resourceReadings = []struct {
+	name string
+	read func(PhaseResult) *float64
+}{
+	{"target_busy_percent", func(p PhaseResult) *float64 { return p.TargetBusyPercent }},
+	{"generator_cpu_headroom_percent", func(p PhaseResult) *float64 { return p.GeneratorCPUHeadroomPercent }},
+	{"generator_cpu_refused_percent", func(p PhaseResult) *float64 { return p.GeneratorCPURefusedPercent }},
+	{"generator_udp_receive_errors", func(p PhaseResult) *float64 { return countAsFloat(p.GeneratorUDPReceiveErrors) }},
+	{"target_udp_receive_errors", func(p PhaseResult) *float64 { return countAsFloat(p.TargetUDPReceiveErrors) }},
+}
+
+func countAsFloat(count *int64) *float64 {
+	if count == nil {
+		return nil
+	}
+	value := float64(*count)
+	return &value
+}
+
+// movedBetween is every resource reading both rungs took that differs between
+// them. A reading one of them could not take compares nothing.
+func movedBetween(held, gave PhaseResult) []MovedReading {
+	var moved []MovedReading
+	for _, resource := range resourceReadings {
+		before, after := resource.read(held), resource.read(gave)
+		if before == nil || after == nil || *before == *after {
+			continue
+		}
+		moved = append(moved, MovedReading{Reading: resource.name, Held: *before, Gave: *after})
+	}
+	return moved
 }
 
 // FindBreakingPoint reads a walk against the definition its profile declared.
@@ -77,7 +126,8 @@ func FindBreakingPoint(limits *GaveOut, phases []PhaseResult) *BreakingPoint {
 
 	answer := &BreakingPoint{}
 	highest := 0
-	for _, phase := range phases {
+	var held *PhaseResult
+	for i, phase := range phases {
 		if phase.OfferedConnectedAgents <= highest {
 			continue
 		}
@@ -88,10 +138,14 @@ func FindBreakingPoint(limits *GaveOut, phases []PhaseResult) *BreakingPoint {
 			answer.GaveAt = phase.Name
 			answer.GaveAgents = phase.OfferedConnectedAgents
 			answer.Reason = reason
+			if held != nil {
+				answer.Moved = movedBetween(*held, phase)
+			}
 			return answer
 		}
 		answer.HeldAt = phase.Name
 		answer.HeldAgents = phase.OfferedConnectedAgents
+		held = &phases[i]
 	}
 	return answer
 }
@@ -115,4 +169,31 @@ func gaveOutBecause(limits GaveOut, phase PhaseResult) string {
 			*phase.TargetBusyPercent, limits.TargetBusyPercentAbove)
 	}
 	return ""
+}
+
+// printBreakingPoint says where the ladder broke, for a run that went looking.
+//
+// It is the family's whole answer and it is worth reading without opening the
+// bundle: whoever is looking at a red ladder wants the rung, not the file.
+func printBreakingPoint(answer *BreakingPoint) {
+	if answer == nil {
+		return
+	}
+	fmt.Printf("\n=== Where it gave ===\n")
+	if answer.RungsRead == 0 {
+		fmt.Printf("No rung was walked, so nothing was asked.\n")
+		return
+	}
+	if answer.HeldAt != "" {
+		fmt.Printf("Held:        %s (%d machines)\n", answer.HeldAt, answer.HeldAgents)
+	}
+	if answer.GaveAt == "" {
+		fmt.Printf("Gave:        nothing did, over %d rungs — the answer is above this ladder\n", answer.RungsRead)
+		return
+	}
+	fmt.Printf("Gave:        %s (%d machines)\n", answer.GaveAt, answer.GaveAgents)
+	fmt.Printf("Because:     %s\n", answer.Reason)
+	for _, moved := range answer.Moved {
+		fmt.Printf("Moved:       %s %.1f → %.1f\n", moved.Reading, moved.Held, moved.Gave)
+	}
 }

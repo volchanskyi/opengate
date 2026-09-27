@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { IncidentActions } from './IncidentActions';
@@ -185,6 +185,12 @@ describe('IncidentActions — who is working it', () => {
 });
 
 describe('IncidentActions — notes', () => {
+  it('adding a note stays on the page rather than submitting it', () => {
+    render(<IncidentActions incident={incident({ status: 'acknowledged' })} />);
+    const form = screen.getByLabelText('Add a note').closest('form')!;
+    expect(fireEvent.submit(form)).toBe(false);
+  });
+
   it('adds a note and empties the box', async () => {
     const user = userEvent.setup();
     render(<IncidentActions incident={incident()} />);

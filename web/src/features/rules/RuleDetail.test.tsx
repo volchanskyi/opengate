@@ -67,6 +67,31 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe('RuleDetail — opening it', () => {
+  // A rule opened after another must not show the previous rule's resolved
+  // settings while its own are being read.
+  it('clears the previous rule and reads this rule and the fleet it runs on', () => {
+    const fetchRule = vi.fn().mockResolvedValue(undefined);
+    const fetchCatalogue = vi.fn().mockResolvedValue(undefined);
+    useAuthStore.setState({ user: { id: 'u1', email: 'x@example.com', is_admin: false } } as never);
+    useCatalogueStore.setState({ rules: [], fleetSize: 312, loaded: true, loading: false, error: null, fetchCatalogue });
+    const clearResolved = vi.fn();
+    useRuleStore.setState({ detail: detail(), resolved: null, isLoading: false, error: null, fetchRule, clearResolved });
+
+    render(
+      <MemoryRouter initialEntries={['/rules/disk-critical']}>
+        <Routes>
+          <Route path="/rules/:ruleId" element={<RuleDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(clearResolved).toHaveBeenCalledTimes(1);
+    expect(fetchRule).toHaveBeenCalledWith('disk-critical');
+    expect(fetchCatalogue).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('RuleDetail — what it does', () => {
   it('renders the rule\'s logic as description, never as a form', () => {
     show(detail(), true);

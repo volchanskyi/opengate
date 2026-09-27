@@ -921,6 +921,61 @@ else
   pass "a missing summary is refused rather than passed"
 fi
 
+# --- the kernel record reads the node, or the step fails ----------------------
+#
+# The drill rests on the node shipping no kernel network emulator, and it
+# re-reads that every night through the node exporter. The step looked the
+# exporter up by a label the chart never sets, found no pod, wrote "no
+# node-exporter pod" into the evidence and exited green, night after night. The
+# selector is read against the labels the monitoring chart renders, under the
+# release name the production deploy installs it as.
+kernel_step="$(
+  python3 - "$WORKFLOW" <<'PY'
+import sys, yaml
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = yaml.safe_load(fh)
+for job in doc.get("jobs", {}).values():
+    for step in job.get("steps", []):
+        if step.get("name") == "Record what the node's kernel offers":
+            print(step.get("run", ""))
+PY
+)"
+exporter_selector="$(grep -oE 'get pods -l [^ ]+' <<<"$kernel_step" || true)"
+exporter_selector="${exporter_selector##* }"
+monitoring_release="$(grep -oE 'helm upgrade --install [a-z0-9-]+ deploy/helm/monitoring' \
+  "$REPO_ROOT/.github/workflows/cd.yml" || true)"
+monitoring_release="$(awk '{ print $4 }' <<<"$monitoring_release")"
+if [ -z "$exporter_selector" ] || [ -z "$monitoring_release" ]; then
+  fail "the kernel step's selector and the monitoring release name are both readable (selector=[$exporter_selector] release=[$monitoring_release])"
+else
+  helm template "$monitoring_release" "$REPO_ROOT/deploy/helm/monitoring" \
+    >"$WORK/monitoring-render.yaml" 2>/dev/null
+  selected="$(
+    python3 - "$exporter_selector" "$WORK/monitoring-render.yaml" <<'PY'
+import sys, yaml
+
+wanted = dict(pair.split("=", 1) for pair in sys.argv[1].split(","))
+with open(sys.argv[2], encoding="utf-8") as fh:
+    docs = list(yaml.safe_load_all(fh))
+for doc in docs:
+    if not doc or doc.get("kind") not in ("Deployment", "DaemonSet", "StatefulSet"):
+        continue
+    labels = doc["spec"]["template"]["metadata"].get("labels", {})
+    if all(labels.get(k) == v for k, v in wanted.items()):
+        print(f'{doc["kind"]}/{doc["metadata"]["name"]}')
+PY
+  )"
+  assert_eq "the kernel step's selector finds the node exporter the chart renders, and nothing else" \
+    "DaemonSet/${monitoring_release}-node-exporter" "$selected"
+fi
+
+# A record that could not be taken is not a record. No path through the step
+# ends green without the kernel's release and its reading.
+assert_lacks "the kernel step has no path that exits green without a reading" "exit 0" "$kernel_step"
+assert_contains "the kernel's configuration is read from the node's boot directory" \
+  '/host/root/boot/config-' "$kernel_step"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

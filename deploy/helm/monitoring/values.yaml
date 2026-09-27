@@ -43,13 +43,16 @@ victoriametrics:
 loki:
   image: docker.io/grafana/loki:3.5.0
   storage: 10Gi
+  # The working set runs 200–240 MiB with about 150 MiB of it resident, so the
+  # request reserves that steady use and the limit leaves it below the 70% at
+  # which the container-memory alert clears.
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 256Mi
     limits:
       cpu: 500m
-      memory: 256Mi
+      memory: 512Mi
 
 grafana:
   image: docker.io/grafana/grafana-oss:11.6.0
@@ -77,13 +80,16 @@ promtail:
   # promtail reads node pod logs. Where the node OS makes /var/log/pods
   # root-only it runs as root; values-production.yaml sets that for OKE.
   runAsRoot: false
+  # The working set runs 90–110 MiB with about 60 MiB of it resident, so the
+  # request reserves that steady use and the limit leaves it below the 70% at
+  # which the container-memory alert clears.
   resources:
     requests:
       cpu: 50m
-      memory: 64Mi
+      memory: 128Mi
     limits:
       cpu: 250m
-      memory: 128Mi
+      memory: 256Mi
 
 nodeExporter:
   image: docker.io/prom/node-exporter:v1.9.1

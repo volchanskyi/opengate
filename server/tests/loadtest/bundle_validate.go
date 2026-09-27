@@ -211,13 +211,18 @@ func (b *Bundle) readTheTarget() bool {
 // exposition.
 const targetSeriesPrefix = "target_"
 
+// validateCleanup refuses a cleanup nobody counted without saying why, and a
+// count that found something left behind.
 func (b *Bundle) validateCleanup() []error {
 	if !b.Cleanup.Verified {
-		return []error{errors.New("cleanup was never verified — residue accumulates one unchecked run at a time")}
+		if b.Cleanup.NotCounted != "" {
+			return nil
+		}
+		return []error{errors.New("cleanup was never verified and the bundle does not say why — residue accumulates one unchecked run at a time")}
 	}
 	if !b.Cleanup.Clean() {
-		return []error{fmt.Errorf("run left residue: %d users, %d devices, %d tenants, %d pods",
-			b.Cleanup.OrphanUsers, b.Cleanup.OrphanDevices, b.Cleanup.OrphanTenants, b.Cleanup.OrphanPods)}
+		return []error{fmt.Errorf("run left residue: %d users, %d devices, %d customers, %d sites",
+			b.Cleanup.OrphanUsers, b.Cleanup.OrphanDevices, b.Cleanup.OrphanOrganizations, b.Cleanup.OrphanSites)}
 	}
 	return nil
 }

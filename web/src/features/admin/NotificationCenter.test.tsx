@@ -56,6 +56,13 @@ describe('NotificationCenter', () => {
     removeServiceWorker();
   });
 
+  it('opening reads the push key and whether this browser is subscribed', () => {
+    render(<NotificationCenter />);
+    const { fetchVapidKey, syncSubscriptionStatus } = usePushStore.getState();
+    expect(fetchVapidKey).toHaveBeenCalledTimes(1);
+    expect(syncSubscriptionStatus).toHaveBeenCalledTimes(1);
+  });
+
   it('renders notification toggle button', () => {
     render(<NotificationCenter />);
     const button = screen.getByRole('button', { name: /enable notifications/i });

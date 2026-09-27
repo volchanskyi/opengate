@@ -35,7 +35,7 @@ func TestAPhaseRecordsWhatItWasHoldingEitherSideOfTheQuestion(t *testing.T) {
 		return TargetHealth{Read: true, Goroutines: held*3 + 29, AgentsConnected: &held}, true
 	}}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, TargetReading{Census: census})
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, PhaseReadings{Census: census})
 	require.NoError(t, err)
 
 	require.Len(t, results, 3)
@@ -78,7 +78,7 @@ func TestAPhaseSaysHowLongItHeldStillForTheTarget(t *testing.T) {
 		return TargetHealth{Read: true, Goroutines: held*3 + 29, AgentsConnected: &held}, true
 	}}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, TargetReading{Census: census})
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, PhaseReadings{Census: census})
 	require.NoError(t, err)
 
 	require.Len(t, results, 3)
@@ -110,7 +110,7 @@ func TestTheBusyReadingDoesNotCountTheTimeSpentWaitingForTheTarget(t *testing.T)
 			ReadCPUSeconds: func() (float64, bool) { return clock.Now().Sub(origin).Seconds() / 2, true },
 		}
 		results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun,
-			TargetReading{Busy: busy, Census: census})
+			PhaseReadings{Busy: busy, Census: census})
 		require.NoError(t, err)
 		return results[0].TargetBusyPercent
 	}
@@ -177,7 +177,7 @@ func TestAPhaseTheTargetCaughtUpWithIsARunThatMeasuredTheSystem(t *testing.T) {
 		return TargetHealth{Read: true, Goroutines: held*3 + 29, AgentsConnected: &held}, true
 	}}
 
-	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, TargetReading{Census: census})
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, PhaseReadings{Census: census})
 	require.NoError(t, err)
 
 	verdict := classify(func(in *RunInputs) {

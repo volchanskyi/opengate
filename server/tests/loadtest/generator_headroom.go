@@ -92,9 +92,10 @@ func StartGeneratorMeter() GeneratorMeter {
 //
 // It is what being a guest on somebody else's machine looks like from inside,
 // and it is the same question that decides whose room the generator's own
-// reading describes. Confirmed on both venues: the staging load-test pod's 400
-// millicores arrive as `cpu.max 40000 100000`, and every leg of the throwaway
-// perf stack reports the machine scope, which is this answering no.
+// reading describes. The staging load-test pod's 400 millicores arrive as
+// `cpu.max 40000 100000`, and every perf-stack leg runs inside the allowance
+// scripts/loadtest-generator-share.sh gives it, so both report the generator
+// scope; the soak runs without one and reports the machine.
 func runHasItsOwnAllowance() bool {
 	files, ok := openOwnCgroup()
 	if !ok {
@@ -234,24 +235,31 @@ func (m *cgroupMeter) Stop() Headroom {
 		return Headroom{}
 	}
 
-	// The processor time the allowance offered over this window, against what
-	// the generator actually spent of it.
-	offered := elapsed.Seconds() * m.allowance.Processors * 1e6
-	used := float64(end.UsageMicros-m.start.UsageMicros) / offered * 100
-
+	headroom, refused := roomOver(m.start, end, elapsed, m.allowance.Processors)
 	reading := Headroom{
 		Measured:           true,
 		Scope:              headroomScopeGenerator,
-		CPUHeadroomPercent: clampPercent(100 - used),
+		CPUHeadroomPercent: headroom,
+		CPURefusedPercent:  refused,
 	}
 	if m.allowance.MemoryBytes > 0 {
 		reading.MemoryUsedPercent = clampPercent(float64(m.peakBytes) / float64(m.allowance.MemoryBytes) * 100)
 	}
-	if end.Refusals && m.start.Refusals {
-		refused := clampPercent(float64(end.RefusedMicros-m.start.RefusedMicros) / (elapsed.Seconds() * 1e6) * 100)
-		reading.CPURefusedPercent = &refused
-	}
 	return reading
+}
+
+// roomOver is the generator's room across one window, from its processor
+// accounts either side of it: the share of the time its allowance offered that
+// it left unused, and the share of the window it spent runnable and refused.
+// The refused share is absent where the kernel keeps no account of refusals.
+func roomOver(before, after cgroupCPU, window time.Duration, processors float64) (float64, *float64) {
+	offered := window.Seconds() * processors * 1e6
+	used := float64(after.UsageMicros-before.UsageMicros) / offered * 100
+	if !before.Refusals || !after.Refusals {
+		return clampPercent(100 - used), nil
+	}
+	refused := clampPercent(float64(after.RefusedMicros-before.RefusedMicros) / (window.Seconds() * 1e6) * 100)
+	return clampPercent(100 - used), &refused
 }
 
 // machineMeter measures the box the generator shares with the system it is
@@ -339,7 +347,7 @@ func readCgroupCPU(files cgroupFiles) (cgroupCPU, bool) {
 	}
 	var cpu cgroupCPU
 	var sawUsage bool
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
@@ -384,7 +392,7 @@ func ownCgroupCandidates() []string {
 	if err != nil {
 		return candidates
 	}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		// The unified hierarchy's line is "0::<path>".
 		own, found := strings.CutPrefix(strings.TrimSpace(line), "0::")
 		if !found {

@@ -51,6 +51,26 @@ describe('OrganizationManagement', () => {
     await waitFor(() => expect(screen.getByLabelText('New customer name')).toHaveValue(''));
   });
 
+  it('adding a customer stays on the page rather than submitting it', () => {
+    const { container } = render(<OrganizationManagement />);
+    expect(fireEvent.submit(container.querySelector('form')!)).toBe(false);
+  });
+
+  it('opens the rename box holding the current name', () => {
+    render(<OrganizationManagement />);
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    expect(screen.getByLabelText('Rename Contoso')).toHaveValue('Contoso');
+  });
+
+  it('leaves the rename box once the server accepts the new name', async () => {
+    render(<OrganizationManagement />);
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Rename Contoso'), { target: { value: 'Contoso Ltd' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Rename Contoso')).not.toBeInTheDocument());
+  });
+
   it('does not submit a blank name', async () => {
     render(<OrganizationManagement />);
     fireEvent.click(screen.getByRole('button', { name: 'Add customer' }));

@@ -116,6 +116,26 @@ describe('AuditLog', () => {
     expect(lastCall).toMatchObject({ limit: 50, offset: 50 });
   });
 
+  it('changing the action filter returns to the first page', async () => {
+    const events = Array.from({ length: 50 }, (_, i) => ({
+      id: i + 1,
+      user_id: 'u' + String(i),
+      action: 'a' + String(i),
+      target: 't',
+      details: '',
+      created_at: '2024-01-01T00:00:00Z',
+    }));
+    const fetchFn = vi.fn();
+    useAdminStore.setState({ auditEvents: events, fetchAuditEvents: fetchFn });
+    render(<AuditLog />);
+    await userEvent.click(screen.getByText('Next'));
+    fetchFn.mockClear();
+
+    await userEvent.type(screen.getByPlaceholderText('Filter by action...'), 'x');
+
+    expect(fetchFn.mock.calls.at(-1)?.[0]).toMatchObject({ offset: 0, action: 'x' });
+  });
+
   it('Next button disabled when fewer events than limit', () => {
     // 2 events < 50 → Next disabled.
     render(<AuditLog />);

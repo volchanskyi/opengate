@@ -99,6 +99,33 @@ else
   fail "production server+postgres must request 1..600m in total (got ${prod_cpu_total}m)"
 fi
 
+# --- Staging measures a server shaped like production's -----------------------
+#
+# A load run against a server sized differently from the one customers use
+# answers a question about a machine nobody has. The server is production's
+# exactly. The database is capped where production's is, so a load that would
+# throttle production's database throttles staging's; it keeps the chart's
+# smaller reservation, since it holds a night's fixture rather than anything a
+# customer depends on, and the node's reservations are nearly spoken for.
+for field in requests.cpu requests.memory limits.cpu limits.memory; do
+  staging_server="$(value_at "$STAGING" "server.resources.$field")"
+  production_server="$(value_at "$PRODUCTION" "server.resources.$field")"
+  if [ -n "$staging_server" ] && [ "$staging_server" = "$production_server" ]; then
+    pass "staging's server $field is production's"
+  else
+    fail "staging's server $field must be production's (staging=$staging_server production=$production_server)"
+  fi
+done
+for field in limits.cpu limits.memory; do
+  staging_db="$(value_at "$STAGING" "postgres.resources.$field")"
+  production_db="$(value_at "$PRODUCTION" "postgres.resources.$field")"
+  if [ -n "$staging_db" ] && [ "$staging_db" = "$production_db" ]; then
+    pass "staging's database $field is production's"
+  else
+    fail "staging's database $field must be production's (staging=$staging_db production=$production_db)"
+  fi
+done
+
 # --- An administrator a cleanup does not remove -------------------------------
 
 if [ -f "$JOB" ]; then

@@ -10,25 +10,27 @@
 # so "give staging its own disk" costs another volume, and the only candidate is
 # the one holding every log the fleet has.
 #
-# So: read the database's own size before a fleet is built and again after, and
-# report the difference. Nothing here decides anything; it produces the figure
-# the decision needs.
+# So: read the database's own size and the metrics store's own series count
+# before a fleet is built and again after, and report the difference. Nothing
+# here decides anything; it produces the figures the decision needs.
 #
 # It is two commands rather than one because the two readings have to straddle
 # the build. Taken back to back they always differ by nothing, which is a
 # measurement that cannot fail and cannot inform.
 #
-#   perf-weigh-fixture.sh baseline                 → prints the empty size
-#   perf-weigh-fixture.sh weigh <baseline> <out>   → measures against it
+#   perf-weigh-fixture.sh baseline <baseline.json>          → the empty stack
+#   perf-weigh-fixture.sh weigh <baseline.json> [out.json]  → measures against it
 #
 # Environment:
 #   PERF_DB_CONTAINER  the database container (default opengate-perf-postgres)
+#   PERF_METRICS_URL   the stack's metrics store (default http://127.0.0.1:8428)
 #   PERF_EVICTION_MARGIN_BYTES  the margin the result is compared against
 set -euo pipefail
 
 DB_CONTAINER="${PERF_DB_CONTAINER:-opengate-perf-postgres}"
 DB_USER="${PERF_DB_USER:-opengate}"
 DB_NAME="${PERF_DB_NAME:-opengate}"
+METRICS_URL="${PERF_METRICS_URL:-http://127.0.0.1:8428}"
 
 # The node root's free space at the time the strategy was written, in bytes.
 # It is the figure the answer is compared against, and it is stated here so a
@@ -49,8 +51,24 @@ table_rows() {
   psql_scalar "SELECT COALESCE((SELECT COUNT(*) FROM $1), 0)"
 }
 
+# telemetry_series is how many series the metrics store holds, by its own
+# count. The server writes every machine's vitals there, so the difference
+# across a build is the series the fleet occupies.
+telemetry_series() {
+  local answer count
+  answer="$(curl -fsS "${METRICS_URL}/api/v1/series/count")"
+  count="$(jq -r '.data[0] // empty' <<<"$answer")"
+  case "$count" in
+    '' | *[!0-9]*)
+      echo "::error::the metrics store at ${METRICS_URL} did not say how many series it holds: $answer" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$count"
+}
+
 usage() {
-  echo "usage: $0 baseline | $0 weigh <baseline-bytes> [output.json]" >&2
+  echo "usage: $0 baseline <baseline.json> | $0 weigh <baseline.json> [output.json]" >&2
 }
 
 require_stack() {
@@ -60,59 +78,66 @@ require_stack() {
   fi
 }
 
-main() {
-  case "${1:-}" in
-    baseline)
-      require_stack || return 2
-      # An empty database is not zero — the schema, the indexes and the rows the
-      # migrations ship all weigh something — so this is what the fixture's own
-      # weight is measured against.
-      database_bytes
-      return 0
-      ;;
-    weigh) ;;
-    *)
-      usage
-      return 2
-      ;;
-  esac
+# baseline records the empty stack. An empty database is not zero — the schema,
+# the indexes and the rows the migrations ship all weigh something — and the
+# metrics store may already hold series of its own, so both are what the
+# fixture's own weight is measured against.
+baseline() {
+  local out="${1:-}"
+  if [ -z "$out" ]; then
+    usage
+    return 2
+  fi
+  require_stack || return 2
+  local bytes series
+  bytes="$(database_bytes)"
+  series="$(telemetry_series)" || return 1
+  jq -n --argjson database_bytes "$bytes" --argjson telemetry_series "$series" \
+    '{database_bytes: $database_bytes, telemetry_series: $telemetry_series}' >"$out"
+  cat "$out"
+}
 
-  local baseline="${2:-}"
-  local out="${3:-fixture-weight.json}"
+weigh() {
+  local baseline_file="${1:-}"
+  local out="${2:-fixture-weight.json}"
   local margin="${PERF_EVICTION_MARGIN_BYTES:-$DEFAULT_EVICTION_MARGIN_BYTES}"
 
-  case "$baseline" in
-    '' | *[!0-9]*)
-      echo "::error::weigh needs the baseline byte count the empty stack reported" >&2
+  local baseline_bytes baseline_series
+  baseline_bytes="$(jq -r '.database_bytes // empty' "$baseline_file" 2>/dev/null || true)"
+  baseline_series="$(jq -r '.telemetry_series // empty' "$baseline_file" 2>/dev/null || true)"
+  case "${baseline_bytes}:${baseline_series}" in
+    :* | *: | *[!0-9:]*)
+      echo "::error::weigh needs the baseline the empty stack recorded, and ${baseline_file:-nothing} holds none" >&2
       return 2
       ;;
   esac
 
   require_stack || return 2
 
-  local devices sites users telemetry_series
+  local devices sites users process_rows total series
   devices="$(table_rows devices)"
   sites="$(table_rows sites)"
   users="$(table_rows users)"
-  telemetry_series="$(table_rows device_processes)"
-
-  local total fixture_bytes fits
+  process_rows="$(table_rows device_processes)"
   total="$(database_bytes)"
-  fixture_bytes=$((total - baseline))
-  fits=true
+  series="$(telemetry_series)" || return 1
+
+  local fits=true
   if [ "$total" -gt "$margin" ]; then
     fits=false
   fi
 
   jq -n \
-    --argjson baseline_bytes "$baseline" \
+    --argjson baseline_bytes "$baseline_bytes" \
     --argjson database_bytes "$total" \
-    --argjson fixture_bytes "$fixture_bytes" \
+    --argjson fixture_bytes "$((total - baseline_bytes))" \
+    --argjson baseline_series "$baseline_series" \
     --argjson eviction_margin_bytes "$margin" \
     --argjson devices "${devices:-0}" \
     --argjson sites "${sites:-0}" \
     --argjson users "${users:-0}" \
-    --argjson telemetry_series "${telemetry_series:-0}" \
+    --argjson process_rows "${process_rows:-0}" \
+    --argjson telemetry_series "$((series - baseline_series))" \
     --arg fits "$fits" \
     --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{
@@ -120,12 +145,14 @@ main() {
       baseline_bytes: $baseline_bytes,
       database_bytes: $database_bytes,
       fixture_bytes: $fixture_bytes,
+      baseline_series: $baseline_series,
       eviction_margin_bytes: $eviction_margin_bytes,
       fits_inside_margin: ($fits == "true"),
       counts: {
         devices: $devices,
         sites: $sites,
         users: $users,
+        process_rows: $process_rows,
         telemetry_series: $telemetry_series
       }
     }' >"$out"
@@ -135,6 +162,18 @@ main() {
   else
     echo "::warning::Fixture weighs ${total} bytes, past the ${margin}-byte margin: the storage question reopens with a measured number attached."
   fi
+}
+
+main() {
+  local action="${1:-}"
+  case "$action" in
+    baseline) baseline "${2:-}" ;;
+    weigh) weigh "${2:-}" "${3:-}" ;;
+    *)
+      usage
+      return 2
+      ;;
+  esac
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

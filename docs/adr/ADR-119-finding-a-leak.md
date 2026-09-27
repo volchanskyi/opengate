@@ -69,6 +69,20 @@ is read back rather than inferred from the punctuation.
 **The core is read where it is taken and never carried out.** It is most of the
 process's memory and it is the machine's, not the artifact store's.
 
+**The reader is proved against the toolchain whenever either moves.** It reads
+the runtime's unexported heap structures, which change between Go releases, and
+it publishes no tagged releases, so it is pinned by commit in
+[`tool-versions.sh`](../../scripts/lib/tool-versions.sh). The
+[`core-walk.yml`](../../.github/workflows/core-walk.yml) workflow runs whenever
+`server/go.mod`, that pin or the walk changes: it builds a small program with the
+pinned toolchain, takes a core of it, puts it through the same walk, and passes
+only when the reader names a live object and follows it back to its global root
+([`core-walk-check.sh`](../../scripts/core-walk-check.sh)). A reader the
+toolchain has outrun fails the commit that moved one of them, rather than a soak
+up to a week later. The reader names small objects and reports ones large enough
+to carry an allocation header by their size class, on the toolchain before this
+one as on this one.
+
 ## Consequences
 
 The trail is diagnostic and gates nothing: the conservation slope already

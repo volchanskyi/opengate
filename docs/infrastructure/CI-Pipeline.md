@@ -137,7 +137,10 @@ runs the same scripts through
 can be on a tool the other is not.
 [`tool-version-parity.test.sh`](../../scripts/tests/tool-version-parity.test.sh)
 holds every workflow copy equal to the manifest and refuses an install that names
-no version at all.
+no version at all. The one tool that must understand the Go toolchain's own
+internals — the core reader the endurance run walks a heap with — is proved
+against it by [`core-walk.yml`](../../.github/workflows/core-walk.yml) whenever
+either pin moves ([ADR-119](../adr/ADR-119-finding-a-leak.md)).
 
 ### OpenAPI Codegen Sync
 

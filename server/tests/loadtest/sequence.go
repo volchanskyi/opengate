@@ -141,12 +141,14 @@ func NewRealClock() Clock { return realClock{} }
 
 // runOnePhase climbs from the level the previous phase left to this phase's own,
 // holds there for the rest of the phase, and reports what happened.
-func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetReading) (PhaseResult, error) {
+func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings PhaseReadings) (PhaseResult, error) {
 	startedAt := clock.Now()
 	// Opened before the climb and closed after the hold, so what the figure
 	// divides is the work the target did in this phase by the time this phase
 	// took.
-	closeBusy := target.Busy.Bracket()
+	closeBusy := readings.Busy.Bracket()
+	closeRoom := readings.Generator.Bracket()
+	closeDrops := readings.Network.Bracket()
 	step := phase.Duration.Duration / rampSteps
 	if step <= 0 {
 		step = phase.Duration.Duration
@@ -197,6 +199,8 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetR
 	// own fleet belongs to neither phase, and charging it to this one against
 	// this one's clock reports a busy-ness nobody measured.
 	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
+	generatorHeadroom, generatorRefused := closeRoom(finishedAt.Sub(startedAt))
+	generatorDrops, targetDrops := closeDrops()
 
 	// The run's own count of its arrived machines, the target's account of the
 	// same population, and the run's count again — in that order, so the
@@ -210,7 +214,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetR
 	// It holds still until it does, and says how long that took.
 	heldBefore := fleet.Connected()
 	departedBefore := fleet.Outcomes().Departed
-	census := target.Census.Take(func() int {
+	census := readings.Census.Take(func() int {
 		// The same floor the validity rule applies, asked live: what the run was
 		// holding before it asked, less what the fleet has recorded leaving
 		// since. It falls as machines leave, so a fleet shrinking under the
@@ -261,10 +265,17 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, target TargetR
 		// What the target did with the allowance it was given while this phase
 		// ran, beside the wait times the phase produced. Absent where it could
 		// not be read.
-		TargetBusyPercent:  targetBusy,
-		TargetBusyAbsent:   busyAbsent,
-		ExpectedRejections: saw.Rejected,
-		Faults:             saw.Severed,
+		TargetBusyPercent: targetBusy,
+		TargetBusyAbsent:  busyAbsent,
+		// What the generator had, and what each end's kernel dropped, over the
+		// same window — the readings that say what ran out when the target's
+		// own busy-ness does not.
+		GeneratorCPUHeadroomPercent: generatorHeadroom,
+		GeneratorCPURefusedPercent:  generatorRefused,
+		GeneratorUDPReceiveErrors:   generatorDrops,
+		TargetUDPReceiveErrors:      targetDrops,
+		ExpectedRejections:          saw.Rejected,
+		Faults:                      saw.Severed,
 	}, nil
 }
 

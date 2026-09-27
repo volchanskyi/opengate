@@ -48,6 +48,26 @@ describe('DeviceLabels', () => {
     expect(within(row).getByText('2')).toBeInTheDocument();
   });
 
+  it('opening the page reads the labels and who carries them', () => {
+    const fetchTags = vi.fn().mockResolvedValue(undefined);
+    useAuthStore.setState({ user: { id: 'u1', email: 'x@example.com', is_admin: false } } as never);
+    useDeviceTagsStore.setState({ labels: [fileServer], assignments: [], isLoading: false, error: null, fetchTags });
+    render(<MemoryRouter><DeviceLabels /></MemoryRouter>);
+    expect(fetchTags).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets an administrator remove a label from the list', async () => {
+    const deleteLabel = vi.fn().mockResolvedValue(true);
+    show(true);
+    useDeviceTagsStore.setState({ deleteLabel });
+
+    const labelList = screen.getAllByRole('table')[0]!;
+    const row = within(labelList).getByRole('row', { name: /role=file-server/ });
+    await userEvent.click(within(row).getByRole('button', { name: 'Remove' }));
+
+    expect(deleteLabel).toHaveBeenCalledWith('label-1');
+  });
+
   it('gives an ordinary member the list to read and nothing to change', () => {
     show(false);
     expect(screen.queryByRole('button', { name: 'Add label' })).not.toBeInTheDocument();

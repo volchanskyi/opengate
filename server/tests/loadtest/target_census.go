@@ -176,14 +176,19 @@ func (c TargetCensus) read() CensusReading {
 	return CensusReading{Agents: &held, Goroutines: &running}
 }
 
-// TargetReading is everything a phase asks the target about itself: how hard it
-// worked, and what it says it is holding.
+// PhaseReadings is everything a phase reads at its own boundaries: how hard the
+// target worked and what it says it is holding, how much room the generator
+// had, and what each end's kernel dropped.
 //
-// They travel together because they are two readings off one exposition page,
-// taken at the same boundary, and a run that could take either could take both
-// — which is what makes an absence in one of them a reading somebody dropped
-// rather than a venue that publishes nothing.
-type TargetReading struct {
-	Busy   TargetBusy
-	Census TargetCensus
+// The target's two travel together because they are two readings off one
+// exposition page, taken at the same boundary, and a run that could take either
+// could take both — which is what makes an absence in one of them a reading
+// somebody dropped rather than a venue that publishes nothing. The generator's
+// room and the dropped datagrams are what a rung that gave out ran short of
+// when the target itself did not.
+type PhaseReadings struct {
+	Busy      TargetBusy
+	Census    TargetCensus
+	Generator GeneratorRoom
+	Network   NetworkDrops
 }

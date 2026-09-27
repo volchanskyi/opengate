@@ -50,6 +50,12 @@ refusal rather than counted as contention.
 
 ## Consequences
 
-Staging is production-shaped, so a number measured there means something about
-production. The lock is not the only thing between a load run and a red suite;
-it is the thing that makes the two not each other's fault.
+Staging is production-shaped where a run can feel it: its server reserves and is
+capped at exactly what production's is, and its database is capped where
+production's is. So a number measured there means something about production.
+The lock is not the only thing between a load run and a red suite; it is the
+thing that makes the two not each other's fault.
+
+Holding the claim also holds back the alerts on the node staging shares with
+production, for as long as it is held
+([ADR-123](ADR-123-alert-delivery.md)).

@@ -20,6 +20,8 @@
     "!src/**/*.spec.ts",
     "!src/**/*.spec.tsx",
     "!src/**/__tests__/**",
+    "!src/**/*.testkit.ts",
+    "!src/**/*.testkit.tsx",
     "!src/types/api.d.ts",
     "!src/types/**/*.d.ts",
     "!src/main.tsx",
@@ -29,7 +31,7 @@
     "!src/features/remote-desktop/use-remote-desktop.ts"
   ],
   "_mutate_justifications": {
-    "!src/**/*.test.ts, !src/**/*.test.tsx, !src/**/*.spec.ts, !src/**/*.spec.tsx, !src/**/__tests__/**": "Test code. Mutating an assertion measures nothing — the tests are the oracle, not the subject.",
+    "!src/**/*.test.ts, !src/**/*.test.tsx, !src/**/*.spec.ts, !src/**/*.spec.tsx, !src/**/__tests__/**, !src/**/*.testkit.ts, !src/**/*.testkit.tsx": "Test code, and the helpers tests build their fixtures with. Mutating an assertion or a fixture measures nothing — the tests are the oracle, not the subject.",
     "!src/types/api.d.ts, !src/types/**/*.d.ts": "Generated from api/openapi.yaml (npm run generate:api) and type-only: erased at build time, so there is no runtime behavior to mutate. Drift is caught by the OpenAPI regeneration check, not by tests.",
     "!src/main.tsx": "Application entry point: createRoot + render wiring with no branching logic. Exercised end to end by the Playwright suite, which every mutant would fail identically.",
     "!src/router.tsx": "Route table declaration. Its mutants are route-path string swaps that the Playwright navigation specs already fail on, and no unit test can meaningfully assert a router config in isolation.",

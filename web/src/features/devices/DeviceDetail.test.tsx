@@ -6,6 +6,7 @@ import { useDeviceStore } from './state/device-store';
 import { useSessionStore } from '../session';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
+import { useOrganizationStore } from '../organizations';
 import { DeviceDetail } from './DeviceDetail';
 import { mockDevice, renderDetail, seedDeviceDetailStores, seedUser } from './DeviceDetail.testkit';
 
@@ -43,6 +44,13 @@ describe('DeviceDetail — the page', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('opening the page requests the customers the device can be moved between', () => {
+    const fetchOrganizations = vi.fn();
+    useOrganizationStore.setState({ fetchOrganizations });
+    renderDetail();
+    expect(fetchOrganizations).toHaveBeenCalledTimes(1);
   });
 
   it('renders device info', () => {

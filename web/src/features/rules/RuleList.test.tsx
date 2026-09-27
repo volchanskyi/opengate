@@ -47,6 +47,13 @@ beforeEach(() => {
 });
 
 describe('RuleList', () => {
+  it('opening the list reads the catalogue', () => {
+    const fetchCatalogue = vi.fn().mockResolvedValue(undefined);
+    useCatalogueStore.setState({ rules: [], fleetSize: 312, loaded: true, loading: false, error: null, fetchCatalogue });
+    render(<MemoryRouter><RuleList /></MemoryRouter>);
+    expect(fetchCatalogue).toHaveBeenCalledTimes(1);
+  });
+
   it('says what each rule watches without offering a way to change it', () => {
     show([rule()]);
     expect(screen.getByText('disk.used_percent at or above 90')).toBeInTheDocument();

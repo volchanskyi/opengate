@@ -16,7 +16,7 @@ groups:
               to: 0
             datasourceUid: VictoriaMetrics
             model:
-              expr: up{job="opengate-server"}
+              expr: up{job="opengate-server",namespace="opengate"}
               intervalMs: 1000
               maxDataPoints: 43200
           - refId: B
@@ -40,6 +40,7 @@ groups:
         for: 1m
         labels:
           severity: critical
+          watches: production
         annotations:
           summary: "OpenGate server health check is failing"
           observed: '{{ with $values.B }}up = {{ printf "%.0f" .Value }} (fires below 1){{ end }}'
@@ -81,6 +82,7 @@ groups:
         for: 1m
         labels:
           severity: critical
+          watches: shared
         annotations:
           summary: "Disk usage is above 90%"
           observed: '{{ with $values.B }}root filesystem {{ printf "%.1f" .Value }}% used (fires above 90%){{ end }}'
@@ -106,7 +108,7 @@ groups:
             model:
               expr: >-
                 histogram_quantile(0.99,
-                sum(rate(opengate_http_request_duration_seconds_bucket[5m])) by (le))
+                sum(rate(opengate_http_request_duration_seconds_bucket{namespace="opengate"}[5m])) by (le))
               intervalMs: 1000
               maxDataPoints: 43200
           - refId: B
@@ -127,6 +129,7 @@ groups:
         for: 5m
         labels:
           severity: warning
+          watches: production
         annotations:
           summary: "p99 HTTP latency exceeds 2 seconds"
           observed: '{{ with $values.B }}p99 request time {{ printf "%.2f" .Value }}s (fires above 2s){{ end }}'
@@ -146,8 +149,8 @@ groups:
             datasourceUid: VictoriaMetrics
             model:
               expr: >-
-                sum(rate(opengate_http_requests_total{status_code=~"5.."}[5m])) /
-                sum(rate(opengate_http_requests_total[5m])) * 100
+                sum(rate(opengate_http_requests_total{namespace="opengate",status_code=~"5.."}[5m])) /
+                sum(rate(opengate_http_requests_total{namespace="opengate"}[5m])) * 100
               intervalMs: 1000
               maxDataPoints: 43200
           - refId: B
@@ -168,6 +171,7 @@ groups:
         for: 5m
         labels:
           severity: warning
+          watches: production
         annotations:
           summary: "HTTP 5xx error rate exceeds 5%"
           observed: '{{ with $values.B }}{{ printf "%.1f" .Value }}% of requests answered 5xx (fires above 5%){{ end }}'
@@ -208,6 +212,7 @@ groups:
         for: 5m
         labels:
           severity: warning
+          watches: shared
         annotations:
           summary: "Disk usage is above 75%"
           observed: '{{ with $values.B }}root filesystem {{ printf "%.1f" .Value }}% used (fires above 75%){{ end }}'
@@ -248,6 +253,7 @@ groups:
         for: 5m
         labels:
           severity: warning
+          watches: shared
         annotations:
           summary: "Memory usage is above 80%"
           observed: '{{ with $values.B }}{{ printf "%.1f" .Value }}% of node memory in use (fires above 80%){{ end }}'
@@ -267,7 +273,7 @@ groups:
             datasourceUid: VictoriaMetrics
             model:
               expr: >-
-                sum(changes(process_start_time_seconds{job="opengate-server"}[15m]))
+                sum(changes(process_start_time_seconds{job="opengate-server",namespace="opengate"}[15m]))
               intervalMs: 1000
               maxDataPoints: 43200
           - refId: B
@@ -288,6 +294,7 @@ groups:
         for: 0m
         labels:
           severity: warning
+          watches: production
         annotations:
           summary: "The OpenGate server process was replaced"
           observed: >-
@@ -338,6 +345,7 @@ groups:
         for: 15m
         labels:
           severity: warning
+          watches: shared
         annotations:
           summary: "The kubelet's container metrics are not reaching the store"
           observed: '{{ with $values.B }}{{ printf "%.0f" .Value }} kubelet scrapes answering (fires below 1){{ end }}'
@@ -368,7 +376,7 @@ groups:
                 max by (namespace, pod, container) (
                   container_memory_working_set_bytes{container!="",container!="POD"}
                   /
-                  container_spec_memory_limit_bytes{container!="",container!="POD"} > 0
+                  (container_spec_memory_limit_bytes{container!="",container!="POD"} > 0)
                 )
               intervalMs: 1000
               maxDataPoints: 43200
@@ -384,25 +392,35 @@ groups:
               type: threshold
               expression: B
               conditions:
+                # A working set hovering at the line would fire and resolve on
+                # every evaluation. Once firing, the alert holds until the
+                # container is back under 70%.
                 - evaluator:
                     type: gt
                     params: [0.8]
+                  unloadEvaluator:
+                    type: lt
+                    params: [0.7]
         for: 10m
         labels:
           severity: warning
+          watches: shared
         annotations:
           summary: "A container is walking up to its memory limit"
           observed: >-
-            {{ with $values.B }}working set at {{ humanizePercentage .Value }} of its limit (fires above 80%){{ end }}
+            {{ with $values.B }}working set at {{ humanizePercentage .Value }} of its limit (fires above 80%, clears
+            below 70%){{ end }}
           check: >-
             kubectl -n {{ $labels.namespace }} top pod {{ $labels.pod }} --containers, and whether the rise follows load
           description: >-
             The container's working set has been above 80% of its own cgroup
-            limit for ten minutes. The node may have memory to spare and this
-            container still be minutes from being killed, which is why the
-            reading is the container against its own ceiling rather than the
-            node against its total. A container that stays here without a
-            matching rise in load is retaining something it is not giving back.
+            limit for ten minutes, and the alert stays until it is back under
+            70%. The node may have memory to spare and this container still be
+            minutes from being killed, which is why the reading is the
+            container against its own ceiling rather than the node against its
+            total. A container with no limit is left out: it has no ceiling to
+            walk up to. A container that stays here without a matching rise in
+            load is retaining something it is not giving back.
 
       - uid: container-oom-killed
         title: "Container killed for memory"
@@ -439,6 +457,7 @@ groups:
         for: 0m
         labels:
           severity: critical
+          watches: shared
         annotations:
           summary: "A container was killed for exceeding its memory limit"
           observed: >-
@@ -465,8 +484,8 @@ groups:
             datasourceUid: VictoriaMetrics
             model:
               expr: >-
-                sum(rate(opengate_edge_telemetry_drops_total[10m])) /
-                clamp_min(sum(rate(opengate_edge_telemetry_ingested_total[10m])), 1) * 100
+                sum(rate(opengate_edge_telemetry_drops_total{namespace="opengate"}[10m])) /
+                clamp_min(sum(rate(opengate_edge_telemetry_ingested_total{namespace="opengate"}[10m])), 1) * 100
               intervalMs: 1000
               maxDataPoints: 43200
           - refId: B
@@ -487,6 +506,7 @@ groups:
         for: 10m
         labels:
           severity: warning
+          watches: production
         annotations:
           summary: "Edge-Sentinel telemetry drop ratio exceeds 5%"
           observed: >-
@@ -511,8 +531,8 @@ groups:
             datasourceUid: VictoriaMetrics
             model:
               expr: >-
-                sum(rate(opengate_alerts_created_total[30m])) * 86400 /
-                clamp_min(max(sum by (rule_id) (opengate_rule_coverage)), 1)
+                sum(rate(opengate_alerts_created_total{namespace="opengate"}[30m])) * 86400 /
+                clamp_min(max(sum by (rule_id) (opengate_rule_coverage{namespace="opengate"})), 1)
               intervalMs: 1000
               maxDataPoints: 43200
           - refId: B
@@ -533,6 +553,7 @@ groups:
         for: 30m
         labels:
           severity: warning
+          watches: production
         annotations:
           summary: "The curated rule pack is raising far more alerts than its ceilings are sized for"
           observed: '{{ with $values.B }}{{ printf "%.1f" .Value }} alerts per device per day (fires above 5){{ end }}'
@@ -559,7 +580,7 @@ groups:
             datasourceUid: VictoriaMetrics
             model:
               expr: >-
-                sum(rate(opengate_alerts_suppressed_total{reason="organization_ceiling"}[15m]))
+                sum(rate(opengate_alerts_suppressed_total{namespace="opengate",reason="organization_ceiling"}[15m]))
               intervalMs: 1000
               maxDataPoints: 43200
           - refId: B
@@ -580,6 +601,7 @@ groups:
         for: 15m
         labels:
           severity: warning
+          watches: production
         annotations:
           summary: "Alerts are being refused past a customer's hourly ceiling"
           observed: >-

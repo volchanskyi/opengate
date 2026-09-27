@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router';
@@ -34,6 +34,11 @@ describe('RegisterPage', () => {
       isLoading: false,
       error: null,
     });
+  });
+
+  it('registering stays on the page rather than submitting it', () => {
+    const { container } = renderRegister();
+    expect(fireEvent.submit(container.querySelector('form')!)).toBe(false);
   });
 
   it('renders email, display name, and password inputs', () => {

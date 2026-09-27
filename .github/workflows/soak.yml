@@ -125,6 +125,12 @@ jobs:
           printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
           printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
 
+      # The transport asks the kernel for more receive buffer than a runner
+      # allows a socket. The ceilings are production's, and host-wide, so the
+      # server's container gets them as well as the generator.
+      - name: Give the machine-facing path production's buffers
+        run: scripts/perf-stack-quic.sh raise-buffers
+
       - name: Bring the performance stack up
         id: stack
         run: |
@@ -132,6 +138,12 @@ jobs:
           DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
           export DOCKER_CONFIG
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+
+      # Past Docker's userland proxy: the generator dials the name on the
+      # server's certificate, mapped to the container's own address, and the
+      # harness is told where the server's network counters are.
+      - name: Dial the server by its certificate's name
+        run: scripts/perf-stack-quic.sh map-server
 
       # The estate is five hundred machines and the profile never asks for more,
       # so every cycle brings the same machines back rather than enrolling new
@@ -194,7 +206,8 @@ jobs:
           scripts/loadtest-quic-run.sh /tmp/soak-quic.txt -- \
             /tmp/loadtest \
               -agents=500 \
-              -addr=127.0.0.1:9090 \
+              -addr=server:9090 \
+              -target-net-counters="$PERF_TARGET_NET_COUNTERS" \
               -default-telemetry \
               -hold=5h \
               -profile=load/profiles/soak.yaml \
@@ -230,6 +243,11 @@ jobs:
             "$SOAK_BUNDLE_DIR/soak/bundle.json" \
             --journeys "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json" \
             --journeys "$LOADTEST_K6_SUMMARY_DIR/relay-throughput.json"
+
+      # Either end asking for more buffer than the kernel gave is a run whose
+      # datagrams were lost before either process saw them.
+      - name: Refuse a run whose ends ran short of receive buffer
+        run: scripts/perf-stack-quic.sh check /tmp/soak-quic.txt
 
       - name: Read the verdict the run wrote about itself
         if: always()

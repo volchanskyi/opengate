@@ -126,6 +126,7 @@ func run() int {
 	enrollURL := flag.String("enroll-url", "", "server base URL to enroll each agent through, so no certificate authority key leaves the cluster")
 	enrollToken := flag.String("enroll-token", "", "enrollment token to spend, minted through the admin API before the run")
 	metricsURL := flag.String("metrics-url", "", "server base URL to read registration timing from, so the figure is the one the server measured where the device row landed rather than this process's own send buffer")
+	targetNetCounters := flag.String("target-net-counters", "", "the target's kernel network counters page (/proc/<pid>/net/snmp of the server process), readable where the target shares this machine's kernel, so each phase says what the target's end dropped")
 	fixtureAccount := flag.String("fixture-account", "", "administrator to build the fixture as; empty builds no fixture")
 	fixturePasswordFlag := flag.String("fixture-password", "", "that administrator's password")
 	fixtureSize := flag.String("fixture-size", "", "fleet to build before the run: small, large or lopsided; empty takes the profile's own")
@@ -250,9 +251,11 @@ func run() int {
 	targetShape := ParseFingerprintFlags("system-under-test", *targetDescription, *targetCPUs, *targetMemory)
 
 	results, phases, flatBusy, flatBusyAbsent := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts,
-		TargetReading{
-			Busy:   NewTargetBusy(*metricsURL, targetShape.CPUs),
-			Census: NewTargetCensus(*metricsURL),
+		PhaseReadings{
+			Busy:      NewTargetBusy(*metricsURL, targetShape.CPUs),
+			Census:    NewTargetCensus(*metricsURL),
+			Generator: NewGeneratorRoom(),
+			Network:   NewNetworkDrops(*targetNetCounters),
 		}, filer)
 	totalDur := time.Since(start)
 
@@ -325,30 +328,6 @@ func run() int {
 		fmt.Printf("::error::%s\n", reason)
 	}
 	return exitCode(bundle.Verdict, failures, bundle.BreakingPoint)
-}
-
-// printBreakingPoint says where the ladder broke, for a run that went looking.
-//
-// It is the family's whole answer and it is worth reading without opening the
-// bundle: whoever is looking at a red ladder wants the rung, not the file.
-func printBreakingPoint(answer *BreakingPoint) {
-	if answer == nil {
-		return
-	}
-	fmt.Printf("\n=== Where it gave ===\n")
-	if answer.RungsRead == 0 {
-		fmt.Printf("No rung was walked, so nothing was asked.\n")
-		return
-	}
-	if answer.HeldAt != "" {
-		fmt.Printf("Held:        %s (%d machines)\n", answer.HeldAt, answer.HeldAgents)
-	}
-	if answer.GaveAt == "" {
-		fmt.Printf("Gave:        nothing did, over %d rungs — the answer is above this ladder\n", answer.RungsRead)
-		return
-	}
-	fmt.Printf("Gave:        %s (%d machines)\n", answer.GaveAt, answer.GaveAgents)
-	fmt.Printf("Because:     %s\n", answer.Reason)
 }
 
 // arrivalWindow is how long the fleet took to arrive: from the run's start to

@@ -75,7 +75,7 @@ func (f *recordingFleet) Outcomes() FleetOutcomes { return f.outcomes }
 // unreadTarget is a run with no target to read. Every phase then reports an
 // absent busy-ness and no count of its own, which is what these cases are about
 // — they are about the walk, not about the target.
-var unreadTarget = TargetReading{}
+var unreadTarget = PhaseReadings{}
 
 func alwaysRoomToRun() NodeReading {
 	return NodeReading{Measured: true, CPUPercent: 5, MemoryPercent: 10}
