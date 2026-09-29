@@ -4,13 +4,9 @@
 
 <p align="center">
 All-in-one platform for observing and controlling remote hosts and endpoints. 
-Local agents powered by ML-engines designed for proactive anomaly surfacing, automated root cause analysis, and autonomous AI Ops capabilities that triage incidents and recommend remediation. The agents designed specifically to lower compute costs, have low latency, and provide full data sovereignty while improving streaming protocols and system scalability.
+Powered by efficient local agents carrying ML-engines designed for proactive anomaly detection, automated root cause analysis, and autonomous AI Ops capabilities that triage incidents and recommend remediation. The agents designed specifically to lower central server compute costs, have low latency, and provide full data sovereignty while improving system scalability.
 </p>
 
-<!-- Badges track `dev` because that is the only branch CI runs on: per
-     .claude/rules/git.md all work lands on dev; main only receives `[skip ci]`
-     auto-merge commits, so a default-branch badge would freeze on whatever ran
-     last on main. -->
 <p align="center">
   <a href="https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev"><img alt="CI" src="https://github.com/volchanskyi/opengate/actions/workflows/ci.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev"><img alt="Go Server Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/volchanskyi/cf505c74b56eab52c9497af517b53222/raw/opengate-coverage.json"></a>
@@ -28,6 +24,14 @@ Local agents powered by ML-engines designed for proactive anomaly surfacing, aut
 </p>
 
 ---
+## How it stands out
+
+| What | How |
+|---|---|
+| **Instant Setup and Zero Config** | One-line installation command. No manual configuration needed. Immediate dashboard access in seconds. Auto-detects host configurations, logs, and services like Docker and Nginx |
+| **Real-Time, Per-Second Metrics** | Collects data every single second. Detects even the tiniest, most transient performance spikes. Very low CPU and memory usage. Smooth and fast web user interface |
+| **Modern AI Troubleshooting** | Built-in anomaly detection features. AI-assisted root cause analysis. Quick health summaries |
+| **Complete Data Sovereignty** | Keeps metric data local on your host. Helps meet strict privacy rules. No expensive central database required |
 
 ## What it does
 
@@ -35,7 +39,7 @@ OpenGate manages fleets of endpoints from a centralized web-based UI: Asses flee
 
 | Capability | Features |
 |---|---|
-| **Fleet visibility** | Individual machines, which are up, hardware configurations, software inventory, system and network configuration |
+| **Fleet visibility** | Individual machines, uptime status, hardware configurations, software inventory, system and network configuration |
 | **Remote control** | Screen, shell, file transfer and chat in the browser. |
 | **Health monitoring** | A set of vitals per machine, including kernel pressure (how long work actually waited) and disk service time |
 | **Detection** | Curated rules evaluated **on the host**, against anomalies and host's own log records |
@@ -46,7 +50,6 @@ OpenGate manages fleets of endpoints from a centralized web-based UI: Asses flee
 | **Erasure on request** | Deleting a device or a customer is a secure erasure across every store, with a retained audit trail |
 
 ## Network model
-
 
 | Leg | Direction | Transport | Default port |
 |---|---|---|---|
@@ -108,15 +111,15 @@ restarts on failure and survives reboots. Details: [Agent Deployment](docs/produ
 
 ## Documentation
 
-Start at the [documentation index](docs/Home.md).
+Start here [documentation index](docs/Home.md).
 
 | Tree | For |
 |---|---|
-| [Product](docs/product/) | Operators and technicians — what the system does and how to use it |
-| [Architecture](docs/architecture/) | How it is built: components, connection model, wire protocol, REST API, database schema |
-| [Infrastructure](docs/infrastructure/) | How it runs: Kubernetes, Terraform, CI/CD, observability, testing |
+| [Product](docs/product/) | Product features and how to use them |
+| [Architecture](docs/architecture/) | How the system is built: components, connection model, wire protocol, REST API, database schema |
+| [Infrastructure](docs/infrastructure/) | What infrastructure the system runs on: Kubernetes, Terraform, CI/CD, observability, testing pipeline |
 
-The REST API is also published as a [browsable
+The REST API is published as a [browsable
 reference](https://volchanskyi.github.io/opengate/docs/api/).
 
 ## Repository layout
