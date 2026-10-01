@@ -1,5 +1,17 @@
 # Metrics Reference
 
+- [Agent connections](#agent-connections)
+- [Endpoint log pulls](#endpoint-log-pulls)
+- [Telemetry ingest](#telemetry-ingest)
+- [Alerts, incidents and coverage](#alerts-incidents-and-coverage)
+  - [Alert rate](#alert-rate)
+- [Requests and sessions](#requests-and-sessions)
+- [Audit](#audit)
+- [Registration](#registration)
+- [Database](#database)
+- [The server process](#the-server-process)
+- [Chart reads](#chart-reads)
+
 Every Prometheus series the OpenGate server publishes, what it counts, and the
 population it counts over. Names, labels and registration live under
 [`server/internal/metrics`](../../server/internal/metrics); the server exposes
@@ -142,7 +154,7 @@ reconnect backfill keeps its own far wider retention floor in
 [`conn_backfill.go`](../../server/internal/agentapi/conn_backfill.go), so
 replaying months of pre-rolled history is never truncated by the live window.
 
-## Detection: alerts, incidents and coverage
+## Alerts, incidents and coverage
 
 Five aggregate series watch the rule pack itself
 ([`investigations.go`](../../server/internal/metrics/investigations.go)). A rule
@@ -176,7 +188,7 @@ timer rather than computed when the endpoint is scraped, and each refresh is one
 aggregate across every tenant. A read that fails leaves the previous answer
 standing: a database that is briefly unreachable is not an empty triage queue.
 
-### The alert-rate measurement
+### Alert rate
 
 ```promql
 sum(increase(opengate_alerts_created_total[24h]))
@@ -189,7 +201,7 @@ total is the fleet size. What the resulting figure obliges, and why it needs a
 real population before it means anything, is in
 [ADR-076](../adr/ADR-076-platform-metrics.md).
 
-## Request and session surface
+## Requests and sessions
 
 | Series | Labels | Counts |
 |---|---|---|
@@ -206,7 +218,7 @@ stays bounded by the routing table instead of growing with traffic.
 The three gauges above are read off the process's own tallies where this page is
 built, so each is what it is holding at the instant the page is asked for. They
 are still counts the paths maintain rather than readings of the resource: what
-says the resource came back is [the process itself](#the-process-itself), and the
+says the resource came back is [the process itself](#the-server-process), and the
 two are read together.
 
 A relay session counts as started when its first side registers, the moment it
@@ -271,7 +283,7 @@ The per-aggregate instrumented decorators (audit, updater, auth, device,
 notifications, AMT, session) record against the same `db_query_*` pair, so they
 share dashboards without duplicating label discipline.
 
-## The process itself
+## The server process
 
 | Series | Labels | Reads |
 |---|---|---|
@@ -293,7 +305,7 @@ does not are the two halves that catch a session whose teardown ran and whose
 resources did not come back — the invariant
 [resource conservation](../../.claude/rules/resource-conservation.md) states, and
 the pairing a load run records in its own bundle
-([Testing](../infrastructure/Testing.md)).
+([Non-Functional Testing](../infrastructure/Non-Functional-Testing.md#load-and-soak-tests)).
 
 `process_start_time_seconds` answers a different question from the rest: it
 changes only when the process is replaced. A reading taken at the start of a
@@ -301,7 +313,7 @@ measurement and again at the end tells whoever compares them whether both
 readings came from the same process, which is what makes every other number in
 between comparable.
 
-## Chart read path
+## Chart reads
 
 | Series | Labels | Counts |
 |---|---|---|

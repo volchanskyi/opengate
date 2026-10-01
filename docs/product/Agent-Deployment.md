@@ -1,5 +1,13 @@
 # Agent Deployment
 
+- [Before you start](#before-you-start)
+- [Step 1 — Create an enrollment token](#step-1--create-an-enrollment-token)
+- [Step 2 — Install the agent](#step-2--install-the-agent)
+- [Step 3 — Confirm it connected](#step-3--confirm-it-connected)
+- [What the agent does on the host](#what-the-agent-does-on-the-host)
+- [Removing a machine](#removing-a-machine)
+- [Related](#related)
+
 How a machine joins the fleet: create an enrollment token, run one command on the
 target host, and the device appears in the device list.
 

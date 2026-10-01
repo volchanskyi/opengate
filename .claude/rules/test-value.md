@@ -30,6 +30,10 @@ whether a test runs. This governs what it runs against.
 
 - A global or prototype reassignment is restored in a `try`/`finally`, an
   `afterEach` or an `afterAll`.
+- A test writes nothing into the CI job running it.
+  [`shell-quality.sh test`](../../scripts/shell-quality.sh) hands each shell
+  test step summary, output, environment and path files of its own, and fails
+  one that writes to them.
 - Reference shape: `web/src/features/devices/DeviceList.test.tsx`.
 
 ### A test asserts behaviour the product has

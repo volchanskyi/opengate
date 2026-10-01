@@ -1,5 +1,16 @@
 # Fleet and Devices
 
+- [Screens](#screens)
+- [Dashboard](#dashboard)
+- [Selecting a customer](#selecting-a-customer)
+- [Finding a device](#finding-a-device)
+- [The device detail page](#the-device-detail-page)
+  - [Actions](#actions)
+- [Inventory](#inventory)
+- [Browser notifications](#browser-notifications)
+- [Console behaviour](#console-behaviour)
+- [Related](#related)
+
 The fleet views answer the questions a technician asks first: what machines does
 this customer have, which of them are up, what is each one made of, and what is
 wrong with it right now.
@@ -89,7 +100,7 @@ the machine is in maintenance, and a hint of the machine's discovered footprint
 | Move to another customer | Administrator | Clears the site filing in the same step, so a machine never arrives at a customer filed under a site that customer does not have |
 | Delete the device | Administrator | An irreversible erasure, behind a confirm step — see [Data Erasure](./Data-Erasure.md) |
 
-## Hardware inventory and discovered footprint
+## Inventory
 
 The agent collects the machine's hardware, what it is listening on, and what it
 is running; the device page reads it back and sorts it.
@@ -105,7 +116,7 @@ is running; the device page reads it back and sorts it.
 | Processes | Point-in-time process snapshots |
 
 The tables that hold these, their retention and their tenancy rules are in
-[Database](../architecture/Database.md#device-hardware-table); the endpoints are in
+[Database](../architecture/Database.md#device-hardware); the endpoints are in
 [API Reference](../architecture/API-Reference.md#device-inventory).
 
 ## Browser notifications

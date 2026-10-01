@@ -1,5 +1,17 @@
 # Investigations
 
+- [Screens](#screens)
+- [How alerts group into incidents](#how-alerts-group-into-incidents)
+  - [Rules the grouping always obeys](#rules-the-grouping-always-obeys)
+- [Working an incident](#working-an-incident)
+  - [Statuses](#statuses)
+  - [Resolving](#resolving)
+  - [Reopening](#reopening)
+  - [Auto-resolve](#auto-resolve)
+  - [Machines in maintenance](#machines-in-maintenance)
+- [The incident room](#the-incident-room)
+- [Related](#related)
+
 Three hundred and twelve alerts across forty machines are not something a person
 on call reads. One incident saying *forty machines, since 02:41* is.
 

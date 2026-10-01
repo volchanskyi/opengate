@@ -1,4 +1,21 @@
-# Monitoring & Observability
+# Monitoring
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Sources of truth](#sources-of-truth)
+- [Components](#components)
+- [Storage](#storage)
+- [Access](#access)
+- [What the server reports](#what-the-server-reports)
+  - [What a series costs](#what-a-series-costs)
+  - [Watching the rules](#watching-the-rules)
+  - [Telemetry load](#telemetry-load)
+  - [Cold storage](#cold-storage)
+- [Dashboards and alerts](#dashboards-and-alerts)
+  - [What a rule watches](#what-a-rule-watches)
+  - [CI trend metrics](#ci-trend-metrics)
+- [Deploying and checking](#deploying-and-checking)
+- [Investigating by hand](#investigating-by-hand)
 
 ## Overview
 
@@ -48,7 +65,7 @@ flowchart LR
   External[External uptime SaaS] -- public probes --> Ingress[Public HTTPS / QUIC / MPS]
 ```
 
-## Sources Of Truth
+## Sources of truth
 
 | Concern | Source |
 |---|---|
@@ -109,7 +126,7 @@ Image tags, resource requests/limits, retention, storage class, and persistence
 settings live in [`values.yaml`](../../deploy/helm/monitoring/values.yaml). Do not
 copy those values into prose; link to the values file when exact numbers matter.
 
-## Storage Model
+## Storage
 
 The intended free-tier storage model is recorded in
 [ADR-035](../adr/ADR-035-block-volume-budget.md):
@@ -134,9 +151,9 @@ VictoriaMetrics, and Loki.
 
 No monitoring ingress is rendered by the monitoring chart. The public HTTP edge
 is owned by ingress-nginx and the app chart; QUIC and MPS remain L4 hostPorts on
-the production server pod per [Kubernetes.md](./Kubernetes.md#l4-quic--mps).
+the production server pod per [Kubernetes.md](./Kubernetes.md#quic-and-mps-traffic).
 
-## Application Instrumentation
+## What the server reports
 
 The Go server exposes Prometheus metrics on a second HTTP listener, separate
 from the one that serves the REST API and the single-page application
@@ -183,7 +200,7 @@ hands it from the cluster, so production's and staging's readings stay apart on
 a dashboard; every read the server makes groups that label away, so a device's
 chart is one line across the readings written before and after it. Process
 snapshots with basenames and optional command-line hashes stay in Postgres RLS;
-see [Database](../architecture/Database.md#device-processes-table).
+see [Database](../architecture/Database.md#device-processes).
 
 Host logs are edge-stored and server-proxied: raw lines stay on the device, are
 read on demand through the transient broker, and are never centralized. The
@@ -202,7 +219,7 @@ min/max/last centrally would multiply active series past the budget measured in
 [`spike_test.go`](../../server/tests/vmcardinality/spike_test.go); chart bands are
 computed from min/max over the raw 60 s samples instead.
 
-### What an active series costs the central store
+### What a series costs
 
 A device occupies at most 24 central series — the ceiling the vitals contract
 sets, in [Device Health](../product/Device-Health.md). That contract bounds how
@@ -294,11 +311,11 @@ Re-run the harness when any of the three inputs move — the cap, the fleet targ
 or the VictoriaMetrics version — because the decision is only as good as the
 measurement under it.
 
-### Watching the rule pack itself
+### Watching the rules
 
 The server exports five aggregate series covering alerts raised, refusals, the
 triage queue and fleet-wide rule coverage; they are defined in
-[Metrics Reference](../architecture/Metrics-Reference.md#detection-alerts-incidents-and-coverage),
+[Metrics Reference](../architecture/Metrics-Reference.md#alerts-incidents-and-coverage),
 and what a measured rate obliges is in
 [ADR-076](../adr/ADR-076-platform-metrics.md).
 
@@ -310,7 +327,7 @@ Two alerts watch a bad rollout
 one on the projected per-device alert rate, one on any ceiling suppression at
 all.
 
-### Telemetry load and observability
+### Telemetry load
 
 Edge-Sentinel telemetry runs on every enrolled device. The control-plane holds
 its budgets under that load: control-plane query p99 stays within ~20% of the
@@ -342,7 +359,7 @@ growth, and control-plane query p99 over the VM datasource. The
 `opengate_*` series come from the server exposition scrape; the `vm_*` series
 come from the store scraping itself, under the `monitoring` namespace.
 
-### Long-term (cold) tier
+### Cold storage
 
 Single-node OSS VictoriaMetrics applies **one global retention window** set by
 `victoriametrics.retention` in
@@ -357,7 +374,7 @@ Promtail reads Kubernetes pod logs, enriches each stream with Kubernetes labels,
 and pushes to Loki via
 [`deploy/helm/monitoring/files/promtail-config.yaml`](../../deploy/helm/monitoring/files/promtail-config.yaml).
 
-## Dashboards And Alerts
+## Dashboards and alerts
 
 Grafana dashboards and alerting files are canonical in
 [`deploy/grafana/provisioning`](../../deploy/grafana/provisioning). The monitoring
@@ -519,7 +536,7 @@ reading through
 [`pmat-vm-query.sh`](../../scripts/pmat-vm-query.sh) before publishing the current
 sample.
 
-### CI Trend Metric Convention
+### CI trend metrics
 
 Numeric CI trends use VictoriaMetrics through
 [`scripts/lib/vm-push.sh`](../../scripts/lib/vm-push.sh). That transport is the
@@ -540,7 +557,7 @@ Telegram credentials are held in the monitoring Secret described by
 [`NOTES.txt`](../../deploy/helm/monitoring/templates/NOTES.txt). Workflow-level
 alerts use GitHub environment secrets directly.
 
-## Deployment And Validation
+## Deploying and checking
 
 The monitoring chart is a Helm release in the `monitoring` namespace. The
 production deploy in [`cd.yml`](../../.github/workflows/cd.yml) upgrades it
@@ -593,7 +610,7 @@ Validation sources:
   verifies load-test trend rows map to Prometheus text before reaching the
   shared VM transport.
 
-## Ad-hoc Investigation
+## Investigating by hand
 
 Use `/observe` or the underlying kubectl/Loki helpers. The investigation path
 is cluster-native:

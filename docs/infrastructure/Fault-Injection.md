@@ -1,4 +1,23 @@
-# Fault Injection and Kubernetes Resilience Testing
+# Fault Injection
+
+- [How faults are injected](#how-faults-are-injected)
+- [Where faults are injected](#where-faults-are-injected)
+  - [In the test harness](#in-the-test-harness)
+  - [On the network link](#on-the-network-link)
+  - [In the cluster](#in-the-cluster)
+  - [At the edge](#at-the-edge)
+- [Harness actions](#harness-actions)
+- [The nightly network drill](#the-nightly-network-drill)
+  - [What the drill is held to](#what-the-drill-is-held-to)
+- [Scenarios and expected outcomes](#scenarios-and-expected-outcomes)
+  - [Recovery budgets](#recovery-budgets)
+- [Safety rules](#safety-rules)
+- [Tenant safety](#tenant-safety)
+- [Gating the deploy](#gating-the-deploy)
+- [Running the drills](#running-the-drills)
+  - [Ownership](#ownership)
+  - [Cleanup](#cleanup)
+  - [Emergency removal](#emergency-removal)
 
 This chapter is the single source of truth for OpenGate's fault-injection
 harness. It freezes the contract that the Go fault suite, the ingress fault
@@ -6,7 +25,7 @@ profiles, the Kubernetes scenario runners and the nightly network drill build
 against. The mechanism decision — no fault code in the shipped binary — is
 recorded in [ADR-055](../adr/ADR-055-fault-injection.md).
 
-## Mechanism
+## How faults are injected
 
 Faults come from two disjoint places, never from code inside the server:
 
@@ -26,9 +45,9 @@ Edge 5xx/timeout is injected at ingress-nginx (staging host annotations).
 The shipped server binary therefore contains **zero fault-injection code**;
 production and staging run the identical image.
 
-## Fault surfaces
+## Where faults are injected
 
-### Harness surfaces (in-process, `_test.go`)
+### In the test harness
 
 Each harness surface is a real seam the server already exposes — a `ServerConfig`
 consumer interface, the [FI0 `AgentControl`](../../server/internal/api/api.go) port,
@@ -49,7 +68,7 @@ and the `api.before-handler` middleware. The two repositories are `ServerConfig`
 interface ports; the Edge-Sentinel ports (`TelemetryReader`, `Inventory`,
 `Purger`/`PurgeJobs`) and the notifier/AMT ports are candidate, non-gating.
 
-### Link-shaper surface (deployed, nightly)
+### On the network link
 
 The machine-facing QUIC path is faulted by putting a forwarder in it. The drill's
 machines dial the name on the server's certificate; a `hostAliases` entry points
@@ -71,7 +90,7 @@ the same seed make the same decisions. A `go list -deps` assertion holds the
 shaper out of the shipped server binary, in the pattern
 [`noship_test.go`](../../server/internal/faulttest/noship_test.go) sets.
 
-### Kubernetes scenario runner (C1/C2, deployed)
+### In the cluster
 
 Single-pod deletion and bad-rollout are driven by idempotent, staging-only runner
 scripts, which drive the cluster's own API directly:
@@ -90,7 +109,7 @@ Both refuse any namespace but `opengate-staging` and capture evidence
 (`kubectl get events`, rollout status, pod state) to `EVIDENCE_DIR` for the drill
 artifacts.
 
-### Ingress surface (edge)
+### At the edge
 
 Edge 502/504/timeout is injected with version-controlled, staging-only
 ingress-nginx annotation templates applied to the public staging host, then
@@ -110,7 +129,7 @@ re-run from a cleanup `trap`). The chart can never ship a fault annotation:
 rendered manifest carrying a `fault.opengate.dev/…` key, checked against the
 production render in `make lint-k8s`.
 
-## Harness action set
+## Harness actions
 
 | Action | Behavior asserted |
 |---|---|
@@ -210,7 +229,7 @@ and victim, and render on the **Network Drill Trends** dashboard
 compares each night against a fourteen-day window and against absolute floors,
 and says in its output which of the two it applied.
 
-## Scenario catalog and expected outcomes
+## Scenarios and expected outcomes
 
 Executor legend: **H** = Go harness (in-process) · **IG** = ingress annotations ·
 **RUN** = scenario runner script ([`scripts/fault/`](../../scripts/fault)) ·
@@ -234,7 +253,7 @@ Executor legend: **H** = Go harness (in-process) · **IG** = ingress annotations
 | One-way packet loss (S3) | ND | The machine holds its connection; no offline transition, no flap. | n/a — held throughout |
 | Satellite delay and re-addressing (S4) | ND | The connection stays open at 300 ms each way, and the session survives the machine returning on a new address. | ≤ 90 s after the change |
 
-### Recovery SLO budgets
+### Recovery budgets
 
 The pod-recreation SLO is fixed at **120 s** (single-node `Recreate` + image pull
 + readiness on the shared free-tier ARM worker). The remaining budgets above are
@@ -243,7 +262,7 @@ without flaky-gate false negatives; each is tightened toward the observed p95 as
 runs accumulate. No clean-run-history waiting period applies — a drill gates
 promotion from its first run.
 
-## Safety invariants
+## Safety rules
 
 - No fault code in the shipped binary; production and staging run the identical
   image. The Go fault suite lives only in `_test.go`, and the link shaper is a
@@ -258,7 +277,7 @@ promotion from its first run.
   compiled-in injector is asserted structurally by the fault suite's
   no-import rule, not measured as disabled overhead.
 
-## Tenancy / RLS safety
+## Tenant safety
 
 Tenancy is cross-cutting: every repository call runs in a tenant-scoped
 transaction whose tenant comes from the request context (`dbtx`, JWT `tenant` claim,
@@ -269,7 +288,7 @@ tenant GUC still propagates and a fault can never drop or cross a tenant
 context. The fault suite proves this with a cross-tenant-leak assertion around a
 substituted decorator.
 
-## CI/CD gating
+## Gating the deploy
 
 Two disjoint CI surfaces gate promotion:
 
@@ -305,7 +324,7 @@ CPU/mem/disk evidence, verify the live node scrape (`up`, node-exporter,
 `/metrics`, ingress logs) in VictoriaMetrics first. See
 [CI Pipeline](./CI-Pipeline.md) and [Continuous Deployment](./Continuous-Deployment.md).
 
-## Operating the drills
+## Running the drills
 
 ### Ownership
 

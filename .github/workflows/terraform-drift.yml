@@ -256,6 +256,7 @@ jobs:
       - name: Give the cluster what this commit declares, then ask for it back
         env:
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          MONITORING_NAMESPACE: monitoring
         run: deploy/scripts/monitoring-config-apply.sh
 
       # The destination is provisioned from a file, so it survives a pod being

@@ -31,6 +31,16 @@ chapter lives in exactly one tree, appears in exactly one row of
 **Documentation describes live state only.** Nothing narrates what was removed
 or replaced. Both the seam and this are gates, not conventions.
 
+**Every page opens with its contents.** Each page under `docs/` except the
+decision records starts, right after its title, with a list linking every
+`##` to `####` heading in order, and its headings are short, plain and unique on
+the page. A long page is navigated rather than read top to bottom, and the list
+is what a reader navigates by; one written by hand falls behind the first heading
+anybody adds, so the link check holds the list to the headings with the anchors it
+already resolves, and a renamed heading has its links repointed in the same
+change. Decision records are read by number rather than navigated, so they are
+left out.
+
 **Every ADR is editable and describes what is true now.** There is no superseded
 status and no supersession chain: when a decision changes, the ADR that holds it
 is rewritten, and if the old decision left nothing behind, it is deleted. What

@@ -218,36 +218,32 @@ toolchain_parity_check() {
   return "$drift"
 }
 
-# toolchain_pinned_tools_check ROOT — 0 when every manifest-pinned tool this
-# machine resolves is the pinned one. Reports each mismatch with the one command
+# The pinned tools the gauntlet runs, each asked of scripts/require-tool.sh,
+# which knows how the tool words its version and how to install its pin.
+# scripts/tests/tool-version-parity.test.sh fails on a manifest row for a tool
+# the gauntlet runs that is missing here: a row nothing reads on this side is
+# how a scanner drifted off its pin by hand and nothing noticed.
+TOOLCHAIN_PINNED_TOOLS=(
+  jq shellcheck shfmt age age-keygen zstd
+  govulncheck staticcheck gosec go-arch-lint oapi-codegen
+  cargo-audit cargo-deny cargo-modules cargo-nextest cargo-llvm-cov
+  checkov yamllint conftest gitleaks hadolint helm kubeconform tflint trivy
+  actionlint semgrep pmat
+)
+
+# toolchain_pinned_tools_check ROOT — 0 when every pinned tool the gauntlet runs
+# is, on this machine, the pinned one. Reports each mismatch with the one command
 # that fixes it.
 toolchain_pinned_tools_check() {
-  local root="$1" bad=0
-  # shellcheck source=tool-versions.sh
-  . "$root/scripts/lib/tool-versions.sh"
-
-  _pinned_tool_check() { # human name, wanted, actual, installer
-    local name="$1" want="$2" got="$3" installer="${4:-scripts/install-shell-tools.sh}"
-    [ "$want" = "$got" ] && return 0
-    echo "✗ $name is ${got:-missing}, but scripts/lib/tool-versions.sh pins $want." >&2
-    echo "    $installer   # then ensure ~/.local/bin precedes /usr/bin" >&2
-    bad=1
-  }
-
-  _pinned_tool_check jq "$TOOL_VERSION_JQ" \
-    "$(jq --version 2>/dev/null | sed 's/^jq-//')"
-  _pinned_tool_check ShellCheck "$TOOL_VERSION_SHELLCHECK" \
-    "$(shellcheck --version 2>/dev/null | awk '/^version:/ { print $2 }')"
-  _pinned_tool_check shfmt "$TOOL_VERSION_SHFMT" \
-    "$(shfmt --version 2>/dev/null | sed 's/^v//')"
-  # The shell tests prove the endurance run's dump opens with these, so the
-  # gauntlet runs them at the versions the soak encrypts with.
-  _pinned_tool_check age "$TOOL_VERSION_AGE" \
-    "$(age --version 2>/dev/null | sed 's/^v//')" scripts/install-dump-tools.sh
-  _pinned_tool_check age-keygen "$TOOL_VERSION_AGE" \
-    "$(age-keygen --version 2>/dev/null | sed 's/^v//')" scripts/install-dump-tools.sh
-  _pinned_tool_check zstd "$TOOL_VERSION_ZSTD" \
-    "$(zstd --version 2>/dev/null | sed -n 's/.* v\([0-9][0-9.]*\),.*/\1/p')" scripts/install-dump-tools.sh
-
+  local root="$1" bad=0 tool out
+  for tool in "${TOOLCHAIN_PINNED_TOOLS[@]}"; do
+    if ! out="$("$root/scripts/require-tool.sh" "$tool" 2>&1)"; then
+      bad=1
+      printf '%s\n' "${out//ERROR: /✗ }" >&2
+    fi
+  done
+  if [ "$bad" -ne 0 ]; then
+    echo "  The copy PATH resolves is the one checked: an older copy earlier on PATH is drift too." >&2
+  fi
   return "$bad"
 }

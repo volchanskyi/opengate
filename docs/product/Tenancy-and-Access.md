@@ -1,5 +1,13 @@
 # Tenancy and Access
 
+- [The four levels](#the-four-levels)
+  - [Rules the structure always obeys](#rules-the-structure-always-obeys)
+  - [The settings ladder](#the-settings-ladder)
+- [Users, groups and permissions](#users-groups-and-permissions)
+- [Settings](#settings)
+- [Audit log](#audit-log)
+- [Related](#related)
+
 Who a machine belongs to, who may look at it, and what the console records about
 what people did.
 
@@ -19,7 +27,7 @@ accepts a customer and narrows to it, and returns the whole tenant when none is
 given.
 
 The wall itself, and the mechanism that enforces it, are in
-[Database](../architecture/Database.md#multi-tenancy).
+[Database](../architecture/Database.md#row-level-security).
 
 ### Rules the structure always obeys
 

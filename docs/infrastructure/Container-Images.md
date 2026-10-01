@@ -1,5 +1,21 @@
 # Container Images
 
+- [Registry](#registry)
+- [Tags](#tags)
+- [Architectures](#architectures)
+- [Dockerfile](#dockerfile)
+  - [What the image holds](#what-the-image-holds)
+  - [Runtime configuration](#runtime-configuration)
+  - [Running locally](#running-locally)
+- [Build pipeline](#build-pipeline)
+  - [Agent binaries for staging](#agent-binaries-for-staging)
+  - [Supply chain](#supply-chain)
+    - [Verifying an image](#verifying-an-image)
+  - [Vulnerability scan](#vulnerability-scan)
+  - [Caching](#caching)
+  - [Pulling images](#pulling-images)
+- [.dockerignore](#dockerignore)
+
 OpenGate server images are built and published to GitHub Container Registry (GHCR) on every push to `main`.
 
 ## Registry
@@ -8,7 +24,7 @@ OpenGate server images are built and published to GitHub Container Registry (GHC
 ghcr.io/volchanskyi/opengate-server
 ```
 
-## Image Tags
+## Tags
 
 | Tag pattern | When created | Example |
 |---|---|---|
@@ -33,7 +49,7 @@ Multi-stage build in the repository root (`/Dockerfile`):
 
 The Go binary uses `jackc/pgx/v5` (pure Go), so `CGO_ENABLED=0` produces a fully static binary.
 
-### Final image contents
+### What the image holds
 
 ```
 /usr/local/bin/meshserver    # Go server binary
@@ -78,7 +94,7 @@ curl http://localhost:8080/api/v1/health
 # → {"status":"ok"}
 ```
 
-## Build Pipeline
+## Build pipeline
 
 The `build-image.yml` GitHub Actions workflow triggers on pushes to `main`:
 
@@ -92,7 +108,7 @@ dev push → CI (19 gates) → merge-to-main → pushes to main
     → Trivy vulnerability scan
 ```
 
-### Agent binaries for the staging deploy
+### Agent binaries for staging
 
 The same workflow cross-builds `mesh-agent` for both musl targets and keeps each
 as an artifact. The staging deploy takes the one matching its node's architecture
@@ -102,7 +118,7 @@ window and the matrix are the `build-agent` job in
 [`build-image.yml`](../../.github/workflows/build-image.yml); the reasoning is
 [ADR-084](../adr/ADR-084-staging-environment.md).
 
-### Supply Chain Security
+### Supply chain
 
 Every pushed image is signed and attested using [Sigstore](https://sigstore.dev/) keyless signing:
 
@@ -129,7 +145,7 @@ cosign verify-attestation \
   ghcr.io/volchanskyi/opengate-server:latest
 ```
 
-### Trivy Vulnerability Scan
+### Vulnerability scan
 
 After signing, the workflow runs a Trivy container image scan targeting CRITICAL and HIGH severity vulnerabilities. The scan blocks the workflow on any findings. The pinned action and its severity list are the `aquasecurity/trivy-action` step in [`build-image.yml`](../../.github/workflows/build-image.yml).
 

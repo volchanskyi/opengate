@@ -1,12 +1,34 @@
 # Database
 
+- [Driver and connection pool](#driver-and-connection-pool)
+- [Schema types](#schema-types)
+- [Tenant levels](#tenant-levels)
+- [Row-level security](#row-level-security)
+- [Schema](#schema)
+  - [Enrollment tokens](#enrollment-tokens)
+  - [Device updates](#device-updates)
+  - [Device store methods](#device-store-methods)
+  - [Security groups](#security-groups)
+  - [AMT devices](#amt-devices)
+  - [Device hardware](#device-hardware)
+  - [Device logs](#device-logs)
+  - [Device processes](#device-processes)
+  - [Device inventory](#device-inventory)
+  - [Rule configuration](#rule-configuration)
+  - [Investigations](#investigations)
+  - [Data lifecycle](#data-lifecycle)
+- [Migrations](#migrations)
+- [Backups](#backups)
+- [Data directory](#data-directory)
+- [Encryption inside the cluster](#encryption-inside-the-cluster)
+
 OpenGate uses PostgreSQL 17 as its single storage backend behind per-domain
 repositories. The server requires the `DATABASE_URL` env var (or
 `-database-url` flag) at startup and exits fast if it is unset. See
 [ADR-014](../adr/ADR-014-postgresql.md) for the rationale behind the
 PostgreSQL choice and the supersession of ADR-014.
 
-## Driver & connection pool
+## Driver and connection pool
 
 | Setting | Value | Source |
 |---------|-------|--------|
@@ -32,7 +54,7 @@ Native Postgres types throughout — no TEXT/INTEGER shims.
 | JSON columns | `JSONB` |
 | Upsert semantics | `ON CONFLICT ... DO UPDATE` / `DO NOTHING` |
 
-## Tenancy
+## Tenant levels
 
 Four levels — tenant, customer, site, device — and the rules for what may belong
 to what are in
@@ -61,7 +83,7 @@ telemetry, inventory, hardware and update rows.
 The order these levels resolve in is one shared primitive,
 [`internal/settings`](../../server/internal/settings/settings.go), so the ordering
 exists in one place and cannot drift between the things that depend on it.
-## Multi-Tenancy
+## Row-level security
 
 Every tenant-owned table carries `tenant_id UUID NOT NULL` and is protected by
 Postgres Row-Level Security. The server derives the active tenant from
@@ -157,7 +179,7 @@ indexes, and the Administrators seed row live in
 
 All tenant tables below include `tenant_id` in addition to the domain columns shown.
 
-### Enrollment Tokens Table
+### Enrollment tokens
 
 The `enrollment_tokens` table tracks tokens used for agent CSR enrollment:
 
@@ -172,7 +194,7 @@ The `enrollment_tokens` table tracks tokens used for agent CSR enrollment:
 | `expires_at` | TIMESTAMPTZ | Expiration timestamp |
 | `created_at` | TIMESTAMPTZ | Creation timestamp |
 
-### Device Updates Table
+### Device updates
 
 The `device_updates` table tracks OTA update push/ack status per device:
 
@@ -198,13 +220,13 @@ deleting a group ungroups its devices (sets `group_id` to NULL). Newly
 enrolled devices start with `group_id = NULL` until assigned to a group.
 The `agent_sessions.device_id` foreign key cascades on delete.
 
-### Store Methods (Device)
+### Device store methods
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `UpdateDeviceGroup` | `(ctx, DeviceID, GroupID) error` | Moves a device to a different group. Pass `uuid.Nil` as `GroupID` to ungroup the device (sets `group_id` to NULL). Updates `updated_at` timestamp. |
 
-### Security Groups
+### Security groups
 
 The `security_groups` and `security_group_members` tables implement
 role-based access control. A well-known "Administrators" group (UUID
@@ -218,7 +240,7 @@ Key behaviors:
 - The first registered user is auto-added to the Administrators group (bootstrap mechanism)
 - JWT `admin` claims are derived from Administrators group membership at login/register time
 
-### AMT Devices Table
+### AMT devices
 
 The `amt_devices` table tracks Intel AMT devices connected via CIRA, independent from the agent `devices` table:
 
@@ -233,7 +255,7 @@ The `amt_devices` table tracks Intel AMT devices connected via CIRA, independent
 
 The upsert logic preserves existing non-empty fields (hostname, model, firmware) when the new value is empty, allowing incremental enrichment of device metadata.
 
-### Device Hardware Table
+### Device hardware
 
 The `device_hardware` table stores on-demand hardware inventory collected from agents:
 
@@ -250,7 +272,7 @@ The `device_hardware` table stores on-demand hardware inventory collected from a
 
 Hardware data is collected via the `RequestHardwareReport` control message and upserted via `UpsertDeviceHardware`. The server sends that request as an agent registers, so a device that reboots or reconnects with different RAM, disks or interfaces refreshes its row by coming back online. Retrieved via `GetDeviceHardware`.
 
-### Device Logs
+### Device logs
 
 Raw device logs have no database table. They are brokered on demand: the server
 sends a `RequestDeviceLogs` control message, blocks on the agent's bounded
@@ -260,7 +282,7 @@ logs is the agent connection's scope rather than an RLS row. See
 [ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md) and the
 [API reference](API-Reference.md).
 
-### Device Processes Table
+### Device processes
 
 The `device_processes` table stores sanitized Edge Sentinel process snapshots:
 
@@ -282,9 +304,9 @@ The Postgres adapter lives in
 through `dbtx.Scoped`. Numeric process metrics use rank-only labels in
 VictoriaMetrics; basenames, PIDs, and command-line hashes stay in the RLS table.
 The numeric side's retention and long-term (cold) tier are covered in
-[Monitoring](../infrastructure/Monitoring.md#long-term-cold-tier).
+[Monitoring](../infrastructure/Monitoring.md#cold-storage).
 
-### Device Inventory Table
+### Device inventory
 
 The `device_inventory` table stores each device's current auto-discovered
 footprint — one row per discovered component from a
@@ -317,7 +339,7 @@ data only — never a connection string or credential. It is exposed to any devi
 viewer in the tenant through
 [`GET /devices/{id}/inventory`](API-Reference.md).
 
-### Rule Configuration Tables
+### Rule configuration
 
 Three tables hold what a customer has changed about a monitoring rule, and which
 machines a rule cannot be evaluated on. What a rule *is* — its predicate, window,
@@ -352,7 +374,7 @@ predicate, plus a composite `(tenant_id, organization_id)` foreign key so a row
 cannot name a customer belonging to another tenant. The adapter is
 [`server/internal/rules`](../../server/internal/rules).
 
-### Investigation Tables
+### Investigations
 
 Three tables hold what a machine reported was wrong, the room those reports fold
 into, and what people did about it. The adapter is
@@ -393,11 +415,11 @@ A customer may store **500 alerts per rolling hour**
 never per tenant: at the tenant one customer's storm would consume the budget of
 every other customer the MSP looks after. What the ceiling refuses is counted
 under `opengate_alerts_suppressed_total` (see
-[Metrics Reference](./Metrics-Reference.md#detection-alerts-incidents-and-coverage))
+[Metrics Reference](./Metrics-Reference.md#alerts-incidents-and-coverage))
 and folded into one storm incident
 carrying the count, so suppression is never silent.
 
-### Data Lifecycle Tables
+### Data lifecycle
 
 Two system-level tables back right-to-be-forgotten erasure (see
 [Data Lifecycle](../product/Data-Erasure.md)). Neither is tenant-scoped (RLS) and neither
@@ -534,7 +556,7 @@ Production keeps a persistent `oci-bv` volume claim; staging sets
 `postgres.storage.persistent=false` and uses `emptyDir` because staging data is
 ephemeral E2E/smoke-test state.
 
-## Transport Security Inside Kubernetes
+## Encryption inside the cluster
 
 The Helm-generated connection string uses `sslmode=disable` because server ↔
 Postgres traffic stays inside the Kubernetes cluster via the chart's headless

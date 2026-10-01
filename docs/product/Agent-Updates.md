@@ -1,5 +1,16 @@
 # Agent Updates
 
+- [How an update reaches a machine](#how-an-update-reaches-a-machine)
+- [Publishing builds](#publishing-builds)
+- [Pushing an update](#pushing-an-update)
+  - [Matching a build to a machine](#matching-a-build-to-a-machine)
+- [What the agent checks before installing](#what-the-agent-checks-before-installing)
+- [Rollback safety](#rollback-safety)
+- [The signing key](#the-signing-key)
+- [Enrollment tokens](#enrollment-tokens)
+- [Version numbers](#version-numbers)
+- [Related](#related)
+
 Agents update themselves over their existing connection to the server. Every
 build is signed, verified twice on the machine before it is installed, and rolled
 back automatically if it fails to come back up.

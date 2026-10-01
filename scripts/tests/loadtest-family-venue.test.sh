@@ -5,7 +5,7 @@
 # not by a script, not by the harness. `soak.yaml` declared eight hours and ran
 # never; `breakpoint.yaml` was the only thing that would establish where the
 # system gives out and it ran never; `spike.yaml` was the burst-recovery case
-# and it ran never. Meanwhile docs/infrastructure/Testing.md placed them on
+# and it ran never. Meanwhile the load-test page in docs/ placed them on
 # "staging at night" and "staging overnight" in the present tense.
 #
 # scripts/tests/docs-live-state.test.sh structurally cannot catch that. Its
@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKFLOW_DIR="$REPO_ROOT/.github/workflows"
 PROFILE_DIR="$REPO_ROOT/load/profiles"
-TESTING_DOC="$REPO_ROOT/docs/infrastructure/Testing.md"
+TESTING_DOC="$REPO_ROOT/docs/infrastructure/Non-Functional-Testing.md"
 
 PASS=0
 FAIL=0
@@ -67,7 +67,7 @@ for profile in "${profiles[@]}"; do
   fi
 done
 
-# --- Testing.md's table names workflows that exist ----------------------------
+# --- the load-test page's table names workflows that exist ----------------
 #
 # The table is what a reader is told. A row pointing at a file that is not there
 # is the same claim as a row pointing at nothing.

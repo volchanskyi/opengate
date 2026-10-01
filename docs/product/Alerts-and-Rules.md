@@ -1,5 +1,19 @@
 # Alerts and Rules
 
+- [How detection works](#how-detection-works)
+- [Threshold alerts](#threshold-alerts)
+  - [What a rule can express](#what-a-rule-can-express)
+  - [Where a rule comes from](#where-a-rule-comes-from)
+  - [Which machines a rule watches](#which-machines-a-rule-watches)
+  - [What a rule may cost](#what-a-rule-may-cost)
+  - [Staged rollout and the stop switch](#staged-rollout-and-the-stop-switch)
+  - ["Has this happened before?"](#has-this-happened-before)
+- [System-event alerts](#system-event-alerts)
+- [What an alert carries](#what-an-alert-carries)
+  - [Ranking what broke](#ranking-what-broke)
+- [Alert volume limits](#alert-volume-limits)
+- [Related](#related)
+
 A rule states a condition. Each device evaluates the rules it has been given
 against its own readings, once per sample. When one breaches, the device raises
 an **alert** carrying the evidence it froze at that moment.
@@ -98,7 +112,7 @@ Each machine receives only the rules resolved for its own place in the tenancy
 ladder, so one customer's tuning never reaches another customer's machines, even
 inside the same tenant.
 
-### Coverage: which machines a rule is actually watching
+### Which machines a rule watches
 
 Per rule, every device in the fleet is exactly one of four things, and together
 they always add up to the fleet.
@@ -127,7 +141,7 @@ fact:
   it answers the same after a restart as before one. A machine that becomes able
   to evaluate the rule stops being counted as unsupported on its next reading.
 
-### What a rule may cost the machine running it
+### What a rule may cost
 
 The shipped rule pack is cost-bounded before release, but the endpoint is what
 actually pays, so **each machine enforces its own ceiling** over what a rule

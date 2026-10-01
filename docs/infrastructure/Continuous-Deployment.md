@@ -1,5 +1,17 @@
 # Continuous Deployment
 
+- [Pipeline](#pipeline)
+- [Deployment model](#deployment-model)
+- [Jobs](#jobs)
+- [Staging checks](#staging-checks)
+- [Production checks](#production-checks)
+- [Image verification](#image-verification)
+- [Skipping an unchanged deploy](#skipping-an-unchanged-deploy)
+- [Rollback](#rollback)
+- [Load tests](#load-tests)
+- [Configuration and secrets](#configuration-and-secrets)
+- [Failure notifications](#failure-notifications)
+
 ## Pipeline
 
 The deployment chain is defined by the repository workflows:
@@ -33,7 +45,7 @@ flowchart TB
   STAGING -->|"environment approval"| PROD
 ```
 
-## Deployment Model
+## Deployment model
 
 Both environments run on OKE and are managed by the
 [`opengate` Helm chart](../../deploy/helm/opengate):
@@ -48,7 +60,7 @@ The workflow creates an environment Secret only when it is absent. Shared
 enrollment and signing keys are maintained independently so a deploy cannot
 accidentally rotate agent identity material.
 
-## Workflow Jobs
+## Jobs
 
 | Job | Purpose |
 |-----|---------|
@@ -60,7 +72,7 @@ accidentally rotate agent identity material.
 The exact job dependencies and environment approvals are canonical in
 [`cd.yml`](../../.github/workflows/cd.yml).
 
-## Staging Validation
+## Staging checks
 
 The staging job:
 
@@ -76,20 +88,20 @@ The staging job:
 
 The port-forward is temporary and does not expose staging publicly.
 
-## Production Validation
+## Production checks
 
 Production is deployed only after staging succeeds and the production
 environment gate is approved. The workflow waits for rollout completion and
 runs the same smoke-test script through a temporary Service port-forward.
 
-## Image Verification
+## Image verification
 
 [`resolve-tag`](../../.github/workflows/cd.yml) verifies both image existence and
 the keyless Cosign signature before either environment can deploy. Image build,
 SBOM, signing, and attestation details live in
 [`Container-Images.md`](./Container-Images.md).
 
-## Skip-When-Unchanged
+## Skipping an unchanged deploy
 
 Two checks avoid unnecessary work:
 
@@ -113,7 +125,7 @@ helm rollback "$RELEASE" "$REVISION" -n "$NAMESPACE" --wait
 kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server"
 ```
 
-## Load Testing
+## Load tests
 
 [`load-test.yml`](../../.github/workflows/load-test.yml) validates staging without
 host access:
@@ -124,14 +136,14 @@ host access:
   ready staging server pod over the cluster network;
 - both test pods and local certificate material are removed after the run.
 
-## Configuration and Secrets
+## Configuration and secrets
 
 The workflows reference OCI API credentials, the OKE cluster identifier, and
 environment-specific application secrets directly. Their exact names and
 scope are canonical in [`cd.yml`](../../.github/workflows/cd.yml) and
 [`load-test.yml`](../../.github/workflows/load-test.yml).
 
-## Failure Notifications
+## Failure notifications
 
 Deployment failures are handled by
 [`notify_failure.py`](../../.github/scripts/notify_failure.py), which maintains a

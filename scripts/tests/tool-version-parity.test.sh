@@ -82,6 +82,7 @@ fi
 # renamed or removed from the workflows leaves a manifest row nothing checks,
 # and a row nothing checks is how the drift starts again.
 checked_tools=0
+CHECKED_KEYS=()
 check_tool() { # KEY, human name, pattern with %s where the version goes
   local key="$1" name="$2" pattern="$3" want found bad
   want="$(tool_version "$key")"
@@ -90,6 +91,7 @@ check_tool() { # KEY, human name, pattern with %s where the version goes
     return
   fi
   checked_tools=$((checked_tools + 1))
+  CHECKED_KEYS+=("$key")
   # Every line mentioning the tool in a version-carrying position, wherever it
   # is written: a workflow, the Makefile, or an install script.
   found="$(grep -rhE "$pattern" "$WORKFLOWS" "$ACTIONS" "$ROOT/Makefile" "$ROOT"/scripts/*.sh || true)"
@@ -134,11 +136,113 @@ check_tool CARGO_FUZZ cargo-fuzz 'cargo install .*cargo-fuzz|tool: cargo-fuzz'
 check_tool CARGO_NEXTEST cargo-nextest 'tool: cargo-nextest'
 check_tool CARGO_LLVM_COV cargo-llvm-cov 'tool: cargo-llvm-cov'
 check_tool OCI_CLI oci-cli 'pip install .*oci-cli'
+# Installed by actions that resolve their own version unless told one.
+check_tool ACTIONLINT actionlint '^\s*PINNED_ACTIONLINT:'
+check_tool TFLINT tflint '^\s*PINNED_TFLINT:'
+check_tool TRIVY trivy '^\s*PINNED_TRIVY:'
 
-if [ "$checked_tools" -ge 24 ]; then
+if [ "$checked_tools" -ge 27 ]; then
   pass "$checked_tools manifest rows were checked against every install site"
 else
   fail "only $checked_tools manifest rows were checked — the sweep lost rows"
+fi
+
+# --- every manifest row is held in CI -----------------------------------------
+#
+# check_tool reads a row's every install site, and a row it is never handed is a
+# row nothing reads. Three were: actionlint, tflint and trivy came from actions
+# that were never told a version and resolved their own, while the manifest
+# carried a number nobody compared with anything. A row an installer CI runs
+# reads straight from the manifest is held by construction.
+manifest_keys="$(grep -oE '^export TOOL_VERSION_[A-Z0-9_]+=' "$ROOT/scripts/lib/tool-versions.sh" \
+  | sed 's/^export TOOL_VERSION_//; s/=$//' | sort -u)"
+ci_text="$(cat "$WORKFLOWS"/*.yml "$ACTIONS"/*/*.yml)"
+installer_keys=""
+for installer_path in "$ROOT"/scripts/install-*.sh; do
+  grep -qF "$(basename "$installer_path")" <<<"$ci_text" || continue
+  installer_keys="$installer_keys"$'\n'"$(grep -ohE 'TOOL_VERSION_[A-Z0-9_]+' "$installer_path" | sed 's/^TOOL_VERSION_//' || true)"
+done
+held_keys="$(printf '%s\n' "${CHECKED_KEYS[@]}" "$installer_keys" | grep -v '^$' | sort -u)"
+unheld_keys="$(comm -23 <(printf '%s\n' "$manifest_keys") <(printf '%s\n' "$held_keys"))"
+if [ -z "$manifest_keys" ]; then
+  fail "the CI-half sweep read no manifest rows"
+elif [ -n "$unheld_keys" ]; then
+  fail "a manifest row nothing in CI is held to: $(tr '\n' ' ' <<<"$unheld_keys")"
+else
+  pass "all $(wc -l <<<"$manifest_keys") manifest rows are held to what CI installs"
+fi
+
+# --- every row for a tool the gauntlet runs is checked on the workstation -----
+#
+# The CI half above was the only half. govulncheck's pin crashed under the Go the
+# module moved to; on the workstation it had been replaced by hand with whatever
+# came out that day, and the gauntlet ran that copy green while CI crashed on
+# most runs. The local check read six tools, and govulncheck was not one of them.
+#
+# What the gauntlet runs is read from the gauntlet: its own commands, the
+# commands of every make target it calls (make -n), and every script either of
+# those starts. A manifest row whose tool appears there is a tool the gauntlet
+# runs, and scripts/lib/toolchain-parity.sh has to check it.
+# shellcheck source=../lib/toolchain-parity.sh
+. "$ROOT/scripts/lib/toolchain-parity.sh"
+# shellcheck source=../require-tool.sh
+. "$ROOT/scripts/require-tool.sh"
+
+strip_comments() { grep -vE '^[[:space:]]*#' "$@" || true; }
+gauntlet_text="$(strip_comments "$ROOT/scripts/precommit-gauntlet.sh")"
+make_text=""
+while IFS= read -r target; do
+  make_text="$make_text"$'\n'"$(make -s -C "$ROOT" -n "$target" 2>/dev/null || true)"
+done < <(grep -oE '(^|[^A-Za-z0-9_-])make [a-z][a-z0-9-]+' <<<"$gauntlet_text" | awk '{ print $NF }' | sort -u)
+# require-tool.sh names every pinned tool and runs none of them; the tool a
+# target asks it about is its argument, which the make text already carries.
+script_text=""
+while IFS= read -r script; do
+  [ -f "$ROOT/$script" ] && [ "$script" != scripts/require-tool.sh ] || continue
+  script_text="$script_text"$'\n'"$(strip_comments "$ROOT/$script")"
+done < <(grep -oE 'scripts/[a-z0-9-]+\.sh' <<<"$gauntlet_text$make_text" | sort -u)
+runs_text="$gauntlet_text$make_text$script_text"
+
+# command_re KEY — how the tool a manifest row pins appears as a command.
+command_re() {
+  local name
+  name="$(tr 'A-Z_' 'a-z-' <<<"$1")"
+  case "$name" in
+    # The coverage run drives the test runner as `cargo llvm-cov nextest`.
+    cargo-nextest) name="(cargo[ -]|llvm-cov )nextest" ;;
+    cargo-*) name="cargo[ -]${name#cargo-}" ;;
+    oci-cli) name="oci" ;;
+  esac
+  printf '(^|[^A-Za-z0-9_./-])%s($|[^A-Za-z0-9_-])' "$name"
+}
+
+# unchecked_rows TOOL... — the manifest rows for a tool the gauntlet runs that a
+# local check over exactly these tools would not read.
+unchecked_rows() {
+  local key tool checked_keys=""
+  for tool in "$@"; do checked_keys="$checked_keys $(manifest_key "$tool")"; done
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    grep -qE "$(command_re "$key")" <<<"$runs_text" || continue
+    case " $checked_keys " in *" $key "*) continue ;; esac
+    printf '%s\n' "$key"
+  done <<<"$manifest_keys"
+}
+
+if [ -z "$make_text" ] || [ -z "$script_text" ]; then
+  fail "the local-half sweep read none of what the gauntlet runs"
+fi
+# The defect first: the six tools the local check read when govulncheck drifted.
+if grep -qxF GOVULNCHECK <<<"$(unchecked_rows jq shellcheck shfmt age age-keygen zstd)"; then
+  pass "the local check govulncheck drifted under misses a tool the gauntlet runs"
+else
+  fail "the six-tool direction no longer reproduces: govulncheck is not read as run by the gauntlet"
+fi
+missing_rows="$(unchecked_rows "${TOOLCHAIN_PINNED_TOOLS[@]}")"
+if [ -n "$missing_rows" ]; then
+  fail "the gauntlet runs a pinned tool the workstation never checks: $(tr '\n' ' ' <<<"$missing_rows")"
+else
+  pass "every pinned tool the gauntlet runs is checked on the workstation (${#TOOLCHAIN_PINNED_TOOLS[@]} tools)"
 fi
 
 # --- nothing installs a tool without saying which one ------------------------
@@ -268,7 +372,7 @@ else
   fail "scripts/install-shell-tools.sh spells a version out instead of reading the manifest"
 fi
 
-for installer_name in install-dump-tools.sh install-viewcore.sh; do
+for installer_name in install-dump-tools.sh install-viewcore.sh install-release-tools.sh; do
   installer_path="$ROOT/scripts/$installer_name"
   if grep -q 'lib/tool-versions.sh' "$installer_path" \
     && ! grep -qE '^[A-Z_]+_(VERSION|REV)="[0-9v]' "$installer_path"; then

@@ -56,7 +56,10 @@ run_case() {
   rm -rf "$WORK/summaries"
   mkdir -p "$WORK/summaries"
   STATUS=0
-  K6_BIN="$WORK/k6" \
+  # A summary of the case's own, always: the job running this test has a
+  # summary of its own, and a case that inherits it writes into it.
+  GITHUB_STEP_SUMMARY="${CASE_SUMMARY:-$WORK/case-summary.md}" \
+    K6_BIN="$WORK/k6" \
     LOADTEST_K6_SUMMARY_DIR="$WORK/summaries" \
     LOADTEST_BASE_URL="http://127.0.0.1:18080" \
     LOADTEST_RUN_ID="${LOADTEST_RUN_ID:-99-1}" \
@@ -118,7 +121,7 @@ else
   fail "threshold failure is a notice, not a warning (out=[$(cat "$WORK/out.txt")])"
 fi
 : >"$WORK/step-summary.md"
-GITHUB_STEP_SUMMARY="$WORK/step-summary.md" run_case 99
+CASE_SUMMARY="$WORK/step-summary.md" run_case 99
 if grep -q 'api-baseline' "$WORK/step-summary.md" && grep -qi 'threshold' "$WORK/step-summary.md"; then
   pass "and the run's summary says which scenario crossed k6's own marks"
 else

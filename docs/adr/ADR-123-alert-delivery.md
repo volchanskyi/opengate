@@ -82,8 +82,12 @@ and its applier's test reads the kinds from the chart rather than trusting a
 name. The production deploy runs it right after it upgrades the monitoring
 release, so dashboards, rules and scrape targets land with the deploy, and the
 nightly infrastructure-drift workflow runs it again, so the cluster is compared
-with the repository every night rather than at an install nobody repeated. The
-chart those ConfigMaps belong beside follows the same way: the production deploy
+with the repository every night rather than at an install nobody repeated. Each
+caller names the namespace the stack runs in, as `MONITORING_NAMESPACE`, and the
+applier defaults nothing: a step inherits its job's environment, the production
+deploy job's `NAMESPACE` names the application's namespace, and an applier
+reading it writes the ConfigMaps where no Grafana and no store run. The chart
+those ConfigMaps belong beside follows the same way: the production deploy
 upgrades the monitoring release from it every time, so a permission or argument
 the chart gains is not left waiting on a hand install.
 

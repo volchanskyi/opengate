@@ -6,9 +6,10 @@
 #   1. No push to main.
 #   2. No force-push to main (any form).
 #   3. Not behind upstream (best-effort; offline → skip).
-#   4. /refactor marker matches HEAD for ANY commits since origin/dev,
+#   4. The refactor marker matches HEAD for ANY commits since origin/dev,
 #      regardless of the files they touch. A push is a push — there is no
-#      doc-only / CI-only exemption.
+#      doc-only / CI-only exemption. The marker names a commit whose content
+#      passed the gauntlet and then /refactor (lib/tidy-up.sh).
 #
 # NO BYPASS.
 set -euo pipefail
@@ -60,7 +61,9 @@ fi
 
 # 4. Refactor marker — required for ANY commit on the branch since origin/dev,
 #    no matter what files it touches (no doc-only / CI-only exemption). The
-#    auto-push hook and /refactor both write the marker = HEAD.
+#    post-commit hook writes it for a commit made from the content /refactor
+#    finished on; scripts/refactor-gate.sh finish writes it when that content is
+#    HEAD's own, which is the path for a commit rebased by hand.
 base=""
 if git rev-parse --verify --quiet origin/dev >/dev/null 2>&1; then
   base="$(git merge-base HEAD origin/dev 2>/dev/null || true)"
@@ -79,11 +82,11 @@ if [ -n "$base" ] && [ "$base" != "$(git rev-parse HEAD 2>/dev/null || echo .)" 
   marker_file="$(project_root)/.claude/.markers/refactor.head"
   head_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
   if [ ! -f "$marker_file" ]; then
-    block git-refactor-marker "git push refused: branch has commits since origin/dev but .claude/.markers/refactor.head is missing. Run /refactor; it writes the marker on success."
+    block git-refactor-marker "git push refused: branch has commits since origin/dev but .claude/.markers/refactor.head is missing. Run ./scripts/precommit-gauntlet.sh to a pass, then /refactor; with nothing tracked uncommitted, its finish marks HEAD."
   fi
   expected="$(cat "$marker_file" 2>/dev/null || echo "")"
   if [ "$expected" != "$head_sha" ]; then
-    block git-refactor-marker "git push refused: refactor marker ($expected) does not match HEAD ($head_sha). Re-run /refactor after the latest commit."
+    block git-refactor-marker "git push refused: refactor marker ($expected) does not match HEAD ($head_sha). Run ./scripts/precommit-gauntlet.sh to a pass, then /refactor; with nothing tracked uncommitted, its finish marks HEAD."
   fi
 fi
 

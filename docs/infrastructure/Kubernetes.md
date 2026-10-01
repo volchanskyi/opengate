@@ -1,10 +1,18 @@
 # Kubernetes
 
+- [Cluster layout](#cluster-layout)
+- [The Helm chart](#the-helm-chart)
+  - [Prerequisites](#prerequisites)
+  - [Secrets](#secrets)
+  - [QUIC and MPS traffic](#quic-and-mps-traffic)
+  - [Shared keys](#shared-keys)
+- [Validation](#validation)
+
 OpenGate runs on **Oracle Kubernetes Engine (OKE)** via a Helm chart. The
 platform decisions are recorded in
 [ADR-030](../adr/ADR-030-kubernetes-on-oke.md).
 
-## Cluster Topology
+## Cluster layout
 
 The serving shape on the single-node start: HTTP/WSS rides ingress-nginx, while
 the non-HTTP L4 transports (QUIC, MPS CIRA) bind the node directly via
@@ -36,7 +44,7 @@ flowchart TB
   BACKUP -->|"pg_dump"| OBJ
 ```
 
-## Chart
+## The Helm chart
 
 The application chart is [`deploy/helm/opengate`](../../deploy/helm/opengate). Its
 templates translate the compose services one-for-one:
@@ -55,7 +63,7 @@ Environment overlays mirror the compose split:
 tunable surface is documented inline in
 [`values.yaml`](../../deploy/helm/opengate/values.yaml).
 
-### Cluster prerequisites
+### Prerequisites
 
 Installed once per cluster, outside the chart (the chart's
 [`NOTES.txt`](../../deploy/helm/opengate/templates/NOTES.txt) prints the exact
@@ -72,7 +80,7 @@ The chart never embeds secret material — it references an `existingSecret`
 [`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml) for the
 `kubectl create secret` recipe.
 
-### L4 (QUIC + MPS)
+### QUIC and MPS traffic
 
 QUIC (agent transport, UDP) and Intel AMT CIRA (MPS, TCP) are non-HTTP and
 cannot ride the ingress. On the single-node start they bind to the node's

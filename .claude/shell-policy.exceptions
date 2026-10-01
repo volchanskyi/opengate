@@ -1,6 +1,7 @@
 # class	path	allowed set + options	reason
 standalone	scripts/tests/check-shell-policy.test.sh	e,o	Fixtures exercise rejected option disables and verify sourced libraries preserve caller state.
 library	.claude/hooks/lib/common.sh	-	Shared hook functions; callers opt into fail-closed behavior.
+library	.claude/hooks/lib/tidy-up.sh	-	The tidy-up proof is sourced by the gauntlet, the refactor gate, the commit guard and the post-commit hook, which each set their own policy.
 library	deploy/scripts/common.sh	-	Deployment functions inherit the caller's execution policy.
 library	scripts/lib/vm-push.sh	-	Transport functions are sourced by multiple standalone push scripts.
 library	scripts/lib/vm-query.sh	-	Read-back query functions inherit the sourcing script's execution policy.

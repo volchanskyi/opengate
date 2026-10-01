@@ -22,8 +22,10 @@ commit.
 
 ## Commit / push atomicity
 
-- Commit and push are a single handoff. Once a commit succeeds, push it
-  immediately before yielding.
+- Commit and push are a single handoff. The post-commit hook pushes a commit
+  made from content `/refactor` finished on
+  ([`refactor.md`](refactor.md)); when it cannot, push by hand immediately
+  before yielding.
 - Never leave committed changes un-pushed after the implementation is complete.
 
 ## Identity

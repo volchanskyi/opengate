@@ -19,6 +19,16 @@ type link struct {
 type document struct {
 	LineCount int
 	Anchors   map[string]struct{}
+	Headings  []heading
+}
+
+// heading is one heading outside fenced code, with the anchor a link reaches it
+// by.
+type heading struct {
+	Line   int
+	Level  int
+	Text   string
+	Anchor string
 }
 
 // problem describes one invalid repository-local Markdown link.

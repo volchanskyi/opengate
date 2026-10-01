@@ -1,5 +1,10 @@
 # Endpoint Logs
 
+- [Reading a machine's log](#reading-a-machines-log)
+- [Who can read logs](#who-can-read-logs)
+- [The relationship to alerts](#the-relationship-to-alerts)
+- [Related](#related)
+
 A machine's own log is where it explains itself. OpenGate reads it **without
 moving it**: the lines stay on the device, are pulled on demand, are redacted, and
 are streamed straight back to the administrator who asked for them. Nothing is
@@ -28,7 +33,7 @@ collapses the returned lines without discarding the filters.
 Jumping from a metrics chart into the logs carries the chart's time window
 straight into the log view, so you land on the same stretch you were looking at.
 
-## Who can read logs, and what is recorded
+## Who can read logs
 
 | Control | Behaviour |
 |---|---|
