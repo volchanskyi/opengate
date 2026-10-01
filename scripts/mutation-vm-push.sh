@@ -18,7 +18,7 @@ metrics="$(
 
     def sample($row; $metric; $language; $value):
       select($value != null)
-      | "\($metric){commit=\"\(($row.commit // "unknown") | label_escape)\",env=\"\(($row.env // "ci") | label_escape)\",language=\"\($language | label_escape)\"} \($value)";
+      | "\($metric){env=\"\(($row.env // "ci") | label_escape)\",language=\"\($language | label_escape)\"} \($value)";
 
     . as $row
     | ($row.scores // {} | to_entries[])

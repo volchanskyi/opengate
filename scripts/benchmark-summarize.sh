@@ -2,15 +2,25 @@
 # Build canonical benchmark rows from Go -benchmem output and Criterion JSON,
 # then gate regressions. Deterministic allocation metrics (allocs/op, bytes/op)
 # are compared against the committed baseline at ±2%. The machine-dependent ns/op
-# metric is hard-gated against a noise-robust VictoriaMetrics window baseline (14d
-# median × a frozen relative band) OR an absolute ceiling anchored on the committed
-# baseline — either rule reds. The frozen band/ceiling were calibrated from the
-# live VM series' measured run-to-run variance; fail-open on any VM failure.
+# metric is hard-gated against a noise-robust VictoriaMetrics window baseline (the
+# median of the latest reading of each of the 14 dates before tonight's × a frozen
+# relative band) OR an absolute ceiling anchored on the committed baseline —
+# either rule reds. The frozen band/ceiling were calibrated from the live VM
+# series' measured run-to-run variance; fail-open on any VM failure.
+#
+# Environment:
+#   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/vm-query.sh
 . "$SCRIPT_DIR/lib/vm-query.sh"
+# shellcheck source=scripts/lib/summary-table.sh
+. "$SCRIPT_DIR/lib/summary-table.sh"
+
+# Where the run's summary page is written: each reading beside what it is held
+# to, and what the check made of it.
+BENCHMARK_SUMMARY_FILE="${BENCHMARK_SUMMARY_FILE:-benchmark-summary.md}"
 
 GO_BENCH_FILE="${GO_BENCH_FILE:-bench-go.txt}"
 CRITERION_ROOT="${CRITERION_ROOT:-agent/target/criterion}"
@@ -18,18 +28,13 @@ BASELINE_FILE="${BASELINE_FILE:-benchmarks/baseline.json}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# Exclude the current commit from every window query so a workflow re-run never
-# compares against its own just-pushed sample (the exclusion lives in vm-query.sh
-# and is keyed off VM_EXCLUDE_COMMIT).
-export VM_EXCLUDE_COMMIT="${VM_EXCLUDE_COMMIT:-$COMMIT_SHA}"
-
 # ns/op window-gate constants — frozen from live-VM calibration (measured
 # run-to-run CV ≤ 12.4%, worst no-change excursion +28%). See the plan
 # vm-readback-m2-benchmark-nsop-gate.md for the derivation; do not hand-tune here.
-NS_WINDOW_DAYS=14       # < 30d VM retention; ~14 nightly samples
+NS_WINDOW_DAYS=14       # < 30d VM retention; the 14 dates before tonight's
 NS_REL_TOL=0.50         # regress if ns/op > window median × (1 + this)
 NS_ABS_CEIL_TOL=1.0     # regress if ns/op > committed-baseline ns × (1 + this)
-NS_MIN_WINDOW_SAMPLES=3 # fewer window samples ⇒ relative rule skipped (cold-start)
+NS_MIN_WINDOW_SAMPLES=3 # fewer dates ⇒ relative rule skipped (cold-start)
 
 parse_go_bench() {
   local file="$1"
@@ -160,24 +165,16 @@ hard_regressions() {
   ' <<<"$baseline"
 }
 
-# Fetch the per-{benchmark,lang} ns/op window statistic from VictoriaMetrics: the
-# 14d median (relative-rule baseline) and the run count (cold-start guard). Each is
-# an instant aggregation over the range that drops the per-commit series — quantile
-# for the robust center, count for the sample size — grouped by {benchmark,lang}.
-# Prints TSV "lang<TAB>name<TAB>median<TAB>count", one line per series that has a
-# median. FAIL-OPEN: any VM/transport failure yields no lines (⇒ absolute-only).
+# Fetch the per-{benchmark,lang} ns/op window from VictoriaMetrics: the median of
+# the latest reading of each date before tonight's (relative-rule baseline) and how
+# many dates that is (cold-start guard). A night is a date, so nights that ran
+# tonight's code count and a re-run of tonight is kept out by its date.
+# Prints TSV "lang<TAB>name<TAB>median<TAB>count", one line per series.
+# FAIL-OPEN: any VM/transport failure yields no lines (⇒ absolute-only).
 ns_window_stats() {
-  local sel window
-  sel="benchmark_ns_op{$(vm_query_selector 'env="ci"')}"
-  window="[${NS_WINDOW_DAYS}d]"
-  {
-    vm_query_window "quantile(0.5, median_over_time(${sel}${window})) by (benchmark, lang)" \
-      | sed 's/^/M\t/'
-    vm_query_window "count(count_over_time(${sel}${window})) by (benchmark, lang)" \
-      | sed 's/^/C\t/'
-  } | awk -F'\t' '
+  vm_nightly_window benchmark_ns_op 'env="ci"' "$NS_WINDOW_DAYS" | awk -F'\t' '
     {
-      kind = $1; sig = $2; val = $3
+      sig = $1; median = $2; count = $3
       bench = ""; lang = ""
       n = split(sig, parts, ",")
       for (i = 1; i <= n; i++) {
@@ -186,14 +183,7 @@ ns_window_stats() {
         if (kv[1] == "lang") lang = kv[2]
       }
       if (bench == "" || lang == "") next
-      key = lang "\t" bench
-      if (kind == "M") med[key] = val; else cnt[key] = val
-    }
-    END {
-      for (k in med) {
-        c = (k in cnt) ? cnt[k] : 0
-        print k "\t" med[k] "\t" c
-      }
+      print lang "\t" bench "\t" median "\t" count
     }
   '
 }
@@ -247,6 +237,50 @@ ns_window_regressions() {
   ' <<<"$baseline"
 }
 
+# summary_page ROWS BASELINE WINDOW writes the run's summary page. It states the
+# same limits the two gates above apply: the baseline plus its tolerance for the
+# allocation counts, and for the timing the nights' band (where there are enough
+# nights) and the baseline ceiling.
+summary_page() {
+  local rows="$1" baseline="$2" window="$3"
+  {
+    printf '### Benchmarks\n\n'
+    summary_table_header
+    jq -r --argjson rows "$rows" --argjson window "$window" \
+      --argjson reltol "$NS_REL_TOL" --argjson ceiltol "$NS_ABS_CEIL_TOL" --argjson minn "$NS_MIN_WINDOW_SAMPLES" '
+      def num: (. * 100 | round) / 100 | tostring;
+      . as $baseline
+      | ($baseline.default_tolerances // {}) as $defaults
+      | $rows[] as $row
+      | ([$baseline.benchmarks[]? | select(.name == $row.name and .lang == $row.lang)] | first) as $base
+      | ("\($row.lang)/\($row.name)") as $name
+      | ((["allocs_op", "bytes_op"][] as $m
+          | select($row[$m] != null)
+          | ($m | sub("_op$"; "/op")) as $unit
+          | if $base == null or $base[$m] == null then [$name + " " + $unit, "no limit", ($row[$m] | num), "—"]
+            else ($base.tolerances[$m] // $defaults[$m] // 0.02) as $tol
+              | ($base[$m] * (1 + $tol)) as $limit
+              | [$name + " " + $unit, "≤ \($limit | num) (baseline \($base[$m] | num) + \($tol * 100 | num) %)",
+                 ($row[$m] | num), (if $row[$m] > $limit then "FAIL" else "pass" end)]
+            end),
+         (select($row.ns_op != null)
+          | ($window[$row.lang + "/" + $row.name]) as $win
+          | (if $win != null and ($win.count // 0) >= $minn and $win.median != null
+               then ($win.median | tonumber) * (1 + $reltol) else null end) as $band
+          | (if $base != null and $base.ns_op != null then $base.ns_op * (1 + $ceiltol) else null end) as $ceiling
+          | ([ (if $band != null then "≤ \($band | num) ns (nights\u0027 median × \(1 + $reltol | num))" else empty end),
+               (if $ceiling != null then "≤ \($ceiling | num) ns (baseline × \(1 + $ceiltol | num))" else empty end) ]
+             | if length == 0 then "no limit" else join("; ") end) as $expected
+          | (($band != null and $row.ns_op > $band) or ($ceiling != null and $row.ns_op > $ceiling)) as $crossed
+          | [$name + " ns/op", $expected, "\($row.ns_op | num) ns",
+             (if $band == null and $ceiling == null then "—" elif $crossed then "FAIL" else "pass" end)]))
+      | "| \(.[0]) | \(.[1]) | \(.[2]) | \(.[3]) |"
+    ' <<<"$baseline"
+    summary_legend
+    printf -- '- **ns/op, allocs/op, B/op** — the time, the allocations and the bytes one call of the benchmark took. Allocations are held to the committed baseline; time is held to the median of the nights before and to a ceiling over the baseline, because a runner'"'"'s speed varies from night to night.\n'
+  } >"$BENCHMARK_SUMMARY_FILE"
+}
+
 regression_check() {
   local rows="$1"
   [[ -f "$BASELINE_FILE" ]] || {
@@ -261,8 +295,11 @@ regression_check() {
   }
 
   # Read-back the ns/op window baseline once (fail-open to {} on any VM failure).
+  # Without tonight's date the window would read tonight into itself.
+  vm_tonight >/dev/null || return 2
   local window
   window="$(ns_window_map)"
+  summary_page "$rows" "$baseline" "$window"
 
   local branch="${GITHUB_REF_NAME:-dev}"
   local lines=()

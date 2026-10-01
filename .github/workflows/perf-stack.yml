@@ -65,6 +65,19 @@ env:
   PERF_GENERATOR_MEMORY: '10G'
 
 jobs:
+  # The night's date, taken once for every sample the night writes: the legs run
+  # side by side and none of them is first.
+  started:
+    name: Record when the run started
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      started_at: ${{ steps.started.outputs.at }}
+    steps:
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
   # The sweep's points are stated rather than assumed: a comparison between
   # processor counts is only a comparison if the counts are recorded beside the
   # numbers they produced.
@@ -118,13 +131,20 @@ jobs:
         run: scripts/perf-stack-quic.sh raise-buffers
 
       - name: Bring the performance stack up
+        id: stack
         env:
           PERF_SERVER_CPUS: ${{ matrix.cpus }}
         run: |
           set -euo pipefail
           DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
           export DOCKER_CONFIG
+          scripts/perf-stack-pull.sh "$COMPOSE_FILE"
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+          # The database's own accounting, sampled for as long as the job runs,
+          # so the leg's summary can say how much of its caps it used through
+          # the measured phase.
+          DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
+          nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
 
       # Past Docker's userland proxy: the generator dials the name on the
       # server's certificate, mapped to the container's own address, and the
@@ -243,7 +263,7 @@ jobs:
         run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
 
       - name: Read the verdict the run wrote about itself
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json"
 
       # And the numbers the profile says this leg is judged by. The verdict
@@ -253,11 +273,28 @@ jobs:
       # evaluator reads canonical rows, and the only night that produces those
       # is the staging one.
       - name: Read the profile's limits against the run's own rows
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           scripts/perf-bundle-limits.sh load/profiles/scaling.yaml \
             "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json" /tmp/scaling-rows.json
+
+      # Every measurement beside the limit the profile holds it to, the error
+      # rate, and how much of its own ceiling the server and the database used
+      # through the measured phase.
+      - name: Write the leg's summary
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BUNDLE="$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json"
+          if [ ! -s "$BUNDLE" ] || [ ! -s "/tmp/scaling-rows.json" ]; then
+            echo "The leg wrote no rows, so its summary is the verdict above."
+            exit 0
+          fi
+          read -r FROM TO <<<"$(scripts/run-summary.sh window "load/profiles/scaling.yaml" "$BUNDLE")"
+          scripts/database-levels.sh average /tmp/db-samples.tsv "$FROM" "$TO" >/tmp/db-levels.json
+          scripts/run-summary.sh render --title "Scaling sweep (${{ matrix.cpus }} processors)" --profile "load/profiles/scaling.yaml" \
+            --rows "/tmp/scaling-rows.json" --bundle "$BUNDLE" --database /tmp/db-levels.json >>"$GITHUB_STEP_SUMMARY"
 
       - name: Tear the stack down
         if: always()
@@ -267,7 +304,7 @@ jobs:
           docker compose -f "$COMPOSE_FILE" down -v
 
       - name: Upload the scaling bundle
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: perf-scaling-${{ matrix.cpus }}
@@ -323,11 +360,18 @@ jobs:
         run: scripts/perf-stack-quic.sh raise-buffers
 
       - name: Bring the performance stack up
+        id: stack
         run: |
           set -euo pipefail
           DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
           export DOCKER_CONFIG
+          scripts/perf-stack-pull.sh "$COMPOSE_FILE"
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+          # The database's own accounting, sampled for as long as the job runs,
+          # so the leg's summary can say how much of its caps it used through
+          # the measured phase.
+          DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
+          nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
 
       # Past Docker's userland proxy: the generator dials the name on the
       # server's certificate, mapped to the container's own address, and the
@@ -443,24 +487,41 @@ jobs:
         run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
 
       - name: Read the verdict the run wrote about itself
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json"
 
       # And the numbers the profile says this leg is judged by, read off the run's
       # own evidence.
       - name: Read the profile's limits against the run's own rows
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           scripts/perf-bundle-limits.sh "${{ matrix.path }}" \
             "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" /tmp/volume-rows.json
+
+      # Every measurement beside the limit the profile holds it to, the error
+      # rate, and how much of its own ceiling the server and the database used
+      # through the measured phase.
+      - name: Write the leg's summary
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BUNDLE="$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json"
+          if [ ! -s "$BUNDLE" ] || [ ! -s "/tmp/volume-rows.json" ]; then
+            echo "The leg wrote no rows, so its summary is the verdict above."
+            exit 0
+          fi
+          read -r FROM TO <<<"$(scripts/run-summary.sh window "${{ matrix.path }}" "$BUNDLE")"
+          scripts/database-levels.sh average /tmp/db-samples.tsv "$FROM" "$TO" >/tmp/db-levels.json
+          scripts/run-summary.sh render --title "Volume family (${{ matrix.agents }} machines)" --profile "${{ matrix.path }}" \
+            --rows "/tmp/volume-rows.json" --bundle "$BUNDLE" --database /tmp/db-levels.json >>"$GITHUB_STEP_SUMMARY"
 
       # The volume family's whole finding is this number, and it was written into
       # a file beside the bundle that nothing downstream opened. Folding it in is
       # what puts it where a reader looks after the metrics store has forgotten
       # the night.
       - name: Weigh what the fleet actually cost, and fold it into the evidence
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           bash scripts/perf-weigh-fixture.sh weigh /tmp/fixture-baseline.json \
@@ -477,7 +538,7 @@ jobs:
           docker compose -f "$COMPOSE_FILE" down -v
 
       - name: Upload the volume bundle
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: perf-volume-${{ matrix.agents }}
@@ -612,11 +673,18 @@ jobs:
         run: scripts/perf-stack-quic.sh raise-buffers
 
       - name: Bring the performance stack up
+        id: stack
         run: |
           set -euo pipefail
           DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
           export DOCKER_CONFIG
+          scripts/perf-stack-pull.sh "$COMPOSE_FILE"
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+          # The database's own accounting, sampled for as long as the job runs,
+          # so the leg's summary can say how much of its caps it used through
+          # the measured phase.
+          DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
+          nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
 
       # Past Docker's userland proxy: the generator dials the name on the
       # server's certificate, mapped to the container's own address, and the
@@ -726,18 +794,35 @@ jobs:
         run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
 
       - name: Read the verdict the run wrote about itself
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json"
 
       # And the numbers the profile says this leg is judged by, read off the run's
       # own evidence — this venue produces no browser-side export to join, which
       # is why every limit these profiles declare had gone unread.
       - name: Read the profile's limits against the run's own rows
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           scripts/perf-bundle-limits.sh "${{ matrix.path }}" \
             "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json" /tmp/${{ matrix.profile }}-rows.json
+
+      # Every measurement beside the limit the profile holds it to, the error
+      # rate, and how much of its own ceiling the server and the database used
+      # through the measured phase.
+      - name: Write the leg's summary
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BUNDLE="$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json"
+          if [ ! -s "$BUNDLE" ] || [ ! -s "/tmp/${{ matrix.profile }}-rows.json" ]; then
+            echo "The leg wrote no rows, so its summary is the verdict above."
+            exit 0
+          fi
+          read -r FROM TO <<<"$(scripts/run-summary.sh window "${{ matrix.path }}" "$BUNDLE")"
+          scripts/database-levels.sh average /tmp/db-samples.tsv "$FROM" "$TO" >/tmp/db-levels.json
+          scripts/run-summary.sh render --title "${{ matrix.title }}" --profile "${{ matrix.path }}" \
+            --rows "/tmp/${{ matrix.profile }}-rows.json" --bundle "$BUNDLE" --database /tmp/db-levels.json >>"$GITHUB_STEP_SUMMARY"
 
       - name: Tear the stack down
         if: always()
@@ -747,7 +832,7 @@ jobs:
           docker compose -f "$COMPOSE_FILE" down -v
 
       - name: Upload the ${{ matrix.profile }} bundle
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: perf-${{ matrix.profile }}
@@ -790,14 +875,140 @@ jobs:
           set -euo pipefail
           scripts/perf-scaling-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # Say so when the night was lost.
+  # Every leg's rows, into the trend, and each leg against the nights before it.
+  #
+  # The legs were held to their profiles' fixed limits and to nothing else, and
+  # their numbers lived in an artifact alone. This job's result says whether the
+  # trend was published; what it found is read by the gate below.
+  publish:
+    name: Publish the performance trend
+    needs: [started, scaling, volume, shapes]
+    if: always() && needs.started.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: observability
+    permissions:
+      contents: read
+    outputs:
+      regression: ${{ steps.check.outputs.regression }}
+    env:
+      # When the run started, which every sample of the night carries.
+      VM_RUN_STARTED_AT: ${{ needs.started.outputs.started_at }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Collect every leg's bundle
+        uses: actions/download-artifact@v8
+        with:
+          pattern: perf-*
+          path: perf-legs
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      # A leg is named by its bundle's directory, and a leg whose bundle says it
+      # did not measure the system is compared with nothing and pushed nowhere.
+      - name: Compare each leg with the nights before it
+        id: check
+        run: |
+          set -euo pipefail
+          mapfile -t BUNDLES < <(find perf-legs -name bundle.json | sort)
+          if [ "${#BUNDLES[@]}" -eq 0 ]; then
+            echo "::error::no leg wrote a bundle, so there is nothing to compare or publish."
+            exit 1
+          fi
+          set +e
+          scripts/perf-regression-check.sh "${BUNDLES[@]}" >perf-regression.out 2>&1
+          CHECK_STATUS=$?
+          set -e
+          cat perf-regression.out
+          case "$CHECK_STATUS" in
+            0) echo "regression=0" >>"$GITHUB_OUTPUT" ;;
+            1) echo "regression=1" >>"$GITHUB_OUTPUT" ;;
+            *)
+              echo "regression=0" >>"$GITHUB_OUTPUT"
+              echo "::error::the legs could not be compared with their nights (exit $CHECK_STATUS)."
+              exit "$CHECK_STATUS"
+              ;;
+          esac
+          {
+            echo "alert_text<<EOF"
+            grep '^REGRESSION_ALERT:' perf-regression.out | sed 's/^REGRESSION_ALERT://' || true
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Push to VictoriaMetrics
+        run: |
+          set -euo pipefail
+          mapfile -t BUNDLES < <(find perf-legs -name bundle.json | sort)
+          scripts/perf-vm-push.sh "${BUNDLES[@]}"
+
+      - name: Send Telegram alert
+        # Runs whatever happened above it, and says which of the three it was.
+        # A refused send reddens this job; the finding is read by the gate below.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ steps.check.outputs.regression }}
+          ALERT_TEXT: ${{ steps.check.outputs.alert_text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+            echo "No alert sent: the legs were published and none is past its nights."
+            exit 0
+          fi
+          if [ "${FINDING:-0}" = "1" ]; then
+            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Performance Stack Trends" (opengate-perf-stack-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          else
+            MSG="$(printf 'Performance stack trend: the legs were not published (%s).\n\nRun: %s' "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
+
+  gate:
+    name: Performance regression gate
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Fail workflow red on a leg past its nights
+        run: |
+          if [ "${{ needs.publish.result }}" != "success" ]; then
+            echo "::error::the performance trend was not published; see the publish job."
+            exit 1
+          fi
+          if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then
+            echo "::error::a leg that holds its load is past the nights before it — see the publish job's summary and the Telegram alert."
+            exit 1
+          fi
+          echo "No leg is past the nights before it."
+
+  # Alert if the run did not finish.
   #
   # Every nightly here published its verdict into its own result and nothing
   # read it: a run that died, was cancelled, or was killed at its timeout went
   # red on a page nobody opens. The alert path is the part that makes a red run
   # a thing somebody knows about.
   alert:
-    name: Say so if the night was lost
+    name: Alert if the run did not finish
     # Five jobs and no gate job, so the alert is a job rather than a step
     # pasted five times. It runs on a fresh runner whatever happened upstream,
     # which is what a step inside a job killed at its own timeout cannot do.
@@ -813,7 +1024,7 @@ jobs:
 
       - uses: ./.github/actions/setup-pinned-tools
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # `needs.<job>.result` rather than `failure()`: the result is a fact
         # about the job named, and it is what the repository's other gate jobs
         # already read. It also tells a cancel from a failure, which matters —
@@ -836,7 +1047,7 @@ jobs:
             esac
           done
           if [ -z "$LOST" ]; then
-            echo "Nothing to say: every job finished."
+            echo "No alert sent: every job finished."
             exit 0
           fi
           scripts/telegram-alert.sh "$(printf 'The performance stack did not finish:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"

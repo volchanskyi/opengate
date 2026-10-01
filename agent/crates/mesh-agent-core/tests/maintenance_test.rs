@@ -1,8 +1,8 @@
 //! Maintenance-mode gate + transition tests (WS-D).
 //!
 //! The gate is the shared handle the control loop flips and the Edge-Sentinel
-//! collectors consult to suppress sampling, discovery, log-rate collection, and
-//! alert-breach evaluation while the QUIC control channel and remote-management
+//! collectors consult to suppress sampling, discovery, and alert-breach
+//! evaluation while the QUIC control channel and remote-management
 //! paths stay live. The transition tracker gives the sampler the maintenance→
 //! active edge so it re-baselines anomaly detection when the device leaves
 //! maintenance. Both are pure decision logic pinned here.

@@ -14,12 +14,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
-// GaugeSource is where the three runtime counts come from: the assembled
-// product's own tallies of what it is holding. Each callback is a single read of
-// a value the process already keeps, which is what lets the page ask at the
-// moment it is built. See live_counts.go.
+// GaugeSource is where the runtime counts come from: the assembled product's own
+// tallies of what it is holding, and of the relay sessions it has opened. Each
+// callback is a single read of a value the process already keeps, which is what
+// lets the page ask at the moment it is built. See live_counts.go.
 type GaugeSource struct {
 	ActiveSessions      func() int
+	SessionsStarted     func() uint64
 	ConnectedAgents     func() int
 	ConnectedMPSDevices func() int
 }
@@ -31,9 +32,9 @@ type Metrics struct {
 	HTTPRequestDuration *prometheus.HistogramVec
 
 	// The counts of what the process is holding right now — relay sessions,
-	// connected agents, connected MPS devices. They are read where the page is
-	// built rather than held here, so what the page says is what is true when
-	// it is asked. See live_counts.go.
+	// connected agents, connected MPS devices — and the relay sessions it has
+	// opened. They are read where the page is built rather than held here, so
+	// what the page says is what is true when it is asked. See live_counts.go.
 	runtime *runtimeCounts
 
 	// Agent registration, measured server-side where the device row lands.
@@ -277,6 +278,8 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.AgentTLSHandshakesTotal.WithLabelValues("true")
 	m.AgentTLSHandshakesTotal.WithLabelValues("false")
 
+	m.seedOutcomes()
+
 	return m
 }
 
@@ -323,10 +326,10 @@ func (m *Metrics) ObserveEdgeTelemetryClockClamp(direction string) {
 // decision, letting the dashboard chart storm drain-down.
 func (m *Metrics) ObserveBackfillDecision(granted bool, rate uint32, active int) {
 	if granted {
-		m.EdgeBackfillDecisionsTotal.WithLabelValues("grant").Inc()
+		m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillGrant).Inc()
 		m.EdgeBackfillGrantRate.Set(float64(rate))
 	} else {
-		m.EdgeBackfillDecisionsTotal.WithLabelValues("defer").Inc()
+		m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillDefer).Inc()
 	}
 	m.EdgeBackfillActiveSlots.Set(float64(active))
 }

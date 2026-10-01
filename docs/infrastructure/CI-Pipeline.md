@@ -136,11 +136,16 @@ runs the same scripts through
 [`setup-pinned-tools`](../../.github/actions/setup-pinned-tools), so neither side
 can be on a tool the other is not.
 [`tool-version-parity.test.sh`](../../scripts/tests/tool-version-parity.test.sh)
-holds every workflow copy equal to the manifest and refuses an install that names
-no version at all. The one tool that must understand the Go toolchain's own
-internals — the core reader the endurance run walks a heap with — is proved
-against it by [`core-walk.yml`](../../.github/workflows/core-walk.yml) whenever
-either pin moves ([ADR-119](../adr/ADR-119-finding-a-leak.md)).
+holds every workflow copy, and every shared action under
+[`.github/actions`](../../.github/actions), equal to the manifest and refuses an
+install that names no version at all. The one tool that must understand the Go
+toolchain's own internals — the core reader the endurance run walks a heap with
+— is proved against it by [`core-walk.yml`](../../.github/workflows/core-walk.yml)
+whenever either pin moves and every night, beside the newest upstream reader so
+that the patch the pinned one carries is removed the night upstream no longer
+needs it ([ADR-119](../adr/ADR-119-finding-a-leak.md)). Opening the encrypted
+dump an endurance run uploads is in
+[Testing](./Testing.md#opening-a-soak-dump).
 
 ### OpenAPI Codegen Sync
 
@@ -185,6 +190,13 @@ The executable
 regression test enforces one canonical mirror definition, verifies the
 composite precedes every covered image pull, and requires every consumer to
 pass the optional credentials.
+
+The performance stack pulls its images before it brings the stack up, through
+[`perf-stack-pull.sh`](../../scripts/perf-stack-pull.sh): a refused or reset
+connection is retried a bounded number of times with a doubling wait, and an
+answer that will not change on a retry — an image that does not exist — fails at
+once. Every step after a bring-up waits on it, so one lost pull is one error
+rather than one per step.
 
 ## SonarCloud Quality Gate
 
@@ -321,13 +333,15 @@ regressions in two ways, by metric class:
   committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) at ±2% — the same
   code yields the same count, so a small fixed tolerance never false-fires.
 - **Machine-dependent `ns/op`** is hard-gated against a noise-robust VictoriaMetrics
-  window baseline read back through [`scripts/lib/vm-query.sh`](../../scripts/lib/vm-query.sh):
-  a run reds when its `ns/op` exceeds **either** the 14-day window median × a frozen
-  relative band **or** an absolute ceiling anchored on the committed baseline (the
-  drift-proof boiling-frog backstop). The band and ceiling are calibrated from the live
-  series' measured run-to-run variance, not hand-picked. The gate is fail-open: a VM or
-  transport failure falls back to the absolute rule only and never reds on infra, and a
-  cold-start window (too few samples) skips the relative rule.
+  window baseline read back through the nightly reader in
+  [`scripts/lib/vm-query.sh`](../../scripts/lib/vm-query.sh) — the latest reading of
+  each recent night before tonight's: a run reds when its `ns/op` exceeds **either**
+  that window's median × a frozen relative band **or** an absolute ceiling anchored on
+  the committed baseline (the drift-proof boiling-frog backstop). The band and ceiling
+  are calibrated from the live series' measured run-to-run variance, not hand-picked.
+  The gate is fail-open: a VM or transport failure falls back to the absolute rule only
+  and never reds on infra, and a cold-start window (too few nights) skips the relative
+  rule.
 
 All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboard.
 
@@ -352,9 +366,19 @@ way.
 
 The regression semantics are recorded in
 [ADR-038](../adr/ADR-038-ci-trend-store.md). In short: latency and rps
-are evaluated per `{source, scenario, phase}` against VM read-back baselines plus
-absolute limits, error rate has hard ceilings, p99 is advisory-only, and missing
-VM history or transport failure does not create a false red.
+are evaluated per `{source, scenario, phase}` against the median of recent nights
+plus absolute limits, error rate has hard ceilings and is judged against the same
+window, p99 is advisory-only, and missing VM history or transport failure does not
+create a false red.
+
+The performance stack ([`perf-stack.yml`](../../.github/workflows/perf-stack.yml))
+and the endurance run ([`soak.yml`](../../.github/workflows/soak.yml)) follow the
+same shape: the run's first job records when it began, a publish job pushes each
+leg's readings through [`perf-vm-push.sh`](../../scripts/perf-vm-push.sh) and
+compares them with recent nights through
+[`perf-regression-check.sh`](../../scripts/perf-regression-check.sh), and a `gate`
+job reads the publish job's result. Each run writes a summary table of every limit
+beside its reading ([ADR-101](../adr/ADR-101-load-profiles-and-limits.md)).
 
 ## Frontend Performance Monitoring
 

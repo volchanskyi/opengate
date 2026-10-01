@@ -1,4 +1,6 @@
 {{- $name := include "mon.componentName" (list . "victoriametrics") -}}
+{{- $scrape := .Files.Get "files/vmagent-scrape.yaml" -}}
+{{- $streamAggr := .Files.Get "files/edge-sentinel-stream-aggr.yaml" -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -56,9 +58,9 @@ metadata:
     {{- include "mon.labels" . | nindent 4 }}
 data:
   scrape.yml: |
-{{ .Files.Get "files/vmagent-scrape.yaml" | indent 4 }}
+{{ $scrape | indent 4 }}
   stream-aggr.yml: |
-{{ .Files.Get "files/edge-sentinel-stream-aggr.yaml" | indent 4 }}
+{{ $streamAggr | indent 4 }}
 ---
 apiVersion: v1
 kind: Service
@@ -90,6 +92,14 @@ spec:
     metadata:
       labels:
         {{- include "mon.selectorLabels" (list . "victoriametrics") | nindent 8 }}
+      annotations:
+        # What the store reads at start. A chart upgrade that changes it changes
+        # this template, so the upgrade restarts the store onto the new file.
+        checksum/config: {{ print $scrape $streamAggr | sha256sum }}
+        # The store's own readings: the disk it holds and the series it keeps,
+        # which the soak dashboard watches it grow by.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8428"
     spec:
       # Bind the SA (ClusterRole above) so kubernetes_sd can authenticate to the
       # API server for target discovery. automountServiceAccountToken is left at

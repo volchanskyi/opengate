@@ -166,6 +166,33 @@ for path in sorted(workflows.glob("*.yml")):
             "it loses is a night nobody hears about"
         )
 
+    # The names say what the step and the job do, in the words a reader of the
+    # run page looks for. The alert send is "Send Telegram alert"; a job that
+    # exists only to send it is "Alert if the run did not finish".
+    if is_scheduled:
+        named_sends = 0
+        for job_name, job in jobs.items():
+            if not isinstance(job, dict):
+                continue
+            steps = [s for s in job.get("steps", []) or [] if isinstance(s, dict)]
+            sends = [s for s in steps if SENDER in str(s.get("run", "") or "")
+                     and "always()" in str(s.get("if", "") or job.get("if", "") or "")]
+            named_sends += sum(1 for s in sends if s.get("name") == "Send Telegram alert")
+            alert_only = bool(sends) and job.get("needs") and all(
+                s in sends or str(s.get("uses", "")).startswith(("actions/checkout", "./.github/actions/setup-pinned-tools"))
+                for s in steps
+            )
+            if alert_only and job.get("name") != "Alert if the run did not finish":
+                findings.append(
+                    f"{path.name}:{job_name}: a job that exists to send the alert is named "
+                    f"[{job.get('name')}] rather than 'Alert if the run did not finish'"
+                )
+            for s in steps:
+                if s.get("name") in ("Say what this night was",):
+                    findings.append(f"{path.name}:{job_name}: the send is still named [{s.get('name')}]")
+        if found_sender and named_sends == 0:
+            findings.append(f"{path.name}: no alert send is named 'Send Telegram alert'")
+
 if scheduled == 0:
     findings.append("the sweep reached no scheduled workflow at all")
 if senders == 0:

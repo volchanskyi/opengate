@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Offline tests for the shared VictoriaMetrics read-back library scripts/lib/vm-query.sh.
-# Both modes must be fail-open: any transport/empty/invalid input yields empty
-# output and exit 0. vm_query_latest reads the newest single sample; vm_query_window
-# parses an /api/v1/query vector into per-series values keyed by sorted labels.
+# Offline tests for the shared VictoriaMetrics read-back library
+# scripts/lib/vm-query.sh.
+#
+# The nightly reader answers one question for every trend gate: for each
+# measurement, the latest reading of each date before tonight's. A night is a
+# date, not a commit — a week without a merge is a week of nights, each judged
+# against the ones before it — and a re-run of tonight is kept out because it
+# carries tonight's date, whatever code it ran. Transport and parse failures
+# fail open: a gate must not redden on an unreachable store.
 
 set -euo pipefail
 
@@ -11,6 +16,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
+FAILURES=()
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -21,135 +27,113 @@ pass() {
 
 fail() {
   FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Mock kubectl serves the export API (newest-sample) and the query API (window
-# vector) from separate fixtures, chosen by inspecting the requested URL.
+assert_eq() {
+  if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (want=[$2] got=[$3])"; fi
+}
+
+# ms <date-time> — milliseconds since the epoch, as the export API writes them.
+ms() { printf '%s000' "$(date -u -d "$1" +%s)"; }
+
+# The stand-in store. One measurement, read over nights on two commits: the
+# 21st was run twice, and the later run is that date's reading; the 29th is
+# tonight, and its own reading is already in the store because the push ran
+# first. A second measurement beside it has a single night.
 bin_dir="$TMP_ROOT/bin"
 mkdir -p "$bin_dir"
-cat >"$bin_dir/kubectl" <<'EOF'
+cat >"$TMP_ROOT/nights.json" <<JSON
+{"metric":{"__name__":"loadtest_latency_p95_ms","env":"ci","phase":"http","scenario":"api-baseline","source":"k6"},"values":[10,12,14,11,99],"timestamps":[$(ms '2026-09-20 11:00'),$(ms '2026-09-21 11:00'),$(ms '2026-09-21 13:30'),$(ms '2026-09-22 11:05'),$(ms '2026-09-29 11:00')]}
+{"metric":{"__name__":"loadtest_latency_p95_ms","env":"ci","phase":"connect","scenario":"quic-agents","source":"quic"},"values":[300],"timestamps":[$(ms '2026-09-22 11:05')]}
+JSON
+cat >"$bin_dir/kubectl" <<'STUB'
 #!/usr/bin/env bash
 set -uo pipefail
 printf '%s\n' "$*" >"$KUBECTL_ARGS"
-if grep -q '/api/v1/query' <<<"$*"; then
-  case "${VM_WINDOW_FIXTURE:-vector}" in
-    vector)
-      cat <<'JSON'
-{"status":"success","data":{"resultType":"vector","result":[
-  {"metric":{"scenario":"login","phase":"steady","source":"edge"},"value":[2000,"12.5"]},
-  {"metric":{"scenario":"login","phase":"steady","source":"central"},"value":[2000,"9"]}
-]}}
-JSON
-      ;;
-    empty) ;;
-    invalid) printf '%s\n' 'not-json' ;;
-  esac
-else
-  case "${VM_QUERY_FIXTURE:-values}" in
-    values)
-      cat <<'JSON'
-{"metric":{"__name__":"pmat_repo_score","commit":"older","env":"ci"},"values":[60.5],"timestamps":[1000]}
-{"metric":{"__name__":"pmat_repo_score","commit":"newer","env":"ci"},"values":[63.5],"timestamps":[2000]}
-JSON
-      ;;
-    empty) ;;
-    invalid) printf '%s\n' 'not-json' ;;
-  esac
-fi
+case "${VM_QUERY_FIXTURE:-nights}" in
+  nights) cat "$VM_NIGHTS" ;;
+  empty) ;;
+  invalid) printf '%s\n' 'not-json' ;;
+esac
 exit "${KUBECTL_STATUS:-0}"
-EOF
+STUB
 chmod +x "$bin_dir/kubectl"
 
 # shellcheck source=scripts/lib/vm-query.sh
 . "$REPO_ROOT/scripts/lib/vm-query.sh"
 
-# Run a library function with the mock kubectl on PATH and the private-VM
-# transport env. Per-case fixtures (VM_QUERY_FIXTURE / VM_WINDOW_FIXTURE /
-# KUBECTL_STATUS / VM_EXCLUDE_COMMIT) are inherited from the caller.
+TONIGHT="$(date -u -d '2026-09-29 10:57' +%s)"
+
 run_lib() {
   (
     export PATH="$bin_dir:$PATH"
     export KUBECTL_ARGS="$TMP_ROOT/kubectl.args"
+    export VM_NIGHTS="$TMP_ROOT/nights.json"
     export VM_NAMESPACE="observability"
     export VM_SERVICE="private-vm"
+    export VM_RUN_STARTED_AT="${STARTED_OVERRIDE-$TONIGHT}"
     "$@"
   )
 }
 
-echo "vm-query latest mode:"
+echo "vm-query nightly reader:"
 
-if value="$(run_lib vm_query_latest pmat_repo_score 'env="ci"')" \
-  && [ "$value" = "63.5" ] \
-  && grep -qF -- '--rm -i --restart=Never' "$TMP_ROOT/kubectl.args" \
+API='phase=http,scenario=api-baseline,source=k6'
+QUIC='phase=connect,scenario=quic-agents,source=quic'
+
+out="$(run_lib vm_query_nightly loadtest_latency_p95_ms 'env="ci"' 14)"
+assert_eq "each date before tonight's gives its latest reading, per measurement" \
+  "$(printf '%s\t2026-09-22\t300\n%s\t2026-09-20\t10\n%s\t2026-09-21\t14\n%s\t2026-09-22\t11' "env=ci,$QUIC" "env=ci,$API" "env=ci,$API" "env=ci,$API")" \
+  "$out"
+if grep -qF 'loadtest_latency_p95_ms{env="ci"}' "$TMP_ROOT/kubectl.args" \
   && grep -qF 'http://private-vm.observability.svc:8428/api/v1/export' "$TMP_ROOT/kubectl.args" \
-  && grep -qF 'pmat_repo_score{env="ci"}' "$TMP_ROOT/kubectl.args"; then
-  pass "latest returns the newest VM sample through an auto-cleaned pod"
+  && grep -qF -- '--rm -i --restart=Never' "$TMP_ROOT/kubectl.args"; then
+  pass "the readings are exported through an auto-cleaned pod"
 else
-  fail "latest should return the newest VM sample"
+  fail "the readings are exported through an auto-cleaned pod (args=[$(cat "$TMP_ROOT/kubectl.args")])"
+fi
+if grep -qF 'commit' "$TMP_ROOT/kubectl.args"; then
+  fail "the reader asks nothing about commits"
+else
+  pass "the reader asks nothing about commits"
 fi
 
-if value="$(VM_QUERY_FIXTURE=empty run_lib vm_query_latest pmat_repo_score 'env="ci"')" \
-  && [ -z "$value" ]; then
-  pass "latest empty history is fail-open"
-else
-  fail "latest empty history should print nothing"
-fi
+out="$(run_lib vm_query_nightly loadtest_latency_p95_ms 'env="ci"' 2)"
+assert_eq "the window is the latest N dates" \
+  "$(printf '%s\t2026-09-22\t300\n%s\t2026-09-21\t14\n%s\t2026-09-22\t11' "env=ci,$QUIC" "env=ci,$API" "env=ci,$API")" \
+  "$out"
 
-if value="$(KUBECTL_STATUS=19 run_lib vm_query_latest pmat_repo_score 'env="ci"' 2>/dev/null)" \
-  && [ -z "$value" ]; then
-  pass "latest transport failure is fail-open"
-else
-  fail "latest transport failure should print nothing and exit 0"
-fi
+out="$(run_lib vm_nightly_window loadtest_latency_p95_ms 'env="ci"' 14)"
+assert_eq "the window is each measurement's median over its dates, their count, and the newest" \
+  "$(printf '%s\t300\t1\t300\n%s\t11\t3\t11' "env=ci,$QUIC" "env=ci,$API")" \
+  "$out"
 
-if value="$(VM_QUERY_FIXTURE=invalid run_lib vm_query_latest pmat_repo_score 'env="ci"' 2>/dev/null)" \
-  && [ -z "$value" ]; then
-  pass "latest invalid response is fail-open"
-else
-  fail "latest invalid response should print nothing"
-fi
+# The same run on tomorrow's date reads tonight's point as the newest night.
+TOMORROW="$(date -u -d '2026-09-30 10:57' +%s)"
+out="$(STARTED_OVERRIDE="$TOMORROW" run_lib vm_nightly_window loadtest_latency_p95_ms 'env="ci"' 14)"
+assert_eq "tomorrow reads tonight as the newest night" \
+  "$(printf '%s\t300\t1\t300\n%s\t12.5\t4\t99' "env=ci,$QUIC" "env=ci,$API")" \
+  "$out"
 
-VM_EXCLUDE_COMMIT="deadbeef" run_lib vm_query_latest pmat_repo_score 'env="ci"' >/dev/null
-if grep -qF 'pmat_repo_score{env="ci",commit!="deadbeef"}' "$TMP_ROOT/kubectl.args"; then
-  pass "latest excludes the current commit when VM_EXCLUDE_COMMIT is set"
-else
-  fail "latest should exclude the current commit when VM_EXCLUDE_COMMIT is set"
-fi
+for fixture in empty invalid; do
+  out="$(VM_QUERY_FIXTURE="$fixture" run_lib vm_query_nightly loadtest_latency_p95_ms 'env="ci"' 14 2>/dev/null)"
+  assert_eq "an $fixture answer is no history rather than a failure" "" "$out"
+done
+out="$(KUBECTL_STATUS=19 run_lib vm_nightly_window loadtest_latency_p95_ms 'env="ci"' 14 2>/dev/null)"
+assert_eq "an unreachable store is no history rather than a failure" "" "$out"
 
-echo "vm-query window mode:"
-
-if output="$(run_lib vm_query_window 'quantile(0.5, latency_ms[1h])')" \
-  && [ "$(printf '%s\n' "$output" | grep -c .)" = "2" ] \
-  && grep -qP '^phase=steady,scenario=login,source=edge\t12\.5$' <<<"$output" \
-  && grep -qP '^phase=steady,scenario=login,source=central\t9$' <<<"$output" \
-  && grep -qF 'http://private-vm.observability.svc:8428/api/v1/query' "$TMP_ROOT/kubectl.args" \
-  && grep -qF 'quantile(0.5, latency_ms[1h])' "$TMP_ROOT/kubectl.args"; then
-  pass "window returns per-series values keyed by sorted labels"
+# Without tonight's date the reader cannot keep tonight out, which is a setup
+# defect rather than an empty history.
+if STARTED_OVERRIDE="" run_lib vm_query_nightly loadtest_latency_p95_ms 'env="ci"' 14 >/dev/null 2>&1; then
+  fail "a reader that does not know tonight's date refuses"
 else
-  fail "window should return per-series values keyed by sorted labels"
-fi
-
-if output="$(VM_WINDOW_FIXTURE=empty run_lib vm_query_window 'quantile(0.5, latency_ms[1h])')" \
-  && [ -z "$output" ]; then
-  pass "window empty response is fail-open"
-else
-  fail "window empty response should print nothing"
-fi
-
-if output="$(VM_WINDOW_FIXTURE=invalid run_lib vm_query_window 'quantile(0.5, latency_ms[1h])' 2>/dev/null)" \
-  && [ -z "$output" ]; then
-  pass "window invalid response is fail-open"
-else
-  fail "window invalid response should print nothing"
-fi
-
-if output="$(KUBECTL_STATUS=19 run_lib vm_query_window 'quantile(0.5, latency_ms[1h])' 2>/dev/null)" \
-  && [ -z "$output" ]; then
-  pass "window transport failure is fail-open"
-else
-  fail "window transport failure should print nothing and exit 0"
+  pass "a reader that does not know tonight's date refuses"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+if [ "$FAIL" -gt 0 ]; then
+  printf '  - %s\n' "${FAILURES[@]}" >&2
+  exit 1
+fi

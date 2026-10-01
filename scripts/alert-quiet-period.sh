@@ -36,6 +36,9 @@ set -euo pipefail
 
 KUBECTL="${ALERT_QUIET_KUBECTL:-kubectl}"
 
+# shellcheck source=lib/kubectl-retry.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/kubectl-retry.sh"
+
 GRAFANA_NAMESPACE=monitoring
 GRAFANA_WORKLOAD=deploy/monitoring-grafana
 # Grafana's own Alertmanager, under the sub-path the chart serves Grafana from.
@@ -68,20 +71,33 @@ comment_for() { printf 'quiet while %s holds the staging claim' "$1"; }
 # grafana <method> <path> sends one request and prints Grafana's answer. The
 # answer is standard output alone: the credential plugin the cluster is reached
 # through writes a warning to standard error on every call. Only a failure reads
-# standard error, where kubectl says why.
+# standard error, and only kubectl's own error line from it.
+#
+# A request the cluster never delivered — its connection to the node dropped
+# before the command reached the pod — is asked again: nothing ran. One that
+# reached Grafana and was refused is Grafana's answer and is asked once. What it
+# prints on failure is one line naming which of the two happened, because a
+# caller that turns it into an annotation shows the first line and no other.
 grafana() {
-  local method="$1" path="$2" out err_file status=0
+  local method="$1" path="$2" out err_file status=0 reason
   err_file="$(mktemp)"
   if [ "$method" = POST ]; then
-    out="$($KUBECTL -n "$GRAFANA_NAMESPACE" exec -i "$GRAFANA_WORKLOAD" -- \
+    out="$(KUBECTL_RETRY_BIN="$KUBECTL" kubectl_retry --unstarted --stdin \
+      -n "$GRAFANA_NAMESPACE" exec -i "$GRAFANA_WORKLOAD" -- \
       sh -c "$IN_POD_REQUEST" "$SILENCES_API" "$method" "$path" 2>"$err_file")" || status=$?
   else
-    out="$($KUBECTL -n "$GRAFANA_NAMESPACE" exec -i "$GRAFANA_WORKLOAD" -- \
-      sh -c "$IN_POD_REQUEST" "$SILENCES_API" "$method" "$path" 2>"$err_file" </dev/null)" || status=$?
+    out="$(KUBECTL_RETRY_BIN="$KUBECTL" kubectl_retry --unstarted \
+      -n "$GRAFANA_NAMESPACE" exec -i "$GRAFANA_WORKLOAD" -- \
+      sh -c "$IN_POD_REQUEST" "$SILENCES_API" "$method" "$path" 2>"$err_file")" || status=$?
   fi
   if [ "$status" -ne 0 ]; then
-    echo "alert-quiet-period: $method $path was refused: ${out:-$(cat "$err_file")}" >&2
+    reason="$(awk '/^(error|Error)/ { last = $0 } NF { any = $0 } END { print (last != "" ? last : any) }' "$err_file")"
     rm -f "$err_file"
+    if [ "$status" -eq "$KUBECTL_RETRY_LOST" ]; then
+      echo "alert-quiet-period: $method $path never reached Grafana; the cluster dropped the connection on every attempt: $reason" >&2
+    else
+      echo "alert-quiet-period: Grafana refused $method $path: ${out:-$reason}" >&2
+    fi
     return 1
   fi
   rm -f "$err_file"

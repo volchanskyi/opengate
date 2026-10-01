@@ -7,6 +7,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
@@ -68,6 +70,20 @@ func TestSuppressionReasonsAreExportedOutcomes(t *testing.T) {
 
 	require.Equal(t, "organization_ceiling", string(alerts.CeilingSuppressed),
 		"the suppression reason label is the outcome the store reports")
+}
+
+// TestEveryAlertSuppressionReasonStartsAtZero keeps the refusal panel and the
+// production rule over it reading a series from start-up. The counter appeared
+// only after the first refusal, so the rule watching for a customer's spent
+// ceiling read nothing at all until the thing it watches for had happened.
+func TestEveryAlertSuppressionReasonStartsAtZero(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, []string{string(alerts.CeilingSuppressed)}, metrics.AlertSuppressionReasons(),
+		"the published reasons are the store's own suppression outcome")
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	require.Equal(t, len(metrics.AlertSuppressionReasons()), testutil.CollectAndCount(m.AlertsSuppressedTotal),
+		"every reason is published before any alert is refused")
 }
 
 // TestNoShippedRuleClaimsTheCatchAllLabel keeps the unshipped-rule label a

@@ -66,6 +66,18 @@ printf '%s\n' "${remote[*]}" >>"$FAKE_CALLS"
 method="${remote[4]:-}"
 path="${remote[5]:-}"
 
+# The cluster dropping the connection before the command reached the pod: the
+# first FAKE_DROPS calls answer the way the API server does when its request to
+# the node's kubelet dies, and nothing inside the pod runs.
+if [ -n "${FAKE_DROPS:-}" ]; then
+  dropped=$(($(cat "$FAKE_DROP_COUNT" 2>/dev/null || echo 0) + 1))
+  printf '%s' "$dropped" >"$FAKE_DROP_COUNT"
+  if [ "$dropped" -le "$FAKE_DROPS" ]; then
+    echo 'error: Internal error occurred: error sending request: Post "https://10.0.2.227:10250/exec/monitoring/monitoring-grafana-0/grafana?command=sh": EOF' >&2
+    exit 1
+  fi
+fi
+
 # A refused request comes back as curl's own failure, with Grafana's body on
 # standard output and kubectl's account of the exit on standard error.
 if [ -n "${FAKE_REFUSE:-}" ]; then
@@ -115,9 +127,11 @@ chmod +x "$FAKE"
 STATE="$WORK/silences.json"
 export FAKE_STATE="$STATE"
 export FAKE_CALLS="$WORK/calls.log"
+export FAKE_DROP_COUNT="$WORK/drops"
 
 run_quiet() {
-  ALERT_QUIET_KUBECTL="$FAKE" \
+  KUBECTL_RETRY_DELAY=0 \
+    ALERT_QUIET_KUBECTL="$FAKE" \
     ALERT_QUIET_SECONDS="${SECONDS_OVERRIDE:-2700}" \
     "$QUIET" "$@"
 }
@@ -227,6 +241,47 @@ elif grep -qF 'Invalid username or password' <<<"$out"; then
   pass "a refused call fails with Grafana's reason"
 else
   fail "a refused call fails with Grafana's reason (got=[$out])"
+fi
+
+# The cluster dropping the connection before the command reached Grafana is not
+# Grafana refusing anything, and the release of a claim — the one path that
+# closes the quiet period — died on exactly that. It is asked again.
+rm -f "$STATE" "$FAKE_DROP_COUNT"
+if out="$(FAKE_DROPS=1 FAKE_NOISY_STDERR=1 run_quiet open cd-9-1 2>&1)" \
+  && [ "$(live_count cd-9-1)" = "1" ]; then
+  pass "a connection dropped before reaching Grafana is asked again"
+else
+  fail "a connection dropped before reaching Grafana is asked again (got=[$out])"
+fi
+
+# One that never comes back says so, in one line that names what happened, and
+# the credential plugin's warning is not that line.
+rm -f "$STATE" "$FAKE_DROP_COUNT"
+if err="$(FAKE_DROPS=99 FAKE_NOISY_STDERR=1 run_quiet open cd-10-1 2>&1 >/dev/null)"; then
+  fail "a connection that never reaches Grafana fails"
+else
+  last="$(tail -n 1 <<<"$err")"
+  if grep -qF 'never reached Grafana' <<<"$last" && grep -qF 'error sending request' <<<"$last" \
+    && ! grep -qF 'OCI_API_KEY' <<<"$last"; then
+    pass "a connection that never reaches Grafana is named as a dropped connection"
+  else
+    fail "a connection that never reaches Grafana is named as a dropped connection (last line=[$last])"
+  fi
+fi
+
+# A refusal by Grafana itself is asked once: asking again cannot change it.
+rm -f "$STATE" "$FAKE_CALLS"
+if err="$(FAKE_REFUSE=1 run_quiet open cd-11-1 2>&1 >/dev/null)"; then
+  fail "a refusal by Grafana fails"
+else
+  # Each call is recorded whole, and the request script inside it spans lines;
+  # the method and path end the last of them.
+  assert_eq "a refusal by Grafana is asked once" "1" "$(grep -cE ' (GET|POST|DELETE) /' "$FAKE_CALLS")"
+  if grep -qF 'Grafana refused' <<<"$(tail -n 1 <<<"$err")"; then
+    pass "a refusal by Grafana is named as one"
+  else
+    fail "a refusal by Grafana is named as one (got=[$err])"
+  fi
 fi
 
 # An answer shaped like success that names no silence opened nothing.

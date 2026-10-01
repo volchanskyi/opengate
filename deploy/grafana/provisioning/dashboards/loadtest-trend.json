@@ -1,5 +1,6 @@
 {
   "annotations": { "list": [] },
+  "description": "The nightly load test's readings, one point per night, measured against staging from the cluster's own generators.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -15,7 +16,7 @@
   "panels": [
     {
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "Load-test latency trends from k6 summary exports and the QUIC agent harness. This dashboard is visibility-only; the existing k6 thresholds remain the load-test alarm.",
+      "description": "Load-test latency from k6 summary exports and the QUIC agent harness. Each night is compared with the median of the nights before it, and the profile's own limits hold the line beneath that comparison.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -44,20 +45,26 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "loadtest_latency_p50_ms{env=\"ci\"}",
-          "legendFormat": "{{source}}/{{scenario}}/{{phase}} p50",
+          "expr": "loadtest_latency_p50_ms{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}} {{workload}} p50",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "loadtest_latency_p95_ms{env=\"ci\"}",
-          "legendFormat": "{{source}}/{{scenario}}/{{phase}} p95",
+          "expr": "loadtest_latency_p95_ms{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}} {{workload}} p95",
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "loadtest_latency_p99_ms{env=\"ci\"}",
-          "legendFormat": "{{source}}/{{scenario}}/{{phase}} p99",
+          "expr": "loadtest_latency_p99_ms{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}} {{workload}} p99",
           "refId": "C"
         }
       ]
@@ -93,8 +100,10 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "loadtest_rps{env=\"ci\"}",
-          "legendFormat": "{{source}}/{{scenario}}/{{phase}}",
+          "expr": "loadtest_rps{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}} {{workload}}",
           "refId": "A"
         }
       ]
@@ -138,8 +147,10 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "loadtest_error_rate{env=\"ci\"}",
-          "legendFormat": "{{source}}/{{scenario}}/{{phase}}",
+          "expr": "loadtest_error_rate{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}} {{workload}}",
           "refId": "A"
         }
       ]

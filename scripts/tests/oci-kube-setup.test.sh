@@ -31,7 +31,7 @@ else
   fail "extracted setup script exists and is executable"
 fi
 
-for mode in configure-oci install-kube-tools fetch-kubeconfig; do
+for mode in install-oci-cli configure-oci install-kube-tools fetch-kubeconfig; do
   if grep -qF "\$GITHUB_ACTION_PATH/oci-kube-setup.sh $mode" "$ACTION"; then
     pass "composite action invokes $mode"
   else
@@ -63,6 +63,26 @@ if [ -x "$SETUP" ]; then
     pass "configure-oci writes protected OCI files"
   else
     fail "configure-oci writes protected OCI files"
+  fi
+
+  # Oracle's client asks for a label line at the end of the key file, and warns
+  # on every single call until it finds one. The warning lands on standard
+  # error, where it stands in front of the real reason whenever a call fails.
+  if [ "$(tail -n 1 "$home_dir/.oci/key.pem")" = "OCI_API_KEY" ]; then
+    pass "the key file ends with the label Oracle's client asks for"
+  else
+    fail "the key file ends with the label Oracle's client asks for (last line=[$(tail -n 1 "$home_dir/.oci/key.pem")])"
+  fi
+
+  # A key that already carries the label is not given a second one.
+  labelled_home="$TMP_DIR/labelled"
+  mkdir -p "$labelled_home"
+  HOME="$labelled_home" OCI_TENANCY=t OCI_USER=u OCI_FINGERPRINT=f OCI_REGION=r \
+    OCI_KEY="$(printf 'private-key\nOCI_API_KEY')" "$SETUP" configure-oci
+  if [ "$(grep -c '^OCI_API_KEY$' "$labelled_home/.oci/key.pem")" = "1" ]; then
+    pass "a key that already carries the label keeps exactly one"
+  else
+    fail "a key that already carries the label keeps exactly one"
   fi
 
   if output="$(
@@ -118,7 +138,25 @@ EOF
     fail "fetch-kubeconfig forwards OCI inputs and protects output"
   fi
 
-  if PATH="$bin_dir:$PATH" HELM_VERSION="3.16.3" "$SETUP" install-kube-tools >/dev/null 2>&1; then
+  # The Oracle CLI is installed at the manifest's version, read from the
+  # manifest rather than repeated here, so a release nobody chose never lands
+  # between two nights.
+  # shellcheck source=../lib/tool-versions.sh
+  . "$REPO_ROOT/scripts/lib/tool-versions.sh"
+  pip_trace="$TMP_DIR/pip-trace"
+  cat >"$bin_dir/pip" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$PIP_TRACE"
+EOF
+  chmod +x "$bin_dir/pip"
+  if PATH="$bin_dir:$PATH" PIP_TRACE="$pip_trace" "$SETUP" install-oci-cli >/dev/null 2>&1 \
+    && grep -qF -- "oci-cli==$TOOL_VERSION_OCI_CLI" "$pip_trace"; then
+    pass "install-oci-cli installs the manifest's oci-cli ($TOOL_VERSION_OCI_CLI)"
+  else
+    fail "install-oci-cli installs the manifest's oci-cli (pip saw=[$(cat "$pip_trace" 2>/dev/null)])"
+  fi
+
+  if PATH="$bin_dir:$PATH" "$SETUP" install-kube-tools >/dev/null 2>&1; then
     fail "tool download failure propagates"
   elif [ "$?" -eq 42 ]; then
     pass "tool download failure propagates"

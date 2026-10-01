@@ -226,11 +226,11 @@ toolchain_pinned_tools_check() {
   # shellcheck source=tool-versions.sh
   . "$root/scripts/lib/tool-versions.sh"
 
-  _pinned_tool_check() { # human name, wanted, actual
-    local name="$1" want="$2" got="$3"
+  _pinned_tool_check() { # human name, wanted, actual, installer
+    local name="$1" want="$2" got="$3" installer="${4:-scripts/install-shell-tools.sh}"
     [ "$want" = "$got" ] && return 0
     echo "✗ $name is ${got:-missing}, but scripts/lib/tool-versions.sh pins $want." >&2
-    echo "    scripts/install-shell-tools.sh   # then ensure ~/.local/bin precedes /usr/bin" >&2
+    echo "    $installer   # then ensure ~/.local/bin precedes /usr/bin" >&2
     bad=1
   }
 
@@ -240,6 +240,14 @@ toolchain_pinned_tools_check() {
     "$(shellcheck --version 2>/dev/null | awk '/^version:/ { print $2 }')"
   _pinned_tool_check shfmt "$TOOL_VERSION_SHFMT" \
     "$(shfmt --version 2>/dev/null | sed 's/^v//')"
+  # The shell tests prove the endurance run's dump opens with these, so the
+  # gauntlet runs them at the versions the soak encrypts with.
+  _pinned_tool_check age "$TOOL_VERSION_AGE" \
+    "$(age --version 2>/dev/null | sed 's/^v//')" scripts/install-dump-tools.sh
+  _pinned_tool_check age-keygen "$TOOL_VERSION_AGE" \
+    "$(age-keygen --version 2>/dev/null | sed 's/^v//')" scripts/install-dump-tools.sh
+  _pinned_tool_check zstd "$TOOL_VERSION_ZSTD" \
+    "$(zstd --version 2>/dev/null | sed -n 's/.* v\([0-9][0-9.]*\),.*/\1/p')" scripts/install-dump-tools.sh
 
   return "$bad"
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -122,6 +123,41 @@ func TestABundleCarriesTheServersOwnRegistrationFigure(t *testing.T) {
 	// one executing slowly are the same latency until the pool says which.
 	assert.True(t, series["db_pool_in_use"])
 	assert.True(t, series["register_rejected"])
+}
+
+// A tail past the widest bucket the server publishes is not a reading of that
+// bucket. The harness reports the last finite bound, because an infinity
+// cannot be held against a limit, and the bundle says the figure is a floor:
+// the spike leg's "10 000 ms" was every registration past ten seconds.
+func TestARegistrationTailPastTheTopBucketIsMarkedPastTheScale(t *testing.T) {
+	in := runBundleInputs{
+		Results:    harnessResults(),
+		StartedAt:  time.Date(2026, 9, 29, 13, 50, 0, 0, time.UTC),
+		Total:      3 * time.Second,
+		AgentCount: 3,
+		Target:     "compose stack",
+	}
+	in.Registration = &ServerRegistration{
+		Accepted: 100,
+		Buckets: []bucketBound{
+			{le: 1, count: 40},
+			{le: 60, count: 90},
+			{le: math.Inf(1), count: 100},
+		},
+	}
+
+	bundle := buildRunBundle(in)
+	marks := map[string]string{}
+	values := map[string]float64{}
+	for _, o := range bundle.Observations {
+		marks[o.Series] = o.Labels["reading"]
+		values[o.Series] = o.Value
+	}
+	assert.Equal(t, "past the scale", marks["register_p95_ms"],
+		"a tail in the open bucket is marked as a floor")
+	assert.InDelta(t, 60000.0, values["register_p95_ms"], 0.001,
+		"and carries the widest bound the server can describe")
+	assert.Empty(t, marks["register_p50_ms"], "a middle case inside the scale is a reading")
 }
 
 // The phases a run walked are the phases it reports.

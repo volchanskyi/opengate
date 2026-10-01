@@ -79,6 +79,7 @@ RC=0
 PATH="$TMP_ROOT/bin:$PATH" \
   KUBECTL_ARGS_FILE="$TMP_ROOT/kubectl.args" \
   KUBECTL_STDIN_FILE="$TMP_ROOT/payload.prom" \
+  VM_RUN_STARTED_AT=1790000000 \
   VM_NAMESPACE="observability" \
   VM_SERVICE="private-vm" \
   "$PUSH" "$TMP_ROOT/loadtest-summary.json" >/dev/null 2>&1 || RC=$?
@@ -90,27 +91,34 @@ else
   fail "VM endpoint missing from kubectl args"
 fi
 
-if grep -qF 'loadtest_latency_p95_ms{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 123.4' "$TMP_ROOT/payload.prom"; then
+# A sample names the measurement only; the commit is in ci_run_info.
+samples="$(grep -vE '^ci_run_info' "$TMP_ROOT/payload.prom" || true)"
+if grep -qE '[{,](commit|run_id)=' <<<"$samples"; then
+  fail "a load-test sample carries a label that changes every run"
+else
+  pass "a load-test sample carries measurement labels only"
+fi
+if grep -qF 'loadtest_latency_p95_ms{env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 123.4' "$TMP_ROOT/payload.prom"; then
   pass "maps k6 latency"
 else
   fail "k6 latency metric missing"
 fi
-if grep -qF 'loadtest_rps{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 42.5' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_rps{env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 42.5' "$TMP_ROOT/payload.prom"; then
   pass "maps k6 rps"
 else
   fail "k6 rps metric missing"
 fi
-if grep -qF 'loadtest_error_rate{commit="deadbeef",env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 0.005' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_error_rate{env="ci",source="k6",scenario="api-baseline",phase="http",workload="member-journeys/1"} 0.005' "$TMP_ROOT/payload.prom"; then
   pass "maps k6 error rate"
 else
   fail "k6 error rate metric missing"
 fi
-if grep -qF 'loadtest_latency_p99_ms{commit="deadbeef",env="ci",source="quic",scenario="quic-agents",phase="connect",workload="fleet-arrival/1"} 1500' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_latency_p99_ms{env="ci",source="quic",scenario="quic-agents",phase="connect",workload="fleet-arrival/1"} 1500' "$TMP_ROOT/payload.prom"; then
   pass "maps QUIC latency"
 else
   fail "QUIC latency metric missing"
 fi
-if grep -qF 'loadtest_error_rate{commit="deadbeef",env="ci",source="quic",scenario="quic-agents",phase="aggregate",workload="fleet-arrival/1"} 0.02' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'loadtest_error_rate{env="ci",source="quic",scenario="quic-agents",phase="aggregate",workload="fleet-arrival/1"} 0.02' "$TMP_ROOT/payload.prom"; then
   pass "maps QUIC aggregate error rate"
 else
   fail "QUIC aggregate error metric missing"

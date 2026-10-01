@@ -8,12 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/session"
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
+	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
 // quietTestLogger keeps assembly chatter out of the test output.
@@ -100,6 +103,28 @@ func TestTelemetryPortsAreAllOrNothing(t *testing.T) {
 	assert.NotNil(t, on.reader)
 	assert.NotNil(t, on.purger)
 	assert.NotNil(t, on.inventory)
+}
+
+// The assembled server stamps what it writes with the environment it runs in,
+// so a dashboard asked about production is not also reading staging.
+func TestTheTelemetryWriterStampsTheServersEnvironment(t *testing.T) {
+	ports := newTelemetryPorts(Config{VictoriaMetricsURL: testvm.BaseURL(t), Namespace: "opengate-staging"}, quietTestLogger())
+	client, ok := ports.writer.(*telemetry.VMClient)
+	require.True(t, ok, "the writer is the metrics store client")
+
+	ctx := context.Background()
+	tenant, device := uuid.New(), uuid.New()
+	ts := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, client.WriteSamples(ctx, tenant, device, []telemetry.Sample{{
+		Name: "opengate_test_app_env_metric", Value: 1, TS: ts,
+	}}))
+	require.NoError(t, client.Flush(ctx))
+
+	series, err := client.Export(ctx, tenant, `opengate_test_app_env_metric{device_id="`+device.String()+`"}`,
+		ts.Add(-time.Minute), ts.Add(time.Minute))
+	require.NoError(t, err)
+	require.Len(t, series, 1)
+	assert.Equal(t, "opengate-staging", series[0].Metric["namespace"])
 }
 
 // stubOperator stands in for management hardware the test host cannot reach.

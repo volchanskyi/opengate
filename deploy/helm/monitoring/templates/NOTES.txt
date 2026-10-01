@@ -2,10 +2,9 @@ opengate-monitoring ({{ .Release.Name }}) deployed to namespace {{ .Release.Name
 
 Out-of-band objects this chart references (create BEFORE / alongside install):
 
-  1. Secret with Grafana + Telegram + Postgres credentials:
+  1. Secret with Grafana + Telegram credentials:
        kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.existingSecret }} \
          --from-literal=GF_SECURITY_ADMIN_PASSWORD=... \
-         --from-literal=POSTGRES_PASSWORD=... \
          --from-literal=TELEGRAM_BOT_TOKEN=... \
          --from-literal=TELEGRAM_CHAT_ID=...
 

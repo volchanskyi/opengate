@@ -117,17 +117,27 @@ quiet_call() {
   esac
 }
 
-# Greedy `.*` would swallow the closing quote, so the value is taken whole and
-# unquoted afterwards.
-# The first line is taken off a variable rather than through `head`, which
-# stops reading there and leaves `sed` a failed write that pipefail reports as
-# a field the file does not carry.
+# The manifest as the API server reads it. kubectl converts what it is handed
+# from YAML to JSON before anything else and refuses the whole object when that
+# fails, so the stand-in parses it the same way. A stand-in that matched lines
+# instead accepted a manifest no cluster would: every renewal and every takeover
+# of an expired claim was refused for weeks while this file stayed green.
+manifest_json() {
+  python3 -c '
+import json, sys, yaml
+try:
+    doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+except yaml.YAMLError as err:
+    detail = " ".join(str(err).split())
+    sys.stderr.write("error: error parsing STDIN: error converting YAML to JSON: %s\n" % detail)
+    sys.exit(1)
+json.dump(doc, sys.stdout)
+' "$1"
+}
+
+# field <jq path> <manifest json> prints one value of the parsed manifest.
 field() {
-  local found
-  found="$(sed -n "s/^ *$1: \(.*\)$/\1/p" "$2" || true)"
-  found="${found%%$'\n'*}"
-  found="${found#\"}"
-  printf '%s\n' "${found%\"}"
+  jq -r "$1 // empty" <<<"$2"
 }
 
 # The API server decodes acquireTime and renewTime as MicroTime — RFC3339 with
@@ -136,9 +146,9 @@ field() {
 # stand-in holds the same line, so a manifest that could not be written to a
 # real cluster cannot pass here either.
 check_stamps() {
-  local src="$1" name value
+  local doc="$1" name value
   for name in acquireTime renewTime; do
-    value="$(field "$name" "$src")"
+    value="$(field ".spec.$name" "$doc")"
     if ! grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$' <<<"$value"; then
       echo "Error from server (BadRequest): Lease in version \"v1\" cannot be handled as a Lease: parsing time \"$value\" as \"2006-01-02T15:04:05.000000Z07:00\"" >&2
       exit 1
@@ -167,12 +177,12 @@ missing_namespace() {
 }
 
 write_state() {
-  local src="$1" rv="$2" holder renew dur
-  holder="$(field holderIdentity "$src")"
-  renew="$(field renewTime "$src")"
-  dur="$(sed -n 's/^ *leaseDurationSeconds: \(.*\)$/\1/p' "$src" | head -1)"
-  printf '{"metadata":{"resourceVersion":"%s"},"spec":{"holderIdentity":"%s","renewTime":"%s","leaseDurationSeconds":%s}}\n' \
-    "$rv" "$holder" "$renew" "$dur" >"$STATE"
+  local doc="$1" rv="$2"
+  jq -c --arg rv "$rv" \
+    '{metadata: {resourceVersion: $rv},
+      spec: {holderIdentity: .spec.holderIdentity, acquireTime: .spec.acquireTime,
+             renewTime: .spec.renewTime, leaseDurationSeconds: .spec.leaseDurationSeconds}}' \
+    <<<"$doc" >"$STATE"
 }
 
 case "$verb" in
@@ -191,7 +201,8 @@ case "$verb" in
     ;;
   create)
     cat >"$WORKDIR_IN"
-    check_stamps "$WORKDIR_IN"
+    doc="$(manifest_json "$WORKDIR_IN")" || exit 1
+    check_stamps "$doc"
     missing_namespace
     refuse_write
     # The race itself: two runs both read an empty namespace and both create, so
@@ -201,24 +212,28 @@ case "$verb" in
       echo 'Error from server (AlreadyExists): leases.coordination.k8s.io "guard" already exists' >&2
       exit 1
     fi
-    write_state "$WORKDIR_IN" 1
+    write_state "$doc" 1
     exit 0
     ;;
   replace)
     cat >"$WORKDIR_IN"
-    check_stamps "$WORKDIR_IN"
+    doc="$(manifest_json "$WORKDIR_IN")" || exit 1
+    check_stamps "$doc"
+    # Every replace the script sends, as the API server read it, so a test can
+    # ask what a renewal or a takeover actually carried.
+    printf '%s\n' "$doc" >>"$FAKE_REPLACES"
     refuse_write
     [ -f "$STATE" ] || {
       echo 'Error from server (NotFound)' >&2
       exit 1
     }
-    sent="$(sed -n 's/^ *resourceVersion: "\(.*\)"$/\1/p' "$WORKDIR_IN" | head -1)"
-    have="$(sed -n 's/.*"resourceVersion":"\([^"]*\)".*/\1/p' "$STATE")"
+    sent="$(field .metadata.resourceVersion "$doc")"
+    have="$(jq -r '.metadata.resourceVersion' "$STATE")"
     if [ "$sent" != "$have" ]; then
       echo 'Error from server (Conflict): the object has been modified' >&2
       exit 1
     fi
-    write_state "$WORKDIR_IN" "$((have + 1))"
+    write_state "$doc" "$((have + 1))"
     exit 0
     ;;
   delete)
@@ -241,6 +256,8 @@ export WORKDIR_IN="$WORK/stdin.yaml"
 export FAKE_SILENCES="$WORK/silences.json"
 export FAKE_QUIET_CALLS="$WORK/quiet-calls.log"
 touch "$FAKE_QUIET_CALLS"
+export FAKE_REPLACES="$WORK/replaces.jsonl"
+: >"$FAKE_REPLACES"
 
 run_lease() {
   NAMESPACE=opengate-staging \
@@ -275,7 +292,7 @@ fi
 
 # The stamp is the whole object's admission ticket: a Lease whose times are not
 # MicroTime is refused at decode, so nothing about holders is ever reached.
-stamp_written="$(sed -n 's/^ *renewTime: "\(.*\)"$/\1/p' "$WORKDIR_IN" | head -1)"
+stamp_written="$(python3 -c 'import json, sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["spec"]["renewTime"])' "$WORKDIR_IN" || true)"
 if grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$' \
   <<<"$stamp_written"; then
   pass "the claim it writes carries a timestamp the API accepts"
@@ -308,6 +325,13 @@ if run_lease acquire cd-3 >/dev/null 2>&1; then
 else
   fail "an expired claim is taken over"
 fi
+
+# The takeover is a compare-and-set, and a manifest the API server cannot read
+# is refused before the comparison is made. So the one it sent has to parse as
+# YAML and carry the version it read — under metadata, where the server looks.
+last_replace() { tail -n 1 "$FAKE_REPLACES"; }
+assert_eq "the takeover it sends parses and carries the version it read" "7" \
+  "$(jq -r '.metadata.resourceVersion // empty' <<<"$(last_replace)")"
 
 # Releasing frees it for the next run.
 if run_lease release cd-3 >/dev/null 2>&1; then
@@ -575,6 +599,8 @@ if run_lease_renewing renew cd-r1 >/dev/null 2>&1; then
 else
   fail "a renewal moves the holder's own claim forward"
 fi
+assert_eq "the renewal it sends parses and carries the version it read" "7" \
+  "$(jq -r '.metadata.resourceVersion // empty' <<<"$(last_replace)")"
 
 # A renewal against somebody else's claim is refused rather than stealing it.
 # The run has lost the namespace, and quietly writing over the new holder's
@@ -635,7 +661,7 @@ if TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-long >/dev/null
     [ "$(($(stamp_epoch "$now") - acquired_at))" -gt 8 ]
   }
   if ! wait_until carried_past_its_duration; then
-    fail "a claim outliving its own duration is still held (the renewer never carried it past its duration)"
+    fail "a claim outliving its own duration is still held (the renewer never carried it past its duration: $(cat "$RENEW_WORK/staging-lease-guard.lost" 2>/dev/null))"
   elif TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-thief >/dev/null 2>&1; then
     fail "a claim outliving its own duration is still held (cd-thief took it)"
   else
@@ -643,6 +669,15 @@ if TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-long >/dev/null
   fi
 else
   fail "a claim outliving its own duration is still held (acquire failed)"
+fi
+
+# A run longer than the renewal interval kept its claim because every renewal
+# was accepted, not because nobody came to take it: the renewer wrote down no
+# loss.
+if [ -f "$RENEW_WORK/staging-lease-guard.lost" ]; then
+  fail "a run longer than the renewal interval keeps the claim (the renewer lost it: $(cat "$RENEW_WORK/staging-lease-guard.lost"))"
+else
+  pass "a run longer than the renewal interval keeps the claim"
 fi
 
 # Releasing stops the renewing as well as the claim, or the next run's own

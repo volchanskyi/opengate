@@ -93,8 +93,10 @@ func (f SQLPoolStatter) PoolStats() DBPoolStats {
 
 // registrationDurationBuckets span a registration that lands in a few
 // milliseconds through one that is queued behind a saturated pool. The upper
-// buckets exist so a storm shows as a tail rather than as a flat +Inf.
-var registrationDurationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+// buckets exist so a storm shows as a tail rather than as a flat +Inf: the
+// busiest runner-hosted legs register in ten seconds and more, so the scale
+// reaches a minute.
+var registrationDurationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
 
 // RegistrationDurationBuckets returns the bounds registration timing is
 // reported in, widest last.

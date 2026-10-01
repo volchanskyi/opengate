@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,4 +63,23 @@ func TestARefusedCallCarriesWhatTheServerSaidAboutIt(t *testing.T) {
 	assert.ErrorContains(t, err, "device not found",
 		"the refusal repeats the server's own words")
 	assert.ErrorContains(t, err, "404", "and the status it answered with")
+}
+
+// The wait outlasts the registrations the busiest legs measured. A filing that
+// asks for a row the server has not written yet gets it once the row lands, and
+// on the runner-hosted spike and quarter-processor legs a registration took ten
+// seconds and more: a window of three seconds refused hundreds of machines
+// whose rows landed afterwards. The window grows without asking more often —
+// the same six requests, each wait twice the one before.
+func TestTheFilingWaitOutlastsARegistrationPastTenSeconds(t *testing.T) {
+	var window time.Duration
+	for attempt := 1; attempt < filingWaitAttempts; attempt++ {
+		window += filingWaitDelay(attempt)
+		if attempt > 1 {
+			assert.Equal(t, 2*filingWaitDelay(attempt-1), filingWaitDelay(attempt),
+				"each wait is twice the one before")
+		}
+	}
+	assert.Equal(t, 6, filingWaitAttempts, "the request count is unchanged")
+	assert.Greater(t, window, 10*time.Second, "the window covers a registration past ten seconds")
 }

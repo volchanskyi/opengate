@@ -112,23 +112,22 @@ read_lease() {
 # The fourth argument is when the claim was first taken, which a renewal carries
 # forward: acquireTime is how long this holder has had the namespace, and
 # rewriting it every renewal would report a claim that was always brand new.
+#
+# The object is built by jq rather than written out as YAML. The API server
+# reads resourceVersion under metadata or not at all, and a hand-indented
+# manifest that put it one level off was refused at decode on every renewal and
+# every takeover; JSON has no indentation to get wrong.
 lease_manifest() {
   local holder="$1" stamp="$2" resource_version="${3:-}" acquired="${4:-$2}"
-  local version_line=""
-  [ -n "$resource_version" ] && version_line="
-    resourceVersion: \"$resource_version\""
-  cat <<MANIFEST
-apiVersion: coordination.k8s.io/v1
-kind: Lease
-metadata:
-  name: $LEASE_NAME
-  namespace: $NAMESPACE$version_line
-spec:
-  holderIdentity: "$holder"
-  acquireTime: "$acquired"
-  renewTime: "$stamp"
-  leaseDurationSeconds: $TTL_SECONDS
-MANIFEST
+  jq -n \
+    --arg name "$LEASE_NAME" --arg namespace "$NAMESPACE" \
+    --arg version "$resource_version" --arg holder "$holder" \
+    --arg acquired "$acquired" --arg renewed "$stamp" --argjson ttl "$TTL_SECONDS" \
+    '{apiVersion: "coordination.k8s.io/v1", kind: "Lease",
+      metadata: ({name: $name, namespace: $namespace}
+        + (if $version == "" then {} else {resourceVersion: $version} end)),
+      spec: {holderIdentity: $holder, acquireTime: $acquired, renewTime: $renewed,
+        leaseDurationSeconds: $ttl}}'
 }
 
 # A claim is stale once its renewTime plus its own declared duration is in the

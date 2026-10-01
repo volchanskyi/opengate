@@ -66,8 +66,20 @@ is read back rather than inferred from the punctuation.
 
 **Every way the walk cannot happen is a failure, never an empty report.**
 
-**The core is read where it is taken and never carried out.** It is most of the
-process's memory and it is the machine's, not the artifact store's.
+**The core leaves the runner encrypted, or not at all.** It is most of the
+process's memory, and the repository and its artifacts are public. It is taken
+outside the bundle, compressed with zstd and encrypted with `age` to a key made
+for this alone, before the walk reads it; the plain copy is removed on every
+exit, and the encrypted file is uploaded as an artifact of its own
+([`loadtest-reference-walk.sh`](../../scripts/loadtest-reference-walk.sh)). The
+public half of that key is the repository secret `SOAK_DUMP_AGE_RECIPIENT`, and
+the walk refuses before it starts when that value is empty, an SSH key, a
+private key or anything but a native age recipient. The private half exists only
+on the maintainer's machine, never in the repository's secrets, so no workflow
+can open a dump. A native age key rather than an SSH one, because an SSH
+recipient leaves a marker of the key in every file it encrypts. How to open one
+is in [Testing](../infrastructure/Testing.md#opening-a-soak-dump). The program
+copy travels in the plain bundle: it is built from public source.
 
 **The reader is proved against the toolchain whenever either moves.** It reads
 the runtime's unexported heap structures, which change between Go releases, and
@@ -82,6 +94,20 @@ toolchain has outrun fails the commit that moved one of them, rather than a soak
 up to a week later. The reader names small objects and reports ones large enough
 to carry an allocation header by their size class, on the toolchain before this
 one as on this one.
+
+**The reader is patched for large pointer maps, and the patch retires itself.**
+Go reaches the pointer map of a type with more than 128 pointer words through one
+more pointer, which the runtime fills in on first use; the pinned reader read
+that slot as the map and walked off the end of the binary's data, so a dump
+holding a large compressor was unreadable. The reader is built with
+[`viewcore-gcmask-on-demand.patch`](../../scripts/patches/viewcore-gcmask-on-demand.patch)
+applied ([`install-viewcore.sh`](../../scripts/install-viewcore.sh)), which
+follows that pointer and treats a map not yet built as every word a possible
+pointer. The check's program keeps alive a type that large and walks through it.
+The workflow also runs nightly, and each run builds the newest upstream reader
+unpatched beside the patched one: the night upstream reads that core too, the
+check fails and names the swap, so the patch is removed as soon as it is not
+needed.
 
 ## Consequences
 

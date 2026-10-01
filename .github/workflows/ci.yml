@@ -823,6 +823,13 @@ jobs:
           sudo install -m 0755 /tmp/conftest /usr/local/bin/conftest
           helm version --short && kubeconform -v && conftest --version
 
+      # The endurance run's dump is encrypted and opened with these, and the
+      # reference walk's tests prove that round trip with the real tools.
+      - name: Install the pinned age and zstd
+        run: |
+          scripts/install-dump-tools.sh
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+
       # After helm, because the behavioural tests read what the charts render:
       # a workflow that selects a pod by label is checked against the labels
       # the chart actually gives it.

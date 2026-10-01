@@ -86,7 +86,16 @@ jobs:
     # Deliberately avoid `environment: staging`: its required reviewers would
     # block the scheduled run. This read-only workload uses repository-level OCI
     # credentials and creates only short-lived test pods.
+    outputs:
+      started_at: ${{ steps.started.outputs.at }}
     steps:
+      # The night's date. Every sample the night writes carries this time, so a
+      # run is one point on one date however long it takes, and a re-run of its
+      # failed jobs writes the same point.
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
@@ -646,6 +655,9 @@ jobs:
       contents: read
     outputs:
       regression: ${{ steps.check.outputs.regression }}
+    env:
+      # When the run started, which every sample of the night carries.
+      VM_RUN_STARTED_AT: ${{ needs.load-test.outputs.started_at }}
     steps:
       - uses: actions/checkout@v7
 
@@ -748,19 +760,28 @@ jobs:
         # own comparison point until it goes quiet.
         run: ./scripts/loadtest-vm-push.sh loadtest-rows.json loadtest-p99-streaks.json
 
+      # Every measurement beside the limit the profile holds it to, the error
+      # rate, and how much of its own ceiling the server and the database used
+      # through the measured phase — the database's read from the cluster's own
+      # container readings over that phase's window.
       - name: Write GITHUB_STEP_SUMMARY
         run: |
           set -euo pipefail
+          BUNDLE=artifacts/loadtest/loadtest-bundle/quic-agents.json
+          SUMMARY_ARGS=(--title "Nightly load test" --profile "$LOADTEST_PROFILE" --rows loadtest-rows.json)
+          if [ -s "$BUNDLE" ]; then
+            SUMMARY_ARGS+=(--bundle "$BUNDLE")
+            read -r FROM TO <<<"$(scripts/run-summary.sh window "$LOADTEST_PROFILE" "$BUNDLE")"
+            if [ -n "${FROM:-}" ]; then
+              scripts/database-levels.sh cluster "$NAMESPACE" "$FROM" "$TO" >database-levels.json
+              SUMMARY_ARGS+=(--database database-levels.json)
+            fi
+          fi
           {
-            echo "# Load-test trend run"
-            echo ""
             echo "Commit: \`${{ github.sha }}\`"
-            echo "Regression: \`${{ steps.check.outputs.regression }}\`"
+            echo "Regression against the nights before: \`${{ steps.check.outputs.regression }}\`"
             echo ""
-            echo "## Canonical rows"
-            echo '```json'
-            python3 -m json.tool < loadtest-rows.json || cat loadtest-rows.json
-            echo '```'
+            scripts/run-summary.sh render "${SUMMARY_ARGS[@]}"
             if grep -q '^P99_ADVISORY:' loadtest-regression.out; then
               echo ""
               echo "## p99 advisories"
@@ -768,7 +789,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # Runs whatever happened above it, and the message names which of the
         # three it was. The shape this replaces was gated on a flag an earlier
         # step in this job produced, so a night that died before that step said
@@ -788,7 +809,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
-            echo "Nothing to say: the run finished and nothing was found."
+            echo "No alert sent: the run finished and found nothing."
             exit 0
           fi
           if [ "${FINDING:-0}" = "1" ]; then

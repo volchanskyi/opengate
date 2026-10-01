@@ -18,7 +18,21 @@ belongs to the capability that owns it — [Device Health](../product/Device-Hea
 [Investigations](../product/Investigations.md),
 [Endpoint Logs](../product/Endpoint-Logs.md). How the series are scraped,
 rolled up, stored, charted and retained is
-[Monitoring](../infrastructure/Monitoring.md).
+[Monitoring](../infrastructure/Monitoring.md). The device telemetry the server
+writes into the store rather than publishing here, and the `namespace` it stamps
+on every sample, are described there too.
+
+**A counter over a fixed set of outcomes publishes every outcome at zero from
+start-up** — the log-pull outcomes, the telemetry drop reasons and ingested
+message types, the catch-up decisions and the alert refusal reasons, beside the
+investigation vocabularies below
+([`outcomes.go`](../../server/internal/metrics/outcomes.go)). A counter created
+on its first event has no reading before it, so a rate over it misses the first
+event after every start, and a rule watching for an outcome reads nothing until
+that outcome has happened. Each list is held to the code that records it: the
+drop reasons and message types to every place a connection records one
+([`telemetry_vocabulary_test.go`](../../server/internal/agentapi/telemetry_vocabulary_test.go)),
+the pull outcomes to the handler's own classification.
 
 ## Agent connections
 
@@ -182,6 +196,7 @@ real population before it means anything, is in
 | `opengate_http_requests_total` | `method`, `route`, `status_code` | HTTP requests served |
 | `opengate_http_request_duration_seconds` | `method`, `route` | HTTP request duration |
 | `opengate_relay_active_sessions` | — | Relay sessions currently open |
+| `opengate_relay_sessions_started_total` | — | Relay sessions opened since the process started, once per session |
 | `opengate_agents_connected` | — | Agents currently connected |
 | `opengate_mps_connected_devices` | — | Connected MPS (Intel AMT) devices |
 
@@ -193,6 +208,12 @@ built, so each is what it is holding at the instant the page is asked for. They
 are still counts the paths maintain rather than readings of the resource: what
 says the resource came back is [the process itself](#the-process-itself), and the
 two are read together.
+
+A relay session counts as started when its first side registers, the moment it
+counts as open, so started minus ended is what is open; the second side joins it
+rather than starting another. A session that echoes once and closes inside a
+second is open at almost none of the moments a scrape reads, so the started count
+is what says the relay was used at all.
 
 ## Audit
 

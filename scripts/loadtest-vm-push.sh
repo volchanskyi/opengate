@@ -28,7 +28,7 @@ metrics="$(
 
     def sample($metric; $value):
       select($value != null)
-      | "\($metric){commit=\"\(.commit | label_escape)\",env=\"\((.env // "ci") | label_escape)\",source=\"\((.source // "unknown") | label_escape)\",scenario=\"\((.scenario // "unknown") | label_escape)\",phase=\"\((.phase // "aggregate") | label_escape)\",workload=\"\((.workload // "unknown") | label_escape)\"} \($value)";
+      | "\($metric){env=\"\((.env // "ci") | label_escape)\",source=\"\((.source // "unknown") | label_escape)\",scenario=\"\((.scenario // "unknown") | label_escape)\",phase=\"\((.phase // "aggregate") | label_escape)\",workload=\"\((.workload // "unknown") | label_escape)\"} \($value)";
 
     .[]
     | sample("loadtest_latency_p50_ms"; .latency_p50_ms),
@@ -49,14 +49,14 @@ fi
 # night reads them with one query and nothing new has to persist.
 if [[ -f "$STREAK_FILE" ]]; then
   streaks="$(
-    jq -r --arg commit "${GITHUB_SHA:-unknown}" '
+    jq -r '
       def label_escape:
         tostring
         | gsub("\\\\"; "\\\\")
         | gsub("\""; "\\\"");
 
       .[]
-      | "loadtest_p99_advisory_streak{commit=\"\($commit | label_escape)\",env=\"ci\",source=\"\(.source | label_escape)\",scenario=\"\(.scenario | label_escape)\",phase=\"\(.phase | label_escape)\",workload=\"\((.workload // "") | label_escape)\"} \(.streak)"
+      | "loadtest_p99_advisory_streak{env=\"ci\",source=\"\(.source | label_escape)\",scenario=\"\(.scenario | label_escape)\",phase=\"\(.phase | label_escape)\",workload=\"\((.workload // "") | label_escape)\"} \(.streak)"
     ' "$STREAK_FILE"
   )"
   if [[ -n "$streaks" ]]; then

@@ -8,19 +8,23 @@
 #
 # Two comparisons, in this order:
 #
-#   1. The window. Fourteen days of this series, at least three samples, and a
-#      current value more than the band past the median.
+#   1. The window. The latest reading of each of the fourteen dates before
+#      tonight's, at least three of them, and a current value more than the
+#      band past their median. A night is a date: nights that ran tonight's
+#      code count, and a re-run of tonight is kept out by its date.
 #   2. The floors. These hold from night one, and they are what the check
 #      enforces on its own until the window exists. Which of the two applied is
 #      stated in the output rather than left for a reader to infer.
+#
+# Environment:
+#   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/vm-query.sh
 . "$SCRIPT_DIR/lib/vm-query.sh"
-
-COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
-export VM_EXCLUDE_COMMIT="${VM_EXCLUDE_COMMIT:-$COMMIT_SHA}"
+# shellcheck source=scripts/lib/summary-table.sh
+. "$SCRIPT_DIR/lib/summary-table.sh"
 
 WINDOW_DAYS=14
 MIN_WINDOW_SAMPLES=3
@@ -48,6 +52,9 @@ FLOOR_GAP_FILL_RATIO=0.95
 FLOOR_OFFLINE_TRANSITIONS=0
 
 SUMMARY_FILE="${1:-netdrill-summary.json}"
+# Where the run's summary page is written, when asked for: each reading beside
+# the floor it is held to, and what this check made of it.
+TABLE_FILE="${2:-}"
 [[ -f "$SUMMARY_FILE" ]] || {
   echo "missing: $SUMMARY_FILE" >&2
   exit 2
@@ -61,22 +68,14 @@ mul() { awk -v a="$1" -v b="$2" 'BEGIN { printf "%.6f", a * b }'; }
 
 REGRESSIONS=()
 
-# The window median and sample count for one series, or nothing when the series
-# has neither. Fail-open by construction: vm-query answers an unreachable
-# VictoriaMetrics with silence, and a gate that reddened on infrastructure would
-# be turned off within a week.
-window_median() {
-  local metric="$1" scenario="$2" victim="$3" selector line
-  selector="${metric}{$(vm_query_selector "env=\"ci\",scenario=\"${scenario}\",victim=\"${victim}\"")}"
-  line="$(vm_query_window "quantile(0.5, median_over_time(${selector}[${WINDOW_DAYS}d]))" | head -1)"
-  printf '%s\n' "${line##*$'\t'}"
-}
-
-window_count() {
-  local metric="$1" scenario="$2" victim="$3" selector line
-  selector="${metric}{$(vm_query_selector "env=\"ci\",scenario=\"${scenario}\",victim=\"${victim}\"")}"
-  line="$(vm_query_window "count(count_over_time(${selector}[${WINDOW_DAYS}d]))" | head -1)"
-  printf '%s\n' "${line##*$'\t'}"
+# The window's median and how many dates it holds for one series, as
+# "median<TAB>count", or nothing when the series has no history. Fail-open by
+# construction: vm-query answers an unreachable VictoriaMetrics with silence,
+# and a gate that reddened on infrastructure would be turned off within a week.
+window_stats() {
+  local metric="$1" scenario="$2" victim="$3"
+  vm_nightly_window "$metric" "env=\"ci\",scenario=\"${scenario}\",victim=\"${victim}\"" "$WINDOW_DAYS" \
+    | awk -F'\t' 'NR == 1 { print $2 "\t" $3 }'
 }
 
 # A value that has grown past its own history by more than the band. Only
@@ -86,14 +85,15 @@ check_window_growth() {
   local metric="$1" scenario="$2" victim="$3" current="$4" tolerance="$5"
   [ "$BANDS_CALIBRATED" = "1" ] || return 0
 
-  local median count threshold
-  median="$(window_median "$metric" "$scenario" "$victim")"
-  count="$(window_count "$metric" "$scenario" "$victim")"
+  local stats median count threshold
+  stats="$(window_stats "$metric" "$scenario" "$victim")"
+  median="${stats%%$'\t'*}"
+  count="${stats##*$'\t'}"
   [ -n "$median" ] && num_ge "${count:-0}" "$MIN_WINDOW_SAMPLES" && num_pos "$median" || return 0
 
   threshold="$(mul "$median" "$(awk -v t="$tolerance" 'BEGIN { printf "%.6f", 1 + t }')")"
   if num_gt "$current" "$threshold"; then
-    REGRESSIONS+=("${scenario}/${victim} ${metric}: ${median} -> ${current} (past the ${WINDOW_DAYS}-day median by more than the band)")
+    REGRESSIONS+=("${scenario}/${victim} ${metric}: ${median} -> ${current} (past the median of the last ${WINDOW_DAYS} nights by more than the band)")
   fi
 }
 
@@ -143,18 +143,70 @@ check_floor() {
   return 0
 }
 
+# floor_of METRIC SCENARIO — what the floor holds this reading to, and the
+# reading's own words, as "expected<TAB>words<TAB>unit"; "no limit" where the
+# reading is recorded rather than held.
+floor_of() {
+  local metric="$1" scenario="$2"
+  case "$metric" in
+    netdrill_reconnect_seconds) printf '≤ %s s\ttime to come back\ts\n' "$FLOOR_RECONNECT_SECONDS" ;;
+    netdrill_reconnect_attempt_seconds) printf '≤ %s s\ttime the reconnect itself took\ts\n' "$FLOOR_RECONNECT_ATTEMPT_SECONDS" ;;
+    netdrill_reconnected) printf 'came back\twhether it came back\tflag\n' ;;
+    netdrill_gap_fill_ratio) printf '≥ %s %%\tshare of the gap filled in\tshare\n' "$(awk -v f="$FLOOR_GAP_FILL_RATIO" 'BEGIN { printf "%g", f * 100 }')" ;;
+    netdrill_offline_transitions)
+      case "$scenario" in
+        s2 | s3) printf '%s\ttimes the machine went offline\tcount\n' "$FLOOR_OFFLINE_TRANSITIONS" ;;
+        *) printf 'no limit\ttimes the machine went offline\tcount\n' ;;
+      esac
+      ;;
+    netdrill_session_survived) printf 'survived\twhether the session survived a new address\tflag\n' ;;
+    netdrill_alerts_replayed) printf 'arrived\twhether the alert raised in the dark arrived\tflag\n' ;;
+    *) printf 'no limit\t%s\tvalue\n' "${metric#netdrill_}" ;;
+  esac
+}
+
+# shown VALUE UNIT — a reading in its own words.
+shown() {
+  case "$2" in
+    s) awk -v v="$1" 'BEGIN { printf "%g s", v }' ;;
+    share) awk -v v="$1" 'BEGIN { printf "%g %%", v * 100 }' ;;
+    flag) if awk -v v="$1" 'BEGIN { exit !(v + 0 >= 1) }'; then printf 'yes'; else printf 'no'; fi ;;
+    *) awk -v v="$1" 'BEGIN { printf "%g", v }' ;;
+  esac
+}
+
+TABLE_ROWS=()
 while IFS=$'\t' read -r metric scenario victim value; do
   [ -n "$metric" ] || continue
+  before="${#REGRESSIONS[@]}"
   case "$metric" in
     netdrill_reconnect_seconds) check_window_growth "$metric" "$scenario" "$victim" "$value" "$RECONNECT_REL_TOL" ;;
     netdrill_reconnect_attempt_seconds) check_window_growth "$metric" "$scenario" "$victim" "$value" "$RECONNECT_REL_TOL" ;;
     netdrill_live_staleness_max_seconds) check_window_growth "$metric" "$scenario" "$victim" "$value" "$STALENESS_REL_TOL" ;;
   esac
   check_floor "$metric" "$scenario" "$victim" "$value"
+  IFS=$'\t' read -r expected words unit <<<"$(floor_of "$metric" "$scenario")"
+  result="pass"
+  [ "${#REGRESSIONS[@]}" -eq "$before" ] || result="FAIL"
+  [ "$expected" != "no limit" ] || result="—"
+  TABLE_ROWS+=("$scenario $victim: $words"$'\t'"$expected"$'\t'"$(shown "$value" "$unit")"$'\t'"$result")
 done < <(jq -r '.[] | [.metric, .scenario, .victim, .value] | @tsv' "$SUMMARY_FILE")
 
+if [ -n "$TABLE_FILE" ]; then
+  {
+    printf '### Network drill\n\n'
+    summary_table_header
+    for row in "${TABLE_ROWS[@]}"; do
+      IFS=$'\t' read -r measurement expected actual result <<<"$row"
+      summary_table_row "$measurement" "$expected" "$actual" "$result"
+    done
+    summary_legend
+    printf -- '- **Measurement** — a scenario (s1 dark and back, s2 thin uplink, s3 lossy link, s4 new address) and the machine it measured: the real one, the herd, or the link itself.\n'
+  } >"$TABLE_FILE"
+fi
+
 if [ "$BANDS_CALIBRATED" = "1" ]; then
-  echo "network-drill: checked against the ${WINDOW_DAYS}-day window and the absolute floors"
+  echo "network-drill: checked against the last ${WINDOW_DAYS} nights and the absolute floors"
 else
   echo "network-drill: the trend window is not yet calibrated, so only the absolute floors were enforced"
 fi

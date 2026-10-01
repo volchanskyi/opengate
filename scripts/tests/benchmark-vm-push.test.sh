@@ -62,6 +62,7 @@ echo "benchmark VM push:"
 PATH="$TMP_ROOT/bin:$PATH" \
   KUBECTL_ARGS_FILE="$TMP_ROOT/kubectl.args" \
   KUBECTL_STDIN_FILE="$TMP_ROOT/payload.prom" \
+  VM_RUN_STARTED_AT=1790000000 \
   VM_NAMESPACE="observability" \
   VM_SERVICE="private-vm" \
   "$PUSH" "$TMP_ROOT/rows.json" >/dev/null 2>&1
@@ -74,22 +75,30 @@ else
   fail "VM endpoint missing from kubectl args"
 fi
 
-if grep -qF 'benchmark_ns_op{commit="deadbeef",env="ci",benchmark="BenchmarkEncodeFrame",lang="go"} 123.4' "$TMP_ROOT/payload.prom"; then
+# A sample names the measurement only: the benchmark and its language. The
+# commit a night ran is in the one ci_run_info the transport writes beside it.
+samples="$(grep -vE '^ci_run_info' "$TMP_ROOT/payload.prom" || true)"
+if grep -qE '[{,](commit|run_id)=' <<<"$samples"; then
+  fail "a benchmark sample carries a label that changes every run"
+else
+  pass "a benchmark sample carries measurement labels only"
+fi
+if grep -qF 'benchmark_ns_op{env="ci",benchmark="BenchmarkEncodeFrame",lang="go"} 123.4' "$TMP_ROOT/payload.prom"; then
   pass "maps Go ns/op"
 else
   fail "Go ns/op metric missing"
 fi
-if grep -qF 'benchmark_allocs_op{commit="deadbeef",env="ci",benchmark="BenchmarkEncodeFrame",lang="go"} 2' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'benchmark_allocs_op{env="ci",benchmark="BenchmarkEncodeFrame",lang="go"} 2' "$TMP_ROOT/payload.prom"; then
   pass "maps Go allocs/op"
 else
   fail "Go allocs/op metric missing"
 fi
-if grep -qF 'benchmark_bytes_op{commit="deadbeef",env="ci",benchmark="BenchmarkEncodeFrame",lang="go"} 64' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'benchmark_bytes_op{env="ci",benchmark="BenchmarkEncodeFrame",lang="go"} 64' "$TMP_ROOT/payload.prom"; then
   pass "maps Go B/op"
 else
   fail "Go B/op metric missing"
 fi
-if grep -qF 'benchmark_ns_op{commit="deadbeef",env="ci",benchmark="encode_frame",lang="rust"} 987.6' "$TMP_ROOT/payload.prom"; then
+if grep -qF 'benchmark_ns_op{env="ci",benchmark="encode_frame",lang="rust"} 987.6' "$TMP_ROOT/payload.prom"; then
   pass "maps Rust criterion ns/op"
 else
   fail "Rust ns/op metric missing"

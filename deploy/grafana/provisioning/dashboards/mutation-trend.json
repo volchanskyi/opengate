@@ -1,5 +1,6 @@
 {
   "annotations": { "list": [] },
+  "description": "Mutation-testing readings, one point per night, measured on a CI runner.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -102,8 +103,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "last_over_time(mutation_score{env=\"ci\"}[1d])",
-          "queryType": "range",
+          "expr": "mutation_score{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{ language }}",
           "refId": "A"
         }
@@ -129,8 +131,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "last_over_time(mutation_survived{env=\"ci\"}[1d])",
-          "queryType": "range",
+          "expr": "mutation_survived{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{ language }}",
           "refId": "A"
         }
@@ -156,8 +159,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "last_over_time(mutation_no_coverage{env=\"ci\"}[1d])",
-          "queryType": "range",
+          "expr": "mutation_no_coverage{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{ language }}",
           "refId": "A"
         }

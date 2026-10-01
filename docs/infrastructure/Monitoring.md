@@ -21,7 +21,8 @@ flowchart LR
   subgraph OKE[OKE cluster]
     subgraph App[opengate + opengate-staging namespaces]
       Server[OpenGate server pods]
-      PG[PostgreSQL StatefulSets]
+      PG[PostgreSQL StatefulSet, one per namespace]
+      PgExporter[Postgres exporter Deployment, one per namespace]
     end
 
     subgraph Mon[monitoring namespace]
@@ -30,20 +31,20 @@ flowchart LR
       Grafana[Grafana Deployment]
       Promtail[Promtail DaemonSet]
       NodeExporter[Node Exporter DaemonSet]
-      PgExporter[Postgres Exporter Deployment]
     end
   end
 
   VM -- kubernetes_sd scrape --> Server
-  Server -- Edge Sentinel import --> VM
+  Server -- Edge Sentinel import, stamped with its namespace --> VM
   VM -- scrape --> NodeExporter
-  VM -- scrape --> PgExporter
+  VM -- pod scrape --> PgExporter
+  VM -- scrapes itself --> VM
   PgExporter -- SQL metrics --> PG
   Promtail -- pod logs --> Loki
-  Grafana -- PromQL --> VM
+  Grafana -- PromQL, one environment at a time --> VM
   Grafana -- LogQL --> Loki
   Grafana -- alerts --> Telegram[Telegram Bot API]
-  Nightly[Benchmark / mutation / PMAT / drift / load-test workflows] -- kubectl VM push --> VM
+  Nightly[Benchmark / mutation / PMAT / drift / load-test / drill / perf-stack / soak workflows] -- kubectl VM push --> VM
   External[External uptime SaaS] -- public probes --> Ingress[Public HTTPS / QUIC / MPS]
 ```
 
@@ -69,16 +70,23 @@ maintained here. Current chart components are:
 
 | Component | Kubernetes object | Purpose |
 |---|---|---|
-| VictoriaMetrics | StatefulSet + Service + RBAC | Metrics store and Kubernetes service-discovery scraper. |
+| VictoriaMetrics | StatefulSet + Service + RBAC | Metrics store and Kubernetes service-discovery scraper; scrapes its own readings through its pod annotations. |
 | Loki | StatefulSet + Service | Log store for pod logs. |
 | Grafana | Deployment + Service | Dashboards, datasource provisioning, and alert UI. |
 | Promtail | DaemonSet + RBAC | Node-level pod-log collection from `/var/log/pods`. |
 | Node Exporter | DaemonSet + Service | Node metrics. |
-| Postgres Exporter | Deployment + Service | PostgreSQL metrics for the production Postgres service. |
+
+Each database is measured by an exporter in a pod of its own beside it, from the
+application chart
+([`postgres-exporter.yaml`](../../deploy/helm/opengate/templates/postgres-exporter.yaml)):
+it reads the database in its namespace with that environment's own credentials,
+and the pod scrape labels its readings with that environment's namespace. It is
+kept out of the database's own pod so that nothing happening to it can make the
+database unreachable ([ADR-014](../adr/ADR-014-postgresql.md)).
 
 The scraper also reads each kubelet's own cAdvisor endpoint
 ([`vmagent-scrape.yaml`](../../deploy/helm/monitoring/files/vmagent-scrape.yaml)),
-which is the only place a container's working set against **its own** limit
+which is the only place a container's memory against **its own** limit
 exists. The node exporter reads the node, and the two answer different
 questions: a pod can sit at 90% of its cgroup ceiling on a node with memory to
 spare, minutes from being killed, and a node-wide reading stays quiet the whole
@@ -169,7 +177,11 @@ agents. The app chart wires the VM endpoint into the server through
 [`server-deployment.yaml`](../../deploy/helm/opengate/templates/server-deployment.yaml),
 and the scoped client lives in
 [`server/internal/telemetry`](../../server/internal/telemetry). VM reads go through
-that client so the server injects the authoritative `tenant_id` matcher. Process
+that client so the server injects the authoritative `tenant_id` matcher. Every
+sample it writes carries the `namespace` the server runs in, which the chart
+hands it from the cluster, so production's and staging's readings stay apart on
+a dashboard; every read the server makes groups that label away, so a device's
+chart is one line across the readings written before and after it. Process
 snapshots with basenames and optional command-line hashes stay in Postgres RLS;
 see [Database](../architecture/Database.md#device-processes-table).
 
@@ -327,8 +339,8 @@ a reading means for a machine is in
 The **Edge-Sentinel Soak**
 Grafana dashboard charts these alongside anomaly rate, VM cardinality + disk
 growth, and control-plane query p99 over the VM datasource. The
-`opengate_*` series require the server exposition scrape; the `vm_*` series require
-the VictoriaMetrics self-scrape.
+`opengate_*` series come from the server exposition scrape; the `vm_*` series
+come from the store scraping itself, under the `monitoring` namespace.
 
 ### Long-term (cold) tier
 
@@ -354,13 +366,32 @@ chart intentionally does not duplicate dashboard JSON.
 What the cluster holds is rendered from those files, applied and then asked for
 back by
 [`monitoring-config-apply.sh`](../../deploy/scripts/monitoring-config-apply.sh),
-which refuses on a difference and restarts only what changed. It covers the
-alerting ConfigMap, the dashboards ConfigMap and the scrape configuration, and
-the nightly [`terraform-drift.yml`](../../.github/workflows/terraform-drift.yml)
-runs it — so the configuration the cluster evaluates is compared against the one
-this repository declares every night. The apply is not what makes that true; the
-read-back is, for the reason
+which refuses on a difference. It covers the alerting ConfigMap, the dashboards
+ConfigMap and the scrape configuration. The production deploy in
+[`cd.yml`](../../.github/workflows/cd.yml) runs it right after upgrading the
+monitoring release, and the nightly
+[`terraform-drift.yml`](../../.github/workflows/terraform-drift.yml) runs it
+again — so the configuration the cluster evaluates is compared against the one
+this repository declares at every deploy and every night. The apply is not what
+makes that true; the read-back is, for the reason
 [`ci-cd-determinism.md`](../../.claude/rules/ci-cd-determinism.md) gives.
+
+The read-back asks the running programs, not their ConfigMaps
+([`monitoring-readback.py`](../../deploy/scripts/monitoring-readback.py)):
+
+- **What the store loaded.** VictoriaMetrics reports the scrape configuration it
+  is running; one that differs from the declared file is reloaded until it
+  matches, or refused. The store, Loki and Promtail also carry a checksum of
+  their configuration in their pod templates, so a chart upgrade that changes it
+  restarts what reads it.
+- **Whether every panel answers.** Every dashboard query is run against the
+  store, each live one once per environment. A query that returns nothing on a
+  panel that does not say in words what empty means is a refusal naming the
+  dashboard and the panel.
+- **Whether every production rule can see.** Every selector a
+  `watches: production` rule reads must match at least one series.
+
+After a deploy both checks wait for new targets' first readings before judging.
 
 Alerts route to one Telegram destination, provisioned from
 [`contact-points.yml`](../../deploy/grafana/provisioning/alerting/contact-points.yml)
@@ -379,9 +410,11 @@ A message is written by
 [`message-templates.yml`](../../deploy/grafana/provisioning/alerting/message-templates.yml)
 from two annotations every rule carries: `observed`, the reading in the rule's
 own units beside the line it crossed, and `check`, the first thing to look at.
-The message adds the series' labels and when the alert began, says "no data" in
-words when the query returned nothing, and leaves out the labels Grafana keeps
-for itself.
+The message adds the series' labels and when the alert began, and leaves out the
+labels Grafana keeps for itself. Its headline is the rule's title; when the
+query returned nothing or failed to run, the headline is the title followed by
+"no data" or "query failed", and alerts are grouped by the rule's title so two
+rules are never merged into one message.
 
 The same nightly job sends a real message through the bot and fails when it does
 not arrive. Everything above can be correct and still reach nobody, and that job
@@ -396,8 +429,9 @@ the file rather than the cluster: every rule carries a condition, a duration, a
 severity and a summary, and the rules watching the server process itself are
 named there by uid so a refactor cannot quietly drop one. A server process that
 was replaced raises `server-process-restarted` off
-`process_start_time_seconds`, which is already collected and dates the
-replacement to the second.
+`process_start_time_seconds` itself — how long ago the newest process started —
+which dates the replacement to the second and is not moved by a label being
+added to the series.
 
 ### What a rule watches
 
@@ -420,17 +454,21 @@ line in its summary, never a failed run. The weekly soak and the performance
 stack run on a runner of their own and take neither. The template leaves
 `watches` out of the message; it is there for the silence.
 
-The container memory rule reads each container's working set against its own
-limit. It has two lines in
+The container memory rule reads what each container's program holds — its
+resident memory — against its own limit. A working set also counts file cache
+the kernel reclaims on demand, which reads Loki, with its tens of thousands of
+chunk files, near its limit while the program holds a fraction of it. The rule
+has two lines in
 [`alert-rules.yml`](../../deploy/grafana/provisioning/alerting/alert-rules.yml):
-it fires past the upper one and clears only below the lower one, so a working
-set hovering at the line is one message rather than one per evaluation. A
-container with no memory limit has no ceiling to walk up to and is left out of
-the ratio. Loki's and Promtail's limits in
+it fires past the upper one and clears only below the lower one, so a reading
+hovering at the line is one message rather than one per evaluation. A container
+with no memory limit has no ceiling to walk up to and is left out of the ratio.
+Loki's and Promtail's limits in
 [`values.yaml`](../../deploy/helm/monitoring/values.yaml) sit their steady
-working sets below the lower line.
+resident memory below the lower line.
 
-Current dashboard files include the app overview, DB performance, PostgreSQL,
+Current dashboard files include the app overview (with relay sessions open and
+started per minute, by pod), DB performance, PostgreSQL,
 the Edge-Sentinel Logs dashboard (raw-log pull rate/latency and audited reads),
 the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
 cardinality + disk growth, control-plane query p99,
@@ -438,9 +476,20 @@ reconnect-backfill scheduler state, and threshold-alert breach counts),
 the Rule Rollout And Triage dashboard (alerts raised per rule, refusals by
 reason, the measured alerts-per-device-per-day rate, the triage queue by status,
 and fleet-wide rule coverage),
-benchmark trend, mutation trend, PMAT trend,
-terraform-drift trend, and load-test trend dashboards. Numeric CI trend workflows
-write Prometheus samples to VictoriaMetrics:
+benchmark trend, mutation trend, PMAT trend, terraform-drift trend, load-test
+trend, network-drill trend, perf-stack trend and soak trend dashboards.
+
+Those first six are live dashboards. Each carries an **Environment** selector —
+Production by default, or Staging — and every query names the environment it
+reads, or the `monitoring` namespace for the monitoring stack's own readings, so
+the two environments are never added together
+([`grafana-live-dashboards.test.sh`](../../scripts/tests/grafana-live-dashboards.test.sh)).
+A panel whose query can come back empty says in words what that means. The trend
+dashboards draw one line per measurement and one point per night
+([`grafana-trend-panels.test.sh`](../../scripts/tests/grafana-trend-panels.test.sh)),
+and each says where its readings come from.
+
+Numeric CI trend workflows write Prometheus samples to VictoriaMetrics:
 
 - [`benchmark.yml`](../../.github/workflows/benchmark.yml) →
   [`scripts/benchmark-vm-push.sh`](../../scripts/benchmark-vm-push.sh)
@@ -454,12 +503,19 @@ write Prometheus samples to VictoriaMetrics:
 - [`load-test.yml`](../../.github/workflows/load-test.yml) →
   [`scripts/loadtest-regression-check.sh`](../../scripts/loadtest-regression-check.sh) →
   [`scripts/loadtest-vm-push.sh`](../../scripts/loadtest-vm-push.sh)
+- [`network-drill.yml`](../../.github/workflows/network-drill.yml) →
+  [`scripts/network-drill-regression-check.sh`](../../scripts/network-drill-regression-check.sh) →
+  [`scripts/network-drill-vm-push.sh`](../../scripts/network-drill-vm-push.sh)
+- [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) and
+  [`soak.yml`](../../.github/workflows/soak.yml) →
+  [`scripts/perf-regression-check.sh`](../../scripts/perf-regression-check.sh) →
+  [`scripts/perf-vm-push.sh`](../../scripts/perf-vm-push.sh)
 
 VictoriaMetrics is the canonical numeric CI-trend store; Loki is reserved for
 logs per [ADR-038](../adr/ADR-038-ci-trend-store.md). Load-test
 regression semantics are recorded in
-[ADR-038](../adr/ADR-038-ci-trend-store.md). PMAT reads its previous
-day-over-day baseline through
+[ADR-038](../adr/ADR-038-ci-trend-store.md). PMAT reads the previous night's
+reading through
 [`pmat-vm-query.sh`](../../scripts/pmat-vm-query.sh) before publishing the current
 sample.
 
@@ -467,7 +523,12 @@ sample.
 
 Numeric CI trends use VictoriaMetrics through
 [`scripts/lib/vm-push.sh`](../../scripts/lib/vm-push.sh). That transport is the
-executable source for required labels and payload validation. Family names,
+executable source for required labels and payload validation: a sample names its
+measurement and nothing else, every sample carries the time its run started,
+and each push writes one `ci_run_info` naming the workflow, commit and run. The
+gates read back through the nightly reader in
+[`scripts/lib/vm-query.sh`](../../scripts/lib/vm-query.sh)
+([ADR-038](../adr/ADR-038-ci-trend-store.md)). Family names,
 units, and extra labels live in the adjacent `*-vm-push.sh` wrappers and are
 pinned by [`ci-trend-vm-push.test.sh`](../../scripts/tests/ci-trend-vm-push.test.sh),
 [`benchmark-vm-push.test.sh`](../../scripts/tests/benchmark-vm-push.test.sh), and
@@ -518,8 +579,16 @@ Validation sources:
   that its summary export reaches the runner on every exit status, and that the
   workflow keeps addressing the server over the cluster network.
 - [`scripts/tests/loadtest-regression-check.test.sh`](../../scripts/tests/loadtest-regression-check.test.sh)
-  verifies per-series VM read-back regression checks, p99 advisory behavior,
-  cold-start handling, and VM fail-open behavior.
+  verifies per-series comparison with the median of recent nights, nights on the
+  same commit counting, error rate judged against the window, the
+  consecutive-nights count, p99 advisory behavior, cold-start handling, and VM
+  fail-open behavior.
+- [`scripts/tests/monitoring-config-apply.test.sh`](../../scripts/tests/monitoring-config-apply.test.sh)
+  verifies the reload-until-loaded loop, the panel check and the production-rule
+  coverage check against a stand-in store.
+- [`scripts/tests/monitoring-scrape.test.sh`](../../scripts/tests/monitoring-scrape.test.sh)
+  verifies the scrape jobs, the configuration checksums, the store's own scrape
+  and each database's exporter, rendered through the charts.
 - [`scripts/tests/loadtest-vm-push.test.sh`](../../scripts/tests/loadtest-vm-push.test.sh)
   verifies load-test trend rows map to Prometheus text before reaching the
   shared VM transport.

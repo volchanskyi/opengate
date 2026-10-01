@@ -35,7 +35,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (rule_id) (rate(opengate_alerts_created_total[10m])) * 3600",
+          "expr": "sum by (rule_id) (rate(opengate_alerts_created_total{namespace=\"$environment\"}[10m])) * 3600",
           "legendFormat": "{{rule_id}}",
           "refId": "A"
         }
@@ -70,7 +70,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (reason) (rate(opengate_alerts_suppressed_total[10m])) * 3600",
+          "expr": "sum by (reason) (rate(opengate_alerts_suppressed_total{namespace=\"$environment\"}[10m])) * 3600",
           "legendFormat": "{{reason}}",
           "refId": "A"
         }
@@ -92,7 +92,8 @@
           },
           "unit": "short",
           "decimals": 2,
-          "min": 0
+          "min": 0,
+          "noValue": "No machine runs a rule"
         }
       },
       "gridPos": { "h": 6, "w": 8, "x": 0, "y": 9 },
@@ -107,7 +108,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum(increase(opengate_alerts_created_total[24h])) / max(sum by (rule_id) (opengate_rule_coverage))",
+          "expr": "sum(increase(opengate_alerts_created_total{namespace=\"$environment\"}[24h])) / (max(sum by (rule_id) (opengate_rule_coverage{namespace=\"$environment\"})) > 0)",
           "legendFormat": "alerts / device / day",
           "refId": "A"
         }
@@ -143,7 +144,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "opengate_incidents_open",
+          "expr": "opengate_incidents_open{namespace=\"$environment\"}",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -172,7 +173,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "opengate_alerts_open",
+          "expr": "opengate_alerts_open{namespace=\"$environment\"}",
           "legendFormat": "alerts held open",
           "refId": "A"
         }
@@ -208,7 +209,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (rule_id, state) (opengate_rule_coverage)",
+          "expr": "sum by (rule_id, state) (opengate_rule_coverage{namespace=\"$environment\"})",
           "legendFormat": "{{rule_id}} — {{state}}",
           "refId": "A"
         }
@@ -217,7 +218,25 @@
   ],
   "schemaVersion": 39,
   "tags": ["edge-sentinel", "investigations", "rules", "victoriametrics"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "description": "Production and staging write into one store. Every panel reads the one chosen here.",
+        "type": "custom",
+        "query": "Production : opengate, Staging : opengate-staging",
+        "current": { "selected": true, "text": "Production", "value": "opengate" },
+        "options": [
+          { "selected": true, "text": "Production", "value": "opengate" },
+          { "selected": false, "text": "Staging", "value": "opengate-staging" }
+        ],
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},
   "timezone": "utc",

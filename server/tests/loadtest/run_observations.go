@@ -48,14 +48,14 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, error
 	// an absent one: two ceilings sat on it for months.
 	if in.Registration != nil && in.Registration.Measured() {
 		observations = append(observations,
-			Observation{At: at, Series: "register_p95_ms", Value: in.Registration.QuantileMs(0.95)},
+			registrationQuantile(at, "register_p95_ms", *in.Registration, 0.95),
 			// The middle case beside the tail. They answer different questions
 			// about the same queue, and where the venue is driven to what it
 			// has been shown to hold only one of them reproduces: two runs an
 			// hour apart under identical load read tails of 5,773 and 9,443 ms
 			// with middle cases of 239 and 255. The tail there is the queue;
 			// the middle case is the write.
-			Observation{At: at, Series: "register_p50_ms", Value: in.Registration.QuantileMs(0.50)},
+			registrationQuantile(at, "register_p50_ms", *in.Registration, 0.50),
 			Observation{At: at, Series: "register_mean_ms", Value: in.Registration.MeanMs()},
 			Observation{At: at, Series: "register_rejected", Value: float64(in.Registration.Rejected)},
 			Observation{At: at, Series: "db_pool_in_use", Value: in.Registration.PoolInUse},
@@ -63,6 +63,20 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, error
 		)
 	}
 	return observations
+}
+
+// pastTheScale is the mark a registration figure carries when it lies past the
+// widest bucket the server publishes, so a reader sees a floor as a floor.
+const pastTheScale = "past the scale"
+
+// registrationQuantile is one registration quantile as an observation, marked
+// when the server's scale ended below it.
+func registrationQuantile(at time.Time, series string, reading ServerRegistration, q float64) Observation {
+	observation := Observation{At: at, Series: series, Value: reading.QuantileMs(q)}
+	if reading.PastTheScale(q) {
+		observation.Labels = map[string]string{"reading": pastTheScale}
+	}
+	return observation
 }
 
 // refusedAgents counts the machines a declared ceiling turned away.

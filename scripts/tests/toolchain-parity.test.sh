@@ -200,6 +200,55 @@ expect_rc "no-op without nvm installed" 0 env NVM_DIR="$(mktemp -d)" bash -c ". 
 check "PATH is untouched when nvm is absent" "$PATH_BEFORE" "$PATH"
 
 echo
+echo "pinned tools on this machine:"
+
+# Every tool the manifest pins for both sides is asked what it is, through
+# stand-ins answering the way each real tool words its version. A drifted one
+# fails the check and names the command that fixes it.
+PIN_ROOT="$(mktemp -d)"
+mkdir -p "$PIN_ROOT/scripts/lib" "$PIN_ROOT/bin"
+cp "$SCRIPT_DIR/../lib/tool-versions.sh" "$PIN_ROOT/scripts/lib/tool-versions.sh"
+# shellcheck source=../lib/tool-versions.sh
+. "$PIN_ROOT/scripts/lib/tool-versions.sh"
+stand_in() { # name, version line
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" %q\n' "$2" >"$PIN_ROOT/bin/$1"
+  chmod +x "$PIN_ROOT/bin/$1"
+}
+pinned_stand_ins() {
+  stand_in jq "jq-$TOOL_VERSION_JQ"
+  stand_in shellcheck "version: $TOOL_VERSION_SHELLCHECK"
+  stand_in shfmt "v$TOOL_VERSION_SHFMT"
+  stand_in age "v$TOOL_VERSION_AGE"
+  stand_in age-keygen "v$TOOL_VERSION_AGE"
+  stand_in zstd "*** Zstandard CLI (64-bit) v$TOOL_VERSION_ZSTD, by Yann Collet ***"
+}
+pinned_check() {
+  PATH="$PIN_ROOT/bin:$PATH" toolchain_pinned_tools_check "$PIN_ROOT"
+}
+
+pinned_stand_ins
+expect_rc "every pinned tool at its pin passes" 0 pinned_check
+
+stand_in zstd "*** zstd command line interface 64-bits v1.4.8, by Yann Collet ***"
+out="$(pinned_check 2>&1)"
+rc=$?
+check "a drifted zstd fails the check" "1" "$rc"
+if grep -qF 'scripts/install-dump-tools.sh' <<<"$out"; then
+  pass "and names the installer that fixes it"
+else
+  fail "and names the installer that fixes it (got=[$out])"
+fi
+
+pinned_stand_ins
+rm -f "$PIN_ROOT/bin/age"
+if PATH="$PIN_ROOT/bin:/usr/bin:/bin" toolchain_pinned_tools_check "$PIN_ROOT" >/dev/null 2>&1; then
+  fail "a missing age fails the check"
+else
+  pass "a missing age fails the check"
+fi
+rm -rf "$PIN_ROOT"
+
+echo
 if [ "$FAIL" -gt 0 ]; then
   echo "Summary: $PASS passed, $FAIL failed" >&2
   for f in "${FAILURES[@]}"; do echo "  - $f" >&2; done

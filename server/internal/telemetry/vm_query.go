@@ -95,7 +95,7 @@ func (v *VMClient) QueryRange(ctx context.Context, tenantID uuid.UUID, rq RangeQ
 	}
 	stepSecs := max(int64(rq.Step.Seconds()), 1)
 	q := url.Values{}
-	q.Set("query", fmt.Sprintf("%s(%s[%ds])", fn, scoped, stepSecs))
+	q.Set("query", fmt.Sprintf("%s without (%s) (%s(%s[%ds]))", rq.Agg, environmentLabel, fn, scoped, stepSecs))
 	q.Set("start", strconv.FormatInt(rq.Start.Unix(), 10))
 	q.Set("end", strconv.FormatInt(rq.End.Unix(), 10))
 	q.Set("step", strconv.FormatInt(stepSecs, 10)+"s")
@@ -112,7 +112,7 @@ func (v *VMClient) QueryRange(ctx context.Context, tenantID uuid.UUID, rq RangeQ
 // yields one value per device in the tenant — a single query behind the fleet
 // health badge.
 func (v *VMClient) QueryInstant(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]InstantValue, error) {
-	return v.scopedInstant(ctx, tenantID, metric, matchers, at, nil)
+	return v.scopedInstant(ctx, tenantID, metric, matchers, at, func(selector string) string { return selector })
 }
 
 // QueryInstantLookback runs a tenant-scoped instant query returning the most
@@ -157,7 +157,7 @@ func (v *VMClient) CountAnomalyBands(ctx context.Context, tenantID uuid.UUID, wa
 	if err != nil {
 		return BandCounts{}, err
 	}
-	window := fmt.Sprintf("last_over_time(%s[%ds])", scoped, int64(lookback.Seconds()))
+	window := withoutEnvironment(fmt.Sprintf("last_over_time(%s[%ds])", scoped, int64(lookback.Seconds())))
 
 	// One table drives both halves — it builds the query and it reads the answer
 	// back — so each band name is written once and the label the query stamps
@@ -202,18 +202,23 @@ func formatThreshold(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
-// scopedInstant scopes the selector for tenantID/metric/matchers, optionally
-// rewrites it with wrap (nil evaluates the bare selector), and runs it as an
-// instant query at `at`. It is the shared spine of the two instant read paths.
+// scopedInstant scopes the selector for tenantID/metric/matchers, rewrites it
+// with wrap, groups the environment away, and runs it as an instant query at
+// `at`. It is the shared spine of the two instant read paths.
 func (v *VMClient) scopedInstant(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time, wrap func(string) string) ([]InstantValue, error) {
 	scoped, err := v.scopedSelector(tenantID, metric, matchers)
 	if err != nil {
 		return nil, err
 	}
-	if wrap != nil {
-		scoped = wrap(scoped)
-	}
-	return v.instantQuery(ctx, scoped, at)
+	return v.instantQuery(ctx, withoutEnvironment(wrap(scoped)), at)
+}
+
+// withoutEnvironment groups an instant expression's series by everything but
+// the environment stamp, so a device's readings from before and after it are
+// one series. At any instant only one side carries a reading, save inside a
+// lookback that straddles the stamp, where the two are the same device.
+func withoutEnvironment(expr string) string {
+	return fmt.Sprintf("max without (%s) (%s)", environmentLabel, expr)
 }
 
 // instantQuery evaluates a pre-built PromQL expression as an instant query at

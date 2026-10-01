@@ -24,8 +24,9 @@
 #                                carries what the target was holding either side
 #                                of the run (default: the path the workflow
 #                                collects it to)
-#   LOADTEST_GATE_BREACHES       the limits the profile declared and this night
-#                                crossed, written by loadtest-gate-check.sh
+#   LOADTEST_GATE_BREACHES       the limits and marks the profile declared and
+#                                this night crossed, each saying whether it is
+#                                enforced, written by loadtest-gate-check.sh
 #
 # Exits: 0 the night held, 2 it could not be asked, 3 it did not measure the
 # system, 4 it measured the system and the system crossed a limit. Both 3 and 4
@@ -111,7 +112,14 @@ target_verdict() {
 # rules against. The step that runs it fails loudly on its own account.
 gate_breaches() {
   [ -s "$GATE_BREACHES" ] || return 0
-  jq -r '.[]? // empty' "$GATE_BREACHES" 2>/dev/null || true
+  jq -r '.[]? | select(.enforced == true) | .message' "$GATE_BREACHES" 2>/dev/null || true
+}
+
+# reported_marks are the marks the profile watches without enforcing. They are
+# printed as notices and never decide the night.
+reported_marks() {
+  [ -s "$GATE_BREACHES" ] || return 0
+  jq -r '.[]? | select(.enforced == false) | .message' "$GATE_BREACHES" 2>/dev/null || true
 }
 
 # target_findings is why, in the harness's own words, so the reason travels with
@@ -136,7 +144,7 @@ main() {
   fi
 
   local expected produced missing unexpected unmeasured breached result
-  local target_result findings gates
+  local target_result findings gates reported
   expected="$(printf '%s\n' "${LOADTEST_EXPECTED_SCENARIOS:-$DEFAULT_EXPECTED}" | tr ' ' '\n' | sed '/^$/d' | sort -u)"
   produced="$(produced_scenarios "$summary")"
   missing="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$produced"))"
@@ -147,6 +155,7 @@ main() {
   target_result="$(target_verdict)"
   findings="$(target_findings)"
   gates="$(gate_breaches)"
+  reported="$(reported_marks)"
 
   # The target's own two outcomes fold in on the same doctrine the rest of this
   # file follows: a process that was replaced means the numbers describe two
@@ -172,6 +181,7 @@ main() {
     --argjson breached "$(printf '%s\n' "$breached" | jq -Rn '[inputs | select(length > 0)]')" \
     --argjson target_findings "$(printf '%s\n' "$findings" | jq -Rn '[inputs | select(length > 0)]')" \
     --argjson gate_breaches "$(printf '%s\n' "$gates" | jq -Rn '[inputs | select(length > 0)]')" \
+    --argjson reported_marks "$(printf '%s\n' "$reported" | jq -Rn '[inputs | select(length > 0)]')" \
     '{
       result: $result,
       commit: $commit,
@@ -183,10 +193,15 @@ main() {
       unmeasured_scenarios: $unmeasured,
       threshold_breaches: $breached,
       gate_breaches: $gate_breaches,
+      reported_marks: $reported_marks,
       target_findings: $target_findings
     }' >"$out"
 
   cat "$out"
+
+  while IFS= read -r mark; do
+    [ -z "$mark" ] || echo "::notice::reported, not enforced: ${mark}"
+  done <<<"$reported"
 
   if [ "$result" = "invalid" ]; then
     [ -z "$missing" ] || echo "::error::scenarios produced no rows: $(printf '%s' "$missing" | tr '\n' ' ')" >&2

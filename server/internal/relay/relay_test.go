@@ -230,6 +230,44 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+// TestRelay_SessionsStarted_CountsEachSessionOnce counts sessions rather than
+// connections. A session is two registrations, and a session that echoes once
+// and closes inside a second is invisible to an open count read every fifteen
+// seconds, so the started count is what says a relay was used at all. It moves
+// when the open count does, which keeps started minus ended equal to open, and
+// it never moves back.
+func TestRelay_SessionsStarted_CountsEachSessionOnce(t *testing.T) {
+	r := NewRelay(slog.Default())
+	ctx := context.Background()
+	require.Zero(t, r.SessionsStarted())
+
+	token := protocol.GenerateSessionToken()
+	agentLocal, agentRelay := newMockConnPair(t)
+	browserLocal, browserRelay := newMockConnPair(t)
+
+	mustRegister(t, r, ctx, token, agentRelay, SideAgent)
+	require.Equal(t, uint64(1), r.SessionsStarted(), "the first side starts the session")
+	mustRegister(t, r, ctx, token, browserRelay, SideBrowser)
+	require.Equal(t, uint64(1), r.SessionsStarted(), "the second side joins it rather than starting another")
+
+	_, duplicate := newMockConnPair(t)
+	_, err := r.Register(ctx, token, duplicate, SideBrowser)
+	require.ErrorIs(t, err, ErrDuplicateSide)
+	require.Equal(t, uint64(1), r.SessionsStarted(), "a refused registration starts nothing")
+
+	awaitPumping(t, agentLocal, browserLocal)
+	agentRelay.Close()
+	require.Eventually(t, func() bool { return r.ActiveSessionCount() == 0 }, time.Second, 10*time.Millisecond)
+	require.Equal(t, uint64(1), r.SessionsStarted(), "a session that ended still started")
+
+	unpaired := protocol.GenerateSessionToken()
+	_, waiting := newMockConnPair(t)
+	mustRegister(t, r, ctx, unpaired, waiting, SideAgent)
+	r.Unregister(unpaired)
+	require.Equal(t, uint64(2), r.SessionsStarted(), "a session that never paired was open, so it started")
+	require.Zero(t, r.ActiveSessionCount())
+}
+
 // TestRelay_ActiveTokens_ReportsLiveSessions exposes the live token set the
 // stale-session sweep consults, so a session mid-flight is never swept.
 func TestRelay_ActiveTokens_ReportsLiveSessions(t *testing.T) {
@@ -324,10 +362,10 @@ func (h *captureHandler) findFirst(msg string) map[string]any {
 
 // TestRelay_CopyMessages_LogsExactCount pins the msgs_copied attribute on
 // the read-error log. Without this, the INCREMENT_DECREMENT mutation on
-// `count++` (relay.go:144) survives because count is observable only via logs.
+// copyMessages' `count++` survives because count is observable only via logs.
 func TestRelay_CopyMessages_LogsExactCount(t *testing.T) {
-	cap := &captureHandler{}
-	r := NewRelay(slog.New(cap))
+	logs := &captureHandler{}
+	r := NewRelay(slog.New(logs))
 	_, agentLocal, browserLocal := registerSession(t, r)
 
 	const n = 7
@@ -344,10 +382,10 @@ func TestRelay_CopyMessages_LogsExactCount(t *testing.T) {
 	agentLocal.Close()
 
 	require.Eventually(t, func() bool {
-		return cap.findFirst("relay read error") != nil
+		return logs.findFirst("relay read error") != nil
 	}, time.Second, 10*time.Millisecond, "expected read-error log emitted")
 
-	rec := cap.findFirst("relay read error")
+	rec := logs.findFirst("relay read error")
 	require.NotNil(t, rec)
 	got, ok := rec["msgs_copied"].(int64)
 	if !ok {

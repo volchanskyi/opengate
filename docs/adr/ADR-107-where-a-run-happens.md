@@ -18,12 +18,27 @@ it asks for.** A table binds the two and is checked against the workflows,
 so a profile with nowhere to run fails rather than sitting unscheduled.
 
 **Staging is production-shaped where a run can feel it.** Its server reserves
-and is capped at exactly what production's is, and its database is capped where
-production's is, so a number measured there means something about production.
-The database keeps a smaller reservation than production's: it holds a night's
-fixture rather than anything a customer depends on, and the node's reservations
-are nearly spoken for. Production's pair reserves what it is capped at, which is
-what puts it last in the eviction order.
+and is capped at exactly what production's is, and its database reserves and is
+capped at production's processor, so a number measured there means something
+about production. The staging database keeps a smaller memory reservation: it
+holds a night's fixture rather than anything a customer depends on. Production's
+server reserves what it is capped at, processor and memory, which puts it last
+in the eviction order; production's database reserves its whole memory
+ceiling, which keeps it last when memory runs short.
+
+**A database's processor ceiling is one processor, and its reservation 175m**
+([`values-production.yaml`](../../deploy/helm/opengate/values-production.yaml),
+[`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml)). A
+ceiling is enforced per tenth of a second, and a database's own processes arrive
+in bursts. Capped at 250m, production's database was paused in about a third of
+its busy tenths of a second for a whole week, and staging's in a fifth of them
+through a load run, which took the run's registration tail from tens of
+milliseconds to over a second with the median unchanged. The busiest minute
+either used in three days was 37m outside a load run and 40–80m through one, so
+175m covers both with room and the pair reserves the same 350m of the node's
+book it did. A reservation only decides the split once the node runs short of
+processor, and it never has: its busiest minute in those three days was 845m of
+its two processors.
 
 **On the runner, a machine reaches the target the way it does in
 production.** The transport asks the kernel for a 7 MiB receive buffer on every

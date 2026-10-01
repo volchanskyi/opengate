@@ -65,8 +65,61 @@ if [ "${args[0]:-}" = "-n" ]; then
   args=("${args[@]:2}")
 fi
 
+# The running store, reached the way the applier reaches it: through the API
+# server's proxy to its Service. It answers what it loaded, reloads on request,
+# and answers queries from a stand-in store in which every series exists except
+# the metrics listed in FAKE_VM_ABSENT.
+raw_answer() {
+  local path="$1"
+  printf 'raw %s\n' "$path" >>"$FAKE_KUBECTL_CALLS"
+  case "$path" in
+    */proxy/config)
+      [ -f "$FAKE_VM_LOADED" ] || {
+        echo "Error from server (ServiceUnavailable): no endpoints available" >&2
+        return 1
+      }
+      cat "$FAKE_VM_LOADED"
+      ;;
+    */proxy/-/reload)
+      if [ "${FAKE_VM_RELOAD:-takes}" = "takes" ] && [ -f "$store/monitoring-victoriametrics-scrape.json" ]; then
+        python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["scrape.yml"], end="")' \
+          "$store/monitoring-victoriametrics-scrape.json" >"$FAKE_VM_LOADED"
+      fi
+      ;;
+    */proxy/api/v1/*)
+      python3 - "$path" "${FAKE_VM_ABSENT:-/dev/null}" "$FAKE_VM_QUERIES" <<'STORE'
+import json, re, sys, urllib.parse
+path, absent_file, log = sys.argv[1], sys.argv[2], sys.argv[3]
+query = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
+expr = (query.get("query") or query.get("match[]") or [""])[0]
+with open(log, "a") as fh:
+    fh.write(expr.replace("\n", " ") + "\n")
+absent = {line.strip() for line in open(absent_file) if line.strip()}
+names = set(re.findall(r"[a-zA-Z_:][a-zA-Z0-9_:]*", expr))
+empty = bool(names & absent)
+if "/series" in path:
+    print(json.dumps({"status": "success", "data": [] if empty else [{"__name__": "x"}]}))
+elif "/query_range" in path:
+    result = [] if empty else [{"metric": {}, "values": [[0, "1"]]}]
+    print(json.dumps({"status": "success", "data": {"resultType": "matrix", "result": result}}))
+else:
+    result = [] if empty else [{"metric": {}, "value": [0, "1"]}]
+    print(json.dumps({"status": "success", "data": {"resultType": "vector", "result": result}}))
+STORE
+      ;;
+    *)
+      echo "unexpected raw path: $path" >&2
+      return 1
+      ;;
+  esac
+}
+
 case "${args[0]:-}" in
   get)
+    if [ "${args[1]:-}" = "--raw" ]; then
+      raw_answer "${args[2]:-}"
+      exit $?
+    fi
     name="${args[2]:-}"
     if [ "$FAKE_KUBECTL_MODE" = "empty" ] || [ ! -f "$store/$name.json" ]; then
       echo "Error from server (NotFound): configmaps \"$name\" not found" >&2
@@ -86,9 +139,18 @@ case "${args[0]:-}" in
     echo "configmap/$name configured"
     ;;
   rollout)
+    if [ "${args[1]:-}" = "status" ]; then
+      echo "rollout complete"
+      exit 0
+    fi
     # A restart names a workload the chart actually runs, by the kind it runs
-    # as. Anything else is the NotFound a real cluster answers with.
+    # as. Anything else is the NotFound a real cluster answers with. A restarted
+    # store starts on what its ConfigMap holds.
     target="${args[2]:-}"
+    if [ "$target" = "statefulset/monitoring-victoriametrics" ] && [ -f "$store/monitoring-victoriametrics-scrape.json" ]; then
+      python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["scrape.yml"], end="")' \
+        "$store/monitoring-victoriametrics-scrape.json" >"$FAKE_VM_LOADED"
+    fi
     if ! grep -qxF -- "$target" "$FAKE_KUBECTL_WORKLOADS"; then
       echo "Error from server (NotFound): $target not found" >&2
       exit 1
@@ -120,18 +182,39 @@ CHART
   exit 1
 }
 
+SCRAPE_FILE="$REPO_ROOT/deploy/helm/monitoring/files/vmagent-scrape.yaml"
+export FAKE_VM_LOADED="$WORK/vm-loaded.yml"
+export FAKE_VM_QUERIES="$WORK/vm-queries"
+
 run_apply() {
   local mode="$1" out="$2"
   shift 2
   rm -f "$WORK/calls"
   : >"$WORK/calls"
+  : >"$FAKE_VM_QUERIES"
   PATH="$WORK/bin:$PATH" \
     FAKE_KUBECTL_MODE="$mode" \
     FAKE_KUBECTL_STATE="$WORK/state" \
     FAKE_KUBECTL_CALLS="$WORK/calls" \
     FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
     TELEGRAM_CHAT_ID="-1001234567890" \
+    MONITORING_RELOAD_INTERVAL=0 \
+    MONITORING_READBACK_WAIT=0 \
     bash "$APPLY" "$@" >"$out" 2>&1
+}
+
+# A store that loaded what the repository declares, in the shape VictoriaMetrics
+# prints it back: its own key order, and the zero defaults it fills in.
+store_loaded_declared() {
+  python3 - "$SCRAPE_FILE" >"$FAKE_VM_LOADED" <<'LOADED'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["scrape_configs"]:
+    for sd in job.get("kubernetes_sd_configs", []):
+        if "namespaces" in sd:
+            sd["namespaces"]["own_namespace"] = False
+print(yaml.safe_dump(doc, sort_keys=True), end="")
+LOADED
 }
 
 # stored_key NAME KEY — the content the stub cluster now holds for one key.
@@ -144,6 +227,7 @@ echo "monitoring configuration apply:"
 
 # --- an accepting cluster: all three land and read back -----------------------
 rm -f "$WORK"/state/*.json
+store_loaded_declared
 OUT="$WORK/accept.out"
 if run_apply accept "$OUT"; then
   pass "an accepting cluster reports success"
@@ -341,6 +425,178 @@ if [ "$OWNER" = "Helm monitoring" ]; then
   pass "and the ownership the chart recorded is carried forward"
 else
   fail "and the ownership the chart recorded is carried forward (got [$OWNER])"
+fi
+
+# --- the running store is asked what it loaded -------------------------------
+#
+# The ConfigMap held a relabel for two days that the running store never read:
+# a chart upgrade changed the file and restarted nothing, and the nightly apply
+# then found the ConfigMap already current and restarted nothing either. Every
+# production-scoped rule was blind. So the decision rests on what the process
+# loaded, never on what this script changed.
+rm -f "$WORK"/state/*.json
+run_apply accept "$WORK/seed.out" || true
+printf 'global:\n  scrape_interval: 15s\nscrape_configs: []\n' >"$FAKE_VM_LOADED"
+OUT="$WORK/stale.out"
+if run_apply accept "$OUT"; then
+  pass "a store that loaded an older scrape file is brought to the declared one"
+else
+  fail "a store that loaded an older scrape file is brought to the declared one (out=[$(cat "$OUT")])"
+fi
+if grep -q -- '/proxy/-/reload' "$WORK/calls" && ! grep -q 'rollout restart' "$WORK/calls"; then
+  pass "by a reload, with the ConfigMap already current"
+else
+  fail "by a reload, with the ConfigMap already current (calls=[$(cat "$WORK/calls")])"
+fi
+
+printf 'global:\n  scrape_interval: 15s\nscrape_configs: []\n' >"$FAKE_VM_LOADED"
+OUT="$WORK/stuck.out"
+if FAKE_VM_RELOAD=ignored run_apply accept "$OUT"; then
+  fail "a store still on an older file after reloading is refused"
+elif grep -qF '::error::' "$OUT" && grep -qi 'loaded' "$OUT"; then
+  pass "a store still on an older file after reloading is refused, and says what it loaded"
+else
+  fail "a store still on an older file after reloading is refused, and says what it loaded (out=[$(cat "$OUT")])"
+fi
+
+# A store that could not be asked is not one that loaded the declared file.
+rm -f "$FAKE_VM_LOADED"
+OUT="$WORK/unasked.out"
+if run_apply accept "$OUT"; then
+  fail "a store that cannot be asked what it loaded is refused"
+else
+  pass "a store that cannot be asked what it loaded is refused"
+fi
+
+# --- every panel answers, and every production rule can see ------------------
+#
+# Against the stand-in store above, where everything exists, the applier runs
+# every panel's query and every production rule's selectors.
+store_loaded_declared
+run_apply accept "$WORK/answers.out" || true
+if grep -q 'every panel answers' "$WORK/answers.out" && grep -q 'every production rule' "$WORK/answers.out"; then
+  pass "the applier checks the panels and the production rules against the running store"
+else
+  fail "the applier checks the panels and the production rules against the running store (out=[$(cat "$WORK/answers.out")])"
+fi
+
+READBACK="$REPO_ROOT/deploy/scripts/monitoring-readback.py"
+readback() {
+  PATH="$WORK/bin:$PATH" FAKE_KUBECTL_MODE=accept FAKE_KUBECTL_STATE="$WORK/state" \
+    FAKE_KUBECTL_CALLS="$WORK/calls" FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
+    python3 "$READBACK" "$@"
+}
+
+mkdir -p "$WORK/dash"
+write_dashboard() { # file, title, panel title, expr, noValue, variable json
+  python3 - "$@" <<'DASH'
+import json, sys
+path, title, panel, expr, novalue, variable = sys.argv[1:7]
+defaults = {"noValue": novalue} if novalue else {}
+templating = {"list": [json.loads(variable)]} if variable else {"list": []}
+json.dump({"title": title, "templating": templating, "panels": [{
+    "title": panel, "type": "timeseries",
+    "datasource": {"type": "prometheus", "uid": "VictoriaMetrics"},
+    "fieldConfig": {"defaults": defaults},
+    "targets": [{"refId": "A", "expr": expr}]}]}, open(path, "w"))
+DASH
+}
+ENV_VARIABLE='{"name":"environment","type":"custom","options":[{"text":"Production","value":"opengate"},{"text":"Staging","value":"opengate-staging"}]}'
+echo "missing_metric" >"$WORK/absent"
+rm -f "$WORK/dash"/*
+write_dashboard "$WORK/dash/live.json" "Live Board" "Empty Panel" \
+  "sum(rate(missing_metric{namespace=\"\$environment\"}[\$__rate_interval]))" "" "$ENV_VARIABLE"
+if out="$(FAKE_VM_ABSENT="$WORK/absent" readback panels "$WORK/dash" --wait 0 2>&1)"; then
+  fail "a panel whose query answers nothing is refused (out=[$out])"
+elif grep -qF 'Live Board' <<<"$out" && grep -qF 'Empty Panel' <<<"$out"; then
+  pass "a panel whose query answers nothing is refused, naming the dashboard and the panel"
+else
+  fail "a panel whose query answers nothing is refused, naming the dashboard and the panel (out=[$out])"
+fi
+
+write_dashboard "$WORK/dash/live.json" "Live Board" "Empty Panel" \
+  "sum(rate(missing_metric{namespace=\"\$environment\"}[\$__rate_interval]))" "No pulls in this window" "$ENV_VARIABLE"
+if out="$(FAKE_VM_ABSENT="$WORK/absent" readback panels "$WORK/dash" --wait 0 2>&1)"; then
+  pass "the same panel saying in words what empty means passes"
+else
+  fail "the same panel saying in words what empty means passes (out=[$out])"
+fi
+
+: >"$FAKE_VM_QUERIES"
+write_dashboard "$WORK/dash/live.json" "Live Board" "Present Panel" \
+  "sum(present_metric{namespace=\"\$environment\"})" "" "$ENV_VARIABLE"
+readback panels "$WORK/dash" --wait 0 >/dev/null 2>&1 || true
+if grep -qF 'namespace="opengate"}' "$FAKE_VM_QUERIES" && grep -qF 'namespace="opengate-staging"}' "$FAKE_VM_QUERIES"; then
+  pass "a live panel is asked once for each environment"
+else
+  fail "a live panel is asked once for each environment (queries=[$(cat "$FAKE_VM_QUERIES")])"
+fi
+
+# The coverage of the production rules: a selector naming a series the store
+# does not hold is a rule that cannot see.
+cat >"$WORK/rules.yml" <<'RULES'
+groups:
+  - name: fixture
+    rules:
+      - uid: blind-production
+        title: Blind production rule
+        labels: {watches: production}
+        data:
+          - refId: A
+            datasourceUid: VictoriaMetrics
+            model: {expr: 'sum(rate(missing_metric{namespace="opengate"}[5m]))'}
+      - uid: blind-shared
+        title: Shared rule
+        labels: {watches: shared}
+        data:
+          - refId: A
+            datasourceUid: VictoriaMetrics
+            model: {expr: 'sum(missing_metric{mountpoint="/"})'}
+      - uid: outcome-filter
+        title: Outcome filter
+        labels: {watches: production}
+        data:
+          - refId: A
+            datasourceUid: VictoriaMetrics
+            model: {expr: 'sum(rate(present_metric{namespace="opengate",status_code=~"5.."}[5m]))'}
+RULES
+if out="$(FAKE_VM_ABSENT="$WORK/absent" readback coverage "$WORK/rules.yml" --wait 0 2>&1)"; then
+  fail "a production rule whose selector matches nothing is refused (out=[$out])"
+else
+  if grep -qF 'blind-production' <<<"$out" && grep -qF 'missing_metric{namespace="opengate"}' <<<"$out"; then
+    pass "a production rule whose selector matches nothing is refused, naming the rule and the selector"
+  else
+    fail "a production rule whose selector matches nothing is refused, naming the rule and the selector (out=[$out])"
+  fi
+  if grep -qF 'blind-shared' <<<"$out"; then
+    fail "a shared rule is not held to the production scope"
+  else
+    pass "a shared rule is not held to the production scope"
+  fi
+  if grep -qF 'outcome-filter' <<<"$out"; then
+    fail "an outcome picked by a pattern is left to the data"
+  else
+    pass "an outcome picked by a pattern is left to the data"
+  fi
+fi
+
+# What the store loaded, compared as structure: its own key order and the zero
+# defaults it fills in are the same configuration; a changed value is not.
+printf 'a: 1\nb: {c: x}\n' >"$WORK/declared.yml"
+if readback loaded "$WORK/declared.yml" <<<$'b:\n  c: x\n  d: false\na: 1'; then
+  pass "a loaded configuration in another order with zero defaults is the declared one"
+else
+  fail "a loaded configuration in another order with zero defaults is the declared one"
+fi
+if readback loaded "$WORK/declared.yml" <<<$'a: 1\nb: {c: y}'; then
+  fail "a loaded configuration with a different value is not the declared one"
+else
+  pass "a loaded configuration with a different value is not the declared one"
+fi
+if readback loaded "$WORK/declared.yml" <<<$'a: 1\nb: {c: x, relabel: keep}'; then
+  fail "a loaded configuration carrying something the file does not declare is not the declared one"
+else
+  pass "a loaded configuration carrying something the file does not declare is not the declared one"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"

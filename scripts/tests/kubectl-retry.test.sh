@@ -162,6 +162,72 @@ for signature in \
   fi
 done
 
+# --- giving up on the transport is its own answer -----------------------------
+#
+# A caller has to say which of two things happened — the cluster lost the
+# connection, or the command was refused — and the exit status is the only
+# thing that survives a command substitution.
+KUBECTL_RETRY_LOST="$(bash -c '. "$1"; printf "%s" "$KUBECTL_RETRY_LOST"' _ "$LIB")"
+run_retry 99 "$EOF_ERROR" exec -i shaper -- true && status=0 || status=$?
+assert_status() {
+  if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (want=[$2] got=[$3])"; fi
+}
+assert_status "a transport that never recovers exits with the lost-connection status" \
+  "$KUBECTL_RETRY_LOST" "$status"
+run_retry 99 'Error from server (NotFound): pods "x" not found' get pod x && status=0 || status=$?
+if [ "$status" != "0" ] && [ "$status" != "$KUBECTL_RETRY_LOST" ]; then
+  pass "a refusal keeps its own status rather than the lost-connection one"
+else
+  fail "a refusal keeps its own status rather than the lost-connection one (status=$status)"
+fi
+
+# --- a command that ran and failed is the command's answer --------------------
+#
+# The pod ran it and it exited non-zero, which kubectl reports as the command's
+# own exit. Whatever that command printed — curl's "connection refused" to a
+# service that is down — is the target's answer, never the cluster's transport.
+if run_retry 99 "$(printf 'curl: (7) Failed to connect to 10.244.0.22 port 9091: connection refused\ncommand terminated with exit code 7')" \
+  exec -i probe -- curl http://10.244.0.22:9091/healthz; then
+  fail "a command that ran and failed still fails"
+else
+  pass "a command that ran and failed still fails"
+fi
+assert_status "and is attempted once, whatever words it used" "1" "$(attempts)"
+
+# --- a call that must not run twice is retried only when it never started -----
+#
+# A probe that writes, or whose failure is itself a reading, cannot be asked
+# twice on a connection that dropped part-way through: nobody can say whether it
+# ran. It can be asked again when the cluster says the request never reached the
+# node at all, which is the signature that cost the nights.
+run_unstarted() {
+  local times="$1" text="$2"
+  shift 2
+  run_retry "$times" "$text" --unstarted "$@"
+}
+if run_unstarted 1 "$EOF_ERROR" exec -i probe -- curl -X POST http://shaper/impair; then
+  pass "a request that never reached the node is asked again"
+else
+  fail "a request that never reached the node is asked again (out=[$(cat "$WORK/out")])"
+fi
+assert_status "and took the two attempts it needed" "2" "$(attempts)"
+for signature in 'error: unexpected EOF' 'error: client connection lost' \
+  'error: read tcp 10.0.2.1:55000->10.0.2.227:10250: read: connection reset by peer'; do
+  run_unstarted 99 "$signature" exec -i probe -- curl -X POST http://shaper/impair || true
+  assert_status "a connection lost part-way through is not asked again: ${signature:0:40}" "1" "$(attempts)"
+done
+
+# --- the kubectl it runs can be named -----------------------------------------
+: >"$WORK/count"
+if FAKE_COUNT="$WORK/count" FAKE_FAIL_TIMES=0 FAKE_FAIL_TEXT="" \
+  KUBECTL_RETRY_BIN="$WORK/bin/kubectl" \
+  bash -c 'set -uo pipefail; . "$1"; PATH=/usr/bin:/bin kubectl_retry get pods' _ "$LIB" >/dev/null 2>&1 \
+  && [ "$(attempts)" = "1" ]; then
+  pass "the kubectl named in KUBECTL_RETRY_BIN is the one it runs"
+else
+  fail "the kubectl named in KUBECTL_RETRY_BIN is the one it runs (attempts=$(attempts))"
+fi
+
 # --- a stdin-carrying call is given its input on every attempt ----------------
 #
 # A retry that replays the command but not what was piped into it delivers an

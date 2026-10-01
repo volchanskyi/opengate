@@ -39,6 +39,7 @@ run_push() {
   PATH="$TMP_ROOT/bin:$PATH" \
     KUBECTL_ARGS_FILE="$args_file" \
     KUBECTL_STDIN_FILE="$payload_file" \
+    VM_RUN_STARTED_AT=1790000000 \
     VM_NAMESPACE="observability" \
     VM_SERVICE="private-vm" \
     "$REPO_ROOT/scripts/$script" "$input_file" >/dev/null 2>&1
@@ -78,12 +79,12 @@ if run_push "mutation-vm-push.sh" "$TMP_ROOT/mutation-row.json" "$TMP_ROOT/mutat
 else
   fail "mutation VM push should exit 0"
 fi
-if grep -qF 'mutation_score{commit="deadbeef",env="ci",language="go"} 83.3' "$TMP_ROOT/mutation.prom"; then
+if grep -qF 'mutation_score{env="ci",language="go"} 83.3' "$TMP_ROOT/mutation.prom"; then
   pass "mutation score metric maps language label"
 else
   fail "mutation score metric missing"
 fi
-if grep -qF 'mutation_survived{commit="deadbeef",env="ci",language="rust"} 1' "$TMP_ROOT/mutation.prom"; then
+if grep -qF 'mutation_survived{env="ci",language="rust"} 1' "$TMP_ROOT/mutation.prom"; then
   pass "mutation survived metric maps counts"
 else
   fail "mutation survived metric missing"
@@ -111,13 +112,13 @@ if run_push "mutation-status-vm-push.sh" "$TMP_ROOT/mutation-status.json" "$TMP_
 else
   fail "mutation status VM push should exit 0"
 fi
-if grep -qF 'mutation_run_complete{commit="deadbeef",env="ci"} 0' "$TMP_ROOT/mutation-status.prom"; then
+if grep -qF 'mutation_run_complete{env="ci"} 0' "$TMP_ROOT/mutation-status.prom"; then
   pass "mutation run completion metric maps incomplete=false to 0"
 else
   fail "mutation run completion metric missing"
 fi
-if grep -qF 'mutation_shard_complete{commit="deadbeef",env="ci",shard="rust-round-robin-1-of-16"} 1' "$TMP_ROOT/mutation-status.prom" \
-  && grep -qF 'mutation_shard_complete{commit="deadbeef",env="ci",shard="go-api-runtime"} 0' "$TMP_ROOT/mutation-status.prom"; then
+if grep -qF 'mutation_shard_complete{env="ci",shard="rust-round-robin-1-of-16"} 1' "$TMP_ROOT/mutation-status.prom" \
+  && grep -qF 'mutation_shard_complete{env="ci",shard="go-api-runtime"} 0' "$TMP_ROOT/mutation-status.prom"; then
   pass "mutation shard completion metrics map complete/incomplete values"
 else
   fail "mutation shard completion metrics missing"
@@ -142,17 +143,17 @@ if run_push "pmat-vm-push.sh" "$TMP_ROOT/pmat-row.json" "$TMP_ROOT/pmat.args" "$
 else
   fail "PMAT VM push should exit 0"
 fi
-if grep -qF 'pmat_repo_score{commit="cafebabe",env="ci",grade="B+"} 88.5' "$TMP_ROOT/pmat.prom"; then
-  pass "PMAT repo score metric includes grade label"
+if grep -qF 'pmat_repo_score{env="ci"} 88.5' "$TMP_ROOT/pmat.prom"; then
+  pass "PMAT repo score metric names the measurement only"
 else
   fail "PMAT repo score metric missing"
 fi
-if grep -qF 'pmat_below_bplus{commit="cafebabe",env="ci"} 4' "$TMP_ROOT/pmat.prom"; then
+if grep -qF 'pmat_below_bplus{env="ci"} 4' "$TMP_ROOT/pmat.prom"; then
   pass "PMAT below-B+ metric maps count"
 else
   fail "PMAT below-B+ metric missing"
 fi
-if grep -qF 'pmat_category_score{commit="cafebabe",env="ci",category="complexity"} 91.25' "$TMP_ROOT/pmat.prom"; then
+if grep -qF 'pmat_category_score{env="ci",category="complexity"} 91.25' "$TMP_ROOT/pmat.prom"; then
   pass "PMAT category metric maps category label"
 else
   fail "PMAT category metric missing"
@@ -178,12 +179,12 @@ if run_push "terraform-drift-vm-push.sh" "$TMP_ROOT/drift-row.json" "$TMP_ROOT/d
 else
   fail "terraform drift VM push should exit 0"
 fi
-if grep -qF 'terraform_drift_count{commit="abc123",env="ci",run_id="999"} 3' "$TMP_ROOT/drift.prom"; then
+if grep -qF 'terraform_drift_count{env="ci"} 3' "$TMP_ROOT/drift.prom"; then
   pass "terraform drift count metric maps run"
 else
   fail "terraform drift count metric missing"
 fi
-if grep -qF 'terraform_drift_resources{commit="abc123",env="ci",run_id="999",action="delete",type="oci_core_instance"} 1' "$TMP_ROOT/drift.prom"; then
+if grep -qF 'terraform_drift_resources{env="ci",action="delete",type="oci_core_instance"} 1' "$TMP_ROOT/drift.prom"; then
   pass "terraform drift resource metric maps action/type"
 else
   fail "terraform drift resource metric missing"

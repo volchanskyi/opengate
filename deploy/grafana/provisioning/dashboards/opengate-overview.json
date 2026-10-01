@@ -13,7 +13,7 @@
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
         {
-          "expr": "sum(rate(opengate_http_requests_total[5m])) by (status_code)",
+          "expr": "sum(rate(opengate_http_requests_total{namespace=\"$environment\"}[5m])) by (status_code)",
           "legendFormat": "{{status_code}}"
         }
       ],
@@ -32,15 +32,15 @@
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(opengate_http_request_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(opengate_http_request_duration_seconds_bucket{namespace=\"$environment\"}[5m])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(opengate_http_request_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(opengate_http_request_duration_seconds_bucket{namespace=\"$environment\"}[5m])) by (le))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(opengate_http_request_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(opengate_http_request_duration_seconds_bucket{namespace=\"$environment\"}[5m])) by (le))",
           "legendFormat": "p99"
         }
       ],
@@ -55,10 +55,10 @@
     {
       "title": "Connected Agents",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
-        { "expr": "opengate_agents_connected", "legendFormat": "Agents" }
+        { "expr": "opengate_agents_connected{namespace=\"$environment\"}", "legendFormat": "Agents" }
       ],
       "fieldConfig": {
         "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } },
@@ -68,10 +68,10 @@
     {
       "title": "Active Relay Sessions",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
-        { "expr": "opengate_relay_active_sessions", "legendFormat": "Sessions" }
+        { "expr": "opengate_relay_active_sessions{namespace=\"$environment\"}", "legendFormat": "Sessions" }
       ],
       "fieldConfig": {
         "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } },
@@ -81,29 +81,13 @@
     {
       "title": "MPS Devices",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
-        { "expr": "opengate_mps_connected_devices", "legendFormat": "MPS Devices" }
+        { "expr": "opengate_mps_connected_devices{namespace=\"$environment\"}", "legendFormat": "MPS Devices" }
       ],
       "fieldConfig": {
         "defaults": { "thresholds": { "steps": [{ "color": "purple", "value": null }] } },
-        "overrides": []
-      }
-    },
-    {
-      "title": "Signaling Upgrades",
-      "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "targets": [
-        { "expr": "sum(rate(opengate_signaling_upgrades_total[5m])) by (result)", "legendFormat": "{{result}}" }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "thresholds": { "steps": [{ "color": "green", "value": null }] }
-        },
         "overrides": []
       }
     },
@@ -114,7 +98,7 @@
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
         {
-          "expr": "topk(10, sum(rate(opengate_http_requests_total[5m])) by (route))",
+          "expr": "topk(10, sum(rate(opengate_http_requests_total{namespace=\"$environment\"}[5m])) by (route))",
           "legendFormat": "{{route}}"
         }
       ],
@@ -132,7 +116,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
-        { "expr": "go_goroutines", "legendFormat": "goroutines" }
+        { "expr": "go_goroutines{namespace=\"$environment\",job=\"opengate-server\"}", "legendFormat": "goroutines" }
       ],
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "line" } }, "overrides": [] }
     },
@@ -142,8 +126,8 @@
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
-        { "expr": "go_memstats_heap_alloc_bytes", "legendFormat": "heap alloc" },
-        { "expr": "go_memstats_heap_sys_bytes", "legendFormat": "heap sys" }
+        { "expr": "go_memstats_heap_alloc_bytes{namespace=\"$environment\",job=\"opengate-server\"}", "legendFormat": "heap alloc" },
+        { "expr": "go_memstats_heap_sys_bytes{namespace=\"$environment\",job=\"opengate-server\"}", "legendFormat": "heap sys" }
       ],
       "fieldConfig": {
         "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
@@ -156,7 +140,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
-        { "expr": "opengate_db_size_bytes", "legendFormat": "DB Size" }
+        { "expr": "opengate_db_size_bytes{namespace=\"$environment\"}", "legendFormat": "DB Size" }
       ],
       "fieldConfig": {
         "defaults": {
@@ -173,16 +157,24 @@
       }
     },
     {
-      "title": "Active Relay Sessions by Replica",
+      "title": "Relay sessions",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "Per-replica relay session distribution (Phase 13b PR-E HPA/KEDA scale-out). One series per server pod; persistent skew points to affinity-routing imbalance, and total drives the KEDA prometheus trigger.",
+      "description": "Sessions open is the highest count each pod held in each step. A session that echoes once and closes inside a second is open at almost none of the 15-second readings, so sessions started per minute is what says the relay was used. Started minus ended is what is open.",
+      "interval": "15s",
       "targets": [
-        { "expr": "opengate_relay_active_sessions", "legendFormat": "{{instance}}" }
+        {
+          "expr": "max by (pod) (max_over_time(opengate_relay_active_sessions{namespace=\"$environment\"}[$__interval]))",
+          "legendFormat": "{{pod}} open"
+        },
+        {
+          "expr": "60 * sum by (pod) (rate(opengate_relay_sessions_started_total{namespace=\"$environment\"}[$__rate_interval]))",
+          "legendFormat": "{{pod}} started / min"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10, "stacking": { "mode": "normal" } } },
+        "defaults": { "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } },
         "overrides": []
       }
     }
@@ -190,7 +182,25 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": ["opengate"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "description": "Production and staging write into one store. Every panel reads the one chosen here.",
+        "type": "custom",
+        "query": "Production : opengate, Staging : opengate-staging",
+        "current": { "selected": true, "text": "Production", "value": "opengate" },
+        "options": [
+          { "selected": true, "text": "Production", "value": "opengate" },
+          { "selected": false, "text": "Staging", "value": "opengate-staging" }
+        ],
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "utc",

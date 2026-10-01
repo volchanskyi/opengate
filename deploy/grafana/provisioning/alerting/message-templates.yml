@@ -9,7 +9,9 @@
 #
 # A rule firing on no data has no reading, which is itself the finding: the
 # thing that should be reporting is not. That is said in words rather than as
-# an empty value.
+# an empty value, and in the headline beside the rule's own title. Grafana names
+# such an alert DatasourceNoData or DatasourceError and carries the rule's title
+# in `rulename`, so the headline reads the title from there.
 apiVersion: 1
 
 templates:
@@ -21,12 +23,13 @@ templates:
       {{ end }}{{ template "opengate.telegram.alert" $a }}{{ end }}{{ end }}
 
       {{ define "opengate.telegram.alert" -}}
-      {{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} [{{ .Labels.severity }}] {{ .Labels.alertname }}
+      {{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} [{{ .Labels.severity }}]
+      {{- " " }}{{ template "opengate.telegram.rule" .Labels }}
       {{ .Annotations.summary }}
 
-      {{ if eq .Labels.grafana_state_reason "NoData" -}}
+      {{ if or (eq .Labels.alertname "DatasourceNoData") (eq .Labels.grafana_state_reason "NoData") -}}
       Observed: no data. The query returned no series, so what should be reporting is not.
-      {{- else if eq .Labels.grafana_state_reason "Error" -}}
+      {{- else if or (eq .Labels.alertname "DatasourceError") (eq .Labels.grafana_state_reason "Error") -}}
       Observed: the query itself failed: {{ .Annotations.Error }}
       {{- else -}}
       Observed: {{ .Annotations.observed }}
@@ -36,12 +39,18 @@ templates:
       {{ if eq .Status "firing" }}Check: {{ .Annotations.check }}{{ end }}
       {{- end }}
 
+      {{ define "opengate.telegram.rule" -}}
+      {{ if .rulename }}{{ .rulename }}{{ else }}{{ .alertname }}{{ end -}}
+      {{ if or (eq .alertname "DatasourceNoData") (eq .grafana_state_reason "NoData") }}: no data
+      {{- else if or (eq .alertname "DatasourceError") (eq .grafana_state_reason "Error") }}: query failed{{ end -}}
+      {{ end }}
+
       {{ define "opengate.telegram.where" -}}
       {{ $where := "" -}}
       {{ range .SortedPairs -}}
       {{ $internal := or (eq .Name "alertname") (eq .Name "severity") (eq .Name "grafana_folder") -}}
       {{ $internal = or $internal (eq .Name "ref_id") (eq .Name "datasource_uid") (eq .Name "grafana_state_reason") -}}
-      {{ $internal = or $internal (eq .Name "watches") -}}
+      {{ $internal = or $internal (eq .Name "watches") (eq .Name "rulename") -}}
       {{ if not $internal -}}
       {{ $where = printf "%s %s=%s" $where .Name .Value -}}
       {{ end -}}

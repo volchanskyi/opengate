@@ -108,8 +108,30 @@ counters_line() {
   printf '%s\n' "$line"
 }
 
+# An instruction the cluster never delivered: the first MOCK_IMPAIR_DROPS calls
+# to the shaper's instruction endpoint die the way the API server reports its
+# own request to the node's kubelet dying, and nothing inside the pod runs.
+impair_answer() {
+  local n
+  if [ -n "${MOCK_IMPAIR_DROPS:-}" ]; then
+    n=$(($(cat "$MOCK_IMPAIR_CALLS" 2>/dev/null || echo 0) + 1))
+    printf '%s' "$n" >"$MOCK_IMPAIR_CALLS"
+    if [ "$n" -le "$MOCK_IMPAIR_DROPS" ]; then
+      echo 'error: Internal error occurred: error sending request: Post "https://10.0.2.227:10250/exec/opengate-staging/drill-probe/drill-probe?command=curl": EOF' >&2
+      exit 1
+    fi
+  fi
+  tail -1 "${MOCK_COUNTERS_FILE:-/dev/null}" 2>/dev/null
+  # The shaper refusing is curl's own failure inside the pod, which kubectl
+  # reports as the command's exit.
+  if [ "${MOCK_IMPAIR_RC:-0}" -ne 0 ]; then
+    echo "command terminated with exit code ${MOCK_IMPAIR_RC}" >&2
+  fi
+  exit "${MOCK_IMPAIR_RC:-0}"
+}
+
 case "$url" in
-  *"/impair") tail -1 "${MOCK_COUNTERS_FILE:-/dev/null}" 2>/dev/null; exit "${MOCK_IMPAIR_RC:-0}" ;;
+  *"/impair") impair_answer ;;
   *"/rebind") tail -1 "${MOCK_COUNTERS_FILE:-/dev/null}" 2>/dev/null; exit "${MOCK_REBIND_RC:-0}" ;;
   *"/counters") counters_line; exit "${MOCK_COUNTERS_RC:-0}" ;;
   *"/healthz") exit "${MOCK_HEALTH_RC:-0}" ;;
@@ -323,6 +345,8 @@ run_drill() {
     NETDRILL_RECOVERY_SECONDS=1 \
     NETDRILL_POLL_SECONDS=0 \
     KUBECTL_ARGS="$WORK/kubectl-args.txt" \
+    KUBECTL_RETRY_DELAY=0 \
+    MOCK_IMPAIR_CALLS="$WORK/impair-calls" \
     MOCK_COUNTERS_READS="$WORK/counters-reads" \
     MOCK_MACHINE_DISK="${MOCK_MACHINE_DISK:-82}" \
     MOCK_INCIDENTS_FILE="${MOCK_INCIDENTS_FILE:-$(incidents_holding_one)}" \
@@ -336,7 +360,7 @@ row_count() {
 
 reset_run() {
   rm -rf "$WORK/evidence" "$WORK/measurements.jsonl" "$WORK/kubectl-args.txt" \
-    "$WORK/counters-reads"
+    "$WORK/counters-reads" "$WORK/impair-calls"
   : >"$WORK/kubectl-args.txt"
 }
 
@@ -380,6 +404,34 @@ out="$(run_drill s1 \
 assert_contains "a refused impairment is inconclusive, not a failed product" "inconclusive" "$out"
 assert_eq "a refused impairment emits no row" "0" \
   "$(row_count)"
+assert_contains "a refused impairment is named as the shaper refusing" "the shaper refused" "$out"
+# Asking the shaper again cannot change its answer. The scenario's opening
+# instruction is the one refused; the link handed back clear at exit is sent
+# without a content type, so it is not counted here.
+assert_eq "a refused impairment is sent once" "1" \
+  "$(grep -cF -- 'application/json --data {} http://10.244.0.9:9091/impair' "$WORK/kubectl-args.txt" || true)"
+
+# The instruction that never reached the shaper, because the cluster dropped the
+# connection to the probe pod before the command ran. Nothing was measured and
+# nothing was refused, so it is asked again — and the scenario goes on.
+reset_run
+out="$(run_drill s1 \
+  MOCK_IMPAIR_DROPS=1 \
+  MOCK_DEVICES_FILE="$(online_device)" MOCK_METRICS_FILE="$(full_window)" \
+  MOCK_COUNTERS_FILE="$(counters_file 40)" || echo "EXIT=$?")"
+assert_lacks "an instruction whose connection dropped once is asked again" "inconclusive" "$out"
+assert_contains "and the scenario measures" '"netdrill_reconnected"' "$(cat "$WORK/measurements.jsonl" 2>/dev/null)"
+
+# One that never arrives is inconclusive, and says the shaper never heard it
+# rather than that it refused.
+reset_run
+out="$(run_drill s1 \
+  MOCK_IMPAIR_DROPS=99 \
+  MOCK_DEVICES_FILE="$(online_device)" MOCK_METRICS_FILE="$(full_window)" \
+  MOCK_COUNTERS_FILE="$(counters_file 40)" || echo "EXIT=$?")"
+assert_contains "an instruction the cluster never delivered is inconclusive" "inconclusive" "$out"
+assert_contains "and is named as never received" "never received" "$out"
+assert_lacks "and is not called a refusal" "the shaper refused" "$out"
 
 reset_run
 out="$(run_drill s1 \
@@ -670,11 +722,12 @@ printf '%s\n' "$summary" >"$WORK/summary.json"
 
 # The push has to produce samples VictoriaMetrics will accept, carrying the two
 # labels every trend series in this project is required to have.
-KUBECTL_STDIN="$WORK/pushed.txt" "$VM_PUSH" "$WORK/summary.json" >/dev/null 2>&1 || true
+KUBECTL_STDIN="$WORK/pushed.txt" VM_RUN_STARTED_AT=1790000000 "$VM_PUSH" "$WORK/summary.json" >/dev/null 2>&1 || true
 push_out="$(cat "$WORK/pushed.txt" 2>/dev/null || echo)"
 assert_contains "the push names the scenario each sample came from" 'scenario="s1"' "$push_out"
 assert_contains "the push names the victim each sample measured" 'victim="real"' "$push_out"
-assert_contains "every sample carries the commit label the transport requires" 'commit="abc123"' "$push_out"
+assert_lacks "no sample carries the commit, which changes every night" 'netdrill_reconnect_seconds{commit=' "$push_out"
+assert_contains "the commit is named once, in the run's own series" 'ci_run_info{env="ci",' "$push_out"
 assert_contains "every sample carries the env label the transport requires" 'env="ci"' "$push_out"
 
 printf '[]\n' >"$WORK/summary-empty.json"
@@ -920,6 +973,60 @@ if "$REGRESSION" "$WORK/no-such-summary.json" >/dev/null 2>&1; then
 else
   pass "a missing summary is refused rather than passed"
 fi
+
+# --- the run's summary page ----------------------------------------------------
+#
+# The drill printed its readings with nothing to hold them against. The check
+# that judges them writes the page: each reading beside the floor it is held
+# to, what the check made of it, and a legend.
+cat >"$WORK/regression-table.json" <<'JSON'
+[{"metric":"netdrill_reconnect_seconds","scenario":"s1","victim":"real","value":18},
+ {"metric":"netdrill_gap_fill_ratio","scenario":"s1","victim":"real","value":0.4},
+ {"metric":"netdrill_offline_transitions","scenario":"s1","victim":"real","value":1},
+ {"metric":"netdrill_fleet_online","scenario":"s2","victim":"fleet","value":19}]
+JSON
+"$REGRESSION" "$WORK/regression-table.json" "$WORK/drill-table.md" >/dev/null 2>&1 || true
+table="$(cat "$WORK/drill-table.md" 2>/dev/null || true)"
+assert_contains "the page is the four-column table" "| Measurement | Expected | Actual | Result |" "$table"
+assert_contains "a reading inside its floor passes" "| s1 real: time to come back | ≤ 120 s | 18 s | pass |" "$table"
+assert_contains "a reading past its floor fails" "| s1 real: share of the gap filled in | ≥ 95 % | 40 % | FAIL |" "$table"
+assert_contains "a reading the drill records without a floor says so" "| s1 real: times the machine went offline | no limit | 1 | — |" "$table"
+assert_contains "the legend says what each column means" "- **Expected**" "$table"
+
+# --- the window is nights, not commits ----------------------------------------
+#
+# Once the bands are calibrated, tonight is judged against the median of the
+# nights before it. Twelve nights on eight commits: eight nights at 20 s on four
+# commits, then four at 45–80 s on four more. Folded to one point per commit the
+# median was 32.5 and a 70 s night passed under a threshold of 97.5; over the
+# nights it is 20, and 70 is past the band. None of those nights is thrown out
+# for having run tonight's code.
+DRILL_STORE="$WORK/drill-store"
+mkdir -p "$DRILL_STORE/bin"
+DRILL_TONIGHT="$(date -u -d '2026-09-29 11:41' +%s)"
+DRILL_MIDNIGHT="$(date -u -d '2026-09-29 00:00' +%s)"
+stamps=""
+for back in 12 11 10 9 8 7 6 5 4 3 2 1; do
+  stamps="${stamps:+$stamps,}$(((DRILL_MIDNIGHT - back * 86400 + 42000) * 1000))"
+done
+printf '{"metric":{"__name__":"netdrill_reconnect_seconds","env":"ci","scenario":"s1","victim":"real"},"values":[20,20,20,20,20,20,20,20,45,60,70,80],"timestamps":[%s]}\n' \
+  "$stamps" >"$DRILL_STORE/export.jsonl"
+cat >"$DRILL_STORE/bin/kubectl" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$DRILL_STORE_ARGS"
+cat "$DRILL_STORE_EXPORT"
+STUB
+chmod +x "$DRILL_STORE/bin/kubectl"
+cat >"$WORK/regression-window.json" <<'JSON'
+[{"metric":"netdrill_reconnect_seconds","scenario":"s1","victim":"real","commit":"abc123","env":"ci","value":70}]
+JSON
+: >"$DRILL_STORE/args"
+out="$(PATH="$DRILL_STORE/bin:$PATH" DRILL_STORE_ARGS="$DRILL_STORE/args" DRILL_STORE_EXPORT="$DRILL_STORE/export.jsonl" \
+  VM_RUN_STARTED_AT="$DRILL_TONIGHT" NETDRILL_BANDS_CALIBRATED=1 \
+  "$REGRESSION" "$WORK/regression-window.json" 2>&1)" && rc=0 || rc=$?
+assert_eq "twelve nights on eight commits are judged against the twelve-night median" "1" "${rc:-0}"
+assert_contains "and the median is the nights'" "20 -> 70" "$out"
+assert_lacks "and the window asks nothing about commits" "commit" "$(cat "$DRILL_STORE/args")"
 
 # --- the kernel record reads the node, or the step fails ----------------------
 #

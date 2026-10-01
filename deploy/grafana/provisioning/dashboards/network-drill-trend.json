@@ -1,5 +1,6 @@
 {
   "annotations": { "list": [] },
+  "description": "The nightly network drill's readings, one point per night, measured on staging behind the link shaper.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -51,7 +52,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "netdrill_reconnect_seconds{env=\"ci\"}",
+          "expr": "netdrill_reconnect_seconds{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{scenario}}/{{victim}}",
           "refId": "A"
         }
@@ -96,7 +99,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "netdrill_gap_fill_ratio{env=\"ci\"}",
+          "expr": "netdrill_gap_fill_ratio{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{scenario}}/{{victim}}",
           "refId": "A"
         }
@@ -141,7 +146,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "netdrill_live_staleness_max_seconds{env=\"ci\"}",
+          "expr": "netdrill_live_staleness_max_seconds{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{scenario}}/{{victim}}",
           "refId": "A"
         }
@@ -156,11 +163,11 @@
           "custom": {
             "axisBorderShow": false,
             "axisLabel": "transitions",
-            "drawStyle": "bars",
+            "drawStyle": "line",
             "fillOpacity": 60,
             "lineWidth": 1,
             "pointSize": 5,
-            "showPoints": "never",
+            "showPoints": "always",
             "spanNulls": false
           },
           "thresholds": {
@@ -185,7 +192,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "netdrill_offline_transitions{env=\"ci\",scenario=~\"s2|s3\"}",
+          "expr": "netdrill_offline_transitions{env=\"ci\",scenario=~\"s2|s3\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{scenario}}/{{victim}}",
           "refId": "A"
         }
@@ -200,11 +209,11 @@
           "custom": {
             "axisBorderShow": false,
             "axisLabel": "1 = yes",
-            "drawStyle": "bars",
+            "drawStyle": "line",
             "fillOpacity": 60,
             "lineWidth": 1,
             "pointSize": 5,
-            "showPoints": "never",
+            "showPoints": "always",
             "spanNulls": false
           },
           "unit": "short",
@@ -223,14 +232,18 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "netdrill_session_survived{env=\"ci\"}",
-          "legendFormat": "session survived — {{victim}}",
+          "expr": "netdrill_session_survived{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "session survived — {{scenario}}/{{victim}}",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "netdrill_reconnected_after_rebind{env=\"ci\"}",
-          "legendFormat": "reconnected instead — {{victim}}",
+          "expr": "netdrill_reconnected_after_rebind{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "reconnected instead — {{scenario}}/{{victim}}",
           "refId": "B"
         }
       ]
@@ -244,11 +257,11 @@
           "custom": {
             "axisBorderShow": false,
             "axisLabel": "datagrams",
-            "drawStyle": "bars",
+            "drawStyle": "line",
             "fillOpacity": 60,
             "lineWidth": 1,
             "pointSize": 5,
-            "showPoints": "never",
+            "showPoints": "always",
             "spanNulls": false
           },
           "unit": "short",
@@ -266,8 +279,10 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "{__name__=~\"netdrill_shaper_dropped_to_(server|machine)\",env=\"ci\"}",
-          "legendFormat": "{{scenario}} {{__name__}}",
+          "expr": "{__name__=~\"netdrill_shaper_dropped_to_(server|machine)\",env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{scenario}}/{{victim}} {{__name__}}",
           "refId": "A"
         }
       ]

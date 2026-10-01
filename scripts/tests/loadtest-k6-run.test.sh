@@ -109,6 +109,21 @@ if [ -f "$WORK/summaries/api-baseline.thresholds" ]; then
 else
   fail "threshold failure is recorded for the gate to read"
 fi
+# It is a notice rather than a warning: the saturated legs breach k6's own marks
+# every night by design, and a warning printed every night is one nobody reads.
+# The run's summary carries it in a line of its own.
+if grep -q '::notice::' "$WORK/out.txt" && ! grep -q '::warning::' "$WORK/out.txt"; then
+  pass "threshold failure is a notice, not a warning"
+else
+  fail "threshold failure is a notice, not a warning (out=[$(cat "$WORK/out.txt")])"
+fi
+: >"$WORK/step-summary.md"
+GITHUB_STEP_SUMMARY="$WORK/step-summary.md" run_case 99
+if grep -q 'api-baseline' "$WORK/step-summary.md" && grep -qi 'threshold' "$WORK/step-summary.md"; then
+  pass "and the run's summary says which scenario crossed k6's own marks"
+else
+  fail "and the run's summary says which scenario crossed k6's own marks (summary=[$(cat "$WORK/step-summary.md")])"
+fi
 
 # A script exception aborts before the workload runs. Its export holds the two
 # or three requests setup managed, and trending those numbers drags the window

@@ -15,16 +15,12 @@ metrics="$(
       tostring
       | gsub("\\\\"; "\\\\")
       | gsub("\""; "\\\"");
-
-    def run_label($row):
-      ",run_id=\"\(($row.run_id // "local") | label_escape)\"";
-
     def sample($row; $metric; $extra_labels; $value):
       select($value != null)
-      | "\($metric){commit=\"\(($row.commit // "unknown") | label_escape)\",env=\"\(($row.env // "ci") | label_escape)\"\($extra_labels)} \($value)";
+      | "\($metric){env=\"\(($row.env // "ci") | label_escape)\"\($extra_labels)} \($value)";
 
     . as $row
-    | sample($row; "terraform_drift_count"; run_label($row); $row.drift_count),
+    | sample($row; "terraform_drift_count"; ""; $row.drift_count),
       (
         ($row.resource_changes // [])
         | map(.type as $resource_type | (.actions // [])[] | { type: $resource_type, action: . })
@@ -38,7 +34,7 @@ metrics="$(
         | sample(
             $row;
             "terraform_drift_resources";
-            "\(run_label($row)),action=\"\(.action | label_escape)\",type=\"\(.type | label_escape)\"";
+            ",action=\"\(.action | label_escape)\",type=\"\(.type | label_escape)\"";
             .count
           )
       )

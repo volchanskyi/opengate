@@ -1,5 +1,6 @@
 {
   "annotations": { "list": [] },
+  "description": "How far the cloud tenancy has drifted from what the repository declares, one point per night, planned on a CI runner.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -90,7 +91,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "last_over_time(terraform_drift_count{env=\"ci\"}[1d])",
+          "expr": "terraform_drift_count{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "drift count",
           "refId": "A"
         }
@@ -115,7 +118,8 @@
             "stacking": { "group": "A", "mode": "none" }
           },
           "unit": "none",
-          "min": 0
+          "min": 0,
+          "noValue": "No drifted resources"
         }
       },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
@@ -129,7 +133,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (action, type) (last_over_time(terraform_drift_resources{env=\"ci\"}[1d]))",
+          "expr": "terraform_drift_resources{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{action}}/{{type}}",
           "refId": "A"
         }

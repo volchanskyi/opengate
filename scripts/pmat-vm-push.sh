@@ -18,10 +18,10 @@ metrics="$(
 
     def sample($row; $metric; $extra_labels; $value):
       select($value != null)
-      | "\($metric){commit=\"\(($row.commit // "unknown") | label_escape)\",env=\"\(($row.env // "ci") | label_escape)\"\($extra_labels)} \($value)";
+      | "\($metric){env=\"\(($row.env // "ci") | label_escape)\"\($extra_labels)} \($value)";
 
     . as $row
-    | sample($row; "pmat_repo_score"; ",grade=\"\(($row.repo_grade // "?") | label_escape)\""; $row.repo_score),
+    | sample($row; "pmat_repo_score"; ""; $row.repo_score),
       sample($row; "pmat_below_bplus"; ""; $row.below_bplus),
       (($row.categories // {}) | to_entries[] | sample($row; "pmat_category_score"; ",category=\"\(.key | label_escape)\""; .value))
   ' "$ROW_FILE"

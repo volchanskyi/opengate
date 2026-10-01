@@ -51,7 +51,16 @@ jobs:
     name: Shard budget
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      started_at: ${{ steps.started.outputs.at }}
     steps:
+      # The night's date. Every sample the night writes carries this time, so a
+      # run is one point on one date however long it takes, and a re-run of its
+      # failed jobs writes the same point.
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-hub-mirror
         with:
@@ -460,7 +469,8 @@ jobs:
   # -----------------------------------------------------------------------------
   publish:
     name: Publish results + alert on regression
-    needs: mutation
+    # shard-budget is named for the time the run started, which it records.
+    needs: [shard-budget, mutation]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -484,6 +494,9 @@ jobs:
       regression: ${{ steps.summarize.outputs.regression }}
       complete: ${{ steps.status.outputs.complete }}
       incomplete-legs: ${{ steps.status.outputs.incomplete-legs }}
+    env:
+      # When the run started, which every sample of the night carries.
+      VM_RUN_STARTED_AT: ${{ needs.shard-budget.outputs.started_at }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -582,10 +595,10 @@ jobs:
             echo "::warning::Failed to push mutation completion status; artifact classification remains authoritative."
           fi
 
+      # The previous night's score, taken by date: whatever code that night ran,
+      # and never tonight's own reading, which a re-run of this night leaves.
       - name: Restore baseline from VM
         if: steps.status.outputs.complete-legs != '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        env:
-          VM_EXCLUDE_COMMIT: ${{ github.sha }}
         run: |
           ./scripts/mutation-baseline-fetch.sh > mutation-baseline.jsonl
           if [ -s mutation-baseline.jsonl ]; then
@@ -706,7 +719,7 @@ jobs:
             ' canonical-row.json
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # Runs whatever happened above it, and the message names which of the
         # three it was. The shape this replaces was gated on a flag an earlier
         # step in this job produced, so a night that died before that step said
@@ -726,7 +739,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
-            echo "Nothing to say: the run finished and nothing was found."
+            echo "No alert sent: the run finished and found nothing."
             exit 0
           fi
           if [ "${FINDING:-0}" = "1" ]; then

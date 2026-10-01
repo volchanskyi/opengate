@@ -7,6 +7,7 @@ import (
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
 // GetDeviceHardware implements StrictServerInterface.
@@ -88,7 +89,7 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 
 	ac := s.agents.GetAgent(request.Id)
 	if ac == nil {
-		s.observeLogPull("offline", 0)
+		s.observeLogPull(logPullOffline, 0)
 		return GetDeviceLogs404JSONResponse{Error: "logs not available — device offline"}, nil
 	}
 
@@ -118,20 +119,23 @@ func (s *Server) observeLogPull(result string, duration time.Duration) {
 	}
 }
 
+// logPullOffline is the outcome of a pull asked of a device with no connection.
+const logPullOffline = metrics.LogPullOffline
+
 // logPullResult classifies a broker outcome into a bounded metric label. The ok
 // label is the audited pull count — every ok pull writes one audit event.
 func logPullResult(err error) string {
 	switch {
 	case err == nil:
-		return "ok"
+		return metrics.LogPullOK
 	case agentapi.IsCapabilityError(err):
-		return "unsupported"
+		return metrics.LogPullUnsupported
 	case errors.Is(err, agentapi.ErrLogsBusy):
-		return "busy"
+		return metrics.LogPullBusy
 	case errors.Is(err, context.DeadlineExceeded):
-		return "timeout"
+		return metrics.LogPullTimeout
 	default:
-		return "error"
+		return metrics.LogPullError
 	}
 }
 

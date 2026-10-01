@@ -95,14 +95,15 @@ func (s *session) setSide(side Side, conn Conn) error {
 }
 
 // markStarted records the first registration on the session, incrementing the
-// active count exactly once. It returns true only for that first side. Callers
-// must hold s.mu.
-func (s *session) markStarted(count *atomic.Int64) bool {
+// active count and the started total exactly once. It returns true only for
+// that first side. Callers must hold s.mu.
+func (s *session) markStarted(count *atomic.Int64, total *atomic.Uint64) bool {
 	if s.started {
 		return false
 	}
 	s.started = true
 	count.Add(1)
+	total.Add(1)
 	return true
 }
 
@@ -110,7 +111,10 @@ func (s *session) markStarted(count *atomic.Int64) bool {
 type Relay struct {
 	sessions sync.Map // map[protocol.SessionToken]*session
 	count    atomic.Int64
-	logger   *slog.Logger
+	// started counts every session ever opened. It rises with count and never
+	// falls, so started minus the sessions ended is what count holds.
+	started atomic.Uint64
+	logger  *slog.Logger
 
 	// registry records session metadata through the SessionRegistry port. The
 	// live Conn pair stays in the sessions map above; the in-process adapter is
@@ -167,7 +171,7 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 		s.mu.Unlock()
 		return nil, err
 	}
-	firstSide := s.markStarted(&r.count)
+	firstSide := s.markStarted(&r.count, &r.started)
 	s.mu.Unlock()
 
 	// Express the session lifecycle through the SessionRegistry port. With the
@@ -232,6 +236,12 @@ func (r *Relay) WaitForPeer(ctx context.Context, token protocol.SessionToken) er
 // ActiveSessionCount returns the number of active sessions.
 func (r *Relay) ActiveSessionCount() int {
 	return int(r.count.Load())
+}
+
+// SessionsStarted returns how many sessions this process has opened, the ones
+// already ended included. A session counts once, when its first side registers.
+func (r *Relay) SessionsStarted() uint64 {
+	return r.started.Load()
 }
 
 // drainPoll is how often WaitForDrain re-reads the active count. A shutdown is

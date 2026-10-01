@@ -95,9 +95,16 @@ main() {
     return 2
   fi
 
+  # A notice rather than a warning: the saturated legs cross k6's own marks
+  # every night by design, and the profile's gates are what judge the run. The
+  # run's summary carries it in a line of its own.
   if [ "$status" -eq "$K6_THRESHOLDS_FAILED" ]; then
     printf '%s\n' "$scenario" >"$breach_path"
-    echo "::warning::k6 scenario $scenario breached a threshold; the measurement is kept and the profile's gates decide whether it fails the run." >&2
+    echo "::notice::k6 scenario $scenario crossed one of k6's own thresholds; the measurement is kept and the profile's gates decide whether it fails the run." >&2
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      printf -- '- k6 scenario %s crossed one of its own thresholds; the profile'"'"'s gates judge the run.\n' \
+        "$scenario" >>"$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+    fi
   fi
 
   return 0

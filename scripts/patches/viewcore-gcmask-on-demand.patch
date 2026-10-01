@@ -1,0 +1,86 @@
+viewcore reads a type's pointer map from GCData. Go reaches the map of a type
+with more than internal/abi.MaxPtrmaskBytes*8 pointer words through one more
+pointer (internal/abi.TFlagGCMaskOnDemand): GCData points at a slot in the
+binary's BSS, and the runtime stores the map's address there the first time it
+needs it. Unpatched, the reader reads the slot as the map and walks past the end
+of the binary's memory: "address ... is not mapped in the core file".
+
+This follows the slot at all three places GCData is read. A slot still nil, or
+holding runtime.inProgress, has no map yet, and every word is treated as a
+possible pointer.
+
+Applied by scripts/install-viewcore.sh to the commit scripts/lib/tool-versions.sh
+pins. scripts/core-walk-check.sh walks the same core with the newest upstream
+reader, unpatched, and fails the night that reads it too: then this file goes.
+
+diff --git a/internal/gocore/process.go b/internal/gocore/process.go
+index 7226369..1323252 100644
+--- a/internal/gocore/process.go
++++ b/internal/gocore/process.go
+@@ -523,9 +523,9 @@ func readHeap0(p *Process, mheap region, arenas []arena, arenaBaseOffset int64)
+ 					if hasGCProgs && typ.Field("Kind_").Uint8()&uint8(kindGCProg) != 0 {
+ 						panic("unexpected GC prog on small allocation")
+ 					}
+-					gcdata := typ.Field("GCData").Address()
++					gcdata, known := p.gcMask(typ.Field("GCData").Address(), typ.Field("TFlag").Uint8())
+ 					for i := int64(0); i < nptrs; i++ {
+-						if p.proc.ReadUint8(gcdata.Add(i/8))>>uint(i%8)&1 != 0 {
++						if !known || p.proc.ReadUint8(gcdata.Add(i/8))>>uint(i%8)&1 != 0 {
+ 							heap.setIsPointer(min.Add(off + mallocHeaderSize + i*int64(heap.ptrSize)))
+ 						}
+ 					}
+@@ -549,10 +549,10 @@ func readHeap0(p *Process, mheap region, arenas []arena, arenaBaseOffset int64)
+ 						panic("large object's GCProg was not unrolled")
+ 					}
+ 					size := typ.Field("Size_").Uintptr()
+-					gcdata := typ.Field("GCData").Address()
++					gcdata, known := p.gcMask(typ.Field("GCData").Address(), typ.Field("TFlag").Uint8())
+ 					for s := min; s < max; s = s.Add(int64(size)) {
+ 						for i := int64(0); i < nptrs; i++ {
+-							if (p.proc.ReadUint8(gcdata.Add(i/8))>>uint(i%8))&1 != 0 {
++							if !known || (p.proc.ReadUint8(gcdata.Add(i/8))>>uint(i%8))&1 != 0 {
+ 								heap.setIsPointer(s.Add(i * int64(heap.ptrSize)))
+ 							}
+ 						}
+diff --git a/internal/gocore/type.go b/internal/gocore/type.go
+index f75ff34..2ef4a0b 100644
+--- a/internal/gocore/type.go
++++ b/internal/gocore/type.go
+@@ -179,6 +179,25 @@ func (r runtimeType) GCData() core.Address {
+ 	return r.reg.Field("GCData").Address()
+ }
+ 
++// gcMask returns where the pointer bitmask of a type lives, given the type's
++// GCData field and TFlag, and whether there is a bitmask to read at all.
++//
++// A type with more pointer words than internal/abi.MaxPtrmaskBytes*8 carries
++// internal/abi.TFlagGCMaskOnDemand. Its GCData then points at a slot holding
++// the address of a bitmask the runtime builds the first time it needs one, and
++// the slot is nil until then, or runtime.inProgress while it is being built.
++func (p *Process) gcMask(gcdata core.Address, tflag uint8) (core.Address, bool) {
++	onDemand, ok := p.rtConsts.find("internal/abi.TFlagGCMaskOnDemand")
++	if !ok || tflag&uint8(onDemand) == 0 {
++		return gcdata, true
++	}
++	mask := p.proc.ReadPtr(gcdata)
++	if building, ok := p.rtGlobals["inProgress"]; ok && mask == building.a {
++		return 0, false
++	}
++	return mask, mask != 0
++}
++
+ // runtimeItab is a thin wrapper around a abi.ITab (used to be runtime.itab). It
+ // abstracts over name/package changes in Go 1.21.
+ type runtimeItab struct {
+@@ -246,9 +265,9 @@ func (p *Process) runtimeType2Type(a core.Address, d core.Address) *Type {
+ 	if hasGCProgs && r.Kind_()&uint8(kindGCProg) != 0 {
+ 		// TODO: run GC program. Go 1.23 and earlier only.
+ 	} else {
+-		gcdata := r.GCData()
++		gcdata, known := p.gcMask(r.GCData(), r.TFlag())
+ 		for i := int64(0); i < nptrs; i++ {
+-			if p.proc.ReadUint8(gcdata.Add(i/8))>>uint(i%8)&1 != 0 {
++			if !known || p.proc.ReadUint8(gcdata.Add(i/8))>>uint(i%8)&1 != 0 {
+ 				ptrs = append(ptrs, i*ptrSize)
+ 			}
+ 		}

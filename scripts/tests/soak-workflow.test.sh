@@ -190,6 +190,147 @@ else
   fail "no folded scenario was read, so this sweep checked nothing"
 fi
 
+# --- the dump leaves the runner encrypted, and only encrypted -----------------
+#
+# The core the reference walk takes holds the fixture's own data, and the
+# repository is public. It was uploaded in the clear inside the bundle on the
+# two nights the reader failed before its cleanup.
+dump_facts="$(
+  python3 - "$WORKFLOW" <<'PY_DUMP'
+import json, sys, yaml
+
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+job = doc["jobs"]["soak"]
+env = {**doc.get("env", {}), **job.get("env", {})}
+steps = job["steps"]
+names = [s.get("name", s.get("uses", "")) for s in steps]
+
+def index_of(pred):
+    for i, s in enumerate(steps):
+        if pred(s):
+            return i
+    return -1
+
+check = index_of(lambda s: "--check-recipient" in s.get("run", ""))
+walk = index_of(lambda s: "loadtest-quic-run.sh" in s.get("run", ""))
+reference = index_of(lambda s: "loadtest-reference-walk.sh opengate" in s.get("run", ""))
+uploads = [s for s in steps if str(s.get("uses", "")).startswith("actions/upload-artifact")]
+print(json.dumps({
+    "recipient_env": env.get("SOAK_DUMP_AGE_RECIPIENT", ""),
+    "check_before_walk": check != -1 and walk != -1 and check < walk,
+    "reference_run": steps[reference].get("run", "") if reference != -1 else "",
+    "bundle_dir": env.get("SOAK_BUNDLE_DIR", ""),
+    "walk_dir": env.get("SOAK_WALK_DIR", ""),
+    "dump_dir": env.get("SOAK_DUMP_DIR", ""),
+    "uploads": [{"name": u["with"].get("name"), "path": u["with"].get("path"),
+                 "missing": u["with"].get("if-no-files-found")} for u in uploads],
+    "installs": "\n".join(s.get("run", "") for s in steps),
+}))
+PY_DUMP
+)"
+fact() { jq -r "$1" <<<"$dump_facts"; }
+
+if [ "$(fact .recipient_env)" = "\${{ secrets.SOAK_DUMP_AGE_RECIPIENT }}" ]; then
+  pass "the soak job hands the walk the maintainer's public key from the repository secret"
+else
+  fail "the soak job hands the walk the maintainer's public key from the repository secret (got=[$(fact .recipient_env)])"
+fi
+if [ "$(fact .check_before_walk)" = "true" ]; then
+  pass "the recipient is checked before the five-hour walk rather than after it"
+else
+  fail "the recipient is checked before the five-hour walk rather than after it"
+fi
+dump_dir="$(fact .dump_dir)"
+bundle_dir="$(fact .bundle_dir)"
+if [ -n "$dump_dir" ] && grep -qF -- "\"\$SOAK_DUMP_DIR\"" <<<"$(fact .reference_run)"; then
+  pass "the reference walk is told where the encrypted dump goes"
+else
+  fail "the reference walk is told where the encrypted dump goes (run=[$(fact .reference_run)])"
+fi
+case "$dump_dir/" in
+  "$bundle_dir"/*) fail "the encrypted dump is written inside the bundle ($dump_dir)" ;;
+  *) pass "the encrypted dump is written apart from the bundle" ;;
+esac
+
+# No upload names a plain core, and the one that carries the dump carries the
+# encrypted directory and fails when nothing is in it.
+plain=0
+dump_upload=""
+while IFS=$'\t' read -r name path missing; do
+  if grep -qE 'core\.|RUNNER_TEMP|runner\.temp' <<<"$path"; then
+    plain=$((plain + 1))
+    fail "the $name upload names a plain dump path ($path)"
+  fi
+  if [ "$path" = "\${{ env.SOAK_DUMP_DIR }}" ]; then
+    dump_upload="$name $missing"
+  fi
+done < <(jq -r '.uploads[] | [.name, .path, (.missing // "")] | @tsv' <<<"$dump_facts")
+if [ "$plain" -eq 0 ]; then
+  pass "no upload names a plain dump path"
+fi
+if [ "${dump_upload#* }" = "error" ]; then
+  pass "the encrypted dump is uploaded as an artifact of its own, which fails when it is empty"
+else
+  fail "the encrypted dump is uploaded as an artifact of its own, which fails when it is empty (got=[$dump_upload])"
+fi
+
+# The reader is the pinned commit with the patch that follows pointer maps
+# built on demand, and the tools the dump is made with are the manifest's.
+installs="$(fact .installs)"
+if grep -qF 'scripts/install-viewcore.sh' <<<"$installs" \
+  && ! grep -qE 'go install [^ ]*viewcore' <<<"$installs"; then
+  pass "the reader is installed patched, from the manifest's pin"
+else
+  fail "the reader is installed patched, from the manifest's pin"
+fi
+if grep -qF 'scripts/install-dump-tools.sh' <<<"$installs"; then
+  pass "the job installs the manifest's age and zstd"
+else
+  fail "the job installs the manifest's age and zstd"
+fi
+
+TREND_WORKFLOW="$WORKFLOW"
+# --- The legs join the trend, and the nights before them judge them ------------
+#
+# Each leg wrote a bundle and nothing kept its numbers past the artifact: fixed
+# profile limits only, and no comparison with the nights before. A publish job
+# pushes every leg's rows with the run's start, compares each leg with its own
+# nights, and a gate job reads what it found off the job's result.
+publish_problems="$(
+  python3 - "$TREND_WORKFLOW" <<'PY_PUBLISH'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+jobs = doc["jobs"]
+publish = jobs.get("publish")
+if not publish:
+    print("there is no publish job")
+    sys.exit(0)
+runs = "\n".join(str(s.get("run", "")) for s in publish.get("steps", []))
+env = publish.get("env") or {}
+if "scripts/perf-vm-push.sh" not in runs:
+    print("the publish job does not push the legs' rows")
+if "scripts/perf-regression-check.sh" not in runs:
+    print("the publish job does not compare the legs with the nights before them")
+if "outputs.started_at" not in str(env.get("VM_RUN_STARTED_AT", "")):
+    print("the publish job is not handed the time the run started")
+if "always()" not in str(publish.get("if", "")):
+    print("the publish job does not run after a leg that failed")
+if not any("oci-kube-setup" in str(s.get("uses", "")) for s in publish.get("steps", [])):
+    print("the publish job never reaches the store")
+gate = jobs.get("gate") or {}
+gate_runs = "\n".join(str(s.get("run", "")) for s in gate.get("steps", []))
+if "publish" not in (gate.get("needs") or []) or "always()" not in str(gate.get("if", "")):
+    print("no gate job reads the publish job whatever happened to it")
+if "needs.publish.result" not in gate_runs or "needs.publish.outputs.regression" not in gate_runs:
+    print("the gate does not read the publish job's result and its finding")
+PY_PUBLISH
+)"
+if [ -z "$publish_problems" ]; then
+  pass "$(basename "$TREND_WORKFLOW") publishes its legs and gates them against their nights"
+else
+  fail "$(basename "$TREND_WORKFLOW"): $publish_problems"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Failures:\n' >&2

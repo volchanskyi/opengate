@@ -13,7 +13,7 @@
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
         {
-          "expr": "sum(rate(opengate_db_queries_total[5m])) by (operation)",
+          "expr": "sum(rate(opengate_db_queries_total{namespace=\"$environment\"}[5m])) by (operation)",
           "legendFormat": "{{operation}}"
         }
       ],
@@ -32,13 +32,14 @@
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
         {
-          "expr": "sum(rate(opengate_db_queries_total{status=\"error\"}[5m])) by (operation)",
+          "expr": "sum(rate(opengate_db_queries_total{namespace=\"$environment\",status=\"error\"}[5m])) by (operation)",
           "legendFormat": "{{operation}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
+          "noValue": "No failed queries since the server started",
           "custom": { "drawStyle": "line", "fillOpacity": 10 }
         },
         "overrides": []
@@ -51,15 +52,15 @@
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(opengate_db_query_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(opengate_db_query_duration_seconds_bucket{namespace=\"$environment\"}[5m])) by (le))",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(opengate_db_query_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(opengate_db_query_duration_seconds_bucket{namespace=\"$environment\"}[5m])) by (le))",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(opengate_db_query_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(opengate_db_query_duration_seconds_bucket{namespace=\"$environment\"}[5m])) by (le))",
           "legendFormat": "p99"
         }
       ],
@@ -78,7 +79,7 @@
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
         {
-          "expr": "topk(10, histogram_quantile(0.99, sum(rate(opengate_db_query_duration_seconds_bucket[5m])) by (le, operation)))",
+          "expr": "topk(10, histogram_quantile(0.99, sum(rate(opengate_db_query_duration_seconds_bucket{namespace=\"$environment\"}[5m])) by (le, operation)))",
           "legendFormat": "{{operation}}"
         }
       ],
@@ -96,7 +97,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
-        { "expr": "opengate_db_size_bytes", "legendFormat": "DB size" }
+        { "expr": "opengate_db_size_bytes{namespace=\"$environment\"}", "legendFormat": "DB size" }
       ],
       "fieldConfig": {
         "defaults": {
@@ -113,11 +114,11 @@
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
         {
-          "expr": "sum(opengate_db_queries_total)",
+          "expr": "sum(opengate_db_queries_total{namespace=\"$environment\"})",
           "legendFormat": "Total"
         },
         {
-          "expr": "sum(opengate_db_queries_total{status=\"error\"})",
+          "expr": "sum(opengate_db_queries_total{namespace=\"$environment\",status=\"error\"}) or vector(0)",
           "legendFormat": "Errors"
         }
       ],
@@ -130,7 +131,25 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": ["opengate", "database"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "description": "Production and staging write into one store. Every panel reads the one chosen here.",
+        "type": "custom",
+        "query": "Production : opengate, Staging : opengate-staging",
+        "current": { "selected": true, "text": "Production", "value": "opengate" },
+        "options": [
+          { "selected": true, "text": "Production", "value": "opengate" },
+          { "selected": false, "text": "Staging", "value": "opengate-staging" }
+        ],
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "utc",
