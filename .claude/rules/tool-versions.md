@@ -24,7 +24,8 @@ governs everything else.
   <pkg>`, an action asked for a bare `tool:` name, and `--git <url>` with no
   `--rev`.
 - An unreleased tree is pinned by **rev**, never by branch.
-- The sweep reads the Makefile and the install scripts as well as the workflows.
+- The sweep reads the Makefile, the install scripts and the shared actions under
+  `.github/actions/` as well as the workflows.
 - The workstation's installs are spelled once, in
   [`require-tool.sh`](../../scripts/require-tool.sh), which builds each command
   from the manifest.

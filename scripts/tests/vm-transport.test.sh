@@ -41,14 +41,21 @@ run_vm_push() {
     KUBECTL_STDIN="$stdin_file" \
     VM_NAMESPACE="observability" \
     VM_SERVICE="private-vm" \
+    VM_RUN_STARTED_AT="${STARTED_OVERRIDE-1790000000}" \
+    GITHUB_WORKFLOW="Nightly Thing" \
+    GITHUB_SHA="abc123" \
+    GITHUB_RUN_ID="4242" \
     "$@"
 }
 
 echo "vm transport:"
 
+# A sample names the measurement and nothing else. A label that changes every
+# run makes every run a series of its own: ninety of one latency in a fortnight,
+# drawn in ninety colours and joined by nothing.
 cat >"$TMP_ROOT/metrics.prom" <<'EOF'
 # TYPE mutation_score gauge
-mutation_score{commit="abc123",env="ci",lang="go"} 85.5
+mutation_score{env="ci",lang="go"} 85.5
 EOF
 
 if output="$(
@@ -59,27 +66,67 @@ if output="$(
   && grep -qF -- "--image=docker.io/curlimages/curl:8.11.1" "$TMP_ROOT/push.args" \
   && grep -qF "http://private-vm.observability.svc:8428/api/v1/import/prometheus" "$TMP_ROOT/push.args" \
   && grep -qF "Content-Type: text/plain; version=0.0.4" "$TMP_ROOT/push.args" \
-  && cmp -s "$TMP_ROOT/metrics.prom" "$TMP_ROOT/push.stdin" \
   && [ -z "$output" ]; then
-  pass "VM push uses an auto-cleaned kubectl pod and preserves Prometheus text"
+  pass "VM push uses an auto-cleaned kubectl pod"
 else
-  fail "VM push uses an auto-cleaned kubectl pod and preserves Prometheus text"
+  fail "VM push uses an auto-cleaned kubectl pod (output=[$output])"
+fi
+
+# Every sample carries the time the run started, so a night is one point on one
+# date however long the run took, and a re-run writes the same point.
+if grep -qxF 'mutation_score{env="ci",lang="go"} 85.5 1790000000000' "$TMP_ROOT/push.stdin"; then
+  pass "a sample carries the run's start as its time"
+else
+  fail "a sample carries the run's start as its time (sent=[$(cat "$TMP_ROOT/push.stdin")])"
+fi
+
+# The code a night ran is named once, in a series of its own.
+if grep -qxF 'ci_run_info{env="ci",workflow="Nightly Thing",commit="abc123",run_id="4242"} 1 1790000000000' "$TMP_ROOT/push.stdin" \
+  && [ "$(grep -c '^ci_run_info' "$TMP_ROOT/push.stdin")" = "1" ]; then
+  pass "a push writes one ci_run_info naming the workflow, the commit and the run"
+else
+  fail "a push writes one ci_run_info naming the workflow, the commit and the run (sent=[$(cat "$TMP_ROOT/push.stdin")])"
+fi
+
+for label in commit run_id grade; do
+  printf 'pmat_repo_score{env="ci",%s="x"} 91.25\n' "$label" >"$TMP_ROOT/$label.prom"
+  : >"$TMP_ROOT/$label.args"
+  if run_vm_push "$TMP_ROOT/$label.args" "$TMP_ROOT/$label.stdin" \
+    "$REPO_ROOT/scripts/lib/vm-push.sh" "$TMP_ROOT/$label.prom" >/dev/null 2>&1; then
+    fail "a sample carrying $label is refused"
+  elif [ ! -s "$TMP_ROOT/$label.args" ]; then
+    pass "a sample carrying $label is refused before kubectl"
+  else
+    fail "a sample carrying $label is refused before kubectl"
+  fi
+done
+
+# A push that cannot say when its run started cannot place its night.
+: >"$TMP_ROOT/nostart.args"
+if STARTED_OVERRIDE="" run_vm_push "$TMP_ROOT/nostart.args" "$TMP_ROOT/nostart.stdin" \
+  "$REPO_ROOT/scripts/lib/vm-push.sh" "$TMP_ROOT/metrics.prom" >/dev/null 2>&1; then
+  fail "a push with no run start is refused"
+elif [ ! -s "$TMP_ROOT/nostart.args" ]; then
+  pass "a push with no run start is refused before kubectl"
+else
+  fail "a push with no run start is refused before kubectl"
 fi
 
 cat >"$TMP_ROOT/stdin.prom" <<'EOF'
-pmat_repo_score{commit="def456",env="ci"} 91.25
+pmat_repo_score{env="ci"} 91.25
 EOF
 if run_vm_push "$TMP_ROOT/stdin.args" "$TMP_ROOT/stdin.captured" \
   "$REPO_ROOT/scripts/lib/vm-push.sh" <"$TMP_ROOT/stdin.prom" \
-  && cmp -s "$TMP_ROOT/stdin.prom" "$TMP_ROOT/stdin.captured"; then
+  && grep -qxF 'pmat_repo_score{env="ci"} 91.25 1790000000000' "$TMP_ROOT/stdin.captured"; then
   pass "VM push reads Prometheus text from stdin when no file is provided"
 else
   fail "VM push reads Prometheus text from stdin when no file is provided"
 fi
 
 cat >"$TMP_ROOT/missing-label.prom" <<'EOF'
-mutation_score{commit="abc123",lang="go"} 85.5
+mutation_score{lang="go"} 85.5
 EOF
+: >"$TMP_ROOT/missing-label.args"
 if run_vm_push "$TMP_ROOT/missing-label.args" "$TMP_ROOT/missing-label.stdin" \
   "$REPO_ROOT/scripts/lib/vm-push.sh" "$TMP_ROOT/missing-label.prom" >/dev/null 2>&1; then
   fail "VM push rejects metrics missing mandatory env label"
@@ -92,6 +139,7 @@ fi
 cat >"$TMP_ROOT/malformed.prom" <<'EOF'
 not a prometheus sample
 EOF
+: >"$TMP_ROOT/malformed.args"
 if run_vm_push "$TMP_ROOT/malformed.args" "$TMP_ROOT/malformed.stdin" \
   "$REPO_ROOT/scripts/lib/vm-push.sh" "$TMP_ROOT/malformed.prom" >/dev/null 2>&1; then
   fail "VM push rejects malformed Prometheus text"

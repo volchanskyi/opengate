@@ -1148,10 +1148,13 @@ else
   fail "workflow must contain exactly one oci-kube-setup step (moved ahead of Restore, not duplicated)"
 fi
 
-if grep -qE 'VM_EXCLUDE_COMMIT:[[:space:]]*\$\{\{[[:space:]]*github\.sha' "$WORKFLOW"; then
-  pass "baseline restore excludes the current commit (VM_EXCLUDE_COMMIT=github.sha)"
+# The baseline is the previous night by date, so the job hands the reader the
+# time the run started — the date tonight is kept out by.
+if grep -qE 'VM_RUN_STARTED_AT:[[:space:]]*\$\{\{[[:space:]]*needs\.shard-budget\.outputs\.started_at' "$WORKFLOW" \
+  && ! grep -qF 'VM_EXCLUDE_COMMIT' "$WORKFLOW"; then
+  pass "baseline restore reads the previous night by date (VM_RUN_STARTED_AT from the first job)"
 else
-  fail "restore step must set VM_EXCLUDE_COMMIT to github.sha"
+  fail "the publish job must hand the reader VM_RUN_STARTED_AT from shard-budget, and exclude nothing by commit"
 fi
 
 status_build_line="$(line_of 'mutation-status-build\.sh')"

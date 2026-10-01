@@ -55,10 +55,11 @@ func saidItHasNoSuchThing(err error) bool {
 }
 
 // filingWaitAttempts is how many times a filing asks for a machine the server
-// says it does not have, and filingWaitStep is how much longer it waits between
-// each. Together they are a window of three seconds, which is the gap between a
-// machine's register frame leaving and its row landing on a target under the
-// load a nightly puts on one.
+// says it does not have, and filingWaitDelay is how long it waits after each.
+// Every wait is twice the one before, so six requests span fifteen and a half
+// seconds: the gap between a machine's register frame leaving and its row
+// landing is ten seconds and more on the busiest legs, and asking more often
+// would not bring the row sooner.
 //
 // The wait is bounded because the same answer covers a customer that genuinely
 // is not there, and asking again for that spends a request the arrivals need.
@@ -66,8 +67,13 @@ func saidItHasNoSuchThing(err error) bool {
 // altogether, which is a cost small enough to pay for telling the two apart.
 const (
 	filingWaitAttempts = 6
-	filingWaitStep     = 200 * time.Millisecond
+	filingWaitFirst    = 500 * time.Millisecond
 )
+
+// filingWaitDelay is how long the filing waits after its attempt-th request.
+func filingWaitDelay(attempt int) time.Duration {
+	return filingWaitFirst << (attempt - 1)
+}
 
 // waitForTheRow makes the call, and makes it again while the server says it has
 // no such thing. It hands back the last refusal, so what the run reports is the
@@ -80,7 +86,7 @@ func waitForTheRow(call func() error) error {
 			return err
 		}
 		if attempt < filingWaitAttempts {
-			time.Sleep(time.Duration(attempt) * filingWaitStep)
+			time.Sleep(filingWaitDelay(attempt))
 		}
 	}
 	return err

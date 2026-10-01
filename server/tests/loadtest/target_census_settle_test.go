@@ -141,7 +141,8 @@ func TestTheWaitIsBoundedByTheClockAndNotByTheAsking(t *testing.T) {
 
 	assert.LessOrEqual(t, reading.Waited, censusSettleLimit+serverMetricsTimeout,
 		"a run does not hold a phase open past what it said it would for")
-	assert.Less(t, asked, 5, "and the time the reads themselves cost is time spent waiting")
+	assert.LessOrEqual(t, asked, int(censusSettleLimit/serverMetricsTimeout)+1,
+		"and the time the reads themselves cost is time spent waiting")
 }
 
 // The limit clears the widest arrival the target can report. Registration is

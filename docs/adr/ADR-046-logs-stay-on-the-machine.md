@@ -41,9 +41,6 @@ of a binary shipped to customer machines.
 what is read rather than being applied to records the agent already paid to
 parse.
 
-**Rates, not lines, are telemetry.** How many errors a minute is a number and
-goes to the metrics store like any other reading. The lines themselves stay put.
-
 ## Consequences
 
 A disconnected machine exposes no history — which is the cost, and is accepted,

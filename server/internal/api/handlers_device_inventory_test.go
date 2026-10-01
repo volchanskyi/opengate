@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -10,9 +12,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
+	"github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
 // fakeInventoryRepo records the device it was queried for and returns a canned
@@ -98,4 +102,30 @@ func TestGetDeviceInventoryHandler(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, peerDev.ID, fake.gotDevice, "a site the caller never created is still in scope")
 	})
+}
+
+// TestTheLogPullClassificationIsThePublishedVocabulary holds the handler's own
+// classification of a pull to the outcomes the metrics publish at zero from
+// start-up. An outcome added here without a zero series there would be
+// invisible to a rate until its first occurrence after every start.
+func TestTheLogPullClassificationIsThePublishedVocabulary(t *testing.T) {
+	t.Parallel()
+
+	classified := map[string]bool{logPullOffline: true}
+	for _, err := range []error{
+		nil,
+		fmt.Errorf("pull: %w", agentapi.ErrCapabilityNotAdvertised),
+		agentapi.ErrLogsBusy,
+		context.DeadlineExceeded,
+		errors.New("the stream closed"),
+	} {
+		classified[logPullResult(err)] = true
+	}
+
+	published := map[string]bool{}
+	for _, outcome := range metrics.DeviceLogPullOutcomes() {
+		published[outcome] = true
+	}
+	assert.Equal(t, published, classified,
+		"every outcome the handler records is published at zero, and nothing else is")
 }

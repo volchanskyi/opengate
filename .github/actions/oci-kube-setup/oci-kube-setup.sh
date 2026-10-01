@@ -3,6 +3,20 @@
 
 set -euo pipefail
 
+# The versions this action installs are the manifest's, read from the checkout
+# the calling job already made.
+# shellcheck source=../../../scripts/lib/tool-versions.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/lib/tool-versions.sh"
+
+# Oracle's client looks for this line at the end of the key file and warns on
+# every call until it finds it. The warning goes to standard error, where it
+# stands in front of the reason whenever a cluster call fails.
+OCI_KEY_LABEL="OCI_API_KEY"
+
+install_oci_cli() {
+  pip install --quiet "oci-cli==${TOOL_VERSION_OCI_CLI}"
+}
+
 configure_oci() {
   : "${OCI_TENANCY:?OCI_TENANCY is required}"
   : "${OCI_USER:?OCI_USER is required}"
@@ -12,6 +26,9 @@ configure_oci() {
 
   mkdir -p "$HOME/.oci"
   printf '%s\n' "$OCI_KEY" >"$HOME/.oci/key.pem"
+  if [ "$(tail -n 1 "$HOME/.oci/key.pem")" != "$OCI_KEY_LABEL" ]; then
+    printf '%s\n' "$OCI_KEY_LABEL" >>"$HOME/.oci/key.pem"
+  fi
   chmod 600 "$HOME/.oci/key.pem"
   cat >"$HOME/.oci/config" <<EOF
 [DEFAULT]
@@ -25,7 +42,6 @@ EOF
 }
 
 install_kube_tools() {
-  : "${HELM_VERSION:?HELM_VERSION is required}"
   local work_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
   local kubectl_version
 
@@ -33,7 +49,7 @@ install_kube_tools() {
   curl -fsSL "https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl" -o "$work_dir/kubectl"
   sudo install -m 0755 "$work_dir/kubectl" /usr/local/bin/kubectl
 
-  curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" -o "$work_dir/helm.tgz"
+  curl -fsSL "https://get.helm.sh/helm-v${TOOL_VERSION_HELM}-linux-amd64.tar.gz" -o "$work_dir/helm.tgz"
   tar -xzf "$work_dir/helm.tgz" -C "$work_dir" linux-amd64/helm
   sudo install -m 0755 "$work_dir/linux-amd64/helm" /usr/local/bin/helm
 
@@ -63,11 +79,12 @@ fetch_kubeconfig() {
 }
 
 case "${1:-}" in
+  install-oci-cli) install_oci_cli ;;
   configure-oci) configure_oci ;;
   install-kube-tools) install_kube_tools ;;
   fetch-kubeconfig) fetch_kubeconfig ;;
   *)
-    echo "usage: $0 {configure-oci|install-kube-tools|fetch-kubeconfig}" >&2
+    echo "usage: $0 {install-oci-cli|configure-oci|install-kube-tools|fetch-kubeconfig}" >&2
     exit 2
     ;;
 esac

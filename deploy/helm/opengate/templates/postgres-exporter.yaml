@@ -1,0 +1,76 @@
+{{- $name := printf "%s-exporter" (include "opengate.postgres.fullname" .) -}}
+# Measures this environment's database from a pod of its own. Scraped as an
+# annotated pod, so every reading carries the namespace — the environment — it
+# runs in. A pod of its own because a pod is ready only while every program in
+# it is: an exporter beside the database in one pod would take the database out
+# of its Service whenever the exporter crashed, hung or was killed for memory.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "opengate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "opengate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exporter
+          image: {{ .Values.postgres.exporter.image }}
+          args:
+            - --collector.postmaster
+          env:
+            # Reads the database as its owner, with the password the database
+            # itself is given.
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: POSTGRES_PASSWORD
+            - name: DATA_SOURCE_NAME
+              value: "postgresql://opengate:$(POSTGRES_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
+          ports:
+            - name: metrics
+              containerPort: 9187
+              protocol: TCP
+          # The landing page answers while the program runs, whether or not the
+          # database does; a database that cannot be read is pg_up 0, a reading.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.postgres.exporter.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

@@ -120,6 +120,22 @@ func (r ServerRegistration) QuantileMs(q float64) float64 {
 	return previousBound * 1000
 }
 
+// PastTheScale reports whether the q quantile lies past the last finite bucket,
+// where QuantileMs can only give that bucket's bound: the figure is then a
+// floor, and the bundle says so.
+func (r ServerRegistration) PastTheScale(q float64) bool {
+	if r.Accepted == 0 || len(r.Buckets) == 0 {
+		return false
+	}
+	want := q * float64(r.Accepted)
+	for _, bucket := range r.Buckets {
+		if bucket.count >= want {
+			return math.IsInf(bucket.le, 1)
+		}
+	}
+	return true
+}
+
 // FetchServerRegistration reads the running server's own account of the run.
 func FetchServerRegistration(baseURL string) (ServerRegistration, error) {
 	page, err := fetchExpositionPage(baseURL)

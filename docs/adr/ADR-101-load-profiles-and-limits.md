@@ -163,10 +163,31 @@ pair spelled out in four workflow steps is not four places to keep level.
 
 **A limit sits inside the range its instrument can report.** Registration timing
 is a bucketed histogram, so a tail past its last finite boundary was never kept
-and is reported at that boundary. The reading is then a floor, which fails a
-ceiling below it correctly and can never rise to meet one at or above it — so no
-registration limit may sit at or above the histogram's last boundary, and a
-sweep holds the profiles to the buckets the server declares.
+and is reported at that boundary, marked in the bundle as past the scale. The
+reading is then a floor, which fails a ceiling below it correctly and can never
+rise to meet one at or above it — so no registration limit may sit at or above
+the histogram's last boundary, and a sweep holds the profiles to the buckets the
+server declares
+([`registration_pool.go`](../../server/internal/metrics/registration_pool.go)).
+The scale reaches a minute because the busiest runner-hosted legs register in
+ten seconds and more.
+
+**A mark that only reports never fails a night.** The run's completeness check
+prints it as a notice, and a load generator's own threshold breach on a leg
+driven past what its venue holds is a notice and a summary line: the profile's
+limits are what decide.
+
+**A night's summary states each limit beside its reading.** Every bundle-based
+run — the load test, each performance-stack leg, the endurance run — and the
+network drill and the benchmark write one table of *measurement, expected,
+actual, result*, where the result is a pass, a failure (enforced) or an overrun
+(reported only)
+([`run-summary.sh`](../../scripts/run-summary.sh),
+[`summary-table.sh`](../../scripts/lib/summary-table.sh)). Every run shows its
+error rate, and the server's and the database's average processor and memory use
+over the measured phase, each as a share of its own cap. A reading that was not
+taken is written as not read, never as nought, and a short legend under the
+table says what each column means in plain words.
 
 **A measurement a family exists to drive past carries no ceiling.** The ladder
 climbs until arrivals fail, so its aggregate share of machines that did not get

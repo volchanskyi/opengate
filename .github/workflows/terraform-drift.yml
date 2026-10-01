@@ -40,6 +40,13 @@ jobs:
     outputs:
       drift: ${{ steps.plan.outputs.exitcode }}
     steps:
+      # The night's date. Every sample the night writes carries this time, so a
+      # run is one point on one date however long it takes, and a re-run writes
+      # the same point.
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup-pinned-tools
@@ -171,9 +178,11 @@ jobs:
 
       - name: Push to VictoriaMetrics
         if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
+        env:
+          VM_RUN_STARTED_AT: ${{ steps.started.outputs.at }}
         run: ./scripts/terraform-drift-vm-push.sh drift-summary.json
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # Runs whatever happened above it, and the message names which of the
         # three it was. The shape this replaces was gated on the plan's own exit
         # code, so a night that died before the plan ran said nothing at all:
@@ -193,7 +202,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "2" ]; then
-            echo "Nothing to say: the plan ran and the infrastructure matches what is declared."
+            echo "No alert sent: the plan ran and the infrastructure matches what is declared."
             exit 0
           fi
           if [ "${FINDING:-0}" = "2" ]; then

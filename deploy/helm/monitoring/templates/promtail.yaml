@@ -1,5 +1,6 @@
 {{- $name := include "mon.componentName" (list . "promtail") -}}
 {{- $loki := include "mon.componentName" (list . "loki") -}}
+{{- $config := .Files.Get "files/promtail-config.yaml" | replace "LOKI_URL" (printf "%s:3100" $loki) -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -45,7 +46,7 @@ metadata:
 data:
   # LOKI_URL substituted at template time with the in-cluster Loki Service.
   promtail-config.yaml: |
-{{ .Files.Get "files/promtail-config.yaml" | replace "LOKI_URL" (printf "%s:3100" $loki) | indent 4 }}
+{{ $config | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -61,6 +62,9 @@ spec:
     metadata:
       labels:
         {{- include "mon.selectorLabels" (list . "promtail") | nindent 8 }}
+      annotations:
+        # What Promtail reads at start; a changed configuration restarts it.
+        checksum/config: {{ $config | sha256sum }}
     spec:
       serviceAccountName: {{ $name }}
       securityContext:

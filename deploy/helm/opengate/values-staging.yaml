@@ -50,14 +50,20 @@ server:
     size: 1Gi
 
 postgres:
-  # Capped where production's database is capped, so a load that would throttle
-  # production's database throttles this one and a night's numbers say so. The
-  # reservation stays the chart's smaller one: this database holds a night's
-  # fixture rather than anything a customer depends on, and it has peaked at
-  # well under what it reserves.
+  # Production's processor shape exactly, reservation and ceiling, so the venue a
+  # night is measured on is the one its history was measured on. A ceiling is
+  # enforced per tenth of a second: capped at 250m this database was paused in a
+  # fifth of its busy tenths of a second through a load run and in a third to
+  # nearly half of them idle before it, and the run's registration tail went from
+  # tens of milliseconds to over a second with the median unchanged. A load run
+  # uses 40–80m of it, so 175m covers that twice over. Memory keeps the chart's
+  # smaller reservation: this database holds a night's fixture rather than
+  # anything a customer depends on.
   resources:
+    requests:
+      cpu: 175m
     limits:
-      cpu: 250m
+      cpu: "1"
       memory: 384Mi
   storage:
     # Same as the server /data above — staging DB rides an emptyDir, not a block

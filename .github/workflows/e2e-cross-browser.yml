@@ -133,14 +133,14 @@ jobs:
           path: web/playwright-report/
           retention-days: 14
 
-  # Say so when the night was lost.
+  # Alert if the run did not finish.
   #
   # Every nightly here published its verdict into its own result and nothing
   # read it: a run that died, was cancelled, or was killed at its timeout went
   # red on a page nobody opens. The alert path is the part that makes a red run
   # a thing somebody knows about.
   alert:
-    name: Say so if the night was lost
+    name: Alert if the run did not finish
     # The browsers this covers are the ones the ordinary pipeline does not, so
     # a night it loses is a night nothing else was watching.
     needs: [e2e]
@@ -155,7 +155,7 @@ jobs:
 
       - uses: ./.github/actions/setup-pinned-tools
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # `needs.<job>.result` rather than `failure()`: the result is a fact
         # about the job named, and it is what the repository's other gate jobs
         # already read. It also tells a cancel from a failure, which matters —
@@ -178,7 +178,7 @@ jobs:
             esac
           done
           if [ -z "$LOST" ]; then
-            echo "Nothing to say: every job finished."
+            echo "No alert sent: every job finished."
             exit 0
           fi
           scripts/telegram-alert.sh "$(printf 'The cross-browser run did not finish:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"

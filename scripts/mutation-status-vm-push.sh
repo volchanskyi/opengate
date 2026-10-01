@@ -31,11 +31,11 @@ metrics="$(
     def bit: if . then 1 else 0 end;
 
     . as $row
-    | "mutation_run_complete{commit=\"\($row.commit | label_escape)\",env=\"ci\"} \($row.complete | bit)",
+    | "mutation_run_complete{env=\"ci\"} \($row.complete | bit)",
       ($row.shards
        | to_entries
        | sort_by(.key)[]
-       | "mutation_shard_complete{commit=\"\($row.commit | label_escape)\",env=\"ci\",shard=\"\(.key | label_escape)\"} \(.value.complete | bit)")
+       | "mutation_shard_complete{env=\"ci\",shard=\"\(.key | label_escape)\"} \(.value.complete | bit)")
   ' "$STATUS_FILE"
 )"
 

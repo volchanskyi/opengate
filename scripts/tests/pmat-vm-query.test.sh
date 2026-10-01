@@ -23,17 +23,18 @@ fail() {
 
 bin_dir="$TMP_ROOT/bin"
 mkdir -p "$bin_dir"
+# The store's nights: two back, last night, and tonight's own reading, which a
+# re-run of this night left. The previous value is last night's.
 cat >"$bin_dir/kubectl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >"$KUBECTL_ARGS"
+day() { printf '%s' "$(((STORE_MIDNIGHT + $1 * 86400 + 36000) * 1000))"; }
 case "${VM_QUERY_FIXTURE:-values}" in
   values)
-    cat <<'JSON'
-{"metric":{"__name__":"pmat_repo_score","commit":"older","env":"ci"},"values":[60.5],"timestamps":[1000]}
-{"metric":{"__name__":"pmat_repo_score","commit":"newer","env":"ci"},"values":[63.5],"timestamps":[2000]}
-pod "vm-query-test" deleted from observability namespace
-JSON
+    printf '{"metric":{"__name__":"pmat_repo_score","env":"ci"},"values":[60.5,63.5,70],"timestamps":[%s,%s,%s]}\n' \
+      "$(day -2)" "$(day -1)" "$(day 0)"
+    echo 'pod "vm-query-test" deleted from observability namespace'
     ;;
   empty) ;;
   invalid) printf '%s\n' 'not-json' ;;
@@ -48,6 +49,8 @@ run_query() {
     KUBECTL_ARGS="$TMP_ROOT/kubectl.args" \
     VM_NAMESPACE="observability" \
     VM_SERVICE="private-vm" \
+    VM_RUN_STARTED_AT="$(date -u -d '2026-09-29 10:11' +%s)" \
+    STORE_MIDNIGHT="$(date -u -d '2026-09-29 00:00' +%s)" \
     "$REPO_ROOT/scripts/pmat-vm-query.sh" "$field"
 }
 
@@ -58,9 +61,9 @@ if value="$(run_query repo_score)" \
   && grep -qF -- '--rm -i --restart=Never' "$TMP_ROOT/kubectl.args" \
   && grep -qF 'http://private-vm.observability.svc:8428/api/v1/export' "$TMP_ROOT/kubectl.args" \
   && grep -qF 'pmat_repo_score{env="ci"}' "$TMP_ROOT/kubectl.args"; then
-  pass "repo score returns the newest VM sample through an auto-cleaned pod"
+  pass "repo score returns last night's reading, not tonight's re-run, through an auto-cleaned pod"
 else
-  fail "repo score should return the newest VM sample"
+  fail "repo score should return last night's reading (got=[${value:-}])"
 fi
 
 VM_QUERY_FIXTURE=values run_query below_bplus >/dev/null

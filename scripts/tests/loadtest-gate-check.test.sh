@@ -128,6 +128,9 @@ write_rows 150 25
 run_check
 assert_eq "past a reporting mark alone, the night passes" "0" "$STATUS"
 assert_eq "and the mark is recorded" "1" "$(jq 'length' "$WORK/breaches.json")"
+# Whether it is enforced travels with it, so the reader that decides the night
+# does not fail it for a mark that only reports.
+assert_eq "and recorded as reported only" "false" "$(jq '.[0].enforced' "$WORK/breaches.json")"
 assert_contains "the mark says it only reports" "reported" "$OUT"
 
 # Past the limit that fails the night. Both it and the mark below it are past,
@@ -136,6 +139,8 @@ write_rows 260 25
 run_check
 assert_eq "past an enforced limit, the night fails" "1" "$STATUS"
 assert_eq "both the limit and the mark are recorded" "2" "$(jq 'length' "$WORK/breaches.json")"
+assert_eq "and the limit alone is recorded as enforced" "1" \
+  "$(jq '[.[] | select(.enforced == true)] | length' "$WORK/breaches.json")"
 assert_contains "the breach names the measurement" "k6/api-baseline/http" "$OUT"
 assert_contains "the breach names the number it passed" "200" "$OUT"
 

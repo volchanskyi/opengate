@@ -123,6 +123,12 @@ spec:
             - name: OPENGATE_VICTORIAMETRICS_URL
               value: {{ .Values.server.victoriaMetricsURL | quote }}
             {{- end }}
+            # Production and staging write into one metrics store, and this is
+            # the environment the server stamps onto every reading it writes.
+            - name: OPENGATE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: DATABASE_URL
               value: "postgres://opengate_app:$(POSTGRES_APP_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
           ports:

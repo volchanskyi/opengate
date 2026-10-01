@@ -79,11 +79,49 @@ renders the three ConfigMaps from the canonical files, applies what differs,
 asks for it back, and refuses on a difference. It restarts only what changed,
 each reader once, by the kind the chart runs it as — the store is a StatefulSet,
 and its applier's test reads the kinds from the chart rather than trusting a
-name. The nightly infrastructure-drift workflow runs it, so the cluster is
-compared with the repository every night rather than at an install nobody
-repeated. The chart those ConfigMaps belong beside follows the same way: the
-production deploy upgrades the monitoring release from it every time, so a
-permission or argument the chart gains is not left waiting on a hand install.
+name. The production deploy runs it right after it upgrades the monitoring
+release, so dashboards, rules and scrape targets land with the deploy, and the
+nightly infrastructure-drift workflow runs it again, so the cluster is compared
+with the repository every night rather than at an install nobody repeated. The
+chart those ConfigMaps belong beside follows the same way: the production deploy
+upgrades the monitoring release from it every time, so a permission or argument
+the chart gains is not left waiting on a hand install.
+
+**What a process loaded is asked of the process.** A ConfigMap is what a process
+was given: a scrape relabel sat in its ConfigMap for two days while the running
+store scraped without it, because the upgrade that wrote it restarted nothing
+and the nightly apply then found the ConfigMap current — and every production
+rule read nothing. So the applier asks the store for the configuration it is
+running, reloads it until that is the declared file, and refuses if it never
+is; the decision rests on what the process loaded, never on what the script
+changed. Each pod that reads its configuration at start (the store, Loki and
+Promtail) carries a checksum of it, so a chart upgrade that changes the
+configuration restarts what reads it.
+
+**Every panel answers, and every production rule can see.** After the reload
+the applier runs every dashboard query against the store, each live one once per
+environment
+([`monitoring-readback.py`](../../deploy/scripts/monitoring-readback.py)). A
+query that returns nothing, on a panel that does not say in words what empty
+means, is a refusal naming the dashboard and the panel. A panel for a signal the
+product does not produce is removed rather than left empty, and a counter with a
+fixed set of outcomes is published at zero from start-up, so a panel or rule
+over it reads a series before its first event. Every selector a
+`watches: production` rule reads is then asked for a series, so a rule that
+cannot see anything is found by the deploy rather than by the incident it
+missed. After a deploy both checks wait for new targets' first readings before
+judging.
+
+**Every live reading names its environment.** Production and staging feed one
+store and one set of dashboards, so each live dashboard carries an Environment
+selector, Production by default, and every query names it — or the monitoring
+namespace, for the monitoring stack's own readings
+([`grafana-live-dashboards.test.sh`](../../scripts/tests/grafana-live-dashboards.test.sh)).
+Each database is measured by an exporter in its own namespace, so its readings
+carry its environment, and the server stamps what it writes to the store with the
+namespace it runs in. Every read the server makes groups that stamp away: a
+device lives in one environment, and a reading written before the stamp and one
+written after it are one line on its chart.
 
 **A message carries what the reader needs to act, and nothing Grafana keeps for
 itself.** Grafana is reachable only through a port-forward, so the message is
@@ -93,8 +131,12 @@ look at (`check`);
 [`message-templates.yml`](../../deploy/grafana/provisioning/alerting/message-templates.yml)
 prints those with the series' own labels and the time it began, says "no data"
 in words when that is the finding, and leaves out Grafana's bookkeeping labels.
-The text is sent unparsed, because summaries carry characters Telegram refuses
-as HTML.
+The headline is the rule's own title. Grafana names a rule that read nothing or
+could not run `DatasourceNoData` or `DatasourceError`, which says nothing about
+which rule it was, so the headline is the rule's title followed by "no data" or
+"query failed", and the routing groups by the rule's title so two rules that both
+read nothing are two messages rather than one. The text is sent unparsed,
+because summaries carry characters Telegram refuses as HTML.
 
 **And a real message goes through the channel every night.** All of the above can
 be correct and still reach nobody. That job cannot alert through the channel it
@@ -109,6 +151,16 @@ rule labelled `watches: shared` watches what the two environments share: the
 node's disk and memory, and the containers on it.
 [`alert-rules.test.sh`](../../scripts/tests/alert-rules.test.sh) holds both
 halves.
+
+**A rule reads what it is named for.** The container memory rule reads what the
+program holds — its resident memory — against the container's own limit. A
+container's working set also counts file cache the kernel takes back on demand,
+which put Loki at 93% of its limit while the program held under a third of it,
+and this node's memory-pressure and kernel-usage readings are zero, so resident
+memory is the one per-program reading it gives. The rule that reports a server
+process replaced reads the process's start time itself, because the store counts
+a new series' first reading as a change, so a rule counting changes fires
+whenever a label is added to the series with the process untouched.
 
 **A test holding the staging claim quiets the shared rules, and only for as
 long as it holds it.** The staging deploy, the load run and both drills run on

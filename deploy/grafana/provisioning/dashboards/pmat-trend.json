@@ -1,5 +1,6 @@
 {
   "annotations": { "list": [] },
+  "description": "Code-quality readings, one point per night, scored on a CI runner.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -136,8 +137,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "last_over_time(pmat_repo_score{env=\"ci\"}[1d])",
-          "queryType": "range",
+          "expr": "pmat_repo_score{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "repo score",
           "refId": "A"
         }
@@ -163,8 +165,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "last_over_time(pmat_below_bplus{env=\"ci\"}[1d])",
-          "queryType": "range",
+          "expr": "pmat_below_bplus{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "files < B+",
           "refId": "A"
         }

@@ -217,7 +217,7 @@ run_check_with_gates() {
 rm -f "$WORK/k6"/*.thresholds "$WORK/bundle.json"
 rows api-baseline concurrent-agents relay-throughput quic-agents
 
-jq -n '["k6/api-baseline/http latency_p95_ms is 260, past the 200 it is held to"]' >"$WORK/gates.json"
+jq -n '[{enforced: true, message: "k6/api-baseline/http latency_p95_ms is 260, past the 200 it is held to"}]' >"$WORK/gates.json"
 run_check_with_gates
 assert_eq "a breached limit fails the night" "failed" "$(jq -r '.result' "$WORK/completeness.json")"
 assert_eq "a breached limit exits 4" "4" "$STATUS"
@@ -233,6 +233,21 @@ jq -n '[]' >"$WORK/gates.json"
 run_check_with_gates
 assert_eq "no breach leaves the night valid" "valid" "$(jq -r '.result' "$WORK/completeness.json")"
 assert_eq "and exits 0" "0" "$STATUS"
+
+# A mark the profile reports and does not enforce is watched, not judged: the
+# night stays valid, and the mark is a notice rather than an error.
+jq -n '[{enforced: false, message: "k6/api-baseline/http latency_p95_ms is 150, past the 100 it reports"}]' >"$WORK/gates.json"
+run_check_with_gates
+assert_eq "a reported-only mark leaves the night valid" "valid" "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "and exits 0" "0" "$STATUS"
+assert_eq "and is kept apart from the breaches" "0 1" \
+  "$(jq -r '"\(.gate_breaches | length) \(.reported_marks | length)"' "$WORK/completeness.json")"
+if grep -q '::notice::.*past the 100 it reports' "$WORK/out.txt" "$WORK/err.txt" \
+  && ! grep -q '::error::.*past the 100 it reports' "$WORK/out.txt" "$WORK/err.txt"; then
+  pass "the reported-only mark is printed as a notice"
+else
+  fail "the reported-only mark is printed as a notice (out=[$(cat "$WORK/out.txt" "$WORK/err.txt")])"
+fi
 
 # A file nobody wrote is silence rather than a pass. The step that reads the
 # limits fails loudly on its own account; this one has its own reasons to fail a

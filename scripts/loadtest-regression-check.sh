@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Gate canonical load-test trend rows against VictoriaMetrics read-back baselines.
+#
+# Tonight is judged against the nights before it: the median of the latest
+# reading of each of the fourteen previous dates, needing three, read through
+# scripts/lib/vm-query.sh. A night is a date rather than a commit, so a week
+# without a merge is a week of nights, and a re-run of tonight is kept out by its
+# date.
+#
+# Environment:
+#   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/vm-query.sh
 . "$SCRIPT_DIR/lib/vm-query.sh"
-
-COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
-export VM_EXCLUDE_COMMIT="${VM_EXCLUDE_COMMIT:-$COMMIT_SHA}"
 
 WINDOW_DAYS=14
 MIN_WINDOW_SAMPLES=3
@@ -16,13 +22,9 @@ MIN_WINDOW_SAMPLES=3
 # advisory. The tail it was written for ran three and each of them printed a line
 # and returned success.
 #
-# It needs a counter because the comparison silences itself. Each bad night
-# enters the window the next one is judged against, and the window is a median
-# over commits rather than over nights — so three nights on one commit collapse
-# to one point and the window held five: 61.1, 68.8, 85.7, 373.0, 396.9. One more
-# bad night on a new commit takes the median from 85.7 to 229.4, the threshold
-# from 343 to 917, and a 390 ms night goes quiet with the slowdown recorded as
-# normal.
+# It needs a counter because the comparison silences itself: each bad night
+# enters the window the next one is judged against, so the comparison point
+# climbs until a bad night is no longer four times anything.
 P99_ESCALATE_NIGHTS=3
 
 # How far back a previous night's count is looked for. A nightly cadence puts the
@@ -118,29 +120,15 @@ prom_label_escape() {
   sed 's/\\/\\\\/g; s/"/\\"/g' <<<"$1"
 }
 
-series_selector() {
-  local source scenario phase workload
-  source="$(prom_label_escape "$1")"
-  scenario="$(prom_label_escape "$2")"
-  phase="$(prom_label_escape "$3")"
-  workload="$(prom_label_escape "${4:-}")"
-  printf 'env="ci",source="%s",scenario="%s",phase="%s",workload="%s"' \
-    "$source" "$scenario" "$phase" "$workload"
-}
-
+# The window for one of the row's measurements: one line per series, keyed
+# metric/source/scenario/phase/workload, with its median and how many dates it
+# holds.
 window_stats_for_metric() {
-  local metric="$1" vm_metric selector window
+  local metric="$1" vm_metric
   vm_metric="$(vm_metric_name "$metric")" || return 0
-  selector="${vm_metric}{$(vm_query_selector 'env="ci"')}"
-  window="[${WINDOW_DAYS}d]"
-  {
-    vm_query_window "quantile(0.5, median_over_time(${selector}${window})) by (source, scenario, phase, workload)" \
-      | sed "s/^/M\t${metric}\t/"
-    vm_query_window "count(count_over_time(${selector}${window})) by (source, scenario, phase, workload)" \
-      | sed "s/^/C\t${metric}\t/"
-  } | awk -F'\t' '
+  vm_nightly_window "$vm_metric" 'env="ci"' "$WINDOW_DAYS" | awk -F'\t' -v metric="$metric" '
     {
-      kind = $1; metric = $2; sig = $3; val = $4
+      sig = $1; median = $2; count = $3
       source = ""; scenario = ""; phase = ""; workload = ""
       n = split(sig, parts, ",")
       for (i = 1; i <= n; i++) {
@@ -151,17 +139,10 @@ window_stats_for_metric() {
         if (kv[1] == "workload") workload = kv[2]
       }
       if (source == "" || scenario == "" || phase == "") next
-      # A sample produced before the workload was named carries no label, and
-      # groups under the empty one. No current row keys there, which is the
-      # point: what produced it cannot be established, so it compares to nothing.
-      key = metric "/" source "/" scenario "/" phase "/" workload
-      if (kind == "M") med[key] = val; else cnt[key] = val
-    }
-    END {
-      for (k in med) {
-        c = (k in cnt) ? cnt[k] : 0
-        print k "\t" med[k] "\t" c
-      }
+      # A series is only comparable to itself, and the workload that produced
+      # it is part of what it is: a scenario rewritten to measure something
+      # else keeps its name, and compares against its own nights or nothing.
+      print metric "/" source "/" scenario "/" phase "/" workload "\t" median "\t" count
     }
   '
 }
@@ -191,12 +172,6 @@ window_entry() {
   jq -c \
     --arg key "${metric}/${source}/${scenario}/${phase}/${workload}" \
     '.[$key] // null' <<<"$map" 2>/dev/null || printf 'null\n'
-}
-
-previous_error_rate() {
-  local source="$1" scenario="$2" phase="$3" workload="$4" value
-  value="$(vm_query_latest loadtest_error_rate "$(series_selector "$source" "$scenario" "$phase" "$workload")" 2>/dev/null || true)"
-  printf '%s\n' "$value"
 }
 
 latency_regression_line() {
@@ -240,31 +215,37 @@ rps_regression_line() {
 
 }
 
+# The error rate is judged against the window like every other measurement. It
+# was compared with the previous night alone, and only when that night had
+# errors, so one bad night excused the next.
 error_rate_regression_line() {
-  local source="$1" scenario="$2" phase="$3" current="$4" workload="$5"
+  local source="$1" scenario="$2" phase="$3" current="$4" window="$5" workload="$6"
   local series="${source}/${scenario}/${phase}"
-  local prev threshold
-  prev="$(previous_error_rate "$source" "$scenario" "$phase" "$workload")"
-  if [ -n "$prev" ] && num_pos "$prev"; then
-    threshold="$(mul "$prev" "$(awk -v tol="$ERROR_RATE_REL_TOL" 'BEGIN { printf "%.6f", 1 + tol }')")"
+  local entry count median threshold
+  entry="$(window_entry "$window" error_rate "$source" "$scenario" "$phase" "$workload")"
+  count="$(jq -r '.count // 0' <<<"$entry")"
+  median="$(jq -r '.median // empty' <<<"$entry")"
+  if [ -n "$median" ] && num_ge "$count" "$MIN_WINDOW_SAMPLES" && num_pos "$median"; then
+    threshold="$(mul "$median" "$(awk -v tol="$ERROR_RATE_REL_TOL" 'BEGIN { printf "%.6f", 1 + tol }')")"
     if num_gt "$current" "$threshold"; then
-      printf '%s\n' "${series} error_rate: ${prev} -> ${current} (>$(pct "$ERROR_RATE_REL_TOL")% previous-sample increase)"
+      printf '%s\n' "${series} error_rate: ${median} -> ${current} (>$(pct "$ERROR_RATE_REL_TOL")% over window median)"
     fi
   fi
 }
 
-# The consecutive-night count each series carried out of its last run, keyed the
-# same way the window is. It is read from the store the run already writes to, so
-# nothing new has to persist between nights and a re-run never reads its own.
+# The consecutive-night count each series carried out of the newest night
+# before tonight, keyed the same way the window is. It is read from the store
+# the run already writes to, so nothing new has to persist between nights, and
+# a re-run of tonight is kept out by its date.
 streak_map() {
-  local selector window map
-  selector="loadtest_p99_advisory_streak{$(vm_query_selector 'env="ci"')}"
-  window="[${P99_STREAK_LOOKBACK_DAYS}d]"
+  local map oldest
+  oldest="$(date -u -d "$(vm_tonight) - ${P99_STREAK_LOOKBACK_DAYS} days" +%Y-%m-%d)"
   map="$(
-    vm_query_window "last_over_time(${selector}${window})" \
-      | awk -F'\t' '
+    vm_query_nightly loadtest_p99_advisory_streak 'env="ci"' 1 \
+      | awk -F'\t' -v oldest="$oldest" '
+        $2 < oldest { next }
         {
-          sig = $1; val = $2
+          sig = $1; val = $3
           source = ""; scenario = ""; phase = ""; workload = ""
           n = split(sig, parts, ",")
           for (i = 1; i <= n; i++) {
@@ -350,7 +331,7 @@ regression_check() {
       [ -z "$line" ] || regression_lines+=("$line")
     fi
     if [ -n "$error_rate" ]; then
-      line="$(error_rate_regression_line "$source" "$scenario" "$phase" "$error_rate" "$workload")"
+      line="$(error_rate_regression_line "$source" "$scenario" "$phase" "$error_rate" "$window" "$workload")"
       [ -z "$line" ] || regression_lines+=("$line")
     fi
     if [ -n "$p99" ]; then
@@ -409,6 +390,8 @@ main() {
   fi
 
   local rows window
+  # Without tonight's date the window would read tonight into itself.
+  vm_tonight >/dev/null || return 2
   rows="$(read_rows "${1:-loadtest-summary.json}")" || return 2
   echo "$rows"
 

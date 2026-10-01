@@ -78,6 +78,7 @@ func main() {
 		Logger:             logger,
 		VictoriaMetricsURL: firstNonEmpty(*victoriaMetricsURL, os.Getenv("OPENGATE_VICTORIAMETRICS_URL")),
 		VMDeleteAuthKey:    os.Getenv("OPENGATE_VM_DELETE_AUTH_KEY"),
+		Namespace:          os.Getenv("OPENGATE_NAMESPACE"),
 		AMTUser:            *amtUser,
 		AMTPass:            *amtPass,
 		VAPIDContact:       *vapidContact,

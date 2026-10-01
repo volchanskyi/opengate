@@ -204,3 +204,15 @@ func TestRegistrationDurationBucketsAreReadableByWhatReadsTheSeries(t *testing.T
 	buckets[0] = -1
 	require.NotEqual(t, -1.0, registrationDurationBuckets[0], "the caller gets a copy, not the series' own bounds")
 }
+
+// TestRegistrationDurationReachesAMinute keeps a registration queued behind a
+// saturated target a reading rather than a floor. The busiest runner-hosted
+// legs registered in ten seconds and more, and a histogram that stopped at ten
+// reported every one of them as exactly ten.
+func TestRegistrationDurationReachesAMinute(t *testing.T) {
+	buckets := RegistrationDurationBuckets()
+
+	require.Contains(t, buckets, 30.0)
+	require.Contains(t, buckets, 60.0)
+	require.Equal(t, 60.0, buckets[len(buckets)-1], "a minute is the widest arrival the server describes")
+}

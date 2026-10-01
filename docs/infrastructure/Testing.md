@@ -1110,10 +1110,27 @@ and it needs a binary that still carries its debugging information, and this is
 the venue where the run owns the machine and destroys it. Every way the walk
 cannot happen is a refusal rather than an empty report, which
 [`loadtest-reference-walk.test.sh`](../../scripts/tests/loadtest-reference-walk.test.sh)
-holds it to. The core is read where it is taken and never leaves the job; the
-reports do.
+holds it to. The core is compressed and encrypted before the walk reads it, the
+plain copy is removed on every exit, and the encrypted file is uploaded as the
+`soak-dump` artifact beside the plain `soak-bundle` that carries the reports.
 [ADR-119](../adr/ADR-119-finding-a-leak.md)
-is the decision, including why this target is built with its symbol table kept.
+is the decision, including why this target is built with its symbol table kept
+and why the dump is encrypted to a key no workflow holds.
+
+#### Opening a soak dump
+
+The dump is encrypted to the maintainer's own `age` key, whose private half is
+on the maintainer's machine and nowhere else. `age` and `zstd` are installed at
+the versions [`tool-versions.sh`](../../scripts/lib/tool-versions.sh) pins by
+[`install-dump-tools.sh`](../../scripts/install-dump-tools.sh); the reader is
+built by [`install-viewcore.sh`](../../scripts/install-viewcore.sh). Download the
+`soak-dump` artifact of the run, then:
+
+```bash
+age -d -i ~/.config/age/opengate-soak-dump.key core.<pid>.zst.age | zstd -d -o core.<pid>
+```
+
+and read it with the program copy from the same run's `soak-bundle`.
 
 ### k6 HTTP/WS Scenarios
 

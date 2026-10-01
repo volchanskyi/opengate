@@ -40,52 +40,87 @@ trap 'rm -rf "$WORK"' EXIT
 BIN_DIR="$WORK/bin"
 mkdir -p "$BIN_DIR"
 
+# The stand-in store answers the export the nightly reader asks for: every
+# reading of one metric, one JSON object per series, as VictoriaMetrics writes
+# them. Each case writes the series it wants into the fixture directory.
 cat >"$BIN_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
 set -uo pipefail
 printf '%s\n' "$*" >>"${KUBECTL_ARGS:-/dev/null}"
-args="$*"
-vec() { printf '{"status":"success","data":{"resultType":"vector","result":[%s]}}\n' "$1"; }
-s() { printf '{"metric":{"source":"%s","scenario":"%s","phase":"%s","workload":"%s"},"value":[2000,"%s"]}' "$1" "$2" "$3" "${WL:-w1}" "$4"; }
+metric="$(grep -oE 'match\[\]=[a-z_0-9]+' <<<"$*" | head -n 1)"
+metric="${metric#match[]=}"
 case "${VM_PROFILE:-seeded}" in
-  empty) ;;
   invalid) printf '%s\n' 'not-json' ;;
-  seeded)
-    if grep -q 'loadtest_p99_advisory_streak' <<<"$args"; then
-      # The consecutive-night count the previous run left behind. Empty means
-      # no prior sample, which is a series that has never been advisory.
-      if [ -n "${STREAK_PRIOR:-}" ]; then
-        vec "$(s quic quic-agents connect "$STREAK_PRIOR")"
-      fi
-    elif grep -q '/api/v1/export' <<<"$args"; then
-      # Previous error_rate sample for the exact source/scenario/phase selector.
-      printf '%s\n' '{"metric":{"__name__":"loadtest_error_rate","source":"quic","scenario":"quic-agents","phase":"aggregate","commit":"older","env":"ci"},"values":[0.001],"timestamps":[1000]}'
-    elif grep -q 'count_over_time' <<<"$args"; then
-      vec "$(s quic quic-agents connect 10),$(s quic quic-agents aggregate 10),$(s k6 api-baseline http 10),$(s k6 concurrent-agents http 10)"
-    elif grep -q 'loadtest_latency_p95_ms' <<<"$args"; then
-      vec "$(s quic quic-agents connect 200),$(s k6 api-baseline http 100)"
-    elif grep -q 'loadtest_latency_p50_ms' <<<"$args"; then
-      vec "$(s quic quic-agents connect 100),$(s k6 api-baseline http 50)"
-    elif grep -q 'loadtest_latency_p99_ms' <<<"$args"; then
-      vec "$(s quic quic-agents connect 300),$(s k6 api-baseline http 150)"
-    elif grep -q 'loadtest_rps' <<<"$args"; then
-      vec "$(s quic quic-agents aggregate 200),$(s k6 concurrent-agents http 30)"
-    elif grep -q 'loadtest_error_rate' <<<"$args"; then
-      vec "$(s quic quic-agents aggregate 0),$(s k6 api-baseline http 0)"
-    fi
-    ;;
+  *) [ -f "$VM_FIXTURES/$metric.jsonl" ] && cat "$VM_FIXTURES/$metric.jsonl" ;;
 esac
 exit "${KUBECTL_STATUS:-0}"
 SH
 chmod +x "$BIN_DIR/kubectl"
 
+# Tonight is the 29th. A night's reading lands at 11:00 on its own date.
+TONIGHT="$(date -u -d '2026-09-29 10:57' +%s)"
+MIDNIGHT="$(date -u -d '2026-09-29 00:00' +%s)"
+FIXTURES="$WORK/fixtures"
+
+# night_series METRIC SOURCE SCENARIO PHASE VALUE... — one series, one reading a
+# night, the last value being last night's.
+night_series() {
+  local metric="$1" source="$2" scenario="$3" phase="$4"
+  shift 4
+  local n=$# i=0 v stamps=() values=()
+  for v in "$@"; do
+    stamps+=("$(((MIDNIGHT - (n - i) * 86400 + 39600) * 1000))")
+    values+=("$v")
+    i=$((i + 1))
+  done
+  jq -nc --arg m "$metric" --arg source "$source" --arg scenario "$scenario" --arg phase "$phase" \
+    --arg workload "${WL:-w1}" \
+    --argjson t "[$(
+      IFS=,
+      printf '%s' "${stamps[*]}"
+    )]" \
+    --argjson v "[$(
+      IFS=,
+      printf '%s' "${values[*]}"
+    )]" \
+    '{metric: {__name__: $m, env: "ci", source: $source, scenario: $scenario, phase: $phase, workload: $workload},
+      values: $v, timestamps: $t}' >>"$FIXTURES/$metric.jsonl"
+}
+
+# ten nights of the same reading, so the window's median is that reading.
+steady() { night_series "$1" "$2" "$3" "$4" "$5" "$5" "$5" "$5" "$5" "$5" "$5" "$5" "$5" "$5"; }
+
+seed_window() {
+  rm -rf "$FIXTURES"
+  mkdir -p "$FIXTURES"
+  steady loadtest_latency_p95_ms quic quic-agents connect 200
+  steady loadtest_latency_p95_ms k6 api-baseline http 100
+  steady loadtest_latency_p50_ms quic quic-agents connect 100
+  steady loadtest_latency_p50_ms k6 api-baseline http 50
+  steady loadtest_latency_p99_ms quic quic-agents connect 300
+  steady loadtest_latency_p99_ms k6 api-baseline http 150
+  steady loadtest_rps quic quic-agents aggregate 200
+  steady loadtest_rps k6 concurrent-agents http 30
+  steady loadtest_error_rate quic quic-agents aggregate 0.001
+  steady loadtest_error_rate k6 api-baseline http 0
+  if [ -n "${STREAK_PRIOR:-}" ]; then
+    # Two nights back the count was nought; last night it was STREAK_PRIOR. The
+    # newest is the one carried forward, whatever code wrote either.
+    night_series loadtest_p99_advisory_streak quic quic-agents connect 0 "$STREAK_PRIOR"
+  fi
+}
+
 run_check() {
   local summary="$1"
+  [ "${VM_PROFILE:-seeded}" = "seeded" ] && seed_window
+  [ "${VM_PROFILE:-seeded}" = "empty" ] && rm -rf "$FIXTURES" && mkdir -p "$FIXTURES"
   (
     export PATH="$BIN_DIR:$PATH"
     export KUBECTL_ARGS="$WORK/kubectl.args"
+    export VM_FIXTURES="$FIXTURES"
     export VM_NAMESPACE="observability"
     export VM_SERVICE="private-vm"
+    export VM_RUN_STARTED_AT="$TONIGHT"
     export GITHUB_SHA="deadbeef"
     # The consecutive-night counts land in the work directory rather than
     # wherever the suite happened to be run from. A test that leaves a file in
@@ -112,7 +147,11 @@ assert_eq "p95 window breach exits 1" "1" "$rc"
 assert_contains "p95 regression names breached series" "quic/quic-agents/connect latency_p95_ms" "$out"
 assert_contains "p95 regression includes p99 context" "p99=1800" "$out"
 assert_not_contains "clean peer series stays out of alert" "k6/api-baseline/http latency_p95_ms" "$out"
-assert_contains "window query excludes current commit" 'commit!="deadbeef"' "$(cat "$WORK/kubectl.args")"
+if grep -qF 'commit' "$WORK/kubectl.args"; then
+  fail "the window is read by date and asks nothing about commits"
+else
+  pass "the window is read by date and asks nothing about commits"
+fi
 
 write_summary "$WORK/rps-regression.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"aggregate","rps":40,"workload":"w1","commit":"deadbeef","env":"ci"}
@@ -210,11 +249,6 @@ assert_not_contains "null metrics have no regression alert" "REGRESSION_ALERT:" 
 # sessions was reported as a collapse against the health check it replaced. The
 # workload each sample was produced by travels with it, and the window is keyed
 # by that, so a rewritten workload compares against itself or against nothing.
-if grep -qF 'by (source, scenario, phase, workload)' "$CHECK"; then
-  pass "the window is grouped by the workload that produced each sample"
-else
-  fail "the window is not grouped by workload — a rewritten scenario still compares against the work it replaced"
-fi
 
 write_summary "$WORK/rewritten-workload.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":900,"workload":"rewritten","commit":"deadbeef","env":"ci"}
@@ -324,7 +358,55 @@ assert_eq "and puts the count back to nothing" "0" "$(streak_of quic quic-agents
 # The count is read back from the store rather than kept anywhere in the run, so
 # the query that reads it is part of what the run does.
 assert_contains "the streak is read from the trend store" "loadtest_p99_advisory_streak" "$(cat "$WORK/kubectl.args")"
-assert_contains "and the read excludes tonight's own sample" 'commit!="deadbeef"' "$(cat "$WORK/kubectl.args")"
+
+# --- the window is nights, not commits ----------------------------------------
+#
+# Twelve nights on eight commits: four commits ran two nights each at 10 ms,
+# then four ran one night each at 50–80 ms. Folded to one point per commit the
+# median was 30 and tonight's 60 passed under a threshold of 150. Over the
+# twelve nights the median is 10, and 60 is past the band.
+write_summary "$WORK/twelve-nights.json" '[
+  {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":60,"workload":"w1","commit":"deadbeef","env":"ci"}
+]'
+twelve_nights() {
+  seed_window
+  grep -v '"api-baseline"' "$FIXTURES/loadtest_latency_p95_ms.jsonl" >"$FIXTURES/p95.tmp" || true
+  mv "$FIXTURES/p95.tmp" "$FIXTURES/loadtest_latency_p95_ms.jsonl"
+  night_series loadtest_latency_p95_ms k6 api-baseline http 10 10 10 10 10 10 10 10 50 60 70 80
+}
+twelve_nights
+rc=0
+out="$(VM_PROFILE=custom run_check "$WORK/twelve-nights.json" 2>&1)" || rc=$?
+assert_eq "twelve nights on eight commits are judged against the twelve-night median" "1" "$rc"
+assert_contains "and the median is the nights'" "latency_p95_ms: 10 -> 60" "$out"
+
+# The same nights, every one of them on tonight's commit. A week without a merge
+# is a week of nights, and each is judged against the ones before it rather than
+# against nothing.
+twelve_nights
+rc=0
+out="$(VM_PROFILE=custom run_check "$WORK/twelve-nights.json" 2>&1)" || rc=$?
+assert_eq "nights that ran tonight's code count" "1" "$rc"
+
+# --- the error rate is judged against the window ------------------------------
+#
+# It was compared with the previous night alone, and only when that night had
+# errors: one bad night then excused the next. Five quiet nights and one bad one
+# put the window's median at the quiet nights.
+write_summary "$WORK/error-window.json" '[
+  {"source":"quic","scenario":"quic-agents","phase":"aggregate","error_rate":0.02,"workload":"w1","commit":"deadbeef","env":"ci"}
+]'
+one_bad_night() {
+  seed_window
+  grep -v '"quic-agents"' "$FIXTURES/loadtest_error_rate.jsonl" >"$FIXTURES/er.tmp" || true
+  mv "$FIXTURES/er.tmp" "$FIXTURES/loadtest_error_rate.jsonl"
+  night_series loadtest_error_rate quic quic-agents aggregate 0.001 0.001 0.001 0.001 0.001 0.05
+}
+one_bad_night
+rc=0
+out="$(VM_PROFILE=custom run_check "$WORK/error-window.json" 2>&1)" || rc=$?
+assert_eq "the error rate is judged against the window, not the previous night" "1" "$rc"
+assert_contains "and names the window's median" "error_rate: 0.001 -> 0.02" "$out"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

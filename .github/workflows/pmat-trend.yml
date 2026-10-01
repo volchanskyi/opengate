@@ -42,6 +42,13 @@ jobs:
     outputs:
       regression: ${{ steps.summarize.outputs.regression }}
     steps:
+      # The night's date. Every sample the night writes carries this time, so a
+      # run is one point on one date however long it takes, and a re-run writes
+      # the same point.
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
@@ -94,6 +101,8 @@ jobs:
 
       - name: Read previous values from VictoriaMetrics (day-over-day baseline)
         id: prev
+        env:
+          VM_RUN_STARTED_AT: ${{ steps.started.outputs.at }}
         run: |
           set -uo pipefail
           {
@@ -130,6 +139,8 @@ jobs:
           retention-days: 90
 
       - name: Push to VictoriaMetrics
+        env:
+          VM_RUN_STARTED_AT: ${{ steps.started.outputs.at }}
         run: ./scripts/pmat-vm-push.sh canonical-row.json
 
       - name: Write GITHUB_STEP_SUMMARY
@@ -145,7 +156,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # Runs whatever happened above it, and the message names which of the
         # three it was. The shape this replaces was gated on a flag an earlier
         # step in this job produced, so a night that died before that step said
@@ -165,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
-            echo "Nothing to say: the run finished and nothing was found."
+            echo "No alert sent: the run finished and found nothing."
             exit 0
           fi
           if [ "${FINDING:-0}" = "1" ]; then

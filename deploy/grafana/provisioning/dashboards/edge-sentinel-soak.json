@@ -35,7 +35,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (type) (rate(opengate_edge_telemetry_ingested_total[5m]))",
+          "expr": "sum by (type) (rate(opengate_edge_telemetry_ingested_total{namespace=\"$environment\"}[5m]))",
           "legendFormat": "{{type}}",
           "refId": "A"
         }
@@ -43,7 +43,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "Node and per-family anomaly rate remote-written by agents (opengate_edge_node_anomaly_rate, opengate_edge_family_anomaly_rate). Under soak this stays low; it is the product signal the whole path exists to carry.",
+      "description": "Node anomaly rate, averaged across the machines that reported it (opengate_edge_node_anomaly_rate, written by the server from each machine's health summary). Under soak this stays low; it is the product signal the whole path exists to carry. Empty means no machine reported in the window.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -56,7 +56,8 @@
             "spanNulls": false
           },
           "unit": "percentunit",
-          "min": 0
+          "min": 0,
+          "noValue": "No machine reported in this window"
         }
       },
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
@@ -65,20 +66,14 @@
         "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
         "tooltip": { "mode": "multi" }
       },
-      "title": "Anomaly rate (node + family)",
+      "title": "Anomaly rate (node)",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "avg(opengate_edge_node_anomaly_rate)",
+          "expr": "avg(opengate_edge_node_anomaly_rate{namespace=\"$environment\"})",
           "legendFormat": "node (avg)",
           "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "avg by (family) (opengate_edge_family_anomaly_rate)",
-          "legendFormat": "{{family}}",
-          "refId": "B"
         }
       ]
     },
@@ -120,7 +115,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum(vm_cache_entries{type=\"storage/hour_metric_ids\"})",
+          "expr": "sum(vm_cache_entries{namespace=\"monitoring\",type=\"storage/hour_metric_ids\"})",
           "legendFormat": "active series",
           "refId": "A"
         },
@@ -134,7 +129,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "VictoriaMetrics on-disk data size (sum(vm_data_size_bytes)) and its 1h growth rate. Requires the VM self-scrape. Stream-agg avg-only rollups should hold long-term storage roughly flat under a sustained soak.",
+      "description": "VictoriaMetrics on-disk data size (sum(vm_data_size_bytes)) and its change over the last hour. The size falls when parts merge, so growth is the delta of the size rather than an increase. Stream-agg avg-only rollups should hold long-term storage roughly flat under a sustained soak.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -161,13 +156,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum(vm_data_size_bytes)",
+          "expr": "sum(vm_data_size_bytes{namespace=\"monitoring\"})",
           "legendFormat": "disk size",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum(increase(vm_data_size_bytes[1h]))",
+          "expr": "sum(delta(vm_data_size_bytes{namespace=\"monitoring\"}[1h]))",
           "legendFormat": "growth / 1h",
           "refId": "B"
         }
@@ -202,7 +197,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(opengate_http_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(opengate_http_request_duration_seconds_bucket{namespace=\"$environment\"}[5m])))",
           "legendFormat": "p99 all routes",
           "refId": "A"
         }
@@ -237,7 +232,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (reason) (rate(opengate_edge_telemetry_drops_total[5m]))",
+          "expr": "sum by (reason) (rate(opengate_edge_telemetry_drops_total{namespace=\"$environment\"}[5m]))",
           "legendFormat": "{{reason}}",
           "refId": "A"
         }
@@ -272,13 +267,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "opengate_edge_backfill_active_slots",
+          "expr": "opengate_edge_backfill_active_slots{namespace=\"$environment\"}",
           "legendFormat": "active slots",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (decision) (rate(opengate_edge_backfill_decisions_total[5m]))",
+          "expr": "sum by (decision) (rate(opengate_edge_backfill_decisions_total{namespace=\"$environment\"}[5m]))",
           "legendFormat": "{{decision}} / sec",
           "refId": "B"
         }
@@ -306,7 +301,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "opengate_edge_backfill_grant_rate_samples_per_second",
+          "expr": "opengate_edge_backfill_grant_rate_samples_per_second{namespace=\"$environment\"}",
           "legendFormat": "grant rate",
           "refId": "A"
         }
@@ -314,7 +309,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "WS-19 declarative threshold-alert breaches currently firing across the fleet (opengate_edge_alert_breach). Each firing rule emits a sample per throttled window while it breaches, so the count is the number of active breach series. Investigation-aid only — no auto-notify.",
+      "description": "Declarative threshold-alert breaches currently firing across the fleet (opengate_edge_alert_breach). Each firing rule emits a sample per throttled window while it breaches, so the count is the number of active breach series. Investigation-aid only — no auto-notify.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -327,7 +322,8 @@
             "spanNulls": false
           },
           "unit": "short",
-          "min": 0
+          "min": 0,
+          "noValue": "No active breaches"
         }
       },
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 42 },
@@ -336,18 +332,18 @@
         "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
         "tooltip": { "mode": "multi" }
       },
-      "title": "Threshold-alert breaches (WS-19)",
+      "title": "Threshold-alert breaches",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "count(opengate_edge_alert_breach)",
+          "expr": "count(opengate_edge_alert_breach{namespace=\"$environment\"})",
           "legendFormat": "active breaches",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "count by (rule) (opengate_edge_alert_breach)",
+          "expr": "count by (rule) (opengate_edge_alert_breach{namespace=\"$environment\"})",
           "legendFormat": "{{rule}}",
           "refId": "B"
         }
@@ -356,7 +352,25 @@
   ],
   "schemaVersion": 39,
   "tags": ["edge-sentinel", "soak", "victoriametrics"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "description": "Production and staging write into one store. Every panel reads the one chosen here.",
+        "type": "custom",
+        "query": "Production : opengate, Staging : opengate-staging",
+        "current": { "selected": true, "text": "Production", "value": "opengate" },
+        "options": [
+          { "selected": true, "text": "Production", "value": "opengate" },
+          { "selected": false, "text": "Staging", "value": "opengate-staging" }
+        ],
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "utc",

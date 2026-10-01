@@ -137,6 +137,7 @@ func TestTheExpositionCarriesWhatTheProcessIsHolding(t *testing.T) {
 	for _, series := range []string{
 		"opengate_agents_connected 0",
 		"opengate_relay_active_sessions 0",
+		"opengate_relay_sessions_started_total 0",
 		"opengate_mps_connected_devices 0",
 	} {
 		assert.True(t, strings.Contains(page, series),

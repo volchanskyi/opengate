@@ -29,13 +29,18 @@ fail() {
 }
 
 echo "pg_probe — open port detection:"
-TEST_PORT=$(((RANDOM % 10000) + 40000))
+# The kernel chooses the port. A port picked at random can already belong to
+# another program's listener, and then the closed-port check below reads that
+# listener as this one still being open.
+PORT_FILE="$(mktemp)"
+trap 'rm -f "$PORT_FILE"' EXIT
 python3 -c "
 import socket, sys, time
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind(('127.0.0.1', $TEST_PORT))
+s.bind(('127.0.0.1', 0))
 s.listen(5)
-sys.stdout.write('ready\n'); sys.stdout.flush()
+with open(sys.argv[1], 'w') as f:
+    f.write(str(s.getsockname()[1]))
 deadline = time.time() + 5
 while time.time() < deadline:
     try:
@@ -45,8 +50,15 @@ while time.time() < deadline:
     except socket.timeout:
         pass
 s.close()
-" >/dev/null 2>&1 &
+" "$PORT_FILE" >/dev/null 2>&1 &
 LISTENER_PID=$!
+TEST_PORT=""
+for _ in $(seq 1 30); do
+  TEST_PORT="$(cat "$PORT_FILE")"
+  [ -n "$TEST_PORT" ] && break
+  sleep 0.1
+done
+[ -n "$TEST_PORT" ] || fail "the listener never reported the port it was given"
 
 probed=false
 for _ in $(seq 1 30); do

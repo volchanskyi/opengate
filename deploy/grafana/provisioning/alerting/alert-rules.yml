@@ -272,8 +272,12 @@ groups:
               to: 0
             datasourceUid: VictoriaMetrics
             model:
+              # Seconds since the newest server process started, read off the
+              # start time itself. A count of changes to that series also counts
+              # a new series' first reading, so it fired whenever the series'
+              # labels changed with the process untouched.
               expr: >-
-                sum(changes(process_start_time_seconds{job="opengate-server",namespace="opengate"}[15m]))
+                time() - max(process_start_time_seconds{job="opengate-server",namespace="opengate"})
               intervalMs: 1000
               maxDataPoints: 43200
           - refId: B
@@ -289,8 +293,8 @@ groups:
               expression: B
               conditions:
                 - evaluator:
-                    type: gt
-                    params: [0]
+                    type: lt
+                    params: [900]
         for: 0m
         labels:
           severity: warning
@@ -298,13 +302,14 @@ groups:
         annotations:
           summary: "The OpenGate server process was replaced"
           observed: >-
-            {{ with $values.B }}{{ printf "%.0f" .Value }} restarts in the last 15 minutes (fires above 0){{ end }}
+            {{ with $values.B }}the server process started {{ printf "%.0f" .Value }} seconds ago (fires below
+            900){{ end }}
           check: >-
             kubectl -n opengate get pods -l app.kubernetes.io/component=server and read Last State; OOMKilled is a
             memory kill, Completed with a new ReplicaSet is a deploy
           description: >-
-            process_start_time_seconds moved, so the server is a different
-            process than it was fifteen minutes ago. A rolling deploy is the
+            The server process started less than fifteen minutes ago, so it is
+            a different process than it was. A rolling deploy is the
             expected cause and needs no action. Anything else is a crash or an
             out-of-memory kill, and it resets every device to offline and
             severs every live remote session. Read
@@ -372,9 +377,14 @@ groups:
               to: 0
             datasourceUid: VictoriaMetrics
             model:
+              # What the program holds, against its own limit. A working set
+              # also counts file cache the kernel reclaims on demand, which put
+              # Loki at 93% of its limit while it held under a third of it.
+              # Resident memory is the one per-program reading this node gives;
+              # its memory-pressure and kernel-usage readings are zero.
               expr: >-
                 max by (namespace, pod, container) (
-                  container_memory_working_set_bytes{container!="",container!="POD"}
+                  container_memory_rss{container!="",container!="POD"}
                   /
                   (container_spec_memory_limit_bytes{container!="",container!="POD"} > 0)
                 )
@@ -408,14 +418,16 @@ groups:
         annotations:
           summary: "A container is walking up to its memory limit"
           observed: >-
-            {{ with $values.B }}working set at {{ humanizePercentage .Value }} of its limit (fires above 80%, clears
-            below 70%){{ end }}
+            {{ with $values.B }}the program holds {{ humanizePercentage .Value }} of its memory limit (fires above 80%,
+            clears below 70%){{ end }}
           check: >-
             kubectl -n {{ $labels.namespace }} top pod {{ $labels.pod }} --containers, and whether the rise follows load
           description: >-
-            The container's working set has been above 80% of its own cgroup
-            limit for ten minutes, and the alert stays until it is back under
-            70%. The node may have memory to spare and this container still be
+            The memory the container's program holds has been above 80% of its
+            own cgroup limit for ten minutes, and the alert stays until it is
+            back under 70%. File cache the kernel can reclaim is not counted;
+            the container is killed for memory only once it can reclaim no
+            more, and that is the alert below this one. The node may have memory to spare and this container still be
             minutes from being killed, which is why the reading is the
             container against its own ceiling rather than the node against its
             total. A container with no limit is left out: it has no ceiling to

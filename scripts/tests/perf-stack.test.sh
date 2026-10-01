@@ -720,6 +720,154 @@ else
   fail "a job measures the machine-facing path through what production does not have: $path_problems"
 fi
 
+# --- One cause is one error --------------------------------------------------
+#
+# A scaling leg died on one reset connection while Docker Hub handed out a pull
+# token, and three more steps each printed an error of their own for it: the
+# verdict found no bundle, the limits found no bundle, and the upload found no
+# files. The images are pulled first, with bounded retries, and every step after
+# the bring-up that runs whatever happened waits on the stack having come up.
+bringup_problems="$(
+  python3 - "$WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY_BRINGUP'
+import sys, yaml
+
+jobs_read = 0
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    for name, job in doc.get("jobs", {}).items():
+        steps = job.get("steps", [])
+        runs = [str(step.get("run", "")) for step in steps]
+        up = [i for i, run in enumerate(runs) if "docker compose" in run and " up " in run]
+        if not up:
+            continue
+        jobs_read += 1
+        where = f"{path.rsplit('/', 1)[-1]} job {name}"
+        pulled = next((i for i, run in enumerate(runs) if "scripts/perf-stack-pull.sh" in run), None)
+        if pulled is None or pulled > up[0]:
+            print(f"{where}: the images are not pulled with retries before the stack is brought up")
+        stack_id = steps[up[0]].get("id")
+        if not stack_id:
+            print(f"{where}: the bring-up has no id for the steps after it to wait on")
+            continue
+        for step in steps[up[0] + 1:]:
+            condition = str(step.get("if", "") or "")
+            run = str(step.get("run", ""))
+            if "always()" not in condition or ("docker compose" in run and " down" in run):
+                continue
+            if f"steps.{stack_id}.outcome" not in condition:
+                label = step.get("name", step.get("uses", "?"))
+                print(f"{where}: '{label}' runs after a failed bring-up and adds an error of its own")
+print(f"jobs={jobs_read}")
+PY_BRINGUP
+)"
+bringup_jobs="$(sed -n 's/^jobs=//p' <<<"$bringup_problems")"
+bringup_problems="$(grep -v '^jobs=' <<<"$bringup_problems" || true)"
+if [ "${bringup_jobs:-0}" -eq 0 ]; then
+  fail "no job bringing the stack up was found, so the bring-up checks read nothing"
+elif [ -z "$bringup_problems" ]; then
+  pass "each of $bringup_jobs jobs pulls with retries first and reports a failed bring-up once"
+else
+  fail "a failed bring-up is reported more than once:"$'\n'"$bringup_problems"
+fi
+
+# The pull itself: a registry that drops the connection is asked again, a bound
+# on it, and a refusal that asking again cannot change is not.
+PULL="$REPO_ROOT/scripts/perf-stack-pull.sh"
+PULL_WORK="$(mktemp -d)"
+mkdir -p "$PULL_WORK/bin"
+cat >"$PULL_WORK/bin/docker" <<'STUB'
+#!/usr/bin/env bash
+n=$(($(cat "$PULL_COUNT" 2>/dev/null || echo 0) + 1))
+printf '%s' "$n" >"$PULL_COUNT"
+printf '%s\n' "$*" >>"$PULL_ARGS"
+if [ "$n" -le "${PULL_FAILS:-0}" ]; then
+  printf '%s\n' "$PULL_ERROR" >&2
+  exit 1
+fi
+STUB
+chmod +x "$PULL_WORK/bin/docker"
+RESET='Error response from daemon: Head "https://registry-1.docker.io/v2/victoriametrics/victoria-metrics/manifests/v1.114.0": Get "https://auth.docker.io/token": read tcp 10.1.1.165:34390->172.64.144.78:443: read: connection reset by peer'
+run_pull() { # fails, error
+  PULL_STATUS=0
+  rm -f "$PULL_WORK/count" "$PULL_WORK/args"
+  PULL_OUT="$(PATH="$PULL_WORK/bin:$PATH" PULL_COUNT="$PULL_WORK/count" PULL_ARGS="$PULL_WORK/args" \
+    PULL_FAILS="$1" PULL_ERROR="$2" PERF_PULL_DELAY=0 \
+    "$PULL" deploy/docker-compose.perf.yml 2>&1)" || PULL_STATUS=$?
+  PULL_TRIES="$(cat "$PULL_WORK/count" 2>/dev/null || echo 0)"
+}
+if [ ! -x "$PULL" ]; then
+  fail "scripts/perf-stack-pull.sh is missing or not executable"
+else
+  run_pull 2 "$RESET"
+  if [ "$PULL_STATUS" -eq 0 ] && [ "$PULL_TRIES" = "3" ]; then
+    pass "a pull whose connection was reset twice is asked again and succeeds"
+  else
+    fail "a pull whose connection was reset twice is asked again and succeeds (status=$PULL_STATUS tries=$PULL_TRIES out=[$PULL_OUT])"
+  fi
+  if grep -qF -- '--ignore-buildable' "$PULL_WORK/args"; then
+    pass "it pulls the images and leaves the server to its build"
+  else
+    fail "it pulls the images and leaves the server to its build (args=[$(cat "$PULL_WORK/args")])"
+  fi
+  run_pull 99 "$RESET"
+  errors="$(grep -c '::error::' <<<"$PULL_OUT" || true)"
+  if [ "$PULL_STATUS" -ne 0 ] && [ "$PULL_TRIES" = "4" ] && [ "$errors" = "1" ]; then
+    pass "a registry that never answers is given up on after four tries, with one error"
+  else
+    fail "a registry that never answers is given up on after four tries, with one error (status=$PULL_STATUS tries=$PULL_TRIES errors=$errors)"
+  fi
+  run_pull 99 'Error response from daemon: manifest for victoriametrics/victoria-metrics:v9 not found: manifest unknown'
+  if [ "$PULL_STATUS" -ne 0 ] && [ "$PULL_TRIES" = "1" ]; then
+    pass "an image that does not exist is not asked for again"
+  else
+    fail "an image that does not exist is not asked for again (status=$PULL_STATUS tries=$PULL_TRIES)"
+  fi
+fi
+rm -rf "$PULL_WORK"
+
+TREND_WORKFLOW="$WORKFLOW"
+# --- The legs join the trend, and the nights before them judge them ------------
+#
+# Each leg wrote a bundle and nothing kept its numbers past the artifact: fixed
+# profile limits only, and no comparison with the nights before. A publish job
+# pushes every leg's rows with the run's start, compares each leg with its own
+# nights, and a gate job reads what it found off the job's result.
+publish_problems="$(
+  python3 - "$TREND_WORKFLOW" <<'PY_PUBLISH'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+jobs = doc["jobs"]
+publish = jobs.get("publish")
+if not publish:
+    print("there is no publish job")
+    sys.exit(0)
+runs = "\n".join(str(s.get("run", "")) for s in publish.get("steps", []))
+env = publish.get("env") or {}
+if "scripts/perf-vm-push.sh" not in runs:
+    print("the publish job does not push the legs' rows")
+if "scripts/perf-regression-check.sh" not in runs:
+    print("the publish job does not compare the legs with the nights before them")
+if "outputs.started_at" not in str(env.get("VM_RUN_STARTED_AT", "")):
+    print("the publish job is not handed the time the run started")
+if "always()" not in str(publish.get("if", "")):
+    print("the publish job does not run after a leg that failed")
+if not any("oci-kube-setup" in str(s.get("uses", "")) for s in publish.get("steps", [])):
+    print("the publish job never reaches the store")
+gate = jobs.get("gate") or {}
+gate_runs = "\n".join(str(s.get("run", "")) for s in gate.get("steps", []))
+if "publish" not in (gate.get("needs") or []) or "always()" not in str(gate.get("if", "")):
+    print("no gate job reads the publish job whatever happened to it")
+if "needs.publish.result" not in gate_runs or "needs.publish.outputs.regression" not in gate_runs:
+    print("the gate does not read the publish job's result and its finding")
+PY_PUBLISH
+)"
+if [ -z "$publish_problems" ]; then
+  pass "$(basename "$TREND_WORKFLOW") publishes its legs and gates them against their nights"
+else
+  fail "$(basename "$TREND_WORKFLOW"): $publish_problems"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

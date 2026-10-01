@@ -70,13 +70,13 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
           tool: cargo-nextest@0.9.129
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov@0.8.5
       # The instrumented run is the canonical execution of the workspace suite:
@@ -823,6 +823,13 @@ jobs:
           sudo install -m 0755 /tmp/conftest /usr/local/bin/conftest
           helm version --short && kubeconform -v && conftest --version
 
+      # The endurance run's dump is encrypted and opened with these, and the
+      # reference walk's tests prove that round trip with the real tools.
+      - name: Install the pinned age and zstd
+        run: |
+          scripts/install-dump-tools.sh
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+
       # After helm, because the behavioural tests read what the charts render:
       # a workflow that selects a pod by label is checked against the labels
       # the chart actually gives it.
@@ -937,12 +944,12 @@ jobs:
         with:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
-      - uses: github/codeql-action/init@v4.38.1
+      - uses: github/codeql-action/init@v4.38.2
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.38.1
-      - uses: github/codeql-action/analyze@v4.38.1
+      - uses: github/codeql-action/autobuild@v4.38.2
+      - uses: github/codeql-action/analyze@v4.38.2
         with:
           category: go
 
@@ -955,11 +962,11 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4.38.1
+      - uses: github/codeql-action/init@v4.38.2
         with:
           languages: javascript-typescript
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v4.38.1
+      - uses: github/codeql-action/analyze@v4.38.2
         with:
           category: javascript-typescript
 
@@ -973,12 +980,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: github/codeql-action/init@v4.38.1
+      - uses: github/codeql-action/init@v4.38.2
         with:
           languages: rust
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.38.1
-      - uses: github/codeql-action/analyze@v4.38.1
+      - uses: github/codeql-action/autobuild@v4.38.2
+      - uses: github/codeql-action/analyze@v4.38.2
         with:
           category: rust
 

@@ -20,11 +20,18 @@
 #
 # A refusal that will never succeed is not retried either. A missing pod does not
 # become present by asking again, and four attempts at it is four times the wait
-# before the real reason is printed.
+# before the real reason is printed. Nor is a command the pod ran and that
+# exited non-zero: that is the command's own answer, whatever words it used.
+#
+# Two of those three kinds can still be asked again in one case: when the
+# cluster says the request never reached the node. Nothing ran, so there is no
+# reading to lose and no write to repeat. `--unstarted` narrows the retry to
+# exactly that, and the drill's probes and the alert quiet period go through it.
 #
 # Environment:
 #   KUBECTL_RETRY_ATTEMPTS  how many times in total (default 4)
 #   KUBECTL_RETRY_DELAY     seconds between attempts (default 3)
+#   KUBECTL_RETRY_BIN       the kubectl to run (default: kubectl on PATH)
 #
 # Usage:  . scripts/lib/kubectl-retry.sh   then   kubectl_retry <kubectl args...>
 
@@ -32,9 +39,22 @@
 # on this list is taken at its word and fails on the first attempt.
 KUBECTL_RETRY_TRANSPORT='EOF|error sending request|connection refused|connection reset|broken pipe|i/o timeout|TLS handshake timeout|Unable to connect to the server|client connection lost|etcdserver: request timed out|http2: |unexpected stream'
 
-# kubectl_retry <args...>         — run one kubectl call with no standard input.
-# kubectl_retry --stdin <args...> — the same, reading standard input once and
-#                                   replaying it on every attempt.
+# The subset that says the request never reached the node: the API server's own
+# request to the kubelet died, or kubectl never reached the API server.
+KUBECTL_RETRY_UNSTARTED='error sending request|Unable to connect to the server|TLS handshake timeout'
+
+# How kubectl reports a command the pod ran and that exited non-zero.
+KUBECTL_RETRY_COMMAND_EXIT='command terminated with exit code'
+
+# The status kubectl_retry returns when every attempt lost its connection, so a
+# caller can say the target never heard the request rather than that it refused.
+KUBECTL_RETRY_LOST=75
+
+# kubectl_retry <args...>             — run one kubectl call with no standard input.
+# kubectl_retry --stdin <args...>     — the same, reading standard input once and
+#                                       replaying it on every attempt.
+# kubectl_retry --unstarted <args...> — retry only a request that never reached
+#                                       the node. May precede --stdin.
 #
 # Whether there is input to read is stated rather than sniffed. A library that
 # guesses from "is standard input a terminal" answers yes for every call made
@@ -45,10 +65,16 @@ KUBECTL_RETRY_TRANSPORT='EOF|error sending request|connection refused|connection
 kubectl_retry() {
   local attempts="${KUBECTL_RETRY_ATTEMPTS:-4}"
   local delay="${KUBECTL_RETRY_DELAY:-3}"
+  local bin="${KUBECTL_RETRY_BIN:-kubectl}"
+  local retryable="$KUBECTL_RETRY_TRANSPORT"
   local stdin_copy="" status=0 attempt=1
   local stderr_copy
   stderr_copy="$(mktemp)"
 
+  if [ "${1:-}" = "--unstarted" ]; then
+    shift
+    retryable="$KUBECTL_RETRY_UNSTARTED"
+  fi
   if [ "${1:-}" = "--stdin" ]; then
     shift
     stdin_copy="$(mktemp)"
@@ -58,9 +84,9 @@ kubectl_retry() {
   while :; do
     status=0
     if [ -n "$stdin_copy" ]; then
-      kubectl "$@" <"$stdin_copy" 2>"$stderr_copy" || status=$?
+      "$bin" "$@" <"$stdin_copy" 2>"$stderr_copy" || status=$?
     else
-      kubectl "$@" 2>"$stderr_copy" </dev/null || status=$?
+      "$bin" "$@" 2>"$stderr_copy" </dev/null || status=$?
     fi
 
     if [ "$status" -eq 0 ]; then
@@ -72,7 +98,8 @@ kubectl_retry() {
     # is about to be retried is still visible in the log.
     cat "$stderr_copy" >&2
 
-    if ! grep -qE "$KUBECTL_RETRY_TRANSPORT" "$stderr_copy"; then
+    if grep -qF "$KUBECTL_RETRY_COMMAND_EXIT" "$stderr_copy" \
+      || ! grep -qE "$retryable" "$stderr_copy"; then
       echo "kubectl ${1:-} refused for a reason retrying cannot change; not retried." >&2
       rm -f "$stderr_copy" "$stdin_copy"
       return "$status"
@@ -81,7 +108,7 @@ kubectl_retry() {
     if [ "$attempt" -ge "$attempts" ]; then
       echo "kubectl ${1:-} lost its connection on all ${attempts} attempts; giving up." >&2
       rm -f "$stderr_copy" "$stdin_copy"
-      return "$status"
+      return "$KUBECTL_RETRY_LOST"
     fi
 
     echo "kubectl ${1:-} lost its connection (attempt ${attempt} of ${attempts}); retrying in ${delay}s." >&2

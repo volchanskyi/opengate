@@ -57,6 +57,12 @@ export TOOL_VERSION_CARGO_DENY="0.19.6"
 export TOOL_VERSION_CARGO_MODULES="0.26.0"
 export TOOL_VERSION_GOVULNCHECK="1.1.4"
 export TOOL_VERSION_OAPI_CODEGEN="2.6.0"
+# The endurance run compresses and encrypts its core dump with these, the shell
+# tests prove the round trip with them, and the maintainer opens a dump with
+# them. age is the version the maintainer's key was made with; zstd is built
+# from its release source on both sides (scripts/install-dump-tools.sh).
+export TOOL_VERSION_AGE="1.3.2"
+export TOOL_VERSION_ZSTD="1.5.7"
 
 # --- run by CI alone ---------------------------------------------------------
 #
@@ -66,6 +72,9 @@ export TOOL_VERSION_OAPI_CODEGEN="2.6.0"
 # and the failure surfaces as a finding in a job whose subject is something else.
 export TOOL_VERSION_HADOLINT="2.12.0"
 export TOOL_VERSION_HELM="3.16.3"
+# The Oracle CLI every cluster-reaching job signs in through. It was installed by
+# bare name inside a shared action, which the parity sweep did not read.
+export TOOL_VERSION_OCI_CLI="3.94.1"
 export TOOL_VERSION_KUBECONFORM="0.6.7"
 export TOOL_VERSION_CONFTEST="0.55.0"
 export TOOL_VERSION_CHECKOV="3.3.16"

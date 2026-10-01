@@ -245,6 +245,10 @@ type PhaseResult struct {
 	TargetConnectedAgents *int     `json:"target_connected_agents,omitempty"`
 	TargetGoroutines      *float64 `json:"target_goroutines,omitempty"`
 
+	// TargetResidentBytes is what the target held in memory at the same
+	// reading, absent where the census could not be taken.
+	TargetResidentBytes *float64 `json:"target_resident_bytes,omitempty"`
+
 	// TargetCensusAbsent is why the pair above is not there, where the run can
 	// say — a target loaded until it stopped answering, or one that keeps no
 	// count of its fleet.

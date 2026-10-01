@@ -15,16 +15,13 @@ inputs:
   cluster-id:
     description: OKE cluster OCID (from the oke terraform module's cluster_id output).
     required: true
-  helm-version:
-    required: false
-    default: "3.16.3"
 
 runs:
   using: composite
   steps:
     - name: Install OCI CLI
       shell: bash
-      run: pip install oci-cli --quiet
+      run: $GITHUB_ACTION_PATH/oci-kube-setup.sh install-oci-cli
 
     - name: Configure OCI credentials
       shell: bash
@@ -38,8 +35,6 @@ runs:
 
     - name: Install kubectl + helm
       shell: bash
-      env:
-        HELM_VERSION: ${{ inputs.helm-version }}
       run: $GITHUB_ACTION_PATH/oci-kube-setup.sh install-kube-tools
 
     - name: Fetch kubeconfig

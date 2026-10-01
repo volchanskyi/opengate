@@ -14,9 +14,21 @@
 # The apply is not the guarantee. An apply that lands nothing answers the same
 # way as one that lands everything, so what this script trusts is the read-back.
 #
+# Nor is a ConfigMap the guarantee. It is what a process was given, not what it
+# loaded: a relabel sat in the scrape ConfigMap for two days while the running
+# store scraped without it, because the chart upgrade that wrote it restarted
+# nothing and the nightly apply then found the ConfigMap current. So the store
+# is asked what it loaded, reloaded until that is the declared file, and then
+# every dashboard panel and every production rule is asked whether it reads
+# anything at all.
+#
 # Environment:
 #   TELEGRAM_CHAT_ID  (required) the chat alerts are routed to
 #   NAMESPACE                    where the monitoring stack runs (default monitoring)
+#   MONITORING_RELOAD_INTERVAL   seconds between reloads while the store catches
+#                                up with its ConfigMap (default 10)
+#   MONITORING_READBACK_WAIT     how long the panel and rule checks wait for a
+#                                target's first readings (default 120)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,6 +39,14 @@ ALERTING_DIR="$REPO_ROOT/deploy/grafana/provisioning/alerting"
 DASHBOARD_DIR="$REPO_ROOT/deploy/grafana/provisioning/dashboards"
 SCRAPE_FILE="$REPO_ROOT/deploy/helm/monitoring/files/vmagent-scrape.yaml"
 STREAM_AGGR_FILE="$REPO_ROOT/deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml"
+
+READBACK="$SCRIPT_DIR/monitoring-readback.py"
+STORE_PROXY="/api/v1/namespaces/$NAMESPACE/services/monitoring-victoriametrics:8428/proxy"
+RELOAD_INTERVAL="${MONITORING_RELOAD_INTERVAL:-10}"
+# A ConfigMap reaches a mounted file within the kubelet's sync period, about a
+# minute, so twelve reloads ten seconds apart outlast it twice.
+RELOAD_ATTEMPTS=12
+READBACK_WAIT="${MONITORING_READBACK_WAIT:-120}"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -135,6 +155,7 @@ done
 
 for workload in $(printf '%s\n' "${readers[@]:-}" | sort -u); do
   kubectl -n "$NAMESPACE" rollout restart "$workload" >/dev/null
+  kubectl -n "$NAMESPACE" rollout status "$workload" --timeout=300s >/dev/null
   echo "restarted $workload so it reads what it was just given"
 done
 
@@ -143,3 +164,40 @@ if [ "${#changed[@]}" -eq 0 ]; then
 else
   echo "the cluster now holds the monitoring configuration this commit declares."
 fi
+
+# --- what the running store loaded --------------------------------------------
+#
+# Asked of the process, never inferred from what this script changed. A store
+# on an older file is reloaded, and asked again, until it holds the declared one
+# or the kubelet has had well over its sync period to refresh the mounted file.
+store_loaded() {
+  local loaded
+  loaded="$(kubectl get --raw "$STORE_PROXY/config")" \
+    || refuse "the metrics store could not be asked what scrape configuration it loaded."
+  printf '%s' "$loaded" >"$WORK/store-loaded.yml"
+  python3 "$READBACK" loaded "$SCRAPE_FILE" <"$WORK/store-loaded.yml"
+}
+
+reloads=0
+until store_loaded; do
+  if [ "$reloads" -ge "$RELOAD_ATTEMPTS" ]; then
+    refuse "the metrics store still runs a scrape configuration other than the declared one after $reloads reloads; what it loaded begins: $(head -c 400 "$WORK/store-loaded.yml" | tr '\n' ' ')"
+  fi
+  kubectl get --raw "$STORE_PROXY/-/reload" >/dev/null \
+    || refuse "the metrics store could not be asked to reload its scrape configuration."
+  reloads=$((reloads + 1))
+  [ "$RELOAD_INTERVAL" = "0" ] || sleep "$RELOAD_INTERVAL"
+done
+if [ "$reloads" -gt 0 ]; then
+  echo "the metrics store was running an older scrape configuration; it loaded the declared one after $reloads reload(s)."
+else
+  echo "the metrics store runs the declared scrape configuration."
+fi
+
+# --- and whether anything reads nothing ---------------------------------------
+python3 "$READBACK" panels "$DASHBOARD_DIR" --wait "$READBACK_WAIT" \
+  || refuse "a dashboard panel answers nothing and does not say what empty means; each is named above."
+echo "every panel answers, in each environment it is read in."
+python3 "$READBACK" coverage "$ALERTING_DIR/alert-rules.yml" --wait "$READBACK_WAIT" \
+  || refuse "a production alert rule reads a series the store does not hold; each is named above."
+echo "every production rule reads a series the store holds."

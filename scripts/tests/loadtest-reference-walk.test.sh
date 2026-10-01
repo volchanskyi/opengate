@@ -42,6 +42,26 @@ trap cleanup EXIT
 
 echo "loadtest-reference-walk:"
 
+# --- the dump is encrypted with the real tools --------------------------------
+#
+# The dump leaves the runner only as a file the maintainer's private key opens,
+# so the round trip is proved with the tools that make and open it rather than
+# with stand-ins that would agree with anything. A throwaway key stands in for
+# the maintainer's.
+for tool in age age-keygen zstd; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "FAIL: $tool is not installed; run scripts/install-dump-tools.sh" >&2
+    exit 1
+  }
+done
+age-keygen -o "$WORK/test.key" 2>/dev/null
+RECIPIENT="$(age-keygen -y "$WORK/test.key")"
+export SOAK_DUMP_AGE_RECIPIENT="$RECIPIENT"
+# Where the plain core is taken. It is outside the bundle, and nothing of it may
+# be left there either.
+export RUNNER_TEMP="$WORK/runner-temp"
+mkdir -p "$RUNNER_TEMP"
+
 # --- the stub tools -----------------------------------------------------------
 #
 # One directory of them per case, so a case can remove or break exactly one tool
@@ -79,7 +99,8 @@ STUB
 # gcore -o <prefix> <pid>
 prefix="$2"
 pid="$3"
-[ "${STUB_GCORE_WRITES:-1}" = "1" ] && printf 'core bytes\n' >"$prefix.$pid"
+[ -n "${STUB_GCORE_LOG:-}" ] && printf 'gcore %s\n' "$*" >>"$STUB_GCORE_LOG"
+[ "${STUB_GCORE_WRITES:-1}" = "1" ] && printf 'core bytes' >"$prefix.$pid"
 STUB
 
   cat >"$dir/viewcore" <<'STUB'
@@ -129,10 +150,25 @@ STUB
 # run_walk drives the script and reports its exit code without errexit ending
 # the test at the first refusal — the status is taken on the failing command's
 # own line, which is the form errexit does not fire on.
-run_walk() { # stubdir out -> exit code, output in $LAST_OUTPUT
-  local dir="$1" out="$2" rc=0
-  LAST_OUTPUT="$(PATH="$dir:$PATH" "$WALK" opengate-perf-server /usr/local/bin/meshserver "$out" 2>&1)" || rc=$?
+run_walk() { # stubdir out [dump] -> exit code, output in $LAST_OUTPUT
+  local dir="$1" out="$2" dump="${3:-$2-dump}" rc=0
+  LAST_OUTPUT="$(PATH="$dir:$PATH" "$WALK" opengate-perf-server /usr/local/bin/meshserver "$out" "$dump" 2>&1)" || rc=$?
   return "$rc"
+}
+
+# plain_cores DIR... lists every unencrypted core left under the directories.
+plain_cores() {
+  find "$@" -name 'core.*' ! -name '*.age' -print 2>/dev/null || true
+}
+
+# encrypted_dumps DIR lists the encrypted dumps written there.
+encrypted_dumps() {
+  find "$1" -name 'core.*.zst.age' -print 2>/dev/null || true
+}
+
+# opens DUMP answers what the maintainer's documented command gets back.
+opens() {
+  age -d -i "$WORK/test.key" "$1" | zstd -d -q
 }
 
 # --- the walk works -----------------------------------------------------------
@@ -170,17 +206,129 @@ else
 fi
 
 # The core is most of the target's address space and holds every row of the
-# fixture. It is analysed where it is taken and never carried out.
-if [ -z "$(find "$OUT" -name 'core.*' -print -quit)" ]; then
-  pass "the core is removed once it has been read"
+# fixture. It leaves the runner encrypted, and nowhere in the clear.
+if [ -z "$(plain_cores "$OUT" "$RUNNER_TEMP")" ]; then
+  pass "no plain core is left under the bundle or where it was taken"
 else
-  fail "the core survived the walk, so the fixture's own data is in the artifact"
+  fail "a plain core survived the walk: $(plain_cores "$OUT" "$RUNNER_TEMP")"
 fi
 
-if [ ! -e "$OUT/target-binary" ]; then
-  pass "the copy of the target binary is removed with it"
+dump="$(encrypted_dumps "$OUT-dump")"
+if [ "$(grep -c . <<<"$dump")" = "1" ] && [ "$(opens "$dump")" = "core bytes" ]; then
+  pass "the dump is kept encrypted, and the maintainer's key and zstd open it back"
 else
-  fail "the copied binary survived the walk and goes into the artifact"
+  fail "the dump is kept encrypted, and the maintainer's key and zstd open it back (dumps=[$dump])"
+fi
+if [ -z "$(encrypted_dumps "$OUT")" ]; then
+  pass "the encrypted dump is kept apart from the bundle"
+else
+  fail "the encrypted dump was written into the bundle"
+fi
+
+# A core names addresses and nothing else, so the program it was taken from
+# travels with the reports. It is built from public source.
+if [ -s "$OUT/target-binary" ]; then
+  pass "the copy of the target binary travels with the reports"
+else
+  fail "the copy of the target binary is gone, so the dump cannot be read"
+fi
+
+# --- a reader that cannot read the core still leaves the dump -----------------
+#
+# That night is the one the dump is for: it is read at the desk, with a reader
+# that can.
+STUBS="$WORK/unreadable"
+make_stubs "$STUBS"
+OUT="$WORK/out-unreadable"
+if STUB_CORE_UNREADABLE=1 run_walk "$STUBS" "$OUT"; then
+  fail "a core the reader cannot open fails the walk"
+else
+  pass "a core the reader cannot open fails the walk"
+fi
+if [ -z "$(plain_cores "$OUT" "$RUNNER_TEMP")" ]; then
+  pass "and leaves no plain core behind"
+else
+  fail "and leaves no plain core behind: $(plain_cores "$OUT" "$RUNNER_TEMP")"
+fi
+dump="$(encrypted_dumps "$OUT-dump")"
+if [ -n "$dump" ] && [ "$(opens "$dump")" = "core bytes" ]; then
+  pass "and the encrypted dump is still kept"
+else
+  fail "and the encrypted dump is still kept (dumps=[$dump])"
+fi
+if [ -s "$OUT/target-binary" ]; then
+  pass "and the program copy is still there to read it with"
+else
+  fail "and the program copy is still there to read it with"
+fi
+
+# --- an encryption that fails leaves nothing in the clear, and says so --------
+STUBS="$WORK/no-encryption"
+make_stubs "$STUBS"
+cat >"$STUBS/age" <<'STUB'
+#!/usr/bin/env bash
+cat >/dev/null
+echo "age: error: failed to write the header" >&2
+exit 1
+STUB
+chmod +x "$STUBS/age"
+OUT="$WORK/out-no-encryption"
+if run_walk "$STUBS" "$OUT"; then
+  fail "a dump that could not be encrypted fails the walk"
+elif grep -qi 'encrypt' <<<"$LAST_OUTPUT"; then
+  pass "a dump that could not be encrypted fails the walk, and says so"
+else
+  fail "a dump that could not be encrypted fails the walk, and says so (got=[$LAST_OUTPUT])"
+fi
+if [ -z "$(plain_cores "$OUT" "$OUT-dump" "$RUNNER_TEMP")" ]; then
+  pass "and leaves no plain core anywhere"
+else
+  fail "and leaves no plain core anywhere: $(plain_cores "$OUT" "$OUT-dump" "$RUNNER_TEMP")"
+fi
+if [ -s "$OUT/target-binary" ]; then
+  pass "and the program copy is still there"
+else
+  fail "and the program copy is still there"
+fi
+
+# --- the recipient is the maintainer's public key and nothing else ------------
+#
+# Refused before a core is taken, and without printing what it was handed: one
+# of the shapes refused is a private key.
+PRIVATE_KEY="$(grep '^AGE-SECRET-KEY-' "$WORK/test.key")"
+recipient_refused() { # description, value
+  local description="$1" value="$2" dir out rc=0
+  dir="$WORK/recipient-$PASS-$FAIL"
+  out="$WORK/out-recipient-$PASS-$FAIL"
+  make_stubs "$dir"
+  LAST_OUTPUT="$(SOAK_DUMP_AGE_RECIPIENT="$value" PATH="$dir:$PATH" STUB_GCORE_LOG="$out.gcore" \
+    "$WALK" opengate-perf-server /usr/local/bin/meshserver "$out" "$out-dump" 2>&1)" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "$description — it exited zero"
+  elif [ -e "$out.gcore" ]; then
+    fail "$description — a core was taken first"
+  elif [ -n "$value" ] && grep -qF -- "$value" <<<"$LAST_OUTPUT"; then
+    fail "$description — the refusal printed the value"
+  else
+    pass "$description"
+  fi
+}
+recipient_refused "a missing recipient is refused" ""
+recipient_refused "an SSH key is refused as a recipient" \
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl ivan@laptop"
+recipient_refused "a private key is refused as a recipient, without being printed" "$PRIVATE_KEY"
+recipient_refused "a value that is not a native age recipient is refused" "age1notarecipient"
+
+# The same check, asked before the five-hour walk rather than after it.
+if SOAK_DUMP_AGE_RECIPIENT="$RECIPIENT" "$WALK" --check-recipient >/dev/null 2>&1; then
+  pass "a native age recipient passes the early check"
+else
+  fail "a native age recipient passes the early check"
+fi
+if SOAK_DUMP_AGE_RECIPIENT="$PRIVATE_KEY" "$WALK" --check-recipient >/dev/null 2>&1; then
+  fail "a private key fails the early check"
+else
+  pass "a private key fails the early check"
 fi
 
 # --- every way it cannot work fails loudly ------------------------------------
@@ -191,7 +339,7 @@ refuses() { # description, env assignment..., then the check
   local dir="$WORK/stubs-$FAIL-$PASS"
   make_stubs "$dir"
   local out="$WORK/out-$FAIL-$PASS" rc=0
-  LAST_OUTPUT="$(env "$@" PATH="$dir:$PATH" "$WALK" opengate-perf-server /usr/local/bin/meshserver "$out" 2>&1)" || rc=$?
+  LAST_OUTPUT="$(env "$@" PATH="$dir:$PATH" "$WALK" opengate-perf-server /usr/local/bin/meshserver "$out" "$out-dump" 2>&1)" || rc=$?
   if [ "$rc" -ne 0 ]; then
     pass "$description"
   else
@@ -210,7 +358,7 @@ refuses "a core with no live heap in it is refused" STUB_EMPTY_HEAP=1
 STRIPPED_STUBS="$WORK/stripped"
 make_stubs "$STRIPPED_STUBS"
 stripped_message="$(env STUB_STRIPPED=1 PATH="$STRIPPED_STUBS:$PATH" \
-  "$WALK" opengate-perf-server /usr/local/bin/meshserver "$WORK/out-stripped" 2>&1 || true)"
+  "$WALK" opengate-perf-server /usr/local/bin/meshserver "$WORK/out-stripped" "$WORK/dump-stripped" 2>&1 || true)"
 if grep -qF -- 'GO_LDFLAGS' <<<"$stripped_message"; then
   pass "the refusal names the build setting that fixes it"
 else
@@ -224,7 +372,7 @@ make_stubs "$NOVIEW"
 rm "$NOVIEW/viewcore"
 noviewcore_rc=0
 PATH="$NOVIEW:$PATH" "$WALK" opengate-perf-server /usr/local/bin/meshserver "$WORK/out-noviewcore" \
-  >/dev/null 2>&1 || noviewcore_rc=$?
+  "$WORK/dump-noviewcore" >/dev/null 2>&1 || noviewcore_rc=$?
 if [ "$noviewcore_rc" -ne 0 ]; then
   pass "a missing viewcore is refused rather than skipped"
 else

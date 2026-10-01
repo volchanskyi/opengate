@@ -8,13 +8,17 @@
 # restored baseline previous_row is null and only the absolute floor ever trips,
 # leaving a gradual 92→89→86→84.9 slide invisible until the last step crosses it.
 #
-# For each canonical language it reads the newest prior mutation_score sample
-# through the shared read-back lib scripts/lib/vm-query.sh (the labels/metric
-# emitted by scripts/mutation-vm-push.sh). The read is FAIL-OPEN: any VM /
-# transport / parse failure yields an empty series, so a metrics outage degrades
-# to floor-only (today's behavior) rather than a false regression or a red run.
-# Set VM_EXCLUDE_COMMIT to the current commit so a workflow re-run never compares
-# against its own just-pushed sample.
+# For each canonical language it reads the previous night's mutation_score — the
+# latest reading of the newest date before tonight's — through the shared
+# read-back lib scripts/lib/vm-query.sh (the labels/metric emitted by
+# scripts/mutation-vm-push.sh). A night is a date, so the previous night counts
+# whatever code it ran, and a re-run of tonight is kept out by its date. The read
+# is FAIL-OPEN: any VM / transport / parse failure yields an empty series, so a
+# metrics outage degrades to floor-only rather than a false regression or a red
+# run.
+#
+# Environment:
+#   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
 #
 # Output: one canonical row {"scores":{"<lang>":{"score_pct":N},...}} on stdout
 # for every language that has a prior VM sample; a language absent from VM is
@@ -26,9 +30,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/vm-query.sh
 . "$SCRIPT_DIR/lib/vm-query.sh"
 
+# How far back the previous night is looked for: a week of nights that did not
+# run is still a baseline, and a month is not.
+LOOKBACK_DATES=7
+
+vm_tonight >/dev/null || exit 2
+
 scores="{}"
 for lang in rust go web; do
-  score="$(vm_query_latest mutation_score "language=\"$lang\",env=\"ci\"")"
+  score="$(vm_nightly_window mutation_score "language=\"$lang\",env=\"ci\"" "$LOOKBACK_DATES" \
+    | awk -F'\t' 'NR == 1 { print $4 }')"
   [ -n "$score" ] || continue
   scores="$(jq -c --arg l "$lang" --argjson v "$score" \
     '. + {($l): {score_pct: $v}}' <<<"$scores")"

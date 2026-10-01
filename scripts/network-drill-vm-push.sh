@@ -23,7 +23,7 @@ metrics="$(
 
     .[]
     | select(.value != null)
-    | "\(.metric){commit=\"\(.commit | label_escape)\",env=\"\((.env // "ci") | label_escape)\",scenario=\"\((.scenario // "unknown") | label_escape)\",victim=\"\((.victim // "unknown") | label_escape)\"} \(.value)"
+    | "\(.metric){env=\"\((.env // "ci") | label_escape)\",scenario=\"\((.scenario // "unknown") | label_escape)\",victim=\"\((.victim // "unknown") | label_escape)\"} \(.value)"
   ' "$SUMMARY_FILE"
 )"
 

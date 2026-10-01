@@ -69,12 +69,13 @@ const (
 	// It bounds patience, never the verdict: no shortfall is forgiven by it and
 	// none is created by it. What it has to clear is the target's own arrival
 	// work, and the widest arrival the target can describe is the last bucket
-	// of the histogram it publishes registration in — ten seconds, past which a
-	// registration reads as a floor rather than a measurement. Thirty clears it
-	// three times over, and
+	// of the histogram it publishes registration in — a minute, past which a
+	// registration reads as a floor rather than a measurement. Three minutes
+	// clears it three times over, and
 	// TestTheWaitClearsTheWidestArrivalTheTargetCanReport holds the two
-	// together so neither can move alone.
-	censusSettleLimit = 30 * time.Second
+	// together so neither can move alone. The limit is patience rather than a
+	// cost: the longest a saturated leg has waited is under eighteen seconds.
+	censusSettleLimit = 180 * time.Second
 )
 
 // TargetCensus is how a phase asks the target what it is holding.
@@ -110,6 +111,11 @@ type CensusReading struct {
 	// count that bounds it below. Both absent where the question had no answer.
 	Agents     *int
 	Goroutines *float64
+
+	// ResidentBytes is what the target held in memory at the same reading,
+	// which is how a night's summary says how much of its memory ceiling the
+	// server used through the measured phase.
+	ResidentBytes *float64
 
 	// Waited is how long the run held still while the target admitted machines
 	// it had already accepted. Zero where the first answer already accounted
@@ -173,7 +179,8 @@ func (c TargetCensus) read() CensusReading {
 
 	held := int(*health.AgentsConnected)
 	running := health.Goroutines
-	return CensusReading{Agents: &held, Goroutines: &running}
+	resident := health.ResidentBytes
+	return CensusReading{Agents: &held, Goroutines: &running, ResidentBytes: &resident}
 }
 
 // PhaseReadings is everything a phase reads at its own boundaries: how hard the

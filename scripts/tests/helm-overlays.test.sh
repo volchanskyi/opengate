@@ -56,24 +56,80 @@ PY
 }
 
 # --- Production is last in the eviction order ---------------------------------
-
+#
+# The server reserves exactly what it is capped at, processor and memory both,
+# which is what makes it the kubelet's last choice. The database reserves its
+# whole memory ceiling, which keeps it last when memory runs short; its
+# processor is capped well above what it reserves, because a ceiling equal to a
+# small reservation paused it in a third of its busy moments while the node
+# never once ran short of processor.
+req_cpu="$(value_at "$PRODUCTION" "server.resources.requests.cpu")"
+lim_cpu="$(value_at "$PRODUCTION" "server.resources.limits.cpu")"
+if [ -n "$req_cpu" ] && [ "$req_cpu" = "$lim_cpu" ]; then
+  pass "production server asks for exactly the processor share it is capped at"
+else
+  fail "production server processor requests must equal limits (req=$req_cpu lim=$lim_cpu)"
+fi
 for component in server postgres; do
-  req_cpu="$(value_at "$PRODUCTION" "$component.resources.requests.cpu")"
-  lim_cpu="$(value_at "$PRODUCTION" "$component.resources.limits.cpu")"
   req_mem="$(value_at "$PRODUCTION" "$component.resources.requests.memory")"
   lim_mem="$(value_at "$PRODUCTION" "$component.resources.limits.memory")"
-
-  if [ -n "$req_cpu" ] && [ "$req_cpu" = "$lim_cpu" ]; then
-    pass "production $component asks for exactly the processor share it is capped at"
-  else
-    fail "production $component processor requests must equal limits (req=$req_cpu lim=$lim_cpu)"
-  fi
   if [ -n "$req_mem" ] && [ "$req_mem" = "$lim_mem" ]; then
     pass "production $component asks for exactly the memory it is capped at"
   else
     fail "production $component memory requests must equal limits (req=$req_mem lim=$lim_mem)"
   fi
 done
+
+# --- Both databases: a processor ceiling they do not pause against -------------
+#
+# Rendered through the chart, so what is checked is what the cluster is given.
+# Each database reserves 175m under a ceiling of one processor: the pair still
+# reserves the 350m of the node's book it did when production reserved 250m and
+# staging the chart's 100m, and the free remainder a load run is sized against
+# is unchanged.
+rendered_db() { # values file, jq path under the postgres container's resources
+  helm template opengate "$CHART" -f "$1" 2>/dev/null \
+    | python3 -c '
+import json, sys, yaml
+for doc in yaml.safe_load_all(sys.stdin):
+    if doc and doc.get("kind") == "StatefulSet":
+        for c in doc["spec"]["template"]["spec"]["containers"]:
+            if c["name"] == "postgres":
+                print(json.dumps(c.get("resources", {})))
+' | jq -r "$2 // empty | tostring"
+}
+command -v helm >/dev/null 2>&1 || fail "helm is not installed, so the charts cannot be rendered"
+for overlay in "$PRODUCTION" "$STAGING"; do
+  name="$(basename "$overlay" .yaml)"
+  req="$(rendered_db "$overlay" .requests.cpu)"
+  lim="$(rendered_db "$overlay" .limits.cpu)"
+  if [ "$req" = "175m" ] && [ "$lim" = "1" ]; then
+    pass "$name's database reserves 175m under a ceiling of one processor"
+  else
+    fail "$name's database must reserve 175m under a ceiling of one processor (requests=$req limits=$lim)"
+  fi
+done
+
+db_pair_total="$(
+  python3 - "$PRODUCTION" "$STAGING" <<'PY_PAIR'
+import sys
+
+import yaml
+
+total = 0
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as handle:
+        values = yaml.safe_load(handle) or {}
+    raw = str(values.get("postgres", {}).get("resources", {}).get("requests", {}).get("cpu", "0"))
+    total += int(raw[:-1]) if raw.endswith("m") else int(float(raw) * 1000)
+print(total)
+PY_PAIR
+)"
+if [ "$db_pair_total" -gt 0 ] && [ "$db_pair_total" -le 350 ]; then
+  pass "the two databases reserve ${db_pair_total}m, leaving a load run the room it is sized against"
+else
+  fail "the two databases must reserve 1..350m together, the book a load run is sized against (got ${db_pair_total}m)"
+fi
 
 # The node allocates 1830m of processor and 1180m of it was already spoken for
 # before this change. Production's pair may not claim so much that the two
@@ -103,10 +159,10 @@ fi
 #
 # A load run against a server sized differently from the one customers use
 # answers a question about a machine nobody has. The server is production's
-# exactly. The database is capped where production's is, so a load that would
-# throttle production's database throttles staging's; it keeps the chart's
-# smaller reservation, since it holds a night's fixture rather than anything a
-# customer depends on, and the node's reservations are nearly spoken for.
+# exactly. The database's processor is production's too, reservation and
+# ceiling, so the venue a night is measured on is the one the history was; its
+# memory keeps the chart's smaller reservation, since it holds a night's
+# fixture rather than anything a customer depends on.
 for field in requests.cpu requests.memory limits.cpu limits.memory; do
   staging_server="$(value_at "$STAGING" "server.resources.$field")"
   production_server="$(value_at "$PRODUCTION" "server.resources.$field")"
@@ -116,7 +172,7 @@ for field in requests.cpu requests.memory limits.cpu limits.memory; do
     fail "staging's server $field must be production's (staging=$staging_server production=$production_server)"
   fi
 done
-for field in limits.cpu limits.memory; do
+for field in requests.cpu limits.cpu limits.memory; do
   staging_db="$(value_at "$STAGING" "postgres.resources.$field")"
   production_db="$(value_at "$PRODUCTION" "postgres.resources.$field")"
   if [ -n "$staging_db" ] && [ "$staging_db" = "$production_db" ]; then

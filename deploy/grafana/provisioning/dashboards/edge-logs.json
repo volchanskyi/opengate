@@ -8,76 +8,6 @@
   "panels": [
     {
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "Edge-Sentinel log-rate ingest: total log volume per source, remote-written to VictoriaMetrics as opengate_edge_metric_avg with the log.rate.<source>.volume dim. Message text never becomes a series.",
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisLabel": "lines / window",
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineWidth": 2,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "unit": "short",
-          "min": 0
-        }
-      },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
-      "id": 1,
-      "options": {
-        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      },
-      "title": "Log-rate ingest (volume by source)",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (dim) (opengate_edge_metric_avg{dim=~\"log.rate\\\\..*\\\\.volume\"})",
-          "legendFormat": "{{dim}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "Edge-Sentinel log-rate error-severity signal per source (log.rate.<source>.error dim). A rising error rate is the anomaly signal the WS-2 ensemble folds locally.",
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisLabel": "error lines / window",
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineWidth": 2,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "unit": "short",
-          "min": 0
-        }
-      },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
-      "id": 2,
-      "options": {
-        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      },
-      "title": "Log-rate error severity (by source)",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (dim) (opengate_edge_metric_avg{dim=~\"log.rate\\\\..*\\\\.error\"})",
-          "legendFormat": "{{dim}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "description": "On-demand raw-log broker pull rate by outcome, from the server opengate_device_log_pulls_total counter (requires the server /metrics scrape). The ok series is the audited-read rate.",
       "fieldConfig": {
         "defaults": {
@@ -94,7 +24,7 @@
           "min": 0
         }
       },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
       "id": 3,
       "options": {
         "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
@@ -105,7 +35,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (result) (rate(opengate_device_log_pulls_total[5m]))",
+          "expr": "sum by (result) (rate(opengate_device_log_pulls_total{namespace=\"$environment\"}[5m]))",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
@@ -126,10 +56,11 @@
             "spanNulls": false
           },
           "unit": "s",
-          "min": 0
+          "min": 0,
+          "noValue": "No pulls in this window"
         }
       },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
       "id": 4,
       "options": {
         "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
@@ -140,7 +71,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(opengate_device_log_pull_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(opengate_device_log_pull_duration_seconds_bucket{namespace=\"$environment\"}[5m])))",
           "legendFormat": "p99",
           "refId": "A"
         }
@@ -156,7 +87,7 @@
           "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
         }
       },
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 18 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 9 },
       "id": 5,
       "options": {
         "colorMode": "value",
@@ -168,7 +99,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum(increase(opengate_device_log_pulls_total{result=\"ok\"}[1h]))",
+          "expr": "sum(increase(opengate_device_log_pulls_total{namespace=\"$environment\",result=\"ok\"}[1h]))",
           "legendFormat": "audited reads",
           "refId": "A"
         }
@@ -177,7 +108,25 @@
   ],
   "schemaVersion": 39,
   "tags": ["edge-sentinel", "logs", "victoriametrics"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "description": "Production and staging write into one store. Every panel reads the one chosen here.",
+        "type": "custom",
+        "query": "Production : opengate, Staging : opengate-staging",
+        "current": { "selected": true, "text": "Production", "value": "opengate" },
+        "options": [
+          { "selected": true, "text": "Production", "value": "opengate" },
+          { "selected": false, "text": "Staging", "value": "opengate-staging" }
+        ],
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "utc",

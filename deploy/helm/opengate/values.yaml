@@ -106,6 +106,20 @@ postgres:
     limits:
       cpu: "1"
       memory: 512Mi
+  # Measures the database from a pod of its own in the same namespace, so each
+  # environment's readings carry that environment's name. The postmaster
+  # collector publishes the database's start time. Scraped several times a
+  # second it peaked at 12.6 MiB and held 8.6 MiB resident, and at the 15 s the
+  # store scrapes it uses well under 5m; the ceiling leaves room above that peak.
+  exporter:
+    image: docker.io/prometheuscommunity/postgres-exporter:v0.20.1
+    resources:
+      requests:
+        cpu: 5m
+        memory: 16Mi
+      limits:
+        cpu: 100m
+        memory: 32Mi
   storage:
     # `persistent: false` swaps the StatefulSet's RWO volumeClaimTemplate for an
     # emptyDir (DB resets on pod restart) — staging only, to stay under the OCI

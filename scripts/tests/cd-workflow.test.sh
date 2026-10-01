@@ -263,6 +263,33 @@ else
   fail "the monitoring upgrade must apply deploy/helm/monitoring/values-production.yaml"
 fi
 
+# The dashboards, rules and scrape targets land with the deploy rather than at
+# the next nightly, and the running store is asked what it loaded. A chart
+# upgrade alone changed a ConfigMap the running store never read.
+apply_facts="$(
+  python3 - "$WORKFLOW" <<'PY_APPLY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+steps = doc["jobs"]["deploy-production-k8s"]["steps"]
+runs = [str(s.get("run", "")) for s in steps]
+upgrade = next((i for i, r in enumerate(runs) if "helm upgrade --install monitoring" in r), None)
+applied = next((i for i, r in enumerate(runs) if "deploy/scripts/monitoring-config-apply.sh" in r), None)
+chat = (steps[applied].get("env") or {}).get("TELEGRAM_CHAT_ID", "") if applied is not None else ""
+print("after" if upgrade is not None and applied is not None and applied > upgrade else "missing")
+print(chat)
+PY_APPLY
+)"
+if [ "$(sed -n 1p <<<"$apply_facts")" = "after" ]; then
+  pass "the production deploy applies the monitoring configuration after the monitoring upgrade"
+else
+  fail "the production deploy must run deploy/scripts/monitoring-config-apply.sh after the monitoring upgrade"
+fi
+if [ "$(sed -n 2p <<<"$apply_facts")" = "\${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}" ]; then
+  pass "and hands it the chat the alerts are routed to"
+else
+  fail "and hands it the chat the alerts are routed to (got=[$(sed -n 2p <<<"$apply_facts")])"
+fi
+
 # --- the deploy forwards the internal listener, and proves the edge does not ---
 #
 # The exposition and the profiler answer on the server's second listener. A

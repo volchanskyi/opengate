@@ -42,6 +42,24 @@ type VMClient struct {
 	// deleteAuthKey guards VictoriaMetrics' delete-series admin API
 	// (-deleteAuthKey). Empty when the endpoint is unguarded (e.g. tests).
 	deleteAuthKey string
+	// namespace is the environment the server runs in, stamped onto everything
+	// it writes. Empty writes no stamp.
+	namespace string
+}
+
+// environmentLabel names the environment a sample was written in. Production
+// and staging write into one store, and this is what holds them apart on a
+// dashboard. Every read the product makes groups it away: a device lives in one
+// environment, so the stamp is metadata rather than part of what a reading is,
+// and readings written before it and after it are one series.
+const environmentLabel = "namespace"
+
+// WithNamespace returns a client that stamps everything it writes with the
+// environment the server runs in. The receiver is left as it was.
+func (v *VMClient) WithNamespace(namespace string) *VMClient {
+	stamped := *v
+	stamped.namespace = namespace
+	return &stamped
 }
 
 // ExportedSeries is one newline-delimited object returned by VM's export API.
@@ -75,7 +93,11 @@ func (v *VMClient) WriteSamples(ctx context.Context, tenantID uuid.UUID, deviceI
 			return err
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v.baseURL+"/api/v1/import/prometheus", &body)
+	target := v.baseURL + "/api/v1/import/prometheus"
+	if v.namespace != "" {
+		target += "?" + url.Values{"extra_label": {environmentLabel + "=" + v.namespace}}.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, &body)
 	if err != nil {
 		return fmt.Errorf("build vm import request: %w", err)
 	}
@@ -175,7 +197,7 @@ func writePrometheusSample(b *bytes.Buffer, tenantID uuid.UUID, deviceID uuid.UU
 	labels["tenant_id"] = tenantID.String()
 	labels["device_id"] = deviceID.String()
 	for k, v := range sample.Labels {
-		if k == "tenant_id" || k == "device_id" {
+		if k == "tenant_id" || k == "device_id" || k == environmentLabel {
 			return fmt.Errorf("%w: %s", ErrReservedLabel, k)
 		}
 		if !labelNameRE.MatchString(k) {

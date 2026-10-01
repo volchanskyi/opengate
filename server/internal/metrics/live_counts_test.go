@@ -39,6 +39,23 @@ func gathered(t *testing.T, reg *prometheus.Registry, name string) (float64, boo
 	return 0, false
 }
 
+// gatheredCounter is the value of one counter on the page, and whether the page
+// carried it at all.
+func gatheredCounter(t *testing.T, reg *prometheus.Registry, name string) (float64, bool) {
+	t.Helper()
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		require.Len(t, family.GetMetric(), 1, "%s is a single series", name)
+		require.Equal(t, dto.MetricType_COUNTER, family.GetType(), "%s is a counter", name)
+		return family.GetMetric()[0].GetCounter().GetValue(), true
+	}
+	return 0, false
+}
+
 // A count is the tally at the instant the page is read, so a machine that
 // arrived a moment ago is on the page a moment later rather than up to one
 // refresh interval later.
@@ -49,8 +66,10 @@ func TestRuntimeCountsAreReadWhenThePageIsRead(t *testing.T) {
 	m := NewMetrics(reg)
 
 	agents, sessions, devices := 0, 0, 0
+	var started uint64
 	require.NoError(t, m.BindRuntimeCounts(GaugeSource{
 		ActiveSessions:      func() int { return sessions },
+		SessionsStarted:     func() uint64 { return started },
 		ConnectedAgents:     func() int { return agents },
 		ConnectedMPSDevices: func() int { return devices },
 	}))
@@ -69,6 +88,13 @@ func TestRuntimeCountsAreReadWhenThePageIsRead(t *testing.T) {
 	require.Equal(t, 5.0, value)
 	value, _ = gathered(t, reg, "opengate_mps_connected_devices")
 	require.Equal(t, 3.0, value)
+
+	total, carried := gatheredCounter(t, reg, "opengate_relay_sessions_started_total")
+	require.True(t, carried, "the started count is on the page beside the open count")
+	require.Equal(t, 0.0, total, "no session yet is nought rather than absent")
+	started = 41
+	total, _ = gatheredCounter(t, reg, "opengate_relay_sessions_started_total")
+	require.Equal(t, 41.0, total, "the page carries every session started so far")
 }
 
 // A count nobody can take is not a count of nought. Until the product is
@@ -88,6 +114,8 @@ func TestRuntimeCountsAreAbsentUntilThereIsSomethingToAsk(t *testing.T) {
 		_, carried := gathered(t, reg, name)
 		require.False(t, carried, "%s says nothing until it has something to ask", name)
 	}
+	_, carried := gatheredCounter(t, reg, "opengate_relay_sessions_started_total")
+	require.False(t, carried, "the started count says nothing until it has something to ask")
 }
 
 // Binding again replaces what is asked rather than publishing the series twice,
@@ -101,11 +129,13 @@ func TestBindingRuntimeCountsAgainReplacesWhatIsAsked(t *testing.T) {
 
 	require.NoError(t, m.BindRuntimeCounts(GaugeSource{
 		ActiveSessions:      func() int { return 1 },
+		SessionsStarted:     func() uint64 { return 1 },
 		ConnectedAgents:     func() int { return 1 },
 		ConnectedMPSDevices: func() int { return 1 },
 	}))
 	require.NoError(t, m.BindRuntimeCounts(GaugeSource{
 		ActiveSessions:      func() int { return 2 },
+		SessionsStarted:     func() uint64 { return 2 },
 		ConnectedAgents:     func() int { return 2 },
 		ConnectedMPSDevices: func() int { return 2 },
 	}))
@@ -128,6 +158,11 @@ func TestBindingRuntimeCountsRefusesASourceWithAHoleInIt(t *testing.T) {
 		ActiveSessions:  func() int { return 1 },
 		ConnectedAgents: func() int { return 1 },
 	}), "a source missing a callback is refused")
+	require.Error(t, m.BindRuntimeCounts(GaugeSource{
+		ActiveSessions:      func() int { return 1 },
+		ConnectedAgents:     func() int { return 1 },
+		ConnectedMPSDevices: func() int { return 1 },
+	}), "a source with no started count is refused")
 
 	_, carried := gathered(t, reg, "opengate_agents_connected")
 	require.False(t, carried, "a refused binding leaves nothing bound")

@@ -2,10 +2,13 @@ name: Core Walk
 
 # The endurance run's reference walk reads the Go runtime's own heap structures
 # out of a core, and those move between Go releases. The reader has no tagged
-# releases, so it is pinned by commit beside the toolchain it has to understand.
-# This runs whenever either pin moves — or the walk itself — and proves the
-# reader still names a live object and follows it back to its root on a core
-# the pinned toolchain wrote, rather than leaving that to the weekly soak.
+# releases, so it is pinned by commit beside the toolchain it has to understand,
+# and built with a patch that follows pointer maps the runtime builds on demand.
+# This runs whenever either pin, the patch or the walk moves, and every night,
+# and proves the reader still names a live object and follows it back to its
+# root on a core the pinned toolchain wrote, rather than leaving that to the
+# weekly soak. The same core goes through the newest upstream reader, unpatched,
+# and the night that reads it too this fails and says the patch can go.
 on:
   push:
     branches: [dev]
@@ -13,8 +16,14 @@ on:
       - server/go.mod
       - scripts/lib/tool-versions.sh
       - scripts/core-walk-check.sh
-      - scripts/loadtest-reference-walk.sh
+      - scripts/install-viewcore.sh
+      - scripts/lib/reference-walk.sh
+      - scripts/patches/viewcore-gcmask-on-demand.patch
       - .github/workflows/core-walk.yml
+  schedule:
+    # The hour buys a place in the order rather than a start time; this is a
+    # few minutes of one runner and sits behind the weekday batch.
+    - cron: '30 6 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -29,6 +38,9 @@ jobs:
     name: The pinned reader walks a core the pinned toolchain wrote
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # The newest upstream reader, unpatched, built beside the pinned one.
+      VIEWCORE_UPSTREAM: /tmp/viewcore-upstream
     steps:
       - uses: actions/checkout@v7
 
@@ -38,13 +50,16 @@ jobs:
           cache-dependency-path: server/go.sum
 
       # gdb brings gcore, which takes the core; the reader is the one the soak
-      # installs, at the same pin.
+      # installs, at the same pin and with the same patch. The upstream one is
+      # the newest commit, unpatched, and reads nothing but this probe's core.
       - name: Install the core tools
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gdb
-          go install golang.org/x/debug/cmd/viewcore@v0.0.0-20260908162731-ac862fd6552b
+          scripts/install-viewcore.sh "$(go env GOPATH)/bin/viewcore"
+          echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
+          scripts/install-viewcore.sh --upstream "$VIEWCORE_UPSTREAM"
 
       - name: Walk a core the pinned toolchain wrote
         run: scripts/core-walk-check.sh /tmp/core-walk
@@ -57,3 +72,44 @@ jobs:
           path: /tmp/core-walk
           if-no-files-found: ignore
           retention-days: 14
+
+  # A night this check loses, or the night it says the patch can go, is a
+  # night somebody hears about. A job of its own, reading the result, because a
+  # job killed at its timeout runs no step of its own.
+  alert:
+    name: Alert if the run did not finish
+    needs: [walk]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: observability
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Send Telegram alert
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          RESULTS: walk=${{ needs.walk.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          LOST=""
+          for entry in $RESULTS; do
+            name="${entry%%=*}"
+            result="${entry#*=}"
+            case "$result" in
+              success | skipped) ;;
+              *) LOST="${LOST}  - ${name}: ${result}"$'\n' ;;
+            esac
+          done
+          if [ -z "$LOST" ]; then
+            echo "No alert sent: every job finished."
+            exit 0
+          fi
+          scripts/telegram-alert.sh "$(printf 'The core-walk check did not pass, or says the reader patch can go:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"

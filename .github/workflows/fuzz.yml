@@ -42,7 +42,7 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent/fuzz
-      - uses: taiki-e/install-action@dfae9bf3d6f6c6f20ef4ebb3486c01a51341ff12 # v2
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
@@ -58,14 +58,14 @@ jobs:
           path: agent/fuzz/artifacts/
           if-no-files-found: ignore
 
-  # Say so when the night was lost.
+  # Alert if the run did not finish.
   #
   # Every nightly here published its verdict into its own result and nothing
   # read it: a run that died, was cancelled, or was killed at its timeout went
   # red on a page nobody opens. The alert path is the part that makes a red run
   # a thing somebody knows about.
   alert:
-    name: Say so if the night was lost
+    name: Alert if the run did not finish
     # A crash the fuzzer found is reported by the run's own result, and a run
     # that never got as far as fuzzing reports nothing at all unless something
     # outside it is looking.
@@ -81,7 +81,7 @@ jobs:
 
       - uses: ./.github/actions/setup-pinned-tools
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # `needs.<job>.result` rather than `failure()`: the result is a fact
         # about the job named, and it is what the repository's other gate jobs
         # already read. It also tells a cancel from a failure, which matters —
@@ -104,7 +104,7 @@ jobs:
             esac
           done
           if [ -z "$LOST" ]; then
-            echo "Nothing to say: every job finished."
+            echo "No alert sent: every job finished."
             exit 0
           fi
           scripts/telegram-alert.sh "$(printf 'The fuzzing run did not finish:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"

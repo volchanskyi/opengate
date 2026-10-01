@@ -33,11 +33,17 @@ import (
 // memory. The database-backed gauges, and the pool statistics that take the
 // pool's own lock, stay where they are.
 
-// errIncompleteGaugeSource is a binding that would publish some of the three and
+// The relay's started total rides with them. A relay session that echoes once
+// and closes inside a second is open for none of the moments a fifteen-second
+// scrape reads, so the open count alone says a relay nobody used and a relay
+// used all day look the same. The total is the same kind of read — one atomic
+// load — and published beside the open count it is the other half of.
+
+// errIncompleteGaugeSource is a binding that would publish some of the counts and
 // leave the rest absent, which reads as a series nobody exports rather than as a
 // hole in the wiring.
 var errIncompleteGaugeSource = errors.New(
-	"a runtime-count source needs all three callbacks: active sessions, connected agents, connected MPS devices")
+	"a runtime-count source needs every callback: active sessions, sessions started, connected agents, connected MPS devices")
 
 // runtimeCounts publishes the three counts, asking their source at the moment
 // the page is gathered.
@@ -47,6 +53,7 @@ var errIncompleteGaugeSource = errors.New(
 // reading, and one nobody took.
 type runtimeCounts struct {
 	activeSessions      *prometheus.Desc
+	sessionsStarted     *prometheus.Desc
 	connectedAgents     *prometheus.Desc
 	connectedMPSDevices *prometheus.Desc
 
@@ -58,6 +65,8 @@ func newRuntimeCounts() *runtimeCounts {
 	return &runtimeCounts{
 		activeSessions: desc("relay_active_sessions",
 			"Number of active relay sessions."),
+		sessionsStarted: desc("relay_sessions_started_total",
+			"Relay sessions opened since the process started, counted once per session."),
 		connectedAgents: desc("agents_connected",
 			"Number of currently connected agents."),
 		connectedMPSDevices: desc("mps_connected_devices",
@@ -69,18 +78,19 @@ func newRuntimeCounts() *runtimeCounts {
 // again replaces the source rather than adding a second one, so a process
 // assembled twice still answers with one number per series.
 func (c *runtimeCounts) bind(src GaugeSource) error {
-	if src.ActiveSessions == nil || src.ConnectedAgents == nil || src.ConnectedMPSDevices == nil {
+	if src.ActiveSessions == nil || src.SessionsStarted == nil ||
+		src.ConnectedAgents == nil || src.ConnectedMPSDevices == nil {
 		return errIncompleteGaugeSource
 	}
 	c.source.Store(&src)
 	return nil
 }
 
-// Describe sends the three descriptors, which is what makes a duplicate
-// registration of the same series a refusal rather than a page carrying it
-// twice.
+// Describe sends the descriptors, which is what makes a duplicate registration of
+// the same series a refusal rather than a page carrying it twice.
 func (c *runtimeCounts) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.activeSessions
+	ch <- c.sessionsStarted
 	ch <- c.connectedAgents
 	ch <- c.connectedMPSDevices
 }
@@ -94,12 +104,14 @@ func (c *runtimeCounts) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(
 		c.activeSessions, prometheus.GaugeValue, float64(src.ActiveSessions()))
 	ch <- prometheus.MustNewConstMetric(
+		c.sessionsStarted, prometheus.CounterValue, float64(src.SessionsStarted()))
+	ch <- prometheus.MustNewConstMetric(
 		c.connectedAgents, prometheus.GaugeValue, float64(src.ConnectedAgents()))
 	ch <- prometheus.MustNewConstMetric(
 		c.connectedMPSDevices, prometheus.GaugeValue, float64(src.ConnectedMPSDevices()))
 }
 
-// BindRuntimeCounts points the three runtime counts at the assembled product, so
+// BindRuntimeCounts points the runtime counts at the assembled product, so
 // the page answers with what it is holding at the moment it is read.
 //
 // It belongs to assembly rather than to the background workers: the counts are

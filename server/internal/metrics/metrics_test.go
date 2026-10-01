@@ -30,6 +30,53 @@ func TestObserveDeviceLogPull(t *testing.T) {
 	require.Equal(t, 2, testutil.CollectAndCount(m.DeviceLogPullDuration))
 }
 
+// TestEveryLogPullOutcomeStartsAtZero keeps the pull panels answering before
+// the first pull. A counter created on its first increment has no reading
+// before it, so the first pull after every start was invisible to a rate: the
+// store's first reading was already 1, and a rate over it read 0 for every
+// bucket while the pull had happened. The duration histogram is not seeded: a
+// latency of no pulls is not a latency, and the panel says so in words.
+func TestEveryLogPullOutcomeStartsAtZero(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+
+	require.Equal(t, len(DeviceLogPullOutcomes()), testutil.CollectAndCount(m.DeviceLogPullsTotal),
+		"every outcome is published before any pull")
+	for _, outcome := range DeviceLogPullOutcomes() {
+		require.InDelta(t, 0, testutil.ToFloat64(m.DeviceLogPullsTotal.WithLabelValues(outcome)), 0, outcome)
+	}
+	require.Zero(t, testutil.CollectAndCount(m.DeviceLogPullDuration), "no pull, no latency")
+}
+
+// TestEveryEdgeTelemetryOutcomeStartsAtZero keeps the production drop-ratio rule
+// and the soak panels reading a series from start-up. Each counter here was
+// created on its first event, so after a deploy the rule over drops and ingest
+// read nothing until a machine sent something and something was dropped, and
+// the first drop of each reason after a start was invisible to a rate.
+func TestEveryEdgeTelemetryOutcomeStartsAtZero(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+
+	for _, c := range []struct {
+		name    string
+		counter *prometheus.CounterVec
+		values  []string
+	}{
+		{"drop reasons", m.EdgeTelemetryDropsTotal, EdgeTelemetryDropReasons()},
+		{"ingested message types", m.EdgeTelemetryIngestedTotal, EdgeTelemetryIngestTypes()},
+		{"catch-up decisions", m.EdgeBackfillDecisionsTotal, []string{"grant", "defer"}},
+	} {
+		require.NotEmpty(t, c.values, c.name)
+		require.Equal(t, len(c.values), testutil.CollectAndCount(c.counter),
+			"every one of the %s is published before anything happens", c.name)
+		for _, value := range c.values {
+			require.InDelta(t, 0, testutil.ToFloat64(c.counter.WithLabelValues(value)), 0, value)
+		}
+	}
+}
+
 // TestObserveAgentTLSHandshake counts every agent QUIC connection that reached
 // the application handshake, split by whether TLS resumed. Both series exist
 // from start-up: the resumption ratio divides one by their sum, and a missing

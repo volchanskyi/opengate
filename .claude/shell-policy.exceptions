@@ -46,3 +46,5 @@ aggregate	scripts/tests/mutation-shard-budget.test.sh	-	Plain-Bash harness accum
 aggregate	scripts/tests/post-push-clean-caches.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/posttooluse-cache-clean.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 standalone	scripts/tests/ci-cd-determinism.test.sh	e	The errexit demonstration carries both shapes as fixture text: the unguarded status read this sweep refuses, and the guarded one it requires.
+library	scripts/lib/reference-walk.sh	-	The core walk is sourced by the endurance run's reference walk and the core-walk check, which each set their own policy.
+library	scripts/lib/summary-table.sh	-	The summary table shape is sourced by the run, drill and benchmark renderers, which each set their own policy.

@@ -249,6 +249,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 		// below. Absent where the target could not be asked.
 		TargetConnectedAgents: census.Agents,
 		TargetGoroutines:      census.Goroutines,
+		TargetResidentBytes:   census.ResidentBytes,
 		TargetCensusAbsent:    census.Absent,
 		// How long the target took to account for the fleet the run was
 		// holding. It is a reading of how far behind its own arrivals the

@@ -80,6 +80,9 @@ type Config struct {
 	VictoriaMetricsURL string
 	// VMDeleteAuthKey authorises the delete API of that metrics store.
 	VMDeleteAuthKey string
+	// Namespace is the environment the server runs in, stamped onto every
+	// reading it writes to that store. Production and staging share it.
+	Namespace string
 
 	// AMTUser and AMTPass are the WSMAN credentials for Intel management
 	// hardware.
@@ -402,6 +405,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	// stands the product up without starting a worker still gets an honest page.
 	if err := appMetrics.BindRuntimeCounts(appmetrics.GaugeSource{
 		ActiveSessions:      agentRelay.ActiveSessionCount,
+		SessionsStarted:     agentRelay.SessionsStarted,
 		ConnectedAgents:     agentSrv.ConnectedAgentCount,
 		ConnectedMPSDevices: amtSvc.ConnectedDeviceCount,
 	}); err != nil {
@@ -509,6 +513,9 @@ func newTelemetryPorts(cfg Config, logger *slog.Logger) telemetryPorts {
 	client := telemetry.NewVMClient(cfg.VictoriaMetricsURL, nil)
 	if cfg.VMDeleteAuthKey != "" {
 		client = client.WithDeleteAuthKey(cfg.VMDeleteAuthKey)
+	}
+	if cfg.Namespace != "" {
+		client = client.WithNamespace(cfg.Namespace)
 	}
 	logger.Info("edge sentinel telemetry writer enabled", "victoriametrics_url", cfg.VictoriaMetricsURL)
 	return telemetryPorts{writer: client, reader: client, purger: client, inventory: client}

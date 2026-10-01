@@ -478,8 +478,8 @@ async fn main() -> Result<()> {
     info!("agent ready, connecting to server");
 
     // Edge-Sentinel collectors run unconditionally — every agent samples host
-    // metrics, persists them to the local store, reads host log rates, and
-    // auto-discovers its footprint from the start. The sampler-owned local store
+    // metrics, persists them to the local store, and auto-discovers its
+    // footprint from the start. The sampler-owned local store
     // is the sovereign copy of min/max/last + 1 s raw that central avg-only
     // VictoriaMetrics does not keep; it is shared with the WS-15 reconnect-backfill
     // coordinator on the control loop, and it opens on every start (recreating a

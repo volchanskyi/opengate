@@ -1,6 +1,6 @@
 # Monitoring stack values — the Kubernetes deployment of Grafana,
-# VictoriaMetrics, Loki, Promtail, and the exporters. Resource limits are tuned
-# per component below.
+# VictoriaMetrics, Loki, Promtail, and the node exporter. Resource limits are
+# tuned per component below.
 
 nameOverride: ""
 fullnameOverride: ""
@@ -13,11 +13,8 @@ fullnameOverride: ""
 domain: opengate.example.com
 
 # Secret (created out-of-band) with keys: GF_SECURITY_ADMIN_PASSWORD,
-# POSTGRES_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+# TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
 existingSecret: opengate-monitoring-secrets
-
-# In-cluster Postgres the postgres-exporter scrapes (the app chart's headless svc).
-postgresHost: opengate-postgres.opengate.svc
 
 storageClass: oci-bv
 
@@ -43,9 +40,12 @@ victoriametrics:
 loki:
   image: docker.io/grafana/loki:3.5.0
   storage: 10Gi
-  # The working set runs 200–240 MiB with about 150 MiB of it resident, so the
-  # request reserves that steady use and the limit leaves it below the 70% at
-  # which the container-memory alert clears.
+  # The program holds about 150 MiB. Its working set reads far higher — 475 of
+  # the 512 MiB limit — because it counts the kernel's cache of Loki's tens of
+  # thousands of chunk files, which the kernel reclaims on demand and which
+  # tracked about 92% of the limit both before and after the limit was doubled.
+  # So the request reserves the program's steady use, the limit leaves it three
+  # times that, and the memory alert reads what the program holds.
   resources:
     requests:
       cpu: 100m
@@ -93,16 +93,6 @@ promtail:
 
 nodeExporter:
   image: docker.io/prom/node-exporter:v1.9.1
-  resources:
-    requests:
-      cpu: 50m
-      memory: 16Mi
-    limits:
-      cpu: 250m
-      memory: 64Mi
-
-postgresExporter:
-  image: docker.io/prometheuscommunity/postgres-exporter:v0.16.0
   resources:
     requests:
       cpu: 50m

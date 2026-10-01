@@ -1,5 +1,6 @@
 {
   "annotations": { "list": [] },
+  "description": "Micro-benchmark readings, one point per night, measured on a CI runner. A runner is not production hardware, so a line is compared with itself and never with another machine.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -44,7 +45,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "benchmark_allocs_op{env=\"ci\"}",
+          "expr": "benchmark_allocs_op{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{lang}}/{{benchmark}}",
           "refId": "A"
         }
@@ -81,7 +84,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "benchmark_bytes_op{env=\"ci\"}",
+          "expr": "benchmark_bytes_op{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{lang}}/{{benchmark}}",
           "refId": "A"
         }
@@ -118,7 +123,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "benchmark_ns_op{env=\"ci\"}",
+          "expr": "benchmark_ns_op{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
           "legendFormat": "{{lang}}/{{benchmark}}",
           "refId": "A"
         }

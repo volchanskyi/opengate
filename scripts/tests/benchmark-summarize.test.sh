@@ -90,18 +90,34 @@ cat >"$BIN_DIR/kubectl" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
 printf '%s\n' "$*" >>"${KUBECTL_ARGS:-/dev/null}"
-args="$*"
-vec() { printf '{"status":"success","data":{"resultType":"vector","result":[%s]}}\n' "$1"; }
-s() { printf '{"metric":{"benchmark":"%s","lang":"%s"},"value":[2000,"%s"]}' "$1" "$2" "$3"; }
+# One export line per series: a reading a night, the last being last night's.
+series() {
+  local bench="$1" lang="$2" n i=0 v stamps=()
+  shift 2
+  n=$#
+  for v in "$@"; do
+    stamps+=("$(((STORE_MIDNIGHT - (n - i) * 86400 + 36000) * 1000))")
+    i=$((i + 1))
+  done
+  printf '{"metric":{"__name__":"benchmark_ns_op","env":"ci","benchmark":"%s","lang":"%s"},"values":[%s],"timestamps":[%s]}\n' \
+    "$bench" "$lang" "$(IFS=,; printf '%s' "$*")" "$(IFS=,; printf '%s' "${stamps[*]}")"
+}
+nights() { for _ in $(seq 1 "$2"); do printf '%s ' "$1"; done; }
 case "${VM_PROFILE:-full}" in
   empty) ;;
+  twelve)
+    # Twelve nights on eight commits: four commits ran two nights each at 100
+    # ns, then four ran one night each at 400–700.
+    series BenchmarkEncodeFrame go 100 100 100 100 100 100 100 100 400 500 600 700
+    ;;
   *)
-    if grep -q 'count_over_time' <<<"$args"; then
-      # ${VM_COUNT:-10} runs per series — < NS_MIN_WINDOW_SAMPLES forces cold-start.
-      vec "$(s BenchmarkEncodeFrame go "${VM_COUNT:-10}"),$(s BenchmarkDecodeFrame go "${VM_COUNT:-10}"),$(s encode_frame rust "${VM_COUNT:-10}")"
-    elif grep -q 'median_over_time' <<<"$args"; then
-      vec "$(s BenchmarkEncodeFrame go 123),$(s BenchmarkDecodeFrame go 245),$(s encode_frame rust 987)"
-    fi
+    # ${VM_COUNT:-10} nights per series — fewer than NS_MIN_WINDOW_SAMPLES forces cold-start.
+    read -r -a encode <<<"$(nights 123 "${VM_COUNT:-10}")"
+    read -r -a decode <<<"$(nights 245 "${VM_COUNT:-10}")"
+    read -r -a rust <<<"$(nights 987 "${VM_COUNT:-10}")"
+    series BenchmarkEncodeFrame go "${encode[@]}"
+    series BenchmarkDecodeFrame go "${decode[@]}"
+    series encode_frame rust "${rust[@]}"
     ;;
 esac
 exit "${KUBECTL_STATUS:-0}"
@@ -114,6 +130,12 @@ export VM_NAMESPACE="benchmark-summarize-test"
 export VM_SERVICE="benchmark-summarize-test-vm"
 export KUBECTL_ARGS="$WORK/kubectl.args"
 : >"$KUBECTL_ARGS"
+# Tonight is the 29th; the store's nights end on the 28th.
+VM_RUN_STARTED_AT="$(date -u -d '2026-09-29 10:33' +%s)"
+STORE_MIDNIGHT="$(date -u -d '2026-09-29 00:00' +%s)"
+export VM_RUN_STARTED_AT STORE_MIDNIGHT
+# The summary page lands in the work directory, not wherever the suite ran from.
+export BENCHMARK_SUMMARY_FILE="$WORK/benchmark-summary.md"
 
 echo "kubectl hermeticity:"
 assert_eq "kubectl resolves to the test mock" "$BIN_DIR/kubectl" "$(command -v kubectl)"
@@ -150,10 +172,10 @@ assert_eq "criterion allocations are unavailable" "null" "$(jq -r '.[] | select(
 # ns/op from new/estimates.json alone, with no report/ HTML in the artifact.
 assert_eq "criterion fixture is data-only (no HTML report)" "" "$(find "$WORK/criterion" -name '*.html' -print -quit)"
 assert_eq "commit tagged" "deadbeef" "$(jq -r '.[0].commit' <<<"$ROWS")"
-# The canonical run also crosses the VM gate, so its two window queries (median +
-# count) must be served by the mock — proof the summarizer never reaches a cluster
-# outside the ns/op cases.
-assert_eq "clean run's window queries went through the mock" "2" "$(grep -c 'api/v1/query' "$KUBECTL_ARGS")"
+# The canonical run also crosses the VM gate, so its one window read must be
+# served by the mock — proof the summarizer never reaches a cluster outside the
+# ns/op cases.
+assert_eq "clean run's window read went through the mock" "1" "$(grep -c 'api/v1/export' "$KUBECTL_ARGS")"
 
 echo
 echo "regression gate:"
@@ -185,12 +207,24 @@ else
   fi
 fi
 
-# Current commit must be excluded from the window query so a re-run never compares
-# against its own just-pushed sample.
-if grep -qF 'commit!="deadbeef"' "$WORK/kubectl.args"; then
-  pass "window query excludes the current commit"
+# The window is nights, read by date; a re-run of tonight is kept out by its
+# date rather than by the commit it ran.
+if grep -qF 'commit' "$WORK/kubectl.args"; then
+  fail "the window read asks nothing about commits"
 else
-  fail "window query must exclude the current commit"
+  pass "the window read asks nothing about commits"
+fi
+
+# Twelve nights on eight commits. Folded to one point per commit the median was
+# 250 and 200 ns passed under a band of 375; over the twelve nights it is 100,
+# and 200 is past the band of 150.
+write_go_ns 200
+if OUT="$(VM_PROFILE=twelve run_ns_gate 2>&1)"; then
+  fail "twelve nights on eight commits are judged against the twelve-night median"
+elif grep -q '^REGRESSION_ALERT:.*ns_op: 100 ' <<<"$OUT"; then
+  pass "twelve nights on eight commits are judged against the twelve-night median"
+else
+  fail "twelve nights on eight commits are judged against the twelve-night median (got: $OUT)"
 fi
 
 # Sub-tol: 150 ns/op < 184.5 band and < 240 ceiling ⇒ silent (no red).
@@ -231,6 +265,30 @@ if VM_COUNT=2 run_ns_gate >/dev/null 2>&1; then
 else
   fail "thin window should not red on the relative rule"
 fi
+
+echo
+echo "summary page:"
+# The benchmark dumped its rows as JSON. The check that judges them writes the
+# page: each reading beside what it is held to, and what the check made of it.
+write_go_ns 200
+BENCHMARK_SUMMARY_FILE="$WORK/bench-table.md" run_ns_gate >/dev/null 2>&1 || true
+table="$(cat "$WORK/bench-table.md" 2>/dev/null || true)"
+if grep -qxF '| Measurement | Expected | Actual | Result |' <<<"$table"; then
+  pass "the page is the four-column table"
+else
+  fail "the page is the four-column table (got: $table)"
+fi
+if grep -qF '| go/BenchmarkEncodeFrame ns/op | ≤ 184.5 ns (nights'"'"' median × 1.5); ≤ 240 ns (baseline × 2) | 200 ns | FAIL |' <<<"$table"; then
+  pass "a timing past the nights' band is FAIL, with both of its limits named"
+else
+  fail "a timing past the nights' band is FAIL, with both of its limits named (got: $table)"
+fi
+if grep -qF '| go/BenchmarkEncodeFrame allocs/op | ≤ 2.04 (baseline 2 + 2 %) | 2 | pass |' <<<"$table"; then
+  pass "an allocation count inside its baseline passes"
+else
+  fail "an allocation count inside its baseline passes (got: $table)"
+fi
+if grep -qF -- '- **Expected**' <<<"$table"; then pass "the page carries the legend"; else fail "the page carries the legend"; fi
 
 echo
 echo "baseline generation:"

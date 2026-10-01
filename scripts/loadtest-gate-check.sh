@@ -87,10 +87,11 @@ main() {
   local lines blocking=0 advisory=0
   lines="$(breaches_for "$gates" "$summary")"
 
-  local messages=()
+  # Each entry says whether the profile enforces it, so the reader that decides
+  # the night fails it for a limit and never for a mark that only reports.
+  local recorded="[]"
   while IFS=$'\t' read -r kind message; do
     [ -n "${message:-}" ] || continue
-    messages+=("$message")
     if [ "$kind" = "blocking" ]; then
       blocking=$((blocking + 1))
       echo "::error::$message" >&2
@@ -98,11 +99,12 @@ main() {
       advisory=$((advisory + 1))
       echo "reported, not enforced: $message"
     fi
+    recorded="$(jq -c --arg message "$message" --argjson enforced "$([ "$kind" = blocking ] && echo true || echo false)" \
+      '. + [{enforced: $enforced, message: $message}]' <<<"$recorded")"
   done <<<"$lines"
 
   if [ -n "$out" ]; then
-    printf '%s\n' "${messages[@]+"${messages[@]}"}" \
-      | jq -Rn '[inputs | select(length > 0)]' >"$out"
+    jq '.' <<<"$recorded" >"$out"
   fi
 
   echo "gates: $(jq 'length' <<<"$gates") read, $blocking breached, $advisory reported"

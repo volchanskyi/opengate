@@ -46,6 +46,11 @@ install_command() {
     checkov)
       printf 'pipx install checkov==%s' "$TOOL_VERSION_CHECKOV"
       ;;
+    # What opens the endurance run's encrypted dump. The installer reads both
+    # versions from the manifest.
+    age | age-keygen | zstd)
+      printf 'scripts/install-dump-tools.sh   # age %s, zstd %s' "$TOOL_VERSION_AGE" "$TOOL_VERSION_ZSTD"
+      ;;
     *)
       return 1
       ;;

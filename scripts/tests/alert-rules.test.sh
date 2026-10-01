@@ -126,13 +126,34 @@ else
   fail "incomplete alert rules: $incomplete"
 fi
 
+# The rule reads the start time itself. The store counts a new series' first
+# reading as a change, so `changes()` fired whenever a series' labels changed:
+# adding the environment label to every server series raised a restart alert
+# for a process that was two days old.
 restart_query="$(rule_query server-process-restarted)"
-if grep -q 'process_start_time_seconds' <<<"$restart_query" \
-  && grep -q 'changes(' <<<"$restart_query" \
+if grep -q 'time() - max(process_start_time_seconds{' <<<"$restart_query" \
+  && ! grep -q 'changes(' <<<"$restart_query" \
   && grep -q 'job="opengate-server"' <<<"$restart_query"; then
-  pass "a restarted server process raises an alert"
+  pass "a restarted server process raises an alert, read off the process's own start time"
 else
-  fail "server-process-restarted must alert on changes(process_start_time_seconds{job=\"opengate-server\"})"
+  fail "server-process-restarted must read time() - max(process_start_time_seconds{job=\"opengate-server\",…}) rather than changes() (got=[$restart_query])"
+fi
+restart_condition="$(
+  python3 - "$RULES_FILE" <<'PY_RESTART'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+for group in doc["groups"]:
+    for rule in group["rules"]:
+        if rule["uid"] == "server-process-restarted":
+            for d in rule["data"]:
+                for c in d["model"].get("conditions", []):
+                    print(c["evaluator"]["type"], c["evaluator"]["params"][0])
+PY_RESTART
+)"
+if [ "$restart_condition" = "lt 900" ]; then
+  pass "it fires while the process is under fifteen minutes old"
+else
+  fail "it fires while the process is under fifteen minutes old (condition=[$restart_condition])"
 fi
 
 if [ "$(rule_field server-process-restarted labels.severity)" = "warning" ]; then
@@ -163,13 +184,23 @@ fi
 # A pod sat at 90% of its own memory limit for three hours and nothing fired.
 # The rule that was supposed to cover it read node-wide available memory, which
 # says nothing about one container against one cgroup ceiling.
+# The reading is what the program itself holds. A working set counts the
+# kernel's reclaimable file cache as well: Loki sat at 475 of its 512 MiB with
+# 275 MiB of that cache it could give back on demand, and the rule fired on a
+# program holding 150 MiB. Resident memory is the one per-program reading this
+# node offers — its pressure and kernel-usage readings are zero.
 limit_query="$(rule_query container-memory-against-limit)"
-if grep -q 'container_memory_working_set_bytes' <<<"$limit_query" \
+if grep -q 'container_memory_rss' <<<"$limit_query" \
   && grep -q 'container_spec_memory_limit_bytes' <<<"$limit_query" \
   && grep -q '/' <<<"$limit_query"; then
-  pass "a container walking up to its own memory limit raises an alert"
+  pass "a container whose program walks up to its own memory limit raises an alert"
 else
-  fail "container-memory-against-limit must compare working set against the container's own limit"
+  fail "container-memory-against-limit must compare resident memory against the container's own limit"
+fi
+if grep -q 'container_memory_working_set_bytes' <<<"$limit_query"; then
+  fail "container-memory-against-limit reads the working set, which counts cache the kernel reclaims"
+else
+  pass "the container alert does not count reclaimable cache as held memory"
 fi
 
 # Node-wide memory is not a substitute: it was true and quiet throughout.
@@ -378,9 +409,38 @@ for needle in (".Annotations.summary", ".Annotations.observed", ".Annotations.ch
                ".StartsAt", '"NoData"', '"Error"'):
     if needle not in body:
         print(f"the template does not print {needle}")
-for internal in ("ref_id", "datasource_uid", "grafana_state_reason", "grafana_folder", "watches"):
+for internal in ("ref_id", "datasource_uid", "grafana_state_reason", "grafana_folder", "watches", "rulename"):
     if f'"{internal}"' not in body:
         print(f"the template does not leave out {internal}")
+
+# A rule that reads no data, or whose query fails, arrives as an alert Grafana
+# names DatasourceNoData or DatasourceError, with the rule's own title in
+# `rulename`. The headline printed the first, so every rule's no-data alert
+# read the same, and grouping by that name merged them into one message.
+# A line that opens with a trim marker continues the line before it in the
+# message, so the headline is the FIRING line and every such line after it.
+lines = body.splitlines()
+start = next((i for i, line in enumerate(lines) if "FIRING" in line), None)
+headline = ""
+if start is not None:
+    headline = lines[start]
+    for line in lines[start + 1:]:
+        if not line.lstrip().startswith("{{-"):
+            break
+        headline += line.strip()
+if ".Labels.rulename" not in headline and 'template "opengate.telegram.rule"' not in headline:
+    print("the headline does not name the rule by its own title")
+rule_block = body.split('define "opengate.telegram.rule"', 1)[1] if 'define "opengate.telegram.rule"' in body else ""
+for words in ("no data", "query failed"):
+    if words not in rule_block:
+        print(f"the headline does not say {words!r} in words")
+for name in ("DatasourceNoData", "DatasourceError"):
+    if f'"{name}"' not in rule_block:
+        print(f"the headline does not recognise {name}")
+
+policies = [p for d in docs.values() for p in (d.get("policies") or [])]
+if not policies or any("rulename" not in (p.get("group_by") or []) for p in policies):
+    print("the policies do not group by rulename, so every rule's no-data alert arrives as one message")
 
 receivers = [r for d in docs.values() for cp in (d.get("contactPoints") or [])
              for r in cp.get("receivers", [])]

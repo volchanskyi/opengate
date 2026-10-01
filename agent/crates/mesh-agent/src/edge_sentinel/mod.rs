@@ -239,7 +239,7 @@ pub(crate) struct AlertWiring {
     /// clears the slot. Shared with the control loop's `PushAlertRules` handler.
     pub rules: AlertRulesMailbox,
     /// Breach-carrying `AgentHealthSummary` sink, drained by the control loop on
-    /// heartbeat alongside log-rate and discovery telemetry.
+    /// heartbeat alongside discovery telemetry.
     pub health_tx: SyncSender<ControlMessage>,
     /// Where an alert goes when a rule starts firing. The same queue every
     /// other producer on this machine writes to, so one machine's whole output

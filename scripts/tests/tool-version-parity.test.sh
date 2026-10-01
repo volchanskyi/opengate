@@ -32,6 +32,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
+# The shared actions the workflows call. An install written inside one is an
+# install every calling job runs, and the sweep that read only the workflows
+# missed the one that resolved the Oracle CLI to whatever came out that day.
+ACTIONS="$ROOT/.github/actions"
 # shellcheck source=../lib/tool-versions.sh
 . "$ROOT/scripts/lib/tool-versions.sh"
 
@@ -88,7 +92,7 @@ check_tool() { # KEY, human name, pattern with %s where the version goes
   checked_tools=$((checked_tools + 1))
   # Every line mentioning the tool in a version-carrying position, wherever it
   # is written: a workflow, the Makefile, or an install script.
-  found="$(grep -rhE "$pattern" "$WORKFLOWS" "$ROOT/Makefile" "$ROOT"/scripts/*.sh || true)"
+  found="$(grep -rhE "$pattern" "$WORKFLOWS" "$ACTIONS" "$ROOT/Makefile" "$ROOT"/scripts/*.sh || true)"
   if [ -z "$found" ]; then
     fail "$name: the manifest pins $want but nothing names it — stale row or renamed step"
     return
@@ -121,14 +125,17 @@ check_tool CARGO_MODULES cargo-modules 'cargo install .*cargo-modules'
 check_tool GOVULNCHECK govulncheck 'go install .*govulncheck'
 check_tool GO_ARCH_LINT go-arch-lint 'go install .*go-arch-lint'
 check_tool OAPI_CODEGEN oapi-codegen 'go install .*oapi-codegen'
-check_tool VIEWCORE viewcore 'go install .*viewcore'
+# The reader is built by scripts/install-viewcore.sh, which reads its pin here
+# and patches it; any literal pin of the module elsewhere has to agree.
+check_tool VIEWCORE viewcore 'TOOL_VERSION_VIEWCORE|x/debug/cmd/viewcore@'
 check_tool STATICCHECK staticcheck 'go install .*staticcheck'
 check_tool GOSEC gosec 'go install .*gosec'
 check_tool CARGO_FUZZ cargo-fuzz 'cargo install .*cargo-fuzz|tool: cargo-fuzz'
 check_tool CARGO_NEXTEST cargo-nextest 'tool: cargo-nextest'
 check_tool CARGO_LLVM_COV cargo-llvm-cov 'tool: cargo-llvm-cov'
+check_tool OCI_CLI oci-cli 'pip install .*oci-cli'
 
-if [ "$checked_tools" -ge 22 ]; then
+if [ "$checked_tools" -ge 24 ]; then
   pass "$checked_tools manifest rows were checked against every install site"
 else
   fail "only $checked_tools manifest rows were checked — the sweep lost rows"
@@ -154,7 +161,11 @@ add_unpinned() { unpinned="$unpinned  $1"$'\n'; }
 # --rev sits on the next line is pinned, and a timeout-minutes comment that
 # merely mentions one is not an install at all — both read the other way to a
 # sweep that takes the workflows a raw line at a time.
-install_sources=("$WORKFLOWS"/*.yml "$ROOT/Makefile" "$ROOT"/scripts/install-*.sh)
+mapfile -t action_sources < <(find "$ACTIONS" -type f \( -name '*.yml' -o -name '*.sh' \) | sort)
+if [ "${#action_sources[@]}" -eq 0 ]; then
+  fail "the install sweep found no shared action to read"
+fi
+install_sources=("$WORKFLOWS"/*.yml "${action_sources[@]}" "$ROOT/Makefile" "$ROOT"/scripts/install-*.sh)
 install_lines="$(
   awk '
     { line = line $0 }
@@ -256,6 +267,16 @@ if grep -q 'lib/tool-versions.sh' "$installer" \
 else
   fail "scripts/install-shell-tools.sh spells a version out instead of reading the manifest"
 fi
+
+for installer_name in install-dump-tools.sh install-viewcore.sh; do
+  installer_path="$ROOT/scripts/$installer_name"
+  if grep -q 'lib/tool-versions.sh' "$installer_path" \
+    && ! grep -qE '^[A-Z_]+_(VERSION|REV)="[0-9v]' "$installer_path"; then
+    pass "scripts/$installer_name takes its versions from the manifest"
+  else
+    fail "scripts/$installer_name spells a version out instead of reading the manifest"
+  fi
+done
 
 semgrep_installer="$ROOT/scripts/install-semgrep.sh"
 if grep -q 'lib/tool-versions.sh' "$semgrep_installer" \

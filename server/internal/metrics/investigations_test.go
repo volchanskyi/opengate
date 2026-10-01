@@ -211,7 +211,7 @@ func TestInvestigationSeriesCoverTheirClosedVocabularies(t *testing.T) {
 	}
 
 	require.Len(t, investigationSeries(t, reg),
-		len(OpenIncidentStatuses())+1+len(shippedRules)*(1+len(RuleCoverageStates())),
+		len(OpenIncidentStatuses())+1+len(AlertSuppressionReasons())+len(shippedRules)*(1+len(RuleCoverageStates())),
 		"seeding exports the whole vocabulary and nothing beyond it")
 }
 

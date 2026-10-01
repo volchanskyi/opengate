@@ -42,17 +42,26 @@ certManager:
   server: https://acme-v02.api.letsencrypt.org/directory
 
 postgres:
-  # Last in the eviction order for the same reason as the server above, and the
-  # more important half of the pair: a server that is evicted comes back, and a
-  # database that is evicted comes back to whatever the disk still held. Its
-  # largest recorded resident size is 99 MB, so 384Mi is close to four times what
-  # it has used.
+  # Memory: last in the eviction order for the same reason as the server above,
+  # and the more important half of the pair: a server that is evicted comes back,
+  # and a database that is evicted comes back to whatever the disk still held. It
+  # reserves its whole ceiling. Its largest recorded resident size is 99 MB, so
+  # 384Mi is close to four times what it has used.
+  #
+  # Processor: a ceiling is enforced per tenth of a second, and this database's
+  # own processes arrive in bursts. Capped at 250m it was paused in about a third
+  # of its busy tenths of a second for a whole week, while its busiest minute in
+  # three days used 37m and its 99th percentile 15m. So the ceiling is a whole
+  # processor and the reservation 175m, nearly five times that busiest minute.
+  # The node has never run short of processor (its busiest minute was 845m of
+  # 2000m), so the reservation decides the split only if it ever fills; with
+  # staging's database the pair reserves the 350m it always has.
   resources:
     requests:
-      cpu: 250m
+      cpu: 175m
       memory: 384Mi
     limits:
-      cpu: 250m
+      cpu: "1"
       memory: 384Mi
   backup:
     enabled: true

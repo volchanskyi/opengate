@@ -25,7 +25,16 @@ jobs:
         include:
           - lang: go
           - lang: rust
+    outputs:
+      started_at: ${{ steps.started.outputs.at }}
     steps:
+      # The night's date. Every sample the night writes carries this time, so a
+      # run is one point on one date however long it takes, and a re-run of its
+      # failed jobs writes the same point.
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/docker-hub-mirror
@@ -119,6 +128,9 @@ jobs:
       contents: read
     outputs:
       regression: ${{ steps.summarize.outputs.regression }}
+    env:
+      # When the run started, which every sample of the night carries.
+      VM_RUN_STARTED_AT: ${{ needs.run.outputs.started_at }}
     steps:
       - uses: actions/checkout@v7
 
@@ -239,10 +251,11 @@ jobs:
             echo "Regression: \`${{ steps.summarize.outputs.regression }}\`"
             echo "Baseline update mode: \`${{ steps.summarize.outputs.updated_baseline }}\`"
             echo ""
-            echo "## Canonical rows"
-            echo '```json'
-            python3 -m json.tool < benchmark-rows.json || cat benchmark-rows.json
-            echo '```'
+            # Written by the check that judged the readings, so the page and
+            # the verdict cannot disagree about a limit.
+            if [ -s benchmark-summary.md ]; then
+              cat benchmark-summary.md
+            fi
             if [ -f benchmarks/baseline.json ] && [ "${{ steps.summarize.outputs.updated_baseline }}" = "1" ]; then
               echo ""
               echo "## Baseline candidate"
@@ -252,7 +265,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # Runs whatever happened above it, and the message names which of the
         # three it was. The shape this replaces was gated on a flag an earlier
         # step in this job produced, so a night that died before that step said
@@ -272,7 +285,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
-            echo "Nothing to say: the run finished and nothing was found."
+            echo "No alert sent: the run finished and found nothing."
             exit 0
           fi
           if [ "${FINDING:-0}" = "1" ]; then

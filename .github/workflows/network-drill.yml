@@ -68,8 +68,16 @@ jobs:
       contents: read
       actions: read
     outputs:
+      started_at: ${{ steps.started.outputs.at }}
       measured: ${{ steps.summarize.outputs.measured }}
     steps:
+      # The night's date. Every sample the night writes carries this time, so a
+      # run is one point on one date however long it takes, and a re-run of its
+      # failed jobs writes the same point.
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup-pinned-tools
@@ -283,10 +291,11 @@ jobs:
       - name: Mint the enrolment credential the machines spend
         run: |
           set -euo pipefail
-          # Not retried: this runs while the drill is holding a network fault open,
-          # so a call that does not come back is the reading the drill is taking.
-          # Repeating it until it works measures the absence of the fault.
-          probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
+          # Asked again only when the cluster says the request never reached the
+          # probe pod: nothing ran, so nothing is repeated. A request that
+          # reached the server and failed is the server's answer.
+          . scripts/lib/kubectl-retry.sh
+          probe() { kubectl_retry --unstarted -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
 
           TOKEN="$(probe -X POST "$DRILL_API_URL/api/v1/auth/login" \
             -H 'Content-Type: application/json' \
@@ -387,10 +396,11 @@ jobs:
       - name: Wait for the machine to arrive, and learn which one it is
         run: |
           set -euo pipefail
-          # Not retried: this runs while the drill is holding a network fault open,
-          # so a call that does not come back is the reading the drill is taking.
-          # Repeating it until it works measures the absence of the fault.
-          probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
+          # Asked again only when the cluster says the request never reached the
+          # probe pod: nothing ran, so nothing is repeated. A request that
+          # reached the server and failed is the server's answer.
+          . scripts/lib/kubectl-retry.sh
+          probe() { kubectl_retry --unstarted -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
           for _ in $(seq 1 60); do
             DEVICE_ID="$(probe "$DRILL_API_URL/api/v1/devices" \
               -H "Authorization: Bearer $DRILL_API_TOKEN" \
@@ -590,10 +600,11 @@ jobs:
             echo "no in-cluster client or credential; the machines are left for the next deploy's reset"
             exit 0
           fi
-          # Not retried: this runs while the drill is holding a network fault open,
-          # so a call that does not come back is the reading the drill is taking.
-          # Repeating it until it works measures the absence of the fault.
-          probe() { kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
+          # Asked again only when the cluster says the request never reached the
+          # probe pod: nothing ran, so nothing is repeated. A request that
+          # reached the server and failed is the server's answer.
+          . scripts/lib/kubectl-retry.sh
+          probe() { kubectl_retry --unstarted -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
 
           MINE="$(probe "$DRILL_API_URL/api/v1/devices" \
             -H "Authorization: Bearer $DRILL_API_TOKEN" \
@@ -658,6 +669,9 @@ jobs:
       contents: read
     outputs:
       regression: ${{ steps.check.outputs.regression }}
+    env:
+      # When the run started, which every sample of the night carries.
+      VM_RUN_STARTED_AT: ${{ needs.network-drill.outputs.started_at }}
     steps:
       - uses: actions/checkout@v7
 
@@ -704,7 +718,7 @@ jobs:
           # assignment ends the step, so the output is never printed and the
           # alert below is never raised.
           set +e
-          OUT="$(scripts/network-drill-regression-check.sh artifacts/netdrill/netdrill-summary.json 2>&1)"
+          OUT="$(scripts/network-drill-regression-check.sh artifacts/netdrill/netdrill-summary.json netdrill-table.md 2>&1)"
           rc=$?
           set -e
           printf '%s\n' "$OUT"
@@ -732,15 +746,16 @@ jobs:
             echo
             if [ "${{ needs.network-drill.outputs.measured }}" != "1" ]; then
               echo "This run measured nothing; no rows entered the trend."
+            elif [ -s netdrill-table.md ]; then
+              # Written by the check that judged the readings, so the page and
+              # the verdict cannot disagree about a floor.
+              cat netdrill-table.md
             else
-              echo "| Scenario | Victim | Measurement | Value |"
-              echo "|---|---|---|---|"
-              jq -r '.[] | "| \(.scenario) | \(.victim) | \(.metric) | \(.value) |"' \
-                artifacts/netdrill/netdrill-summary.json
+              echo "The readings could not be checked, so there is no table; see the check step."
             fi
           } >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # Runs whatever happened above it, and the message names which of the
         # three it was. The shape this replaces was gated on a flag an earlier
         # step in this job produced, so a night that died before that step said
@@ -760,7 +775,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
-            echo "Nothing to say: the run finished and nothing was found."
+            echo "No alert sent: the run finished and found nothing."
             exit 0
           fi
           if [ "${FINDING:-0}" = "1" ]; then

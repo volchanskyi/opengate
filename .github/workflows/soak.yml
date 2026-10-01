@@ -60,6 +60,10 @@ env:
   # problem.
   SOAK_SNAPSHOT_EVERY: 5m
   SOAK_WALK_DIR: soak-bundle/reference-walk
+  # Where the encrypted core dump goes: beside the bundle, never inside it, and
+  # uploaded as an artifact of its own. The plain core is taken in the runner's
+  # temp directory and removed on every exit.
+  SOAK_DUMP_DIR: soak-dump
   # The browser-side generator, and everything it refuses to run without. The
   # exports land inside the bundle directory so the raw readings travel with the
   # evidence they were folded into, rather than in a temp directory the job
@@ -75,12 +79,24 @@ jobs:
   soak:
     name: Five hours with churn
     runs-on: ubuntu-24.04
+    env:
+      # The maintainer's age public key. The private half never leaves the
+      # maintainer's laptop, so no workflow can open a dump it wrote.
+      SOAK_DUMP_AGE_RECIPIENT: ${{ secrets.SOAK_DUMP_AGE_RECIPIENT }}
     # The walk is four hours and forty-four minutes; the stack build, the fixture
     # and the teardown are the rest. A scheduled job is killed at six hours, so
     # the slack is stated here rather than discovered as a run cut off inside its
     # last cycle.
     timeout-minutes: 340
+    outputs:
+      started_at: ${{ steps.started.outputs.at }}
     steps:
+      # The night's date. Every sample the night writes carries this time, so a
+      # five-hour run is one point on one date.
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
@@ -97,16 +113,24 @@ jobs:
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # gdb brings gcore, which takes a core off the running server without
-      # stopping it; viewcore reads that core as a Go heap. Both are installed
-      # before the five-hour walk rather than after it, so a run that cannot be
-      # followed says so now instead of at the end of an afternoon.
-      - name: Install what reads a core dump
+      # stopping it; viewcore reads that core as a Go heap, built from the
+      # manifest's pin with the patch that follows pointer maps built on demand;
+      # zstd and age compress and encrypt it. All of them are installed, and the
+      # key the dump is encrypted to is checked, before the five-hour walk rather
+      # than after it, so a run whose dump nobody could read says so now instead
+      # of at the end of an afternoon.
+      - name: Install what takes, reads and encrypts a core dump
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gdb
-          go install golang.org/x/debug/cmd/viewcore@v0.0.0-20260908162731-ac862fd6552b
+          scripts/install-viewcore.sh "$(go env GOPATH)/bin/viewcore"
           echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
+          scripts/install-dump-tools.sh
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+
+      - name: Refuse a dump nobody could open
+        run: scripts/loadtest-reference-walk.sh --check-recipient
 
       # The technician load runs beside the fleet, so the generator that offers
       # it is fetched before the five-hour walk rather than after it.
@@ -137,7 +161,13 @@ jobs:
           set -euo pipefail
           DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
           export DOCKER_CONFIG
+          scripts/perf-stack-pull.sh "$COMPOSE_FILE"
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
+          # The database's own accounting, sampled for as long as the job runs,
+          # so the leg's summary can say how much of its caps it used through
+          # the measured phase.
+          DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
+          nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
 
       # Past Docker's userland proxy: the generator dials the name on the
       # server's certificate, mapped to the container's own address, and the
@@ -250,7 +280,7 @@ jobs:
         run: scripts/perf-stack-quic.sh check /tmp/soak-quic.txt
 
       - name: Read the verdict the run wrote about itself
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$SOAK_BUNDLE_DIR/soak/bundle.json"
 
       # And the numbers the profile says this run is judged by, read off its own
@@ -258,11 +288,28 @@ jobs:
       # what the limits below are held against; the technician numbers beside
       # them are folded into the bundle and reported rather than gated.
       - name: Read the profile's limits against the run's own rows
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           scripts/perf-bundle-limits.sh load/profiles/soak.yaml \
             "$SOAK_BUNDLE_DIR/soak/bundle.json" /tmp/soak-rows.json
+
+      # Every measurement beside the limit the profile holds it to, the error
+      # rate, and how much of its own ceiling the server and the database used
+      # through the measured phase.
+      - name: Write the leg's summary
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BUNDLE="$SOAK_BUNDLE_DIR/soak/bundle.json"
+          if [ ! -s "$BUNDLE" ] || [ ! -s "/tmp/soak-rows.json" ]; then
+            echo "The leg wrote no rows, so its summary is the verdict above."
+            exit 0
+          fi
+          read -r FROM TO <<<"$(scripts/run-summary.sh window "load/profiles/soak.yaml" "$BUNDLE")"
+          scripts/database-levels.sh average /tmp/db-samples.tsv "$FROM" "$TO" >/tmp/db-levels.json
+          scripts/run-summary.sh render --title "Endurance soak" --profile "load/profiles/soak.yaml" \
+            --rows "/tmp/soak-rows.json" --bundle "$BUNDLE" --database /tmp/db-levels.json >>"$GITHUB_STEP_SUMMARY"
 
       # What holds what the profiles say grew. The heap profiles name where an
       # object was born; this names what is still pointing at it, which is the
@@ -270,11 +317,14 @@ jobs:
       #
       # It runs whenever the stack came up, including after a failed walk — a run
       # that went red is the run whose heap is most worth reading — and before
-      # the teardown, because it needs the server alive. The core itself is read
-      # here and deleted here; only the text travels.
+      # the teardown, because it needs the server alive. The core is encrypted
+      # before it is read, so a reader that fails on it tonight still leaves a
+      # dump the maintainer can open at the desk; the plain copy never leaves
+      # the runner's temp directory.
       - name: Follow what holds the heaviest objects
+        id: walk
         if: always() && steps.stack.outcome == 'success'
-        run: scripts/loadtest-reference-walk.sh opengate-perf-server /usr/local/bin/meshserver "$SOAK_WALK_DIR"
+        run: scripts/loadtest-reference-walk.sh opengate-perf-server /usr/local/bin/meshserver "$SOAK_WALK_DIR" "$SOAK_DUMP_DIR"
 
       - name: Tear the stack down
         if: always()
@@ -284,7 +334,7 @@ jobs:
           docker compose -f "$COMPOSE_FILE" down -v
 
       - name: Upload the soak bundle
-        if: always()
+        if: always() && steps.stack.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: soak-bundle
@@ -292,14 +342,141 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # Say so when the night was lost.
+      # Opened only with the maintainer's private key:
+      # age -d -i ~/.config/age/opengate-soak-dump.key <file> | zstd -d
+      - name: Upload the encrypted core dump
+        if: always() && steps.stack.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: soak-dump
+          path: ${{ env.SOAK_DUMP_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+
+  # The run's rows, into the trend, and against the weeks before it.
+  #
+  # The endurance run was held to its profile's fixed limits alone, and its
+  # numbers lived in an artifact. This job's result says whether the trend was
+  # published; what it found is read by the gate below.
+  publish:
+    name: Publish the endurance trend
+    needs: [soak]
+    if: always() && needs.soak.outputs.started_at != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: observability
+    permissions:
+      contents: read
+    outputs:
+      regression: ${{ steps.check.outputs.regression }}
+    env:
+      # When the run started, which every sample of the night carries.
+      VM_RUN_STARTED_AT: ${{ needs.soak.outputs.started_at }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Collect the run's bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: soak-bundle
+          path: soak-legs
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      - name: Compare the run with the weeks before it
+        id: check
+        run: |
+          set -euo pipefail
+          set +e
+          scripts/perf-regression-check.sh soak-legs/soak/bundle.json >soak-regression.out 2>&1
+          CHECK_STATUS=$?
+          set -e
+          cat soak-regression.out
+          case "$CHECK_STATUS" in
+            0) echo "regression=0" >>"$GITHUB_OUTPUT" ;;
+            1) echo "regression=1" >>"$GITHUB_OUTPUT" ;;
+            *)
+              echo "regression=0" >>"$GITHUB_OUTPUT"
+              echo "::error::the run could not be compared with the weeks before it (exit $CHECK_STATUS)."
+              exit "$CHECK_STATUS"
+              ;;
+          esac
+          {
+            echo "alert_text<<EOF"
+            grep '^REGRESSION_ALERT:' soak-regression.out | sed 's/^REGRESSION_ALERT://' || true
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Push to VictoriaMetrics
+        run: scripts/perf-vm-push.sh soak-legs/soak/bundle.json
+
+      - name: Send Telegram alert
+        # Runs whatever happened above it, and says which of the three it was.
+        # A refused send reddens this job; the finding is read by the gate below.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ steps.check.outputs.regression }}
+          ALERT_TEXT: ${{ steps.check.outputs.alert_text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+            echo "No alert sent: the run was published and is not past the weeks before it."
+            exit 0
+          fi
+          if [ "${FINDING:-0}" = "1" ]; then
+            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Endurance Soak Trends" (opengate-soak-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          else
+            MSG="$(printf 'Endurance trend: the run was not published (%s).\n\nRun: %s' "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
+
+  gate:
+    name: Endurance regression gate
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Fail workflow red on a run past the weeks before it
+        run: |
+          if [ "${{ needs.publish.result }}" != "success" ]; then
+            echo "::error::the endurance trend was not published; see the publish job."
+            exit 1
+          fi
+          if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then
+            echo "::error::the endurance run is past the weeks before it — see the publish job's summary and the Telegram alert."
+            exit 1
+          fi
+          echo "The endurance run is not past the weeks before it."
+
+  # Alert if the run did not finish.
   #
   # Every nightly here published its verdict into its own result and nothing
   # read it: a run that died, was cancelled, or was killed at its timeout went
   # red on a page nobody opens. The alert path is the part that makes a red run
   # a thing somebody knows about.
   alert:
-    name: Say so if the night was lost
+    name: Alert if the run did not finish
     # The run is one job with a timeout barely over what it takes, and a job
     # killed at its timeout may run no step at all — which is precisely the
     # night worth alerting on. So the alert is a job of its own, on a runner of
@@ -316,7 +493,7 @@ jobs:
 
       - uses: ./.github/actions/setup-pinned-tools
 
-      - name: Say what this night was
+      - name: Send Telegram alert
         # `needs.<job>.result` rather than `failure()`: the result is a fact
         # about the job named, and it is what the repository's other gate jobs
         # already read. It also tells a cancel from a failure, which matters —
@@ -339,7 +516,7 @@ jobs:
             esac
           done
           if [ -z "$LOST" ]; then
-            echo "Nothing to say: every job finished."
+            echo "No alert sent: every job finished."
             exit 0
           fi
           scripts/telegram-alert.sh "$(printf 'The endurance run did not finish:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"

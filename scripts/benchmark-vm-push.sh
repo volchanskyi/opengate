@@ -18,7 +18,7 @@ metrics="$(
 
     def sample($metric; $value):
       select($value != null)
-      | "\($metric){commit=\"\(.commit | label_escape)\",env=\"\((.env // "ci") | label_escape)\",benchmark=\"\(.name | label_escape)\",lang=\"\(.lang | label_escape)\"} \($value)";
+      | "\($metric){env=\"\((.env // "ci") | label_escape)\",benchmark=\"\(.name | label_escape)\",lang=\"\(.lang | label_escape)\"} \($value)";
 
     .[]
     | sample("benchmark_ns_op"; .ns_op),

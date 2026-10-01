@@ -129,13 +129,27 @@ trap clear_the_link EXIT
 
 # --- talking to the cluster ---------------------------------------------------
 
+# shellcheck source=../lib/kubectl-retry.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/kubectl-retry.sh"
+
 # Every request goes through one in-cluster client, because both the shaper's
 # control endpoint and the server's API are cluster-internal and an agent speaks
 # QUIC over UDP, which kubectl port-forward does not carry.
+#
+# A request is asked again only when the cluster says it never reached the probe
+# pod. Nothing ran, so there is no reading to lose and no write to repeat. A
+# request that reached its target and failed is that target's answer, and is
+# never asked twice.
 probe_curl() {
-  kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- \
+  kubectl_retry --unstarted -n "$NAMESPACE" exec "$PROBE_POD" -- \
     curl -sS --fail-with-body --max-time 20 "$@"
 }
+
+# never_arrived <status> — the probe failed because the cluster dropped the
+# connection to the probe pod on every attempt, so its target never heard it.
+never_arrived() { [ "$1" -eq "$KUBECTL_RETRY_LOST" ]; }
+
+NEVER_ARRIVED="the cluster dropped the connection to the probe pod on every attempt"
 
 shaper_healthy() {
   probe_curl "$SHAPER_URL/healthz" >/dev/null 2>&1
@@ -143,25 +157,37 @@ shaper_healthy() {
 
 # impair puts one instruction in force. A refusal is inconclusive rather than a
 # product failure: the shaper declining an impairment says nothing about how a
-# machine copes with one.
+# machine copes with one. Neither is an instruction that never reached it, and
+# the two are named apart.
 impair() {
-  local instruction="$1"
+  local instruction="$1" status=0
   probe_curl -X POST -H 'Content-Type: application/json' --data "$instruction" \
-    "$SHAPER_URL/impair" >/dev/null \
-    || inconclusive "the shaper refused the instruction $instruction"
+    "$SHAPER_URL/impair" >/dev/null || status=$?
+  [ "$status" -eq 0 ] && return 0
+  if never_arrived "$status"; then
+    inconclusive "the shaper never received the instruction $instruction: $NEVER_ARRIVED"
+  fi
+  inconclusive "the shaper refused the instruction $instruction"
 }
 
 rebind() {
-  probe_curl -X POST "$SHAPER_URL/rebind" >/dev/null \
-    || inconclusive "the shaper could not move to a new server-facing address"
+  local status=0
+  probe_curl -X POST "$SHAPER_URL/rebind" >/dev/null || status=$?
+  [ "$status" -eq 0 ] && return 0
+  if never_arrived "$status"; then
+    inconclusive "the shaper never received the request to move to a new server-facing address: $NEVER_ARRIVED"
+  fi
+  inconclusive "the shaper could not move to a new server-facing address"
 }
 
 # counters records what the shaper has done with the datagrams it handled, at
 # one phase boundary, and prints it. The runner reads these to know a scenario
-# ran at all. A boundary it could not read is refused rather than answered.
+# ran at all. A boundary it could not read is refused rather than answered, with
+# the probe's own status so the caller can say why.
 counters() {
-  local phase="$1" body
-  body="$(probe_curl "$SHAPER_URL/counters")" || return 1
+  local phase="$1" body status=0
+  body="$(probe_curl "$SHAPER_URL/counters")" || status=$?
+  [ "$status" -eq 0 ] || return "$status"
   printf '%s\n' "$body" >"$EVIDENCE_DIR/${SCENARIO}-counters-${phase}.json"
   printf '%s\n' "$body"
 }
@@ -174,9 +200,13 @@ counters() {
 # carry on with an empty reading and decide the phase on it.
 COUNTERS=""
 read_counters() {
-  local phase="$1"
-  COUNTERS="$(counters "$phase")" \
-    || inconclusive "the shaper stopped answering at the $phase boundary"
+  local phase="$1" status=0
+  COUNTERS="$(counters "$phase")" || status=$?
+  [ "$status" -eq 0 ] && return 0
+  if never_arrived "$status"; then
+    inconclusive "the shaper's counters at the $phase boundary were never asked for: $NEVER_ARRIVED"
+  fi
+  inconclusive "the shaper stopped answering at the $phase boundary"
 }
 
 # The shaper counts for the life of its process and its control endpoint offers

@@ -648,6 +648,16 @@ jobs:
             --set domain="$DOMAIN" \
             --wait --timeout 5m
 
+      # The dashboards, rules and scrape targets land with the deploy rather
+      # than at the next nightly. The running store is asked what it loaded, and
+      # every panel and production rule whether it reads anything, waiting up to
+      # two minutes for a target the deploy just started to take its first
+      # readings.
+      - name: Give the cluster the monitoring configuration this commit declares
+        env:
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+        run: deploy/scripts/monitoring-config-apply.sh
+
       - name: Port-forward + smoke test
         run: |
           kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 18081:8081 >/tmp/pf.log 2>&1 &
