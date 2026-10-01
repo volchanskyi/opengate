@@ -3,33 +3,22 @@
 
 set -euo pipefail
 
-SHELLCHECK_VERSION="0.11.0"
-SHFMT_VERSION="3.13.1"
-ROOT="${SHELL_QUALITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-POLICY_CHECKER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-shell-policy.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${SHELL_QUALITY_ROOT:-$(cd "$HERE/.." && pwd)}"
+POLICY_CHECKER="$HERE/check-shell-policy.sh"
 
 die() {
   printf 'shell-quality: ERROR: %s\n' "$1" >&2
   exit 1
 }
 
-tool_version() {
-  local tool="$1"
-  case "$tool" in
-    shellcheck) shellcheck --version 2>/dev/null | awk '/^version:/ { print $2; exit }' ;;
-    shfmt) shfmt --version 2>/dev/null | sed -n '1{s/^v//;p;}' ;;
-  esac
-}
-
+# require_tools — ShellCheck and shfmt at their pinned versions, asked the way
+# every pinned tool is (scripts/require-tool.sh names the install on a refusal).
 require_tools() {
-  command -v shellcheck >/dev/null 2>&1 \
-    || die "ShellCheck ${SHELLCHECK_VERSION} is required; run scripts/install-shell-tools.sh"
-  command -v shfmt >/dev/null 2>&1 \
-    || die "shfmt ${SHFMT_VERSION} is required; run scripts/install-shell-tools.sh"
-  [ "$(tool_version shellcheck)" = "$SHELLCHECK_VERSION" ] \
-    || die "ShellCheck ${SHELLCHECK_VERSION} is required"
-  [ "$(tool_version shfmt)" = "$SHFMT_VERSION" ] \
-    || die "shfmt ${SHFMT_VERSION} is required"
+  local tool
+  for tool in shellcheck shfmt; do
+    "$HERE/require-tool.sh" "$tool" || die "$tool is not the pinned version; see above"
+  done
 }
 
 tracked_scripts() {
@@ -85,25 +74,65 @@ format_files() {
   (cd "$ROOT" && shfmt -w "${FILES[@]}")
 }
 
-run_tests() {
-  local test_file
-  local tests=()
+# The files a CI step hands every command it runs. A test that writes to one
+# writes into the job running it.
+STEP_FILES=(GITHUB_STEP_SUMMARY GITHUB_OUTPUT GITHUB_ENV GITHUB_PATH)
 
-  while IFS= read -r -d '' test_file; do
-    tests+=("$ROOT/$test_file")
+# run_tests — every shell test, each handed step files of its own.
+#
+# A load-test fixture once wrote "k6 scenario api-baseline crossed one of its
+# own thresholds" into the Config Lint job's summary, as if a load test had run
+# there. So no test sees the job's files: each gets fresh empty ones, and a test
+# that leaves anything in one fails, naming it. Every test runs whatever an
+# earlier one did, so all failures surface in one pass; untracked tests run
+# too, as they do at commit time.
+run_tests() {
+  local test_file rel var step_dir
+  local tests=() failed=()
+
+  while IFS= read -r -d '' rel; do
+    [ -f "$ROOT/$rel" ] && tests+=("$ROOT/$rel")
   done < <(
-    git -C "$ROOT" ls-files -z -- 'scripts/tests/*.test.sh' 'deploy/tests/*.test.sh'
+    git -C "$ROOT" ls-files -z --cached --others --exclude-standard -- \
+      'scripts/tests/*.test.sh' 'deploy/tests/*.test.sh'
   )
 
   [ "${#tests[@]}" -gt 0 ] || die "no shell tests found"
-  # Executed, not handed to `bash`, because that is how the commit-time gate in
-  # scripts/precommit-gauntlet.sh runs them. A file without its executable bit
-  # fails there; running it through an interpreter here would hide that until a
-  # commit attempt had already spent the rest of the gauntlet.
+  step_dir="$(mktemp -d)"
   for test_file in "${tests[@]}"; do
-    [ -x "$test_file" ] || die "not executable: ${test_file#"$ROOT/"} — chmod +x it"
-    "$test_file"
+    rel="${test_file#"$ROOT/"}"
+    # Executed, not handed to `bash`: a file without its executable bit is a
+    # test the gate cannot run, and running it through an interpreter here
+    # would hide that.
+    if [ ! -x "$test_file" ]; then
+      printf 'shell-quality: not executable: %s — chmod +x it\n' "$rel" >&2
+      failed+=("$rel")
+      continue
+    fi
+    for var in "${STEP_FILES[@]}"; do : >"$step_dir/$var"; done
+    printf '▶ %s\n' "$rel"
+    if ! GITHUB_STEP_SUMMARY="$step_dir/GITHUB_STEP_SUMMARY" \
+      GITHUB_OUTPUT="$step_dir/GITHUB_OUTPUT" \
+      GITHUB_ENV="$step_dir/GITHUB_ENV" \
+      GITHUB_PATH="$step_dir/GITHUB_PATH" \
+      "$test_file"; then
+      failed+=("$rel")
+    fi
+    for var in "${STEP_FILES[@]}"; do
+      if [ -s "$step_dir/$var" ]; then
+        printf 'shell-quality: %s wrote into %s, which in CI is the job running it: %s\n' \
+          "$rel" "$var" "$(sed -n 1p "$step_dir/$var")" >&2
+        failed+=("$rel ($var)")
+      fi
+    done
   done
+  rm -rf "$step_dir"
+
+  if [ "${#failed[@]}" -gt 0 ]; then
+    printf 'shell-quality: %d failed:\n' "${#failed[@]}" >&2
+    printf '  %s\n' "${failed[@]}" >&2
+    exit 1
+  fi
 }
 
 case "${1:-}" in

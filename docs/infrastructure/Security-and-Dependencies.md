@@ -1,6 +1,29 @@
 # Security and Dependencies
 
-## Security Scanning
+- [Scanning](#scanning)
+  - [CodeQL](#codeql)
+  - [Vulnerability scanners](#vulnerability-scanners)
+  - [Secrets](#secrets)
+  - [Dependabot](#dependabot)
+- [Pen-test gate](#pen-test-gate)
+- [Supply chain](#supply-chain)
+- [API hardening](#api-hardening)
+  - [Access control](#access-control)
+  - [Tenant isolation](#tenant-isolation)
+  - [Rate limiting](#rate-limiting)
+  - [Request timeout](#request-timeout)
+  - [Input validation](#input-validation)
+  - [Error messages](#error-messages)
+  - [Security headers](#security-headers)
+- [Tokens in logs](#tokens-in-logs)
+- [Certificates](#certificates)
+  - [Agent certificates](#agent-certificates)
+- [Main dependencies](#main-dependencies)
+  - [Server (Go)](#server-go)
+  - [Agent (Rust)](#agent-rust)
+  - [Web client (TypeScript)](#web-client-typescript)
+
+## Scanning
 
 Three layers of automated security analysis run on every CI trigger:
 
@@ -26,13 +49,16 @@ Three layers of automated security analysis run on every CI trigger:
 
 Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries. The current [`ci.yml`](../../.github/workflows/ci.yml) trigger set runs CodeQL on pushes, pull requests, and manual dispatch; it does not define a separate CodeQL schedule.
 
-### Vulnerability Scanners
+### Vulnerability scanners
 
-- `govulncheck` (Go) — checks against the Go vulnerability database
+- `govulncheck` (Go) — checks against the Go vulnerability database.
+  [`govulncheck-scan.sh`](../../scripts/govulncheck-scan.sh) fetches the
+  database once, retrying only the fetch, and scans once against that copy —
+  the same script in CI and in the gauntlet.
 - `cargo audit` (Rust) — checks against RustSec advisory database
 - `npm audit` (Web) — checks against the npm advisory database
 
-### Secrets scanning
+### Secrets
 
 [gitleaks](https://github.com/gitleaks/gitleaks) runs against the **full git history** on every CI trigger via the `config-lint` job. Config lives in [`.gitleaks.toml`](../../.gitleaks.toml); allowlists are categorical (paths/regexes), never per-fingerprint, so the gate stays meaningful as new commits land.
 
@@ -59,7 +85,7 @@ dependabot/* PR → dev → (CI) → main
 
 The existing `merge-to-main` job in [`ci.yml`](../../.github/workflows/ci.yml) forwards `dev` → `main` after the same gate any human commit clears. No separate integration branch; no nightly sync workflow.
 
-## Adversarial Pen-Test Gate
+## Pen-test gate
 
 [ADR-027](../adr/ADR-027-pentest-gate.md) adds a fail-closed
 adversarial gate that runs custom [Semgrep](https://semgrep.dev) rules plus an
@@ -82,7 +108,7 @@ inline suppressions (banned per [`.claude/rules/sonarcloud.md`](../../.claude/ru
 The [`/pentest-review`](../../.claude/skills/pentest-review/SKILL.md) skill runs the
 same check on demand.
 
-## Supply Chain Security
+## Supply chain
 
 Container images are signed and attested to ensure artifact integrity from build to deploy:
 
@@ -95,9 +121,9 @@ Container images are signed and attested to ensure artifact integrity from build
 
 See [[Container-Images#supply-chain-security]] for verification commands.
 
-## API Security Hardening
+## API hardening
 
-### Access Control
+### Access control
 
 **Tenant is the visibility boundary. `is_admin` is the mutation
 boundary.** Every member of a tenant sees the same fleet and may act on
@@ -127,7 +153,7 @@ Admins keep cross-tenant reads. The dashboard summary is the one
 deliberate exception: it always describes the caller's own tenant, so its
 tiles and health bands cover a single device set.
 
-### Tenant Isolation
+### Tenant isolation
 
 PostgreSQL Row-Level Security is enabled and forced on tenant-owned tables. JWT
 tokens carry the active `tenant` claim; authenticated middleware stores it in
@@ -139,7 +165,7 @@ The Helm runtime role is created by
 [`cd.yml`](../../.github/workflows/cd.yml) as non-superuser and non-`BYPASSRLS`, so
 missing tenant context fails closed instead of leaking rows across tenants.
 
-### Rate Limiting
+### Rate limiting
 
 Per-IP rate limiting is enforced at the middleware level:
 
@@ -166,11 +192,11 @@ Only the header's *last* entry is read, because that is the one the proxy
 appended and every earlier one was supplied by the caller. See
 [ADR-116](../adr/ADR-116-forwarded-addresses.md).
 
-### Request Timeout
+### Request timeout
 
 All API routes have a 30-second request timeout enforced by `RequestTimeout` middleware. WebSocket relay routes are excluded from the timeout to allow long-lived connections.
 
-### Input Validation
+### Input validation
 
 - **Password length**: 8–72 characters enforced at registration (72 is the bcrypt truncation limit)
 - **Email format**: Validated via `net/mail.ParseAddress` at registration — rejects malformed addresses
@@ -179,11 +205,11 @@ All API routes have a 30-second request timeout enforced by `RequestTimeout` mid
 - **CSR signature**: Agent CSR signatures are verified (`x509.ParseCertificateRequest` + `CheckSignature`) before the CA signs them, preventing submission of forged CSRs
 - **JWT secret length**: Minimum 32 characters enforced at server startup — the server refuses to start with a weak secret
 
-### Error Sanitization
+### Error messages
 
 All API error responses return generic messages. Internal error details (SQL errors, stack traces, file paths) are logged server-side but never exposed to clients. Custom error handlers override the oapi-codegen defaults.
 
-### Security Headers
+### Security headers
 
 The API server adds defense-in-depth headers via `SecurityHeaders` middleware:
 
@@ -200,7 +226,7 @@ from the values in [`values.yaml`](../../deploy/helm/opengate/values.yaml). This
 replaces the former per-ingress `configuration-snippet` annotation, so the
 controller runs with snippet annotations disabled.
 
-## Logging and Token Redaction
+## Tokens in logs
 
 Session tokens are sensitive routing credentials. All log and audit entries redact tokens to their first 8 characters (e.g., `abcdef12...`) using the `redactToken()` helper. This applies to:
 
@@ -210,7 +236,7 @@ Session tokens are sensitive routing credentials. All log and audit entries reda
 
 Kubernetes deploys create or reuse Secrets via [`cd.yml`](../../.github/workflows/cd.yml).
 
-## Certificate Hierarchy
+## Certificates
 
 ```
 OpenGate CA (ECDSA P-256, self-signed, 10yr)
@@ -219,7 +245,7 @@ OpenGate CA (ECDSA P-256, self-signed, 10yr)
 └── MPS cert (RSA 2048, 1yr) — Intel AMT CIRA connections (TLS 1.2+)
 ```
 
-### Agent Certificate Lifecycle (CSR-Based Enrollment)
+### Agent certificates
 
 On first boot, the agent obtains a CA-signed certificate via CSR-based enrollment:
 
@@ -234,9 +260,9 @@ On subsequent restarts, the agent loads its saved identity (`device_id.txt`, `ag
 
 The MPS certificate uses RSA 2048 because Intel AMT firmware does not support ECDSA. Despite using a different key algorithm, it is signed by the same ECDSA CA. The MPS TLS listener allows TLS 1.2+ (vs TLS 1.3 for QUIC) to support AMT 11.0+ firmware (2015+).
 
-## Key Dependencies
+## Main dependencies
 
-### Go (Server)
+### Server (Go)
 
 | Dependency | Purpose |
 |-----------|---------|
@@ -247,7 +273,7 @@ The MPS certificate uses RSA 2048 because Intel AMT firmware does not support EC
 | `jackc/pgx/v5` | Pure-Go PostgreSQL driver (stdlib adapter used by `database/sql`) |
 | `vmihailenco/msgpack/v5` | MessagePack codec |
 
-### Rust (Agent)
+### Agent (Rust)
 
 | Dependency | Purpose |
 |-----------|---------|
@@ -261,7 +287,7 @@ The MPS certificate uses RSA 2048 because Intel AMT firmware does not support EC
 | `async-trait` 0.1 | Object-safe async traits (`ScreenCapture`) |
 | `criterion` 0.8 | Benchmarking (dev) |
 
-### Web (Frontend)
+### Web client (TypeScript)
 
 | Dependency | Purpose |
 |-----------|---------|

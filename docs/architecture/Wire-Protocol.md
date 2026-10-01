@@ -1,6 +1,19 @@
 # Wire Protocol
 
-## Frame Format
+- [Frame format](#frame-format)
+  - [Frame types](#frame-types)
+- [Handshake](#handshake)
+- [Control messages](#control-messages)
+  - [Message variants](#message-variants)
+  - [Alert rules, breaches and coverage](#alert-rules-breaches-and-coverage)
+  - [Alerts and their evidence](#alerts-and-their-evidence)
+  - [Capabilities](#capabilities)
+  - [Log entries](#log-entries)
+  - [Data frame types](#data-frame-types)
+- [Rust and Go compatibility](#rust-and-go-compatibility)
+  - [Where the fixtures live](#where-the-fixtures-live)
+
+## Frame format
 
 All control messages are wrapped in a framed transport:
 
@@ -11,7 +24,7 @@ All control messages are wrapped in a framed transport:
 └──────────────┴─────────────────────┴───────────────────────┘
 ```
 
-### Frame Types
+### Frame types
 
 | Type Byte | Name | Payload |
 |-----------|------|---------|
@@ -51,7 +64,7 @@ reject `0x12` and `0x13`. The canonical constants live in
 [`server/internal/protocol/types.go`](../../server/internal/protocol/types.go) and
 [`agent/crates/mesh-protocol/src/types/handshake.rs`](../../agent/crates/mesh-protocol/src/types/handshake.rs).
 
-## Control Messages
+## Control messages
 
 After the handshake, all control messages use MessagePack encoding with internally tagged enums:
 
@@ -73,7 +86,7 @@ the agent connection. The Rust protocol crate decodes unknown server-to-agent
 tags into `ControlMessage::Unknown`, allowing the agent control loop to ignore
 the frame and continue. Malformed frames and oversized payloads remain fatal.
 
-### Control Message Variants
+### Message variants
 
 | Variant | Direction | Fields |
 |---------|-----------|--------|
@@ -349,7 +362,7 @@ each to signal what it emits — `DiscoveryReport` inventory and self-contained
 Tolerant unknown-message decoding is a backstop for mixed fleets; capability
 gating is the primary safety mechanism.
 
-### LogEntry Struct
+### Log entries
 
 The `DeviceLogsResponse` message carries an array of `LogEntry` structs:
 
@@ -362,7 +375,7 @@ The `DeviceLogsResponse` message carries an array of `LogEntry` structs:
 
 The agent parses daily-rotated log files written by `tracing-subscriber` and returns matching entries. The server redacts known secrets from the bounded response and streams it straight back to the requesting administrator; nothing is persisted centrally (see [ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md)).
 
-### Data Frame Types
+### Data frame types
 
 **DesktopFrame**: `sequence`, `x`, `y`, `width`, `height`, `encoding` (Raw/Zlib/Zstd/Jpeg/H264Idr/H264Delta), `data` (raw bytes)
 
@@ -370,7 +383,7 @@ The agent parses daily-rotated log files written by `tracing-subscriber` and ret
 
 **FileFrame**: `offset`, `total_size`, `data` (raw bytes, 256 KiB chunks). The browser sends a `FileDownloadRequest` control message, then the agent streams back FileFrame chunks. The browser accumulates chunks via `DownloadAccumulator` and on completion either triggers a browser download (save-to-disk) or displays the content in an in-browser file viewer. Empty files produce a single frame with `total_size: 0` and empty `data`.
 
-## Cross-Language Compatibility
+## Rust and Go compatibility
 
 Golden file tests guarantee bit-identical encoding between Rust and Go:
 
@@ -392,7 +405,7 @@ fixtures are included for both agent-to-server and server-to-agent compatibility
 The CI pipeline sequences the golden verification job after the Rust test job
 to ensure fixtures are always freshly generated.
 
-### Fixture Location
+### Where the fixtures live
 
 ```
 testdata/golden/

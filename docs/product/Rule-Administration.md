@@ -1,5 +1,19 @@
 # Rule Administration
 
+- [Screens](#screens)
+- [What cannot be changed here](#what-cannot-be-changed-here)
+- [The rule list](#the-rule-list)
+  - [The noise badge](#the-noise-badge)
+- [The rule page](#the-rule-page)
+  - [What it does](#what-it-does)
+  - [Tuning](#tuning)
+  - [Coverage](#coverage)
+  - [Rollout](#rollout)
+- [Labels](#labels)
+- [Alert limits](#alert-limits)
+- [Who may do what](#who-may-do-what)
+- [Related](#related)
+
 The operator surface for curated detection: what each rule watches, what a
 customer has retuned, how far the rule has reached, and the switch that stops it.
 

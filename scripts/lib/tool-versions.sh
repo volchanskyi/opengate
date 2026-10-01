@@ -38,11 +38,18 @@
 # the image makes every one of those a decision that lands in a diff.
 export TOOL_RUNNER_IMAGE="ubuntu-24.04"
 
-# --- run by the workstation AND by CI ----------------------------------------
+# --- run by the gauntlet AND by CI -------------------------------------------
 #
 # Drift in this half is the expensive kind: the gauntlet and the pipeline run the
 # same check against different tools, so the gate is green here and red there
-# with nothing in the change to explain either.
+# with nothing in the change to explain either. Every row here is held on both
+# sides: in CI by scripts/tests/tool-version-parity.test.sh, and on the
+# workstation by scripts/lib/toolchain-parity.sh, which refuses to start the
+# gauntlet on a tool that is not its pin.
+#
+# govulncheck is why the workstation half exists. The pin crashed under the Go
+# the module moved to; the workstation had been moved past it by hand and went
+# on passing, while CI crashed on most runs and a retry loop let the rest pass.
 export TOOL_VERSION_SHELLCHECK="0.11.0"
 export TOOL_VERSION_SHFMT="3.13.1"
 export TOOL_VERSION_SEMGREP="1.108.0"
@@ -55,7 +62,7 @@ export TOOL_VERSION_GO_ARCH_LINT="1.19.0"
 export TOOL_VERSION_CARGO_AUDIT="0.22.1"
 export TOOL_VERSION_CARGO_DENY="0.19.6"
 export TOOL_VERSION_CARGO_MODULES="0.26.0"
-export TOOL_VERSION_GOVULNCHECK="1.1.4"
+export TOOL_VERSION_GOVULNCHECK="1.8.0"
 export TOOL_VERSION_OAPI_CODEGEN="2.6.0"
 # The endurance run compresses and encrypts its core dump with these, the shell
 # tests prove the round trip with them, and the maintainer opens a dump with
@@ -63,46 +70,43 @@ export TOOL_VERSION_OAPI_CODEGEN="2.6.0"
 # from its release source on both sides (scripts/install-dump-tools.sh).
 export TOOL_VERSION_AGE="1.3.2"
 export TOOL_VERSION_ZSTD="1.5.7"
-
-# --- run by CI alone ---------------------------------------------------------
-#
-# These cannot produce the skew above, because the workstation never runs them.
-# They are pinned for the other reason: a tool that resolves itself at run time
-# is a tool whose output can change on a night nobody touched the repository,
-# and the failure surfaces as a finding in a job whose subject is something else.
+# The infrastructure lints `make lint-deploy` runs.
 export TOOL_VERSION_HADOLINT="2.12.0"
 export TOOL_VERSION_HELM="3.16.3"
-# The Oracle CLI every cluster-reaching job signs in through. It was installed by
-# bare name inside a shared action, which the parity sweep did not read.
-export TOOL_VERSION_OCI_CLI="3.94.1"
 export TOOL_VERSION_KUBECONFORM="0.6.7"
 export TOOL_VERSION_CONFTEST="0.55.0"
 export TOOL_VERSION_CHECKOV="3.3.16"
 export TOOL_VERSION_TFLINT="0.64.0"
 export TOOL_VERSION_TRIVY="0.70.0"
+# These were resolving themselves. The Makefile told six tools to install at
+# whatever version came out that day and the fuzz and CI workflows fetched three
+# more by bare name. It is not theoretical: staticcheck stopped working outright
+# when the Go it had been built with fell behind the code it analyses, and the
+# failure surfaced inside a gauntlet step whose subject is dead code.
+export TOOL_VERSION_STATICCHECK="0.8.1"
+export TOOL_VERSION_GOSEC="2.29.0"
+export TOOL_VERSION_CARGO_NEXTEST="0.9.129"
+export TOOL_VERSION_CARGO_LLVM_COV="0.8.5"
+
+# --- run by CI, and by hand — never by the gauntlet ---------------------------
+#
+# These cannot produce the skew above, because no gate runs them on both sides.
+# They are pinned for the other reason: a tool that resolves itself at run time
+# is a tool whose output can change on a night nobody touched the repository,
+# and the failure surfaces as a finding in a job whose subject is something else.
+#
+# The Oracle CLI every cluster-reaching job signs in through. It was installed by
+# bare name inside a shared action, which the parity sweep did not read.
+export TOOL_VERSION_OCI_CLI="3.94.1"
 export TOOL_VERSION_K6="v1.6.1"
 export TOOL_VERSION_CARGO_MUTANTS="27.0.0"
 export TOOL_VERSION_GREMLINS="0.6.0"
+export TOOL_VERSION_CARGO_FUZZ="0.13.2"
 # viewcore reads a core dump as a Go heap, which is how the endurance run follows
 # what holds a leaked object rather than where it was allocated. It has no
 # tagged releases, so the pin is the commit — which is the same statement every
 # other row makes, spelled the way this module publishes versions.
 export TOOL_VERSION_VIEWCORE="v0.0.0-20260908162731-ac862fd6552b"
-
-# --- installed by the workstation, and by CI through an action ----------------
-#
-# These were resolving themselves. The Makefile told six tools to install at
-# whatever version came out that day and the fuzz and CI workflows fetched three
-# more by bare name, so nine installs had chosen a version on somebody's behalf —
-# three of them contradicting a row above. It is not theoretical: staticcheck
-# stopped working outright when the Go it had been built with fell behind the
-# code it analyses, and the failure surfaced inside a gauntlet step whose subject
-# is dead code.
-export TOOL_VERSION_STATICCHECK="0.8.1"
-export TOOL_VERSION_GOSEC="2.29.0"
-export TOOL_VERSION_CARGO_FUZZ="0.13.2"
-export TOOL_VERSION_CARGO_NEXTEST="0.9.129"
-export TOOL_VERSION_CARGO_LLVM_COV="0.8.5"
 
 # --- deliberately floating ---------------------------------------------------
 #

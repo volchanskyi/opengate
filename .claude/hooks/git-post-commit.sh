@@ -12,8 +12,11 @@
 # background — so the push is deterministic and independent of harness timing.
 #
 # The push is a subprocess of `git commit`, not a Claude tool call, so the Claude
-# push-guard never intercepts it. The refactor marker is refreshed to HEAD so a
-# later MANUAL `git push` tool call also satisfies the push-guard.
+# push-guard never intercepts it. So it pushes only what that guard would let
+# through: a commit whose content /refactor finished on, after a gauntlet pass
+# (lib/tidy-up.sh). That commit is written into the refactor marker, which a
+# later MANUAL `git push` tool call is checked against. A commit with no such
+# proof gets neither the marker nor the push.
 #
 # Safe by construction: only branch `dev`; never under CI; re-entrancy-guarded;
 # never fails the commit (post-commit exit codes are ignored by git, and we exit
@@ -63,11 +66,21 @@ if [ "$branch" != "dev" ]; then
   exit 0
 fi
 
-# 5. Refresh the refactor marker to HEAD now, so a later manual `git push` tool
-#    call passes the push-guard even if the push below cannot reach the remote.
-mkdir -p .claude/.markers
-git rev-parse HEAD >.claude/.markers/refactor.head
-dbg "marker written: $(cat .claude/.markers/refactor.head)"
+# 5. Only a commit of the content /refactor finished on, after a gauntlet pass,
+#    is marked or pushed. The commit leaves the work tree as it was, so the
+#    proof still names what is on disk exactly when the commit carried it.
+# shellcheck source=lib/tidy-up.sh
+source "$root/.claude/hooks/lib/tidy-up.sh"
+if ! tidy_done_matches; then
+  dbg "exit: no finished /refactor for this content"
+  echo "auto-push skipped: no finished /refactor for the content this commit was made from. Run ./scripts/precommit-gauntlet.sh to a pass, then /refactor, then push."
+  exit 0
+fi
+
+# Marked now, so a later manual `git push` tool call passes the push-guard even
+# if the push below cannot reach the remote.
+tidy_write refactor.head "$(git rev-parse HEAD)"
+dbg "marker written: $(tidy_read refactor.head)"
 
 # 6. Rebase onto the latest dev; abort cleanly on conflict (never leave a
 #    half-rebase). A rebase that replays our commit changes HEAD, so re-point the
@@ -78,8 +91,8 @@ if ! git pull --rebase origin dev; then
   echo "auto-push aborted: 'git pull --rebase origin dev' failed — resolve and push manually"
   exit 0
 fi
-git rev-parse HEAD >.claude/.markers/refactor.head
-dbg "rebased; marker now $(cat .claude/.markers/refactor.head)"
+tidy_write refactor.head "$(git rev-parse HEAD)"
+dbg "rebased; marker now $(tidy_read refactor.head)"
 
 if git push origin dev; then
   dbg "pushed ok"

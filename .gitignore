@@ -77,7 +77,10 @@ server/coverage*.out
 # Python
 __pycache__/
 
-# Local-state marker files: ignore the refactor head pointer only.
+# Local-state marker files: the tidy-up proof (.claude/hooks/lib/tidy-up.sh).
 # Tracked subdirectories under .claude/.markers/ (e.g. arch-lint-flipped/
 # per ADR-020) must NOT be ignored.
 /.claude/.markers/*.head
+/.claude/.markers/gauntlet.pass
+/.claude/.markers/refactor.start
+/.claude/.markers/refactor.done

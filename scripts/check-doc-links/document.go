@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	atxHeadingPattern = regexp.MustCompile(`^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$`)
+	atxHeadingPattern = regexp.MustCompile(`^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$`)
 	setextPattern     = regexp.MustCompile(`^ {0,3}(=+|-+)[ \t]*$`)
 	htmlAnchorPattern = regexp.MustCompile(`(?i)<a[ \t]+[^>]*(?:id|name)=["']([^"']+)["'][^>]*>`)
 	htmlTagPattern    = regexp.MustCompile(`<[^>]+>`)
@@ -30,12 +30,13 @@ func parseDocument(content []byte, markdown bool) document {
 	for index := range lines {
 		parser.consume(lines, index)
 	}
-	return document{LineCount: lineCount, Anchors: parser.anchors}
+	return document{LineCount: lineCount, Anchors: parser.anchors, Headings: parser.headings}
 }
 
 type documentParser struct {
 	anchors       map[string]struct{}
 	headingCounts map[string]int
+	headings      []heading
 	fence         fenceState
 }
 
@@ -45,7 +46,8 @@ func (p *documentParser) consume(lines [][]byte, index int) {
 		return
 	}
 	p.addHTMLAnchors(line)
-	p.addHeading(headingAt(lines, index))
+	text, level := headingAt(lines, index)
+	p.addHeading(index+1, level, text)
 }
 
 func (p *documentParser) addHTMLAnchors(line string) {
@@ -54,28 +56,35 @@ func (p *documentParser) addHTMLAnchors(line string) {
 	}
 }
 
-func (p *documentParser) addHeading(heading string) {
-	baseAnchor := slugifyHeading(heading)
-	if baseAnchor == "" {
+func (p *documentParser) addHeading(lineNumber, level int, text string) {
+	anchor := slugifyHeading(text)
+	if anchor == "" {
 		return
 	}
-	count := p.headingCounts[baseAnchor]
-	p.headingCounts[baseAnchor] = count + 1
+	count := p.headingCounts[anchor]
+	p.headingCounts[anchor] = count + 1
 	if count > 0 {
-		baseAnchor = fmt.Sprintf("%s-%d", baseAnchor, count)
+		anchor = fmt.Sprintf("%s-%d", anchor, count)
 	}
-	p.anchors[baseAnchor] = struct{}{}
+	p.anchors[anchor] = struct{}{}
+	p.headings = append(p.headings, heading{Line: lineNumber, Level: level, Text: text, Anchor: anchor})
 }
 
-func headingAt(lines [][]byte, index int) string {
+// headingAt returns the text and level of the heading on a line, or "" when the
+// line is none.
+func headingAt(lines [][]byte, index int) (string, int) {
 	line := string(lines[index])
 	if match := atxHeadingPattern.FindStringSubmatch(line); match != nil {
-		return match[1]
+		return match[2], len(match[1])
 	}
 	if index > 0 && setextPattern.MatchString(line) {
-		return string(lines[index-1])
+		level := 2
+		if strings.HasPrefix(strings.TrimSpace(line), "=") {
+			level = 1
+		}
+		return string(lines[index-1]), level
 	}
-	return ""
+	return "", 0
 }
 
 func countLines(content []byte) int {

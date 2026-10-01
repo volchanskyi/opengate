@@ -1,23 +1,32 @@
 name: Docs Validate
 
-# Mermaid syntax validation. Catches a malformed fence (including experimental
-# C4) before GitHub would render an error box. The same validator runs as a
-# step in the local precommit gauntlet, so this job is the CI backstop. The
-# validator uses the official Mermaid parser pinned in
-# tools/mermaid-validate/package-lock.json; GitHub's renderer is the
-# authoritative check, this job is a fast pre-filter.
+# Two checks the local precommit gauntlet also runs, so these jobs are the CI
+# backstop.
+#
+# Mermaid syntax: catches a malformed fence (including experimental C4) before
+# GitHub would render an error box. The validator uses the official Mermaid
+# parser pinned in tools/mermaid-validate/package-lock.json; GitHub's renderer is
+# the authoritative check, this job is a fast pre-filter.
+#
+# Links and contents: every repository link under docs/ and .claude/ resolves,
+# anchors included, and every page under docs/ except the decision records opens
+# with a contents list that matches its headings (scripts/check-doc-links).
 
 on:
   push:
     branches: [dev]
     paths:
       - 'docs/**'
+      - '.claude/**'
+      - 'scripts/check-doc-links/**'
       - 'tools/mermaid-validate/**'
       - '.github/workflows/docs-validate.yml'
   pull_request:
     branches: [main, dev]
     paths:
       - 'docs/**'
+      - '.claude/**'
+      - 'scripts/check-doc-links/**'
       - 'tools/mermaid-validate/**'
       - '.github/workflows/docs-validate.yml'
   workflow_dispatch:
@@ -44,3 +53,19 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Validate Mermaid fences under docs/
         run: node validate-mermaid.mjs ../../docs
+
+  links-and-contents:
+    name: Links and Contents
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          # A standalone program with no module, so there is nothing to cache.
+          cache: false
+      - name: Every link resolves and every page opens with its contents
+        run: GO111MODULE=off go run ./scripts/check-doc-links

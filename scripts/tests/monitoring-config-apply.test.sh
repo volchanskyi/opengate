@@ -198,6 +198,7 @@ run_apply() {
     FAKE_KUBECTL_CALLS="$WORK/calls" \
     FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
     TELEGRAM_CHAT_ID="-1001234567890" \
+    MONITORING_NAMESPACE=monitoring \
     MONITORING_RELOAD_INTERVAL=0 \
     MONITORING_READBACK_WAIT=0 \
     bash "$APPLY" "$@" >"$out" 2>&1
@@ -329,6 +330,7 @@ if PATH="$WORK/bin:$PATH" \
   FAKE_KUBECTL_CALLS="$WORK/calls" \
   FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
   TELEGRAM_CHAT_ID='"-1001234567890"' \
+  MONITORING_NAMESPACE=monitoring \
   bash "$APPLY" >"$OUT" 2>&1; then
   fail "a chat id carrying its own quotes is refused"
 else
@@ -344,10 +346,56 @@ if PATH="$WORK/bin:$PATH" \
   FAKE_KUBECTL_CALLS="$WORK/calls" \
   FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
   TELEGRAM_CHAT_ID='' \
+  MONITORING_NAMESPACE=monitoring \
   bash "$APPLY" >"$OUT" 2>&1; then
   fail "an absent chat id is refused rather than provisioned empty"
 else
   pass "an absent chat id is refused rather than provisioned empty"
+fi
+
+# --- the deploy job's own namespace does not move the monitoring stack --------
+#
+# A step inherits its job's environment, and the production deploy job names
+# its own release in NAMESPACE and RELEASE. An applier that took its namespace
+# from a name that general wrote the three ConfigMaps into the application's
+# namespace, restarted a Grafana that does not run there, and on the retry found
+# them "unchanged" and asked a store that does not run there either — while the
+# monitoring namespace kept its old dashboards and rules.
+rm -f "$WORK"/state/*.json
+store_loaded_declared
+OUT="$WORK/production-env.out"
+if NAMESPACE=opengate RELEASE=opengate run_apply accept "$OUT"; then
+  pass "the production deploy job's environment applies cleanly"
+else
+  fail "the production deploy job's environment applies cleanly (out=[$(cat "$OUT")])"
+fi
+elsewhere="$(grep -vE '^-n monitoring |/api/v1/namespaces/monitoring/' "$WORK/calls" || true)"
+if [ -s "$WORK/calls" ] && [ -z "$elsewhere" ] \
+  && grep -qE '^-n monitoring (get|apply)' "$WORK/calls" \
+  && grep -qF '/api/v1/namespaces/monitoring/' "$WORK/calls"; then
+  pass "and every call it makes addresses the monitoring namespace"
+else
+  fail "and every call it makes addresses the monitoring namespace (elsewhere=[$elsewhere])"
+fi
+
+# The namespace is named by the caller, never defaulted: a default is what let
+# a general name from the job decide where the stack was looked for.
+rm -f "$WORK"/state/*.json
+: >"$WORK/calls"
+OUT="$WORK/nonamespace.out"
+if env -u MONITORING_NAMESPACE PATH="$WORK/bin:$PATH" \
+  FAKE_KUBECTL_MODE=accept \
+  FAKE_KUBECTL_STATE="$WORK/state" \
+  FAKE_KUBECTL_CALLS="$WORK/calls" \
+  FAKE_KUBECTL_WORKLOADS="$WORK/workloads" \
+  TELEGRAM_CHAT_ID="-1001234567890" \
+  NAMESPACE=monitoring \
+  bash "$APPLY" >"$OUT" 2>&1; then
+  fail "an unnamed monitoring namespace is refused"
+elif grep -qF 'MONITORING_NAMESPACE' "$OUT" && [ ! -s "$WORK/calls" ]; then
+  pass "an unnamed monitoring namespace is refused by name, before the cluster is touched"
+else
+  fail "an unnamed monitoring namespace is refused by name, before the cluster is touched (out=[$(cat "$OUT")] calls=[$(cat "$WORK/calls")])"
 fi
 
 # --- a second run over an up-to-date cluster changes nothing ------------------

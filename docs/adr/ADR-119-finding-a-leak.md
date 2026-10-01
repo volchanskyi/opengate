@@ -78,7 +78,7 @@ private key or anything but a native age recipient. The private half exists only
 on the maintainer's machine, never in the repository's secrets, so no workflow
 can open a dump. A native age key rather than an SSH one, because an SSH
 recipient leaves a marker of the key in every file it encrypts. How to open one
-is in [Testing](../infrastructure/Testing.md#opening-a-soak-dump). The program
+is in [Non-Functional Testing](../infrastructure/Non-Functional-Testing.md#opening-a-soak-dump). The program
 copy travels in the plain bundle: it is built from public source.
 
 **The reader is proved against the toolchain whenever either moves.** It reads

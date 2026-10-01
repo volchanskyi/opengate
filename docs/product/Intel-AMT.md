@@ -1,5 +1,10 @@
 # Intel AMT
 
+- [What it gives you](#what-it-gives-you)
+- [Enabling AMT on a machine](#enabling-amt-on-a-machine)
+- [What you can see about AMT](#what-you-can-see-about-amt)
+- [Related](#related)
+
 Some business-class machines carry Intel Active Management Technology — hardware
 that answers even when the operating system does not. OpenGate treats AMT as a
 property of a managed device, so a technician acts on it from the device's own
@@ -57,4 +62,4 @@ available at all are part of the machine's hardware inventory — see
 
 - [Agent Deployment](./Agent-Deployment.md) — the same setup page, for the agent itself
 - [Remote Sessions](./Remote-Sessions.md) — taking over a machine whose OS is running
-- [System Architecture](../architecture/System-Architecture.md#intel-amt-management-presence-server-mps) — how a device dials in
+- [System Architecture](../architecture/System-Architecture.md#intel-amt-presence-server) — how a device dials in

@@ -23,8 +23,11 @@
 # anything at all.
 #
 # Environment:
-#   TELEGRAM_CHAT_ID  (required) the chat alerts are routed to
-#   NAMESPACE                    where the monitoring stack runs (default monitoring)
+#   TELEGRAM_CHAT_ID      (required) the chat alerts are routed to
+#   MONITORING_NAMESPACE  (required) where the monitoring stack runs. Named by
+#                         the caller rather than defaulted, and never NAMESPACE:
+#                         a deploy job sets that for its own release, and a step
+#                         inherits it.
 #   MONITORING_RELOAD_INTERVAL   seconds between reloads while the store catches
 #                                up with its ConfigMap (default 10)
 #   MONITORING_READBACK_WAIT     how long the panel and rule checks wait for a
@@ -33,7 +36,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-NAMESPACE="${NAMESPACE:-monitoring}"
+: "${MONITORING_NAMESPACE:?MONITORING_NAMESPACE must name the namespace the monitoring stack runs in}"
 
 ALERTING_DIR="$REPO_ROOT/deploy/grafana/provisioning/alerting"
 DASHBOARD_DIR="$REPO_ROOT/deploy/grafana/provisioning/dashboards"
@@ -41,7 +44,7 @@ SCRAPE_FILE="$REPO_ROOT/deploy/helm/monitoring/files/vmagent-scrape.yaml"
 STREAM_AGGR_FILE="$REPO_ROOT/deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml"
 
 READBACK="$SCRIPT_DIR/monitoring-readback.py"
-STORE_PROXY="/api/v1/namespaces/$NAMESPACE/services/monitoring-victoriametrics:8428/proxy"
+STORE_PROXY="/api/v1/namespaces/$MONITORING_NAMESPACE/services/monitoring-victoriametrics:8428/proxy"
 RELOAD_INTERVAL="${MONITORING_RELOAD_INTERVAL:-10}"
 # A ConfigMap reaches a mounted file within the kubelet's sync period, about a
 # minute, so twelve reloads ten seconds apart outlast it twice.
@@ -95,7 +98,7 @@ cp "$STREAM_AGGR_FILE" "$WORK/monitoring-victoriametrics-scrape/stream-aggr.yml"
 # live_json NAME — what the cluster holds, or nothing when it holds no such
 # ConfigMap.
 live_json() {
-  kubectl -n "$NAMESPACE" get configmap "$1" -o json 2>/dev/null || true
+  kubectl -n "$MONITORING_NAMESPACE" get configmap "$1" -o json 2>/dev/null || true
 }
 
 # desired_json NAME — the ConfigMap this run wants the cluster to hold. The live
@@ -124,7 +127,7 @@ for name in grafana-alerting grafana-dashboards monitoring-victoriametrics-scrap
     continue
   fi
 
-  printf '%s' "$desired" | kubectl -n "$NAMESPACE" apply -f - >/dev/null
+  printf '%s' "$desired" | kubectl -n "$MONITORING_NAMESPACE" apply -f - >/dev/null
 
   # The read-back. The warning text is not the signal — a refused apply prints
   # one and exits zero, and it changes when the tooling does. What comes back
@@ -154,8 +157,8 @@ for name in "${changed[@]:-}"; do
 done
 
 for workload in $(printf '%s\n' "${readers[@]:-}" | sort -u); do
-  kubectl -n "$NAMESPACE" rollout restart "$workload" >/dev/null
-  kubectl -n "$NAMESPACE" rollout status "$workload" --timeout=300s >/dev/null
+  kubectl -n "$MONITORING_NAMESPACE" rollout restart "$workload" >/dev/null
+  kubectl -n "$MONITORING_NAMESPACE" rollout status "$workload" --timeout=300s >/dev/null
   echo "restarted $workload so it reads what it was just given"
 done
 
@@ -195,9 +198,9 @@ else
 fi
 
 # --- and whether anything reads nothing ---------------------------------------
-python3 "$READBACK" panels "$DASHBOARD_DIR" --wait "$READBACK_WAIT" \
+VM_NAMESPACE="$MONITORING_NAMESPACE" python3 "$READBACK" panels "$DASHBOARD_DIR" --wait "$READBACK_WAIT" \
   || refuse "a dashboard panel answers nothing and does not say what empty means; each is named above."
 echo "every panel answers, in each environment it is read in."
-python3 "$READBACK" coverage "$ALERTING_DIR/alert-rules.yml" --wait "$READBACK_WAIT" \
+VM_NAMESPACE="$MONITORING_NAMESPACE" python3 "$READBACK" coverage "$ALERTING_DIR/alert-rules.yml" --wait "$READBACK_WAIT" \
   || refuse "a production alert rule reads a series the store does not hold; each is named above."
 echo "every production rule reads a series the store holds."

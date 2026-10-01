@@ -1,5 +1,11 @@
 # Shell Quality
 
+- [Commands](#commands)
+- [Tools](#tools)
+- [Execution classes](#execution-classes)
+- [Tests](#tests)
+- [Bash or Go](#bash-or-go)
+
 OpenGate uses Bash for repository automation, hooks, deployment helpers,
 installers, and observability transport. Quality is enforced by one pinned,
 offline validation path rather than by reducing the Shell language share.
@@ -18,7 +24,7 @@ The canonical runner is [`scripts/shell-quality.sh`](../../scripts/shell-quality
 It enumerates files through Git, so generated, ignored, and temporary files do
 not alter the full-repository result.
 
-## Tooling Policy
+## Tools
 
 [`scripts/lib/tool-versions.sh`](../../scripts/lib/tool-versions.sh) is the one
 place a tool version is written down.
@@ -45,7 +51,7 @@ machine actually resolves on its PATH.
 - Composite-action logic lives in adjacent tracked scripts under
   [`.github/actions/`](../../.github/actions) rather than multiline YAML blocks.
 
-## Execution Classes
+## Execution classes
 
 Every tracked Bash file has one enforced execution class:
 
@@ -64,7 +70,7 @@ Enforcement runs in the
 [`Config Lint` CI job](../../.github/workflows/ci.yml), and the
 [post-write agent hook](../../.claude/hooks/posttooluse-shell-quality.sh).
 
-## Behavioral Tests
+## Tests
 
 Shell tests use plain Bash and offline command stubs. Stubs make real control
 flow executable without OCI, Kubernetes, Docker, systemd, or network access;

@@ -1,5 +1,17 @@
 # OpenGate Documentation
 
+- [Why docs live in the repo](#why-docs-live-in-the-repo)
+- [Conventions](#conventions)
+  - [1. Link, don't paraphrase](#1-link-dont-paraphrase)
+  - [2. Every ADR describes live state](#2-every-adr-describes-live-state)
+  - [3. No paraphrased ADR bodies](#3-no-paraphrased-adr-bodies)
+  - [4. Mermaid diagrams only](#4-mermaid-diagrams-only)
+    - [C4 diagrams](#c4-diagrams)
+    - [Required diagrams](#required-diagrams)
+  - [5. Every page opens with its contents](#5-every-page-opens-with-its-contents)
+- [Directory layout](#directory-layout)
+- [Keeping docs in sync with code](#keeping-docs-in-sync-with-code)
+
 Canonical developer documentation for the OpenGate remote device management
 platform. All long-form docs live here, in the same git repo as the code they
 describe.
@@ -18,7 +30,7 @@ the normal CI rather than as a separate push.
 
 ---
 
-## Documentation conventions
+## Conventions
 
 ### 1. Link, don't paraphrase
 
@@ -113,10 +125,9 @@ graphs from source.
 
 Every `mermaid` fence is syntax-checked in CI by the `Docs Validate` workflow
 ([`docs-validate.yml`](../.github/workflows/docs-validate.yml)) using the official
-Mermaid parser. The local gauntlet stays grep-only; all Mermaid parsing runs in
-CI.
+Mermaid parser, and the local gauntlet runs the same parser before every commit.
 
-#### C4 architecture diagrams
+#### C4 diagrams
 
 The rationale for everything in this section — C4 adoption, the render gate, the
 CI validator, the drift guard, and the coverage standard — is recorded in
@@ -146,7 +157,7 @@ In practice native C4 overlaps its relationship labels on GitHub, so the
 Architecture context and container views use this `flowchart` fallback today
 (keep node labels short and wrap long ones with `<br/>` so they fit their boxes).
 
-#### Diagram coverage standard
+#### Required diagrams
 
 The docs must carry at least these diagrams; each is pinned by
 [`scripts/tests/docs-diagrams.test.sh`](../scripts/tests/docs-diagrams.test.sh)
@@ -170,6 +181,20 @@ so it cannot be dropped silently:
 
 New cross-component behavior of one of these kinds ships with the matching
 diagram (and its pin) updated in the same change.
+
+### 5. Every page opens with its contents
+
+Every page under `docs/` except the decision records starts, right after its
+title, with a list linking each `##`, `###` and `####` heading in order, nested
+one level per heading level. Headings are short, plain and unique on their page,
+so the list reads as the page's outline and each anchor is one a link can rely
+on.
+
+[`check-doc-links`](../scripts/check-doc-links/) refuses a page whose list has
+fallen behind its headings, before every commit and in the `Docs Validate`
+workflow, and it refuses a link to an anchor that no longer exists — so a
+renamed heading has its links repointed in the same change. Decision records are
+left out: they are read by number rather than navigated.
 
 ---
 

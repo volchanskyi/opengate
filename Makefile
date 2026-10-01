@@ -104,12 +104,12 @@ lint: lint-deploy pentest-review
 	actionlint
 
 shell-check:
-	@command -v shellcheck >/dev/null 2>&1 || { echo "ERROR: shellcheck not found. Run scripts/install-shell-tools.sh"; exit 1; }
-	@command -v shfmt >/dev/null 2>&1 || { echo "ERROR: shfmt not found. Run scripts/install-shell-tools.sh"; exit 1; }
+	@bash scripts/require-tool.sh shellcheck
+	@bash scripts/require-tool.sh shfmt
 	scripts/shell-quality.sh check
 
 shell-fmt:
-	@command -v shfmt >/dev/null 2>&1 || { echo "ERROR: shfmt not found. Run scripts/install-shell-tools.sh"; exit 1; }
+	@bash scripts/require-tool.sh shfmt
 	scripts/shell-quality.sh format
 
 shell-test:
@@ -129,11 +129,11 @@ lint-deploy:
 	terraform -chdir=deploy/terraform fmt -check -recursive
 	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null 2>&1
 	terraform -chdir=deploy/terraform validate
-	@command -v tflint >/dev/null 2>&1 || { echo "ERROR: tflint not found. Install from: https://github.com/terraform-linters/tflint"; exit 1; }
+	@bash scripts/require-tool.sh tflint
 	tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact
 	@$(MAKE) terraform-test
 	cd deploy && docker compose -f docker-compose.test.yml config --quiet
-	@command -v trivy >/dev/null 2>&1 || { echo "ERROR: trivy not found. Install from: https://aquasecurity.github.io/trivy"; exit 1; }
+	@bash scripts/require-tool.sh trivy
 	trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/ \
 	  && trivy config --severity HIGH,CRITICAL --exit-code 1 Dockerfile
 
@@ -201,7 +201,7 @@ test-parse-tfplan:
 # the working tree but pulls in gitignored build artifacts. Pre-commit-side
 # `gitleaks protect --staged` lives in scripts/precommit-gauntlet.sh.
 secrets-scan:
-	@command -v gitleaks >/dev/null 2>&1 || { echo "ERROR: gitleaks not found. Install: https://github.com/gitleaks/gitleaks/releases"; exit 1; }
+	@bash scripts/require-tool.sh gitleaks
 	gitleaks detect --config .gitleaks.toml --no-banner --redact
 
 # L4 — Built-in policy scanning (Checkov, 4 frameworks; secrets framework is
@@ -209,7 +209,7 @@ secrets-scan:
 iac-policy:
 	@bash scripts/require-tool.sh checkov
 	@# The `helm` framework renders deploy/helm/** charts before scanning.
-	@command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found (required by Checkov's helm framework). Install from: https://helm.sh/docs/intro/install/"; exit 1; }
+	@bash scripts/require-tool.sh helm
 	checkov --config-file .checkov.yaml
 
 # Triage helper: same surface, --soft-fail so the operator can review findings
@@ -221,7 +221,7 @@ iac-policy-fix:
 # (catches BIDI smuggling, layer ordering, pin-missing). Kept as a separate
 # tool so each can be invoked / silenced independently.
 lint-dockerfile:
-	@command -v hadolint >/dev/null 2>&1 || { echo "ERROR: hadolint not found. Install: https://github.com/hadolint/hadolint/releases"; exit 1; }
+	@bash scripts/require-tool.sh hadolint
 	hadolint Dockerfile
 
 # L5 — Project-specific Rego policies (Conftest). Reads JSON-converted plan
@@ -230,7 +230,7 @@ lint-dockerfile:
 # needs the remote backend init (operator-only path); the compose/actions
 # checks run against committed files directly so they always work in CI.
 iac-policy-custom:
-	@command -v conftest >/dev/null 2>&1 || { echo "ERROR: conftest not found. Install: https://github.com/open-policy-agent/conftest/releases"; exit 1; }
+	@bash scripts/require-tool.sh conftest
 	conftest test --policy policy/github_actions .github/workflows/*.yml
 	@# Terraform policy needs a plan-file (HCL2 parser leaves ${var.X} unresolved).
 	@# Operator: terraform plan -out=/tmp/tfplan.binary && terraform show -json /tmp/tfplan.binary > /tmp/tfplan.json
@@ -245,9 +245,9 @@ iac-policy-custom:
 # policy → run it against every overlay's rendered output. Checkov's helm
 # framework runs separately via `make iac-policy`.
 lint-k8s:
-	@command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found. Install from: https://helm.sh/docs/intro/install/"; exit 1; }
-	@command -v kubeconform >/dev/null 2>&1 || { echo "ERROR: kubeconform not found. Install from: https://github.com/yannh/kubeconform/releases"; exit 1; }
-	@command -v conftest >/dev/null 2>&1 || { echo "ERROR: conftest not found. Install: https://github.com/open-policy-agent/conftest/releases"; exit 1; }
+	@bash scripts/require-tool.sh helm
+	@bash scripts/require-tool.sh kubeconform
+	@bash scripts/require-tool.sh conftest
 	helm lint deploy/helm/opengate -f deploy/helm/opengate/ci/test-values.yaml
 	conftest verify --policy policy/k8s
 	@for vals in ci/test-values values-staging values-production; do \
@@ -268,7 +268,7 @@ fmt:
 	cd web && npx prettier --write src/
 
 verify-codegen:
-	@command -v oapi-codegen >/dev/null 2>&1 || { echo "ERROR: oapi-codegen not found in PATH. Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0"; exit 1; }
+	@bash scripts/require-tool.sh oapi-codegen
 	cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go && git diff --exit-code internal/api/openapi_gen.go
 	# The web client generates from the same spec. Without this the TypeScript
 	# types drift silently until the Docker web build type-checks them, which is
@@ -407,7 +407,7 @@ mutate-rust:
 	echo ">> merged Rust mutation report: agent/mutants.out/outcomes.json"
 
 mutate-go:
-	@command -v gremlins >/dev/null 2>&1 || { echo "ERROR: gremlins not found. Install with: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"; exit 1; }
+	@bash scripts/require-tool.sh gremlins
 	@if [ -z "$$POSTGRES_TEST_URL" ]; then \
 	  echo "WARNING: POSTGRES_TEST_URL not set; api/db tests will skip and many mutants will be NOT COVERED."; \
 	  echo "         Start a test Postgres (see .github/workflows/ci.yml) and set:"; \

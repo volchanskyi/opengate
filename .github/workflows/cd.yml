@@ -656,6 +656,7 @@ jobs:
       - name: Give the cluster the monitoring configuration this commit declares
         env:
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          MONITORING_NAMESPACE: monitoring
         run: deploy/scripts/monitoring-config-apply.sh
 
       - name: Port-forward + smoke test

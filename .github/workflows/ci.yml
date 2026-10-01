@@ -755,6 +755,13 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    # The versions the action-installed linters are asked for. Left unset, each
+    # action resolves its own; each equals its row in scripts/lib/tool-versions.sh.
+    # Not TRIVY_*: trivy reads every such variable as one of its own flags.
+    env:
+      PINNED_ACTIONLINT: 1.7.12
+      PINNED_TFLINT: v0.64.0
+      PINNED_TRIVY: v0.70.0
     steps:
       - uses: actions/checkout@v7
         with:
@@ -767,6 +774,7 @@ jobs:
       # GitHub Actions workflow lint
       - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
         with:
+          version: ${{ env.PINNED_ACTIONLINT }}
           flags: -shellcheck=/home/runner/.local/bin/shellcheck
 
       # L2 — Secrets scanning (S1 of iac-security-testing-pyramid plan).
@@ -884,6 +892,7 @@ jobs:
       # Terraform linting
       - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6
         with:
+          tflint_version: ${{ env.PINNED_TFLINT }}
           # Authenticate the tflint release download so it uses the 5000/hr token
           # budget instead of the 60/hr anonymous limit (anonymous fetches
           # intermittently get an HTML rate-limit page instead of the binary).
@@ -917,6 +926,7 @@ jobs:
       - name: Trivy config scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: ${{ env.PINNED_TRIVY }}
           scan-type: config
           scan-ref: deploy/
           severity: HIGH,CRITICAL
@@ -925,6 +935,7 @@ jobs:
       - name: Trivy Dockerfile scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: ${{ env.PINNED_TRIVY }}
           scan-type: config
           scan-ref: Dockerfile
           severity: HIGH,CRITICAL
@@ -1011,19 +1022,15 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Go vulnerability check (with retry)
-        # govulncheck queries the Go vulnerability database over the network;
-        # wrap in retry for github/proxy.golang.org transient failures.
+      - name: Go vulnerability check
+        # The same script the gauntlet runs. The database is fetched with
+        # retries and the scan runs once against that copy: a scan that fails
+        # is a finding or a crash, and a retry would only turn a crash into an
+        # occasional pass.
         run: |
-          set -e
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-          for attempt in 1 2 3; do
-            if (cd server && govulncheck ./...); then exit 0; fi
-            echo "::warning::govulncheck attempt $attempt/3 failed; retrying in $((attempt * 15))s"
-            sleep $((attempt * 15))
-          done
-          echo "::error::govulncheck failed after 3 attempts"
-          exit 1
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          scripts/govulncheck-scan.sh
       - name: Rust vulnerability check (with retry)
         # `cargo audit` clones RustSec/advisory-db on each run; that clone is
         # the typical transient point (observed: github.com IO error talking

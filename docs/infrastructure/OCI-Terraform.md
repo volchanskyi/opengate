@@ -1,12 +1,45 @@
-# Infrastructure
+# OCI and Terraform
+
+- [Cloud provider](#cloud-provider)
+- [Directory layout](#directory-layout)
+- [Terraform resources](#terraform-resources)
+  - [Provisioning](#provisioning)
+  - [State backend](#state-backend)
+    - [Bucket and access setup](#bucket-and-access-setup)
+    - [Backend config](#backend-config)
+    - [Required environment variable](#required-environment-variable)
+    - [Migrating local state](#migrating-local-state)
+    - [Locking](#locking)
+    - [Restoring an earlier state](#restoring-an-earlier-state)
+    - [Credential rotation](#credential-rotation)
+  - [Custom policies](#custom-policies)
+  - [Plan and destroy gate](#plan-and-destroy-gate)
+  - [Drift detection](#drift-detection)
+    - [What happens on drift](#what-happens-on-drift)
+    - [Drift access setup](#drift-access-setup)
+    - [Known interactions](#known-interactions)
+    - [Drift dashboard](#drift-dashboard)
+  - [Operator access](#operator-access)
+    - [Daily flow](#daily-flow)
+    - [Onboarding](#onboarding)
+    - [How it works](#how-it-works)
+    - [Checking it works](#checking-it-works)
+    - [Failure modes](#failure-modes)
+    - [Accepted risks](#accepted-risks)
+- [Runtime stack](#runtime-stack)
+  - [Releases](#releases)
+  - [Network exposure](#network-exposure)
+  - [TLS](#tls)
+- [Secrets](#secrets)
+- [Config validation](#config-validation)
 
 OpenGate uses Terraform for OCI infrastructure and Helm for the OKE runtime. Production and staging deploy through Kubernetes; Docker Compose is used only for local and E2E tests.
 
-## Cloud Provider
+## Cloud provider
 
 Oracle Cloud
 
-## Directory Layout
+## Directory layout
 
 ```
 deploy/
@@ -19,7 +52,7 @@ deploy/
 └── docker-compose.test.yml   # Local/E2E test environment
 ```
 
-## Terraform Resources
+## Terraform resources
 
 The Terraform configuration currently provisions the OKE substrate, networking,
 the human operator access plane, and the off-cluster backup substrate. The
@@ -55,11 +88,11 @@ terraform plan    # review resources
 terraform apply   # provision
 ```
 
-### State Backend
+### State backend
 
 State lives in an OCI Object Storage bucket (`opengate-tfstate`) accessed through the S3-compatible API, **not** on the operator's laptop. This eliminates the laptop-SPOF and gives us versioned rollback for free.
 
-#### One-time bucket and IAM setup (operator)
+#### Bucket and access setup
 
 1. Create the bucket in the same region as the rest of the infrastructure (`us-sanjose-1`):
    - **Versioning ON** — every tfstate write keeps a prior version for rollback.
@@ -74,13 +107,13 @@ State lives in an OCI Object Storage bucket (`opengate-tfstate`) accessed throug
    ```
    Add the secret key to the operator's password manager as backup — OCI does not let you retrieve it after creation.
 
-#### Operator backend config
+#### Backend config
 
 Copy [`backend.tfbackend.example`](../../deploy/terraform/backend.tfbackend.example) to `backend.tfbackend` (gitignored) and substitute the OCI namespace (find it with `oci os ns get --query data --raw-output`). The endpoint becomes `https://<namespace>.compat.objectstorage.us-sanjose-1.oraclecloud.com`.
 
 Then run `terraform init -backend-config=backend.tfbackend` once — Terraform writes the resolved backend config into `.terraform/terraform.tfstate` (gitignored).
 
-#### Required env var on every terraform invocation
+#### Required environment variable
 
 The AWS SDK v2 that backs Terraform's `s3` backend defaults to a flexible-checksum body that uses streaming chunked encoding for `PutObject`. OCI Object Storage's S3-compat rejects it with `501 NotImplemented: AWS chunked encoding not supported`. Set this env var on every `terraform init`/`plan`/`apply` against the remote backend:
 
@@ -90,7 +123,7 @@ export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
 
 `backend "s3" { skip_s3_checksum = true }` in [`deploy/terraform/main.tf`](../../deploy/terraform/main.tf) handles response-side checksum verification; this env var handles the request side. Both are needed. The `terraform-drift` workflow ([`.github/workflows/terraform-drift.yml`](../../.github/workflows/terraform-drift.yml)) sets this env var on its `init` and `plan` steps automatically.
 
-#### Migrating an existing local state (one-time)
+#### Migrating local state
 
 If the working copy still has `terraform.tfstate` on disk, run:
 
@@ -103,11 +136,11 @@ terraform plan                                                    # must report 
 
 Then move the local `terraform.tfstate*` to an offline encrypted backup and delete from the working tree. Keep the offline copy until at least one successful `plan`/`apply` cycle against the bucket confirms it works — that is the rollback path if the bucket is misconfigured.
 
-#### Locking caveat
+#### Locking
 
 OCI Object Storage's S3 emulation has **no DynamoDB-equivalent locking primitive**, so Terraform cannot acquire a state lock the way it would against real S3. As long as OpenGate stays single-operator and applies are infrequent, this is acceptable. **Do not** run two simultaneous `apply`s against the same state — there is no protection from interleaved writes.
 
-#### Rollback (restore a prior tfstate)
+#### Restoring an earlier state
 
 Bucket versioning is the rollback mechanism. To restore an earlier version of `terraform.tfstate`:
 
@@ -133,7 +166,7 @@ Always run `terraform plan` after a restore to confirm the chosen version still 
 
 Generate a new Customer Secret Key for `tf-state-writer`, update `~/.oci/terraform-credentials`, then delete the old key from OCI Console. No Terraform code or state changes required.
 
-### Custom IaC policies
+### Custom policies
 
 Project-specific invariants (Always-Free shape, required tags, image pinning, action SHA-pinning) live in [`policy/`](../../policy) and are enforced via [Conftest](https://www.conftest.dev/) (OPA Rego). Run with `make iac-policy-custom`; full per-policy listing in the directory READMEs. The shape and tag rules ALSO run inside `terraform test` ([`modules/networking/tests/`](../../deploy/terraform/modules/networking/tests), [`modules/oke/tests/`](../../deploy/terraform/modules/oke/tests)) — overlap is deliberate per [ADR-015](../adr/ADR-015-iac-scanning.md).
 
@@ -147,7 +180,7 @@ make iac-policy-custom   # picks up /tmp/tfplan.json automatically
 
 The compose and workflow Rego checks need no plan-file and run unconditionally in CI.
 
-### IaC plan + destroy-blocklist gate
+### Plan and destroy gate
 
 The `iac-gate` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs `terraform plan` against the remote backend on every commit or PR that touches `deploy/terraform/**` (path-filtered inside the job; non-terraform commits skip the terraform steps and complete in ~10 s). It posts a markdown summary — sticky PR comment on PRs, GitHub Job Summary on direct pushes — and **blocks merge** if the plan destroys a protected resource type:
 
@@ -188,7 +221,7 @@ When `plan -refresh-only` returns exit code 2, the workflow:
 
 There is **no auto-remediation**. Drift is investigated by the operator. If the legitimate cause was an operator-side action (e.g. a console click that should become Terraform code), the resolution is to update the config and `apply`; if it was an injection by `cd.yml`, see "Known interactions" below.
 
-#### IAM (one-time, operator)
+#### Drift access setup
 
 The workflow authenticates as a separate read-only IAM user `tf-drift-reader` — distinct from both `tf-state-writer` (T1) and the CD-deploy user. Provision via OCI Console or CLI:
 
@@ -214,14 +247,14 @@ CD uses [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) and 
 OKE API, so a refresh-only Terraform drift represents real OCI drift rather than
 deploy-time churn.
 
-#### Grafana
+#### Drift dashboard
 
 The Prometheus series feeds the provisioned
 [`terraform-drift-trend.json`](../../deploy/grafana/provisioning/dashboards/terraform-drift-trend.json)
 dashboard through VictoriaMetrics. Loki remains available for investigating the
 application and cluster logs around a drift event.
 
-### Operator access via OCI Bastion
+### Operator access
 
 Operator SSH access to the **OKE worker node** goes through the OCI Bastion service, not the static `ssh_allowed_cidr` rule. The dev machine sits on a dynamic ISP-issued IP and updating the CIDR after every ISP rebind was the original pain point — bastion sessions are gated by OCI IAM instead of L4 CIDR, so the dev-machine IP is irrelevant.
 
@@ -240,7 +273,7 @@ Browse to `http://localhost:3000` (Grafana) once `make tunnel` is up. `make ssh`
 
 > **Node-SSH prerequisite:** the OCI Cloud Agent **Bastion plugin** must be `RUNNING` on the worker node for `make ssh`. On OKE *managed* nodes it is not enabled by default — until it is (tracked as a follow-up), use the break-glass path: direct `ssh opc@<node-public-ip>` (the node NSG allows TCP 22 from `ssh_allowed_cidr`).
 
-#### One-time operator onboarding
+#### Onboarding
 
 Per-user — repeat once per new team member.
 
@@ -258,7 +291,7 @@ Per-user — repeat once per new team member.
    - `~/.ssh/id_ed25519` + `.pub` (default path used by the wrapper; override via `BASTION_SSH_KEY` if your key lives elsewhere).
 4. **Run** `make ssh` from a fresh checkout. The wrapper resolves the bastion OCID via `terraform output` and the worker-node OCID + private IP from the cluster node pool (`oci ce node-pool get`); no hand-copied identifiers.
 
-#### Plumbing
+#### How it works
 
 | File | Purpose |
 |---|---|
@@ -268,7 +301,7 @@ Per-user — repeat once per new team member.
 | [`deploy/scripts/bastion-session.sh`](../../deploy/scripts/bastion-session.sh) | Pure-bash + OCI CLI wrapper (`ssh` / `diagnose` / `purge`). Resolves the node from the node pool; caches the active session at `~/.cache/opengate/bastion-session.json` with a 5-min headroom over the 3 h TTL. |
 | `Makefile` `ssh` target | Shells into the wrapper. `make tunnel` is separate — `kubectl port-forward` of the in-cluster monitoring services. |
 
-#### Verification (after `terraform apply`)
+#### Checking it works
 
 ```bash
 # 1. Bastion is ACTIVE
@@ -304,12 +337,12 @@ oci audit event list --compartment-id "$OCI_COMPARTMENT_OCID" \
 | `terraform output -raw bastion_id` returns empty | `terraform apply` not run since the bastion module landed | Re-run `terraform apply`. |
 | `make tunnel` works but Grafana returns 502 | Monitoring pod not Ready | `kubectl -n monitoring get pods`; `kubectl -n monitoring logs deploy/monitoring-grafana`. |
 
-#### Risks (and what we accepted)
+#### Accepted risks
 
 - **3 h session TTL** is an OCI service cap. Long interactive debug sessions must accept a one-time mid-session reconnect — the cache wrapper handles it transparently on the next `make ssh`.
 - **Bastion plugin reliability** — if the plugin stops, Managed SSH fails. Monitor via the existing infrastructure health check; the static `ssh_allowed_cidr` rule remains as a break-glass.
 
-## Runtime Stack
+## Runtime stack
 
 The current runtime is Kubernetes on OKE:
 
@@ -328,7 +361,7 @@ monitoring workloads were Ready; production and staging were running the same
 server image tag from GHCR; ingress-nginx owned the public HTTP(S) load balancer;
 and only the intended three block-backed PVCs existed.
 
-### Application Releases
+### Releases
 
 - **Production** runs in the `opengate` namespace with the production overlay.
   Shared server keys are mounted from the existing Secret, and the production
@@ -340,7 +373,7 @@ and only the intended three block-backed PVCs existed.
 - **Monitoring** runs in the `monitoring` namespace. See
   [Monitoring.md](./Monitoring.md) for the component model and access path.
 
-### Network Exposure
+### Network exposure
 
 Exact port numbers and source ranges live in
 [`deploy/terraform/modules/networking/oke.tf`](../../deploy/terraform/modules/networking/oke.tf)
@@ -362,7 +395,7 @@ and the Helm values files. The high-level model is:
   the app chart values.
 - MPS uses the server's Intel AMT-compatible TLS path.
 
-## Secrets Management
+## Secrets
 
 No secrets are committed to the repository. Runtime secrets enter through three
 surfaces:
@@ -383,7 +416,7 @@ surfaces:
 The exact secret inventory is canonical in the workflow and chart sources rather
 than duplicated here.
 
-## Config Validation
+## Config validation
 
 All deploy configs are statically analyzed in CI by the `Config Lint` job and
 locally through `make lint-deploy` / `make lint-k8s`.

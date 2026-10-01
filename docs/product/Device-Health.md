@@ -1,5 +1,18 @@
 # Device Health
 
+- [The vitals contract](#the-vitals-contract)
+  - [Host resources](#host-resources)
+  - [Stall vitals](#stall-vitals)
+  - [Disk performance](#disk-performance)
+  - [When a reading is unavailable](#when-a-reading-is-unavailable)
+- [Anomaly state](#anomaly-state)
+- [The telemetry pane](#the-telemetry-pane)
+- [Maintenance mode](#maintenance-mode)
+  - [What maintenance does](#what-maintenance-does)
+  - [Using it](#using-it)
+- [Offline machines lose nothing](#offline-machines-lose-nothing)
+- [Related](#related)
+
 Every managed machine measures itself once a second, keeps that history locally,
 and reports a small fixed set of readings to the server. This chapter explains
 what those readings mean, when one is unavailable and why, and what you see on
@@ -46,7 +59,7 @@ watches the same reading.
 > watching the average never fires for the volume that is about to fill. The
 > fullest mount is the one an operator can act on.
 
-### Stall vitals — how long work waited
+### Stall vitals
 
 | Reading | What it means |
 |---|---|
@@ -66,7 +79,7 @@ reads its own container's pressure, never the host's.
 
 > The processor `full` line is not reported: the kernel defines it as always zero.
 
-### Disk performance — is the disk slow?
+### Disk performance
 
 `disk.used_percent` answers "is the disk full". These answer "is it slow", which
 is a different question about a different piece of hardware — capacity belongs to

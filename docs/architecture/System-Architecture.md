@@ -1,5 +1,28 @@
 # System Architecture
 
+- [What the system is](#what-the-system-is)
+- [System context](#system-context)
+- [Containers](#containers)
+- [Drift checks](#drift-checks)
+- [Connections](#connections)
+  - [Agent to server](#agent-to-server)
+    - [Enrollment on first boot](#enrollment-on-first-boot)
+  - [The agent binary](#the-agent-binary)
+  - [Browser to server](#browser-to-server)
+- [Data flow](#data-flow)
+- [The relay](#the-relay)
+  - [Limits and cleanup](#limits-and-cleanup)
+  - [What the relay reports](#what-the-relay-reports)
+  - [Middleware compatibility](#middleware-compatibility)
+- [Session lifecycle](#session-lifecycle)
+  - [Direct connection upgrade](#direct-connection-upgrade)
+  - [Agent session handler](#agent-session-handler)
+- [What the web client is for](#what-the-web-client-is-for)
+- [Notifications](#notifications)
+- [Intel AMT presence server](#intel-amt-presence-server)
+  - [Design decisions](#design-decisions)
+  - [Server flag](#server-flag)
+
 ## What the system is
 
 OpenGate is a three-component platform for remote device management:
@@ -10,7 +33,7 @@ OpenGate is a three-component platform for remote device management:
 | **Server** | Go | Central hub — QUIC + WebSocket + REST API |
 | **Web** | React/TypeScript | Browser-based management UI |
 
-## System Context (C4 Level 1)
+## System context
 
 The L1 view places OpenGate among the people and external systems it interacts
 with. It is drawn as a `flowchart` arranged along the C4 context level — the
@@ -32,7 +55,7 @@ flowchart TB
   opengate -->|"notifications (HTTPS)"| push
 ```
 
-## Container View (C4 Level 2)
+## Containers
 
 The L2 view decomposes OpenGate into its deployable containers (same C4 fallback
 notation; the `Server (Go)` boundary is a subgraph).
@@ -68,7 +91,7 @@ flowchart TB
   monitoring -->|"scrapes /metrics"| rest
 ```
 
-## Architecture Drift Checks
+## Drift checks
 
 The diagrams are hand-curated Mermaid blocks. Structural drift is caught by the
 existing boundary gates rather than generated diagrams: the
@@ -78,9 +101,9 @@ checks recorded in [ADR-020](../adr/ADR-020-module-boundaries.md).
 [`scripts/tests/docs-diagrams.test.sh`](../../scripts/tests/docs-diagrams.test.sh)
 keeps docs diagrams on the Mermaid-only, no-rendered-blob path.
 
-## Connection Model
+## Connections
 
-### Agent → Server (QUIC + mTLS)
+### Agent to server
 
 ```mermaid
 sequenceDiagram
@@ -100,7 +123,7 @@ sequenceDiagram
   Server-->>Agent: session and update control messages
 ```
 
-#### CSR-Based Enrollment (First Boot)
+#### Enrollment on first boot
 
 On first boot (no identity files on disk), the agent performs CSR-based enrollment:
 
@@ -121,7 +144,7 @@ binds `AgentHello` to the mTLS peer certificate, while reconnects may use
 `SkipAuth` with the cached CA hash before framed MessagePack control messages
 begin. Message layout details live in [Wire Protocol](Wire-Protocol.md).
 
-### Agent Binary (`mesh-agent`)
+### The agent binary
 
 The `mesh-agent` binary (`agent/crates/mesh-agent/src/main.rs`) is the entry point for the Rust agent. It handles:
 
@@ -139,11 +162,11 @@ The `mesh-agent` binary (`agent/crates/mesh-agent/src/main.rs`) is the entry poi
 - **Reconnection**: Exponential backoff (1s→30s cap, 10 max attempts) via `reconnect_with_backoff`
 - **Graceful shutdown**: `tokio::select!` on SIGINT/SIGTERM with systemd `sd_notify` lifecycle notifications
 
-### Web → Server (HTTP + JWT)
+### Browser to server
 
 Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed and stored in PostgreSQL. The REST API is defined by an OpenAPI 3.0.3 spec (`api/openapi.yaml`) and served by an `oapi-codegen` strict server on a chi v5 router. The same spec generates TypeScript types for the web client via `openapi-typescript` + `openapi-fetch`. See [API Reference](API-Reference.md) for endpoint details.
 
-## Data Flow
+## Data flow
 
 ```
                     ┌─────────────────────────────────────────────┐
@@ -159,7 +182,7 @@ Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed 
 - **AgentAPI** handles QUIC connections: handshake, registration, heartbeat, disconnect
 - **REST API** serves device/site/customer/user management and authentication endpoints
 - **PostgreSQL 17** (via `pgx/v5` stdlib adapter) is the shared persistence layer — see [Database](Database.md) and [ADR-014](../adr/ADR-014-postgresql.md)
-## WebSocket Relay
+## The relay
 
 The server includes a message-oriented WebSocket relay (`server/internal/relay/`) for browser↔agent sessions:
 
@@ -188,7 +211,7 @@ sequenceDiagram
 5. Browser authenticates via `?auth=<jwt>` query parameter (browser WebSocket API cannot set custom headers)
 6. When the relay releases a token, its `OnSessionEnd` callback deletes the DB session record through a background, relay-scoped repository operation, keeping the session table consistent with active connections
 
-### Relay Limits and Cleanup
+### Limits and cleanup
 
 - **Max message size**: 4 MiB per WebSocket message (prevents memory exhaustion from oversized frames)
 - **Orphaned session cleanup**: When a relay send to an agent fails, the server automatically cleans up the orphaned session record from the database
@@ -203,7 +226,7 @@ sequenceDiagram
 
 See [ADR-059](../adr/ADR-059-session-row-lifecycle.md) for the cleanup invariants and failure recovery design.
 
-### Relay Observability
+### What the relay reports
 
 The relay uses structured logging via `*slog.Logger` (injected at construction):
 
@@ -219,11 +242,11 @@ The relay uses structured logging via `*slog.Logger` (injected at construction):
 
 Set `LOG_LEVEL=debug` for per-message tracing. All tokens are redacted to 8-char prefixes via `protocol.RedactToken`.
 
-### Middleware Compatibility
+### Middleware compatibility
 
 The relay WebSocket route passes through global HTTP middleware (metrics, security headers, request logger). Any middleware that wraps `http.ResponseWriter` **must** implement `http.Hijacker` — WebSocket upgrades require connection hijacking. See `server/internal/metrics/middleware.go` for the reference implementation.
 
-## Session Lifecycle
+## Session lifecycle
 
 End-to-end view of a browser↔agent session: establish (REST + control plane),
 stream (bidirectional frames over the relay), and teardown. A paired session ends
@@ -268,7 +291,7 @@ sequenceDiagram
   Note over Agent,Relay: agent returns to idle
 ```
 
-### Direct Connection Upgrade (WebRTC)
+### Direct connection upgrade
 
 A session runs on the relay from the moment it is established, and may upgrade to
 a direct browser↔agent WebRTC connection for lower latency. The relay carries the
@@ -313,7 +336,7 @@ STUN/TURN servers to try. It returns them in the `CreateSession` response
 default configuration ([`config.go`](../../server/internal/signaling/config.go))
 points at Google's public STUN server.
 
-### Agent Session Handler
+### Agent session handler
 
 When the server assigns a session to an agent, the agent connects to the relay at
 `relay_url?side=agent` and the `SessionHandler` (Rust) drives the session:
@@ -357,7 +380,7 @@ event set and what a technician sees are in
 - **NoopNotifier**: Used in tests and when push is disabled
 - **Service Worker**: `web/public/sw.js` handles push events, offline caching, and notification click navigation
 
-## Intel AMT Management Presence Server (MPS)
+## Intel AMT presence server
 
 The server includes an MPS (`server/internal/amt/transport/`) that accepts CIRA (Client Initiated Remote Access) connections from Intel AMT devices over TLS:
 
@@ -382,7 +405,7 @@ Intel AMT Device              MPS Server
   │◄────► Channel Open/Data ────►│  APF channels for port forwarding
 ```
 
-### Key Design Decisions
+### Design decisions
 
 - **RSA 2048 certs**: Intel AMT firmware requires RSA keys (not ECDSA). The MPS cert is signed by the same ECDSA CA using `cert.SignMPS()`
 - **TLS 1.2 minimum**: Supports AMT 11.0+ firmware (2015+) while maintaining modern security
@@ -391,7 +414,7 @@ Intel AMT Device              MPS Server
 - **Connection lifecycle**: Devices are set `online` on handshake completion, `offline` on disconnect, with per-device connection storage in `sync.Map`
 - **Port forwarding channels**: Each AMT device can open multiple APF channels for forwarding TCP traffic to internal network services (e.g., AMT WSMAN on port 16993)
 
-### Server Flag
+### Server flag
 
 | Flag | Default | Description |
 |------|---------|-------------|

@@ -1,6 +1,26 @@
 # API Reference
 
-## Interactive Documentation
+- [Interactive reference](#interactive-reference)
+- [OpenAPI spec](#openapi-spec)
+  - [Code generation](#code-generation)
+  - [Strict server pattern](#strict-server-pattern)
+  - [TypeScript client](#typescript-client)
+- [Endpoints](#endpoints)
+  - [Device logs](#device-logs)
+  - [Device metrics](#device-metrics)
+  - [Device inventory](#device-inventory)
+  - [Maintenance mode](#maintenance-mode)
+  - [Customers and the fleet filter](#customers-and-the-fleet-filter)
+  - [Sites](#sites)
+  - [Fleet summary](#fleet-summary)
+  - [Investigations](#investigations)
+  - [Rules](#rules)
+  - [Intel AMT](#intel-amt)
+- [Rate limiting](#rate-limiting)
+- [Authentication](#authentication)
+- [Error format](#error-format)
+
+## Interactive reference
 
 The full API reference is available as an interactive [Scalar](https://github.com/scalar/scalar) viewer:
 
@@ -8,11 +28,11 @@ The full API reference is available as an interactive [Scalar](https://github.co
 
 The spec is automatically deployed to GitHub Pages on every push to `dev`.
 
-## OpenAPI Specification
+## OpenAPI spec
 
 The API is defined in `api/openapi.yaml` (OpenAPI 3.0.3). This file is the **single source of truth** — it generates both the Go server interface and the TypeScript client types.
 
-### Code Generation
+### Code generation
 
 | Target | Tool | Output |
 |--------|------|--------|
@@ -27,7 +47,7 @@ cd server && go generate ./...
 cd web && npm run generate:api
 ```
 
-### Strict Server Pattern
+### Strict server pattern
 
 The Go server uses `oapi-codegen`'s **strict server interface**. Each endpoint is a typed method that receives a request object and returns a response object — no manual JSON encoding/decoding:
 
@@ -39,7 +59,7 @@ func (s *Server) GetHealth(ctx context.Context, _ GetHealthRequestObject) (GetHe
 
 Contract drift between the spec and the server becomes a compile error.
 
-### TypeScript Client
+### TypeScript client
 
 The web client uses `openapi-fetch` with generated types for fully-typed API calls:
 
@@ -115,7 +135,7 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/purge-jobs/{jobId}` | GET | JWT | Get purge job status |
 | `/ws/relay/{token}` | GET | Token | WebSocket relay (bidirectional agent↔browser pipe) |
 
-### Device Logs
+### Device logs
 
 `GET /api/v1/devices/{id}/logs` brokers raw logs from the agent on demand via the QUIC control path. The request **blocks** until the agent returns a bounded response, which is redacted and streamed straight back; nothing is persisted centrally (see [ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md)). Reading raw logs is an elevated action restricted to administrators, and every pull writes a `device.logs.read` audit event.
 
@@ -158,7 +178,7 @@ const { data, error } = await api.GET('/api/v1/sites');
 }
 ```
 
-### Device Metrics
+### Device metrics
 
 `GET /api/v1/devices/{id}/metrics` returns column-oriented numeric telemetry for
 a device window, read tenant-scoped from VictoriaMetrics
@@ -206,7 +226,7 @@ adapter does this with `spanGaps: false` on every drawn series
 | `404` | Device not found (also the cross-tenant deny) |
 | `503` | Telemetry not configured (no VictoriaMetrics URL) or the range query failed |
 
-### Device Inventory
+### Device inventory
 
 `GET /api/v1/devices/{id}/inventory` returns the device's current
 auto-discovered footprint — listening ports, host services, database engines,
@@ -227,7 +247,7 @@ administrators.
 | `404` | Device not found (also the cross-tenant deny — a device in another tenant is not visible) |
 | `503` | Inventory not configured |
 
-### Maintenance Mode
+### Maintenance mode
 
 `POST /api/v1/devices/{id}/maintenance` toggles a device's maintenance state —
 the server-authoritative desired state that quiets the agent's telemetry and
@@ -248,7 +268,7 @@ fleet summary below. The four maintenance fields
 while a device is in maintenance. The canonical request/response shapes are in
 [`api/openapi.yaml`](../../api/openapi.yaml).
 
-### Customers and the Fleet Filter
+### Customers and the fleet filter
 
 A tenant is the wall the database enforces; an organization is one customer
 inside it, and every device belongs to exactly one. A technician sees every
@@ -274,7 +294,7 @@ customer unfiles it in the same operation. Deleting a site leaves its devices
 with their customer, unfiled. Site names are unique within their customer, so two
 customers may each have a "Head Office".
 
-### Fleet Summary
+### Fleet summary
 
 `GET /api/v1/devices/summary` answers the dashboard with a fixed-size rollup of
 the caller's tenant: `total`, `online`, `offline`, `maintenance`, and a
@@ -354,7 +374,7 @@ returns it in any response. AMT hardware attributes (`amt_available`,
 `GET /api/v1/devices/{id}/hardware` payload. See
 [ADR-061](../adr/ADR-061-intel-amt.md).
 
-## Rate Limiting
+## Rate limiting
 
 All API endpoints are subject to per-IP rate limiting:
 
@@ -380,7 +400,7 @@ Authorization: Bearer <token>
 
 Tokens are obtained via `/api/v1/auth/login` or `/api/v1/auth/register`. JWT claims include `uid` (user ID), `email`, `admin` (boolean), and `tenant` (active tenant ID). The server uses `tenant` to scope repository transactions and RLS policies.
 
-## Error Format
+## Error format
 
 All errors return a JSON object with an `error` field:
 

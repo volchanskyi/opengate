@@ -46,6 +46,7 @@ func (c *checker) checkFile(sourcePath string) ([]problem, error) {
 			Message: issue,
 		})
 	}
+	problems = append(problems, contentsProblems(sourcePath, content)...)
 	return problems, nil
 }
 

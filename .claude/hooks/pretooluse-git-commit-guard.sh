@@ -8,18 +8,25 @@
 #   3. Identity must equal "Ivan Volchanskyi <ivan.volchanskyi@gmail.com>".
 #   4. Branch must not be main.
 #   5. Branch must not be behind upstream (best-effort; offline → skip).
-#   6. scripts/precommit-gauntlet.sh must exit 0 — lints, tests, coverage
+#   6. /refactor must have finished on exactly the content on disk, after a
+#      gauntlet pass on the content it began on. The order is: every check
+#      passes, then the tidy-up, then the commit. Read from the markers in
+#      .claude/.markers/ (lib/tidy-up.sh), which only the gauntlet and
+#      scripts/refactor-gate.sh write.
+#   7. scripts/precommit-gauntlet.sh must exit 0 — lints, tests, coverage
 #      thresholds, security audits, benchmarks, e2e, sonar. The script is the
 #      single source of truth for what a commit must pass, and this hook is
 #      the only thing that runs it as a gate. This is the actual enforcement;
 #      there is no forgeable marker. Refreshing a hash file does NOT let
 #      a commit through.
-#   7. TDD backup check via scripts/tdd-check.sh.
+#   8. TDD backup check via scripts/tdd-check.sh.
 #
 # NO BYPASS.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/tidy-up.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/tidy-up.sh"
 enable_fail_closed_hook
 
 parse_input_fields tool_name tool_input.command
@@ -85,7 +92,13 @@ $summary"
   fi
 fi
 
-# 6. Run the full precommit gauntlet. No marker shortcut — the script IS
+# 6. The tidy-up came first, on this content. Refused before the gauntlet runs,
+#    because a commit attempt costs a full run and this one cannot land.
+if ! tidy_done_matches; then
+  block git-tidy-up-first "git commit refused: no finished /refactor for the content on disk. The order is: ./scripts/precommit-gauntlet.sh until it passes, then /refactor (scripts/refactor-gate.sh start … finish), then the commit, which runs the gauntlet again. Any edit after /refactor finishes — a new file included — starts the order over. Keep the commit message file, and any log of the commit, outside the work tree: a new file there is content the proof never saw."
+fi
+
+# 7. Run the full precommit gauntlet. No marker shortcut — the script IS
 #    the gate. Output streams to stderr; on first failed check the script
 #    keeps going so the user sees ALL failures in one pass. Exit code 0 =
 #    clean, 1 = check(s) failed, 2 = prerequisite missing (Postgres,
@@ -103,7 +116,7 @@ if [ "$rc" -ne 0 ]; then
   esac
 fi
 
-# 7. TDD backup check.
+# 8. TDD backup check.
 if ! "$TDD_CHECK" has-test-change; then
   # Only blocks if the branch has source-language changes vs base.
   base="$(git merge-base HEAD origin/dev 2>/dev/null \

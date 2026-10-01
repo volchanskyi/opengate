@@ -8,6 +8,8 @@
 #      plans are stable targets. Applies to Write/Edit/MultiEdit on any ADR.
 #   3. No content additions matching NOSONAR, //nolint, nolint:,
 #      sonar.issue.ignore.multicriteria, or eslint-disable*.
+#   4. No writes into .claude/.markers/. Each marker there is written by the
+#      step it proves, and one written by hand proves nothing.
 #
 # NO BYPASS.
 set -euo pipefail
@@ -65,5 +67,14 @@ if [ -n "$new_content" ]; then
     'sonar\.issue\.ignore\.multicriteria|sonar.issue.ignore.multicriteria entry' \
     'eslint-disable|eslint-disable directive')
 fi
+
+# 4. The markers. Each is written by the step it proves: the gauntlet, then
+# scripts/refactor-gate.sh, then the post-commit hook (and scripts/arch-lint-flip.sh
+# for the gates it flips). A marker written any other way proves nothing.
+case "$path" in
+  .claude/.markers/* | */.claude/.markers/*)
+    block markers-direct-write "Write/Edit refused: $path is a marker. It is written by the step it proves — ./scripts/precommit-gauntlet.sh on a pass, scripts/refactor-gate.sh start/finish, the post-commit hook — never by hand. .claude/rules/refactor.md."
+    ;;
+esac
 
 exit 0

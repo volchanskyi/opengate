@@ -202,18 +202,37 @@ check "PATH is untouched when nvm is absent" "$PATH_BEFORE" "$PATH"
 echo
 echo "pinned tools on this machine:"
 
-# Every tool the manifest pins for both sides is asked what it is, through
-# stand-ins answering the way each real tool words its version. A drifted one
-# fails the check and names the command that fixes it.
+# Every tool the gauntlet runs is asked what it is, through stand-ins answering
+# the way each real tool words its version — a Go-built tool through the build
+# record `go version -m` reads, since several of them print `dev`. A drifted one
+# fails the check and names the command that installs the pin.
 PIN_ROOT="$(mktemp -d)"
 mkdir -p "$PIN_ROOT/scripts/lib" "$PIN_ROOT/bin"
 cp "$SCRIPT_DIR/../lib/tool-versions.sh" "$PIN_ROOT/scripts/lib/tool-versions.sh"
+cp "$SCRIPT_DIR/../require-tool.sh" "$PIN_ROOT/scripts/require-tool.sh"
 # shellcheck source=../lib/tool-versions.sh
 . "$PIN_ROOT/scripts/lib/tool-versions.sh"
 stand_in() { # name, version line
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" %q\n' "$2" >"$PIN_ROOT/bin/$1"
   chmod +x "$PIN_ROOT/bin/$1"
 }
+# A Go-built tool, and the build record a stand-in `go version -m` reads for it.
+go_stand_in() { # name, module, version
+  stand_in "$1" "dev"
+  printf '%s\t%s\n' "$2" "$3" >"$PIN_ROOT/bin/$1.mod"
+}
+cat >"$PIN_ROOT/bin/go" <<'GO'
+#!/usr/bin/env bash
+if [ "$1 $2" = "version -m" ] && [ -f "$3.mod" ]; then
+  printf '%s: go1.27.1\n' "$3"
+  IFS=$'\t' read -r module version <"$3.mod"
+  printf '\tpath\t%s\n\tmod\t%s\t%s\th1:x=\n' "$module" "$module" "$version"
+  exit 0
+fi
+echo "go: unexpected call: $*" >&2
+exit 1
+GO
+chmod +x "$PIN_ROOT/bin/go"
 pinned_stand_ins() {
   stand_in jq "jq-$TOOL_VERSION_JQ"
   stand_in shellcheck "version: $TOOL_VERSION_SHELLCHECK"
@@ -221,14 +240,88 @@ pinned_stand_ins() {
   stand_in age "v$TOOL_VERSION_AGE"
   stand_in age-keygen "v$TOOL_VERSION_AGE"
   stand_in zstd "*** Zstandard CLI (64-bit) v$TOOL_VERSION_ZSTD, by Yann Collet ***"
+  go_stand_in govulncheck golang.org/x/vuln "v$TOOL_VERSION_GOVULNCHECK"
+  go_stand_in staticcheck honnef.co/go/tools "v$TOOL_VERSION_STATICCHECK"
+  go_stand_in gosec github.com/securego/gosec/v2 "v$TOOL_VERSION_GOSEC"
+  go_stand_in go-arch-lint github.com/fe3dback/go-arch-lint "v$TOOL_VERSION_GO_ARCH_LINT"
+  go_stand_in oapi-codegen github.com/oapi-codegen/oapi-codegen/v2 "v$TOOL_VERSION_OAPI_CODEGEN"
+  stand_in cargo-audit "cargo-audit-audit $TOOL_VERSION_CARGO_AUDIT"
+  stand_in cargo-deny "cargo-deny $TOOL_VERSION_CARGO_DENY"
+  stand_in cargo-modules "cargo-modules $TOOL_VERSION_CARGO_MODULES"
+  stand_in cargo-nextest "cargo-nextest $TOOL_VERSION_CARGO_NEXTEST (1358a2296 2026-02-22)"
+  stand_in cargo-llvm-cov "cargo-llvm-cov $TOOL_VERSION_CARGO_LLVM_COV"
+  stand_in checkov "$TOOL_VERSION_CHECKOV"
+  stand_in yamllint "yamllint $TOOL_VERSION_YAMLLINT"
+  stand_in conftest "Conftest: $TOOL_VERSION_CONFTEST"
+  stand_in gitleaks "$TOOL_VERSION_GITLEAKS"
+  stand_in hadolint "Haskell Dockerfile Linter $TOOL_VERSION_HADOLINT"
+  stand_in helm "v$TOOL_VERSION_HELM+gcfd0749"
+  stand_in kubeconform "v$TOOL_VERSION_KUBECONFORM"
+  stand_in tflint "TFLint version $TOOL_VERSION_TFLINT"
+  stand_in trivy "Version: $TOOL_VERSION_TRIVY"
+  stand_in actionlint "v$TOOL_VERSION_ACTIONLINT"
+  stand_in semgrep "$TOOL_VERSION_SEMGREP"
+  stand_in pmat "pmat $TOOL_VERSION_PMAT"
 }
 pinned_check() {
   PATH="$PIN_ROOT/bin:$PATH" toolchain_pinned_tools_check "$PIN_ROOT"
 }
 
 pinned_stand_ins
-expect_rc "every pinned tool at its pin passes" 0 pinned_check
+out="$(pinned_check 2>&1)"
+rc=$?
+check "every pinned tool at its pin passes" "0" "$rc"
+[ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
 
+# The scanner that crashed CI under a newer Go, and that the workstation had
+# quietly moved past by hand: it is held to the pin like everything else, and
+# the refusal names the install that fixes it.
+go_stand_in govulncheck golang.org/x/vuln v1.1.4
+out="$(pinned_check 2>&1)"
+rc=$?
+check "a drifted govulncheck fails the check" "1" "$rc"
+if grep -qF "go install golang.org/x/vuln/cmd/govulncheck@v$TOOL_VERSION_GOVULNCHECK" <<<"$out"; then
+  pass "and names the pinned install that fixes it"
+else
+  fail "and names the pinned install that fixes it (got=[$out])"
+fi
+
+# Each tool the gauntlet runs, drifted on its own. The rest stay at their pins,
+# so the refusal is about that tool and nothing else.
+drift_case() { # tool, how it reports the drifted version
+  pinned_stand_ins
+  "$@"
+  local tool="$2" got
+  got="$(pinned_check 2>&1)"
+  if [ $? -eq 1 ] && grep -qF -- "$tool is" <<<"$got"; then
+    pass "a drifted $tool fails the check, naming it"
+  else
+    fail "a drifted $tool fails the check, naming it (got=[$got])"
+  fi
+}
+drift_case go_stand_in staticcheck honnef.co/go/tools v0.0.1
+drift_case go_stand_in gosec github.com/securego/gosec/v2 v2.26.1
+drift_case go_stand_in go-arch-lint github.com/fe3dback/go-arch-lint v0.0.1
+drift_case go_stand_in oapi-codegen github.com/oapi-codegen/oapi-codegen/v2 v0.0.1
+drift_case stand_in cargo-audit "cargo-audit-audit 0.0.1"
+drift_case stand_in cargo-deny "cargo-deny 0.0.1"
+drift_case stand_in cargo-modules "cargo-modules 0.0.1"
+drift_case stand_in cargo-nextest "cargo-nextest 0.0.1 (x 2026-01-01)"
+drift_case stand_in cargo-llvm-cov "cargo-llvm-cov 0.0.1"
+drift_case stand_in checkov "3.2.529"
+drift_case stand_in yamllint "yamllint 0.0.1"
+drift_case stand_in conftest "Conftest: 0.0.1"
+drift_case stand_in gitleaks "0.0.1"
+drift_case stand_in hadolint "Haskell Dockerfile Linter 0.0.1"
+drift_case stand_in helm "v0.0.1+g0"
+drift_case stand_in kubeconform "v0.0.1"
+drift_case stand_in tflint "TFLint version 0.61.0"
+drift_case stand_in trivy "Version: 0.69.3"
+drift_case stand_in actionlint "v0.0.1"
+drift_case stand_in semgrep "0.0.1"
+drift_case stand_in pmat "pmat 0.0.1"
+
+pinned_stand_ins
 stand_in zstd "*** zstd command line interface 64-bits v1.4.8, by Yann Collet ***"
 out="$(pinned_check 2>&1)"
 rc=$?
@@ -245,6 +338,34 @@ if PATH="$PIN_ROOT/bin:/usr/bin:/bin" toolchain_pinned_tools_check "$PIN_ROOT" >
   fail "a missing age fails the check"
 else
   pass "a missing age fails the check"
+fi
+
+# require-tool.sh, which the Makefile targets call before they run a tool, holds
+# the same line: present at another version is refused, not just absent.
+pinned_stand_ins
+stand_in tflint "TFLint version 0.61.0"
+out="$(PATH="$PIN_ROOT/bin:$PATH" "$PIN_ROOT/scripts/require-tool.sh" tflint 2>&1)"
+rc=$?
+check "require-tool.sh refuses a tool present at another version" "1" "$rc"
+if grep -qF "$TOOL_VERSION_TFLINT" <<<"$out" && grep -qF '0.61.0' <<<"$out"; then
+  pass "and says which version it found and which is pinned"
+else
+  fail "and says which version it found and which is pinned (got=[$out])"
+fi
+expect_rc "require-tool.sh accepts the pinned version" 0 \
+  env PATH="$PIN_ROOT/bin:$PATH" "$PIN_ROOT/scripts/require-tool.sh" trivy
+
+# A copy that answers without a version is neither missing nor pinned, and the
+# refusal says which — rather than ending without a word.
+pinned_stand_ins
+stand_in hadolint "no version in this answer"
+out="$(PATH="$PIN_ROOT/bin:$PATH" "$PIN_ROOT/scripts/require-tool.sh" hadolint 2>&1)"
+rc=$?
+check "require-tool.sh refuses a tool that does not say its version" "1" "$rc"
+if grep -qF 'hadolint is installed but did not say which version it is' <<<"$out"; then
+  pass "and says the tool is there but unreadable, not missing"
+else
+  fail "and says the tool is there but unreadable, not missing (got=[$out])"
 fi
 rm -rf "$PIN_ROOT"
 

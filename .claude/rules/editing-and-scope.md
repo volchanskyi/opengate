@@ -63,3 +63,7 @@ non-negotiable conventions:
    leaves nothing behind.
 3. **Docs and comments describe live state only** —
    [`docs-live-state.md`](docs-live-state.md).
+4. **Every page opens with its contents** — every page under `docs/` except
+   the decision records starts with a list linking each heading, which
+   [`check-doc-links`](../../scripts/check-doc-links/) holds to the page. A
+   renamed heading has its links repointed in the same change.

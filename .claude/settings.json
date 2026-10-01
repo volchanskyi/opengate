@@ -129,6 +129,15 @@
         ]
       },
       {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/pretooluse-refactor-start-gate.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
@@ -142,6 +151,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/pretooluse-bash-source-write-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/pretooluse-tool-install-guard.sh"
           },
           {
             "type": "command",

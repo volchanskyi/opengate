@@ -7,8 +7,14 @@
 # repo, classifies each via scripts/tdd-check.sh is-source, and applies
 # the same TDD gate.
 #
-# Best-effort regex. The commit-guard's TDD backup check (§2.4 rule 7 of
-# the plan) is the final safety net for anything this misses.
+# It also refuses any shell write into .claude/.markers/. Each marker there is
+# written by the step it proves — the gauntlet, scripts/refactor-gate.sh, the
+# post-commit hook — and one written from the command line proves nothing. For
+# that check the targets of cp, mv, ln, install, touch, rm, truncate, rsync, dd
+# and unlink count too, and so does an interpreter one-liner naming a marker.
+#
+# Best-effort regex. The commit-guard's TDD backup check is the final safety
+# net for anything this misses.
 #
 # NO BYPASS.
 set -euo pipefail
@@ -27,7 +33,7 @@ cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 # cleanly parse).
 candidates=$(
   CMD="$cmd" python3 - <<'PYEOF'
-import os, re, sys
+import os, re, shlex, sys
 cmd = os.environ.get("CMD", "")
 paths = set()
 
@@ -66,7 +72,29 @@ for m in re.finditer(r'\btee\b((?:\s+-[A-Za-z]+)*)\s+(\S+)', cmd):
     paths.add(p)
 
 for p in paths:
-    print(p)
+    print("W\t" + p)
+
+# Writes that matter only for the markers: the other verbs that create, replace
+# or remove a file, and an interpreter one-liner. A marker named anywhere in such
+# a command is a target.
+FILE_VERBS = {"cp", "mv", "ln", "install", "touch", "rm", "truncate", "rsync", "dd", "unlink"}
+WRAPPERS = {"sudo", "command", "exec", "env", "xargs", "nohup", "time"}
+for seg in re.split(r"\|\||&&|[;|&\n]", cmd):
+    try:
+        toks = shlex.split(seg)
+    except ValueError:
+        toks = seg.split()
+    while toks and (toks[0] in WRAPPERS or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0])):
+        toks = toks[1:]
+    if not toks or os.path.basename(toks[0]) not in FILE_VERBS:
+        continue
+    for t in toks[1:]:
+        if t.startswith("of="):
+            t = t[3:]
+        if ".claude/.markers" in t:
+            print("M\t" + t)
+if re.search(r"\b(python3?|perl|node|ruby)\b", cmd) and ".claude/.markers" in cmd:
+    print("M\t.claude/.markers")
 PYEOF
 )
 
@@ -74,8 +102,19 @@ PYEOF
 
 repo_root="$(project_root)"
 
-# Check each candidate.
-while IFS= read -r raw; do
+# The markers first, whatever else the command writes.
+while IFS=$'\t' read -r _ raw; do
+  case "$raw" in
+    *.claude/.markers*)
+      block markers-direct-write "Bash write refused: the command writes ${raw}, a marker. It is written by the step it proves — ./scripts/precommit-gauntlet.sh on a pass, scripts/refactor-gate.sh start/finish, the post-commit hook — never by hand. .claude/rules/refactor.md.
+Detected command: ${cmd}"
+      ;;
+  esac
+done <<<"$candidates"
+
+# Check each source-write candidate.
+while IFS=$'\t' read -r kind raw; do
+  [ "$kind" = "W" ] || continue
   [ -n "$raw" ] || continue
   # Resolve absolute path relative to CWD (which the harness sets to the project dir).
   case "$raw" in

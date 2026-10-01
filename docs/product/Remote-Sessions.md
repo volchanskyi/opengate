@@ -1,5 +1,12 @@
 # Remote Sessions
 
+- [What you can do in a session](#what-you-can-do-in-a-session)
+- [Starting a session](#starting-a-session)
+- [Which tabs appear](#which-tabs-appear)
+- [How the connection works](#how-the-connection-works)
+- [Session notifications](#session-notifications)
+- [Related](#related)
+
 Take a machine over from the browser: its screen, a shell, its filesystem, and a
 chat window back to whoever is sitting in front of it. Nothing is installed on
 the technician's side, and nothing has to be opened inbound on the customer's

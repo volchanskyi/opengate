@@ -162,6 +162,10 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+    # The scanner version, equal to its row in scripts/lib/tool-versions.sh. Not
+    # TRIVY_*: trivy reads every such variable as one of its own flags.
+    env:
+      PINNED_TRIVY: v0.70.0
     steps:
       - uses: actions/checkout@v7
         with:
@@ -239,6 +243,7 @@ jobs:
       - name: Scan image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: ${{ env.PINNED_TRIVY }}
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           format: 'table'
           exit-code: '1'

@@ -1,5 +1,14 @@
 # Data Erasure
 
+- [What gets erased](#what-gets-erased)
+- [Deleting one device](#deleting-one-device)
+  - [Incident counts](#incident-counts)
+- [Purging a tenant](#purging-a-tenant)
+- [Nothing comes back](#nothing-comes-back)
+- [Records that age out](#records-that-age-out)
+- [Database backups](#database-backups)
+- [Related](#related)
+
 Deleting a device, or purging a whole tenant, **irreversibly erases that
 subject's data across every store** and deprovisions its agents. There is no
 soft-delete, no grace window and no undo.
@@ -30,7 +39,7 @@ From the device page, **Delete device**, behind a confirm step. The agent is
 deregistered, the machine's data is erased, and the machine cannot re-register
 with the same identity.
 
-### Incident counts are repaired, not left wrong
+### Incident counts
 
 An incident's "how many alerts, across how many machines" counts are application
 state. Erasing a machine's alerts would otherwise leave an incident claiming 40
@@ -84,7 +93,7 @@ A periodic sweep also removes any metric series whose device no longer exists, a
 a second line of defence: the stores are not one transaction, so a partially
 failed purge is caught rather than left behind.
 
-## Records also age out on their own
+## Records that age out
 
 Erasure runs off a subject. A second, independent rule runs off age: an alert,
 the evidence frozen with it, and the incident it folded into are kept for **one
@@ -103,7 +112,7 @@ still doing:
 Audit events are outside this, for the same reason they survive a purge: they
 are the proof of what happened.
 
-## The one caveat: database backups
+## Database backups
 
 The metric store keeps no backups, so its erasure is immediate.
 

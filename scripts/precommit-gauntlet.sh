@@ -18,6 +18,11 @@
 #   PRECOMMIT_SKIP_BENCH=1 — opt out of benchmarks for fast iteration on
 #                            non-perf-touching commits. Use sparingly.
 #
+# On a pass it records the content it passed in .claude/.markers/gauntlet.pass,
+# which /refactor's start refuses to begin without (scripts/refactor-gate.sh).
+# Content edited while the checks ran is not content they passed, so then it
+# records nothing and says so.
+#
 # NO bypass for tests / lint / e2e / sonar. Those are unconditional.
 # Sonar is always the FULL `make sonar` (includes fresh coverage upload) so a
 # coverage regression cannot slip past local enforcement and surface only in CI.
@@ -42,6 +47,11 @@ fi
 # and preserves auths when it sanitizes. Local-only: this script never runs in CI.
 DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
 export DOCKER_CONFIG
+
+# shellcheck source=../.claude/hooks/lib/tidy-up.sh
+source "$PROJECT_ROOT/.claude/hooks/lib/tidy-up.sh"
+# The content the checks run on, named before the first of them starts.
+TIDY_START="$(tidy_fingerprint || true)"
 
 START_EPOCH="$(date +%s)"
 FAIL_COUNT=0
@@ -318,27 +328,10 @@ run_check "verify-codegen" -- bash -c "PATH=\"\$HOME/go/bin:\$PATH\" make verify
 
 # Phase 3: tests (the meat).
 banner "Tests"
-# Shell tests for CI gates / hooks / helper scripts (scripts/tests/*.test.sh).
-# Iterate by glob so adding a new test file requires no gauntlet edit.
-# The variables below intentionally expand in the inner bash process.
-# shellcheck disable=SC2016
-run_check "shell tests" -- bash -c '
-  rc=0
-  shopt -s nullglob
-  for t in scripts/tests/*.test.sh; do
-    if [ ! -x "$t" ]; then
-      echo "not executable: $t" >&2
-      rc=1
-      continue
-    fi
-    echo "▶ $t"
-    if ! "$t"; then
-      echo "✗ $t failed" >&2
-      rc=1
-    fi
-  done
-  exit $rc
-'
+# Shell tests for CI gates / hooks / helper scripts — the same runner CI calls,
+# which hands each test step files of its own and fails one that writes into
+# them.
+run_check "shell tests" -- scripts/shell-quality.sh test
 run_check "go unit + coverage" -- bash -c '
   cd server && go test -race -count=1 -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
 '
@@ -373,7 +366,8 @@ run_check "rust coverage ≥80%" -- bash -c '
 
 # Phase 5: security audits — lockfile-based; fail on any reported vuln.
 banner "Security audits"
-run_check "govulncheck" -- bash -c 'cd server && govulncheck ./...'
+# The same script CI runs: the database fetched with retries, one scan.
+run_check "govulncheck" -- bash scripts/govulncheck-scan.sh
 # One audit per lockfile: npm audit reads the lockfile of the directory it runs
 # from, so a second dependency set needs a second run to be looked at.
 run_check "npm audit (web)" -- bash -c 'cd web && npm audit --audit-level=high'
@@ -445,6 +439,11 @@ if [ "$FAIL_COUNT" -eq 0 ]; then
   color "1;32"
   printf 'ALL CHECKS PASSED in %ds\n' "$ELAPSED" >&2
   color "0"
+  if tidy_gauntlet_passed "$TIDY_START"; then
+    echo "Pass recorded for this content; /refactor may begin on it." >&2
+  else
+    echo "No pass recorded: the work tree changed while the checks ran, so what passed is not what is on disk. Run the gauntlet again before /refactor." >&2
+  fi
   exit 0
 fi
 

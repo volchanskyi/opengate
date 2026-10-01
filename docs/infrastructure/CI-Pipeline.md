@@ -1,10 +1,35 @@
 # CI Pipeline
 
+- [Triggers](#triggers)
+- [Branches](#branches)
+- [Job graph](#job-graph)
+- [Jobs](#jobs)
+- [Sequencing](#sequencing)
+  - [Tool versions](#tool-versions)
+  - [Generated API code](#generated-api-code)
+- [Coverage](#coverage)
+  - [Coverage badges](#coverage-badges)
+- [Docker Hub pulls](#docker-hub-pulls)
+- [SonarCloud](#sonarcloud)
+  - [Running SonarCloud locally](#running-sonarcloud-locally)
+- [Failure notifications](#failure-notifications)
+- [Tags and changelog](#tags-and-changelog)
+- [Releases](#releases)
+- [Branch protection](#branch-protection)
+- [Benchmark trend](#benchmark-trend)
+- [Load-test trend](#load-test-trend)
+- [Frontend performance](#frontend-performance)
+  - [Bundle size](#bundle-size)
+  - [Lighthouse](#lighthouse)
+  - [Browser performance evidence](#browser-performance-evidence)
+  - [PageSpeed Insights](#pagespeed-insights)
+- [Dependabot](#dependabot)
+
 ## Triggers
 
 Every push to `dev` and every pull request targeting `main` or `dev` runs the CI pipeline. CodeQL and security scanning run on every push and PR (no separate schedule). Load testing has its own scheduled workflow.
 
-## Branching Flow
+## Branches
 
 ```
 dependabot/* PR ──► dev ──► main
@@ -16,7 +41,7 @@ human commits  ──► dev ──► main
 - **`main`** — stable branch. Receives code from `dev` only, via the automated `merge-to-main` job. Protected: requires 1 PR review for non-admin pushes; force-push and deletion disabled.
 - **Dependabot** — PRs open against `dev` with the same gate any human commit clears. [`dependabot-auto-merge.yml`](../../.github/workflows/dependabot-auto-merge.yml) squash-merges patch + minor updates once CI is green; major-version bumps stay open for review.
 
-## Job Graph
+## Job graph
 
 ```
                           CI Workflow
@@ -87,7 +112,7 @@ The CI workflow jobs are grouped by concern:
 | **Bundle Size** | `web-bundle-size` | `size-limit` gzip budgets for first-paint JS, total JS, the charts chunk and CSS ([`web/.size-limit.json`](../../web/.size-limit.json)). Runs in parallel with other web jobs. |
 | **API Docs** | `deploy-api-docs` | Deploys OpenAPI spec + Scalar viewer to gh-pages (dev push only) |
 | **Config** | `config-lint` | actionlint, yamllint, `terraform fmt/validate`, tflint, `terraform test` (module invariants), output-sensitivity grep, gitleaks (L2), Hadolint Dockerfile policy (L4), Checkov (L4: terraform + dockerfile + github_actions, baseline at `.checkov.baseline`), Conftest+Rego custom policies (L5: compose images, action SHA-pinning), `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
-| **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](OCI-Terraform.md#iac-plan--destroy-blocklist-gate). |
+| **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](OCI-Terraform.md#plan-and-destroy-gate). |
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck, cargo audit, npm audit |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
@@ -106,7 +131,7 @@ Pull requests execute every CI job except auto-merge/release automation. Benchma
 trends run in the separate scheduled/dispatchable
 [`benchmark.yml`](../../.github/workflows/benchmark.yml) workflow.
 
-### Toolchain Parity
+### Tool versions
 
 Every language-toolchain pin in the workflows floats. The Rust jobs ask
 [`dtolnay/rust-toolchain`](../../.github/workflows/ci.yml) for `stable` — with
@@ -138,16 +163,21 @@ can be on a tool the other is not.
 [`tool-version-parity.test.sh`](../../scripts/tests/tool-version-parity.test.sh)
 holds every workflow copy, and every shared action under
 [`.github/actions`](../../.github/actions), equal to the manifest and refuses an
-install that names no version at all. The one tool that must understand the Go
+install that names no version at all. The workstation half is held the same
+way: before any check runs, the gauntlet asks every pinned tool it runs for its
+version through [`require-tool.sh`](../../scripts/require-tool.sh) and refuses a
+drifted one with the command that installs the pin, and a pinned tool installed
+from the command line at no version, `@latest` or another version is refused
+before it runs. The one tool that must understand the Go
 toolchain's own internals — the core reader the endurance run walks a heap with
 — is proved against it by [`core-walk.yml`](../../.github/workflows/core-walk.yml)
 whenever either pin moves and every night, beside the newest upstream reader so
 that the patch the pinned one carries is removed the night upstream no longer
 needs it ([ADR-119](../adr/ADR-119-finding-a-leak.md)). Opening the encrypted
 dump an endurance run uploads is in
-[Testing](./Testing.md#opening-a-soak-dump).
+[Non-Functional Testing](./Non-Functional-Testing.md#opening-a-soak-dump).
 
-### OpenAPI Codegen Sync
+### Generated API code
 
 The `go-lint` job verifies that generated Go code from the OpenAPI spec is up to date. It runs `go generate ./internal/api/` and then `git diff --exit-code` — if the generated output differs from what is committed, the job fails. This can also be checked locally via `make verify-codegen`.
 
@@ -161,7 +191,7 @@ All three language test jobs enforce a minimum line-coverage threshold — the b
 | Rust | `cargo-llvm-cov` | 80% line | `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/` | `agent/lcov.info` | `rust-coverage` |
 | TypeScript | `@vitest/coverage-v8` | 80% line | `coverage.exclude` in [`vitest.config.ts`](../../web/vitest.config.ts) | `web/coverage/lcov.info` | `web-coverage` |
 
-### Coverage Badges
+### Coverage badges
 
 The `merge-to-main` job updates three coverage badges on every successful `dev` push using `schneegans/dynamic-badges-action`. Each badge writes a JSON endpoint to a GitHub Gist, which `shields.io` renders as a dynamic badge in the README:
 
@@ -176,7 +206,7 @@ on the badge steps in [`ci.yml`](../../.github/workflows/ci.yml).
 
 Each CI job posts a native Markdown summary (pass/fail counts, failed test names) to the GitHub Actions job summary tab for quick triage without digging into logs.
 
-## Docker Hub Pull Resilience
+## Docker Hub pulls
 
 Jobs that start Docker Hub images first invoke the local
 [`docker-hub-mirror` composite action](../../.github/actions/docker-hub-mirror/action.yml).
@@ -198,7 +228,7 @@ answer that will not change on a retry — an image that does not exist — fail
 once. Every step after a bring-up waits on it, so one lost pull is one error
 rather than one per step.
 
-## SonarCloud Quality Gate
+## SonarCloud
 
 The [`sonarcloud` job](../../.github/workflows/ci.yml) runs after Go unit, Rust
 test, and Web test jobs complete. It downloads all three coverage artifacts
@@ -224,7 +254,7 @@ The three rating conditions (Reliability / Security / Maintainability = A) impli
 
 Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action — the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. A failed `sonarcloud` job blocks the auto-merge to `main`. SonarCloud.io itself is the authoritative console for findings; they are not mirrored into the GitHub Code Scanning tab (see [ADR-080](../adr/ADR-080-documentation.md) for why the SARIF upload was dropped).
 
-### Local SonarCloud Analysis
+### Running SonarCloud locally
 
 The same SonarCloud scan that runs in CI can be executed locally using the `sonarsource/sonar-scanner-cli` Docker image. This catches code smells, bugs, security hotspots, duplication, and coverage gate failures before pushing.
 
@@ -244,7 +274,7 @@ All targets reuse the existing `sonar-project.properties` configuration. The sca
 
 **Note:** The first run pulls the `sonarsource/sonar-scanner-cli` Docker image (~600 MB). Subsequent runs use the cached image. An active internet connection is required since the analysis runs against SonarCloud (not a local SonarQube instance).
 
-## Failure Notifications
+## Failure notifications
 
 The `notify-failure` job runs when any upstream job fails on `push`, `schedule`, or `workflow_dispatch` events (PR failures are excluded — those are expected WIP). It uses the `gh` CLI (no third-party actions) to create GitHub Issues with enough detail to triage without opening the Actions tab.
 
@@ -267,7 +297,7 @@ months later in an issue nobody can act on.
 
 **No auto-close on success:** Issues are not automatically closed when the job passes again. Engineers must manually close after investigation to prevent masking flaky tests.
 
-## Auto-Tagging and Changelog
+## Tags and changelog
 
 After `merge-to-main` succeeds, the `auto-tag` job analyzes the merged conventional commits to determine the appropriate semver bump:
 
@@ -289,7 +319,7 @@ The job then:
 
 **Concurrency:** Uses `concurrency: { group: auto-tag, cancel-in-progress: false }` to serialize tag operations, preventing race conditions from concurrent merges.
 
-## Release Workflows
+## Releases
 
 A `v*` tag triggers [`release-agent.yml`](../../.github/workflows/release-agent.yml),
 which cross-builds the agent binaries and publishes a GitHub Release. It is
@@ -303,7 +333,7 @@ exists as a git ref for `build-image.yml` and the changelog. A
 does with the manifest it is offered is in
 [Agent Updates](../product/Agent-Updates.md).
 
-## Branch Protection
+## Branch protection
 
 Both branches are protected. `dev` is governed by a **repository ruleset**.
 
@@ -317,7 +347,7 @@ Three properties of the **CI Gate** ruleset are worth stating outright:
 - **`merge-to-main`** uses a Fine-grained PAT (`SYNC_TOKEN` secret) instead of `GITHUB_TOKEN`. On a personal repo, `github-actions[bot]` cannot be added as a ruleset bypass actor — only the admin role can bypass. The PAT authenticates as the repo owner, who has the admin bypass.
 - **Code Scanning required tools:** CodeQL only. SonarCloud is not a Code Scanning tool because `SonarSource/sonarqube-scan-action` does not upload SARIF to GitHub Code Scanning for pull_request refs (only for push events to `dev`) — leaving every Dependabot PR `BLOCKED` waiting for SARIF that never arrived. SonarCloud's quality gate is still enforced via the `SonarCloud Analysis` required status check (which posts a regular PR check, not a Code Scanning entry). CodeQL stays as a Code Scanning required tool because it uploads SARIF correctly for both branches and PRs.
 
-## Benchmark Trend Workflow
+## Benchmark trend
 
 [`benchmark.yml`](../../.github/workflows/benchmark.yml) runs Go and Rust benchmarks on a
 nightly schedule and by `workflow_dispatch`:
@@ -345,7 +375,7 @@ regressions in two ways, by metric class:
 
 All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboard.
 
-## Load-Test Trend Workflow
+## Load-test trend
 
 [`load-test.yml`](../../.github/workflows/load-test.yml) runs the staging k6 and
 QUIC load scenarios on its own schedule and by `workflow_dispatch`; it is not in
@@ -380,11 +410,11 @@ compares them with recent nights through
 job reads the publish job's result. Each run writes a summary table of every limit
 beside its reading ([ADR-101](../adr/ADR-101-load-profiles-and-limits.md)).
 
-## Frontend Performance Monitoring
+## Frontend performance
 
 Four tools monitor frontend performance at different layers:
 
-### Bundle Size (CI Gate)
+### Bundle size
 
 The `web-bundle-size` job uses [size-limit](https://github.com/ai/size-limit) with the `@size-limit/file` plugin to enforce gzip size limits. The budgets and their current numbers live in [`web/.size-limit.json`](../../web/.size-limit.json).
 
@@ -404,7 +434,7 @@ budget that measures what a user waits for.
 
 This is a **gate job** — a size regression blocks merge-to-main. A size report table is written to the GitHub Actions step summary.
 
-### Lighthouse CI (E2E Job)
+### Lighthouse
 
 After Playwright tests pass, [Lighthouse CI](https://github.com/GoogleChrome/lighthouse-ci) audits `http://localhost:8080/login` (3 runs, desktop preset, no throttling). Configuration: `web/.lighthouserc.json`.
 
@@ -420,20 +450,20 @@ After Playwright tests pass, [Lighthouse CI](https://github.com/GoogleChrome/lig
 
 Results are uploaded as the `lighthouse-results` artifact and a score summary is added to the step summary.
 
-### Browser Performance Evidence
+### Browser performance evidence
 
 Lighthouse and bundle-size evidence stays per-run: Lighthouse uploads the
 `lighthouse-results` artifact from the `e2e` job, and bundle size uploads the
 `bundle-size-report` artifact from the `web-bundle-size` job.
 
-### PageSpeed Insights (CD — Informational)
+### PageSpeed Insights
 
 PageSpeed Insights is not part of the current CD workflow. Browser performance
 evidence comes from Lighthouse CI in the `e2e` job and the bundle-size gate in
 `web-bundle-size`. If PageSpeed is reintroduced, document the workflow step and
 secret in [`cd.yml`](../../.github/workflows/cd.yml) at the same time.
 
-## Dependabot Flow
+## Dependabot
 
 Dependabot PRs target `dev` directly — same target a human contributor would use. The flow:
 

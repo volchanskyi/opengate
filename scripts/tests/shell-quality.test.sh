@@ -6,6 +6,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNNER="$REPO_ROOT/scripts/shell-quality.sh"
+# The stub tools answer with the pinned versions, which the runner requires.
+# shellcheck source=../lib/tool-versions.sh
+. "$REPO_ROOT/scripts/lib/tool-versions.sh"
+export STUB_SHELLCHECK_VERSION="$TOOL_VERSION_SHELLCHECK" STUB_SHFMT_VERSION="$TOOL_VERSION_SHFMT"
 
 PASS=0
 FAIL=0
@@ -39,7 +43,7 @@ if [ -x "$RUNNER" ]; then
   cat >"$BIN/shellcheck" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then
-  printf '%s\n' 'ShellCheck - shell script analysis tool' 'version: 0.11.0'
+  printf '%s\n' 'ShellCheck - shell script analysis tool' "version: $STUB_SHELLCHECK_VERSION"
   exit 0
 fi
 printf 'shellcheck' >>"$TRACE"
@@ -49,7 +53,7 @@ EOF
   cat >"$BIN/shfmt" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then
-  printf '%s\n' 'v3.13.1'
+  printf '%s\n' "v$STUB_SHFMT_VERSION"
   exit 0
 fi
 printf 'shfmt' >>"$TRACE"
@@ -113,6 +117,15 @@ EOF
   else
     pass "format drift exits non-zero"
   fi
+
+  # A linter off its pin judges the scripts by rules CI does not apply.
+  if out="$(STUB_SHELLCHECK_VERSION=0.0.1 TRACE="$TRACE" PATH="$BIN:$PATH" SHELL_QUALITY_ROOT="$REPO" "$RUNNER" check 2>&1)"; then
+    fail "a ShellCheck off its pin is refused"
+  elif grep -qF 'shellcheck is 0.0.1' <<<"$out"; then
+    pass "a ShellCheck off its pin is refused, naming what it found"
+  else
+    fail "a ShellCheck off its pin is refused, naming what it found (out=[$out])"
+  fi
 fi
 
 if grep -qF 'RUST_LOG=off NO_COLOR=1 cargo modules structure' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
@@ -146,10 +159,64 @@ else
   fail "a non-executable file was executed"
 fi
 
-if grep -qF 'not executable:' "$RUNNER" && grep -qF '[ -x ' "$RUNNER"; then
+EXEC_REPO="$TMP_DIR/execrepo"
+mkdir -p "$EXEC_REPO/scripts/tests"
+git -C "$EXEC_REPO" init -q
+cp "$demo_dir/sample.test.sh" "$EXEC_REPO/scripts/tests/sample.test.sh"
+if out="$(SHELL_QUALITY_ROOT="$EXEC_REPO" "$RUNNER" test 2>&1)"; then
+  fail "the runner hands test files to bash, so a missing executable bit is invisible until a commit attempt"
+elif grep -qF 'not executable: scripts/tests/sample.test.sh' <<<"$out"; then
   pass "the runner refuses a test file the gate could not execute"
 else
-  fail "the runner hands test files to bash, so a missing executable bit is invisible until a commit attempt"
+  fail "the runner refuses a test file the gate could not execute (out=[$out])"
+fi
+
+# A test writes nothing into the job that runs it.
+#
+# In CI a test runs inside a step, which hands it the step's own summary, output,
+# environment and path files. A load-test fixture wrote "k6 scenario
+# api-baseline crossed one of its own thresholds" into the Config Lint job's
+# summary, as if a load test had run there. So each test is handed files of its
+# own, and one that writes to them fails, naming the file — and the job's own
+# summary is left as it was.
+STEP_REPO="$TMP_DIR/steprepo"
+mkdir -p "$STEP_REPO/scripts/tests"
+git -C "$STEP_REPO" init -q
+cat >"$STEP_REPO/scripts/tests/quiet.test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "quiet"
+EOF
+cat >"$STEP_REPO/scripts/tests/chatty.test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "k6 scenario api-baseline crossed one of its own thresholds" >>"$GITHUB_STEP_SUMMARY"
+EOF
+chmod +x "$STEP_REPO/scripts/tests/quiet.test.sh" "$STEP_REPO/scripts/tests/chatty.test.sh"
+JOB_SUMMARY="$TMP_DIR/job-summary.md"
+: >"$JOB_SUMMARY"
+if out="$(GITHUB_STEP_SUMMARY="$JOB_SUMMARY" SHELL_QUALITY_ROOT="$STEP_REPO" "$RUNNER" test 2>&1)"; then
+  fail "a test that writes into the job's step summary fails the run"
+elif grep -qF 'chatty.test.sh' <<<"$out" && grep -qF 'GITHUB_STEP_SUMMARY' <<<"$out"; then
+  pass "a test that writes into the job's step summary fails the run, naming the test and the file"
+else
+  fail "a test that writes into the job's step summary fails the run, naming the test and the file (out=[$out])"
+fi
+if [ -s "$JOB_SUMMARY" ]; then
+  fail "the job's own step summary is left as it was (got [$(cat "$JOB_SUMMARY")])"
+else
+  pass "the job's own step summary is left as it was"
+fi
+rm -f "$STEP_REPO/scripts/tests/chatty.test.sh"
+if GITHUB_STEP_SUMMARY="$JOB_SUMMARY" SHELL_QUALITY_ROOT="$STEP_REPO" "$RUNNER" test >/dev/null 2>&1; then
+  pass "tests that write nothing into the job pass"
+else
+  fail "tests that write nothing into the job pass"
+fi
+
+# The gauntlet runs this runner, so the two run the same tests the same way.
+if grep -qF 'scripts/shell-quality.sh test' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
+  pass "the gauntlet's shell-tests step is this runner"
+else
+  fail "the gauntlet's shell-tests step is this runner"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"

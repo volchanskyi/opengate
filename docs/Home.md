@@ -1,5 +1,10 @@
 # OpenGate Documentation
 
+- [Product](#product)
+- [Architecture](#architecture)
+- [Infrastructure](#infrastructure)
+- [Decision records](#decision-records)
+
 Developer documentation for the OpenGate remote device management platform.
 
 > **This is the canonical docs location.** See [docs/README.md](./README.md) for
@@ -9,7 +14,7 @@ Three trees, one rule: a fact has one home and everything else links to it.
 [`product/`](./product/) is what the system does, [`architecture/`](./architecture/)
 is how it is built, [`infrastructure/`](./infrastructure/) is how it runs.
 
-## Product — what the system does
+## Product
 
 Read in order: **Agent Deployment** gets a machine into the fleet, **Fleet and
 Devices** is the day-to-day console, and the rest go deeper per capability.
@@ -29,7 +34,7 @@ Devices** is the day-to-day console, and the rest go deeper per capability.
 | [Tenancy and Access](./product/Tenancy-and-Access.md) | Tenants, customers, sites and devices; security groups, settings screens, the audit log |
 | [Data Erasure](./product/Data-Erasure.md) | Irreversible erasure of a device or a tenant — what is erased, purge stages, guarantees |
 
-## Architecture — how it is built
+## Architecture
 
 | Chapter | Description |
 |---------|-------------|
@@ -40,7 +45,7 @@ Devices** is the day-to-day console, and the rest go deeper per capability.
 | [Metrics Reference](./architecture/Metrics-Reference.md) | Every Prometheus series the server publishes — names, labels, populations, and the invariants that bind them |
 | [Platform Abstraction](./architecture/Platform-Abstraction.md) | OS-specific traits for capture, input, and service lifecycle |
 
-## Infrastructure — how it runs
+## Infrastructure
 
 | Chapter | Description |
 |---------|-------------|
@@ -51,7 +56,8 @@ Devices** is the day-to-day console, and the rest go deeper per capability.
 | [Container Images](./infrastructure/Container-Images.md) | Dockerfile, GHCR registry, multi-arch builds, image tags |
 | [Monitoring](./infrastructure/Monitoring.md) | Observability stack — VictoriaMetrics, Grafana, Loki (uptime via external SaaS) |
 | [Security and Dependencies](./infrastructure/Security-and-Dependencies.md) | CodeQL, vulnerability scanning, Dependabot, key dependencies |
-| [Testing](./infrastructure/Testing.md) | Test layers, running tests, benchmarks |
+| [Testing](./infrastructure/Testing.md) | Whether the system gives the right answer — test layers, coverage, mutation and property tests, end-to-end and cross-component tests |
+| [Non-Functional Testing](./infrastructure/Non-Functional-Testing.md) | How it behaves under load, over a night, against a clock and given hostile input — load and soak runs, leak checks, benchmarks, bundle size, Lighthouse, fuzzing |
 | [Fault Injection](./infrastructure/Fault-Injection.md) | Fault-tolerance harness — Go adapter-substitution suite, Kubernetes and ingress edge drills, the nightly network drill through a link shaper, scenario SLOs |
 | [Shell Quality](./infrastructure/Shell-Quality.md) | Pinned linting, formatting, execution classes, behavioral tests |
 
