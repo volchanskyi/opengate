@@ -11,17 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// A connection the server has let go is not a connection anything may write
-// down, and the transport cannot say so on its behalf.
-
-// A handler resolves the connection it is going to push a request down, and the
-// machine drops off between that lookup and the write. The write then goes into
-// a send buffer nobody is reading and reports success, so the technician's
-// screen says the restart was sent to a machine that has been gone for seconds.
-//
-// A QUIC stream cannot answer for its peer — a write to a socket whose far side
-// has vanished succeeds — so the refusal is the server's own to make, from the
-// one fact it holds: this connection has been released.
 func TestSendAfterTheConnectionIsReleasedIsRefused(t *testing.T) {
 	t.Parallel()
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
@@ -35,9 +24,6 @@ func TestSendAfterTheConnectionIsReleasedIsRefused(t *testing.T) {
 	assert.Zero(t, buf.Len(), "no frame may reach a machine that has gone")
 }
 
-// The refusal is about this connection having been let go, not about the device
-// — a machine that dropped and dialled straight back is served by the new
-// connection, and the new one has been released by nothing.
 func TestSendDownALiveConnectionIsNotRefused(t *testing.T) {
 	t.Parallel()
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)

@@ -1,5 +1,4 @@
-//! The two windows a correlation compares, and the bounded read that fills them
-//! from the agent's own store.
+//! The two windows a correlation compares and the bounded read that fills them.
 
 use edge_tsdb::store::TsdbSnapshot;
 use edge_tsdb::TsdbError;
@@ -8,13 +7,7 @@ use crate::ml::store_sink::{series_dim_name, BACKFILL_SERIES};
 
 use super::rank::{rank_dimensions, CorrelationLimits, DimWindows, Ranking};
 
-/// A baseline window and the focus window it is compared against, in whole Unix
-/// seconds — the timestamps the sampler writes.
-///
-/// The two meet without overlapping: the baseline runs up to but not including
-/// its end, and the focus includes the instant it ends on. A reading on the
-/// boundary therefore belongs to the focus, which is the window an alert is
-/// about.
+/// A baseline and a focus window in Unix seconds; the baseline end is exclusive, focus inclusive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CorrelationWindow {
     baseline_start: i64,
@@ -24,8 +17,7 @@ pub struct CorrelationWindow {
 }
 
 impl CorrelationWindow {
-    /// Build a window from explicit bounds, or `None` when either half does not
-    /// run forwards.
+    /// Builds a window from explicit bounds, or `None` when either half does not run forwards.
     #[must_use]
     pub fn new(
         baseline_start: i64,
@@ -44,9 +36,7 @@ impl CorrelationWindow {
         })
     }
 
-    /// Build a window whose baseline is the stretch of equal length immediately
-    /// before the focus — what a rule firing over an interval has to compare
-    /// against when no other baseline is named.
+    /// Builds a window whose baseline is the stretch of equal length immediately before the focus.
     #[must_use]
     pub fn preceding_baseline(focus_start: i64, focus_end: i64) -> Option<Self> {
         let width = focus_end.checked_sub(focus_start)?;
@@ -82,11 +72,7 @@ impl CorrelationWindow {
         self.focus_end
     }
 
-    /// Split `points` into `(baseline, focus)` readings, keeping at most
-    /// `max_points` in each.
-    ///
-    /// A reading that is not a real number is dropped here — the one place it
-    /// can enter — so nothing downstream has to defend against a NaN.
+    /// Splits `points` into `(baseline, focus)`, at most `max_points` each; non-finite values drop.
     #[must_use]
     pub fn split(&self, points: &[(i64, f64)], max_points: usize) -> (Vec<f64>, Vec<f64>) {
         let mut baseline = Vec::new();
@@ -108,13 +94,7 @@ impl CorrelationWindow {
     }
 }
 
-/// Rank the host dimensions the local store holds for `window`, reading through
-/// an MVCC `snapshot` so the sampler can keep writing underneath.
-///
-/// The read is bounded before the scoring is: each series is fetched over the
-/// span the two windows cover and no further, at most
-/// [`CorrelationLimits::max_dims`] series are touched, and each window keeps at
-/// most [`CorrelationLimits::max_points_per_window`] readings.
+/// Ranks the host dimensions in `window`, reading an MVCC `snapshot` within `limits`.
 pub fn correlate_snapshot(
     snapshot: &TsdbSnapshot,
     window: &CorrelationWindow,
@@ -152,8 +132,6 @@ pub fn correlate_snapshot(
 mod tests {
     use super::CorrelationWindow;
 
-    /// The point cap applies to each window on its own, and keeps the earliest
-    /// readings — the ones that establish what the window looked like.
     #[test]
     fn each_window_keeps_at_most_its_cap() {
         let window = CorrelationWindow::new(0, 10, 10, 20).expect("window");
@@ -165,7 +143,6 @@ mod tests {
         assert_eq!(focus, vec![10.0, 11.0, 12.0]);
     }
 
-    /// A reading outside both windows belongs to neither.
     #[test]
     fn readings_outside_both_windows_are_dropped() {
         let window = CorrelationWindow::new(100, 200, 200, 300).expect("window");
@@ -174,8 +151,6 @@ mod tests {
         assert!(focus.is_empty());
     }
 
-    /// A focus window that would need a baseline before the epoch's negative
-    /// bound is refused rather than wrapping.
     #[test]
     fn a_baseline_that_cannot_be_computed_is_refused() {
         assert!(CorrelationWindow::preceding_baseline(i64::MIN, 0).is_none());

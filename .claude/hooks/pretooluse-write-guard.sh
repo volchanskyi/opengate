@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-write-guard.sh — block writes/edits to forbidden paths/content.
-#
-# Triggers on PreToolUse Write|Edit|MultiEdit. Enforces:
-#   1. No writes to ~/.claude/plans/ (use project .claude/plans/ instead).
-#   2. ADRs in docs/adr/ (013+) are mutable, but may only link ARCHIVED plans.
-#      A link to an active plan rots when the plan is archived/renamed; archived
-#      plans are stable targets. Applies to Write/Edit/MultiEdit on any ADR.
-#   3. No content additions matching NOSONAR, //nolint, nolint:,
-#      sonar.issue.ignore.multicriteria, or eslint-disable*.
-#   4. No writes into .claude/.markers/. Each marker there is written by the
-#      step it proves, and one written by hand proves nothing.
-#
-# NO BYPASS.
+# Refuses a write to the user-global plans directory, a plan link in a decision record, a lint or
+# Sonar suppression, and a write into .claude/.markers/.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -28,14 +17,12 @@ esac
 path="${HOOK_TOOL_INPUT_FILE_PATH:-}"
 [ -n "$path" ] || exit 0
 
-# 1. ~/.claude/plans/ writes.
 case "$path" in
   /home/ivan/.claude/plans/* | "$HOME/.claude/plans/"* | ~/.claude/plans/*)
     block plans-wrong-dir "Write/Edit refused: $path is under the user-global ~/.claude/plans/. Plans must live in /home/ivan/opengate/.claude/plans/. .claude/rules/plans-and-adrs.md."
     ;;
 esac
 
-# Determine the new content being written, across tool variants.
 new_content=""
 case "$tool" in
   Write) new_content="${HOOK_TOOL_INPUT_CONTENT:-}" ;;
@@ -43,16 +30,13 @@ case "$tool" in
   MultiEdit) new_content="${HOOK_TOOL_INPUT_EDITS:-}" ;;
 esac
 
-# 2. An ADR may not link a plan. A plan is a working document, deleted in the
-# commit that lands its work, so a decision record that points at one rots.
-# Fold the rationale inline — the ADR is the durable record.
+# A plan is deleted when its work lands, so a decision record linking one rots.
 if grep -qE '(^|/)docs/adr/ADR-[0-9]+.*\.md$' <<<"$path"; then
   if grep -qE '\]\([^)]*plans/[^)]*\.md' <<<"$new_content"; then
     block adr-plan-link "Write/Edit refused: $path links a plan file ( ](…plans/….md) ). A plan is deleted when its work lands, so an ADR linking one rots. Fold the rationale inline. .claude/rules/plans-and-adrs.md."
   fi
 fi
 
-# 3. Suppression patterns in new content.
 if [ -n "$new_content" ]; then
   while IFS= read -r -d '' pattern_pair; do
     pattern="${pattern_pair%%|*}"
@@ -68,9 +52,7 @@ if [ -n "$new_content" ]; then
     'eslint-disable|eslint-disable directive')
 fi
 
-# 4. The markers. Each is written by the step it proves: the gauntlet, then
-# scripts/refactor-gate.sh, then the post-commit hook (and scripts/arch-lint-flip.sh
-# for the gates it flips). A marker written any other way proves nothing.
+# Each marker is written by the step it proves, so a hand-written one proves nothing.
 case "$path" in
   .claude/.markers/* | */.claude/.markers/*)
     block markers-direct-write "Write/Edit refused: $path is a marker. It is written by the step it proves — ./scripts/precommit-gauntlet.sh on a pass, scripts/refactor-gate.sh start/finish, the post-commit hook — never by hand. .claude/rules/refactor.md."

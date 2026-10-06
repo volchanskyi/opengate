@@ -1,24 +1,6 @@
 #!/usr/bin/env bash
-# Rewrite an lcov report's source paths to be relative to the repository root,
-# and prove the rewrite landed.
-#
-# `cargo llvm-cov --lcov` names every file by its absolute path on the machine
-# that ran it. Every scanner that reads the report runs the analysis inside a
-# container with the tree mounted somewhere else — /usr/src for the Docker
-# scanner `make sonar` uses, /github/workspace for the scan action CI uses — so
-# an absolute host path resolves to no indexed file and the coverage for it is
-# dropped. Silently: the report uploads, the analysis succeeds, and every Rust
-# file comes back measured by nothing.
-#
-# It had never worked. `coverage` and `lines_to_cover` had no value, ever, for
-# any Rust file in the project's whole history, while two ≥80% jobs went on
-# passing against the same report — the gate simply never saw the language. The
-# TypeScript report is written with relative paths and imports fine, which is
-# what this makes the Rust one do.
-#
-# The read-back is the point, not the rewrite. A guard that answers yes when it
-# cannot ask is what let this sit unnoticed, so the file has to come out the
-# other side naming at least one source, and naming none by an absolute path.
+# Rewrites an lcov report's paths relative to the repository root, since the scanner mounts the
+# tree elsewhere; the read-back requires a source and no absolute path.
 #
 # Usage: rust-lcov-relativize.sh <lcov-file> <repository-root>
 set -euo pipefail
@@ -40,8 +22,7 @@ main() {
   fi
 
   local rewritten="$lcov.relative"
-  # Compared as a literal prefix rather than matched as a pattern: a repository
-  # path is a filename and may hold characters a regex would read as syntax.
+  # Compared as a literal prefix, since a repository path may hold regex syntax characters.
   awk -v root="$root/" '
     index($0, "SF:") == 1 {
       path = substr($0, 4)

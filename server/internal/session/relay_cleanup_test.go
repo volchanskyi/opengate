@@ -12,8 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestPostgres_DeleteRelaySession_CrossTenant covers relay teardown, which runs
-// after both request contexts are gone and therefore has no request tenant.
 func TestPostgres_DeleteRelaySession_CrossTenant(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)

@@ -83,10 +83,8 @@ describe('FileManagerView', () => {
 
   it('shows View and Download buttons for files but not directories', () => {
     render(<FileManagerView />);
-    // File entry should have both buttons
     expect(screen.getByLabelText('View file.txt')).toBeInTheDocument();
     expect(screen.getByLabelText('Download file.txt')).toBeInTheDocument();
-    // Directory entry should not have buttons
     expect(screen.queryByLabelText('View docs')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Download docs')).not.toBeInTheDocument();
   });
@@ -161,11 +159,9 @@ describe('FileManagerView', () => {
     useFileStore.setState({ currentPath: '/home', entries: [] });
 
     const { rerender } = render(<FileManagerView />);
-    // Initial mount fires one FileListRequest with path "/".
     expect(mockSendControl).toHaveBeenCalledWith({ type: 'FileListRequest', path: '/' });
     expect(mockSendControl).toHaveBeenCalledTimes(1);
 
-    // Re-rendering with the same connected state must NOT fire a second request.
     rerender(<FileManagerView />);
     expect(mockSendControl).toHaveBeenCalledTimes(1);
   });
@@ -184,7 +180,6 @@ describe('FileManagerView', () => {
   it('Up button is hidden when currentPath is /', () => {
     useFileStore.setState({ currentPath: '/', entries: [] });
     render(<FileManagerView />);
-    // The ".." nav button is omitted at root.
     expect(screen.queryByRole('button', { name: '..' })).not.toBeInTheDocument();
   });
 
@@ -327,7 +322,6 @@ describe('FileManagerView', () => {
   });
 
   it('Modified column converts unix seconds to a locale date string', () => {
-    // 1700000000 seconds = 2023-11-14 ish UTC. Locale specific; just ensure it is a real date.
     useFileStore.setState({
       entries: [{ name: 'dated', is_dir: false, size: 1, modified: 1700000000 }],
     });

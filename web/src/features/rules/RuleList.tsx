@@ -12,7 +12,6 @@ type Rule = components['schemas']['Rule'];
 const HEAD = 'px-3 py-2 text-left text-xs font-semibold text-gray-400';
 const CELL = 'px-3 py-2 text-sm text-gray-300';
 
-/** The state that is a standing hole in the monitoring rather than a delay. */
 function BlindSpot({ rule }: { readonly rule: Rule }) {
   if (rule.coverage.unsupported === 0) return null;
   return (
@@ -23,10 +22,6 @@ function BlindSpot({ rule }: { readonly rule: Rule }) {
   );
 }
 
-/**
- * How loudly a rollout reads: somebody stopped it, it is part-way out, or it is
- * simply where it is meant to be.
- */
 function rolloutTone(rollout: Rule['rollout']): string {
   if (rollout.kill) return 'bg-red-900 text-red-200';
   if (rollout.enabled && rollout.rollout_percent < 100) return 'bg-amber-900 text-amber-200';
@@ -38,14 +33,7 @@ function RolloutCell({ rule }: { readonly rule: Rule }) {
   return <span className={`px-2 py-0.5 rounded text-xs ${tone}`}>{rolloutWording(rule.rollout)}</span>;
 }
 
-/**
- * Every curated rule, and what it is doing to the selected customer's estate.
- *
- * Sorted so anything wanting attention floats up: a rule somebody stopped, one
- * raising far more than it usually does, one with machines that cannot run it at
- * all. A pack listed alphabetically reads as a wall of rows in which nothing is
- * more urgent than anything else, which is how a stopped rule stays stopped.
- */
+// Rules sort so a stopped, noisy or partly unsupported rule floats to the top.
 export function RuleList() {
   const rules = useCatalogueStore((s) => s.rules);
   const fleetSize = useCatalogueStore((s) => s.fleetSize);

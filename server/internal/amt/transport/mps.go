@@ -1,12 +1,3 @@
-// Package transport implements the Intel AMT Management Presence Server.
-//
-// MPS accepts CIRA (Client Initiated Remote Access) connections from Intel AMT
-// devices over TLS. It speaks the APF (AMT Port Forwarding) protocol and
-// manages per-device connections and TCP channel forwarding.
-//
-// This file holds the server type and connection lifecycle. The APF handshake
-// lives in mps_handshake.go, post-handshake message dispatch in mps_handlers.go,
-// and the Conn/Channel types in mps_conn.go. The APF wire codec is in apf*.go.
 package transport
 
 import (
@@ -27,48 +18,36 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// amtLinkTimeout bounds the device lookup and the connection-state writes that
-// follow it. amtProbeTimeout bounds the WSMAN detail read, which crosses the
-// CIRA tunnel to the device itself and so deserves more room.
+// amtLinkTimeout bounds the device lookup and state writes; amtProbeTimeout bounds the
+// WSMAN detail read, which crosses the CIRA tunnel to the device.
 const (
 	amtLinkTimeout  = 5 * time.Second
 	amtProbeTimeout = 30 * time.Second
 )
 
-// keepaliveInterval is the APF keepalive cadence negotiated with the device.
-// defaultRelinkInterval is how often an unlinked connection retries its device
-// lookup, so a machine whose agent registers after its AMT firmware dialled in
-// is adopted without reconnecting.
+// keepaliveInterval is the APF keepalive cadence negotiated with the device;
+// defaultRelinkInterval is how often an unlinked connection retries its device lookup.
 const (
 	keepaliveInterval     = 30 * time.Second
 	defaultRelinkInterval = 30 * time.Second
 )
 
-// AMTStateWriter is the narrow port mps uses to persist device online/offline
-// state when CIRA connections come and go. The amt.Repository
-// satisfies this interface; mps does NOT import amt to avoid a cycle —
-// amt.Service holds a *mps.Server, so the dependency direction must stay
-// amt → mps. The method names mirror amt.Repository so the interface is
-// satisfied structurally.
+// AMTStateWriter persists device online/offline state as CIRA connections come and go.
+// It mirrors amt.Repository, which satisfies it structurally, because amt imports this package.
 type AMTStateWriter interface {
 	Upsert(ctx context.Context, d *db.AMTDevice) error
 	SetStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error
 }
 
-// AMTDeviceLinker resolves which managed device a CIRA connection belongs to and
-// files the detail read back over it. A CIRA connection carries no request
-// tenant, so this lookup is what supplies one: it maps the AMT firmware's UUID —
-// the host's SMBIOS system UUID on vPro hardware — to a device and its
-// tenant. device.HardwareRepository satisfies it structurally, by the same
-// no-import rule as AMTStateWriter.
+// AMTDeviceLinker maps a CIRA connection's SMBIOS system UUID to its device and tenant,
+// the only source of a tenant for a connection, and files the detail read on that device.
 type AMTDeviceLinker interface {
 	ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (uuid.UUID, uuid.UUID, error)
 	SetAMTDetail(ctx context.Context, deviceID uuid.UUID, model, firmware string) error
 }
 
-// AMTDetailProber reads a connected device's machine model and AMT firmware
-// version over WSMAN. amt.Service implements it and is wired in after
-// construction, because amt.Service itself holds the MPS server.
+// AMTDetailProber reads a connected device's machine model and AMT firmware version over
+// WSMAN; amt.Service implements it and is wired in after the server exists.
 type AMTDetailProber interface {
 	ProbeDetail(ctx context.Context, mc *Conn) (string, string, error)
 }
@@ -102,9 +81,7 @@ func NewServer(cm *cert.Manager, state AMTStateWriter, linker AMTDeviceLinker, l
 	}
 }
 
-// SetDetailProber supplies the WSMAN reader used to fill in a linked device's
-// machine model and AMT firmware. Without one the connection still links and
-// still accepts power commands; only the two hardware attributes stay blank.
+// SetDetailProber supplies the WSMAN reader that fills in a linked device's model and firmware.
 func (s *Server) SetDetailProber(p AMTDetailProber) {
 	s.proberMu.Lock()
 	defer s.proberMu.Unlock()
@@ -131,18 +108,11 @@ func (s *Server) GetConn(amtUUID uuid.UUID) *Conn {
 	return val.(*Conn)
 }
 
-// addrWait bounds how long Addr will wait for the listener to bind. Binding a
-// TCP port on loopback takes milliseconds; the budget is wide enough that a
-// machine busy enough to be slow still gets its answer, and short enough that a
-// listener which is never coming up says so instead of stopping the caller for
-// good.
+// addrWait bounds how long Addr waits for the listener to bind.
 const addrWait = 30 * time.Second
 
-// Addr waits for the server to start listening and returns the actual address,
-// or the empty string when it never did. Every dial against an empty address
-// fails immediately and names the server that did not come up, which is what a
-// caller can act on; waiting on the send with no deadline gives a caller that
-// can do nothing at all, on a channel nobody is going to write.
+// Addr waits for the server to start listening and returns the bound address,
+// or the empty string when the listener never bound within addrWait.
 func (s *Server) Addr() string {
 	addr, listening := waitForAddr(s.addrCh, addrWait)
 	if !listening {
@@ -185,7 +155,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 
 	s.logger.Info("MPS server listening", "addr", actualAddr)
 
-	// Close listener when context is done.
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
@@ -249,14 +218,8 @@ func (s *Server) registerConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) 
 	}
 }
 
-// linkConn resolves the managed device that owns this AMT connection and records
-// the connection online under that device's tenant. It reports whether the
-// connection is linked.
-//
-// A connection that resolves to nothing persists nothing: Intel AMT is a
-// property of a managed device, so an AMT box with no agent has no tenant
-// to store state in. The connection stays live in memory and the keepalive
-// retries this lookup, so the machine is adopted the moment its agent registers.
+// linkConn records the connection online under its device's tenant and reports whether it is
+// linked. A connection with no matching device persists nothing and retries on the keepalive.
 func (s *Server) linkConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) bool {
 	if _, _, ok := mc.linked(); ok {
 		return true
@@ -286,10 +249,8 @@ func (s *Server) linkConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) bool
 	return true
 }
 
-// storeDetail reads the machine model and AMT firmware version back over the
-// CIRA connection and files them on the device's hardware row. It runs on its
-// own goroutine because the WSMAN reply arrives through the message loop the
-// caller is about to enter.
+// storeDetail files the model and firmware read over the CIRA connection on the device's
+// hardware row; it runs on its own goroutine because the reply arrives through the message loop.
 func (s *Server) storeDetail(ctx context.Context, mc *Conn, deviceID, tenantID uuid.UUID) {
 	prober := s.detailProber()
 	if prober == nil {
@@ -339,10 +300,7 @@ func (s *Server) startKeepalive(ctx context.Context, mc *Conn) {
 	ticker := time.NewTicker(keepaliveInterval)
 	defer ticker.Stop()
 
-	// Retry the device lookup while the connection is unlinked, so an AMT box
-	// that dialled in before its agent registered is adopted on the next tick
-	// rather than on the next reconnect. linkConn returns immediately once the
-	// connection is linked, so this costs nothing in the steady state.
+	// An unlinked connection retries its device lookup on this tick; a linked one returns at once.
 	relink := time.NewTicker(s.relinkInterval)
 	defer relink.Stop()
 

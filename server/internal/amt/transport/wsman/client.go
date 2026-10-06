@@ -17,10 +17,7 @@ import (
 // amtWSManPort is the default WSMAN HTTP port on AMT devices.
 const amtWSManPort = 16992
 
-// MPSConn is the minimal subset of transport.Conn the WSMAN client depends on.
-// Defining it here keeps the package decoupled from the concrete *transport.Conn
-// type so the client can be unit-tested with a fake. *transport.Conn satisfies
-// this interface; no production caller needs to change.
+// MPSConn is the subset of *transport.Conn the WSMAN client uses.
 type MPSConn interface {
 	OpenChannel(targetAddr string, targetPort uint16) (*transport.Channel, error)
 	NetConn() net.Conn
@@ -43,9 +40,7 @@ func NewClient(conn MPSConn, username, password string, logger *slog.Logger) *Cl
 	}
 }
 
-// Do sends a WSMAN request to the AMT device, handling Digest auth transparently.
-// It opens a channel to port 16992, sends the HTTP request, reads the response,
-// and returns the response body.
+// Do sends a WSMAN request over a new channel, answers a Digest challenge, and returns the body.
 func (c *Client) Do(ctx context.Context, soapAction string, body []byte) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -62,13 +57,11 @@ func (c *Client) Do(ctx context.Context, soapAction string, body []byte) ([]byte
 	ch.SetOnData(cc.Feed)
 	defer cc.Close()
 
-	// First attempt without auth.
 	status, respBody, wwwAuth, err := c.doHTTP(cc, soapAction, body, "")
 	if err != nil {
 		return nil, err
 	}
 	if status == http.StatusUnauthorized && wwwAuth != "" {
-		// Retry with Digest auth.
 		authHeader, err := c.auth.Authorize("POST", "/wsman", wwwAuth)
 		if err != nil {
 			return nil, fmt.Errorf("wsman: digest auth: %w", err)
@@ -86,7 +79,6 @@ func (c *Client) Do(ctx context.Context, soapAction string, body []byte) ([]byte
 
 // doHTTP sends one HTTP POST to /wsman and reads the response.
 func (c *Client) doHTTP(cc *ChannelConn, soapAction string, body []byte, authHeader string) (int, []byte, string, error) {
-	// Build HTTP request.
 	var sb strings.Builder
 	sb.WriteString("POST /wsman HTTP/1.1\r\n")
 	sb.WriteString(fmt.Sprintf("Host: 127.0.0.1:%d\r\n", amtWSManPort))
@@ -97,7 +89,6 @@ func (c *Client) doHTTP(cc *ChannelConn, soapAction string, body []byte, authHea
 	}
 	sb.WriteString("\r\n")
 
-	// Send headers + body.
 	if _, err := cc.Write([]byte(sb.String())); err != nil {
 		return 0, nil, "", fmt.Errorf("wsman: write request: %w", err)
 	}
@@ -105,7 +96,6 @@ func (c *Client) doHTTP(cc *ChannelConn, soapAction string, body []byte, authHea
 		return 0, nil, "", fmt.Errorf("wsman: write body: %w", err)
 	}
 
-	// Read HTTP response.
 	resp, err := http.ReadResponse(bufio.NewReader(cc), nil)
 	if err != nil {
 		return 0, nil, "", fmt.Errorf("wsman: read response: %w", err)

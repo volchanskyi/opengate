@@ -89,7 +89,6 @@ else
   fail "fresh cache avoids a new OCI session"
 fi
 
-# The persistent log records both OCIDs and the worker node's private IP.
 if [ "$(stat -c %a "$fixture/cache/opengate/bastion-session.log")" = "600" ] \
   && [ "$(stat -c %a "$fixture/cache/opengate")" = "700" ]; then
   pass "session log and cache dir are owner-only"

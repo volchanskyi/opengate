@@ -16,7 +16,6 @@ vi.mock('../../lib/api', () => ({
 }));
 
 
-/** An administrator, so the admin-gated site controls render. */
 function seedAdminUser(isAdmin = true) {
   useAuthStore.setState({
     user: { id: 'u1', email: 'a@b.com', display_name: 'A', is_admin: isAdmin, created_at: '', updated_at: '' },
@@ -75,7 +74,6 @@ describe('SiteSidebar', () => {
     const user = userEvent.setup();
     render(<SiteSidebar />);
 
-    // First click shows confirm
     const deleteButtons = screen.getAllByText('x');
     await user.click(deleteButtons[0]!);
     expect(screen.getByText('Confirm?')).toBeInTheDocument();
@@ -94,8 +92,6 @@ describe('SiteSidebar', () => {
   });
 
   it('offers no drop affordances to an admin with no sites', () => {
-    // With nowhere to drop a device, the Unfiled zone and the drag hint are
-    // noise: an admin who has not created a site yet sees only the empty state.
     useDeviceStore.setState({ sites: [] });
     render(<SiteSidebar />);
     expect(screen.queryByLabelText('Unfiled')).toBeNull();
@@ -122,8 +118,6 @@ describe('SiteSidebar', () => {
   });
 
   it('treats a signed-out viewer as non-admin rather than as an admin', () => {
-    // `?? false` is the safe default: an absent user must never unlock the
-    // configuration controls.
     useAuthStore.setState({ user: null });
     render(<SiteSidebar />);
     expect(screen.queryByText('+ New')).toBeNull();
@@ -138,14 +132,10 @@ describe('SiteSidebar', () => {
     await user.click(screen.getByText('+ New'));
 
     const input = screen.getByPlaceholderText('Site name') as HTMLInputElement;
-    // Whitespace padding around 'New Site' — kills `newName.trim()` →
-    // `newName` (no trim) mutant.
     await user.type(input, '  New Site  ');
     await user.click(screen.getByText('Add'));
 
     expect(createGroupFn).toHaveBeenCalledWith('New Site');
-    // Input is cleared — kills `setNewName('')` → `'Stryker was here!'` mutant.
-    // Form is hidden — kills `setShowForm(false)` → `setShowForm(true)` mutant.
     expect(screen.queryByPlaceholderText('Site name')).toBeNull();
   });
 
@@ -160,8 +150,6 @@ describe('SiteSidebar', () => {
     await user.type(input, '   ');
     await user.click(screen.getByText('Add'));
 
-    // Kills `if (!newName.trim()) return;` → `if (false) return;` and
-    // `if (newName.trim()) return;` mutants — only whitespace must short-circuit.
     expect(createGroupFn).not.toHaveBeenCalled();
   });
 
@@ -173,12 +161,10 @@ describe('SiteSidebar', () => {
     render(<SiteSidebar />);
     const deleteButtons = screen.getAllByText('x');
 
-    // First click → Confirm shown.
     await user.click(deleteButtons[0]!);
     expect(screen.getByText('Confirm?')).toBeInTheDocument();
     expect(deleteGroupFn).not.toHaveBeenCalled();
 
-    // Second click on same button → actual delete called, and the question closes.
     await user.click(screen.getByText('Confirm?'));
     expect(deleteGroupFn).toHaveBeenCalledWith('g1');
     await waitFor(() => { expect(screen.queryByText('Confirm?')).not.toBeInTheDocument(); });
@@ -244,7 +230,6 @@ describe('SiteSidebar', () => {
       capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '',
     };
 
-    /** A DataTransfer stand-in carrying a device drag. */
     const deviceTransfer = (id = 'd1') => ({
       types: [DEVICE_DRAG_MIME],
       getData: (type: string) => (type === DEVICE_DRAG_MIME ? id : ''),
@@ -266,7 +251,6 @@ describe('SiteSidebar', () => {
       fireEvent.drop(dropZone('Site B'), { dataTransfer: deviceTransfer() });
 
       await waitFor(() => { expect(updateDeviceSite).toHaveBeenCalledWith('d1', 'g2'); });
-      // The list is re-pulled for the active filter so the card leaves the view.
       await waitFor(() => { expect(fetchDevices).toHaveBeenCalledWith('g1'); });
     });
 
@@ -315,8 +299,6 @@ describe('SiteSidebar', () => {
     });
 
     it('moves the dragged device, not the first one in the list', async () => {
-      // Two devices, and the dragged one is not devices[0]: the lookup must
-      // match on id or a drag moves someone else's machine.
       const other = { ...device, id: 'd0', organization_id: 'org-1', site_id: 'g2', hostname: 'db-01' };
       const updateDeviceSite = vi.fn().mockResolvedValue(true);
       const addToast = vi.fn();
@@ -330,9 +312,6 @@ describe('SiteSidebar', () => {
       expect(addToast).toHaveBeenCalledWith('Moved web-01 to Site B', 'success');
     });
 
-    // A device is "unfiled" whether the server reports an empty site, a
-    // whitespace one, or the all-zeros placeholder. Each of those dropped back
-    // onto the Unfiled zone is a move to where it already is.
     it.each([
       ['an empty site_id', ''],
       ['a whitespace site_id', '   '],
@@ -351,8 +330,6 @@ describe('SiteSidebar', () => {
       await waitFor(() => { expect(updateDeviceSite).not.toHaveBeenCalled(); });
     });
 
-    // A zone that does not take the drag-over's default is not a drop target,
-    // and a drop whose default is left runs the browser's own navigation.
     it('a device dragged over a site is accepted there, and its drop is taken', () => {
       useDeviceStore.setState({ updateDeviceSite: vi.fn().mockResolvedValue(true), fetchDevices: vi.fn() });
       render(<SiteSidebar />);
@@ -376,8 +353,6 @@ describe('SiteSidebar', () => {
       useDeviceStore.setState({ updateDeviceSite: vi.fn(), fetchDevices: vi.fn() });
       render(<SiteSidebar />);
 
-      // The pointer crosses A on its way to B; A's late dragleave must not
-      // steal the highlight from B.
       fireEvent.dragOver(dropZone('Site A'), { dataTransfer: deviceTransfer() });
       fireEvent.dragOver(dropZone('Site B'), { dataTransfer: deviceTransfer() });
       fireEvent.dragLeave(dropZone('Site A'));
@@ -445,8 +420,6 @@ describe('SiteSidebar', () => {
     });
 
     it('still exposes each site as a labelled list item', () => {
-      // Losing the drag handlers must not cost the read-only sidebar its
-      // structure: the rows stay a labelled list for assistive technology.
       render(<SiteSidebar />);
       expect(screen.getByRole('listitem', { name: 'Site A' })).toBeInTheDocument();
       expect(screen.getByRole('listitem', { name: 'Site B' })).toBeInTheDocument();

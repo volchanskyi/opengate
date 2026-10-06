@@ -9,9 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What an answer costs. A peer is asked about once per answer rather than once
-// per request, and what is kept is bounded in both size and age.
-
 func TestTrustedProxiesRemembersWhatItWasTold(t *testing.T) {
 	t.Parallel()
 

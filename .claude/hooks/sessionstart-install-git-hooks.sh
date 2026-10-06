@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
-# sessionstart-install-git-hooks.sh — SessionStart hook. Installs git's native
-# post-commit auto-push hook so "commit ⇒ push" works deterministically for BOTH
-# foreground and BACKGROUNDED `git commit` tool calls (a Claude PostToolUse hook
-# cannot — it does not fire after a backgrounded command completes).
-#
-# Idempotent and zero-manual-install: it rewrites a thin shim into the repo's git
-# hooks dir every session, always pointing at the version-controlled logic in
-# .claude/hooks/git-post-commit.sh. The shim is regenerated each session, so it
-# always targets the current checkout path.
-#
-# Silent on success (no stdout) so it never pollutes the SessionStart context.
+# Installs git's native post-commit shim, which also fires after a backgrounded commit.
+# It rewrites the shim each session to exec git-post-commit.sh and prints nothing on success.
 set -uo pipefail
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -19,8 +10,7 @@ logic="$root/.claude/hooks/git-post-commit.sh"
 [ -f "$logic" ] || exit 0
 chmod +x "$logic" 2>/dev/null || true
 
-# Resolve the effective hooks dir (respects worktrees / core.hooksPath); fall
-# back to .git/hooks. Normalize a relative path against the work tree.
+# The hooks dir honors worktrees and core.hooksPath, falling back to .git/hooks.
 hooks_dir="$(git rev-parse --git-path hooks 2>/dev/null || echo ".git/hooks")"
 case "$hooks_dir" in
   /*) : ;;

@@ -39,7 +39,6 @@ function AlertRow({ incidentId, alert }: { readonly incidentId: string; readonly
     <>
       <tr className="border-t border-gray-800">
         <td className={CELL}>
-          {/* A machine is named, never asked: the room reads a frozen snapshot. */}
           <Link to={`/devices/${alert.device_id}`} className="text-blue-400 hover:text-blue-300 font-mono text-xs">
             {shortId(alert.device_id)}
           </Link>
@@ -78,14 +77,7 @@ function AlertRow({ incidentId, alert }: { readonly incidentId: string; readonly
   );
 }
 
-/**
- * The alerts this room folded, and the evidence each of them carries.
- *
- * The page is bounded and the incident is not, so both counts are stated: how
- * many alerts are on screen against how many the room holds, and how many
- * machines those alerts came from against how many the incident covers. A room
- * whose alerts are fewer than its machines is a room to read, not an error.
- */
+/** The alerts a room folded, stating the shown counts against the incident's totals. */
 export function IncidentAlerts({ incidentId, alerts, total, deviceCount }: Props) {
   const shownDevices = new Set(alerts.map((a) => a.device_id)).size;
 

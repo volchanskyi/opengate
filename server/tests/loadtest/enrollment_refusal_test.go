@@ -13,22 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A limit the server enforced on purpose, and a server that fell over, told
-// apart — and the order the two halves of that have to land in.
-//
-// The harness said two contradictory things about a refusal. The comment above
-// the tally says a refusal "is held apart from both", and the tally put it in
-// the failure count and then also tagged it, so the rejection was a label on top
-// of a failure and the error rate counted it. Underneath, the enrollment call
-// returned that same refusal for *any* non-200 — so a 500, a 502 and the
-// `503 request timeout` a night actually saw were all labelled "the server
-// declining on purpose".
-//
-// The two defects cancel. Because refusals still landed in the failure count, a
-// server falling over was caught — by accident. Moving the refusal out without
-// first narrowing what counts as one takes every 5xx out of the error rate with
-// it, and a server that had stopped answering would report a perfect run.
-
 // refusingServer answers every enrollment with one status and body.
 func refusingServer(t *testing.T, status int, body string) *httptest.Server {
 	t.Helper()
@@ -51,10 +35,6 @@ func enrollAgainst(t *testing.T, server *httptest.Server) error {
 	return err
 }
 
-// What the enrollment endpoint deliberately answers with. Read off the handler
-// and the rate limiter rather than assumed: the endpoint is unauthenticated, so
-// it never answers 401 or 403, and a test written against those would pin
-// behaviour the product does not have.
 func TestOnlyTheStatusesTheServerChoosesAreRefusals(t *testing.T) {
 	deliberate := []struct {
 		status int
@@ -74,8 +54,6 @@ func TestOnlyTheStatusesTheServerChoosesAreRefusals(t *testing.T) {
 	}
 }
 
-// And what it does not choose. A bad signing request is the harness sending
-// something wrong, and a 5xx is the server broken — neither is a limit working.
 func TestAServerThatBrokeIsNotAServerRefusing(t *testing.T) {
 	broken := []struct {
 		status int
@@ -98,8 +76,6 @@ func TestAServerThatBrokeIsNotAServerRefusing(t *testing.T) {
 	}
 }
 
-// The status is named whichever of the two it was, because a night reading the
-// log is the only place the difference is visible.
 func TestARefusalNamesTheStatusItCameBackWith(t *testing.T) {
 	err := enrollAgainst(t, refusingServer(t, http.StatusTooManyRequests, `{"error":"rate limit exceeded"}`))
 	require.Error(t, err)
@@ -127,9 +103,6 @@ func registered() agentResult {
 	return agentResult{connectDur: time.Millisecond, arrivedAt: time.Now()}
 }
 
-// A fleet refused at a ceiling it declared reports no errors. The limit worked;
-// counting it as a defect makes a correctly enforced limit look broken and
-// buries the real failures underneath it.
 func TestAFleetRefusedAtADeclaredCeilingReportsNoErrors(t *testing.T) {
 	tally := fleetOf(t, []agentResult{
 		registered(),
@@ -144,9 +117,6 @@ func TestAFleetRefusedAtADeclaredCeilingReportsNoErrors(t *testing.T) {
 	assert.InDelta(t, 0.0, tally.ErrorRate(), 0.0001, "the limit working is not an error rate")
 }
 
-// And a fleet that met a server which had stopped answering reports all of it.
-// This is the half that must land in the same change: on its own, the one above
-// takes every 5xx out of the error rate with it.
 func TestAFleetThatMetABrokenServerReportsEveryOne(t *testing.T) {
 	tally := fleetOf(t, []agentResult{
 		registered(),
@@ -161,8 +131,6 @@ func TestAFleetThatMetABrokenServerReportsEveryOne(t *testing.T) {
 	assert.InDelta(t, 0.75, tally.ErrorRate(), 0.0001)
 }
 
-// A machine the run itself stood down never asked the system anything, and it
-// stays out of both — which it already did, and which the change must not move.
 func TestAStoodDownMachineIsNeitherArrivedNorRefused(t *testing.T) {
 	tally := fleetOf(t, []agentResult{
 		registered(),
@@ -175,13 +143,6 @@ func TestAStoodDownMachineIsNeitherArrivedNorRefused(t *testing.T) {
 	assert.EqualValues(t, 1, tally.StoodDown)
 }
 
-// Taking the refusal out of the failure count takes it out of the denominator
-// too, and that produces a second zero that reads exactly like the first.
-//
-// A fleet every machine of which was refused at a ceiling has attempted nothing
-// by this count, so the error rate comes back as zero through the guard against
-// dividing by nothing rather than through anything having been measured. A
-// reader cannot tell that from a clean run, so the tally says which it is.
 func TestAnErrorRateOfZeroSaysWhetherAnythingWasMeasured(t *testing.T) {
 	clean := fleetOf(t, []agentResult{registered(), registered()})
 	assert.InDelta(t, 0.0, clean.ErrorRate(), 0.0001)
@@ -197,9 +158,6 @@ func TestAnErrorRateOfZeroSaysWhetherAnythingWasMeasured(t *testing.T) {
 	assert.EqualValues(t, 2, refused.Rejected, "and the run still says what became of them")
 }
 
-// The count of what the ceiling refused reaches a reader. It had been recorded
-// and then travelled no further than one field, so a run refused at a limit and
-// a run that was not looked identical in everything a night prints.
 func TestTheRejectionCountReachesTheBundle(t *testing.T) {
 	bundle := bundleFrom(t, []agentResult{
 		registered(),
@@ -211,10 +169,6 @@ func TestTheRejectionCountReachesTheBundle(t *testing.T) {
 	require.True(t, published, "a run refused at a ceiling has to look different from one that was not")
 	assert.InDelta(t, 1.0, value, 0.0001)
 
-	// And the error rate beside it is of the two machines that were actually
-	// asked, not of the three the run produced. The two numbers are only
-	// readable together: one says a limit turned somebody away, the other says
-	// nothing went wrong with the machines that got through.
 	rate, published := observedValue(bundle, "aggregate_error_rate")
 	require.True(t, published)
 	assert.InDelta(t, 0.0, rate, 0.0001,

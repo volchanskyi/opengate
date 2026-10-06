@@ -30,11 +30,7 @@ assert_eq() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# A psql stand-in backed by one counter file per kind of residue, so a DELETE
-# really changes what a later COUNT reports — a fake that always answers the same
-# thing would pass a cleanup that deleted nothing. Every kind a run creates has a
-# counter here, because a kind the fake cannot count is a kind the script can
-# stop removing without any test noticing.
+# The psql stand-in keeps one counter file per kind of residue, so a DELETE changes a later COUNT.
 make_fake_psql() {
   local users="$1" devices="$2" delete_works="$3"
   local orgs="${4:-0}" sites="${5:-0}"
@@ -112,8 +108,6 @@ run_cleanup() {
 
 echo "loadtest-cleanup:"
 
-# The state that was actually found in staging: every account in the database
-# was load-test residue, and no run had ever removed what it made.
 make_fake_psql 81 40 yes 8 38
 run_cleanup
 assert_eq "a residue purge exits 0" "0" "$STATUS"
@@ -121,21 +115,14 @@ assert_eq "the accumulated users are removed" "81" "$(jq -r '.removed_users' "$W
 assert_eq "the accumulated devices are removed" "40" "$(jq -r '.removed_devices' "$WORK/proof.json")"
 assert_eq "nothing is left behind" "0" "$(jq -r '.orphan_users' "$WORK/proof.json")"
 
-# The customers and the sites under them are the kinds that survived a week of
-# cleanups: nothing selected them and nothing counted them, so the next run's
-# fixture collided with what the last one left and the fleet never connected.
 assert_eq "the customers a run took on are removed" "8" "$(jq -r '.removed_organizations' "$WORK/proof.json")"
 assert_eq "the sites under them are removed" "38" "$(jq -r '.removed_sites' "$WORK/proof.json")"
 assert_eq "no customer is left behind" "0" "$(jq -r '.orphan_organizations' "$WORK/proof.json")"
 assert_eq "no site is left behind" "0" "$(jq -r '.orphan_sites' "$WORK/proof.json")"
 
-# The proof travels with the run. A run that says it left nothing must have
-# looked, and the looking is what the bundle carries.
 assert_eq "the proof records that cleanup ran" "true" "$(jq -r '.verified' "$WORK/proof.json")"
 assert_eq "the proof names the marker it selected on" "opengate-loadtest" "$(jq -r '.marker' "$WORK/proof.json")"
 
-# A cleanup that deleted nothing must fail loudly. Reporting success on residue
-# is exactly how eighty-one accounts accumulated without anyone noticing.
 make_fake_psql 5 0 no
 run_cleanup
 if [ "$STATUS" -ne 0 ]; then
@@ -150,9 +137,6 @@ else
   fail "the failure names the residue it found"
 fi
 
-# Residue of any kind fails the cleanup. A run whose accounts went but whose
-# customers stayed is the exact state that broke every night for a week, and it
-# reported success.
 make_fake_psql 0 0 no 3 0
 run_cleanup
 if [ "$STATUS" -ne 0 ]; then
@@ -162,25 +146,17 @@ else
 fi
 assert_eq "the surviving customers are counted" "3" "$(jq -r '.orphan_organizations' "$WORK/proof.json")"
 
-# A clean environment is the ordinary case after the first purge, and it must
-# not read as a failure.
 make_fake_psql 0 0 yes
 run_cleanup
 assert_eq "an already-clean environment exits 0" "0" "$STATUS"
 assert_eq "an already-clean environment removed nothing" "0" "$(jq -r '.removed_users' "$WORK/proof.json")"
 
-# The historic residue predates the marker, so the address the scenarios always
-# used must be selected on too — otherwise the accounts already there survive
-# every cleanup that comes after them.
 if grep -q '@test.local' "$CLEANUP"; then
   pass "the historic address pattern is cleaned as well as the marker"
 else
   fail "the historic address pattern is cleaned as well as the marker"
 fi
 
-# The one account cleanup must not touch. It is the administrator a run mints
-# its enrollment token against, and a run that removes it leaves the next night
-# with nobody to mint against.
 if grep -q 'LOADTEST_SERVICE_ACCOUNT' "$CLEANUP"; then
   pass "the service account is exempt from the purge"
 else
@@ -198,7 +174,6 @@ else
   fail "the purge must name the spared account in its statement"
 fi
 
-# Cleanup runs on every path, or a failed run is the one that leaves residue.
 WORKFLOW="$REPO_ROOT/.github/workflows/load-test.yml"
 if awk '/loadtest-cleanup\.sh/ { found = 1 } END { exit !found }' "$WORKFLOW"; then
   pass "the workflow runs the cleanup"

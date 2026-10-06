@@ -41,6 +41,15 @@ everything needs the session before anything else exists.
 the web tree, `cargo-deny` on the agent, and `go-arch-lint` on the server. All
 three fail the build rather than warn.
 
+**A web boundary rule is proven to fire.** The boundary lint resolves
+extensionless imports to their TypeScript files, since an import it cannot
+resolve escapes every policy, and
+[`eslint-boundaries.test.sh`](../../scripts/tests/eslint-boundaries.test.sh)
+lints a probe import for each allowed and refused pair of layers.
+[`depcruise-check.sh`](../../scripts/depcruise-check.sh), run by the gauntlet
+and CI alike, fails on any error the dependency check reports as well as on
+warnings past its snapshot.
+
 **What decides whether something leaves the process** is how intrusively it
 couples, how many internal callers it has, and how often it changes. Something
 leaves only when it is loosely coupled, has few callers, and there is a concrete

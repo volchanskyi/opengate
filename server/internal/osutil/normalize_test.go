@@ -22,10 +22,7 @@ func TestNormalizeOS(t *testing.T) {
 		{"arch linux", "Arch Linux", "linux"},
 		{"rhel", "Red Hat Enterprise Linux 9.3 (Plow)", "linux"},
 		{"windows pretty", "Windows 11 Pro", "windows"},
-		// The normalizer recognizes the two OS families the fleet targets. Any
-		// other pretty name — macOS, the BSDs — is passed through lowercased
-		// rather than folded onto a GOOS value, so a manifest published for it
-		// matches on exactly the string the agent reported.
+		// Other pretty names pass through lowercased so a manifest matches the reported string.
 		{"macos pretty name passes through", "macOS 14.4", "macos 14.4"},
 		{"darwin pretty name passes through", "Darwin Kernel Version 23.4.0", "darwin kernel version 23.4.0"},
 		{"unknown", "freebsd", "freebsd"},

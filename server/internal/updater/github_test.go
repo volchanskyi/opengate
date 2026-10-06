@@ -19,12 +19,9 @@ func setupSigningKeys(t *testing.T) (*SigningKeys, string) {
 	return keys, dir
 }
 
-// newFakeGitHub creates a test server that serves a GitHub-like releases API.
-// The sha256URLs map is keyed by asset name suffix (e.g., "linux-amd64").
 func newFakeGitHub(t *testing.T, tag string, binaries map[string]string) *httptest.Server {
 	t.Helper()
 
-	// We need the server URL in the response, so use a pointer we fill after creation.
 	var srvURL string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +45,6 @@ func newFakeGitHub(t *testing.T, tag string, binaries map[string]string) *httpte
 			fmt.Fprintf(w, `{"tag_name":%q,"assets":[%s]}`, tag, assets)
 
 		default:
-			// Serve SHA256 files at /sha256/{suffix}.
 			for suffix, sha256 := range binaries {
 				if r.URL.Path == "/sha256/"+suffix {
 					fmt.Fprintf(w, "%s  mesh-agent-%s\n", sha256, suffix)
@@ -79,7 +75,6 @@ func TestSyncFromGitHub_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, synced, 2)
 
-	// Verify amd64 manifest.
 	m, err := store.Get(context.Background(), "linux", "amd64")
 	require.NoError(t, err)
 	require.NotNil(t, m)
@@ -90,7 +85,6 @@ func TestSyncFromGitHub_Success(t *testing.T) {
 	assert.Equal(t, sha256Amd64, m.SHA256)
 	assert.NotEmpty(t, m.Signature)
 
-	// Verify arm64 manifest.
 	m2, err := store.Get(context.Background(), "linux", "arm64")
 	require.NoError(t, err)
 	require.NotNil(t, m2)
@@ -98,7 +92,6 @@ func TestSyncFromGitHub_Success(t *testing.T) {
 	assert.Equal(t, "arm64", m2.Arch)
 	assert.Equal(t, sha256Arm64, m2.SHA256)
 
-	// Verify signatures are valid.
 	valid, err := keys.VerifyHash(m.SHA256, m.Signature)
 	require.NoError(t, err)
 	assert.True(t, valid)

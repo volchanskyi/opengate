@@ -14,9 +14,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// What a machine is told about its own alert allowance, and what a stop does to
-// a machine that was offline when somebody reached for it.
-
 // fixedLimits answers with one customer's budget, or one error.
 type fixedLimits struct {
 	limits alerts.Limits
@@ -27,9 +24,7 @@ func (f fixedLimits) Limits(context.Context, uuid.UUID) (alerts.Limits, error) {
 	return f.limits, f.err
 }
 
-// told assembles what one machine is told: the rules it runs and the allowance
-// it runs them under. Every case here differs only in what the stores answer, so
-// the assembly is stated once.
+// told assembles the rules and the allowance one machine receives.
 func told(t *testing.T, store RuleConfigStore, limits AlertLimitReader, scope settings.Scope) RuleSet {
 	t.Helper()
 	cat, err := rules.Embedded()
@@ -41,15 +36,12 @@ func told(t *testing.T, store RuleConfigStore, limits AlertLimitReader, scope se
 	return got
 }
 
-// budgetOf is the customer budget half of that, for the cases that are about the
-// allowance rather than about which rules arrive.
+// budgetOf returns the ruleset a new customer's machine gets under the given alert limit reader.
 func budgetOf(t *testing.T, limits AlertLimitReader) RuleSet {
 	t.Helper()
 	return told(t, &fakeRuleConfig{}, limits, ladderFor(uuid.New()))
 }
 
-// The per-machine allowance is enforced on the machine, so it travels down with
-// the rules. A screen that only wrote a database row would have changed nothing.
 func TestTheCustomersMachineAllowanceTravelsWithTheRules(t *testing.T) {
 	t.Parallel()
 
@@ -62,10 +54,6 @@ func TestTheCustomersMachineAllowanceTravelsWithTheRules(t *testing.T) {
 	assert.NotEmpty(t, got.Rules, "the allowance rides the rules rather than replacing them")
 }
 
-// A budget that cannot be read leaves the machine on the allowance it already
-// has, and so does a deployment with no budget source. Pushing a zero would be
-// indistinguishable from a customer who set nothing, and a guess would either
-// silence a machine or uncap it off the back of a failed query.
 func TestAnUnknownBudgetLeavesTheMachineOnItsCurrentAllowance(t *testing.T) {
 	t.Parallel()
 
@@ -81,10 +69,6 @@ func TestAnUnknownBudgetLeavesTheMachineOnItsCurrentAllowance(t *testing.T) {
 	}
 }
 
-// A stored allowance outside what the code allows is held inside it on the way
-// out, not only on the way in. A row written before a maximum was tightened, or
-// written past the API altogether, would otherwise hand a machine an allowance
-// nobody may set.
 func TestAnAllowanceOutsideTheAllowedRangeIsHeldInsideIt(t *testing.T) {
 	t.Parallel()
 
@@ -99,10 +83,6 @@ func TestAnAllowanceOutsideTheAllowedRangeIsHeldInsideIt(t *testing.T) {
 	}
 }
 
-// A stopped rule is off the machine on its next connection, without a release
-// and without anything having been pushed to it while it was gone. A machine
-// that was offline when somebody reached for the stop is the case that matters:
-// it is the one nothing could have been delivered to.
 func TestAStoppedRuleIsGoneWhenTheMachineComesBack(t *testing.T) {
 	t.Parallel()
 

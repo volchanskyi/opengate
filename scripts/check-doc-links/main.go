@@ -130,9 +130,7 @@ func reportProblems(problems []problem) int {
 	return 0
 }
 
-// onlyNewProblems returns the problems present in proposed but not already in
-// current — the diff that hook mode blocks. Pre-existing debt is never blocked;
-// only newly introduced breakage is.
+// onlyNewProblems returns the problems in proposed that current lacks, which hook mode blocks.
 func onlyNewProblems(proposed, current []problem) []problem {
 	currentCounts := make(map[string]int, len(current))
 	for _, item := range current {

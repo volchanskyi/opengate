@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# The Content-Security-Policy and Permissions-Policy are declared twice: the Go
-# server sends them on every response, and the ingress add-headers ConfigMap
-# layers the same values at the edge. Two sources drift silently — a browser
-# receiving both enforces the intersection, so a divergence quietly tightens or
-# loosens the effective policy. This test pins them together.
-#
-# Run: ./scripts/tests/csp-policy-parity.test.sh
+# Pins the server's CSP and Permissions-Policy to the ingress copy; a browser enforces both.
 
 set -euo pipefail
 
@@ -29,7 +23,6 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Concatenate the Go string-literal pieces of a const into one line.
 go_const_value() {
   local name="$1"
   awk -v name="$name" '
@@ -45,8 +38,6 @@ go_const_value() {
   ' "$MIDDLEWARE"
 }
 
-# Read a YAML scalar that may be a folded (>-) block or a quoted one-liner, and
-# normalize the fold back to single spaces.
 yaml_value() {
   local key="$1"
   awk -v key="$key" '
@@ -95,8 +86,8 @@ else
   fail "Permissions-Policy drift: server=[$go_pp] chart=[$yaml_pp]"
 fi
 
-# frame-ancestors cannot be set by a meta tag and is the clickjacking control
-# that X-Frame-Options only approximates; keep it in the policy.
+# frame-ancestors cannot be set by a meta tag; it is the clickjacking control that
+# X-Frame-Options only approximates.
 case "$go_csp" in
   *"frame-ancestors 'none'"*) pass "policy denies framing" ;;
   *) fail "policy denies framing" ;;

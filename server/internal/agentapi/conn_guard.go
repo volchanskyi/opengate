@@ -7,20 +7,14 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// controlField pairs a wire field name with the value bound for it, so a guard
-// can name the offending field in its error.
+// controlField pairs a wire field name with its value so a guard can name the offending field.
 type controlField struct {
 	name  string
 	value string
 }
 
-// requireNonEmptyFields refuses a control message whose load-bearing fields are
-// not all populated. The encoder drops a zero-valued field from the wire map
-// and the agent's decoder requires these fields, so the resulting frame is
-// undecodable: it breaks the agent's control loop and forces a full reconnect.
-// Keeping the failure on the server side means an agent already in the field
-// never sees the frame. Fields are checked in argument order and the first
-// empty one is reported.
+// requireNonEmptyFields reports the first empty load-bearing field, since the encoder drops zero
+// values and the agent's decoder rejects the frame.
 func requireNonEmptyFields(msgType protocol.ControlMessageType, fields ...controlField) error {
 	for _, f := range fields {
 		if f.value == "" {
@@ -30,8 +24,8 @@ func requireNonEmptyFields(msgType protocol.ControlMessageType, fields ...contro
 	return nil
 }
 
-// IsIncompleteMessageError reports whether err means the server refused to send
-// a control variant because a load-bearing field was empty.
+// IsIncompleteMessageError reports whether err means a control message was refused for an empty
+// load-bearing field.
 func IsIncompleteMessageError(err error) bool {
 	return errors.Is(err, ErrIncompleteControlMessage)
 }

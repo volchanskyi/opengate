@@ -11,12 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// Coverage answers one question per rule: how much of the fleet is it actually
-// watching. Every device is exactly one of active, unsupported, throttled or
-// unknown, and they always add up to the fleet — a rule that quietly evaluates
-// on half an estate while reading as healthy is the failure this accounting
-// exists to make impossible.
-
 // active and unsupported build a one-rule report, the shape most cases need.
 func active(ruleID string) []protocol.RuleCoverage {
 	return []protocol.RuleCoverage{{RuleID: ruleID, State: protocol.RuleCoverageActive}}
@@ -30,7 +24,7 @@ func throttled(ruleID string) []protocol.RuleCoverage {
 	return []protocol.RuleCoverage{{RuleID: ruleID, State: protocol.RuleCoverageThrottled}}
 }
 
-// dev returns a stable device id per index so a table reads deterministically.
+// dev returns a stable device id per index.
 func dev(n int) protocol.DeviceID {
 	return uuid.NewSHA1(uuid.Nil, fmt.Appendf(nil, "coverage-device-%d", n))
 }
@@ -62,9 +56,6 @@ func TestRuleCoverageStore_Aggregate(t *testing.T) {
 			want:  map[string]RuleCoverageCounts{"disk-critical": {Active: 2, Unsupported: 1, Unknown: 2}},
 		},
 		{
-			// A machine that drops off does not vanish from the accounting — it
-			// becomes unknown, which is exactly what it is: nobody knows what
-			// that rule is doing on a machine that is not there.
 			name: "a device that disconnects moves from active to unknown",
 			reports: []coverageReport{
 				{dev(1), active("disk-critical")},
@@ -76,9 +67,6 @@ func TestRuleCoverageStore_Aggregate(t *testing.T) {
 			want:   map[string]RuleCoverageCounts{"disk-critical": {Active: 1, Unsupported: 1, Unknown: 3}},
 		},
 		{
-			// One machine, two rules, different answers: the disk rule evaluates,
-			// the stall rule cannot because this kernel publishes no pressure
-			// information.
 			name: "each rule is counted separately",
 			reports: []coverageReport{{dev(1), []protocol.RuleCoverage{
 				{RuleID: "disk-critical", State: protocol.RuleCoverageActive},
@@ -109,9 +97,6 @@ func TestRuleCoverageStore_Aggregate(t *testing.T) {
 			want:  map[string]RuleCoverageCounts{"current": {Active: 1}},
 		},
 		{
-			// A fleet count read while more machines than it names are connected
-			// can lag behind them. The answer is zero unknown devices, never a
-			// negative one.
 			name: "unknown never goes negative",
 			reports: []coverageReport{
 				{dev(1), active("disk-critical")},
@@ -131,8 +116,6 @@ func TestRuleCoverageStore_Aggregate(t *testing.T) {
 			want:  map[string]RuleCoverageCounts{"disk-critical": {Active: 1}},
 		},
 		{
-			// A state this server cannot read leaves the device unknown for that
-			// rule rather than being guessed into one of the two it knows.
 			name: "an unreadable state is counted as neither",
 			reports: []coverageReport{
 				{dev(1), []protocol.RuleCoverage{{RuleID: "disk-critical", State: "Sideways"}}},
@@ -141,10 +124,6 @@ func TestRuleCoverageStore_Aggregate(t *testing.T) {
 			want:  map[string]RuleCoverageCounts{},
 		},
 		{
-			// A machine that stopped a rule for costing too much is not watching
-			// it and is not unable to watch it. Counting it active would claim
-			// coverage that is not there; counting it unsupported would file a
-			// rule somebody wrote wrong as a permanent hole in the estate.
 			name: "a machine that throttled a rule is counted apart",
 			reports: []coverageReport{
 				{dev(1), active("disk-slow")},
@@ -154,10 +133,6 @@ func TestRuleCoverageStore_Aggregate(t *testing.T) {
 			want:  map[string]RuleCoverageCounts{"disk-slow": {Active: 1, Throttled: 1, Unknown: 2}},
 		},
 		{
-			// A machine saying "I cannot evaluate this" is both connected and
-			// stored, so it is present in memory and in the persisted rows at
-			// once. It is one machine and must be counted once — counting the
-			// memory side as well would report an estate larger than it is.
 			name: "a machine that cannot evaluate a rule is counted once, not twice",
 			reports: []coverageReport{
 				{dev(1), unsupported("io-stalled")},
@@ -177,15 +152,12 @@ func TestRuleCoverageStore_Aggregate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := NewRuleCoverageStore()
-			// persisted stands in for the rule_coverage_unsupported table,
-			// maintained from exactly the deltas the production path writes.
+			// persisted mirrors the unsupported table from the deltas production writes.
 			persisted := newFakeUnsupported()
 			for _, report := range tc.reports {
 				persisted.apply(report.device, store.Report(report.device, report.entries))
 			}
-			// Forgetting a machine is a liveness event. It must not touch the
-			// durable rows: an offline container that cannot evaluate a rule is
-			// still a hole in the estate.
+			// Forgetting a machine leaves the durable rows untouched.
 			for _, device := range tc.forget {
 				store.Forget(device)
 			}
@@ -218,7 +190,7 @@ func TestRuleCoverageStore_BoundsUntrustedInput(t *testing.T) {
 		"a device cannot make the server hold more rule ids than it could ever be pushed")
 }
 
-// written when nothing changed.
+// fakeUnsupported mirrors the persisted unsupported rows from the deltas applied to it.
 type fakeUnsupported struct {
 	rows   map[protocol.DeviceID]map[string]bool
 	writes int
@@ -255,18 +227,35 @@ func (f *fakeUnsupported) counts() map[string]int {
 	return out
 }
 
-// A machine reporting the same thing over and over costs nothing. Steady state
-// is the overwhelming majority of reports, so this is the property that decides
-// whether persisting coverage is affordable at fleet scale.
+// coverageRig is a store paired with the persisted rows its deltas produce.
+type coverageRig struct {
+	store     *RuleCoverageStore
+	persisted *fakeUnsupported
+}
+
+func newCoverageRig() coverageRig {
+	return coverageRig{store: NewRuleCoverageStore(), persisted: newFakeUnsupported()}
+}
+
+// report applies device one's report and the delta it yields.
+func (r coverageRig) report(entries []protocol.RuleCoverage) {
+	r.persisted.apply(dev(1), r.store.Report(dev(1), entries))
+}
+
+// holeAndActive reports one unsupported rule beside one active rule.
+func holeAndActive() []protocol.RuleCoverage {
+	return []protocol.RuleCoverage{
+		{RuleID: "io-stalled", State: protocol.RuleCoverageUnsupported},
+		{RuleID: "disk-critical", State: protocol.RuleCoverageActive},
+	}
+}
+
 func TestRuleCoverageStore_WritesOnlyOnAChange(t *testing.T) {
 	t.Parallel()
 
-	store := NewRuleCoverageStore()
-	persisted := newFakeUnsupported()
-
-	report := func(entries []protocol.RuleCoverage) {
-		persisted.apply(dev(1), store.Report(dev(1), entries))
-	}
+	rig := newCoverageRig()
+	persisted := rig.persisted
+	report := rig.report
 
 	report(unsupported("io-stalled"))
 	assert.Equal(t, 1, persisted.writes, "the first report of a hole is a write")
@@ -287,70 +276,48 @@ func TestRuleCoverageStore_WritesOnlyOnAChange(t *testing.T) {
 	assert.Equal(t, 2, persisted.writes, "an evaluating machine keeps costing nothing")
 }
 
-// A machine that stopped a rule for costing too much is no longer claiming it
-// cannot evaluate it, so the durable hole it was filed under goes. The two are
-// different facts and only one of them outlives the connection.
 func TestRuleCoverageStore_ThrottlingClearsAStoredHole(t *testing.T) {
 	t.Parallel()
 
-	store := NewRuleCoverageStore()
-	persisted := newFakeUnsupported()
+	rig := newCoverageRig()
 
-	persisted.apply(dev(1), store.Report(dev(1), unsupported("disk-slow")))
-	require.Equal(t, map[string]int{"disk-slow": 1}, persisted.counts())
+	rig.report(unsupported("disk-slow"))
+	require.Equal(t, map[string]int{"disk-slow": 1}, rig.persisted.counts())
 
-	persisted.apply(dev(1), store.Report(dev(1), throttled("disk-slow")))
-	assert.Empty(t, persisted.counts(), "a throttle is not a permanent hole in the estate")
+	rig.report(throttled("disk-slow"))
+	assert.Empty(t, rig.persisted.counts(), "a throttle is not a permanent hole in the estate")
 	assert.Equal(t, RuleCoverageCounts{Throttled: 1},
-		store.Aggregate(1, persisted.counts())["disk-slow"])
+		rig.store.Aggregate(1, rig.persisted.counts())["disk-slow"])
 }
 
-// A machine that stops mentioning a rule is no longer claiming it cannot
-// evaluate it, so the stored row goes rather than lingering as a hole nobody is
-// reporting.
 func TestRuleCoverageStore_DroppingARuleClearsItsStoredHole(t *testing.T) {
 	t.Parallel()
 
-	store := NewRuleCoverageStore()
-	persisted := newFakeUnsupported()
+	rig := newCoverageRig()
 
-	persisted.apply(dev(1), store.Report(dev(1), []protocol.RuleCoverage{
-		{RuleID: "io-stalled", State: protocol.RuleCoverageUnsupported},
-		{RuleID: "disk-critical", State: protocol.RuleCoverageActive},
-	}))
-	assert.Equal(t, map[string]int{"io-stalled": 1}, persisted.counts())
+	rig.report(holeAndActive())
+	assert.Equal(t, map[string]int{"io-stalled": 1}, rig.persisted.counts())
 
-	persisted.apply(dev(1), store.Report(dev(1), active("disk-critical")))
-	assert.Empty(t, persisted.counts())
+	rig.report(active("disk-critical"))
+	assert.Empty(t, rig.persisted.counts())
 }
 
-// The durable half survives what memory does not. A machine that has gone
-// offline is unknown for the rules it was evaluating, and still counted for the
-// one it never could — which is exactly the difference between the two.
 func TestRuleCoverageStore_OfflineMachineKeepsItsHole(t *testing.T) {
 	t.Parallel()
 
-	store := NewRuleCoverageStore()
-	persisted := newFakeUnsupported()
+	rig := newCoverageRig()
+	persisted := rig.persisted
 
-	persisted.apply(dev(1), store.Report(dev(1), []protocol.RuleCoverage{
-		{RuleID: "io-stalled", State: protocol.RuleCoverageUnsupported},
-		{RuleID: "disk-critical", State: protocol.RuleCoverageActive},
-	}))
-	store.Forget(dev(1))
+	rig.report(holeAndActive())
+	rig.store.Forget(dev(1))
 
-	got := store.Aggregate(2, persisted.counts())
+	got := rig.store.Aggregate(2, persisted.counts())
 	assert.Equal(t, RuleCoverageCounts{Unsupported: 1, Unknown: 1}, got["io-stalled"],
 		"a container that cannot read pressure is still a hole while it is offline")
 
-	// A server that has just restarted holds nothing in memory, and still knows
-	// the same thing, because that half was never in memory.
 	fresh := NewRuleCoverageStore()
 	got = fresh.Aggregate(2, persisted.counts())
 	assert.Equal(t, RuleCoverageCounts{Unsupported: 1, Unknown: 1}, got["io-stalled"])
 
-	// The rule that machine was evaluating is simply not named any more: with
-	// nothing reporting it and nothing stored, the server has no fleet split to
-	// state for it — and crucially it is never reported as still active.
 	assert.NotContains(t, got, "disk-critical")
 }

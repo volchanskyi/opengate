@@ -1,40 +1,22 @@
-//! Minimal-shape decode contract for server → agent control messages.
-//!
-//! The server encodes `ControlMessage` as one flat struct whose non-`type`
-//! fields are all `omitempty`, so a zero-valued field never reaches the wire.
-//! The agent's decoder is an internally-tagged enum whose fields are required
-//! unless marked `#[serde(default)]`, and a decode error breaks the control
-//! loop and forces a full QUIC reconnect.
-//!
-//! This suite pins both halves of that contract per variant:
-//!
-//! - variants whose zero value is a legal value decode from the bare
-//!   `{"type": X}` map with every field at its zero value;
-//! - variants carrying load-bearing fields (a session token, a signed update)
-//!   keep failing closed, and the error names the field that was missing.
+//! Server → agent control messages omit zero-valued fields on the wire (`omitempty`); a decode
+//! error breaks the control loop, so legal zero values decode from a bare `{"type": X}` map.
 
 use mesh_protocol::{ControlMessage, Permissions, SessionToken};
 use std::collections::BTreeMap;
 
-/// Encode a msgpack map of string keys → string values — the shape the server's
-/// codec emits once `omitempty` has dropped every zero-valued field.
 fn encode_map(pairs: &[(&str, &str)]) -> Vec<u8> {
     let map: BTreeMap<&str, &str> = pairs.iter().copied().collect();
     rmp_serde::to_vec_named(&map).expect("encode probe map")
 }
 
-/// Decode a probe map through the same `rmp_serde` path the codec uses for a
-/// `FrameControl` payload.
 fn decode(pairs: &[(&str, &str)]) -> Result<ControlMessage, rmp_serde::decode::Error> {
     rmp_serde::from_slice(&encode_map(pairs))
 }
 
-/// Decode a probe map that is expected to succeed.
 fn decode_ok(pairs: &[(&str, &str)]) -> ControlMessage {
     decode(pairs).unwrap_or_else(|e| panic!("expected {pairs:?} to decode, got {e:?}"))
 }
 
-/// The error text for a probe map that is expected to fail closed.
 fn decode_err(pairs: &[(&str, &str)]) -> String {
     match decode(pairs) {
         Ok(msg) => panic!("expected {pairs:?} to fail decoding, got {msg:?}"),
@@ -128,8 +110,7 @@ fn session_request_fails_closed_without_a_relay_url() {
 
 #[test]
 fn session_request_decodes_when_fully_populated() {
-    // permissions is a struct, so this probe is built from the typed value
-    // rather than the string-map helper.
+    // `permissions` is a struct, so the probe is built from the typed value.
     let msg = ControlMessage::SessionRequest {
         token: SessionToken::generate(),
         relay_url: "wss://relay.example.com/relay".to_string(),
@@ -170,8 +151,8 @@ fn agent_update_fails_closed_without_a_signature() {
 
 #[test]
 fn agent_update_decodes_with_an_absent_sha256() {
-    // sha256 is verified against the downloaded artifact at install time, so an
-    // absent value fails closed there rather than at decode.
+    // An absent sha256 skips the hash comparison; the signature is still verified over the
+    // downloaded hash.
     match decode_ok(&[
         ("type", "AgentUpdate"),
         ("version", "0.15.4"),

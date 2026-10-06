@@ -25,8 +25,6 @@ func post(t *testing.T, h http.Handler, path, body string) *httptest.ResponseRec
 	return rec
 }
 
-// The runner commands a scenario through this endpoint, so what it sends has to
-// arrive as the impairment the scenario named.
 func TestControlAppliesTheProfileItIsGiven(t *testing.T) {
 	t.Parallel()
 	shaper, h := controlFor(t)
@@ -43,9 +41,6 @@ func TestControlAppliesTheProfileItIsGiven(t *testing.T) {
 	assert.Equal(t, time.Second, got.MaxQueue)
 }
 
-// An instruction the shaper cannot honour must be refused rather than silently
-// reduced to something it can. A scenario running a different impairment from
-// the one it named produces a measurement of nothing in particular.
 func TestControlRefusesAnImpairmentItCannotRun(t *testing.T) {
 	t.Parallel()
 	_, h := controlFor(t)
@@ -71,8 +66,6 @@ func TestControlRebinds(t *testing.T) {
 	assert.Equal(t, int64(1), shaper.Counters().Rebinds)
 }
 
-// The runner reads the counters at every phase boundary, so they are served as
-// the machine-readable record the evidence bundle keeps.
 func TestControlReportsTheCounters(t *testing.T) {
 	t.Parallel()
 	_, h := controlFor(t)
@@ -86,8 +79,6 @@ func TestControlReportsTheCounters(t *testing.T) {
 	assert.Equal(t, uint64(5), got.Seed, "the counters did not carry the run's seed")
 }
 
-// A runner that reaches the wrong verb is a runner that thinks it commanded a
-// scenario it did not command, and the phase it measures is the phase before.
 func TestControlRefusesTheWrongVerb(t *testing.T) {
 	t.Parallel()
 	_, h := controlFor(t)
@@ -97,9 +88,6 @@ func TestControlRefusesTheWrongVerb(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
-// Whether the shaper is answering at all is the difference between a scenario
-// that measured the product and one that measured nothing, so it is asked
-// directly rather than inferred from a counter that happens to come back.
 func TestControlAnswersAHealthCheck(t *testing.T) {
 	t.Parallel()
 	_, h := controlFor(t)

@@ -15,8 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// mustRulesFor reads a provider's answer, failing the test if it could not
-// assemble one.
+// mustRulesFor returns a provider's rules and fails the test on an error.
 func mustRulesFor(t *testing.T, p AlertRuleProvider, scope settings.Scope) []protocol.ThresholdRule {
 	t.Helper()
 	got, err := p.RulesFor(context.Background(), scope)
@@ -24,8 +23,7 @@ func mustRulesFor(t *testing.T, p AlertRuleProvider, scope settings.Scope) []pro
 	return got.Rules
 }
 
-// inTenant is the ladder for a machine whose only known rung is its tenant,
-// which is what a static provider reads.
+// inTenant is the scope of a new machine of a new customer inside the given tenant.
 func inTenant(tenantID uuid.UUID) settings.Scope {
 	return settings.Scope{DeviceID: uuid.New(), OrganizationID: uuid.New(), TenantID: tenantID}
 }
@@ -42,7 +40,6 @@ func TestStaticAlertRuleProvider_TenantScopedWithDefault(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "tenantA-only", got[0].ID)
 
-	// Tenant B has no override → the minimal default set, and never tenant A's rule.
 	def := mustRulesFor(t, provider, inTenant(tenantB))
 	assert.Equal(t, DefaultAlertRules(), def)
 	for _, r := range def {
@@ -66,7 +63,6 @@ func TestAgentConn_PushAlertRules_ScopedToAuthoritativeTenant(t *testing.T) {
 	ruleA := protocol.ThresholdRule{ID: "tenantA-only", Metric: "cpu.total", Comparator: protocol.AlertComparatorGt, Threshold: 50, Clear: 40, SustainSecs: 10}
 	provider := NewStaticAlertRuleProvider(DefaultAlertRules(), map[uuid.UUID][]protocol.ThresholdRule{tenantA: {ruleA}})
 
-	// An agent authenticated as tenant A receives exactly tenant A's rule.
 	acA := &AgentConn{TenantID: tenantA, codec: &protocol.Codec{}, logger: testLogger(), alertRules: provider,
 		Capabilities: []protocol.AgentCapability{protocol.CapThresholdAlerts}}
 	var bufA bytes.Buffer
@@ -77,7 +73,6 @@ func TestAgentConn_PushAlertRules_ScopedToAuthoritativeTenant(t *testing.T) {
 	require.Len(t, msgA.AlertRules, 1)
 	assert.Equal(t, "tenantA-only", msgA.AlertRules[0].ID)
 
-	// An agent authenticated as tenant B receives the default set — never tenant A's rule.
 	acB := &AgentConn{TenantID: tenantB, codec: &protocol.Codec{}, logger: testLogger(), alertRules: provider,
 		Capabilities: []protocol.AgentCapability{protocol.CapThresholdAlerts}}
 	var bufB bytes.Buffer
@@ -115,8 +110,6 @@ func TestAgentConn_HandleAgentHealthSummary_IngestsBreachesOnly(t *testing.T) {
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 	ac.telemetry = writer
 
-	// A breach-only summary carries no sampler computation: it must ingest the
-	// breach series and MUST NOT write a bogus zero anomaly-rate sample.
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgAgentHealthSummary,
 		TS:   time.Now().Unix(),
@@ -140,9 +133,6 @@ func TestAgentConn_HandleAgentHealthSummary_ResolvesLegacyBreachMetricNames(t *t
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 	ac.telemetry = writer
 
-	// An agent that predates the rename reports the breach under the old name.
-	// Central must record it under the canonical one, or the same rule on the
-	// same reading occupies two series and neither tells the whole story.
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgAgentHealthSummary,
 		TS:   time.Now().Unix(),
@@ -172,8 +162,6 @@ func TestDefaultAlertRules_UseCanonicalMetricNames(t *testing.T) {
 
 func TestRuleVocabularyIsASubsetOfTheVitalsContract(t *testing.T) {
 	t.Parallel()
-	// A rule may only watch something the fleet agreed to collect. If the two
-	// lists ever part company, a rule can fire on a reading nobody stores.
 	for _, name := range protocol.RuleMetrics {
 		assert.True(t, isVitalDim(name), "%s is in the rule vocabulary but not in the vitals contract", name)
 	}
@@ -208,8 +196,6 @@ func TestAgentConn_HandleAgentHealthSummary_DropsUnknownBreachMetric(t *testing.
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 	ac.telemetry = writer
 
-	// An agent-supplied breach whose metric is outside the known vocabulary is
-	// dropped so a rogue agent cannot drive unbounded label cardinality.
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgAgentHealthSummary,
 		TS:   time.Now().Unix(),

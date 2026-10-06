@@ -1,7 +1,5 @@
-//! Edge correlation: ranking equivalence against the frozen reference, the
-//! property that actually matters (a broken pattern ranks first), degenerate
-//! windows, and the bounds that keep a fire during a storm from pinning the
-//! agent.
+//! Edge correlation: ranking equivalence against the frozen reference, degenerate windows and
+//! the bounds on a ranking run.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -14,10 +12,7 @@ use mesh_agent_core::correlate::{
 use mesh_agent_core::ml::store_sink::{SERIES_CPU, SERIES_DISK_AWAIT_MS, SERIES_MEM};
 use serde::Deserialize;
 
-/// The reference scores were produced by a different implementation on a
-/// different runtime; a blend of three doubles is reproduced to the last few
-/// bits, not bit-for-bit, because a fused multiply-add is allowed to round once
-/// where two operations round twice.
+/// The ranking scores match the frozen reference within this absolute difference.
 const TOLERANCE: f64 = 1e-12;
 
 #[derive(Deserialize)]
@@ -73,8 +68,6 @@ impl Fixture {
         .expect("the fixture window is well formed")
     }
 
-    /// Split every fixture dimension into its two windows, exactly as a read
-    /// from the local store would.
     fn split(&self, limits: &CorrelationLimits) -> Vec<(String, Vec<f64>, Vec<f64>)> {
         let window = self.window();
         self.dims
@@ -110,10 +103,6 @@ fn close(actual: f64, expected: f64, what: &str) {
     );
 }
 
-/// Port equivalence: the same fixture produces the same dimensions in the same
-/// order with the same four numbers. Order includes the tie-break — the fixture
-/// carries two dimensions whose samples are identical, so only a matching
-/// name-ascending tie-break puts them in the recorded order.
 #[test]
 fn ranking_matches_the_frozen_reference_dimension_for_dimension() {
     let fixture = fixture();
@@ -150,9 +139,6 @@ fn ranking_matches_the_frozen_reference_dimension_for_dimension() {
     }
 }
 
-/// The property the ranking exists for, asserted without reference to any
-/// recorded score: the dimension whose pattern was deliberately broken is the
-/// one an investigator reads first, and it is not merely tied for first.
 #[test]
 fn the_broken_pattern_dimension_ranks_first() {
     let fixture = fixture();
@@ -167,8 +153,6 @@ fn the_broken_pattern_dimension_ranks_first() {
     );
 }
 
-/// A window with fewer than two readings cannot show a shift, so the dimension
-/// is left out of the ranking rather than scored from one point.
 #[test]
 fn a_dimension_without_enough_readings_is_not_ranked() {
     let fixture = fixture();
@@ -192,17 +176,12 @@ fn identical_samples_shift_by_nothing_and_disjoint_ones_shift_completely() {
     let same = [1.0, 2.0, 3.0, 4.0];
     assert_eq!(ks_statistic(&same, &same), 0.0);
     assert_eq!(ks_statistic(&[1.0, 2.0], &[9.0, 10.0]), 1.0);
-    // The statistic does not care which window it is handed first.
     assert_eq!(
         ks_statistic(&[1.0, 2.0, 5.0], &[3.0, 4.0]),
         ks_statistic(&[3.0, 4.0], &[1.0, 2.0, 5.0])
     );
 }
 
-/// Degenerate windows are answered with a number, never a NaN and never a
-/// division by zero: an absent window scores nothing, a single reading is
-/// enough to compute against, and a flat baseline treats any different reading
-/// as anomalous.
 #[test]
 fn degenerate_windows_never_produce_a_nan() {
     let empty: [f64; 0] = [];
@@ -224,21 +203,14 @@ fn degenerate_windows_never_produce_a_nan() {
         }
     }
 
-    // A single-point window on each side: no variance anywhere, and no NaN.
     assert_eq!(ks_statistic(&[5.0], &[5.0]), 0.0);
     assert_eq!(ks_statistic(&[5.0], &[6.0]), 1.0);
-    // A flat baseline has no band, so any different reading is anomalous and an
-    // identical one is not.
     assert_eq!(anomaly_rate(&[3.0, 3.0, 3.0], &[4.0, 4.0]), 1.0);
     assert_eq!(anomaly_rate(&[3.0, 3.0, 3.0], &[3.0, 3.0]), 0.0);
-    // An all-zero baseline has no scale, so any nonzero focus mean is a full
-    // shift and a zero one is no shift at all.
     assert_eq!(shift_magnitude(&[0.0, 0.0], &[0.0, 0.0]), 0.0);
     assert_eq!(shift_magnitude(&[0.0, 0.0], &[0.1, 0.1]), 1.0);
 }
 
-/// A reading that is not a real number is dropped where it enters, so no
-/// downstream mean, band or score can carry a NaN out of the engine.
 #[test]
 fn a_non_finite_reading_is_dropped_rather_than_ranked() {
     let window = CorrelationWindow::new(0, 10, 10, 20).expect("window");
@@ -264,26 +236,22 @@ fn a_non_finite_reading_is_dropped_rather_than_ranked() {
     assert!(ranking.ranked[0].score.is_finite());
 }
 
-/// The focus window includes the instant it ends on and the baseline does not,
-/// so a reading on the boundary belongs to exactly one window.
 #[test]
 fn the_windows_meet_without_overlapping() {
     let window = CorrelationWindow::new(100, 200, 200, 300).expect("window");
     let points = [
-        (99, 1.0),  // before the baseline
-        (100, 2.0), // first baseline instant
+        (99, 1.0),
+        (100, 2.0),
         (199, 3.0),
-        (200, 4.0), // the boundary belongs to the baseline's end, so: focus
-        (300, 5.0), // the focus includes its end
-        (301, 6.0), // after the focus
+        (200, 4.0),
+        (300, 5.0),
+        (301, 6.0),
     ];
     let (baseline, focus) = window.split(&points, 100);
     assert_eq!(baseline, vec![2.0, 3.0]);
     assert_eq!(focus, vec![4.0, 5.0]);
 }
 
-/// A baseline is defaulted to the window of equal length immediately before the
-/// focus, which is what a rule firing at an instant has to compare against.
 #[test]
 fn a_defaulted_baseline_is_the_window_before_the_focus() {
     let window = CorrelationWindow::preceding_baseline(1_000, 1_300).expect("window");
@@ -301,9 +269,6 @@ fn a_window_that_runs_backwards_is_refused() {
     assert!(CorrelationWindow::preceding_baseline(100, 100).is_none());
 }
 
-/// Ranking is bounded three ways so a fire during a storm cannot pin the agent:
-/// how many dimensions are considered, how many readings each window carries,
-/// and how long the whole thing may run.
 #[test]
 fn ranking_is_bounded_in_dimensions_points_and_time() {
     let fixture = fixture();
@@ -337,8 +302,6 @@ fn ranking_is_bounded_in_dimensions_points_and_time() {
     assert_eq!(ranking.ranked.len(), 2);
     assert_eq!(ranking.ranked[0].dim, "disk.await_ms");
 
-    // A budget already spent still ranks the first dimension — the work is
-    // bounded, not abandoned — and says so.
     let no_time = CorrelationLimits {
         budget: Duration::ZERO,
         ..CorrelationLimits::default()
@@ -353,8 +316,6 @@ fn ranking_is_bounded_in_dimensions_points_and_time() {
     assert!(!ranking.budget_exhausted);
 }
 
-/// A default-limited run over the whole fixture stays far inside the budget it
-/// is given — the bound is a backstop, not the normal path.
 #[test]
 fn the_default_limits_leave_the_budget_unspent() {
     let limits = CorrelationLimits::default();
@@ -363,9 +324,6 @@ fn the_default_limits_leave_the_budget_unspent() {
     assert!(limits.max_points_per_window >= 900, "15 minutes at 1 Hz");
 }
 
-/// End to end over the agent's own store: readings written by the sampler, read
-/// back through an MVCC snapshot, and ranked — the dimension that broke pattern
-/// comes out on top with no help from the caller.
 #[test]
 fn correlating_the_local_store_ranks_the_dimension_that_broke() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -382,7 +340,6 @@ fn correlating_the_local_store_ranks_the_dimension_that_broke() {
         store
             .append(SERIES_MEM, Sample::new(ts, 60.0), false)
             .expect("append mem");
-        // Service time is flat until the last two minutes, then collapses.
         let await_ms = if i < 480 { 0.4 } else { 40.0 };
         store
             .append(SERIES_DISK_AWAIT_MS, Sample::new(ts, await_ms), false)
@@ -398,20 +355,15 @@ fn correlating_the_local_store_ranks_the_dimension_that_broke() {
 
     assert_eq!(ranking.ranked[0].dim, "disk.await_ms");
     assert!(ranking.ranked[0].score > 0.9);
-    // A dimension that never moved is ranked last, not omitted: "nothing here"
-    // is an answer an investigator needs.
     let mem = ranking
         .ranked
         .iter()
         .find(|r| r.dim == "mem.used_percent")
         .expect("a flat dimension is still ranked");
     assert_eq!(mem.score, 0.0);
-    // Only the dimensions the store actually holds are ranked.
     assert_eq!(ranking.ranked.len(), 3);
 }
 
-/// The read is a snapshot, so the sampler writing through a correlation neither
-/// blocks it nor changes what it sees.
 #[test]
 fn a_snapshot_read_is_unaffected_by_concurrent_sampling() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -425,7 +377,6 @@ fn a_snapshot_read_is_unaffected_by_concurrent_sampling() {
     store.commit(Durability::Full).expect("commit");
 
     let snapshot = store.snapshot().expect("snapshot");
-    // The sampler keeps writing while the correlation runs.
     for i in 120..240i64 {
         store
             .append(SERIES_CPU, Sample::new(1_700_000_000 + i, 1.0), false)
@@ -444,7 +395,6 @@ fn a_snapshot_read_is_unaffected_by_concurrent_sampling() {
     assert_eq!(ranking.ranked[0].ks_statistic, 1.0);
 }
 
-/// A store holding nothing for the window ranks nothing — and does not fail.
 #[test]
 fn an_empty_store_ranks_nothing() {
     let dir = tempfile::tempdir().expect("tempdir");

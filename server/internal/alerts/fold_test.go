@@ -10,16 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What the fold has to hold true besides landing an alert in the right room:
-// that two connections cannot split one event, that a rule upgrade cannot fork
-// a live room, that a retroactive scan is one finding rather than a queue of
-// them, and that an alert and its room are one write or neither.
-
-// TestConcurrentFoldOpensExactlyOneRoom proves the fold is race-safe through the
-// partial unique index rather than through a mutex, which would hold only for as
-// long as one server process is the only writer. Contoso's forty machines report
-// on forty connections at once; two of them opening two rooms for one event
-// splits an estate-wide incident nobody can then reconcile.
 func TestConcurrentFoldOpensExactlyOneRoom(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -67,10 +57,6 @@ func TestConcurrentFoldOpensExactlyOneRoom(t *testing.T) {
 	assert.Equal(t, writers, room.DeviceCount)
 }
 
-// TestRuleUpgradeDoesNotForkALiveRoom drives E16. A curated rule is retuned while
-// somebody is working an incident it raised. Keying the room on the version would
-// silently open a second one, and the technician's notes would stay in the room
-// nothing arrives in any more.
 func TestRuleUpgradeDoesNotForkALiveRoom(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -88,9 +74,6 @@ func TestRuleUpgradeDoesNotForkALiveRoom(t *testing.T) {
 	assert.Equal(t, 2, e.roomFor(t, grouping, "disk-critical", e.device).Occurrences)
 }
 
-// TestTwoRulesOnOneConditionStayTwoRooms drives E15. A machine out of memory
-// trips the memory rule and the CPU rule at once. They are two findings with two
-// remedies, and merging them would hide whichever the technician did not read.
 func TestTwoRulesOnOneConditionStayTwoRooms(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -106,15 +89,6 @@ func TestTwoRulesOnOneConditionStayTwoRooms(t *testing.T) {
 		e.roomFor(t, grouping, "memory-pressure", e.device).ID)
 }
 
-// TestBackfilledFindingsFoldByEventTime drives E8 and the second half of B9. A
-// rule arriving on WS-4471 is re-run over the month of history the machine
-// already holds, and every finding arrives in the same second. Judging the fold
-// against the clock would read them as thirty things happening now and open
-// thirty rooms; judging it against when each one happened is what makes a whole
-// retroactive scan one room.
-//
-// The findings are replayed newest-first, because a scan walking history
-// backwards is the ordering that breaks a fold written only to extend forwards.
 func TestBackfilledFindingsFoldByEventTime(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -137,11 +111,6 @@ func TestBackfilledFindingsFoldByEventTime(t *testing.T) {
 		"a week-old freeze stays a week old rather than sorting as today's")
 }
 
-// TestAFindingOlderThanItsRoomStaysOutOfIt is the other side of event-time
-// folding. A live room is a week old and a retroactive scan turns up something
-// from three months before it started. That is not part of the story the room
-// tells, and the room is not stale — so the finding is kept and filed under
-// nothing rather than closing a live room or being back-dated into it.
 func TestAFindingOlderThanItsRoomStaysOutOfIt(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -166,12 +135,6 @@ func TestAFindingOlderThanItsRoomStaysOutOfIt(t *testing.T) {
 	assert.Equal(t, string(StatusNew), status, "and the live room is left alone")
 }
 
-// TestEveryIncidentStatementNamesItsTenantExceptTheJanitor extends the wall the
-// alert statements already stand behind. The sweep is the one deliberate
-// exception: it is asked about every tenant at once, so there is no single
-// tenant for its predicate to confine it to, and writing one would be a claim it
-// does not make. Pinning the exception here is what keeps the list from quietly
-// growing a second member.
 func TestEveryIncidentStatementNamesItsTenantExceptTheJanitor(t *testing.T) {
 	t.Parallel()
 	scoped := map[string]string{
@@ -191,9 +154,6 @@ func TestEveryIncidentStatementNamesItsTenantExceptTheJanitor(t *testing.T) {
 			"%s must name the tenant as well as passing the policy", name)
 	}
 
-	// A statement that creates a room names the tenant as the value it writes,
-	// which the policy checks on the way in; there is no existing row for a
-	// predicate to match against.
 	assert.Contains(t, openOrJoinRoomSQL, "tenant_id",
 		"a room still belongs to exactly one tenant")
 
@@ -203,10 +163,6 @@ func TestEveryIncidentStatementNamesItsTenantExceptTheJanitor(t *testing.T) {
 		"a machine that was told to go quiet must not have its room closed by the quiet")
 }
 
-// TestUnknownGroupingIsRefusedRatherThanGuessed keeps a wiring mistake loud. A
-// zero window would fold every firing of a rule into one room that never
-// resolves, and a scope outside the closed set cannot be stored at all — both
-// are a caller bug, and inventing a default for either would bury it.
 func TestUnknownGroupingIsRefusedRatherThanGuessed(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -227,16 +183,11 @@ func TestUnknownGroupingIsRefusedRatherThanGuessed(t *testing.T) {
 	assert.Zero(t, e.count(t, qCustomerAlerts, e.org), "a refused grouping stores nothing")
 }
 
-// TestFoldFailureLeavesNoAlertBehind keeps the alert and its room one write. An
-// alert stored outside the room it belongs to is invisible to the only surface a
-// technician looks at, which is worse than the alert never arriving: nothing says
-// it is missing.
 func TestFoldFailureLeavesNoAlertBehind(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
 
-	// A grouping key naming a machine that does not exist cannot resolve a site,
-	// which is the fold failing after the alert row has already been written.
+	// A device that does not exist fails the fold after the alert row is written.
 	_, err := e.alerts.Record(e.ctx, e.variant(func(a *Alert) { a.DeviceID = uuid.New() }),
 		Grouping{Scope: ScopeSite, Window: time.Hour})
 	require.Error(t, err)
@@ -244,9 +195,6 @@ func TestFoldFailureLeavesNoAlertBehind(t *testing.T) {
 	assert.Zero(t, e.rooms(t, "disk-critical", ScopeSite))
 }
 
-// TestStormRoomIsNotFoldedIntoByOrdinaryAlerts keeps the two kinds of room
-// apart. A storm room counts what was refused and holds no alerts at all; an
-// ordinary alert arriving under the same customer must not be counted into it.
 func TestStormRoomIsNotFoldedIntoByOrdinaryAlerts(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -257,7 +205,6 @@ func TestStormRoomIsNotFoldedIntoByOrdinaryAlerts(t *testing.T) {
 	assert.Equal(t, 1, storm.Occurrences)
 	assert.Zero(t, storm.DeviceCount)
 
-	// The budget frees up and an ordinary alert lands in its own room.
 	e.alerts.now = func() time.Time { return e.now.Add(2 * time.Hour) }
 	e.recordUnder(t, e.variant(shifted(time.Hour)), Grouping{Scope: ScopeDevice, Window: time.Hour}, Stored)
 
@@ -266,12 +213,6 @@ func TestStormRoomIsNotFoldedIntoByOrdinaryAlerts(t *testing.T) {
 	assert.Equal(t, 1, e.rooms(t, "disk-critical", ScopeDevice))
 }
 
-// TestTheRoomIsRestatedFromTheAlertsItHolds pins the one rule that makes the
-// numbers on a room survive both of the things that break a counter: a
-// concurrent fold, where two increments read the same starting value, and an
-// erasure, where a machine's rows leave and no foreign key subtracts them. The
-// span is event time throughout, so the room says when the estate's problem
-// happened rather than when the rows arrived.
 func TestTheRoomIsRestatedFromTheAlertsItHolds(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)

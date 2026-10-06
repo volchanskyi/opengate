@@ -1,38 +1,20 @@
 #!/usr/bin/env bash
-# Shared VictoriaMetrics read-back library for CI trend pipelines. Sourced like
-# scripts/lib/vm-push.sh; reads the in-cluster VictoriaMetrics Service through a
-# throwaway kubectl curl pod.
+# Reads the in-cluster VictoriaMetrics Service through a throwaway kubectl curl pod.
+# Transport, empty and parse failures print nothing and exit 0, so a build never fails on them.
 #
+# Usage:
 #   vm_query_nightly <metric> <selector> <dates>
-#       For each measurement, the latest reading of each of the <dates> most
-#       recent dates before tonight's that have one, within the store's thirty
-#       days, one line each: "k=v,k=v<TAB>YYYY-MM-DD<TAB>value", the labels
-#       sorted. A weekly run's dates are a week apart and count the same.
 #   vm_nightly_window <metric> <selector> <dates>
-#       The same readings reduced to one line per measurement:
-#       "k=v,k=v<TAB>median<TAB>count<TAB>newest" — the median over its dates,
-#       how many dates, and the newest date's reading.
-#
-# A night is a date. A sample carries the time its run started, so however long
-# a run takes it lands on one date, and a re-run lands on the same one. Tonight
-# is the date of VM_RUN_STARTED_AT, and it is left out whatever code wrote it:
-# nights on the same commit count, and tonight never judges itself.
-#
-# Transport, empty and parse failures are FAIL-OPEN: they print nothing and exit
-# 0, because a regression gate must never fail the build on infrastructure. A
-# reader that does not know tonight's date refuses: that is a setup defect, and
-# it would read tonight into its own window.
 #
 # Environment:
 #   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
-#   VM_NAMESPACE (default monitoring), VM_SERVICE (default
-#   monitoring-victoriametrics), VM_CURL_IMAGE (default
-#   docker.io/curlimages/curl:8.11.1). The caller must provide a kubeconfig.
+#   VM_NAMESPACE  namespace of the Service (default monitoring)
+#   VM_SERVICE  the Service name (default monitoring-victoriametrics)
+#   VM_CURL_IMAGE  the curl pod image (default docker.io/curlimages/curl:8.11.1)
 
 # How far back the store keeps anything (the chart's -retentionPeriod).
 VM_RETENTION_DAYS=30
 
-# vm_tonight prints tonight's date, or refuses.
 vm_tonight() {
   local started="${VM_RUN_STARTED_AT:-}"
   if [[ ! "$started" =~ ^[0-9]+$ ]]; then

@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
-# Offline tests for the shared VictoriaMetrics read-back library
-# scripts/lib/vm-query.sh.
-#
-# The nightly reader answers one question for every trend gate: for each
-# measurement, the latest reading of each date before tonight's. A night is a
-# date, not a commit — a week without a merge is a week of nights, each judged
-# against the ones before it — and a re-run of tonight is kept out because it
-# carries tonight's date, whatever code it ran. Transport and parse failures
-# fail open: a gate must not redden on an unreachable store.
+# Offline tests for scripts/lib/vm-query.sh, which reads each measurement's latest value per date
+# before tonight; transport and parse failures yield no history.
 
 set -euo pipefail
 
@@ -35,13 +28,10 @@ assert_eq() {
   if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (want=[$2] got=[$3])"; fi
 }
 
-# ms <date-time> — milliseconds since the epoch, as the export API writes them.
+# Epoch milliseconds, as the export API writes timestamps.
 ms() { printf '%s000' "$(date -u -d "$1" +%s)"; }
 
-# The stand-in store. One measurement, read over nights on two commits: the
-# 21st was run twice, and the later run is that date's reading; the 29th is
-# tonight, and its own reading is already in the store because the push ran
-# first. A second measurement beside it has a single night.
+# Fixture: the 21st has two runs, the 29th is tonight's own point, the second series has one night.
 bin_dir="$TMP_ROOT/bin"
 mkdir -p "$bin_dir"
 cat >"$TMP_ROOT/nights.json" <<JSON
@@ -110,7 +100,6 @@ assert_eq "the window is each measurement's median over its dates, their count, 
   "$(printf '%s\t300\t1\t300\n%s\t11\t3\t11' "env=ci,$QUIC" "env=ci,$API")" \
   "$out"
 
-# The same run on tomorrow's date reads tonight's point as the newest night.
 TOMORROW="$(date -u -d '2026-09-30 10:57' +%s)"
 out="$(STARTED_OVERRIDE="$TOMORROW" run_lib vm_nightly_window loadtest_latency_p95_ms 'env="ci"' 14)"
 assert_eq "tomorrow reads tonight as the newest night" \
@@ -124,8 +113,6 @@ done
 out="$(KUBECTL_STATUS=19 run_lib vm_nightly_window loadtest_latency_p95_ms 'env="ci"' 14 2>/dev/null)"
 assert_eq "an unreachable store is no history rather than a failure" "" "$out"
 
-# Without tonight's date the reader cannot keep tonight out, which is a setup
-# defect rather than an empty history.
 if STARTED_OVERRIDE="" run_lib vm_query_nightly loadtest_latency_p95_ms 'env="ci"' 14 >/dev/null 2>&1; then
   fail "a reader that does not know tonight's date refuses"
 else

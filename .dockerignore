@@ -1,38 +1,29 @@
-# Git
 .git
 .github
 
-# Build artifacts
 server/meshserver
 agent/target
 web/node_modules
 web/dist
 
-# IDE / editor
 .vscode
 .idea
 *.swp
 *.swo
 
-# OS
 .DS_Store
 Thumbs.db
 
-# Test / CI artifacts
 **/coverage*
 **/*.lcov
 testdata/golden
 
-# Documentation
 *.md
 docs/
 
-# Terraform / deploy
 deploy/
-# …except the agent binary the browser test stack's machines run. It is staged
-# here by `make agent-binary` precisely because agent/target is excluded above,
-# and deploy/agent.Dockerfile copies it out of the context.
+# The agent binary staged by `make agent-binary` stays, since agent/target is excluded above.
 !deploy/agent-bin/mesh-agent
 
-# Misc
 sonar-project.properties
+.scannerwork/

@@ -8,17 +8,11 @@ import (
 )
 
 // Observer records the duration and success of a single repository call.
-// The metrics package supplies a Prometheus-backed implementation; tests
-// supply an in-memory recorder.
 type Observer interface {
 	Observe(operation string, duration time.Duration, ok bool)
 }
 
-// --- DeviceUpdate decorator ---
-
-// InstrumentedDeviceUpdates decorates a DeviceUpdateRepository with per-call
-// observation. It preserves the operational visibility previously emitted by
-// metrics.InstrumentedStore when these methods lived in db.Store.
+// InstrumentedDeviceUpdates decorates a DeviceUpdateRepository with per-call observation.
 type InstrumentedDeviceUpdates struct {
 	inner    DeviceUpdateRepository
 	observer Observer
@@ -49,8 +43,6 @@ func (i *InstrumentedDeviceUpdates) ListByVersion(ctx context.Context, version s
 	i.observer.Observe("updater.DeviceUpdate.ListByVersion", time.Since(start), err == nil)
 	return out, err
 }
-
-// --- Enrollment decorator ---
 
 // InstrumentedEnrollment decorates an EnrollmentTokenRepository with per-call
 // observation.

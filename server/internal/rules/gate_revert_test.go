@@ -8,12 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Falling back, and what a rollout looks like afterwards.
-
-// A rule already on its smallest population has nowhere to fall back to, so it
-// stops there rather than being pulled off the machines that are watching it —
-// and asking again gives the same answer, so a repeated evaluation cannot walk it
-// down.
 func TestRevertIsBoundedAtTheCanaryAndIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -26,14 +20,10 @@ func TestRevertIsBoundedAtTheCanaryAndIdempotent(t *testing.T) {
 	assert.Equal(t, StageCanary, got.Stage)
 	assert.Equal(t, canary.RolloutPercent, got.Percent, "a halt changes nothing about the reach")
 
-	// Applying a halt and deciding again lands in the same place.
 	again := DecideStage(got.Apply(canary, now), tripped, now)
 	assert.Equal(t, got, again, "deciding twice must not walk a rule further down")
 }
 
-// A signal that comes and goes cannot ratchet a rule back up: reverting restarts
-// the hold, so the stage it fell back to has to be earned again from the moment
-// it fell back.
 func TestAFlappingSignalCannotWalkAStageUpAndDown(t *testing.T) {
 	t.Parallel()
 
@@ -47,8 +37,6 @@ func TestAFlappingSignalCannotWalkAStageUpAndDown(t *testing.T) {
 	after := reverted.Apply(full, start)
 	assert.Equal(t, start, after.StageEnteredAt, "a revert restarts the hold")
 
-	// The signal clears immediately. The stage it fell back to still has to be
-	// held for its own minimum before it may move again.
 	assert.Equal(t, StageHold,
 		DecideStage(after, GateReport{}, start.Add(time.Minute)).Action,
 		"a signal that cleared does not hand back the stage it cost")
@@ -57,8 +45,6 @@ func TestAFlappingSignalCannotWalkAStageUpAndDown(t *testing.T) {
 		"and the stage is earned again by holding it")
 }
 
-// A rule that has reached the whole estate has nowhere to advance to, and a rule
-// that reaches nobody is not rolling out at all.
 func TestNothingToAdvanceIsAHold(t *testing.T) {
 	t.Parallel()
 
@@ -71,9 +57,6 @@ func TestNothingToAdvanceIsAHold(t *testing.T) {
 	assert.Equal(t, StageHold, DecideStage(off, GateReport{}, now).Action)
 }
 
-// A stopped rule never advances. A kill is somebody intervening on a rule that
-// is degrading machines, and a rollout that kept walking it forward on a timer
-// would be re-delivering exactly what they stopped.
 func TestAStoppedRuleNeverAdvances(t *testing.T) {
 	t.Parallel()
 
@@ -94,9 +77,6 @@ func TestAStoppedRuleNeverAdvances(t *testing.T) {
 	}
 }
 
-// A row whose stage clock was never stamped is not one whose hold has elapsed
-// since the beginning of time. Reading it that way would advance a rollout on
-// its first evaluation.
 func TestAnUnstampedStageClockHolds(t *testing.T) {
 	t.Parallel()
 
@@ -106,8 +86,6 @@ func TestAnUnstampedStageClockHolds(t *testing.T) {
 	assert.Equal(t, StageHold, DecideStage(r, GateReport{}, now).Action)
 }
 
-// Applying a decision produces the row to store: the new reach, stamped with the
-// moment the stage was entered, because the hold is measured from it.
 func TestApplyStampsTheMomentTheStageWasEntered(t *testing.T) {
 	t.Parallel()
 
@@ -125,8 +103,6 @@ func TestApplyStampsTheMomentTheStageWasEntered(t *testing.T) {
 	assert.Equal(t, canary, unchanged, "a hold leaves the row exactly as it was")
 }
 
-// A gate is clean only when every signal is. Reading one of the three and
-// ignoring the others would look like protection while offering two thirds less.
 func TestAGateIsCleanOnlyWhenEverySignalIs(t *testing.T) {
 	t.Parallel()
 

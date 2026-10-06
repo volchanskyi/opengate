@@ -50,12 +50,8 @@ func newRelayTestServerWithPeerTimeout(t *testing.T, r *relay.Relay, peerTimeout
 	return ts, srv, cfg
 }
 
-// relayHandlerWatch reports every relay handler that has returned.
-//
-// net/http will not report it: websocket.Accept hijacks the connection and the
-// server stops tracking it, so a handler that never returns is invisible to
-// everything except a wrapper that sees ServeHTTP come back. That is the whole
-// difference this file's leak tests turn on.
+// relayHandlerWatch reports every relay handler that has returned, because net/http stops
+// tracking a hijacked connection.
 type relayHandlerWatch struct {
 	inner    http.Handler
 	returned chan string
@@ -116,6 +112,13 @@ func newWatchedRelayTestServerWithPing(t *testing.T, r *relay.Relay, peerTimeout
 	return ts, srv, cfg, watch.returned
 }
 
+func relayTestCtx(t *testing.T, timeout time.Duration) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	t.Cleanup(cancel)
+	return ctx
+}
+
 func dialWS(t *testing.T, ctx context.Context, serverURL, path string, headers http.Header) *websocket.Conn {
 	t.Helper()
 	wsURL := "ws" + strings.TrimPrefix(serverURL, "http") + path
@@ -124,6 +127,32 @@ func dialWS(t *testing.T, ctx context.Context, serverURL, path string, headers h
 	})
 	require.NoError(t, err)
 	return conn
+}
+
+func bearerHeader(jwtToken string) http.Header {
+	return http.Header{"Authorization": {testBearerPrefix + jwtToken}}
+}
+
+func dialRelayPair(t *testing.T, ctx context.Context, serverURL, token, jwtToken string) (agent, browser *websocket.Conn) {
+	t.Helper()
+	agent = dialWS(t, ctx, serverURL, testPathWSRelay+token+testSideAgent, nil)
+	browser = dialWS(t, ctx, serverURL, testPathWSRelay+token+testSideBrowser, bearerHeader(jwtToken))
+	return agent, browser
+}
+
+func awaitBothHandlers(t *testing.T, returned <-chan string, failure string) map[string]bool {
+	t.Helper()
+	sides := map[string]bool{}
+	deadline := time.After(10 * time.Second)
+	for len(sides) < 2 {
+		select {
+		case side := <-returned:
+			sides[side] = true
+		case <-deadline:
+			t.Fatalf("%s; returned %v", failure, sides)
+		}
+	}
+	return sides
 }
 
 // waitForRelayWired blocks until both agent and browser sides have registered
@@ -137,9 +166,8 @@ func waitForRelayWired(t *testing.T, ctx context.Context, srv *Server, token pro
 	}, 3*time.Second, 25*time.Millisecond, "relay should wire both sides of session %s", token)
 }
 
-// seedRelaySession seeds a user → site → device → agent session and returns the
-// session token plus a browser JWT for that user — the common fixture for the
-// relay WebSocket subtests.
+// seedRelaySession seeds a user, site, device and agent session and returns the session token
+// plus a browser JWT for that user.
 func seedRelaySession(t *testing.T, ctx context.Context, srv *Server, cfg *auth.JWTConfig) (token, jwtToken string) {
 	t.Helper()
 	ctx = dbtx.WithDefaultTenant(ctx, true)
@@ -166,18 +194,12 @@ func forgedJWT(t *testing.T) string {
 	return token
 }
 
-// assertBrowserRejected dials the browser side of a freshly seeded relay
-// session with the given query and optional bearer header, and asserts the
-// server closed it with an explicit policy violation.
-//
-// The close status is the assertion, not "Read returned an error": a connection
-// that was accepted and merely idled out waiting for a peer also fails to read,
-// so only the status tells the two apart.
+// assertBrowserRejected dials the browser side of a seeded relay session and asserts the
+// server closed it with a policy violation, since an idle accepted connection also fails to read.
 func assertBrowserRejected(t *testing.T, query string, bearer ...string) {
 	t.Helper()
 	ts, srv, cfg := newRelayTestServer(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := relayTestCtx(t, 5*time.Second)
 
 	token, _ := seedRelaySession(t, ctx, srv, cfg)
 
@@ -201,8 +223,7 @@ func TestRelayWebSocket(t *testing.T) {
 	t.Parallel()
 	t.Run("token_not_in_db", func(t *testing.T) {
 		ts, _, _ := newRelayTestServer(t)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		ctx := relayTestCtx(t, 5*time.Second)
 
 		wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + testPathWSRelay + "nonexistent" + testSideAgent
 		conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -217,8 +238,7 @@ func TestRelayWebSocket(t *testing.T) {
 
 	t.Run("invalid_side_param", func(t *testing.T) {
 		ts, srv, cfg := newRelayTestServer(t)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		ctx := relayTestCtx(t, 5*time.Second)
 
 		token, _ := seedRelaySession(t, ctx, srv, cfg)
 
@@ -233,20 +253,12 @@ func TestRelayWebSocket(t *testing.T) {
 
 	t.Run("both_sides_connect_data_flows", func(t *testing.T) {
 		ts, srv, cfg := newRelayTestServer(t)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		ctx := relayTestCtx(t, 10*time.Second)
 
 		token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
 
-		// Agent connects
-		agentHeaders := http.Header{}
-		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, agentHeaders)
+		agentConn, browserConn := dialRelayPair(t, ctx, ts.URL, token, jwtToken)
 		defer agentConn.Close(websocket.StatusNormalClosure, "")
-
-		// Browser connects with JWT
-		browserHeaders := http.Header{}
-		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
-		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
 		// Wait for relay pipe to start (both sides registered).
@@ -271,18 +283,12 @@ func TestRelayWebSocket(t *testing.T) {
 
 	t.Run("disconnect_closes_peer", func(t *testing.T) {
 		ts, srv, cfg := newRelayTestServer(t)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		ctx := relayTestCtx(t, 10*time.Second)
 
 		token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
 
-		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
+		agentConn, browserConn := dialRelayPair(t, ctx, ts.URL, token, jwtToken)
 
-		browserHeaders := http.Header{}
-		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
-		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
-
-		// Wait for relay pipe to start (both sides registered).
 		waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
 
 		// Disconnect agent
@@ -295,10 +301,7 @@ func TestRelayWebSocket(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	// The browser side must present a *valid* JWT, not merely some credential
-	// shaped value. A relay token can leak through browser history, a referrer,
-	// or a shared link; on its own it must not be enough to attach as the
-	// operator side of somebody's remote session.
+	// A relay token alone cannot attach as the operator side: the browser must present a valid JWT.
 	t.Run("browser_rejects_unverifiable_credentials", func(t *testing.T) {
 		forged := forgedJWT(t)
 		cases := map[string]string{
@@ -320,8 +323,7 @@ func TestRelayWebSocket(t *testing.T) {
 
 	t.Run("browser_auth_via_query_param", func(t *testing.T) {
 		ts, srv, cfg := newRelayTestServer(t)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		ctx := relayTestCtx(t, 10*time.Second)
 
 		token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
 
@@ -366,9 +368,7 @@ func TestRelayWebSocket(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		browserHeaders := http.Header{}
-		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
-		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+string(token)+testSideBrowser, browserHeaders)
+		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+string(token)+testSideBrowser, bearerHeader(jwtToken))
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
 		// Read should timeout since no agent is connecting
@@ -389,9 +389,7 @@ func TestRelayWebSocket(t *testing.T) {
 			cleanup <- srv.sessions.DeleteRelaySession(context.Background(), string(ended))
 		}
 
-		browserHeaders := http.Header{}
-		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
-		browserConn := dialWS(t, context.Background(), ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
+		browserConn := dialWS(t, context.Background(), ts.URL, testPathWSRelay+token+testSideBrowser, bearerHeader(jwtToken))
 		defer browserConn.CloseNow()
 
 		require.Eventually(t, func() bool {
@@ -412,23 +410,16 @@ func TestRelayWebSocket(t *testing.T) {
 	})
 }
 
-// seedRelayTokenFor issues one more relay session row against an already-seeded
-// user and device. The leak test needs many tokens and only one estate, so the
-// user, site and device are seeded once by the caller.
+// seedRelayTokenFor issues one more relay session row against an already-seeded user and device.
 func seedRelayTokenFor(t *testing.T, ctx context.Context, srv *Server, deviceID, userID uuid.UUID) string {
 	t.Helper()
 	return testutil.SeedAgentSession(t, dbtx.WithDefaultTenant(ctx, true), srv.store, deviceID, userID).Token
 }
 
-// runRelaySession opens both sides of one relay session, proves the pipe is
-// carrying data, and hangs both clients up — one completed session, the unit
-// the leak is measured per.
+// runRelaySession opens both sides of one relay session, proves data flows, and hangs up.
 func runRelaySession(t *testing.T, ctx context.Context, ts *httptest.Server, srv *Server, token, jwtToken string) {
 	t.Helper()
-	agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
-	browserHeaders := http.Header{}
-	browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
-	browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
+	agentConn, browserConn := dialRelayPair(t, ctx, ts.URL, token, jwtToken)
 
 	waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
 
@@ -441,13 +432,6 @@ func runRelaySession(t *testing.T, ctx context.Context, ts *httptest.Server, srv
 	browserConn.Close(websocket.StatusNormalClosure, "done")
 }
 
-// TestRelayWebSocket_HandlerReturnsWhenSessionEnds pins the lifetime of the
-// relay handler to the lifetime of the session it opened.
-//
-// websocket.Accept hijacks the connection, and net/http stops managing a
-// hijacked connection: nothing cancels the request context when the client
-// hangs up, so a handler parked on it never returns. Both handlers of a
-// completed session must come back.
 func TestRelayWebSocket_HandlerReturnsWhenSessionEnds(t *testing.T) {
 	agentRelay := relay.NewRelay(slog.Default())
 	ts, srv, cfg, returned := newWatchedRelayTestServer(t, agentRelay, 0)
@@ -457,40 +441,18 @@ func TestRelayWebSocket_HandlerReturnsWhenSessionEnds(t *testing.T) {
 	token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
 	runRelaySession(t, ctx, ts, srv, token, jwtToken)
 
-	sides := map[string]bool{}
-	deadline := time.After(10 * time.Second)
-	for len(sides) < 2 {
-		select {
-		case side := <-returned:
-			sides[side] = true
-		case <-deadline:
-			t.Fatalf("relay handlers did not return after the session ended; returned %v", sides)
-		}
-	}
+	sides := awaitBothHandlers(t, returned, "relay handlers did not return after the session ended")
 	assert.True(t, sides["agent"], "the machine side's handler must return")
 	assert.True(t, sides["browser"], "the operator side's handler must return")
 }
 
-// relayLeakPoints are the completed-session counts the slope is fitted through,
-// cumulative against one server. Three points, because two cannot tell a slope
-// from a single noisy reading, and small ones because each session is two real
-// WebSocket dials against a real Postgres row.
+// relayLeakPoints are the cumulative completed-session counts the slope is fitted through.
 var relayLeakPoints = []int{4, 8, 16}
 
-// relayLeakSlopeTolerance is the goroutines-per-completed-session the fit may
-// carry. The defect this pins retained 2.05 goroutines per session, so half a
-// goroutine is far below what a regression looks like and far above what a
-// machine under load can invent between two readings.
+// relayLeakSlopeTolerance is the goroutines per completed session the fit may carry; the
+// defect retained 2.05.
 const relayLeakSlopeTolerance = 0.5
 
-// TestRelayWebSocket_CompletedSessionsRetainNoGoroutines measures the slope of
-// retained goroutines against completed sessions and requires it to be flat.
-//
-// A slope rather than a fixed NumGoroutine baseline: every NewServer starts
-// sweeper goroutines that take no context and never stop, and the store and its
-// pool add more. Those are a constant, which a slope removes and a baseline
-// cannot. What is being asserted is conservation — a completed session gives
-// back what it took — not an absolute figure.
 func TestRelayWebSocket_CompletedSessionsRetainNoGoroutines(t *testing.T) {
 	agentRelay := relay.NewRelay(slog.Default())
 	ts, srv, cfg := newRelayTestServerWith(t, agentRelay)
@@ -525,10 +487,8 @@ func TestRelayWebSocket_CompletedSessionsRetainNoGoroutines(t *testing.T) {
 		"a completed relay session must give back its goroutines: %.3f retained per session across %v", slope, xs)
 }
 
-// settleGoroutines waits for the relay to book every session out and for the
-// goroutine count to stop falling, then returns it. Teardown is asynchronous on
-// both sides, so a reading taken the instant a client hangs up measures the
-// tail of the previous session rather than what the process is holding.
+// settleGoroutines waits for the relay to book every session out and the goroutine count to
+// stop falling, because teardown is asynchronous, then returns the count.
 func settleGoroutines(t *testing.T, r *relay.Relay) int {
 	t.Helper()
 	require.Eventually(t, func() bool { return r.ActiveSessionCount() == 0 },
@@ -553,9 +513,7 @@ func settleGoroutines(t *testing.T, r *relay.Relay) int {
 	return last
 }
 
-// leastSquaresSlope fits y = a + bx and returns b. Fewer than two distinct x
-// values describe no line, and the caller's points are compile-time constants,
-// so that case returns zero rather than reporting a slope it cannot know.
+// leastSquaresSlope fits y = a + bx and returns b, or zero for fewer than two distinct x values.
 func leastSquaresSlope(xs, ys []float64) float64 {
 	n := float64(len(xs))
 	if n < 2 {
@@ -575,13 +533,6 @@ func leastSquaresSlope(xs, ys []float64) float64 {
 	return (n*sumXY - sumX*sumY) / denom
 }
 
-// TestRelayWebSocket_StalledPeerEndsTheSession pins the liveness budget.
-//
-// A peer that is present on the network and no longer consuming is invisible to
-// everything else: the socket is alive, so TCP keep-alive says nothing, and a
-// quiet session is legitimate, so no read deadline may end it. The handler asks
-// the question directly — a control frame the peer has to answer — and the side
-// that cannot ends the session for both.
 func TestRelayWebSocket_StalledPeerEndsTheSession(t *testing.T) {
 	agentRelay := relay.NewRelay(slog.Default())
 	ts, srv, cfg, returned := newWatchedRelayTestServerWithPing(t, agentRelay, 0, 200*time.Millisecond)
@@ -590,11 +541,8 @@ func TestRelayWebSocket_StalledPeerEndsTheSession(t *testing.T) {
 
 	token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
 
-	agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
+	agentConn, browserConn := dialRelayPair(t, ctx, ts.URL, token, jwtToken)
 	defer agentConn.CloseNow()
-	browserHeaders := http.Header{}
-	browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
-	browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
 	defer browserConn.CloseNow()
 	waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
 
@@ -614,14 +562,5 @@ func TestRelayWebSocket_StalledPeerEndsTheSession(t *testing.T) {
 		10*time.Second, 20*time.Millisecond,
 		"a peer that stops answering must end the session within the ping budget")
 
-	sides := map[string]bool{}
-	deadline := time.After(10 * time.Second)
-	for len(sides) < 2 {
-		select {
-		case side := <-returned:
-			sides[side] = true
-		case <-deadline:
-			t.Fatalf("both handlers must return when the session ends; returned %v", sides)
-		}
-	}
+	awaitBothHandlers(t, returned, "both handlers must return when the session ends")
 }

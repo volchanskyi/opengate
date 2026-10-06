@@ -1,16 +1,5 @@
-//! Host system-log collection for the System Logs pane.
-//!
-//! Reads recent records from the platform host log source — the systemd journal
-//! on Linux — normalizes them to [`LogEntry`], and enumerates the distinct
-//! emitting units for the UI unit dropdown. Level, time, and unit are pushed
-//! down to the underlying tool to bound the read; the caller still applies the
-//! shared severity/time/search filter for uniform semantics across sources. Raw
-//! lines are secret-dense, so [`redact_entries`] scrubs each message on the
-//! device (the first of two redaction layers) before a response leaves it.
-//!
-//! The wire vocabulary for the requested source is wider than what any single
-//! agent reads, so [`resolve_requested_source`] answers a source this agent has
-//! no reader for by refusing it by name and counting the refusal.
+//! Host system-log collection: reads the systemd journal into [`LogEntry`] values and lists
+//! its units, with [`redact_entries`] scrubbing messages before they leave the device.
 
 use crate::logs::{LogFilter, LogResult};
 use mesh_agent_core::ml::redact::redact_log_line;
@@ -19,11 +8,10 @@ use std::io::{self, BufRead};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::warn;
 
-/// Hard cap on host log lines parsed per collection to bound memory/CPU.
+/// Cap on host log lines parsed per collection.
 const MAX_HOST_LINES: usize = 5_000;
 
-/// Hard cap on distinct units returned for the dropdown (sorted, then capped).
-/// An exact unit outside the capped set is still accepted by the unit filter.
+/// Cap on distinct units returned, applied after sorting; the unit filter still accepts others.
 const MAX_UNITS: usize = 200;
 
 /// A platform host log source the agent can read.
@@ -34,8 +22,7 @@ pub enum LogSource {
     Journald,
 }
 
-/// A host log source this agent has no reader for on this host, carrying the
-/// name the server asked for so the refusal names it back.
+/// A host log source with no reader here, carrying the requested name for the refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnavailableSource(String);
 
@@ -51,15 +38,10 @@ impl std::fmt::Display for UnavailableSource {
 
 impl std::error::Error for UnavailableSource {}
 
-/// Running total of host-log requests this process refused because they name a
-/// source it has no reader for. A refusal is an answer, not a dropped request,
-/// so it is counted where it happens and carried on the log line below.
+/// Running total of host-log requests refused for naming a source with no reader.
 static UNAVAILABLE_SOURCE_REQUESTS: AtomicU64 = AtomicU64::new(0);
 
-/// Records one refusal and builds the answer that names the source back. The
-/// running total rides along on the log line so a console repeatedly asking this
-/// fleet for a source no agent serves shows up as a climbing number rather than
-/// as a stream of unrelated-looking single failures.
+/// Records one refusal and builds the answer naming the source; the log line carries the total.
 fn refuse(name: &str) -> UnavailableSource {
     UNAVAILABLE_SOURCE_REQUESTS.fetch_add(1, Ordering::Relaxed);
     let refused_total = UNAVAILABLE_SOURCE_REQUESTS.load(Ordering::Relaxed);
@@ -70,10 +52,7 @@ fn refuse(name: &str) -> UnavailableSource {
     UnavailableSource(name.to_string())
 }
 
-/// The host log source for the current platform, or `None` where the platform
-/// has none (a minimal container, or a target this agent has no reader for).
-/// Resolving here keeps all OS-specific logic on the agent — the browser only
-/// ever asks for `host`.
+/// The host log source for the current platform, or `None` where it has none.
 #[must_use]
 pub fn resolve_host_source() -> Option<LogSource> {
     match std::env::consts::OS {
@@ -82,16 +61,8 @@ pub fn resolve_host_source() -> Option<LogSource> {
     }
 }
 
-/// Resolves the host log source a `RequestDeviceLogs` names, or refuses it.
-///
-/// `host` asks for whatever this platform provides; a named source asks for that
-/// one specifically and is answered only where this agent reads it. The wire
-/// vocabulary is wider than what any single agent implements, so anything else —
-/// `windows` on an agent with no Event Log reader, an unknown name, or `self`,
-/// which is the agent's own files rather than a host source — is refused by name
-/// and counted. Refusing beats answering: an empty page would read as "this host
-/// logged nothing", and another source's records would answer a question nobody
-/// asked.
+/// Resolves the source a `RequestDeviceLogs` names: `host` picks the platform source, and an
+/// unreadable name, an unknown name or `self` is refused by name, since an empty page misleads.
 pub fn resolve_requested_source(name: &str) -> Result<LogSource, UnavailableSource> {
     match (name, resolve_host_source()) {
         ("host", Some(source)) => Ok(source),
@@ -100,8 +71,7 @@ pub fn resolve_requested_source(name: &str) -> Result<LogSource, UnavailableSour
     }
 }
 
-/// Maps a syslog priority (0=emerg … 7=debug) to a normalized level label.
-/// journald's `PRIORITY` field uses this scale.
+/// Maps a syslog priority (0=emerg … 7=debug), journald's `PRIORITY` scale, to a level label.
 fn journald_priority_to_level(priority: u8) -> &'static str {
     match priority {
         0..=3 => "ERROR", // emerg, alert, crit, err
@@ -111,10 +81,8 @@ fn journald_priority_to_level(priority: u8) -> &'static str {
     }
 }
 
-/// The journald `-p` maximum priority for a normalized minimum severity, or
-/// `None` when the filter matches every priority (no push-down needed). Because
-/// journald `-p N` selects priorities `<= N` (more severe), the mapping mirrors
-/// the shared severity ordering (min WARN ⊇ ERROR).
+/// The journald `-p` ceiling for a minimum severity, or `None` when every priority matches;
+/// `-p N` selects priorities `<= N`, so min WARN includes ERROR.
 fn journald_priority_ceiling(min_level: &str) -> Option<&'static str> {
     match min_level {
         "ERROR" => Some("3"),
@@ -124,18 +92,15 @@ fn journald_priority_ceiling(min_level: &str) -> Option<&'static str> {
     }
 }
 
-/// Parses an RFC 3339 timestamp into whole Unix seconds, or `None` when it is
-/// not a valid instant. Used to push a time bound down to the collector.
+/// Parses an RFC 3339 timestamp into whole Unix seconds, or `None` when invalid.
 fn iso_to_epoch(ts: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(ts)
         .ok()
         .map(|dt| dt.timestamp())
 }
 
-/// Builds the `journalctl -o json` argument vector for a bounded, filtered read.
-/// Every value is a discrete argv token — no shell — so even a hostile `unit`
-/// (e.g. `"; rm -rf /"`) is passed inertly as a single `_SYSTEMD_UNIT=` match
-/// value and can never inject a command.
+/// Builds the `journalctl -o json` argv; each value is one token, so a hostile `unit` matches
+/// a single `_SYSTEMD_UNIT=` value and cannot inject a command.
 fn build_journald_args(filter: &LogFilter, unit: &str) -> Vec<String> {
     let mut args = vec![
         "-o".to_string(),
@@ -167,9 +132,8 @@ fn json_str(value: &serde_json::Value, key: &str) -> Option<String> {
     value.get(key).and_then(|v| v.as_str()).map(str::to_owned)
 }
 
-/// Converts a journald `__REALTIME_TIMESTAMP` (microseconds since the Unix
-/// epoch) into an ISO 8601 / RFC 3339 UTC string. Returns an empty string for a
-/// value outside the representable range.
+/// Converts a journald `__REALTIME_TIMESTAMP` (Unix microseconds) to an RFC 3339 UTC string,
+/// empty when out of range.
 fn realtime_micros_to_iso(micros: i64) -> String {
     use chrono::{SecondsFormat, TimeZone, Utc};
     let secs = micros.div_euclid(1_000_000);
@@ -180,8 +144,7 @@ fn realtime_micros_to_iso(micros: i64) -> String {
     }
 }
 
-/// Parses one `journalctl -o json` line into a normalized [`LogEntry`]. A line
-/// without a `MESSAGE` field is not a journal record and yields `None`.
+/// Parses one `journalctl -o json` line into a [`LogEntry`]; a line without `MESSAGE` is `None`.
 fn parse_journald_json(line: &str) -> Option<LogEntry> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let message = json_str(&value, "MESSAGE")?;
@@ -205,9 +168,7 @@ fn parse_journald_json(line: &str) -> Option<LogEntry> {
     })
 }
 
-/// Parses journald JSON-lines from a reader into normalized entries, stopping at
-/// [`MAX_HOST_LINES`]. Malformed lines are skipped so one bad record never
-/// aborts the scan.
+/// Parses journald JSON lines into entries up to [`MAX_HOST_LINES`], skipping malformed lines.
 fn read_journald_lines(reader: impl BufRead) -> Result<Vec<LogEntry>, io::Error> {
     let mut out = Vec::new();
     for line in reader.lines() {
@@ -225,8 +186,7 @@ fn read_journald_lines(reader: impl BufRead) -> Result<Vec<LogEntry>, io::Error>
     Ok(out)
 }
 
-/// Normalizes a raw list of unit/provider tokens into the dropdown set: distinct,
-/// non-empty, sorted, and capped at [`MAX_UNITS`].
+/// Reduces unit tokens to the distinct, non-empty, sorted set capped at [`MAX_UNITS`].
 fn normalize_unit_list(raw: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut units: Vec<String> = raw
         .into_iter()
@@ -239,25 +199,16 @@ fn normalize_unit_list(raw: impl IntoIterator<Item = String>) -> Vec<String> {
     units
 }
 
-/// Reads the most recent host log records for `source`, applying the level/time
-/// push-down and (when set) the unit filter. Returns an empty vector whenever the
-/// read yields nothing — a missing tool or a read failure — so the same call is
-/// safe on every fleet machine without platform branches at the call site.
-/// A `source` value only ever arrives from [`resolve_requested_source`], which
-/// has already established that this host has a reader for it.
+/// Reads the latest records for `source` with the level, time and unit filters; empty when the
+/// tool is missing or fails. `source` comes from [`resolve_requested_source`].
 pub fn collect_host_logs(source: LogSource, filter: &LogFilter, unit: &str) -> Vec<LogEntry> {
     match source {
         LogSource::Journald => collect_journald(filter, unit),
     }
 }
 
-/// Whether a collected batch came back at the reader's own line cap.
-///
-/// A batch at the cap is the newest [`MAX_HOST_LINES`] records of its window
-/// and nothing older, so the window held at least that many and an unknown
-/// number fell off its old end. Callers that read a window rather than a page —
-/// the system-event watch — need that distinction: the count of what was lost
-/// is not knowable, but the fact that something was is.
+/// Whether a batch reached the [`MAX_HOST_LINES`] cap, meaning an unknown number of older
+/// records fell off the window.
 #[must_use]
 pub fn batch_saturated(entries: &[LogEntry]) -> bool {
     entries.len() >= MAX_HOST_LINES
@@ -271,14 +222,8 @@ pub fn list_units(source: LogSource) -> Vec<String> {
     }
 }
 
-/// Collects host system logs for a `RequestDeviceLogs` whose source is not the
-/// agent's own files: resolves the requested source against this host, applies
-/// the shared severity/time/search filter and pagination, and enumerates the
-/// available units for the dropdown.
-///
-/// A source this host has no reader for is refused by name rather than answered
-/// with an empty page, so the pane says which source is unavailable instead of
-/// showing "no logs" that reads as "this host is quiet".
+/// Collects host logs for a source other than the agent's own files, applying the shared filter
+/// and pagination; a source with no reader here is refused by name.
 pub fn collect_system_logs(
     source: &str,
     filter: &LogFilter,
@@ -291,10 +236,7 @@ pub fn collect_system_logs(
     Ok((result, list_units(source)))
 }
 
-/// What a completed `journalctl` read contributes: its parsed stdout when the
-/// command succeeded, nothing when it did not. A non-zero exit means the read
-/// did not happen, so whatever the tool emitted before failing is discarded
-/// rather than presented as a complete answer.
+/// The parsed stdout of a successful `journalctl` read; a non-zero exit discards partial output.
 fn entries_from_exit(success: bool, stdout: &[u8]) -> Vec<LogEntry> {
     if !success {
         return Vec::new();
@@ -302,8 +244,7 @@ fn entries_from_exit(success: bool, stdout: &[u8]) -> Vec<LogEntry> {
     read_journald_lines(io::Cursor::new(stdout)).unwrap_or_default()
 }
 
-/// What a completed unit enumeration contributes, under the same rule: a
-/// non-zero exit yields no units rather than a partial dropdown.
+/// The units of a successful enumeration; a non-zero exit yields none.
 fn units_from_exit(success: bool, stdout: &[u8]) -> Vec<String> {
     if !success {
         return Vec::new();
@@ -312,10 +253,8 @@ fn units_from_exit(success: bool, stdout: &[u8]) -> Vec<String> {
     normalize_unit_list(text.lines().map(str::to_owned))
 }
 
-/// Runs `journalctl` with `args` and hands the completed invocation to `parse`.
-/// A command that could not be launched at all — no `journalctl` on a minimal
-/// container — yields the same nothing a failed one does, so no caller needs a
-/// platform branch.
+/// Runs `journalctl` with `args` and hands the result to `parse`; a launch failure yields the
+/// same empty answer as a failed run.
 fn run_journalctl<T>(
     args: impl IntoIterator<Item = String>,
     parse: fn(bool, &[u8]) -> Vec<T>,
@@ -332,8 +271,7 @@ fn collect_journald(filter: &LogFilter, unit: &str) -> Vec<LogEntry> {
     run_journalctl(build_journald_args(filter, unit), entries_from_exit)
 }
 
-/// Enumerates distinct systemd units via `journalctl -F _SYSTEMD_UNIT` (an
-/// indexed field enumeration — cheap). Empty on any failure path.
+/// Enumerates distinct systemd units via `journalctl -F _SYSTEMD_UNIT`; empty on failure.
 fn list_journald_units() -> Vec<String> {
     run_journalctl(
         ["-F", "_SYSTEMD_UNIT", "--no-pager"].map(String::from),
@@ -341,11 +279,8 @@ fn list_journald_units() -> Vec<String> {
     )
 }
 
-/// Redacts secret material from each entry's message in place before a raw-log
-/// response leaves the device. Raw log lines are secret-dense, so this edge-side
-/// pass is the first of two independent redaction layers (the server applies the
-/// second). Only the message body carries free text; the level, timestamp, and
-/// unit target are bounded normalized fields and are left untouched.
+/// Redacts secrets from each message in place, the device's layer of two (the server applies
+/// the second); level, timestamp and unit are bounded fields and stay untouched.
 pub fn redact_entries(entries: &mut [LogEntry]) {
     for entry in entries.iter_mut() {
         entry.message = redact_log_line(&entry.message);
@@ -367,12 +302,6 @@ mod tests {
         }
     }
 
-    /// The build target decides the host log source, and the browser only ever
-    /// asks for `host` — so if this resolved to `None` on a platform that has a
-    /// log source, the Logs tab would come up empty on every agent of that
-    /// platform with nothing to indicate why. Each target asserts its own
-    /// expected source; a target with no reader resolves to `None`, which is the
-    /// honest answer rather than a default.
     #[test]
     fn host_source_matches_the_build_target() {
         #[cfg(target_os = "linux")]
@@ -389,24 +318,11 @@ mod tests {
                 "naming journald outright is answered where the agent reads it"
             );
         }
-        // Asserted without going through `resolve_requested_source` so that
-        // `refused_sources_are_named_and_counted` stays the only test in this
-        // file that moves the refusal counter, on every target.
+        // Bypasses `resolve_requested_source`, so only the refusal test moves the counter.
         #[cfg(not(target_os = "linux"))]
         assert_eq!(resolve_host_source(), None);
     }
 
-    /// The wire vocabulary for `source` names more host log sources than this
-    /// agent reads — `windows` is a live value that a server may send. Answering
-    /// it with an empty page would be indistinguishable from "this host logged
-    /// nothing in that window", and answering it from journald would hand back
-    /// one source's records under another source's name. So the agent refuses by
-    /// name, and every refusal is counted rather than swallowed: a console
-    /// asking the fleet for a source no agent serves is visible, not silent.
-    ///
-    /// A refusal carries no entries at all, so it can never fall back to the
-    /// agent's own rotated files — answering a question about the host with the
-    /// agent's private diagnostics would be the worst answer of the three.
     #[test]
     fn refused_sources_are_named_and_counted() {
         let before = UNAVAILABLE_SOURCE_REQUESTS.load(Ordering::Relaxed);
@@ -483,8 +399,6 @@ mod tests {
         assert!(args.contains(&"_SYSTEMD_UNIT=nginx.service".to_string()));
     }
 
-    /// A hostile unit is a single inert argv token on the journald path — no
-    /// shell, so nothing executes; it simply matches no unit.
     #[test]
     fn build_journald_args_keeps_hostile_unit_inert() {
         let args = build_journald_args(&filter(None, None, None), "; rm -rf /");
@@ -493,11 +407,6 @@ mod tests {
         assert!(!args.iter().any(|a| a == "rm" || a == "-rf"));
     }
 
-    /// A non-zero exit means the read did not happen. Parsing its stdout anyway
-    /// would present whatever the tool managed to emit before failing as a
-    /// complete answer — an empty page reading as "this host is quiet", or a
-    /// truncated unit list silently narrowing the dropdown so a technician
-    /// cannot filter to the unit that is actually broken.
     #[test]
     fn a_failed_invocation_contributes_nothing() {
         let record = r#"{"PRIORITY":"3","_SYSTEMD_UNIT":"a.service","MESSAGE":"err one"}"#;
@@ -565,10 +474,6 @@ mod tests {
         assert_eq!(entries[1].level, "INFO");
     }
 
-    /// Every source degrades to an empty result where its tool is absent (a
-    /// minimal container with no journald), so a call is safe on any fleet
-    /// machine without a platform branch at the call site. A hostile unit is
-    /// carried inertly all the way through — never a panic, never a command.
     #[test]
     fn collectors_degrade_to_empty_without_their_tool() {
         let source = LogSource::Journald;
@@ -577,10 +482,6 @@ mod tests {
         let _ = collect_host_logs(source, &filter(None, None, None), "$(evil)");
     }
 
-    /// A `journalctl` that cannot be launched at all — the binary is absent on a
-    /// minimal container — is the same nothing as one that ran and failed. The
-    /// runner reaches that answer without the caller testing for it, which is
-    /// what lets every call site skip a platform branch.
     #[test]
     fn an_unlaunchable_tool_yields_the_same_nothing_as_a_failed_one() {
         let absent: Vec<String> = run_journalctl(
@@ -648,11 +549,6 @@ mod tests {
         assert_eq!(entries[1].message, "handled request in 4ms");
     }
 
-    /// A batch that came back at the reader's own line cap is the newest records
-    /// of its window and nothing older, so records fell off its old end and how
-    /// many is not knowable. A batch under the cap is the whole window. The
-    /// system-event watch reads a window rather than a page, so this is the only
-    /// thing that tells it a device is losing records faster than it reads them.
     #[test]
     fn only_a_batch_at_the_readers_cap_has_lost_records() {
         let batch = |n: usize| -> Vec<LogEntry> {

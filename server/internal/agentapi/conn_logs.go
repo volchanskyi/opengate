@@ -8,8 +8,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// logsResult carries a bounded raw-log response (or an agent-side error) from
-// the read loop back to the synchronous broker waiter.
+// logsResult carries a raw-log response or agent-side error from the read loop to the waiter.
 type logsResult struct {
 	entries []device.LogEntry
 	total   int
@@ -17,12 +16,8 @@ type logsResult struct {
 	err     error
 }
 
-// RequestLogsSync brokers an on-demand raw-log pull: it sends a RequestDeviceLogs
-// control message and blocks until the agent's response is delivered to the
-// in-flight waiter or ctx expires. The bounded lines flow straight through to
-// the caller — nothing is persisted centrally. Only one pull runs per connection
-// at a time (responses carry no correlation id), so a concurrent caller gets
-// ErrLogsBusy.
+// RequestLogsSync requests raw log lines and blocks until the agent responds or ctx expires.
+// Responses carry no correlation id, so a concurrent caller gets ErrLogsBusy.
 func (a *AgentConn) RequestLogsSync(ctx context.Context, filter device.LogFilter) ([]device.LogEntry, int, []string, error) {
 	if err := a.requireCapability(protocol.CapDeviceLogs); err != nil {
 		return nil, 0, nil, err
@@ -54,9 +49,8 @@ func (a *AgentConn) RequestLogsSync(ctx context.Context, filter device.LogFilter
 	}
 }
 
-// deliverLogs hands a response to the in-flight waiter, returning whether one
-// was waiting. A late or unsolicited response with no waiter is dropped so the
-// read loop never blocks.
+// deliverLogs hands a response to the in-flight waiter and reports whether one was waiting; an
+// unsolicited response is dropped so the read loop never blocks.
 func (a *AgentConn) deliverLogs(res logsResult) bool {
 	a.logMu.Lock()
 	ch := a.logWaiter
@@ -72,9 +66,8 @@ func (a *AgentConn) deliverLogs(res logsResult) bool {
 	}
 }
 
-// handleDeviceLogsResponse streams the agent's bounded raw-log response back to
-// the waiting broker. Raw lines are transient: they are never written to any
-// central store.
+// handleDeviceLogsResponse passes the raw-log response to the waiter; raw lines are never written
+// to a central store.
 func (a *AgentConn) handleDeviceLogsResponse(_ context.Context, msg *protocol.ControlMessage) error {
 	entries := make([]device.LogEntry, len(msg.LogEntries))
 	for i, le := range msg.LogEntries {
@@ -96,7 +89,6 @@ func (a *AgentConn) handleDeviceLogsResponse(_ context.Context, msg *protocol.Co
 	return nil
 }
 
-// handleDeviceLogsError routes an agent-side failure to the waiting broker.
 func (a *AgentConn) handleDeviceLogsError(msg *protocol.ControlMessage) error {
 	err := fmt.Errorf("agent device logs error: %s", msg.AckError)
 	if !a.deliverLogs(logsResult{err: err}) {

@@ -1,7 +1,4 @@
-//! File operations handler for session file management.
-//!
-//! Processes `FileListRequest`, `FileDownloadRequest`, and `FileUploadRequest`
-//! control messages, streaming file data as `FileFrame`s.
+//! File listing and chunked download for a session.
 
 use std::path::Path;
 
@@ -23,7 +20,7 @@ pub struct FileOpsHandler {
 }
 
 impl FileOpsHandler {
-    /// Create a new file operations handler with the given permissions.
+    /// Creates a handler with the given read and write permissions.
     pub fn new(can_read: bool, can_write: bool) -> Self {
         Self {
             can_read,
@@ -31,7 +28,7 @@ impl FileOpsHandler {
         }
     }
 
-    /// List directory contents, returning a `FileListResponse` control message.
+    /// Lists directory contents as a `FileListResponse`, directories first.
     pub fn list_directory(&self, path: &str) -> Result<ControlMessage, SessionError> {
         if !self.can_read {
             return Err(SessionError::PermissionDenied(
@@ -44,9 +41,7 @@ impl FileOpsHandler {
 
         let read_dir = std::fs::read_dir(dir_path)?;
         for entry in read_dir {
-            // Entries can disappear between readdir() and metadata() — e.g. when
-            // /tmp is being actively churned by other processes. Treat NotFound
-            // as "file vanished, skip" rather than failing the whole listing.
+            // An entry can vanish between readdir() and metadata(); NotFound skips it.
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -72,7 +67,6 @@ impl FileOpsHandler {
             });
         }
 
-        // Sort: directories first, then alphabetically
         entries.sort_by(|a, b| {
             b.is_dir
                 .cmp(&a.is_dir)
@@ -85,7 +79,7 @@ impl FileOpsHandler {
         })
     }
 
-    /// Stream a file download as `FileFrame` chunks.
+    /// Streams a file download as `FileFrame` chunks.
     pub async fn stream_download(
         &self,
         path: &str,
@@ -105,7 +99,7 @@ impl FileOpsHandler {
 
         let data = tokio::fs::read(&file_path).await?;
 
-        // Empty files produce zero chunks, so send a single empty frame.
+        // An empty file yields zero chunks, so one empty frame is sent.
         if data.is_empty() {
             let frame = Frame::FileTransfer(FileFrame {
                 offset: 0,
@@ -170,24 +164,11 @@ mod tests {
 
     #[test]
     fn test_list_directory_concurrent_churn() {
-        // Regression test for the TOCTOU race fixed in list_directory: when an
-        // entry returned by readdir() disappears before metadata() is called,
-        // list_directory must skip the missing entry rather than failing the
-        // whole listing.
-        //
-        // We can't construct that race deterministically from outside the
-        // function (DirEntry holds opaque state), so we approximate it by
-        // running churn — create-then-delete files in a dedicated tempdir on
-        // a background thread — concurrently with many list_directory calls.
-        // Pre-fix, this races into NotFound errors and the listing fails;
-        // post-fix, list_directory always succeeds even when 50% of entries
-        // vanish mid-iteration.
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
 
         let tmp = tempfile::tempdir().expect("create tempdir");
         let dir = tmp.path().to_path_buf();
-        // Seed a few stable entries so the listing has something stable to find.
         for i in 0..5 {
             std::fs::write(dir.join(format!("stable-{i}.txt")), b"x").expect("seed file");
         }
@@ -199,9 +180,7 @@ mod tests {
             let mut i = 0u64;
             while !churn_stop.load(Ordering::Relaxed) {
                 let p = churn_dir.join(format!("churn-{i}.txt"));
-                // Transient I/O errors during churn are not the subject of the
-                // test — we only care that the racing list_directory tolerates
-                // mid-iteration disappearance, so drop both Results explicitly.
+                // Transient I/O errors during churn are irrelevant to the listing under test.
                 std::fs::write(&p, b"y").ok();
                 std::fs::remove_file(&p).ok();
                 i += 1;
@@ -210,7 +189,6 @@ mod tests {
 
         let handler = FileOpsHandler::new(true, false);
         let dir_str = dir.to_str().expect("utf-8");
-        // Many iterations so the race window is wide.
         for _ in 0..200 {
             let result = handler.list_directory(dir_str);
             assert!(
@@ -233,10 +211,8 @@ mod tests {
     #[test]
     fn test_list_directory_sorts_dirs_first() {
         let handler = FileOpsHandler::new(true, false);
-        // /tmp should have entries; just verify it doesn't crash
         if let Ok(ControlMessage::FileListResponse { entries, .. }) = handler.list_directory("/tmp")
         {
-            // Verify directories come before files
             let mut seen_file = false;
             for entry in &entries {
                 if !entry.is_dir {
@@ -263,7 +239,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_stream_download_success() {
-        // Create a temp file
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
         std::fs::write(&file_path, "hello world").unwrap();
@@ -276,7 +251,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Should receive one frame (file is small)
         let data = rx.try_recv().unwrap();
         let (frame, _) = Frame::decode(&data).unwrap();
         match frame {
@@ -303,7 +277,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Should receive exactly one frame with total_size=0
         let data = rx.try_recv().unwrap();
         let (frame, _) = Frame::decode(&data).unwrap();
         match frame {
@@ -315,18 +288,13 @@ mod tests {
             _ => panic!("expected FileTransfer frame"),
         }
 
-        // No more frames
         assert!(rx.try_recv().is_err());
     }
 
-    /// Pin CHUNK_SIZE = 256 * 1024 (262144). Mutating `*` to `+` would yield
-    /// 256 + 1024 = 1280, causing a 300_000-byte file to fragment into ~235
-    /// frames instead of 2.
     #[tokio::test]
     async fn stream_download_chunk_size_is_256_kib_not_256_plus_1024() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("absolute_size.bin");
-        // 300 KiB — well above 256 KiB but well below 2*256 KiB.
         std::fs::write(&file_path, vec![0xCDu8; 300_000]).unwrap();
 
         let handler = FileOpsHandler::new(true, false);
@@ -350,7 +318,6 @@ mod tests {
     async fn test_stream_download_chunked() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("big.bin");
-        // Create a file larger than CHUNK_SIZE
         let data = vec![0xABu8; CHUNK_SIZE + 100];
         std::fs::write(&file_path, &data).unwrap();
 
@@ -362,7 +329,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Should receive 2 frames
         let frame1 = rx.try_recv().unwrap();
         let (f1, _) = Frame::decode(&frame1).unwrap();
         match f1 {

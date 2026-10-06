@@ -1,25 +1,11 @@
 #!/usr/bin/env bash
-# Give the performance stack's machine-facing path the network production has.
+# Gives the QUIC path production's buffers, since the transport asks for 7 MiB per socket and a
+# runner caps one at 1 MiB; the generator dials the certificate's name mapped to the container.
 #
-# A machine speaks QUIC over UDP, and the transport asks the kernel for a 7 MiB
-# receive buffer on every socket. A runner's kernel caps a socket at 1 MiB, so
-# the generator and the server both ran on whatever the cap left them, and at
-# the top of a ladder datagrams were dropped at a full buffer before either
-# process saw them. Production's node allows 30 MiB: the three values below
-# are the ones read off it. They are host-wide, so the server's container gets
-# them as well as the generator.
-#
-# And a generator dialling the loopback's published port reaches the server
-# through Docker's userland proxy — a third process relaying every datagram,
-# inside neither the target's allowance nor the generator's. So the generator
-# dials the name on the server's certificate, mapped to the container's own
-# address, and the handshake still verifies that name.
-#
+# Usage:
 #   perf-stack-quic.sh raise-buffers   before the stack starts
-#   perf-stack-quic.sh map-server      once it is up; also tells the harness
-#                                      where the target's network counters are
-#   perf-stack-quic.sh check <output>  after the run; fails when either end
-#                                      could not get the buffer it asked for
+#   perf-stack-quic.sh map-server      once it is up; publishes the target's counters location
+#   perf-stack-quic.sh check <output>  after the run; fails when an end lacked its buffer
 #
 # Environment:
 #   PERF_SERVER_CONTAINER  the server's container (default opengate-perf-server)

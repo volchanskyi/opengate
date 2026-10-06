@@ -15,12 +15,8 @@ type SubjectLister interface {
 	ListSubjects(ctx context.Context) ([]telemetry.SeriesSubject, error)
 }
 
-// Reconciler is the periodic defense-in-depth sweep: it deletes VictoriaMetrics
-// series whose device no longer exists in Postgres. The purge stores are not one
-// transaction, so a partial failure — or a purge that crashed before Resume ran
-// — can leave series behind; this sweep garbage-collects them. Device rows are
-// created at handshake before any telemetry ingest, so a device with series but
-// no row is genuinely orphaned, not mid-enrollment.
+// Reconciler deletes VictoriaMetrics series whose device row is absent from Postgres.
+// A device row exists before its first telemetry ingest, so a series without one is orphaned.
 type Reconciler struct {
 	inventory SubjectLister
 	series    SeriesPurger
@@ -36,9 +32,8 @@ func NewReconciler(inventory SubjectLister, series SeriesPurger, pg PGPurger, lo
 	return &Reconciler{inventory: inventory, series: series, pg: pg, logger: logger}
 }
 
-// Sweep deletes every VictoriaMetrics subject whose device id is absent from
-// Postgres and returns how many orphans it purged. It is idempotent: a second
-// run over a clean store deletes nothing.
+// Sweep deletes every VictoriaMetrics subject whose device id is absent from Postgres and
+// returns the orphan count; a second run over a clean store deletes nothing.
 func (r *Reconciler) Sweep(ctx context.Context) (int, error) {
 	live, err := r.pg.ListAllDeviceIDs(ctx)
 	if err != nil {

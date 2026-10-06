@@ -1,17 +1,5 @@
-// Package main implements the link shaper the nightly network drill runs its
-// machines through: an in-path datagram forwarder that sits between a machine
-// and the server and impairs the link on command.
-//
-// It exists because the worker node has no kernel network emulator — the module
-// is configured but not shipped in the node image, and it is absent from the
-// module index, so nothing in a container can supply it. Every off-the-shelf
-// impairment tool is a wrapper around that module, so the drill carries its own
-// forwarder instead. Nothing about it is privileged: it is an ordinary
-// unprivileged pod holding two sockets.
-//
-// Usage:
-//
-//	go run ./tests/netfault/ -listen=:9090 -server=opengate-staging-server:9090 -control=:9091 -seed=1
+// Package main implements the in-path datagram forwarder that impairs a machine's link on command;
+// the worker node ships no kernel network emulator, so the network drill carries its own.
 package main
 
 import (
@@ -26,17 +14,14 @@ import (
 	"time"
 )
 
-// controlShutdownGrace bounds how long the control endpoint is given to finish
-// what it is answering when the shaper is asked to stop.
+// controlShutdownGrace bounds how long the control endpoint finishes in-flight requests on stop.
 const controlShutdownGrace = 5 * time.Second
 
 func main() {
 	os.Exit(run())
 }
 
-// run is the whole shaper, returning the code the process exits with. It is
-// separated from main so every socket it opened is released on every path,
-// including the ones that end badly.
+// run returns the process exit code so every socket it opened is released on every path.
 func run() int {
 	listen := flag.String("listen", ":9090", "machine-facing UDP address: where the drill's machines dial")
 	server := flag.String("server", "", "the real server's QUIC address, which every datagram is forwarded to")
@@ -82,10 +67,8 @@ func run() int {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-signals
-		// The forwarder stops first. The control endpoint outlives it by the
-		// grace below so a runner reading the final counters gets an answer
-		// rather than a refused connection, which it would have to read as an
-		// inconclusive scenario.
+		// The control endpoint outlives the forwarder by the grace so a runner reading the final
+		// counters gets an answer.
 		shaper.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), controlShutdownGrace)
 		defer cancel()

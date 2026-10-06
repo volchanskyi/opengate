@@ -6,8 +6,6 @@ import (
 )
 
 // InstrumentedUsers decorates a UserRepository with per-call observation.
-// It preserves the operational visibility previously emitted by
-// metrics.InstrumentedStore when these methods lived in db.Store.
 type InstrumentedUsers struct {
 	inner    UserRepository
 	observer Observer

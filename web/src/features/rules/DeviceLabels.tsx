@@ -8,7 +8,6 @@ import { useDeviceTagsStore } from './state/device-tags-store';
 const CELL = 'px-3 py-2 text-sm text-gray-300';
 const HEAD = 'px-3 py-2 text-left text-xs font-semibold text-gray-400';
 
-/** Adding an entry to the list, which is the only way a label comes into being. */
 function AddLabel() {
   const createLabel = useDeviceTagsStore((s) => s.createLabel);
   const [key, setKey] = useState('');
@@ -53,7 +52,6 @@ function AddLabel() {
   );
 }
 
-/** Giving one label to several machines at once. */
 function BulkAssign({ labelId }: { readonly labelId: string }) {
   const assignLabel = useDeviceTagsStore((s) => s.assignLabel);
   const [machines, setMachines] = useState('');
@@ -86,14 +84,8 @@ function BulkAssign({ labelId }: { readonly labelId: string }) {
 }
 
 /**
- * The labels a customer's machines are picked out by.
- *
- * A label cuts across the tenancy ladder: `role=file-server` describes machines
- * in four offices, which is the set a threshold is usually meant for and the set
- * no rung names. Removing one is not a free action — a rule aimed at it loses a
- * tuned value on every machine that carried it, which widens a threshold across
- * an estate without anything saying so — so the server refuses it while a rule
- * still aims at it, and the refusal is shown here rather than swallowed.
+ * The server refuses to remove a label while a rule aims at it, since removal would widen a
+ * threshold silently; the refusal is shown here.
  */
 export function DeviceLabels() {
   const labels = useDeviceTagsStore((s) => s.labels);

@@ -7,12 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestAServerThatNeverListensStopsWaitingForItsAddress states the bound every
-// caller of Addr depends on. Addr answers a question about a listener that may
-// never come up — a TLS config that will not build, a port already taken — and
-// nothing sends the address when it does not. Waiting for that send with no
-// deadline hangs the whole test binary on a channel nobody will ever write, and
-// a hang carries none of the information a failure does.
 func TestAServerThatNeverListensStopsWaitingForItsAddress(t *testing.T) {
 	t.Parallel()
 
@@ -25,8 +19,6 @@ func TestAServerThatNeverListensStopsWaitingForItsAddress(t *testing.T) {
 	assert.Less(t, time.Since(start), 5*time.Second, "the wait is bounded, not indefinite")
 }
 
-// TestAListeningServerAnswersWithItsAddress is the other half: the bound costs
-// a running listener nothing.
 func TestAListeningServerAnswersWithItsAddress(t *testing.T) {
 	t.Parallel()
 

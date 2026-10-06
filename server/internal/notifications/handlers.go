@@ -6,12 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Handlers exposes the notifications module's use cases to transport-layer
-// callers. The api package's push/VAPID handlers translate HTTP requests and
-// responses to method calls on this
-// struct. The webPush port handles subscription persistence; the notifier
-// port answers configuration-style queries (VAPID public key) and is also
-// invoked from non-transport flows (agent updates, device-state changes).
+// Handlers exposes the notifications use cases to the transport layer.
 type Handlers struct {
 	webPush  WebPushRepository
 	notifier Notifier
@@ -32,8 +27,7 @@ func (h *Handlers) Unsubscribe(ctx context.Context, endpoint string, userID uuid
 	return h.webPush.Delete(ctx, endpoint, userID)
 }
 
-// VAPIDPublicKey returns the server's VAPID public key for the browser to
-// register a push subscription against.
+// VAPIDPublicKey returns the server's VAPID public key for browser subscriptions.
 func (h *Handlers) VAPIDPublicKey() string {
 	return h.notifier.VAPIDPublicKey()
 }

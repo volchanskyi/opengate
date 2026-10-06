@@ -13,7 +13,7 @@ use tracing::{debug, warn};
 use crate::platform::ScreenCapture;
 use crate::session_error::SessionError;
 
-/// Build relay URL with ?side=agent query parameter.
+/// Builds the relay URL with the `side=agent` query parameter.
 pub(crate) fn build_relay_url(relay_url: &str) -> Result<String, SessionError> {
     let mut parsed = url::Url::parse(relay_url)
         .map_err(|e| SessionError::WebSocket(format!("invalid relay URL: {e}")))?;
@@ -21,11 +21,7 @@ pub(crate) fn build_relay_url(relay_url: &str) -> Result<String, SessionError> {
     Ok(parsed.to_string())
 }
 
-/// WebSocket writer loop: sends encoded frames from the channel.
-///
-/// Generic over the sink so tests can substitute an in-memory Sink without
-/// constructing a real WebSocket stream. The production callsite passes the
-/// `SplitSink` half of `tokio_tungstenite`'s `WebSocketStream`.
+/// WebSocket writer loop that sends channel frames to any `Sink<Message>`.
 pub(crate) async fn ws_writer_loop<S>(
     mut ws_tx: S,
     mut frame_rx: mpsc::Receiver<Vec<u8>>,
@@ -51,10 +47,10 @@ pub(crate) async fn ws_writer_loop<S>(
 /// Maximum consecutive capture failures before the loop gives up.
 const MAX_CONSECUTIVE_CAPTURE_ERRORS: u32 = 3;
 
-/// Default JPEG quality (0-100). Matches MeshCentral's default.
+/// JPEG quality on a 0-100 scale.
 const JPEG_QUALITY: u8 = 70;
 
-/// Desktop capture loop: captures frames and sends them to the relay.
+/// Captures desktop frames and sends them to the relay until `running` clears.
 pub(crate) async fn capture_loop(
     capture: &mut dyn ScreenCapture,
     frame_tx: mpsc::Sender<Vec<u8>>,
@@ -107,20 +103,19 @@ pub(crate) async fn capture_loop(
     }
 }
 
-/// Encode RGBA pixel data as JPEG (strips alpha → RGB for JPEG compatibility).
 fn encode_jpeg(frame: &crate::platform::RawFrame, quality: u8) -> Result<Vec<u8>, SessionError> {
     use image::codecs::jpeg::JpegEncoder;
 
-    // JPEG doesn't support alpha — convert RGBA → RGB by dropping every 4th byte.
+    // JPEG has no alpha channel, so every fourth byte is dropped.
     let pixel_count = (frame.width * frame.height) as usize;
     let mut rgb = Vec::with_capacity(pixel_count * 3);
     for px in frame.data.as_chunks::<4>().0 {
-        rgb.push(px[0]); // R
-        rgb.push(px[1]); // G
-        rgb.push(px[2]); // B
+        rgb.push(px[0]);
+        rgb.push(px[1]);
+        rgb.push(px[2]);
     }
 
-    // Conservative pre-allocation: JPEG output is typically ~2-5% of raw RGB size.
+    // Pre-allocates a quarter byte per pixel; the buffer grows when the encoding needs more.
     let mut buf = Vec::with_capacity(pixel_count / 4);
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, quality);
     encoder
@@ -134,7 +129,7 @@ fn encode_jpeg(frame: &crate::platform::RawFrame, quality: u8) -> Result<Vec<u8>
     Ok(buf)
 }
 
-/// Encode a frame and send it via the channel.
+/// Encodes a frame and sends it on the channel.
 pub(crate) async fn send_frame(
     tx: &mpsc::Sender<Vec<u8>>,
     frame: &Frame,
@@ -169,11 +164,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Pins both halves of the RGBA -> RGB conversion: the channel order, and
-    /// the alpha byte being dropped rather than shifting the stream by one.
-    /// A solid colour survives JPEG quantisation, so the re-decoded pixels are
-    /// the colour that went in — an off-by-one read would decode as a different
-    /// hue, and a channel swap as its mirror.
     #[test]
     fn test_encode_jpeg_valid_rgba() {
         let frame = crate::platform::RawFrame {
@@ -184,7 +174,6 @@ mod tests {
         };
         let jpeg = encode_jpeg(&frame, 90).expect("encode should succeed");
 
-        // JPEG files start with SOI marker: 0xFF 0xD8
         assert!(jpeg.len() >= 2);
         assert_eq!(jpeg[0], 0xFF);
         assert_eq!(jpeg[1], 0xD8);
@@ -201,10 +190,6 @@ mod tests {
         }
     }
 
-    /// Pin capture_loop's consecutive-error counting AND the
-    /// `>= MAX_CONSECUTIVE_CAPTURE_ERRORS` exit condition. Mutating
-    /// `+=` to `-=` or `*=` makes the counter never reach the threshold;
-    /// mutating `>=` to `<` exits on the first error.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn capture_loop_exits_after_max_consecutive_errors() {
         use crate::platform::{CaptureError, RawFrame, ScreenCapture};
@@ -231,13 +216,10 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<Vec<u8>>(8);
         let running = Arc::new(AtomicBool::new(true));
 
-        // Outer timeout guards against `+=`-mutated counters that never
-        // reach the threshold.
         let r = running.clone();
         let result =
             tokio::time::timeout(Duration::from_secs(3), capture_loop(&mut capture, tx, r)).await;
 
-        // Force the loop to stop in case of hang.
         running.store(false, Ordering::Relaxed);
 
         assert!(
@@ -253,19 +235,14 @@ mod tests {
         );
     }
 
-    /// Pin capture_loop's `running` flag check: setting running=false must
-    /// halt the loop on the next iteration. Replacing the function body
-    /// with `()` would skip the work entirely (loop never runs).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn capture_loop_honors_running_flag_for_clean_shutdown() {
         use crate::platform::NullCapture;
 
         let mut capture = NullCapture;
         let (tx, _rx) = mpsc::channel::<Vec<u8>>(8);
-        let running = Arc::new(AtomicBool::new(false)); // pre-set false
+        let running = Arc::new(AtomicBool::new(false));
 
-        // With running=false from the start, NullCapture's next_frame should
-        // never be called and the loop should exit immediately.
         let elapsed = std::time::Instant::now();
         capture_loop(&mut capture, tx, running).await;
         assert!(
@@ -274,15 +251,10 @@ mod tests {
         );
     }
 
-    /// Pin ws_writer_loop: bytes from the channel must reach the WebSocket sink.
-    /// Use a forwarding sink so we can observe what was written. Mutating the
-    /// function body to `()` or `delete !` (in `if !running { break }`) breaks
-    /// either the forwarding or the shutdown semantics.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn ws_writer_loop_forwards_bytes_and_honors_running_flag() {
         use std::sync::Mutex as StdMutex;
 
-        // A trivial Sink that captures all messages it receives.
         struct CaptureSink {
             messages: Arc<StdMutex<Vec<Message>>>,
         }
@@ -329,7 +301,6 @@ mod tests {
 
         frame_tx.send(b"hello".to_vec()).await.unwrap();
         frame_tx.send(b"world".to_vec()).await.unwrap();
-        // Trigger shutdown: drop sender.
         drop(frame_tx);
         writer.await.unwrap();
 
@@ -345,7 +316,6 @@ mod tests {
 
     #[test]
     fn test_encode_jpeg_smaller_than_raw() {
-        // 100x100 RGBA = 40,000 bytes raw
         let frame = crate::platform::RawFrame {
             width: 100,
             height: 100,

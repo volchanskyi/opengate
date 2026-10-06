@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// TestAMTPowerActionIsOpenToTenantMembers verifies that an out-of-band power
-// command is a device command: tenant membership is the whole gate.
 func TestAMTPowerActionIsOpenToTenantMembers(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -40,7 +38,6 @@ func TestAMTPowerActionIsOpenToTenantMembers(t *testing.T) {
 	}
 }
 
-// TestPasswordValidation verifies password length constraints during registration.
 func TestPasswordValidation(t *testing.T) {
 	t.Parallel()
 	srv, _ := newTestServer(t)

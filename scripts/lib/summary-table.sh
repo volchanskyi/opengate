@@ -1,28 +1,16 @@
 #!/usr/bin/env bash
-# The one shape every run's summary page takes: a table of Measurement,
-# Expected, Actual and Result, and a legend under it saying in plain words what
-# each column and each kind of reading means.
-#
-# Result is one of four words, and nothing else: pass — inside its limit; FAIL —
-# past a limit that fails the run; over — past a limit that is watched and does
-# not fail the run; — — nothing to judge it against. A reading the run could not
-# take is "not read", never 0.
-#
-# Sourced by scripts/run-summary.sh, scripts/network-drill-regression-check.sh
-# and scripts/benchmark-summarize.sh.
+# The summary-page table and legend sourced by scripts/run-summary.sh and
+# scripts/benchmark-summarize.sh; Result is pass, FAIL, over, a dash or "not read".
 
 summary_table_header() {
   printf '| Measurement | Expected | Actual | Result |\n'
   printf '|---|---|---|---|\n'
 }
 
-# summary_table_row MEASUREMENT EXPECTED ACTUAL RESULT
 summary_table_row() {
   printf '| %s | %s | %s | %s |\n' "$1" "$2" "$3" "$4"
 }
 
-# summary_legend prints the legend's lines for the three columns and for a
-# reading that could not be taken.
 summary_legend() {
   printf '\n'
   printf -- '- **Expected** — the limit this measurement is held to. "(reported only)" marks a limit that is watched and does not fail the run; "no limit" marks a measurement nothing holds.\n'
@@ -31,8 +19,6 @@ summary_legend() {
   printf -- '- **not read** — the run could not take this reading. It is never shown as 0.\n'
 }
 
-# summary_legend_terms TERM... prints a line for each further term a table
-# uses: p50, p95, p99, error rate, Service Level.
 summary_legend_terms() {
   local term
   for term in "$@"; do

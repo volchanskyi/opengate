@@ -1,9 +1,9 @@
 # Backups submodule
 
-Codifies the off-cluster Postgres backup substrate ([ADR-035](../../../../docs/adr/ADR-035-block-volume-budget.md)) that was originally stood up imperatively with the `oci` CLI:
+Codifies the off-cluster Postgres backup substrate ([ADR-035](../../../../docs/adr/ADR-035-block-volume-budget.md)):
 
 - a **private** Object Storage bucket (`opengate-pg-backups`, `NoPublicAccess`),
-- a server-side **retention lifecycle** rule (DELETE objects older than `lifecycle_days`, scoped to the `opengate-` prefix) — the replacement for the old host-side `find -mtime` cron, and
+- a server-side **retention lifecycle** rule (DELETE objects older than `lifecycle_days`, scoped to the `opengate-` prefix), and
 - the least-privilege **IAM policy** (`opengate-os-lifecycle`) that lets the Object Storage service principal run that lifecycle.
 
 The write-only pre-authenticated request (PAR) the server uses to push dumps is a **runtime credential**, not infrastructure — it lives in the Kubernetes Secret (`BACKUP_PAR_URL`), never in Terraform code or state.
@@ -13,7 +13,7 @@ The write-only pre-authenticated request (PAR) the server uses to push dumps is 
 The live resources already exist. This module is reconciled into state by **importing** them, never by `apply`-creating fresh ones (that would drop the backup data). The bucket deliberately carries no `freeform_tags` because the live bucket has none — adding any would make the import plan show a change instead of a no-op.
 
 The `s3` backend needs `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` on every
-invocation (see [docs/Infrastructure.md](../../../../docs/Infrastructure.md) → "Required env var").
+invocation (see [Required environment variable](../../../../docs/infrastructure/OCI-Terraform.md#required-environment-variable)).
 
 ```bash
 export AWS_REQUEST_CHECKSUM_CALCULATION=when_required

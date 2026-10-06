@@ -27,7 +27,6 @@ function setSystemLogs(logs: typeof hostLogs | { entries: never[]; total: number
   });
 }
 
-/** Open the collapsed-by-default output so its entries are reachable. */
 async function expandPane(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Expand System Logs' }));
 }
@@ -54,7 +53,6 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
     render(<SystemLogs deviceId="d1" />);
 
     expect(screen.getByRole('button', { name: 'Expand System Logs' })).toBeInTheDocument();
-    // Only the output is collapsed: every control answers straight away.
     expect(screen.getByLabelText('Unit')).toBeInTheDocument();
     expect(screen.getByLabelText('Severity')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
@@ -111,7 +109,6 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
     await user.click(screen.getByRole('button', { name: 'nginx.service' }));
 
     expect(fetchLogs).toHaveBeenLastCalledWith('system', 'd1', expect.objectContaining({ unit: 'nginx.service' }));
-    // The dropdown now reflects the click-selected unit.
     expect((screen.getByLabelText('Unit') as HTMLSelectElement).value).toBe('nginx.service');
   });
 
@@ -137,7 +134,6 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
     useDeviceStore.setState({ fetchLogs });
     render(<SystemLogs deviceId="d1" />);
 
-    // Mounting alone must not pull — opening a device page is not a log request.
     expect(fetchLogs).not.toHaveBeenCalled();
 
     await expandPane(user);
@@ -149,8 +145,6 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
     expect(typeof args.from).toBe('string');
     expect(typeof args.to).toBe('string');
 
-    // Collapsing and re-expanding serves what is already loaded — every load
-    // after the first is manual.
     await user.click(screen.getByRole('button', { name: 'Collapse System Logs' }));
     await expandPane(user);
     expect(fetchLogs).toHaveBeenCalledTimes(1);
@@ -178,8 +172,6 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
   });
 
   it('a window click while collapsed opens the output and is the only pull', async () => {
-    // The one automatic first-open pull must stand down once an explicit load
-    // has run, or expanding-by-fetching would fire the same window twice.
     const user = userEvent.setup();
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
@@ -200,8 +192,6 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
     const win = { from: '2026-07-08T00:00:00Z', to: '2026-07-08T01:00:00Z' };
     render(<SystemLogs deviceId="d1" focusWindow={win} />);
 
-    // Focus wins: exactly one fetch (the focus window), and the pane opens so
-    // the drilled-to entries are visible without a second click.
     expect(fetchLogs).toHaveBeenCalledExactlyOnceWith('system', 'd1', expect.objectContaining({ from: win.from, to: win.to }));
     expect(screen.getByRole('button', { name: 'Collapse System Logs' })).toBeInTheDocument();
     expect(screen.getByText('accepted login')).toBeInTheDocument();

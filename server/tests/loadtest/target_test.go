@@ -7,11 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A load generator pointed at production is not a bug that gets caught in
-// review — it is a URL in an environment variable somebody set in a hurry at
-// two in the morning. So the refusal lives in the code that dials, and a
-// supplied address cannot widen it.
-
 func TestStagingTargetsAreAccepted(t *testing.T) {
 	for _, target := range []string{
 		"http://opengate-staging-server:8080",
@@ -41,8 +36,6 @@ func TestProductionTargetsAreRefused(t *testing.T) {
 	}
 }
 
-// The list is an allowlist, so an address nobody thought about is refused
-// rather than admitted. A denylist inverts that and admits every new hostname.
 func TestAnUnknownHostIsRefusedRatherThanAdmitted(t *testing.T) {
 	err := CheckTarget("http://somewhere-nobody-listed:8080")
 	require.Error(t, err)
@@ -57,8 +50,6 @@ func TestAMalformedTargetIsRefused(t *testing.T) {
 	}
 }
 
-// A QUIC address is a host:port rather than a URL, and it reaches the same
-// systems, so it goes through the same list.
 func TestQUICAddressesUseTheSameAllowlist(t *testing.T) {
 	assert.NoError(t, CheckQUICAddress("opengate-staging-server:9090"))
 	assert.NoError(t, CheckQUICAddress("10.0.0.42:9090"))
@@ -69,9 +60,6 @@ func TestQUICAddressesUseTheSameAllowlist(t *testing.T) {
 	assert.Contains(t, err.Error(), "not an allowed load-test target")
 }
 
-// A pod IP is how the workflow addresses the staging server, so it has to be
-// admitted — but only from the private ranges a cluster hands out. A public
-// address that happens to be numeric is somebody else's machine.
 func TestPrivateAddressesAreAllowedAndPublicOnesAreNot(t *testing.T) {
 	assert.NoError(t, CheckQUICAddress("10.244.1.7:9090"))
 	assert.NoError(t, CheckQUICAddress("192.168.1.5:9090"))
@@ -81,8 +69,6 @@ func TestPrivateAddressesAreAllowedAndPublicOnesAreNot(t *testing.T) {
 	assert.Error(t, CheckQUICAddress("140.238.1.1:9090"))
 }
 
-// The production namespace is refused wherever it appears in a name, because
-// the same service is reachable by several forms of its own address.
 func TestTheProductionNamespaceIsRefusedInEveryAddressForm(t *testing.T) {
 	for _, target := range []string{
 		"http://opengate-server.opengate:8080",

@@ -1,11 +1,5 @@
-//! The in-process alert sink: what every edge alert producer writes to while
-//! the device is offline, and what it is allowed to lose on the way.
-//!
-//! Two limits meet here. The queue is bounded, because an agent offline for days
-//! cannot hold an unbounded backlog; and a device may emit at most a fixed number
-//! of alerts an hour, because one host in a loop must not drown its own fleet.
-//! Both limits lose alerts by design, so the thing under test is not that they
-//! lose them — it is that every loss is counted and reported, never silent.
+//! The in-process alert sink bounds its queue and an hourly per-device ceiling, and counts
+//! every alert either limit drops.
 
 use mesh_agent_core::alerts::{AlertOrigin, AlertSeverity, AlertSink, EdgeAlert, PushOutcome};
 
@@ -30,8 +24,6 @@ fn alert(id: &str) -> EdgeAlert {
     }
 }
 
-/// The same alert, found by re-running a rule over history rather than as it
-/// happened.
 fn backfilled(id: &str) -> EdgeAlert {
     EdgeAlert {
         origin: AlertOrigin::Backfilled,
@@ -39,13 +31,10 @@ fn backfilled(id: &str) -> EdgeAlert {
     }
 }
 
-/// A sink with room for everything the test pushes, so the ceiling is the only
-/// limit in play.
 fn roomy() -> AlertSink {
     AlertSink::new(64, 20)
 }
 
-/// Alerts come back in the order they were raised: an incident reads forwards.
 #[test]
 fn alerts_drain_oldest_first() {
     let sink = roomy();
@@ -61,9 +50,6 @@ fn alerts_drain_oldest_first() {
     );
 }
 
-/// A full queue drops its **oldest** entry, not its newest. The newest alert is
-/// the one describing what the device is doing now; dropping it to keep an alert
-/// from three days ago would answer the wrong question on reconnect.
 #[test]
 fn a_full_queue_drops_the_oldest_and_counts_it() {
     let sink = AlertSink::new(3, 20);
@@ -84,9 +70,6 @@ fn a_full_queue_drops_the_oldest_and_counts_it() {
     );
 }
 
-/// The drop count survives the drain that empties the queue, because the count
-/// is what the next summary reports — a backlog that lost entries must say so
-/// after it has been handed over, which is the only moment anyone can hear it.
 #[test]
 fn the_drop_count_survives_the_drain() {
     let sink = AlertSink::new(1, 20);
@@ -101,9 +84,6 @@ fn the_drop_count_survives_the_drain() {
     );
 }
 
-/// The per-device ceiling suppresses the excess of a storm and counts every
-/// suppressed alert. A device in a loop is a device with one problem, and the
-/// count is what says how loud it was.
 #[test]
 fn the_hourly_ceiling_suppresses_the_excess_with_a_count() {
     let sink = AlertSink::new(64, 3);
@@ -130,10 +110,6 @@ fn the_hourly_ceiling_suppresses_the_excess_with_a_count() {
     assert_eq!(sink.stats().suppressed_by_ceiling, 2);
 }
 
-/// The ceiling is an hour rolling, not an hour bucketed: once the earliest
-/// alerts age past the hour, the device may raise alerts again. A bucketed
-/// ceiling would let a device spend its whole allowance in the first minute and
-/// go deaf for fifty-nine.
 #[test]
 fn the_ceiling_window_rolls() {
     let sink = AlertSink::new(64, 2);
@@ -144,7 +120,6 @@ fn the_ceiling_window_rolls() {
         PushOutcome::SuppressedByCeiling
     );
 
-    // An hour and a moment after the first two, the allowance is free again.
     assert_eq!(
         sink.push(alert("d"), HOUR + 2 * SECOND),
         PushOutcome::Queued,
@@ -157,9 +132,6 @@ fn the_ceiling_window_rolls() {
     );
 }
 
-/// A suppressed alert is not queued at all — the ceiling is about what leaves
-/// the device, so an alert that never counted against the ceiling must not
-/// reappear from the queue later.
 #[test]
 fn a_suppressed_alert_is_not_held_for_later() {
     let sink = AlertSink::new(64, 1);
@@ -174,9 +146,6 @@ fn a_suppressed_alert_is_not_held_for_later() {
     );
 }
 
-/// Every producer holds a clone of the same sink, so a clone must be the same
-/// sink and not a copy of it — otherwise the ceiling would be per producer and
-/// a device with four producers could emit four times its allowance.
 #[test]
 fn clones_share_one_sink() {
     let sink = AlertSink::new(64, 20);
@@ -199,8 +168,6 @@ fn clones_share_one_sink() {
     );
 }
 
-/// The queued depth is readable without draining, so a summary can report a
-/// backlog that has not been handed over yet.
 #[test]
 fn queued_depth_is_readable_without_draining() {
     let sink = roomy();
@@ -212,8 +179,6 @@ fn queued_depth_is_readable_without_draining() {
     assert_eq!(sink.stats().queued, 0);
 }
 
-/// A sink with no room at all holds nothing and says so, rather than panicking
-/// or quietly behaving like a sink with room for one.
 #[test]
 fn a_sink_with_no_capacity_counts_everything_it_refuses() {
     let sink = AlertSink::new(0, 20);
@@ -222,10 +187,6 @@ fn a_sink_with_no_capacity_counts_everything_it_refuses() {
     assert_eq!(sink.stats().dropped_oldest, 1);
 }
 
-/// A finding out of history spends the same allowance as a live alert. A
-/// retroactive scan of a rule the fleet just learned can match thousands of
-/// minutes, and "but they already happened" is not a reason to let it past the
-/// ceiling every other producer shares.
 #[test]
 fn a_backfilled_finding_spends_the_same_allowance_as_a_live_alert() {
     let sink = AlertSink::new(64, 2);
@@ -242,16 +203,10 @@ fn a_backfilled_finding_spends_the_same_allowance_as_a_live_alert() {
     );
     assert_eq!(sink.stats().suppressed_by_ceiling, 1);
 
-    // The origin travels with the alert rather than being guessed from how old
-    // its timestamp is.
     let origins: Vec<AlertOrigin> = sink.drain().into_iter().map(|a| a.origin).collect();
     assert_eq!(origins, vec![AlertOrigin::Live, AlertOrigin::Backfilled]);
 }
 
-/// The per-machine ceiling is the customer's, set on a screen and delivered with
-/// the ruleset, so it has to be changeable on a sink that is already running.
-/// The alternative is a number that only takes effect when the agent next
-/// restarts, which is not a control anybody can use during an incident.
 #[test]
 fn the_ceiling_can_be_raised_while_the_sink_is_running() {
     let sink = AlertSink::new(64, 2);
@@ -286,9 +241,6 @@ fn the_ceiling_can_be_raised_while_the_sink_is_running() {
     );
 }
 
-/// Lowering it takes effect on the next alert rather than on the next hour: a
-/// customer who has just discovered a machine drowning them does not want the
-/// change to land in fifty-nine minutes.
 #[test]
 fn the_ceiling_can_be_lowered_while_the_sink_is_running() {
     let sink = AlertSink::new(64, 20);
@@ -308,8 +260,6 @@ fn the_ceiling_can_be_lowered_while_the_sink_is_running() {
     assert_eq!(sink.stats().suppressed_by_ceiling, 1);
 }
 
-/// A ceiling of nothing would silence the machine entirely, which is never what
-/// somebody means. The sink keeps the one it has.
 #[test]
 fn a_ceiling_of_nothing_is_ignored() {
     let sink = AlertSink::new(64, 2);
@@ -317,9 +267,6 @@ fn a_ceiling_of_nothing_is_ignored() {
     assert_eq!(sink.push(alert("a"), 0), PushOutcome::Queued);
 }
 
-/// A send that failed hands its alerts back, and they come out again oldest
-/// first. The alternative is losing exactly the alerts raised while the link
-/// was breaking, which is when a machine most needs to be heard.
 #[test]
 fn alerts_handed_back_after_a_failed_send_are_queued_again() {
     let sink = roomy();
@@ -340,9 +287,6 @@ fn alerts_handed_back_after_a_failed_send_are_queued_again() {
     );
 }
 
-/// An alert handed back was already admitted once. Charging the hourly
-/// allowance again would let a flapping link spend a machine's whole budget on
-/// alerts it has not managed to deliver even once.
 #[test]
 fn handing_an_alert_back_does_not_spend_the_allowance_twice() {
     let sink = AlertSink::new(64, 3);
@@ -365,9 +309,6 @@ fn handing_an_alert_back_does_not_spend_the_allowance_twice() {
     );
 }
 
-/// Alerts arriving while a send was in flight are newer than the ones handed
-/// back, so the hand-back goes in front of them. An incident still reads
-/// forwards.
 #[test]
 fn alerts_handed_back_go_in_front_of_what_arrived_meanwhile() {
     let sink = roomy();
@@ -381,12 +322,6 @@ fn alerts_handed_back_go_in_front_of_what_arrived_meanwhile() {
     assert_eq!(rule_ids, vec!["older".to_string(), "newer".to_string()]);
 }
 
-/// The queue is bounded whichever direction an alert enters from, and a
-/// hand-back does not change which end gives way. The undelivered alerts are
-/// the older ones, so an overflowing hand-back loses them rather than the
-/// alerts describing what the machine is doing now — a reconnect that delivered
-/// a stale backlog in preference to the present would answer the wrong
-/// question. Every loss is counted, so the trade is visible rather than silent.
 #[test]
 fn a_hand_back_past_the_bound_still_gives_way_at_the_old_end() {
     let sink = AlertSink::new(2, 20);

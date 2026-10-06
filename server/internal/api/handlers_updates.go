@@ -82,7 +82,6 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 		return PushUpdate404JSONResponse{Error: fmt.Sprintf("manifest version %s does not match requested %s", m.Version, request.Body.Version)}, nil
 	}
 
-	// Build a set for O(1) device ID lookups when filtering is requested.
 	var targetSet map[string]struct{}
 	if request.Body.DeviceIds != nil {
 		targetSet = make(map[string]struct{}, len(*request.Body.DeviceIds))
@@ -94,9 +93,7 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 	eligible := s.eligibleAgents(request.Body.Os, request.Body.Arch, m.Version, targetSet)
 	pushed, err := s.pushManifestToAgents(ctx, m, eligible)
 	if err != nil {
-		// A manifest missing a version, URL, or signature is undeliverable to
-		// every agent alike, so reporting it beats counting a push of zero
-		// agents as a success.
+		// A manifest missing a version, URL or signature is undeliverable to every agent.
 		return PushUpdate400JSONResponse{Error: err.Error()}, nil
 	}
 
@@ -107,10 +104,7 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 	return PushUpdate200JSONResponse{PushedCount: pushed}, nil
 }
 
-// pushManifestToAgents sends the manifest to every eligible agent and records a
-// pending update for each one reached, returning how many were reached. A
-// per-agent transport failure is logged and skipped; an undeliverable manifest
-// is returned as an error, because no agent could ever decode it.
+// pushManifestToAgents returns how many agents were reached; an undeliverable manifest is an error.
 func (s *Server) pushManifestToAgents(ctx context.Context, m *updater.Manifest, eligible []AgentControl) (int, error) {
 	pushed := 0
 	for _, agent := range eligible {
@@ -126,7 +120,6 @@ func (s *Server) pushManifestToAgents(ctx context.Context, m *updater.Manifest, 
 		}
 		pushed++
 
-		// Record pending update status for tracking.
 		du := &updater.DeviceUpdate{
 			DeviceID: deviceID,
 			Version:  m.Version,
@@ -141,10 +134,7 @@ func (s *Server) pushManifestToAgents(ctx context.Context, m *updater.Manifest, 
 	return pushed, nil
 }
 
-// eligibleAgents returns connected agents that match os/arch, are not already
-// on the target version, and (optionally) belong to the target device ID set. It
-// reads registration metadata through the AgentControl.Meta() port, so the guard
-// on those fields holds and the filter never touches the concrete conn.
+// eligibleAgents returns connected agents matching os/arch, off the target version, in targetSet.
 func (s *Server) eligibleAgents(osName, arch, version string, targetSet map[string]struct{}) []AgentControl {
 	var eligible []AgentControl
 	for _, agent := range s.agents.ListConnectedAgents() {

@@ -27,7 +27,6 @@ aggregate	scripts/pmat-summarize.sh	-	Aggregates parser and regression outcomes 
 aggregate	scripts/precommit-gauntlet.sh	a	Runs every check after failures and temporarily restores allexport after loading env.
 aggregate	scripts/sonar-coverage-exclusion-guard.sh	-	Collects exclusion-inheritance and staleness findings into one result.
 aggregate	scripts/sonar-coverage-guard.sh	-	Inspects API and override statuses without premature exit.
-aggregate	scripts/sonar-duplication-guard.sh	-	Inspects per-file API and override statuses without premature exit.
 aggregate	scripts/sonar-rating-guard.sh	-	Inspects issue, hotspot and processing statuses without premature exit.
 aggregate	scripts/mutation-shard-budget.sh	-	Projects every mutation shard before reporting one budget verdict.
 aggregate	scripts/tests/benchmark-summarize.test.sh	-	Plain-Bash harness accumulates all assertion failures.
@@ -40,7 +39,6 @@ aggregate	scripts/tests/toolchain-parity.test.sh	-	Plain-Bash harness accumulate
 aggregate	scripts/tests/victoriametrics-prereq.test.sh	-	Plain-Bash harness asserts expected non-zero probe results.
 aggregate	scripts/tests/sonar-coverage-exclusion-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/sonar-coverage-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
-aggregate	scripts/tests/sonar-duplication-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/sonar-rating-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/sonar-reference-branch.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/mutation-shard-budget.test.sh	-	Plain-Bash harness accumulates all assertion failures.

@@ -8,18 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What the generator and the two network stacks had over each phase.
-//
-// The run's own room is one reading across the whole walk, and a ladder is
-// mostly its quiet bottom rungs: the breakpoint night read 85% of the
-// generator's allowance free across thirty-seven minutes whose top rung
-// collapsed to a tenth of the machines it asked for, and nothing said what the
-// generator had while that rung was offered. Each phase reads the generator's
-// own processor accounts and both ends' dropped datagrams at its boundaries.
-
-// A phase is read over its own window: thirty processor-seconds spent of the
-// sixty one processor offers over a minute is half the allowance left, and six
-// seconds spent runnable and refused is a tenth of the phase.
 func TestAPhaseReadsTheGeneratorsRoomOverItsOwnWindow(t *testing.T) {
 	accounts := &cpuSequence{values: []cgroupCPU{
 		{UsageMicros: 5_000_000, RefusedMicros: 1_000_000, Refusals: true},
@@ -37,8 +25,6 @@ func TestAPhaseReadsTheGeneratorsRoomOverItsOwnWindow(t *testing.T) {
 	assert.InDelta(t, 10.0, *result.GeneratorCPURefusedPercent, 0.01)
 }
 
-// A generator sharing a box has no allowance to divide by, so a phase reports
-// no room rather than the box's.
 func TestAGeneratorWithNoAllowanceHasNoRoomToReadPerPhase(t *testing.T) {
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
 	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, PhaseReadings{})
@@ -48,8 +34,6 @@ func TestAGeneratorWithNoAllowanceHasNoRoomToReadPerPhase(t *testing.T) {
 	assert.Nil(t, result.GeneratorCPURefusedPercent)
 }
 
-// A kernel that keeps no account of refusals is silent about them, which is
-// not the same as the generator never having been refused.
 func TestAKernelThatCountsNoRefusalsLeavesTheRefusedShareAbsent(t *testing.T) {
 	_, files := writeCgroup(t, map[string]string{
 		"cpu.max":  "100000 100000\n",
@@ -63,9 +47,6 @@ func TestAKernelThatCountsNoRefusalsLeavesTheRefusedShareAbsent(t *testing.T) {
 	assert.Nil(t, refused)
 }
 
-// A generator given an allowance of its own is described by it. The breakpoint
-// bundle recorded the four processors of the box while the log printed the one
-// processor the generator was held to.
 func TestTheGeneratorsFingerprintIsItsAllowanceRatherThanTheBox(t *testing.T) {
 	_, files := writeCgroup(t, map[string]string{
 		"cpu.max":    "100000 100000\n",
@@ -79,7 +60,6 @@ func TestTheGeneratorsFingerprintIsItsAllowanceRatherThanTheBox(t *testing.T) {
 	assert.EqualValues(t, 10_737_418_240, shape.MemoryBytes)
 }
 
-// A generator with no allowance is the box it runs on.
 func TestAGeneratorWithNoAllowanceIsTheBox(t *testing.T) {
 	_, files := writeCgroup(t, map[string]string{
 		"cpu.max":  "max 100000\n",
@@ -90,9 +70,8 @@ func TestAGeneratorWithNoAllowanceIsTheBox(t *testing.T) {
 	assert.Equal(t, box, withinAllowance(box, files))
 }
 
-// The kernel's own page, as a runner's reads: the datagrams dropped because a
-// socket's receive buffer was full are the RcvbufErrors column of the Udp line,
-// and the UdpLite line beside it is a different protocol.
+// Datagrams dropped on a full socket receive buffer are the RcvbufErrors column of the Udp line;
+// the UdpLite line is a different protocol.
 const snmpPage = `Ip: Forwarding DefaultTTL InReceives InHdrErrors InAddrErrors ForwDatagrams InUnknownProtos InDiscards InDelivers OutRequests OutDiscards OutNoRoutes ReasmTimeout ReasmReqds ReasmOKs ReasmFails FragOKs FragFails FragCreates OutTransmits
 Ip: 1 64 3510284 0 0 0 0 0 3510280 3459172 18 0 0 0 0 0 0 0 0 3459172
 Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
@@ -112,9 +91,6 @@ func TestAPageWithNoUdpLineIsNoReading(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// Each end's drops are the difference across the phase. The generator's
-// kernel dropped four hundred datagrams while the target's dropped none — the
-// reading that says whose buffers ran out.
 func TestAPhaseCountsTheDatagramsEachEndDroppedDuringIt(t *testing.T) {
 	generator := &counterSequence{values: []int64{3107, 3507}}
 	target := &counterSequence{values: []int64{12, 12}}
@@ -130,8 +106,6 @@ func TestAPhaseCountsTheDatagramsEachEndDroppedDuringIt(t *testing.T) {
 	assert.EqualValues(t, 0, *result.TargetUDPReceiveErrors)
 }
 
-// An end the run cannot read reports no drops rather than none: the target's
-// counters are only reachable where it shares the runner's kernel.
 func TestAnEndWhoseCountersCannotBeReadReportsNothing(t *testing.T) {
 	generator := &counterSequence{values: []int64{10, 10}}
 	drops := NetworkDrops{ReadGenerator: generator.read}
@@ -142,8 +116,6 @@ func TestAnEndWhoseCountersCannotBeReadReportsNothing(t *testing.T) {
 	assert.Nil(t, targetDrops)
 }
 
-// A counter that went backwards belongs to a network stack that was replaced
-// inside the phase, and the difference describes two of them.
 func TestACounterThatWentBackwardsIsNoReading(t *testing.T) {
 	target := &counterSequence{values: []int64{500, 3}}
 	drops := NetworkDrops{ReadTarget: target.read}
@@ -152,7 +124,6 @@ func TestACounterThatWentBackwardsIsNoReading(t *testing.T) {
 	assert.Nil(t, targetDrops)
 }
 
-// cpuSequence answers with the processor accounts the test hands it, in order.
 type cpuSequence struct {
 	values []cgroupCPU
 	asked  int
@@ -164,7 +135,6 @@ func (c *cpuSequence) read() (cgroupCPU, bool) {
 	return value, true
 }
 
-// counterSequence answers with the counts the test hands it, in order.
 type counterSequence struct {
 	values []int64
 	asked  int

@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-git-push-guard.sh — block bad pushes.
-#
-# Triggers on PreToolUse Bash; noop unless the command is `git push`.
-# Enforces:
-#   1. No push to main.
-#   2. No force-push to main (any form).
-#   3. Not behind upstream (best-effort; offline → skip).
-#   4. The refactor marker matches HEAD for ANY commits since origin/dev,
-#      regardless of the files they touch. A push is a push — there is no
-#      doc-only / CI-only exemption. The marker names a commit whose content
-#      passed the gauntlet and then /refactor (lib/tidy-up.sh).
-#
-# NO BYPASS.
+# Refuses a push to main, a push behind origin/dev, and a push whose commits since origin/dev
+# lack a refactor marker equal to HEAD, whatever files they touch.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -23,18 +12,10 @@ parse_input_fields tool_name tool_input.command
 cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 [ -n "$cmd" ] || exit 0
 
-# Filter: command must include a `git push` verb. Pre-verb tokens are options,
-# each optionally followed by its own value word — `-c` takes its value as a
-# SEPARATE token (`git -c protocol.version=2 push`), so skipping only
-# `-`-prefixed words never reaches the verb and the guard would silently no-op
-# on exactly the form that most needs catching. Requiring an option lead keeps
-# `git log --grep=push` from matching.
 if ! grep -qE "$(git_verb_re push)" <<<"$cmd"; then
   exit 0
 fi
 
-# 1 & 2. Target = main?
-# Patterns that indicate main as the destination ref or refspec.
 targets_main=false
 if grep -qE '\bgit[[:space:]].*push\b[^|;&]*\bmain\b' <<<"$cmd"; then
   targets_main=true
@@ -47,7 +28,6 @@ if [ "$targets_main" = "true" ]; then
   block git-push-no-main "git push refused: target is main. .claude/rules/git.md: main updates only via the auto-merge CI job. Push to dev instead."
 fi
 
-# 3. Behind upstream (best-effort).
 if git fetch --quiet origin dev 2>/dev/null; then
   if git rev-parse --verify --quiet origin/dev >/dev/null 2>&1; then
     behind="$(git rev-list --count HEAD..origin/dev 2>/dev/null || echo 0)"
@@ -59,11 +39,8 @@ $summary"
   fi
 fi
 
-# 4. Refactor marker — required for ANY commit on the branch since origin/dev,
-#    no matter what files it touches (no doc-only / CI-only exemption). The
-#    post-commit hook writes it for a commit made from the content /refactor
-#    finished on; scripts/refactor-gate.sh finish writes it when that content is
-#    HEAD's own, which is the path for a commit rebased by hand.
+# Any commit since origin/dev needs the marker, with no doc-only or CI-only exemption.
+# The post-commit hook and `scripts/refactor-gate.sh finish` write it.
 base=""
 if git rev-parse --verify --quiet origin/dev >/dev/null 2>&1; then
   base="$(git merge-base HEAD origin/dev 2>/dev/null || true)"

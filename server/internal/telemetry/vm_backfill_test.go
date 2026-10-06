@@ -13,14 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
-// TestBackfillImportLandsInHistoricalBuckets proves the reconnect-backfill ingest
-// property against a real VictoriaMetrics: pre-rolled samples written after a
-// simulated long reconnect delay land in their ORIGINAL time buckets, never
-// collapsed toward ingest time. That is exactly what makes the timestamp-
-// preserving import API — not live stream-aggregation, which buckets by arrival
-// — the correct backfill path. It drives the same VMClient.WriteSamples the
-// server's handleMetricBackfillBatch calls, then query_range-verifies the
-// buckets (the read path WS-6 charts use).
 func TestBackfillImportLandsInHistoricalBuckets(t *testing.T) {
 	base := testvm.BaseURL(t)
 	client := NewVMClient(base, nil)
@@ -30,8 +22,6 @@ func TestBackfillImportLandsInHistoricalBuckets(t *testing.T) {
 	device := uuid.New()
 	now := time.Now().UTC().Truncate(time.Hour)
 
-	// Distinct historical instants a reconnecting agent replays, each in a
-	// different 1 h bucket, all well before "now" (the ingest instant).
 	backfilled := []struct {
 		age time.Duration
 		val float64
@@ -61,8 +51,6 @@ func TestBackfillImportLandsInHistoricalBuckets(t *testing.T) {
 	require.Len(t, series[0].Timestamps, len(series[0].Values))
 	require.NotEmpty(t, series[0].Values)
 
-	// Each backfilled value appears within a step of its historical bucket —
-	// proving it was stored at its real time, not smeared to ingest time.
 	for _, b := range backfilled {
 		wantTS := now.Add(-b.age).Unix()
 		found := false
@@ -76,9 +64,6 @@ func TestBackfillImportLandsInHistoricalBuckets(t *testing.T) {
 			b.val, wantTS, series[0].Timestamps, series[0].Values)
 	}
 
-	// Nothing landed near the ingest instant: the newest backfilled sample is
-	// age 8 h, so every returned point is comfortably historical. Under the
-	// stream-aggregation arrival-time trap, points would instead cluster at now.
 	arrivalFloor := now.Add(-6 * time.Hour).Unix()
 	for _, ts := range series[0].Timestamps {
 		assert.Lessf(t, ts, arrivalFloor,

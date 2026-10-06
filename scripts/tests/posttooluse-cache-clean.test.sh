@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# Tests for .claude/hooks/posttooluse-cache-clean.sh — the PostToolUse janitor
-# that guarantees "clean the cache after every push" holds no matter HOW the
-# push happened, plus a free-disk floor that reclaims even when a push is missed
-# entirely. Plain bash; no bats dependency.
-# Run: ./scripts/tests/posttooluse-cache-clean.test.sh
-#
-# Each test copies the hook into a throwaway dir next to a STUB cleaner, so the
-# hook's own relative resolution finds the stub and the real cargo/docker
-# cleanup never runs. `df` is stubbed on PATH to drive the disk-floor branch.
+# Each test copies the hook next to a stub cleaner and stubs `df` to drive the disk-floor branch.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,10 +20,7 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Build a sandbox: a copy of the hook, a stub cleaner that records its calls,
-# and a stub `df` reporting $1 KiB available. Sets SANDBOX and CLEAN_LOG.
-# Called directly, never in a command substitution — a subshell would discard
-# both globals.
+# Sets the globals SANDBOX and CLEAN_LOG, so callers run it outside a command substitution.
 make_sandbox() {
   local avail_kb="$1" dir
   dir="$(mktemp -d)"
@@ -56,7 +45,6 @@ printf '/dev/sdd 263000000 1000 %s 50%% /\n' "$avail_kb"
 exit 0
 EOF
   chmod +x "$dir/bin/df"
-  # Default: nothing is building. stub_busy() flips this.
   cat >"$dir/bin/pgrep" <<'EOF'
 #!/usr/bin/env bash
 exit 1
@@ -64,7 +52,6 @@ EOF
   chmod +x "$dir/bin/pgrep"
 }
 
-# Make the sandbox look like a build is in flight (pgrep finds a match).
 stub_busy() {
   cat >"$SANDBOX/bin/pgrep" <<'EOF'
 #!/usr/bin/env bash
@@ -74,8 +61,7 @@ EOF
   chmod +x "$SANDBOX/bin/pgrep"
 }
 
-# Feed the hook a PostToolUse payload. Args: tool_name, command. Runs against
-# the sandbox built by the preceding make_sandbox. Sets HOOK_EXIT.
+# Takes the tool name and command, and sets the global HOOK_EXIT.
 run_hook() {
   local tool="$1" cmd="$2"
   local dir="$SANDBOX" payload
@@ -91,10 +77,8 @@ run_hook() {
 
 cleaner_ran() { [[ -s "$CLEAN_LOG" ]]; }
 
-# --- T1: a push cleans, regardless of disk headroom --------------------------
-# The rule is "clean after EVERY push" — not "clean when the disk looks tight".
 t_push_always_cleans() {
-  make_sandbox 200000000 # ~190 GiB free: no disk pressure at all
+  make_sandbox 200000000 # ~190 GiB free
   run_hook Bash "git push origin dev"
   if [[ "$HOOK_EXIT" -ne 0 ]]; then
     fail "push: expected exit 0, got $HOOK_EXIT"
@@ -107,7 +91,6 @@ t_push_always_cleans() {
   pass "a push triggers the cleanup even with a nearly empty disk"
 }
 
-# --- T2: a push with flags/options is still a push ---------------------------
 t_push_variants_clean() {
   local variant
   for variant in "git push" "git push --force-with-lease origin dev" \
@@ -122,7 +105,6 @@ t_push_variants_clean() {
   pass "cleanup fires for bare, flagged, -c-prefixed and chained push forms"
 }
 
-# --- T3: ordinary commands do not clean when there is headroom ---------------
 t_no_clean_when_roomy() {
   make_sandbox 200000000
   run_hook Bash "ls -la"
@@ -137,11 +119,8 @@ t_no_clean_when_roomy() {
   pass "non-push commands are a no-op while free space is above the floor"
 }
 
-# --- T4: the disk floor reclaims even when no push happened ------------------
-# The safety net for the failure this hook exists to prevent: a missed push
-# leaves caches growing until the disk fills and breaks local development.
 t_disk_floor_cleans() {
-  make_sandbox 1000000 # ~0.95 GiB free: far below any sane floor
+  make_sandbox 1000000 # ~0.95 GiB free
   run_hook Bash "ls -la"
   if [[ "$HOOK_EXIT" -ne 0 ]]; then
     fail "disk floor: expected exit 0, got $HOOK_EXIT"
@@ -154,7 +133,6 @@ t_disk_floor_cleans() {
   pass "free space below the floor reclaims even without a push"
 }
 
-# --- T5: non-Bash tools are ignored ------------------------------------------
 t_ignores_other_tools() {
   make_sandbox 1000000
   run_hook Write "irrelevant"
@@ -169,9 +147,6 @@ t_ignores_other_tools() {
   pass "non-Bash tool calls are ignored"
 }
 
-# --- T6: never breaks the session --------------------------------------------
-# PostToolUse runs after the work is already done; a janitor failure must never
-# surface as a tool error.
 t_never_fails_the_call() {
   make_sandbox 1000000
   printf '#!/usr/bin/env bash\nexit 17\n' >"$SANDBOX/hooks/post-push-clean-caches.sh"
@@ -181,7 +156,6 @@ t_never_fails_the_call() {
     fail "resilience: a failing cleaner surfaced as exit $HOOK_EXIT"
     return
   fi
-  # A missing cleaner must be survivable too.
   rm -f "$SANDBOX/hooks/post-push-clean-caches.sh"
   run_hook Bash "git push origin dev"
   if [[ "$HOOK_EXIT" -ne 0 ]]; then
@@ -191,12 +165,9 @@ t_never_fails_the_call() {
   pass "a failing or missing cleaner never fails the tool call"
 }
 
-# --- T7: never yanks the cache out from under a running build ----------------
-# The gauntlet is routinely run BACKGROUNDED while other Bash calls continue.
-# `cargo clean` against a live `cargo build` target dir corrupts that build, so
-# an in-flight build suppresses the reclaim — on both triggers.
+# An in-flight build suppresses the reclaim on both triggers because `cargo clean` corrupts it.
 t_defers_while_building() {
-  make_sandbox 1000000 # below the floor: the disk trigger would otherwise fire
+  make_sandbox 1000000
   stub_busy
   run_hook Bash "ls -la"
   if cleaner_ran; then

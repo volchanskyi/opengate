@@ -8,22 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The three runtime counts are the process's own tallies of what it is holding
-// right now — machines connected, relay sessions open, AMT devices attached.
-// Each is a single value the process already has, so the exposition works it out
-// when it is read.
-//
-// A copy refreshed on a timer answers a question about the past wearing the
-// present's clothes, and nothing downstream can tell how old the answer is. A
-// load run comparing its own count of the fleet against the server's read a
-// shortfall proportional to how fast machines were arriving, on twenty-five
-// phases across nine legs, while the goroutine count taken in the same read —
-// which is worked out when asked — agreed with the run exactly. A run holding
-// five hundred machines was refused for a server "holding" four hundred and
-// fifty-eight.
-
-// gathered is the value of one series on the page, and whether the page carried
-// it at all.
 func gathered(t *testing.T, reg *prometheus.Registry, name string) (float64, bool) {
 	t.Helper()
 	families, err := reg.Gather()
@@ -39,8 +23,6 @@ func gathered(t *testing.T, reg *prometheus.Registry, name string) (float64, boo
 	return 0, false
 }
 
-// gatheredCounter is the value of one counter on the page, and whether the page
-// carried it at all.
 func gatheredCounter(t *testing.T, reg *prometheus.Registry, name string) (float64, bool) {
 	t.Helper()
 	families, err := reg.Gather()
@@ -56,9 +38,6 @@ func gatheredCounter(t *testing.T, reg *prometheus.Registry, name string) (float
 	return 0, false
 }
 
-// A count is the tally at the instant the page is read, so a machine that
-// arrived a moment ago is on the page a moment later rather than up to one
-// refresh interval later.
 func TestRuntimeCountsAreReadWhenThePageIsRead(t *testing.T) {
 	t.Parallel()
 
@@ -97,9 +76,6 @@ func TestRuntimeCountsAreReadWhenThePageIsRead(t *testing.T) {
 	require.Equal(t, 41.0, total, "the page carries every session started so far")
 }
 
-// A count nobody can take is not a count of nought. Until the product is
-// assembled there is nothing to ask, and a zero on the page would say the fleet
-// is empty — which is a reading, and a wrong one.
 func TestRuntimeCountsAreAbsentUntilThereIsSomethingToAsk(t *testing.T) {
 	t.Parallel()
 
@@ -118,9 +94,6 @@ func TestRuntimeCountsAreAbsentUntilThereIsSomethingToAsk(t *testing.T) {
 	require.False(t, carried, "the started count says nothing until it has something to ask")
 }
 
-// Binding again replaces what is asked rather than publishing the series twice,
-// so a process assembled once and re-bound — which a test harness does — still
-// answers with one number per series.
 func TestBindingRuntimeCountsAgainReplacesWhatIsAsked(t *testing.T) {
 	t.Parallel()
 
@@ -145,9 +118,6 @@ func TestBindingRuntimeCountsAgainReplacesWhatIsAsked(t *testing.T) {
 	require.Equal(t, 2.0, value, "the latest binding is the one that answers")
 }
 
-// A binding with a hole in it is refused rather than half-applied: a source
-// missing one callback would publish two of the three series and leave the
-// third silently absent, which reads as a metric nobody exports.
 func TestBindingRuntimeCountsRefusesASourceWithAHoleInIt(t *testing.T) {
 	t.Parallel()
 

@@ -13,7 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// newSite creates a site under organizationID and returns it.
 func newSite(t *testing.T, ctx context.Context, store *db.PostgresStore, organizationID uuid.UUID, name string) *device.Site {
 	t.Helper()
 	s := &device.Site{ID: uuid.New(), OrganizationID: organizationID, Name: name + "-" + uuid.New().String()[:8]}
@@ -21,9 +20,6 @@ func newSite(t *testing.T, ctx context.Context, store *db.PostgresStore, organiz
 	return s
 }
 
-// TestSiteBelongsToExactlyOneOrganization is the structural half of the level:
-// a site names one customer and is listed under that customer alone, so the
-// Dallas office cannot show up while a technician is looking at Fabrikam.
 func TestSiteBelongsToExactlyOneOrganization(t *testing.T) {
 	t.Parallel()
 	_, sites, _, store := newRepos(t)
@@ -46,9 +42,6 @@ func TestSiteBelongsToExactlyOneOrganization(t *testing.T) {
 	assert.Contains(t, siteIDs(wholeTenant), dallas.ID, "no customer named returns the whole tenant")
 }
 
-// TestSiteCannotBeCreatedInAnotherTenantsCustomer closes the same hole a device
-// move closes: a foreign-key check runs past row-level security, so the
-// constraint alone would accept a customer id belonging to somebody else.
 func TestSiteCannotBeCreatedInAnotherTenantsCustomer(t *testing.T) {
 	t.Parallel()
 	_, sites, _, store := newRepos(t)
@@ -63,9 +56,6 @@ func TestSiteCannotBeCreatedInAnotherTenantsCustomer(t *testing.T) {
 	require.ErrorIs(t, err, device.ErrOrganizationNotFound)
 }
 
-// TestDeletingASiteLeavesItsDevicesInTheCustomer proves the narrower level can
-// be removed without taking machines with it: closing the Dallas office leaves
-// its twelve machines in Contoso, unfiled, rather than deleting them.
 func TestDeletingASiteLeavesItsDevicesInTheCustomer(t *testing.T) {
 	t.Parallel()
 	devices, sites, _, store := newRepos(t)
@@ -86,9 +76,6 @@ func TestDeletingASiteLeavesItsDevicesInTheCustomer(t *testing.T) {
 	assert.Equal(t, uuid.Nil, got.SiteID, "and is simply unfiled")
 }
 
-// TestDeletingACustomerTakesItsSites is the other direction: a customer leaving
-// takes its offices with it, so nothing is left pointing at a customer that no
-// longer exists.
 func TestDeletingACustomerTakesItsSites(t *testing.T) {
 	t.Parallel()
 	_, sites, _, store := newRepos(t)
@@ -107,9 +94,6 @@ func TestDeletingACustomerTakesItsSites(t *testing.T) {
 	assert.NotContains(t, siteIDs(remaining), going.ID, "a departed customer leaves no offices behind")
 }
 
-// TestTwoCustomersMayShareASiteName covers the name collision the tenancy model
-// has to tolerate: "Head Office" means a different building for each customer,
-// so uniqueness is per customer rather than per tenant.
 func TestTwoCustomersMayShareASiteName(t *testing.T) {
 	t.Parallel()
 	_, sites, _, store := newRepos(t)

@@ -7,9 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A browser that is handed no ICE server cannot try a direct connection at all,
-// so the default has to name one rather than leaving the list to a deployment
-// that may never set it.
 func TestDefaultConfigNamesAServerToTry(t *testing.T) {
 	t.Parallel()
 

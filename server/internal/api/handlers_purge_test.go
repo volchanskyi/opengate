@@ -19,7 +19,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// fakePurger records purge calls and returns canned jobs.
 type fakePurger struct {
 	devicePurged []uuid.UUID
 	tenantPurged []uuid.UUID
@@ -46,7 +45,6 @@ func (f *fakePurger) RunInBackground(job *lifecycle.PurgeJob) {
 	f.bgJobs = append(f.bgJobs, job.ID)
 }
 
-// fakeJobReader returns a fixed job map.
 type fakeJobReader struct {
 	jobs map[uuid.UUID]*lifecycle.PurgeJob
 }
@@ -146,24 +144,16 @@ func TestGetPurgeJobScopedToTenant(t *testing.T) {
 	srv, cfg := newPurgeTestServer(t, &fakePurger{}, reader)
 	_, userToken := seedTestUser(t, srv, cfg, "user-job@example.com", false)
 
-	// Own-tenant job is visible.
 	w := doRequest(srv, http.MethodGet, "/api/v1/purge-jobs/"+ownJob.ID.String(), userToken, nil)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// Another tenant's job is forbidden to a non-admin.
 	w = doRequest(srv, http.MethodGet, "/api/v1/purge-jobs/"+otherTenantJob.ID.String(), userToken, nil)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 
-	// A missing job is 404.
 	w = doRequest(srv, http.MethodGet, "/api/v1/purge-jobs/"+uuid.New().String(), userToken, nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-// A delete with no purge orchestrator wired is refused rather than served by a
-// plain row delete. The fallback that used to stand here recorded no tombstone
-// and no purge job and never erased the device's alerts, so the incident counts
-// a foreign key cannot repair were left describing a machine that is gone.
-// Refusing keeps the erasure guarantee and the delete together.
 func TestDeleteDeviceRefusedWithoutPurger(t *testing.T) {
 	srv, cfg := newPurgeTestServer(t, nil, nil)
 	_, token := seedTestUser(t, srv, cfg, "admin-nopurger@example.com", true)

@@ -1,28 +1,6 @@
 #!/usr/bin/env bash
-# Guards Go benchmarks against a harness that dominates the figure it publishes.
-#
-# The trend gate reads ns/op as a statement about the code under test. That only
-# holds while the measured region is the code — a benchmark whose loop body is
-# mostly plumbing publishes the plumbing's variance, and the gate then reports a
-# regression nobody wrote.
-#
-# One shape does this reliably enough to refuse outright: b.StopTimer() and
-# b.StartTimer() called per iteration. Both call runtime.ReadMemStats, which
-# stops the world, so the pair costs two stop-the-world pauses per iteration and
-# restarts the scheduler cold for the region it is protecting. Measured on the
-# handshake benchmark, same commit, same machine, six samples each: with the
-# toggle the run-to-run spread was 4.0x (33500-135410 ns/op); without it, 1.09x
-# (15489-16840). The toggle exists to keep setup allocations out of the figure,
-# and it does that -- while making the time it reports unusable.
-#
-# Setup belongs outside the loop, before b.ResetTimer(). Where per-iteration
-# state is unavoidable, build it from a source that cannot block or schedule.
-#
-# The gate also holds the committed baseline and the benchmark set in agreement,
-# in both directions: a renamed benchmark otherwise leaves a baseline row gating
-# nothing, and a new one is measured by nothing until somebody notices.
-#
-# Run: ./scripts/tests/benchmark-harness.test.sh
+# Refuses per-iteration b.StopTimer()/b.StartTimer(); both call the stop-the-world ReadMemStats.
+# Holds the committed baseline and the benchmark set in agreement in both directions.
 
 set -euo pipefail
 
@@ -52,13 +30,7 @@ if [ ! -f "$BASELINE" ]; then
   exit 1
 fi
 
-# --- no per-iteration clock toggling -----------------------------------------
-#
-# awk walks each benchmark body and tracks brace depth. Depth 1 is the function
-# body, where a toggle is legitimate: it brackets one-time setup. Anything
-# deeper sits inside a loop or a closure that runs per iteration, which is the
-# shape being refused. Comments are stripped so the prose above a benchmark --
-# and this file's own explanation of the rule -- cannot trip it.
+# awk tracks brace depth: depth 1 is the function body, where a toggle brackets one-time setup.
 # $0 and the field references below belong to awk, not to the shell.
 # shellcheck disable=SC2016
 toggles="$(
@@ -87,7 +59,6 @@ else
   done <<<"$toggles"
 fi
 
-# --- baseline and benchmark set agree ----------------------------------------
 declared="$(
   grep -oE '"name": "Benchmark[A-Za-z0-9_]*"' "$BASELINE" \
     | sed -E 's/.*"(Benchmark[A-Za-z0-9_]*)".*/\1/' | sort -u

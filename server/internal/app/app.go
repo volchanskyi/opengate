@@ -1,14 +1,5 @@
-// Package app is the composition root: the one place a port is wired to an
-// adapter. Everything the server is made of — every repository, every
-// handler set, the API server, the agent server, the relay and the erasure
-// orchestrator — is assembled here, from configuration values somebody else
-// resolved.
-//
-// The split against cmd/meshserver is deliberate and load-bearing. This
-// package assembles; it never reads flags or the environment, never calls
-// os.Exit, and never opens a listener. That is what lets a test stand the
-// whole product up and talk to it, and it is why there is exactly one wiring
-// of ServerConfig rather than one per harness.
+// Package app is the composition root that wires every port to its adapter.
+// It reads no flags or environment and opens no listener, so a test can assemble the product.
 package app
 
 import (
@@ -52,17 +43,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
-// minJWTSecretLen is the shortest signing secret the product accepts. Held
-// here rather than at the flag, so a harness cannot assemble a product with a
-// secret the shipped binary would refuse.
+// minJWTSecretLen is the shortest signing secret the product accepts, whatever assembles it.
 const minJWTSecretLen = 32
 
 // jwtTokenLifetime is how long an issued operator token stays valid.
 const jwtTokenLifetime = 24 * time.Hour
 
-// Config is the resolved configuration Build assembles from. Every field is a
-// value somebody else already worked out: no flag is parsed here and no
-// environment variable is read here.
+// Config is the resolved configuration Build assembles from; every field is already worked out.
 type Config struct {
 	// Store is the open database. Its owner closes it; Build never does.
 	Store *db.PostgresStore
@@ -74,9 +61,7 @@ type Config struct {
 	// Logger receives everything the assembly and the servers say.
 	Logger *slog.Logger
 
-	// VictoriaMetricsURL enables numeric telemetry and, with it, series
-	// erasure. Empty leaves both off and device deletion falls back to the
-	// plain Postgres delete.
+	// VictoriaMetricsURL enables numeric telemetry and series erasure; empty turns both off.
 	VictoriaMetricsURL string
 	// VMDeleteAuthKey authorises the delete API of that metrics store.
 	VMDeleteAuthKey string
@@ -97,10 +82,8 @@ type Config struct {
 	BaseURL string
 	// QuicHost overrides the hostname an enrolling agent is told to dial.
 	QuicHost string
-	// TrustedProxies names the reverse proxies whose X-Forwarded-For decides
-	// which request allowance a caller spends, one entry per line or comma.
-	// Empty believes none of them and holds every caller behind one proxy to a
-	// single allowance between them.
+	// TrustedProxies lists the proxies whose X-Forwarded-For picks a caller's request allowance.
+	// Empty trusts none, so callers behind one proxy share a single allowance.
 	TrustedProxies string
 	// WebDir holds the single-page application's static assets.
 	WebDir string
@@ -108,23 +91,16 @@ type Config struct {
 	// selects defaultInternalListen.
 	InternalListen string
 
-	// AMTOperator replaces the management service the API surface is given.
-	// Intel management hardware answers on its own network path, which no test
-	// host can stand up, so this is the one edge a harness may stand in for.
-	// Nil — the shipped binary's case — gives the API the real service over the
-	// MPS listener.
+	// AMTOperator replaces the management service the API is given; nil uses the MPS-backed one.
+	// Intel hardware answers on its own network path, so this is the one edge a harness stubs.
 	AMTOperator amt.Operator
 }
 
-// Assembly is the wired product. It holds every component the process needs
-// to serve requests and to run its periodic work; starting listeners and
-// loops belongs to whoever built it.
+// Assembly is the wired product: every component that serves requests or runs periodic work.
 type Assembly struct {
 	// API is the operator-facing HTTP surface.
 	API *api.Server
-	// Internal is the listener only the cluster reaches: the Prometheus
-	// exposition and the profiler. Starting it belongs to whoever built the
-	// assembly, the same as the public one.
+	// Internal is the listener only the cluster reaches: the Prometheus exposition and the profiler.
 	Internal *http.Server
 	// Agents is the QUIC control-stream server machines connect to.
 	Agents *agentapi.AgentServer
@@ -136,9 +112,7 @@ type Assembly struct {
 	AMT *amt.Service
 	// Relay pairs an operator's session side with a machine's.
 	Relay *relay.Relay
-	// Signaling is the ICE configuration a browser is handed when it asks to
-	// upgrade a session. The negotiation itself happens between the two peers,
-	// inside the relay pipe the server copies without decoding.
+	// Signaling is the ICE configuration a browser is handed when it asks to upgrade a session.
 	Signaling signaling.Config
 
 	// Metrics and MetricsRegistry are this process's own instrumentation.
@@ -179,15 +153,11 @@ type Assembly struct {
 	// Logger is the logger every component above was given.
 	Logger *slog.Logger
 
-	// githubRepo is the release feed agent manifests are synced from. It is
-	// read by the periodic sync rather than by anything the API serves, so it
-	// stays inside the package that starts that worker.
+	// githubRepo is the release feed agent manifests are synced from, read by the periodic sync.
 	githubRepo string
 }
 
-// validate refuses a configuration that would assemble a product with a hole
-// in it. A missing port must fail here, naming itself, rather than becoming a
-// route that answers 500 because chi's recoverer caught a nil dereference.
+// validate refuses a configuration with a hole in it, naming the missing port up front.
 func (c Config) validate() error {
 	switch {
 	case c.Store == nil:
@@ -204,14 +174,8 @@ func (c Config) validate() error {
 	return nil
 }
 
-// Build assembles the whole product from cfg. ctx bounds the boot-time
-// database work — resetting statuses left online by a previous run, warming
-// the erasure deny-list, and resuming a purge a crash interrupted — and it is
-// the assembled server's lifetime: cancelling it ends the live relay sessions
-// no other shutdown mechanism can reach.
-//
-// It returns an error rather than exiting, so the same wiring serves the
-// binary and the acceptance harness.
+// Build assembles the whole product from cfg and returns any error to the caller.
+// ctx bounds the boot-time database work and the server's lifetime; cancelling it ends relays.
 func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -232,8 +196,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	tombstoneStore := lifecycle.NewTombstoneStore(store.DB())
 	jobStore := lifecycle.NewJobStore(store.DB())
 
-	// A status left online by a previous run is a lie the device list would
-	// tell until the machine next connected, so it is cleared before serving.
+	// A status left online by a previous run is cleared before serving.
 	if err := repos.devices.ResetAllStatuses(dbtx.WithDefaultTenant(ctx, false)); err != nil {
 		return nil, fmt.Errorf("app: reset device statuses: %w", err)
 	}
@@ -245,9 +208,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 
 	jwtCfg := &auth.JWTConfig{Secret: cfg.JWTSecret, Issuer: "opengate", Duration: jwtTokenLifetime}
 
-	// Refused here rather than shrugged off, because a name with a typo in it
-	// narrows the trusted set silently and the symptom appears somewhere else
-	// entirely — every technician behind one proxy sharing one allowance.
+	// A proxy name with a typo narrows the trusted set silently, so it is refused here.
 	trustedProxies, err := api.ParseTrustedProxies(splitTrustedProxies(cfg.TrustedProxies))
 	if err != nil {
 		return nil, fmt.Errorf("app: read trusted proxies: %w", err)
@@ -261,16 +222,13 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 
 	agentRelay := relay.NewRelay(logger)
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
-		// A row the stale-session sweep already collected is the expected
-		// race, not a failure — the session is gone either way.
+		// A row the stale-session sweep already collected is an expected race.
 		if err := cleanupRelaySession(repos.sessions, token); err != nil && !errors.Is(err, session.ErrSessionNotFound) {
 			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
 		}
 	}
 
-	// The rule catalogue is compiled in, so a failure here means the binary
-	// itself is malformed — its contents are validated and cost-bounded in CI,
-	// which is the whole reason definitions do not live in the database.
+	// The rule catalogue is compiled in, so a failure here means the binary is malformed.
 	ruleCatalogue, err := rules.Embedded()
 	if err != nil {
 		return nil, fmt.Errorf("app: load rule catalogue: %w", err)
@@ -278,12 +236,8 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	ruleStore := rules.NewStore(store.DB())
 	alertStore := alerts.NewStore(store.DB())
 
-	// The shipped rule ids are the whole label vocabulary of the investigation
-	// series, and the bound on it: rule ids travel to the agent and come back
-	// on alerts and coverage reports, so without this the endpoint would decide
-	// this server's cardinality. Seeding also exports every rule at zero, so a
-	// rule that has raised nothing is distinguishable from a scrape that found
-	// nothing.
+	// The shipped rule ids bound the investigation series' label cardinality.
+	// Seeding exports every rule at zero, so a quiet rule differs from an empty scrape.
 	appMetrics.SeedRuleVocabulary(ruleIDs(ruleCatalogue))
 
 	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
@@ -300,9 +254,8 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		QuicHost:      cfg.QuicHost,
 		Tombstones:    tombstoneStore,
 		Settings:      settings.NewPostgresReader(store.DB()),
-		// Each machine gets the curated pack as its customer has retuned it,
-		// narrowed by the labels the machine carries, and the customer's
-		// per-machine alert allowance travels down with it.
+		// Each machine gets the pack as its customer retuned it, narrowed by its labels,
+		// with the customer's per-machine alert allowance.
 		AlertRules: agentapi.NewCatalogueAlertRuleProvider(
 			ruleCatalogue, ruleStore, ruleStore, repos.devices, alertStore, logger),
 		RuleCoverage: ruleStore,
@@ -382,27 +335,17 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		WebDir:                cfg.WebDir,
 		Metrics:               appMetrics,
 		Lifetime:              ctx.Done(),
-		// The triage queue reads the same store the ingest path writes, and the
-		// rules view is the compiled pack beside how far each rule has reached
-		// and how much of an estate it is watching — the last read comes from
-		// the connection server, which is the only thing that knows what is live.
+		// The triage queue reads the store ingest writes; live coverage comes from the connection server.
 		Investigations: alertStore,
 		RuleCatalogue:  ruleCatalogue,
 		RuleRollouts:   ruleStore,
 		RuleCoverage:   agentSrv,
-		// The same store holds everything an operator may change about a rule —
-		// the tuned values, the pace it spreads at, the stop switch, and the
-		// labels a rule is aimed at. The alert store holds the budget those
-		// alerts are counted against, and the counts themselves.
+		// The same store holds every operator change to a rule; the alert store holds budgets.
 		RuleAdmin:   ruleStore,
 		AlertBudget: alertStore,
 	})
 
-	// What the exposition says about the fleet is read off these three tallies
-	// where the page is built, so a reader of the page sees what the process is
-	// holding at that instant. Bound here rather than with the background
-	// workers: the counts are part of what the product is, and a harness that
-	// stands the product up without starting a worker still gets an honest page.
+	// The exposition reads these four tallies when the page is built, so it shows live counts.
 	if err := appMetrics.BindRuntimeCounts(appmetrics.GaugeSource{
 		ActiveSessions:      agentRelay.ActiveSessionCount,
 		SessionsStarted:     agentRelay.SessionsStarted,
@@ -446,9 +389,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	}, nil
 }
 
-// amtOperator is the management service the API surface talks to: the one
-// assembled over the MPS listener, unless the caller supplied a stand-in for
-// hardware it cannot reach.
+// amtOperator is the management service the API talks to: MPS-backed or the caller's stand-in.
 func amtOperator(cfg Config, svc *amt.Service) amt.Operator {
 	if cfg.AMTOperator != nil {
 		return cfg.AMTOperator
@@ -456,9 +397,7 @@ func amtOperator(cfg Config, svc *amt.Service) amt.Operator {
 	return svc
 }
 
-// repositories is every persistence adapter the product owns, wired against
-// one connection pool and instrumented so they all land on the same
-// db_query_* metrics.
+// repositories is every persistence adapter, sharing one pool and the db_query_* metrics.
 type repositories struct {
 	audit          audit.Repository
 	deviceUpdates  updater.DeviceUpdateRepository
@@ -495,9 +434,7 @@ func newRepositories(sqlDB *sql.DB, m *appmetrics.Metrics) repositories {
 	}
 }
 
-// telemetryPorts are the four faces of the numeric metrics store: the writer
-// the ingest path uses, the reader the device page reads, and the two erasure
-// ports. All four are nil when no metrics store is configured.
+// telemetryPorts are the writer, reader and two erasure ports; all are nil without a metrics store.
 type telemetryPorts struct {
 	writer    telemetry.NumericWriter
 	reader    api.MetricsReader
@@ -521,12 +458,8 @@ func newTelemetryPorts(cfg Config, logger *slog.Logger) telemetryPorts {
 	return telemetryPorts{writer: client, reader: client, purger: client, inventory: client}
 }
 
-// agentControlGetter adapts *agentapi.AgentServer to api.AgentGetter. The
-// server's getters return the concrete *agentapi.AgentConn while the api port
-// speaks the api.AgentControl interface; Go has no covariant return types and
-// agentapi cannot import api (that would cycle), so the composition root
-// bridges the two here. A missing agent's typed-nil *AgentConn is converted to
-// an interface nil so the handlers' `ac == nil` checks still fire.
+// agentControlGetter adapts *agentapi.AgentServer to api.AgentGetter.
+// A missing agent's typed-nil *AgentConn becomes an interface nil so `ac == nil` checks fire.
 type agentControlGetter struct {
 	srv *agentapi.AgentServer
 }
@@ -570,12 +503,8 @@ type purgeDeps struct {
 	logger         *slog.Logger
 }
 
-// buildPurgeOrchestrator wires the right-to-be-forgotten purge orchestrator
-// plus its reconciliation sweep. It needs a numeric metrics store to delete
-// series, so it returns nils when that is absent, and a server assembled that
-// way refuses a device delete rather than serving one it cannot make good. On
-// success it warms the agent deny-list and resumes any purge a prior crash
-// interrupted before the server serves.
+// buildPurgeOrchestrator wires the purge orchestrator and its reconciliation sweep.
+// Without a metrics store it returns nils and the server refuses device deletes.
 func buildPurgeOrchestrator(ctx context.Context, d purgeDeps) (api.DevicePurger, api.PurgeJobReader, *lifecycle.Reconciler) {
 	if d.seriesPurger == nil {
 		return nil, nil, nil
@@ -616,9 +545,7 @@ func cleanupRelaySession(repo session.Repository, token protocol.SessionToken) e
 // relayCleanupBudget bounds the single delete a finished session costs.
 const relayCleanupBudget = 5 * time.Second
 
-// ruleIDs is the label vocabulary the investigation series are bounded by: the
-// ids of the rules this build actually ships, and nothing an endpoint can add
-// to.
+// ruleIDs is the label vocabulary of the investigation series: the ids of the shipped rules.
 func ruleIDs(catalogue *rules.Catalogue) []string {
 	shipped := catalogue.All()
 	ids := make([]string, 0, len(shipped))
@@ -628,9 +555,7 @@ func ruleIDs(catalogue *rules.Catalogue) []string {
 	return ids
 }
 
-// splitTrustedProxies reads the configured proxies out of one string. Commas,
-// whitespace and newlines all separate, so a Helm value written as a list, a
-// line per entry or one comma-joined line all arrive as the same set.
+// splitTrustedProxies splits the configured proxies on commas, whitespace and newlines.
 func splitTrustedProxies(configured string) []string {
 	return strings.FieldsFunc(configured, func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)

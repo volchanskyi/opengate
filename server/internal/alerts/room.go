@@ -14,36 +14,16 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// One room, opened: where it stands, what folded into it, and what people did
-// about it.
-//
-// Evidence is deliberately not part of that. It is tens of kilobytes per alert
-// and a fleet event folds hundreds of them, so a room that carried its evidence
-// would move megabytes to render a page nobody has scrolled. The room says which
-// alerts have evidence and how much of it there is; fetching one is a call of
-// its own.
-//
-// Both lists are bounded and both say what they are a page of. A bound with no
-// total is the shape that quietly turns "312 alerts across 40 machines" into
-// "200 alerts", which is a different incident.
-
 const (
-	// maxRoomAlerts is how many of a room's alerts one read returns, newest
-	// first. Contoso's 02:41 driver rollout is 312 rows in one room, and the
-	// difference between the 200th and the 312th is not what anybody opens it
-	// for — the count is.
+	// maxRoomAlerts is how many of a room's alerts one read returns, newest first.
 	maxRoomAlerts = 200
 	// maxRoomEvents is the same bound on a room's history.
 	maxRoomEvents = 200
-	// maxCommentBytes is the most one comment may weigh. A handover note is
-	// prose; without a bound a person's text box decides how much a row costs.
+	// maxCommentBytes is the most one comment may weigh.
 	maxCommentBytes = 4096
 )
 
-// roomSQL reads one room, refusing a room outside the customer the caller is
-// looking at exactly as it refuses one outside the tenant. Both are answered
-// "no such room": a caller must not be able to tell a room they may not see from
-// one that does not exist.
+// roomSQL reads one room; a room outside the caller's customer or tenant answers "no such room".
 const roomSQL = `
 	SELECT id, organization_id, rule_id, scope, scope_key, severity, status,
 	       assignee_id, opened_at, first_seen, last_seen, resolved_at, cause_code,
@@ -53,12 +33,8 @@ const roomSQL = `
 	   AND id = $1
 	   AND ($2::uuid = '00000000-0000-0000-0000-000000000000'::uuid OR organization_id = $2::uuid)`
 
-// roomAlertsSQL lists what folded into a room, newest first, and how many there
-// are in total.
-//
-// The evidence column is never selected — only whether there is one and how big
-// it is. The count rides on every row so one pass answers both, rather than a
-// second statement counting a set that may have changed in between.
+// roomAlertsSQL lists what folded into a room, newest first, with the total on every row.
+// The evidence column is selected only as presence and size.
 const roomAlertsSQL = `
 	SELECT a.id, a.device_id, a.rule_id, a.rule_version, a.severity, a.metric, a.value,
 	       a.window_start, a.window_end, a.observed_at, a.received_at, a.backfilled,
@@ -69,9 +45,7 @@ const roomAlertsSQL = `
 	 ORDER BY a.observed_at DESC, a.id DESC
 	 LIMIT $2::integer`
 
-// roomEventsSQL reads the newest lines of a room's history. Newest, because a
-// bound has to keep the part a handover is about; the caller turns them back
-// into the order they happened.
+// roomEventsSQL reads the newest lines of a room's history; the caller restores their order.
 const roomEventsSQL = `
 	SELECT id, at, kind, actor_id, body, COUNT(*) OVER ()
 	  FROM incident_events
@@ -80,24 +54,19 @@ const roomEventsSQL = `
 	 ORDER BY at DESC, id DESC
 	 LIMIT $2::integer`
 
-// assignRoomSQL records who is working a room. Empty hands it back to the
-// queue, which is a move a technician going off shift has to be able to make.
+// assignRoomSQL records who is working a room; an empty assignee hands it back to the queue.
 const assignRoomSQL = `
 	UPDATE incidents SET assignee_id = NULLIF($2::text, '')::uuid
 	 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-// alertEvidenceSQL reads one alert's frozen evidence, through the room holding
-// it. The room is part of the key rather than a check afterwards: an alert id on
-// its own is a guessable handle to somebody else's incident.
+// alertEvidenceSQL reads one alert's evidence through the room holding it, so an alert id
+// alone never reaches another tenant's incident.
 const alertEvidenceSQL = `
 	SELECT evidence, evidence_codec FROM alerts
 	 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 	   AND id = $1 AND incident_id = $2`
 
-// FoldedAlert is one alert as its room lists it: everything a technician reads
-// off the list, and no evidence. Carrying the blob here is what turns a room
-// into megabytes, so what is carried instead is enough to decide whether to
-// fetch one.
+// FoldedAlert is one alert as its room lists it, with evidence size but not the evidence.
 type FoldedAlert struct {
 	// ID names the alert, and is what an evidence read asks for.
 	ID uuid.UUID
@@ -106,25 +75,20 @@ type FoldedAlert struct {
 	// RuleID and RuleVersion name the rule as it stood when it fired.
 	RuleID      string
 	RuleVersion uint32
-	// Severity is how bad this one reading was, which can be less than the
-	// room's: the room carries the worst of what folded in.
+	// Severity is this reading's severity; the room carries the worst of what folded in.
 	Severity Severity
-	// Metric and Value are the dimension and the reading that crossed, both
-	// absent for a rule that fires on an event rather than a number.
+	// Metric and Value are the dimension and reading that crossed; both are absent for event rules.
 	Metric string
 	Value  *float64
-	// WindowStart, WindowEnd and ObservedAt are event time — when it happened on
-	// the machine. ReceivedAt is when the server heard, which for a retroactive
-	// finding can be months later.
+	// WindowStart, WindowEnd and ObservedAt are event time on the machine; ReceivedAt is server time.
 	WindowStart time.Time
 	WindowEnd   time.Time
 	ObservedAt  time.Time
 	ReceivedAt  time.Time
 	// Backfilled marks a finding a retroactive scan produced over local history.
 	Backfilled bool
-	// EvidenceCodec names how this alert's evidence is compressed, empty when it
-	// carries none. EvidenceBytes is its compressed weight, so a reader knows
-	// what a fetch costs before making it.
+	// EvidenceCodec names how the evidence is compressed, empty when there is none.
+	// EvidenceBytes is its compressed size.
 	EvidenceCodec string
 	EvidenceBytes int
 }
@@ -137,8 +101,7 @@ type Event struct {
 	At time.Time
 	// Kind is what sort of line it is, from the closed set the database keeps.
 	Kind string
-	// ActorID is who did it, zero when the system did — which is how an
-	// auto-resolution is told apart from somebody's decision.
+	// ActorID is who did it, zero when the system did.
 	ActorID uuid.UUID
 	// Body is what the line says, in the shape its kind defines.
 	Body json.RawMessage
@@ -148,21 +111,16 @@ type Event struct {
 type Investigation struct {
 	// Incident is where the room stands.
 	Incident Incident
-	// Alerts are the newest of what folded in, and AlertsTotal how many there
-	// are — a bounded page that says what it is a page of.
+	// Alerts are the newest of what folded in, and AlertsTotal how many there are.
 	Alerts      []FoldedAlert
 	AlertsTotal int
-	// Events are the room's history in the order it happened, and EventsTotal
-	// how long that history is.
+	// Events are the room's history in chronological order, and EventsTotal its length.
 	Events      []Event
 	EventsTotal int
 }
 
-// Investigation returns one room with its alerts and its timeline.
-//
-// organizationID narrows to the customer the caller is looking at; zero does not
-// narrow. A room outside it answers the same as a room outside the tenant, so
-// neither boundary is discoverable by probing ids.
+// Investigation returns one room with its alerts and timeline; a zero organizationID does not
+// narrow, and a room outside the customer or tenant answers as absent.
 func (s *Store) Investigation(ctx context.Context, incidentID, organizationID uuid.UUID) (Investigation, error) {
 	var room Investigation
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
@@ -184,12 +142,8 @@ func (s *Store) Investigation(ctx context.Context, incidentID, organizationID uu
 	return room, nil
 }
 
-// Incident reads where one room stands, without its alerts or its history.
-//
-// It is both the answer a move hands back and the check a caller makes before
-// making one: resolving the room first is what keeps acting on a room outside
-// the customer on screen — or outside the tenant — from being possible, and
-// both refuse identically so neither boundary is discoverable by probing ids.
+// Incident reads where one room stands, without alerts or history; a room outside the customer
+// or tenant answers as absent, so moves resolve the room first.
 func (s *Store) Incident(ctx context.Context, incidentID, organizationID uuid.UUID) (Incident, error) {
 	var incident Incident
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
@@ -203,8 +157,7 @@ func (s *Store) Incident(ctx context.Context, incidentID, organizationID uuid.UU
 	return incident, nil
 }
 
-// readRoom reads one room inside an open transaction, refusing a room outside
-// the tenant and one outside the customer the caller is looking at the same way.
+// readRoom reads one room inside an open transaction; a foreign tenant or customer reads as absent.
 func readRoom(ctx context.Context, tx *sql.Tx, incidentID, organizationID uuid.UUID) (Incident, error) {
 	incident, err := scanIncident(tx.QueryRowContext(ctx, roomSQL, incidentID, organizationID))
 	switch {
@@ -216,8 +169,7 @@ func readRoom(ctx context.Context, tx *sql.Tx, incidentID, organizationID uuid.U
 	return incident, nil
 }
 
-// readRoomAlerts reads the newest of what folded into a room, and how much
-// folded in altogether.
+// readRoomAlerts reads the newest alerts folded into a room and the total folded in.
 func readRoomAlerts(ctx context.Context, tx *sql.Tx, incidentID uuid.UUID) ([]FoldedAlert, int, error) {
 	rows, err := tx.QueryContext(ctx, roomAlertsSQL, incidentID, maxRoomAlerts)
 	if err != nil {
@@ -245,10 +197,7 @@ func readRoomAlerts(ctx context.Context, tx *sql.Tx, incidentID uuid.UUID) ([]Fo
 	return folded, total, nil
 }
 
-// readRoomEvents reads a room's history and hands it back in the order it
-// happened. The read is newest-first because that is the half a bound has to
-// keep; a timeline is read forwards, so it is turned around here rather than by
-// every caller.
+// readRoomEvents reads a room's newest history lines and returns them in chronological order.
 func readRoomEvents(ctx context.Context, tx *sql.Tx, incidentID uuid.UUID) ([]Event, int, error) {
 	rows, err := tx.QueryContext(ctx, roomEventsSQL, incidentID, maxRoomEvents)
 	if err != nil {
@@ -278,19 +227,15 @@ func readRoomEvents(ctx context.Context, tx *sql.Tx, incidentID uuid.UUID) ([]Ev
 	return events, total, nil
 }
 
-// reverse turns a newest-first read back into the order things happened.
+// reverse turns a newest-first read into chronological order.
 func reverse(events []Event) {
 	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
 		events[i], events[j] = events[j], events[i]
 	}
 }
 
-// Assign records who is working a room, and says so in its history. Both,
-// because they answer different questions: the column is what the queue filters
-// on, and the line is what says when it changed hands.
-//
-// A zero assignee hands the room back to the queue. A technician going off shift
-// has to be able to put a room down rather than leave it looking worked.
+// Assign records who is working a room in the column the queue filters on and in its history.
+// A zero assignee hands the room back to the queue.
 func (s *Store) Assign(ctx context.Context, incidentID, assignee, actor uuid.UUID) error {
 	at := s.now().UTC().Truncate(time.Microsecond)
 	body, err := json.Marshal(assignmentBody{
@@ -316,11 +261,7 @@ func (s *Store) Assign(ctx context.Context, incidentID, assignee, actor uuid.UUI
 	})
 }
 
-// Comment adds one person's note to a room's history.
-//
-// A comment is not a field on the incident — it is one more thing that happened,
-// in the order it happened, which is why it lands in the same append-only
-// history a status change does.
+// Comment adds one person's note to a room's append-only history.
 func (s *Store) Comment(ctx context.Context, incidentID, actor uuid.UUID, note string) (Event, error) {
 	note = strings.TrimSpace(note)
 	if note == "" || len(note) > maxCommentBytes {
@@ -354,13 +295,8 @@ func (s *Store) Comment(ctx context.Context, incidentID, actor uuid.UUID, note s
 	return event, nil
 }
 
-// Evidence returns one alert's frozen evidence and the codec naming how it is
-// compressed, read through the room holding the alert.
-//
-// It is bytes rather than a decoded structure because this layer stores what
-// arrived and nothing more: the blob is immutable, unfetchable and exactly what
-// the machine sent, and deciding what it means belongs to whoever knows the
-// codec.
+// Evidence returns one alert's compressed evidence bytes and its codec, read through the room
+// holding the alert.
 func (s *Store) Evidence(ctx context.Context, incidentID, alertID uuid.UUID) ([]byte, string, error) {
 	var (
 		blob  []byte
@@ -391,9 +327,7 @@ const (
 	kindComment    = "comment"
 )
 
-// assignmentBody is what an assignment line says. Handing a room back is stated
-// outright rather than left as an absent assignee, so a timeline reads "put
-// down" instead of a blank.
+// assignmentBody is what an assignment line says; handing a room back is stated outright.
 type assignmentBody struct {
 	AssigneeID string `json:"assignee_id,omitempty"`
 	Unassigned bool   `json:"unassigned,omitempty"`

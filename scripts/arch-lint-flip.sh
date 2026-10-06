@@ -1,31 +1,8 @@
 #!/usr/bin/env bash
-# scripts/arch-lint-flip.sh — per ADR-020 warn→error auto-flip.
-#
+# Reports the architecture-lint gates eligible to flip from warn to error mode via a marker file.
 # Usage:
-#   scripts/arch-lint-flip.sh [--check|--apply]
-#
-# --check (default): report which gates are eligible to flip and their state. Exit 0.
-# --apply:           create marker files for gates that are clean and not yet flipped.
-#
-# Markers live at .claude/.markers/arch-lint-flipped/<gate>. When a marker
-# exists, the gauntlet and the CI workflow run the gate in error mode (zero
-# violations required) instead of the warn-mode baseline-snapshot pattern.
-#
-# Gates handled today:
-#   depcruise           — eligible when web/dependency-cruiser.snapshot.json's
-#                          `.warn` count is 0. Updating the snapshot is the
-#                          dev-facing action that records "all violations fixed";
-#                          --apply records the flip in a tracked marker.
-#
-# Deferred (per ADR-020 mechanism notes):
-#   eslint-boundaries   — requires eslint.config.js severity mutation; out of
-#                          scope for the initial scaffolding ADR-020 PR.
-#   cargo-deny          — bans/multiple-versions warns; covered by ADR-020
-#                          amendment once the HTTP-dep inventory closes.
-#
-# Already-strict (no flip needed):
-#   go-arch-lint        — runs in deny-by-default mode at the gauntlet today.
-#   cargo-modules       — snapshot diff is binary; any mismatch fails.
+#   scripts/arch-lint-flip.sh --check   report each gate's state (default)
+#   scripts/arch-lint-flip.sh --apply   create markers for gates that are clean and not yet flipped
 
 set -euo pipefail
 
@@ -44,9 +21,6 @@ mkdir -p "$marker_dir"
 
 flipped_count=0
 
-# ----------------------------------------------------------------------------
-# Gate: depcruise
-# ----------------------------------------------------------------------------
 depcruise_snapshot="$repo/web/dependency-cruiser.snapshot.json"
 depcruise_marker="$marker_dir/depcruise"
 
@@ -88,25 +62,10 @@ EOF
   flipped_count=$((flipped_count + 1))
 fi
 
-# ----------------------------------------------------------------------------
-# Gate: eslint-boundaries (ADR-020)
-#
-# State machine driven by web/eslint.config.js's `boundaries/dependencies`
-# severity token AND the marker file:
-#
-#   - severity 'warn'  AND no marker  → eligible
-#   - severity 'error' OR  marker     → flipped
-#   - missing config                  → no config
-#
-# `--apply` on eligible mutates the severity warn → error AND writes the
-# marker atomically. Re-apply is idempotent: severity already 'error'
-# reports as flipped without further mutation.
-# ----------------------------------------------------------------------------
 eslint_config="$repo/web/eslint.config.js"
 eslint_marker="$marker_dir/eslint-boundaries"
 
-# Fixed-string patterns; anchored on the rule key so we don't match a
-# stray severity literal elsewhere in the file.
+# Patterns are anchored on the rule key so a severity literal elsewhere never matches.
 eslint_warn_pat="'boundaries/dependencies': ['warn'"
 eslint_error_pat="'boundaries/dependencies': ['error'"
 
@@ -129,10 +88,8 @@ case "$eslint_state" in
 esac
 
 if [ "$mode" = "--apply" ] && [ "$eslint_state" = "eligible" ]; then
-  # Atomic: sed into a temp, validate the token actually flipped, then mv.
+  # The sed output goes to a temp file and replaces the config only once the token flipped.
   tmp="$(mktemp)"
-  # `#` delimiter so the `/` inside `boundaries/dependencies` needs no
-  # escaping. `\[` escapes the literal `[` in the BRE pattern.
   sed "s#'boundaries/dependencies': \\['warn'#'boundaries/dependencies': ['error'#" \
     "$eslint_config" >"$tmp"
   if grep -qF "$eslint_error_pat" "$tmp" && ! grep -qF "$eslint_warn_pat" "$tmp"; then
@@ -156,21 +113,6 @@ EOF
   fi
 fi
 
-# ----------------------------------------------------------------------------
-# Gate: cargo-deny (ADR-020, Amendment 1)
-#
-# State machine driven by agent/deny.toml's `multiple-versions` AND
-# `wildcards` severity tokens AND the marker file:
-#
-#   - both severities 'warn'  AND no marker  → eligible
-#   - both severities 'deny'  OR  marker     → flipped
-#   - missing config                         → no config
-#
-# `--apply` on eligible mutates both severity tokens warn → deny atomically
-# AND writes the marker. The cargo-deny tool itself reads deny.toml at
-# `cd agent && cargo deny check` time (gauntlet step 9 + 18); flipping the
-# severities makes any new violation fail the gate instead of warning.
-# ----------------------------------------------------------------------------
 deny_config="$repo/agent/deny.toml"
 deny_marker="$marker_dir/cargo-deny"
 
@@ -222,9 +164,6 @@ EOF
     printf '  → flip aborted: sed did not produce expected severity tokens in %s\n' "${deny_config#"$repo/"}" >&2
   fi
 elif [ "$mode" = "--apply" ] && [ "$deny_state" = "flipped" ] && [ ! -f "$deny_marker" ]; then
-  # Reconcile: deny.toml severities were edited to 'deny' out-of-band (e.g.
-  # in the same commit that introduces this gate). Record the marker so the
-  # audit trail matches the config state.
   cat >"$deny_marker" <<EOF
 # ADR-020 flip marker for the cargo-deny gate.
 #
@@ -236,9 +175,6 @@ EOF
   flipped_count=$((flipped_count + 1))
 fi
 
-# ----------------------------------------------------------------------------
-# Already-strict gates.
-# ----------------------------------------------------------------------------
 printf 'gate: go-arch-lint        — already strict at the gauntlet (no flip needed)\n'
 printf 'gate: cargo-modules       — already strict at the gauntlet (no flip needed)\n'
 

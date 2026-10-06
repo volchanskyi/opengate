@@ -29,10 +29,6 @@ func TestAmtPowerActionNotConnected(t *testing.T) {
 	assert.Equal(t, "device not connected", apiErr.Error)
 }
 
-// TestAmtPowerActionUnknownIdentity pins the tenancy guard in front of the CIRA
-// connection map: that map is keyed by AMT UUID alone and knows no tenant, so an
-// identity with no managed device in the caller's scope must stop at the
-// repository lookup and never reach the operator.
 func TestAmtPowerActionUnknownIdentity(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -43,9 +39,6 @@ func TestAmtPowerActionUnknownIdentity(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-// TestAmtPowerActionRejectsOtherTenant proves the guard is a tenant
-// boundary, not just an existence check: a real AMT identity from another
-// tenant is refused before any command is dispatched.
 func TestAmtPowerActionRejectsOtherTenant(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)

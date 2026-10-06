@@ -6,13 +6,7 @@ import type { components } from '../../../types/api';
 
 type AlertLimits = components['schemas']['AlertLimits'];
 
-/**
- * A customer's alert budget.
- *
- * It comes back with the maxima the server allows beside the values, so the
- * screen can say how far a number may move without asking again — and so a
- * refusal is something the form can prevent rather than only report.
- */
+/** A customer's alert budget, returned with the maxima the server allows beside each value. */
 interface AlertLimitsState {
   limits: AlertLimits | null;
   isLoading: boolean;

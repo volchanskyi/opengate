@@ -1,16 +1,7 @@
 name: Docs Validate
 
-# Two checks the local precommit gauntlet also runs, so these jobs are the CI
-# backstop.
-#
-# Mermaid syntax: catches a malformed fence (including experimental C4) before
-# GitHub would render an error box. The validator uses the official Mermaid
-# parser pinned in tools/mermaid-validate/package-lock.json; GitHub's renderer is
-# the authoritative check, this job is a fast pre-filter.
-#
-# Links and contents: every repository link under docs/ and .claude/ resolves,
-# anchors included, and every page under docs/ except the decision records opens
-# with a contents list that matches its headings (scripts/check-doc-links).
+# Parses every Mermaid fence with the parser pinned in tools/mermaid-validate/package-lock.json
+# and runs scripts/check-doc-links over docs/ and .claude/.
 
 on:
   push:

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sequenceSeriesPurger returns configured series counts across verification attempts.
 type sequenceSeriesPurger struct {
 	counts   []int
 	calls    int
@@ -20,12 +19,10 @@ type sequenceSeriesPurger struct {
 	cancel   context.CancelFunc
 }
 
-// DeleteSeries satisfies SeriesPurger; these tests exercise counting only.
 func (*sequenceSeriesPurger) DeleteSeries(context.Context, uuid.UUID, *uuid.UUID) error {
 	return nil
 }
 
-// CountSeries records each attempt and returns the corresponding configured count.
 func (s *sequenceSeriesPurger) CountSeries(context.Context, uuid.UUID, *uuid.UUID) (int, error) {
 	s.calls++
 	if s.calls == s.cancelAt && s.cancel != nil {
@@ -37,23 +34,19 @@ func (s *sequenceSeriesPurger) CountSeries(context.Context, uuid.UUID, *uuid.UUI
 	return s.counts[min(s.calls-1, len(s.counts)-1)], nil
 }
 
-// recordingEdgeDeregistrar captures edge erasure requests for exact assertions.
 type recordingEdgeDeregistrar struct {
 	agents  []uuid.UUID
 	tenants []uuid.UUID
 }
 
-// DeregisterAgent records an agent erasure request.
 func (r *recordingEdgeDeregistrar) DeregisterAgent(_ context.Context, deviceID uuid.UUID) {
 	r.agents = append(r.agents, deviceID)
 }
 
-// DeregisterTenant records a tenant erasure request.
 func (r *recordingEdgeDeregistrar) DeregisterTenant(_ context.Context, tenantID uuid.UUID) {
 	r.tenants = append(r.tenants, tenantID)
 }
 
-// TestOrchestratorDefaultsAndOverrides pins the public constructor defaults and overrides.
 func TestOrchestratorDefaultsAndOverrides(t *testing.T) {
 	defaults := DefaultVerifyConfig()
 	assert.Equal(t, 5, defaults.MaxAttempts)
@@ -70,7 +63,6 @@ func TestOrchestratorDefaultsAndOverrides(t *testing.T) {
 	assert.Same(t, logger, withOverrides.logger)
 }
 
-// TestOrchestratorVerifyEmptyPinsAttemptBoundaries checks success, exhaustion, and cancellation.
 func TestOrchestratorVerifyEmptyPinsAttemptBoundaries(t *testing.T) {
 	job := &PurgeJob{TenantID: uuid.New()}
 
@@ -114,7 +106,6 @@ func TestOrchestratorVerifyEmptyPinsAttemptBoundaries(t *testing.T) {
 	})
 }
 
-// TestOrchestratorPurgeRequestsDeregisterEdgeSubjects pins device and tenant erasure calls.
 func TestOrchestratorPurgeRequestsDeregisterEdgeSubjects(t *testing.T) {
 	t.Run("device", func(t *testing.T) {
 		f, ctx, tenant, device := newSeededPurge(t)

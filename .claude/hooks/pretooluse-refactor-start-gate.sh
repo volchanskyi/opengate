@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-refactor-start-gate.sh — /refactor begins only on content every
-# check has passed.
-#
-# Triggers on PreToolUse Skill; noop unless the skill is `refactor`. Runs
-# scripts/refactor-gate.sh start, which refuses unless the gauntlet passed on
-# the content on disk, and records the start when it did.
-#
-# A /refactor the user types is expanded without a Skill tool call, so the
-# skill's own first step runs the same start. This hook is the refusal on the
-# path where the agent invokes it, before the skill's instructions load.
-#
-# NO BYPASS.
+# Refuses a refactor Skill call unless scripts/refactor-gate.sh start passes on the content on disk.
+# A typed /refactor expands without a Skill call, so the skill's first step runs the same start.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"

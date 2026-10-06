@@ -1,11 +1,5 @@
-// Package settings owns the tenancy ladder a configurable value is resolved
-// along: a machine, the site it is filed into, the customer that site belongs
-// to, the tenant above them, and finally what shipped.
-//
-// It holds the walk and the tie-break, and nothing else. Where a value is
-// stored belongs to whatever feature the value configures — the rule catalogue
-// keeps its own thresholds — so the ordering exists once and cannot drift
-// between the things that depend on it.
+// Package settings resolves a configurable value along the tenancy ladder:
+// machine, site, customer, tenant, then the shipped default.
 package settings
 
 import (
@@ -18,9 +12,7 @@ import (
 // Level names one rung of the tenancy ladder, ordered narrowest first.
 type Level int
 
-// The rungs, narrowest first. LevelShipped is the floor: it is not a rung
-// anything can be stored against, it is what applies when no rung carries a
-// value.
+// The rungs, narrowest first; LevelShipped applies when no stored rung carries a value.
 const (
 	LevelDevice Level = iota
 	LevelSite
@@ -56,8 +48,7 @@ var storableLevels = []Level{LevelDevice, LevelSite, LevelOrganization, LevelTen
 var ErrDeviceNotFound = errors.New("device not found")
 
 // Scope is one machine's place in the tenancy ladder. SiteID is the zero value
-// when nobody has filed the machine into a site, which removes that rung rather
-// than failing.
+// when the machine is filed into no site, which removes that rung.
 type Scope struct {
 	DeviceID       uuid.UUID
 	SiteID         uuid.UUID
@@ -102,10 +93,8 @@ const (
 	// NarrowestWins is the ordinary rule: the machine beats its site, the site
 	// beats its customer, the customer beats the tenant.
 	NarrowestWins Direction = iota
-	// BroadestWins is for values whose whole purpose is to stop something. A
-	// customer-wide stop must not be undone by a value someone set on one
-	// machine, so that class reads the ladder the other way up. Naming the
-	// exception is the point: it is a decision, not an accident of ordering.
+	// BroadestWins serves values that stop something, so a customer-wide stop
+	// outranks a value set on one machine.
 	BroadestWins
 )
 
@@ -116,10 +105,8 @@ type Reader interface {
 	ScopeFor(ctx context.Context, deviceID uuid.UUID) (Scope, error)
 }
 
-// Resolve returns the value that applies to scope and the rung that supplied
-// it. Only overrides set on this scope's own ladder count, so a caller may hand
-// over a whole customer's overrides without another machine's number reaching
-// this one. When no rung carries a value the shipped default applies.
+// Resolve returns the value for scope and the rung that supplied it, counting only
+// overrides on this scope's own ladder; with none the shipped default applies.
 func Resolve[T any](scope Scope, overrides []Override[T], shipped T, direction Direction) (T, Level) {
 	for _, level := range ladder(direction) {
 		key, present := scope.Key(level)

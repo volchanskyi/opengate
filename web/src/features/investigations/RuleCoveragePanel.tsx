@@ -10,7 +10,7 @@ type Rule = components['schemas']['Rule'];
 const HEAD_CELL = 'px-3 py-2 text-left text-xs font-semibold text-gray-400';
 const CELL = 'px-3 py-2 text-sm text-gray-300';
 
-/** The one state that is a standing hole in the monitoring rather than a delay. */
+/** The coverage state that marks a standing hole in the monitoring. */
 const BLIND_SPOT = 'unsupported';
 
 function CoverageCells({ rule, fleetSize }: { readonly rule: Rule; readonly fleetSize: number }) {
@@ -49,14 +49,7 @@ function RolloutNote({ rule }: { readonly rule: Rule }) {
   return null;
 }
 
-/**
- * How much of the estate each curated rule is actually watching.
- *
- * Silent partial coverage is the failure this answers: a rule that cannot be
- * evaluated on six machines looks exactly like one watching all of them until
- * the number is on a screen. All four states are shown together and checked
- * against the fleet, because a split that does not add up is itself the finding.
- */
+/** How much of the estate each curated rule watches, all four states shown against the fleet. */
 export function RuleCoveragePanel() {
   const [open, setOpen] = useState(false);
   const rules = useCatalogueStore((s) => s.rules);

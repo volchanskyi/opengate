@@ -1,6 +1,4 @@
-// Package main implements a QUIC agent load harness that spawns N concurrent
-// agent connections, performs the full mTLS handshake and registration, and
-// reports timing statistics.
+// Package main is a QUIC agent load harness reporting mTLS handshake and registration timing.
 //
 // Usage:
 //
@@ -20,25 +18,14 @@ import (
 	"time"
 )
 
-// agentDeadline bounds connecting, handshaking and registering. Whatever hold
-// the run asked for is added to it.
+// agentDeadline bounds connecting, handshaking and registering; the hold is added to it.
 const agentDeadline = 30 * time.Second
 
-// What the process returns, and what each code means to the runner reading it.
-//
-// A run has three outcomes and needs three codes. Deriving the code from the
-// failure count alone collapses two of them: a run whose agents produced no
-// result each, rather than a failed one each, counts zero failures and is
-// indistinguishable from a clean run. The runner around this then keeps the
-// output and the trend absorbs a night that measured nothing.
 const (
-	// exitAgentFailures is a run that measured the system and some of its
-	// machines did not arrive. That is still a measurement — a fleet that half
-	// connects is what the trend exists to record — so the runner keeps it.
+	// exitAgentFailures marks a measured run in which some machines did not arrive; the runner
+	// keeps its output.
 	exitAgentFailures = 1
-	// exitMeasuredNothing is a run that did not measure the system at all. Its
-	// output describes the absence rather than the system, so the runner
-	// discards it and the run is short a scenario.
+	// exitMeasuredNothing marks a run that measured nothing; the runner discards its output.
 	exitMeasuredNothing = 2
 )
 
@@ -47,31 +34,19 @@ type agentResult struct {
 	handshakeDur time.Duration
 	registerDur  time.Duration
 
-	// arrivedAt is when this machine finished registering — the moment it is
-	// part of the fleet. It is what bounds the arrival window, and it is
-	// deliberately not the moment the machine's life ended: a machine held open
-	// for the generator beside it leaves when the run does, so an end time would
-	// measure the hold.
+	// arrivedAt is when the machine finished registering; it bounds the arrival window, and an
+	// end time would measure the hold.
 	arrivedAt time.Time
 
-	// redials is how many times this machine dialled again after losing its
-	// connection, and reconnected how many of those got it back. They are the
-	// harness's own account of how much of a fleet an outage took, which is the
-	// only account there is: every other number a drill publishes is about the
-	// machine it is measuring, not about the herd behind it.
+	// redials counts dials after a lost connection and reconnected the ones that succeeded.
 	redials     int
 	reconnected int
 
 	err error
 }
 
-// exitCode is what the process returns for a finished run.
-//
-// The verdict comes first and the failure count second, because they answer
-// different questions: the count says how many machines did not arrive, and the
-// verdict says whether what happened was a measurement at all. A run that
-// measured nothing cannot be reported as one that did, however few of its
-// machines failed.
+// exitCode checks the verdict before the failure count, so a run that measured nothing is never
+// reported as one that did.
 func exitCode(verdict Verdict, failures int, answer *BreakingPoint) int {
 	switch {
 	case verdict.Result == ResultInvalid:
@@ -85,15 +60,8 @@ func exitCode(verdict Verdict, failures int, answer *BreakingPoint) int {
 	}
 }
 
-// ladderFoundItsAnswer reports whether this run was a capacity ladder that
-// reached the load it was sent to find.
-//
-// Such a run loses machines by design: the rung where they stop arriving is the
-// answer. A code taken from the failure count therefore reports the family
-// succeeding as the family failing, which leaves the ladder able to go green
-// only by never finding anything — and that is what it did, on the one night it
-// found the load and was thrown away for it. A ladder that held all the way up
-// has no such explanation and keeps its count.
+// ladderFoundItsAnswer reports a capacity ladder that reached its breaking point, whose lost
+// machines are its result.
 func ladderFoundItsAnswer(answer *BreakingPoint) bool {
 	return answer != nil && answer.GaveAt != ""
 }
@@ -102,9 +70,7 @@ func main() {
 	os.Exit(run())
 }
 
-// run is the whole harness, returning the code the process exits with. It is
-// separated from main so the temp directory holding the certificates this run
-// signed is removed on every path, including the ones that end badly.
+// run returns the exit code so the deferred certificate-directory removal runs on every path.
 func run() int {
 	agents := flag.Int("agents", 100, "number of concurrent agents")
 	addr := flag.String("addr", "127.0.0.1:9090", "QUIC server address")
@@ -141,9 +107,7 @@ func run() int {
 	leakSnapshotEvery := flag.Duration("leak-snapshot-every", 0, "take and keep the target's goroutine and heap profiles this often, so what grew across a long run is named at a line rather than reported as a slope")
 	flag.Parse()
 
-	// Production is never a target, and the way a generator ends up pointed at
-	// one is an address in an environment variable set in a hurry. The refusal
-	// is here, before anything dials, rather than in a reviewer's attention.
+	// Production is never a target, so the address is checked before anything dials.
 	if err := CheckQUICAddress(*addr); err != nil {
 		log.Fatalf("refusing to run: %v", err)
 	}
@@ -156,8 +120,8 @@ func run() int {
 		}
 	}
 
-	// The machine sides this run answers, counted across every agent. It is the
-	// denominator the target's conservation is divided by.
+	// sessionsJoined counts the machine sides answered across every agent, the conservation
+	// denominator.
 	sessionsJoined := &atomic.Int64{}
 
 	opts := loadOptions{
@@ -187,8 +151,7 @@ func run() int {
 		defer os.RemoveAll(dir)
 	}
 
-	// A fleet is built before the clock starts. It is thousands of writes and
-	// would be the largest thing in any phase it shared.
+	// The fleet is built before the clock starts so its writes stay out of every phase.
 	fleet := buildFixtureIfAsked(fixtureRequest{
 		baseURL:   *enrollURL,
 		account:   *fixtureAccount,
@@ -208,46 +171,26 @@ func run() int {
 	if err != nil {
 		log.Fatalf("agent credentials: %v", err)
 	}
-	// A machine's identity is minted once and every later connection made with
-	// it. The wrapper is established here rather than inside the walk because
-	// two readers share it: the fleet, which dials with it, and the filer, which
-	// takes the machine's identifier out of it.
+	// enrolOnce mints each machine's identity once; the fleet dials with it and the filer reads
+	// its identifier.
 	credentials := enrolOnce(source)
 	filer := fleet.filerFor(credentials, *agents, profile)
 
 	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)
 
-	// What the target is holding before any of this run's work reaches it.
-	//
-	// The bracket opens here rather than at the top of main because the
-	// denominator it is divided by counts this run's workload: the fixture
-	// above is thousands of writes with nothing in that count to answer for
-	// them, and folding it in would charge the target for work the figure does
-	// not measure. From here the harness holds its fleet for the whole night —
-	// the generators beside it run inside the hold — so this bracket covers
-	// every scenario, which is what makes a mid-run restart visible at all.
+	// The conservation bracket opens after the fixture so its writes are not charged to the
+	// target's per-operation figure.
 	targetAtStart := readTargetHealth(*metricsURL, "the start of the run")
 
-	// What grew inside the target, taken on an interval and kept in full. It
-	// opens with the same bracket the conservation reading does, and for the
-	// same reason: the fixture above is thousands of writes that belong to no
-	// phase, and a first reading taken after them would carry the whole fleet's
-	// arrival as growth that was always there.
+	// The leak watch opens after the fixture, so the first reading excludes its writes.
 	leakWatching := WatchForLeaks(*metricsURL, *bundleDir, *leakSnapshotEvery)
 
 	start := time.Now()
 
-	// What the generator had left, bracketed around the load rather than
-	// sampled once after it. One look says what the machine was doing at one
-	// instant; a run is fifteen minutes long, and dividing it by one instant is
-	// a coin toss that came back at nought percent on two legs of a five-leg
-	// sweep whose fleets had all arrived.
 	generatorReading := WatchGenerator()
 
-	// What the target is capped at, which is also what its own busy-ness is
-	// divided by. Both come from the same declaration so a bundle can never
-	// carry a fingerprint and a busy figure that disagree about the
-	// denominator.
+	// The cap and the busy-ness denominator share one declaration, so the bundle cannot
+	// disagree with itself.
 	targetShape := ParseFingerprintFlags("system-under-test", *targetDescription, *targetCPUs, *targetMemory)
 
 	results, phases, flatBusy, flatBusyAbsent := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts,
@@ -261,27 +204,17 @@ func run() int {
 
 	generatorHeadroom := generatorReading()
 
-	// And what it is holding once the fleet is wound down and it has stopped
-	// putting things back.
 	targetAtEnd := readSettledTargetHealth(*metricsURL)
 
-	// And the closing reading, taken after the target has stopped putting
-	// things back, so what the trail reports as retained is what survived the
-	// wind-down rather than what was still being handed over.
+	// The closing reading follows the target's wind-down, so retained means what survived it.
 	leakTrail := leakWatching()
 
-	// Registration as the server measured it, where the device row lands. The
-	// harness's own clock stops at a local send buffer, which cannot move
-	// however slow the write becomes — so the reading is taken before the
-	// results block is printed, because the block is where it is published.
+	// Registration is read from the server before the results block, which publishes it.
 	registration := readServerRegistration(*metricsURL)
 
 	failures := reportResults(results, start, totalDur, *agents, registration)
 
-	// The bundle is built whether or not it is written, because it carries the
-	// verdict — and the verdict is what says whether this run measured the
-	// system. A run that reports its own outcome only into a file nobody reads
-	// is the shape a green shard on a sweep that connected nobody came from.
+	// The bundle is built whether or not it is written because it carries the verdict.
 	bundle := buildRunBundle(runBundleInputs{
 		Profile:    profile,
 		Results:    results,
@@ -290,9 +223,7 @@ func run() int {
 		AgentCount: *agents,
 		Target:     *addr,
 		Commit:     *commit,
-		// Both sides of the measurement. The target's limits belong to whoever
-		// started it; the generator is this machine and is read here, including
-		// the disk room it actually has rather than the size of its partition.
+		// The target's limits come from whoever started it; the generator's are read here.
 		TargetShape:          targetShape,
 		GeneratorShape:       ReadGeneratorShape("server/tests/loadtest"),
 		Headroom:             generatorHeadroom,
@@ -308,9 +239,7 @@ func run() int {
 		Conservation: TargetConservation{
 			Start: targetAtStart,
 			End:   targetAtEnd,
-			// Every machine that connected and every session that was answered
-			// is one operation the target took something for and was expected
-			// to give back.
+			// Each connected machine and answered session is one operation the target must give back.
 			Operations: arrivedAgents(results) + int(sessionsJoined.Load()),
 		},
 	})
@@ -330,18 +259,8 @@ func run() int {
 	return exitCode(bundle.Verdict, failures, bundle.BreakingPoint)
 }
 
-// arrivalWindow is how long the fleet took to arrive: from the run's start to
-// the moment the last machine finished registering.
-//
-// It is the denominator of the run's arrival rate, and the run's own wall clock
-// is not. A run keeps its fleet connected so the generator beside it has
-// machines to open sessions against, so the clock is minutes of holding after a
-// second of arriving — dividing by it reports the hold under the arrival's
-// name, and a fleet that entirely arrived reads as one that never did.
-//
-// A machine that failed has no arrival, so it cannot be the last one. A fleet
-// where nobody arrived has no window at all rather than a zero-length one: zero
-// is the fastest run ever recorded, and this is the opposite of a run.
+// arrivalWindow runs from the start to the last successful registration; the wall clock would
+// include the hold.
 func arrivalWindow(results []agentResult, start time.Time) time.Duration {
 	var window time.Duration
 	for _, r := range results {
@@ -355,8 +274,7 @@ func arrivalWindow(results []agentResult, start time.Time) time.Duration {
 	return window
 }
 
-// reportResults prints the timing summary and returns the number of failed
-// agents, so the caller can set the process exit code.
+// reportResults prints the timing summary and returns the number of failed agents.
 func reportResults(results []agentResult, start time.Time, totalDur time.Duration, agents int,
 	registration *ServerRegistration,
 ) int {
@@ -370,17 +288,13 @@ func reportResults(results []agentResult, start time.Time, totalDur time.Duratio
 	for _, r := range results {
 		switch {
 		case !r.arrivedAt.IsZero():
-			// It got in. Whether its connection survived to the wind-down is a
-			// different fact, counted as a severance; reading it here counts a
-			// machine that carried load for half an hour as one that never
-			// turned up, and takes its timings out of the two series below —
-			// the slow ones first, so the harder the run the faster it reads.
+			// A machine that arrived is a success even if its connection later broke; that is a
+			// severance, counted elsewhere.
 			successes++
 			connectTimes = append(connectTimes, r.connectDur)
 			hsTimes = append(hsTimes, r.handshakeDur)
 		case errors.Is(r.err, context.Canceled):
-			// The run stood this machine down before it registered, so it never
-			// asked the system anything. See FleetOutcomes.StoodDown.
+			// The run stood this machine down before it registered; see FleetOutcomes.StoodDown.
 			stoodDown++
 		default:
 			failures++
@@ -397,8 +311,7 @@ func reportResults(results []agentResult, start time.Time, totalDur time.Duratio
 	}
 
 	if successes > 0 {
-		// Connect and handshake are the generator's own side of the wire, and it
-		// is the only side that can see them.
+		// Connect and handshake are visible only to the generator.
 		fmt.Printf("\nConnect:     p50=%s  p95=%s  p99=%s\n",
 			percentile(connectTimes, 50), percentile(connectTimes, 95), percentile(connectTimes, 99))
 		fmt.Printf("Handshake:   p50=%s  p95=%s  p99=%s\n",
@@ -412,14 +325,8 @@ func reportResults(results []agentResult, start time.Time, totalDur time.Duratio
 	return failures
 }
 
-// printRegisterLine publishes registration as the server measured it, where the
-// device row lands.
-//
-// A run the server did not answer publishes no line at all. The harness has its
-// own timing around the register frame, but that clock stops at a local send
-// buffer: it reports microseconds whatever the write behind it costs, so it
-// cannot say anything about registration, and two gate ceilings named after
-// this line would go on sitting where they sat. An absent figure is honest.
+// printRegisterLine prints the server-measured registration timing, or nothing when the server
+// gave none; the local clock stops at a send buffer.
 func printRegisterLine(registration *ServerRegistration) {
 	if registration == nil || !registration.Measured() {
 		return
@@ -430,20 +337,13 @@ func printRegisterLine(registration *ServerRegistration) {
 		millisDuration(registration.QuantileMs(0.99)))
 }
 
-// millisDuration renders a millisecond figure in the same duration form the
-// percentile lines beside it use, so one parser reads the whole block.
+// millisDuration uses the duration form of the percentile lines so one parser reads the block.
 func millisDuration(ms float64) time.Duration {
 	return time.Duration(ms * float64(time.Millisecond)).Round(time.Microsecond)
 }
 
-// printErrorSamples says what a failed run failed at, commonest first.
-//
-// It counts kinds rather than messages. Every failure names the machine it
-// happened to and most name the address it was dialling, so counting whole
-// messages makes every failure unique: a ladder that lost 15,891 machines out
-// of 16,000 printed three of them, each marked as having happened once, in
-// whatever order the map handed them over. The block could not answer the one
-// question it exists for.
+// printErrorSamples groups failures by kind, commonest first; whole messages name their machine
+// and are unique.
 func printErrorSamples(results []agentResult) {
 	byKind := map[string]int{}
 	sample := map[string]string{}
@@ -468,8 +368,7 @@ func printErrorSamples(results []agentResult) {
 	for kind := range byKind {
 		kinds = append(kinds, kind)
 	}
-	// Commonest first, and by name where two are equally common, so the same
-	// run prints the same block twice running.
+	// Name order breaks ties so a run prints the same block every time.
 	sort.Slice(kinds, func(i, j int) bool {
 		if byKind[kinds[i]] != byKind[kinds[j]] {
 			return byKind[kinds[i]] > byKind[kinds[j]]
@@ -487,8 +386,6 @@ func printErrorSamples(results []agentResult) {
 	}
 }
 
-// plural is a count and its noun, so a block that found one of something does
-// not report it as one kinds.
 func plural(n int, noun string) string {
 	if n == 1 {
 		return fmt.Sprintf("%d %s", n, noun)
@@ -496,34 +393,22 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// errorKindsPrinted is how many kinds the block names. Enough to show a run
-// failing two ways at once, and the line above the list says how many there
-// were in total, so a short list is never the whole story by accident.
+// errorKindsPrinted caps the list; the header line above it states the total.
 const errorKindsPrinted = 5
 
-// errorKindNoise is the part of a message that names which machine it happened
-// to rather than what happened: the run's own numbering, and the long hex of a
-// credential or an identifier in a path.
+// errorKindNoise matches the run's numbering and the long hex of credentials and identifiers.
 var errorKindNoise = regexp.MustCompile(`[0-9a-f]{8,}|[0-9]+`)
 
-// errorKind is one failure with the machine taken out of it, so two machines
-// failing the same way count as one kind.
+// errorKind strips the machine from a failure so equal failures count as one kind.
 func errorKind(message string) string {
 	return errorKindNoise.ReplaceAllString(message, "#")
 }
 
-// defaultHostnamePrefix is the name a load run's machines carry. Its cleanup
-// selects on it, so it is not a thing to change casually — a run whose machines
-// are named something else leaves every one of them behind.
+// defaultHostnamePrefix is the name cleanup selects machines by.
 const defaultHostnamePrefix = "soak"
 
-// planAgents lays out n agents across tenants cohorts deterministically, so a
-// soak run is reproducible: tenant index cycles round-robin and each hostname
-// carries its tenant + agent index.
-//
-// The prefix is the run's own, because two runs sharing a name cannot be told
-// apart afterwards: neither can count its own machines while they are up, and
-// neither can remove them without removing the other's.
+// planAgents cycles tenants round-robin so a run is reproducible; a per-run prefix keeps its
+// machines distinguishable.
 func planAgents(n, tenants int, prefix string) []tenantAgent {
 	if prefix == "" {
 		prefix = defaultHostnamePrefix

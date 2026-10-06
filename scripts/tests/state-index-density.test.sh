@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
-# Enforces that the state files stay pointers, not a second copy of the ADRs.
-#
-# The ADR is the only home of a decision and its why. decisions.md is an index,
-# phases.md is a ledger, techdebt.md is a register — each carries just enough
-# text to let a reader choose a link. Left ungated these files grew to 322 KB of
-# paraphrase: 85% of a decisions row's distinctive terms already appeared in the
-# ADR it pointed at, but verbatim overlap was 5%, so the two copies drifted
-# independently and no diff ever showed it.
-#
-# Caps are on prose. Links, ADR numbers, phase names, dates and table scaffolding
-# do not count — a row's job is to say which decision this is and whether it
-# still stands. See .claude/rules/plans-and-adrs.md.
+# Holds each decisions and phases row to a cap on prose, and the index to one row per record.
+# Links and table scaffolding do not count toward a cap.
 
 set -euo pipefail
 
@@ -38,15 +28,13 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Prose length of a table cell: link targets stripped to their text, so a long
-# path never counts against a row.
+# Prose length of a table cell, with each link counted as its text only.
 prose_length() {
   printf '%s' "$1" | sed -E 's/\[([^]]*)\]\([^)]*\)/\1/g' | LC_ALL=C.UTF-8 awk '{ print length($0) }'
 }
 
 echo "state index density:"
 
-# --- Rule 1: decisions.md rows are capped, and cell 2 is the prose.
 over=0
 rows=0
 while IFS= read -r line; do
@@ -66,7 +54,6 @@ elif [ "$over" -eq 0 ]; then
   pass "all $rows decisions.md rows are within $DECISION_CAP characters of prose"
 fi
 
-# --- Rule 2: phases.md rows are capped on the same measure.
 over=0
 phase_rows=0
 while IFS= read -r line; do
@@ -89,9 +76,6 @@ elif [ "$over" -eq 0 ]; then
   pass "all $phase_rows phases.md rows are within $PHASE_CAP characters of prose"
 fi
 
-# --- Rule 3: the index is complete in both directions.
-# Nothing checked this before, so an ADR could ship with no row and a row could
-# outlive its file, and neither was visible until somebody went looking.
 missing_row=0
 for adr in "$ADR_DIR"/ADR-*.md; do
   number="$(basename "$adr" | cut -c5-7)"
@@ -108,7 +92,6 @@ done
 
 dangling=0
 while IFS= read -r number; do
-  # ADR-001 … ADR-012 live in the combined log rather than as per-file records.
   if [ "$number" -le 12 ] 2>/dev/null; then
     continue
   fi

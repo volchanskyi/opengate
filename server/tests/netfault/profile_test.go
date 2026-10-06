@@ -1,6 +1,3 @@
-// Which impairments the shaper will accept, and which it refuses at the door.
-// A scenario that mistyped its instruction has to fail where it was typed,
-// rather than running as whatever the shaper made of the number.
 package main
 
 import (

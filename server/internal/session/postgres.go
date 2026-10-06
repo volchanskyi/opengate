@@ -10,9 +10,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// PostgresSessions implements [Repository] against PostgreSQL. The db
-// package owns the agent_sessions schema and migrations; this adapter only
-// issues queries.
+// PostgresSessions implements [Repository] against PostgreSQL.
 type PostgresSessions struct {
 	db *sql.DB
 }
@@ -72,9 +70,7 @@ func (p *PostgresSessions) Delete(ctx context.Context, token string) error {
 	})
 }
 
-// DeleteRelaySession implements [Repository]. Relay teardown has no request
-// tenant, so this path supplies an admin scope and identifies the row by the
-// globally unique token across tenants.
+// DeleteRelaySession implements [Repository] under an admin scope, keyed by the unique token.
 func (p *PostgresSessions) DeleteRelaySession(ctx context.Context, token string) error {
 	ctx = dbtx.WithDefaultTenant(ctx, true)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
@@ -93,13 +89,11 @@ func (p *PostgresSessions) DeleteRelaySession(ctx context.Context, token string)
 	})
 }
 
-// DeleteStale implements [Repository]. It scopes itself to the seeded default
-// tenant with admin rights, which the RLS policy widens to every tenant, so
-// the fleet-wide sweep runs outside any request tenant.
+// DeleteStale implements [Repository] with default-tenant admin rights,
+// which the RLS policy widens to every tenant.
 func (p *PostgresSessions) DeleteStale(ctx context.Context, cutoff time.Time, keep []string) (int, error) {
 	if keep == nil {
-		// A nil slice binds as SQL NULL, and `token = ANY(NULL)` is NULL rather
-		// than false — which would spare every row instead of none.
+		// A nil slice binds as SQL NULL, which makes `token = ANY(NULL)` NULL and spares every row.
 		keep = []string{}
 	}
 	ctx = dbtx.WithDefaultTenant(ctx, true)

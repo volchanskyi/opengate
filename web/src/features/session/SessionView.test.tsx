@@ -5,7 +5,6 @@ import { useConnectionStore } from './state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
 import { SessionView } from './SessionView';
 
-// Mock child views to avoid heavy dependencies (xterm, canvas, etc.)
 vi.mock('../remote-desktop/RemoteDesktopView', () => ({
   RemoteDesktopView: () => <div data-testid="desktop-view">Desktop</div>,
 }));
@@ -77,8 +76,6 @@ describe('SessionView', () => {
     expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
   });
 
-  // Leaving the page disconnects too, through the effect's cleanup, but only
-  // after the device list has rendered. The button disconnects first.
   it('the Disconnect button disconnects before leaving for the device list', () => {
     const disconnect = vi.fn();
     useConnectionStore.setState({ connect: vi.fn(), disconnect });
@@ -142,7 +139,7 @@ describe('SessionView', () => {
   });
 
   it('connection error banner appears when connectionError is set', () => {
-    // Override connect to a no-op so the real implementation doesn't reset error during mount.
+    // A stubbed connect leaves the preset error in place during mount.
     useConnectionStore.setState({
       state: 'connected',
       error: 'permission denied',
@@ -163,7 +160,6 @@ describe('SessionView', () => {
       disconnect: vi.fn(),
     });
     renderWithRouter(['Terminal']);
-    // The error banner element has class "bg-red-900/50".
     const banner = Array.from(document.querySelectorAll('div')).find((el) =>
       el.className.includes('bg-red-900/50'),
     );
@@ -191,7 +187,6 @@ describe('SessionView', () => {
     const disconnectFn = vi.fn();
     useConnectionStore.setState({ disconnect: disconnectFn, state: 'connected', error: null, transport: null });
 
-    // Reuse a mocked SessionToolbar that exposes a disconnect button.
     const router = render(
       <MemoryRouter initialEntries={[{ pathname: '/sessions/tok', state: { relayUrl: 'ws://x', capabilities: ['Terminal'] } }]}>
         <Routes>
@@ -200,8 +195,6 @@ describe('SessionView', () => {
         </Routes>
       </MemoryRouter>,
     );
-    // SessionToolbar is mocked — we can't trigger the user-facing disconnect.
-    // Validate the navigation handler via the component's effect cleanup path:
     router.unmount();
     expect(disconnectFn).toHaveBeenCalled();
   });
@@ -209,7 +202,6 @@ describe('SessionView', () => {
   it('does not call connect when relayUrl is missing from location state', () => {
     const connectFn = vi.fn();
     useConnectionStore.setState({ connect: connectFn, state: 'connected', error: null, transport: null });
-    // Render with no state at all.
     render(
       <MemoryRouter initialEntries={['/sessions/tok']}>
         <Routes>

@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
-# The smoke run that goes through the public edge, held to the thing it claims.
-#
-# Two of its checks assert an absence — that the exposition and the profiler are
-# not what the edge answers with. An absence is what a refused request looks
-# like too, so both of them pass when nothing answered at all: an unresolvable
-# name, a closed port, a TLS handshake against a plain-HTTP edge. That is the
-# false green ci-cd-determinism rules against, and it is not hypothetical — the
-# staging edge is HTTP-only and its Ingress matches a host with no public record,
-# so the run reached nothing and reported the boundary green twice.
-#
-# So the script is driven against a stub edge here: one that answers soundly,
-# one that answers with the exposition, and one that does not answer at all.
-# A boundary check has to pass on the first, fail on the second, and fail on the
-# third.
+# The smoke run drives a stub edge that answers soundly, one that serves the exposition,
+# and one that does not answer; the boundary checks pass only on the first.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,11 +37,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- the stub edge ------------------------------------------------------------
-#
-# Mirrors the shape the real ingress presents: one catch-all rule that sends
-# every unrouted path to the SPA, which is why a boundary check has to read the
-# body rather than the status.
+# The stub mirrors the ingress: one catch-all rule sends every unrouted path to the SPA.
 
 cat >"$WORK/edge.py" <<'PYEOF'
 import sys
@@ -151,9 +135,7 @@ start_stub() {
   local mode="$1"
   [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null || true
   rm -f "$WORK/port"
-  # Detached from the caller's stdout: this runs inside a command
-  # substitution, which waits for the pipe to close and would otherwise wait on
-  # a server that never exits.
+  # Stdout is detached so the calling command substitution does not wait on the server.
   python3 "$WORK/edge.py" "$mode" "$WORK/port" >/dev/null 2>>"$WORK/stub.err" &
   STUB_PID=$!
   for _ in $(seq 1 100); do
@@ -167,9 +149,7 @@ start_stub() {
   return 1
 }
 
-# A port nothing listens on: taken the same way the stub takes one, then given
-# straight back. This is the shape of the CI failure — a name that resolves
-# somewhere with nothing behind it.
+# The port is taken as the stub takes one, then released, so nothing listens on it.
 closed_port() {
   python3 - <<'PYEOF'
 import socket
@@ -182,22 +162,17 @@ print(port)
 PYEOF
 }
 
-# run_smoke OUT_FILE ARGS... — runs the script, records its output, returns its
-# exit status.
 run_smoke() {
   local out="$1"
   shift
   bash "$SMOKE" "$@" >"$out" 2>&1
 }
 
-# check_line OUT VERDICT NAME — did the named check report the given verdict?
 check_line() {
   grep -qF "$2: $3" "$1"
 }
 
 echo "smoke test through the edge:"
-
-# --- a sound edge: every check passes -----------------------------------------
 
 PORT="$(start_stub sound)"
 OUT="$WORK/sound.log"
@@ -224,8 +199,6 @@ else
   fail "--edge-address must reach the edge behind a name DNS cannot resolve"
 fi
 
-# --- a breached edge: the boundary checks fail --------------------------------
-
 PORT="$(start_stub breached)"
 OUT="$WORK/breached.log"
 if run_smoke "$OUT" --domain edge.test --mode staging \
@@ -247,14 +220,7 @@ else
   fail "an edge serving the profiler must fail its boundary check"
 fi
 
-# --- a breached edge whose exposition is the size a real one is ---------------
-#
-# The verdict must not depend on how much of the body the check reads. A reader
-# that stops at the match leaves the rest unwritten, and a shell pipeline scores
-# that unwritten remainder as the reader's own failure — so the check comes back
-# false on the one body it exists to catch, and the bigger the exposition the
-# more reliably it does. Which is backwards: an exposition is small only while
-# the server is new, and a leak matters most once it is not.
+# The verdict holds for a large exposition, where a reader that stops at the match loses it.
 
 PORT="$(start_stub breached-large)"
 OUT="$WORK/breached-large.log"
@@ -271,10 +237,7 @@ else
   fail "an edge serving a full-size exposition must fail its boundary check"
 fi
 
-# --- an edge that does not answer: the boundary checks must not pass ----------
-#
-# The whole point. Nothing is listening, so every request comes back empty, and
-# an absence-shaped check reads that as the absence it wanted.
+# Nothing listens, so every request comes back empty and an absence-shaped check must not pass.
 
 kill "$STUB_PID" 2>/dev/null || true
 STUB_PID=""
@@ -305,11 +268,7 @@ else
   pass "the relay route does not pass on a request nothing answered"
 fi
 
-# --- the scheme --------------------------------------------------------------
-#
-# Production's edge terminates TLS and is reached by name alone, so a domain run
-# that is told nothing must still ask for https. Asserted against a plain-HTTP
-# stub, which such a run cannot talk to.
+# A domain run told nothing asks for https, which the plain-HTTP stub cannot serve.
 
 PORT="$(start_stub sound)"
 OUT="$WORK/scheme.log"
@@ -326,8 +285,6 @@ else
   pass "the exposition boundary does not pass on a handshake that failed"
 fi
 
-# --- the flag belongs to the domain run --------------------------------------
-
 OUT="$WORK/misuse.log"
 if run_smoke "$OUT" --host 127.0.0.1 --port 1 --metrics-port 2 \
   --mode local --edge-address 127.0.0.1; then
@@ -340,13 +297,8 @@ else
   fi
 fi
 
-# --- the port-forward run still reads the listener directly -------------------
-#
-# The same stub stands in for both halves of the boundary. Through the edge, an
-# exposition on /metrics is the breach; on the forwarded internal port it is
-# exactly what the run is there to find. So the run that names --host has to
-# pass against the very responses the run that names --domain fails on, and this
-# is what says the shared curl arguments did not leak from one into the other.
+# Through the edge an exposition on /metrics is the breach; on the forwarded internal port it is
+# expected, so the --host run passes on responses the --domain run fails.
 
 PORT="$(start_stub breached)"
 OUT="$WORK/forwarded.log"
@@ -365,16 +317,8 @@ else
   fail "the forwarded run must read the exposition and the profiler off the listener"
 fi
 
-# --- a server that has answered nothing yet ----------------------------------
-#
-# A labelled counter publishes no sample until one of its label sets is
-# incremented, so a freshly started server's exposition carries its gauges and
-# none of its request counters. Both halves of the boundary have to survive
-# that: the forwarded run must still recognise the exposition it is looking at,
-# and the edge run must still call it a breach. Keying either on the request
-# counter gets the first wrong on a restarted server and the second wrong on a
-# newly rolled-out one — the more dangerous of the two, since it is the
-# security boundary reporting green.
+# A fresh server's exposition carries gauges and no request counters, and both runs must
+# still recognise it.
 
 PORT="$(start_stub quiet)"
 OUT="$WORK/quiet-forwarded.log"

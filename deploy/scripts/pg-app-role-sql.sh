@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Emit the psql input that reconciles the opengate_app runtime role.
-#
-# The app-role password is delivered as a `\set` meta-command on stdin rather
-# than as a `psql --set=app_password=…` flag: a command line is readable by any
-# process sharing the Postgres pod's PID namespace, and `kubectl exec` carries
-# the command verbatim in the API server's audit record. stdin crosses neither
-# boundary.
-#
+
+# Emits the psql input that reconciles the opengate_app runtime role.
+# The password travels as a `\set` command on stdin, out of process lists and audit records.
+
 # Usage:
 #   POSTGRES_APP_PASSWORD=… deploy/scripts/pg-app-role-sql.sh \
 #     | kubectl -n NS exec -i statefulset/REL-postgres -- \
@@ -16,9 +12,7 @@ set -euo pipefail
 
 : "${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}"
 
-# psql's meta-command lexer processes backslash escapes inside a single-quoted
-# argument, so a backslash must be doubled before a quote is escaped — the
-# reverse order would re-escape the backslashes this step introduces.
+# psql reads escapes inside quotes: backslashes are doubled first, then quotes are escaped.
 escaped="${POSTGRES_APP_PASSWORD//\\/\\\\}"
 escaped="${escaped//\'/\\\'}"
 

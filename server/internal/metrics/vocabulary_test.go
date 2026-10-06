@@ -1,6 +1,5 @@
-// This file is deliberately the package's external test: it reaches into the
-// domain packages that produce the label values, and those packages already
-// import the metrics package.
+// This external test package imports the domain packages that produce the label values,
+// which themselves import metrics.
 package metrics_test
 
 import (
@@ -17,15 +16,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
-// The label vocabularies are declared in two places — here, where the series are
-// exported, and in the domain, where the values come from. That is a seam, so it
-// gets a test: a status added to the incident lifecycle or a state added to
-// coverage accounting must not silently stop being exported. A gauge that is
-// simply missing a value reads as "no data", which is what nobody notices.
-
-// TestOpenIncidentStatusesAreTheIncidentLifecycleMinusResolved pins the exported
-// statuses to the lifecycle itself. A resolved incident is not open, so it is
-// not a series on a gauge that says it is.
 func TestOpenIncidentStatusesAreTheIncidentLifecycleMinusResolved(t *testing.T) {
 	t.Parallel()
 
@@ -42,10 +32,6 @@ func TestOpenIncidentStatusesAreTheIncidentLifecycleMinusResolved(t *testing.T) 
 		"every status an incident can be open in is exported, and only those")
 }
 
-// TestRuleCoverageStatesAreTheWholeFleetSplit pins the exported states to the
-// split coverage accounting actually produces. The four together always add up
-// to the fleet, so exporting three of them would make a rule look like it was
-// watching a smaller estate than it is.
 func TestRuleCoverageStatesAreTheWholeFleetSplit(t *testing.T) {
 	t.Parallel()
 
@@ -62,9 +48,6 @@ func TestRuleCoverageStatesAreTheWholeFleetSplit(t *testing.T) {
 		"every state a device can be in for a rule is exported, and only those")
 }
 
-// TestSuppressionReasonsAreExportedOutcomes keeps the one investigation counter
-// that already ships keyed on the store's own vocabulary rather than on a
-// spelling repeated by hand at the call site.
 func TestSuppressionReasonsAreExportedOutcomes(t *testing.T) {
 	t.Parallel()
 
@@ -72,10 +55,6 @@ func TestSuppressionReasonsAreExportedOutcomes(t *testing.T) {
 		"the suppression reason label is the outcome the store reports")
 }
 
-// TestEveryAlertSuppressionReasonStartsAtZero keeps the refusal panel and the
-// production rule over it reading a series from start-up. The counter appeared
-// only after the first refusal, so the rule watching for a customer's spent
-// ceiling read nothing at all until the thing it watches for had happened.
 func TestEveryAlertSuppressionReasonStartsAtZero(t *testing.T) {
 	t.Parallel()
 
@@ -86,10 +65,6 @@ func TestEveryAlertSuppressionReasonStartsAtZero(t *testing.T) {
 		"every reason is published before any alert is refused")
 }
 
-// TestNoShippedRuleClaimsTheCatchAllLabel keeps the unshipped-rule label a
-// signal rather than a collision. It is meant to appear only when something
-// reached the counter that should not have, and a rule genuinely named that
-// would bury the one inside the other.
 func TestNoShippedRuleClaimsTheCatchAllLabel(t *testing.T) {
 	t.Parallel()
 

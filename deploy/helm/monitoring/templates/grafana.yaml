@@ -8,8 +8,7 @@ metadata:
   labels:
     {{- include "mon.labels" . | nindent 4 }}
 data:
-  # Templated from deploy/grafana/provisioning/datasources/datasources.yml with
-  # URLs repointed at the in-cluster Services (ADR-030).
+  # Templated from deploy/grafana/provisioning/datasources/datasources.yml with in-cluster URLs.
   datasources.yml: |
     apiVersion: 1
     datasources:
@@ -126,15 +125,8 @@ spec:
               mountPath: /etc/grafana/provisioning/alerting
               readOnly: true
       volumes:
-        # Ephemeral, because the free-tier block-volume allowance is spent on
-        # things that have to survive. Everything this Grafana serves is read
-        # from a file on every start: the datasources, the dashboards, the alert
-        # rules, the destination they route to, and the admin password out of the
-        # Secret. What lives here and only here is what Grafana writes about
-        # itself — the annotations somebody drew on a graph, the history of which
-        # alert was firing when, and anything created through the user interface.
-        # A file-provisioned destination is read-only in that interface for
-        # exactly this reason: what cannot be changed there cannot be lost here.
+        # Ephemeral: all configuration is re-read from files at start, so only annotations
+        # and alert history live here.
         - name: data
           emptyDir: {}
         - name: tmp
@@ -142,8 +134,7 @@ spec:
         - name: datasources
           configMap:
             name: {{ $name }}-datasources
-        # Created out-of-band from the canonical dashboard files so dashboard JSON
-        # files + alerting rules are not duplicated into the chart (see NOTES.txt).
+        # Built from the canonical dashboard files, so the chart holds no copy of them.
         - name: dashboards
           configMap:
             name: {{ .Values.grafana.dashboardsConfigMap }}

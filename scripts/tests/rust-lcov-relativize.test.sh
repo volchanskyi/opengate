@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/rust-lcov-relativize.sh.
-#
-# The defect this closes was invisible for the life of the project: every Rust
-# file's coverage was uploaded and dropped, because the report named each file by
-# an absolute host path and every scanner reads the tree at a different mount
-# point. So the read-back matters as much as the rewrite — a report that comes
-# out still absolute, or naming nothing at all, has to fail here rather than
-# upload and be discarded.
+# A report that comes out still absolute, or naming no source, fails so it is never uploaded.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,7 +37,6 @@ run_check() {
 
 echo "rust-lcov-relativize:"
 
-# The shape cargo-llvm-cov actually writes.
 cat >"$WORK/lcov.info" <<'LCOV'
 TN:
 SF:/home/ivan/opengate/agent/crates/mesh-agent-core/src/update.rs
@@ -68,7 +60,6 @@ assert_eq "no absolute path survives" "0" "$(grep -c '^SF:/' "$WORK/lcov.info" |
 assert_eq "the coverage counts are untouched" "DA:1,3 DA:2,0 DA:1,7" \
   "$(grep '^DA:' "$WORK/lcov.info" | tr '\n' ' ' | sed 's/ $//')"
 
-# A trailing slash on the root is the same root.
 cat >"$WORK/lcov.info" <<'LCOV'
 SF:/build/repo/agent/crates/a/src/lib.rs
 DA:1,1
@@ -79,14 +70,11 @@ assert_eq "a root given with a trailing slash is the same root" "0" "$STATUS"
 assert_eq "and the path is still relativized" "SF:agent/crates/a/src/lib.rs" \
   "$(grep '^SF:' "$WORK/lcov.info")"
 
-# Running it twice must not mangle an already-relative report.
 run_check /build/repo
 assert_eq "a second run leaves an already-relative report alone" "0" "$STATUS"
 assert_eq "and the path is unchanged" "SF:agent/crates/a/src/lib.rs" \
   "$(grep '^SF:' "$WORK/lcov.info")"
 
-# The read-back: a path under some other root cannot be relativized, and a report
-# that still names one would have its coverage silently dropped.
 cat >"$WORK/lcov.info" <<'LCOV'
 SF:/somewhere/else/agent/crates/a/src/lib.rs
 DA:1,1
@@ -100,17 +88,14 @@ else
   fail "and says which paths would have been dropped"
 fi
 
-# A report naming no source at all imports coverage for nothing.
 printf 'TN:\n' >"$WORK/lcov.info"
 run_check /build/repo
 assert_eq "a report naming no source fails" "1" "$STATUS"
 
-# An absent report is a generation failure, not a clean run.
 rm -f "$WORK/lcov.info"
 run_check /build/repo
 assert_eq "an absent report fails" "1" "$STATUS"
 
-# Both arguments are required; guessing a root would silently rewrite nothing.
 STATUS=0
 "$CHECK" >/dev/null 2>&1 || STATUS=$?
 assert_eq "no arguments is a usage error" "2" "$STATUS"

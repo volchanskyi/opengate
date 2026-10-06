@@ -272,10 +272,7 @@ groups:
               to: 0
             datasourceUid: VictoriaMetrics
             model:
-              # Seconds since the newest server process started, read off the
-              # start time itself. A count of changes to that series also counts
-              # a new series' first reading, so it fired whenever the series'
-              # labels changed with the process untouched.
+              # Seconds since the newest server process started, from its start-time series.
               expr: >-
                 time() - max(process_start_time_seconds{job="opengate-server",namespace="opengate"})
               intervalMs: 1000
@@ -377,11 +374,8 @@ groups:
               to: 0
             datasourceUid: VictoriaMetrics
             model:
-              # What the program holds, against its own limit. A working set
-              # also counts file cache the kernel reclaims on demand, which put
-              # Loki at 93% of its limit while it held under a third of it.
-              # Resident memory is the one per-program reading this node gives;
-              # its memory-pressure and kernel-usage readings are zero.
+              # Resident memory against the container limit; a working set also counts reclaimable
+              # file cache, and this node reports no per-program memory-pressure reading.
               expr: >-
                 max by (namespace, pod, container) (
                   container_memory_rss{container!="",container!="POD"}
@@ -402,9 +396,7 @@ groups:
               type: threshold
               expression: B
               conditions:
-                # A working set hovering at the line would fire and resolve on
-                # every evaluation. Once firing, the alert holds until the
-                # container is back under 70%.
+                # Once firing, the alert holds until the container is back under 70%.
                 - evaluator:
                     type: gt
                     params: [0.8]

@@ -8,9 +8,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// PostgresUsers implements [UserRepository] against PostgreSQL. The db
-// package owns the users schema and migrations; this adapter only issues
-// queries.
+// PostgresUsers implements [UserRepository] against PostgreSQL.
 type PostgresUsers struct {
 	db *sql.DB
 }
@@ -59,7 +57,7 @@ func (p *PostgresUsers) Get(ctx context.Context, id UserID) (*User, error) {
 func (p *PostgresUsers) GetByEmail(ctx context.Context, email string) (*User, error) {
 	scopeCtx := ctx
 	if _, ok := dbtx.TenantFromContext(ctx); !ok {
-		// Login is a pre-tenant lookup. Use policy-based admin scope, not BYPASSRLS.
+		// Login runs before a tenant is known, so the lookup uses the policy-based admin scope.
 		scopeCtx = dbtx.WithDefaultTenant(ctx, true)
 	}
 	var user *User

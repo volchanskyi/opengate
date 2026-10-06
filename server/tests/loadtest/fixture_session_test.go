@@ -7,10 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// How a run gets the administrator session it needs before it can build
-// anything: signing in where an account exists, and being the first account
-// where none does.
-
 func TestFixtureClientSignsInBeforeItBuilds(t *testing.T) {
 	api := &fakeAPI{}
 	client := newFixtureClient(t, api)
@@ -20,9 +16,6 @@ func TestFixtureClientSignsInBeforeItBuilds(t *testing.T) {
 	assert.Equal(t, "operator-token", client.Token())
 }
 
-// An empty stack has no administrator to sign in as. The first account the
-// server sees becomes one, which is how a fresh install bootstraps and how a
-// throwaway stack gets its session.
 func TestFixtureClientBootstrapsTheFirstAccountOnAnEmptyStack(t *testing.T) {
 	api := &fakeAPI{}
 	client := newFixtureClient(t, api)
@@ -57,7 +50,5 @@ func TestFixtureClientReportsARefusedSignIn(t *testing.T) {
 
 	err := client.SignIn("admin@service.invalid", "secret")
 	require.Error(t, err)
-	// A run that cannot sign in builds nothing, so the message has to say that
-	// rather than leaving every later call to fail on a missing token.
 	assert.Contains(t, err.Error(), "sign in")
 }

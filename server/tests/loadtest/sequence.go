@@ -4,61 +4,25 @@ import (
 	"time"
 )
 
-// A profile declares phases and a run has to walk them.
-//
-// Running a flat count for a fixed time and calling it a profile measures one
-// thing: a fleet arriving all at once against a cold server. That is a real
-// event — a site whose link came back — but it is not the everyday shape, and a
-// system that absorbs a step change and one that absorbs a climb fail in
-// different ways. The phases exist so a run can ask for either.
-//
-// The walk is separated from the dialling. A fleet here is anything that can be
-// told to hold a number of machines connected, which lets a whole six-hour
-// profile be stepped through in a test without a network and without a wait,
-// and lets the boundaries a bundle records be exact rather than approximately
-// what the clock happened to say.
-
-// rampSteps is how many instructions a phase's climb is broken into. It is a
-// count rather than an interval so a one-second phase and a six-hour one are
-// both climbs rather than one climb and one step.
+// rampSteps is how many instructions a phase's climb is broken into, so a one-second phase
+// and a six-hour one are both climbs.
 const rampSteps = 10
 
-// FleetOutcomes is the running tally of what a fleet's machines have seen. It
-// is cumulative rather than per-phase, and a phase is the difference between
-// two readings of it.
+// FleetOutcomes is the cumulative tally of what a fleet's machines have seen; a phase is the
+// difference between two readings of it.
 type FleetOutcomes struct {
-	// Arrived is machines that connected, handshook and registered, counted at
-	// the moment they did. A fleet holds its machines long past the phase they
-	// arrived in, so counting them when their lives end counts them in a phase
-	// they had nothing to do with — or, for a fleet held to the end of the
-	// walk, in none at all.
+	// Arrived is machines that connected, handshook and registered, counted at that moment.
 	Arrived int64
-	// Failed is machines that never reached registered, counted when their
-	// lives end, which is the first moment anything knows. A machine that
-	// arrived and was later cut off is a fault rather than one of these.
+	// Failed is machines that never reached registered, counted when their lives end.
 	Failed int64
-	// Severed is machines whose held connection went away underneath them,
-	// which is the only detector of a fleet cut off mid-run.
+	// Severed is machines whose held connection went away underneath them.
 	Severed int64
-	// Rejected is refusals the server made on purpose — a spent credential, a
-	// rate past a declared ceiling. Counting those as faults makes a correctly
-	// enforced limit look like a defect and buries the real ones.
+	// Rejected is refusals the server made on purpose, such as a spent credential or a rate ceiling.
 	Rejected int64
-	// Departed is connections that had registered and have since ended, however
-	// they ended. It is the other end of a machine being attached rather than
-	// of a machine existing — one that flaps counts a departure each time — and
-	// it is what says how much of a difference between two counts of one
-	// population is the population itself changing between the two readings.
+	// Departed is registered connections that have since ended, however they ended.
 	Departed int64
-	// StoodDown is machines the run cancelled before they ever registered,
-	// which is what a wind-down does to every start still reaching for the
-	// server when the level comes down.
-	//
-	// They are the run's own doing and say nothing about the system, so they
-	// are neither an arrival nor a failure to arrive — the rule the ramp
-	// already states about a machine let go before its turn, kept here where
-	// the tally is. Counted rather than dropped, because a phase that stood
-	// most of its fleet down measured less than it looks like it did.
+	// StoodDown is machines the run cancelled before they registered; they are neither an
+	// arrival nor a failure to arrive.
 	StoodDown int64
 }
 
@@ -66,12 +30,7 @@ type FleetOutcomes struct {
 func (o FleetOutcomes) Attempted() int64 { return o.Arrived + o.Failed }
 
 // Measured says whether the error rate beside it is a reading of anything.
-//
-// A refusal counts in neither term above, so a fleet refused entirely at a
-// declared ceiling has attempted nothing and its error rate comes back as zero
-// through the guard against dividing by nothing rather than through anything
-// having been measured. That zero and a clean run's zero are the same number and
-// different facts, and a reader cannot tell them apart without this.
+// A fleet refused entirely at a declared ceiling attempted nothing, so its zero rate is a guard.
 func (o FleetOutcomes) Measured() bool { return o.Attempted() > 0 }
 
 // Since is what happened between an earlier reading and this one.
@@ -96,26 +55,13 @@ func (o FleetOutcomes) ErrorRate() float64 {
 
 // Fleet is whatever holds machines connected during a run.
 type Fleet interface {
-	// HoldConnected asks for exactly this many machines to be connected. The
-	// window is how long the fleet has to get there, which a real fleet uses to
-	// spread the arrivals it is adding and a test uses to say what it saw.
-	//
-	// It is a window rather than how far into the phase the request is, because
-	// how far in says nothing a fleet can act on: it was passed for the life of
-	// this interface, read by nothing, and every step of every climb went out as
-	// a burst under an offer the profile had written down as a rate.
+	// HoldConnected asks for exactly this many machines to be connected. The window is how
+	// long the fleet has to get there, which a real fleet spends spreading the arrivals.
 	HoldConnected(within time.Duration, target int) error
-	// Connected is how many are actually connected now, which is not always what
-	// was asked for — and the difference is the finding.
+	// Connected is how many are connected now, which can differ from what was asked.
 	Connected() int
-	// ProbeLatency is a round trip taken now: a machine that connects,
-	// handshakes and registers while the phase is at its level.
-	//
-	// It is a fresh arrival rather than a reading off a machine already
-	// connected because the control stream has no reply to a heartbeat, so a
-	// connect-handshake-register is the only live round trip the machine side
-	// has. Zero is a round trip that could not be taken, which is absent rather
-	// than instant.
+	// ProbeLatency is a round trip taken now: a machine that connects, handshakes and registers.
+	// Zero means the round trip could not be taken.
 	ProbeLatency() time.Duration
 	// Outcomes is what the fleet's machines have seen so far.
 	Outcomes() FleetOutcomes
@@ -143,9 +89,7 @@ func NewRealClock() Clock { return realClock{} }
 // holds there for the rest of the phase, and reports what happened.
 func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings PhaseReadings) (PhaseResult, error) {
 	startedAt := clock.Now()
-	// Opened before the climb and closed after the hold, so what the figure
-	// divides is the work the target did in this phase by the time this phase
-	// took.
+	// Each bracket opens before the climb and closes after the hold, covering exactly this phase.
 	closeBusy := readings.Busy.Bracket()
 	closeRoom := readings.Generator.Bracket()
 	closeDrops := readings.Network.Bracket()
@@ -154,24 +98,18 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 		step = phase.Duration.Duration
 	}
 
-	// The tally the phase's own outcomes are the difference from. It is
-	// cumulative across the run, so a phase can only be told apart from the run
-	// around it by bracketing it.
+	// The outcome tally is cumulative, so the phase's own outcomes are the difference from here.
 	began := fleet.Outcomes()
 
 	var samples []time.Duration
 	elapsed := time.Duration(0)
 	for i := 1; i <= rampSteps; i++ {
 		target := levelAt(from, phase.ConnectedAgents, i, rampSteps)
-		// The gap until the next step is what this one has to reach its level
-		// in, so the machines it adds arrive at the rate the phase declares
-		// rather than all at once.
+		// The gap until the next step is the window this step has to reach its level in.
 		if err := fleet.HoldConnected(step, target); err != nil {
 			return PhaseResult{}, err
 		}
-		// A live round trip at each step of the climb, so the phase's tail is
-		// measured over the phase rather than read off whichever machine
-		// happened to finish last — which in a profiled run is none of them.
+		// A live round trip at each climb step measures the tail over the phase itself.
 		if sample := fleet.ProbeLatency(); sample > 0 {
 			samples = append(samples, sample)
 		}
@@ -179,98 +117,63 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 		elapsed += step
 	}
 
-	// Whatever the division left over, so the phase is exactly as long as it
-	// said it would be and the next one starts where this one ended.
+	// The remainder keeps the phase as long as declared, so the next one starts where this ends.
 	if remainder := phase.Duration.Duration - elapsed; remainder > 0 {
 		clock.Sleep(remainder)
 	}
 
-	// When the phase actually ended, which is not when it said it would. A
-	// round trip taken at each step of a climb costs the phase whatever it
-	// costs, and a declared boundary hides that: a sweep leg whose profile
-	// asked for three and a half minutes ran for fifteen and forty-two, with
-	// every phase in its bundle claiming the declaration.
+	// The probes make a phase run longer than declared, so the recorded end is the actual one.
 	finishedAt := clock.Now()
 	saw := fleet.Outcomes().Since(began)
 	seconds := finishedAt.Sub(startedAt).Seconds()
 
-	// Closed on the phase's own boundary, before the census below is allowed to
-	// hold the run still. The work the target does while it catches up with its
-	// own fleet belongs to neither phase, and charging it to this one against
-	// this one's clock reports a busy-ness nobody measured.
+	// The brackets close on the phase's own boundary, before the census holds the run still,
+	// since the target's catch-up belongs to neither phase.
 	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
 	generatorHeadroom, generatorRefused := closeRoom(finishedAt.Sub(startedAt))
 	generatorDrops, targetDrops := closeDrops()
 
-	// The run's own count of its arrived machines, the target's account of the
-	// same population, and the run's count again — in that order, so the
-	// target's answer is bracketed in time by the run's rather than compared
-	// against one taken at a different moment. A phase reporting the run's
-	// count alone reports whether its own wind-down code ran.
-	//
-	// The census is given the count to account for, because the run's count
-	// leads the target's by the target's own admission work and a target that
-	// is merely behind catches up the moment the run stops offering arrivals.
-	// It holds still until it does, and says how long that took.
+	// The run's count, the target's account and the run's count again bracket the target's
+	// answer in time. The census holds still until the target catches up and reports how long.
 	heldBefore := fleet.Connected()
 	departedBefore := fleet.Outcomes().Departed
 	census := readings.Census.Take(func() int {
-		// The same floor the validity rule applies, asked live: what the run was
-		// holding before it asked, less what the fleet has recorded leaving
-		// since. It falls as machines leave, so a fleet shrinking under the
-		// question is not waited on for a catch-up that can never happen.
+		// The count falls as machines leave, so a shrinking fleet is not awaited for a catch-up.
 		return heldBefore - int(fleet.Outcomes().Departed-departedBefore)
 	}, clock)
 	held := fleet.Connected()
 	departedDuring := fleet.Outcomes().Departed - departedBefore
 
 	return PhaseResult{
-		Name:      phase.Name,
-		StartedAt: startedAt,
-		// The reading, so the phase after it starts where this one ended.
+		Name:       phase.Name,
+		StartedAt:  startedAt,
 		FinishedAt: finishedAt,
-		// What the phase's own climb asked for, against what turned up. The
-		// climb is the offer: a phase going from four hundred machines to five
-		// hundred over a minute is offering a hundred arrivals in that minute,
-		// and a phase that winds down offers none.
-		//
-		// Both halves are counts over the phase's own clock, so what they
-		// compare is machines asked for against machines that turned up,
-		// whatever the wall clock did in between.
+		// The climb is the offer: machines asked for beyond the previous level, over the phase's clock.
 		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(max(phase.ConnectedAgents-from, 0)), seconds),
 		AchievedAgentArrivalsPerSecond: ratePerSecond(saw.Arrived, seconds),
-		// The profile's technician figure travels; nothing here offers it, so
-		// its achieved half stays absent.
+		// The profile's technician figure travels; nothing offers it, so its achieved half is absent.
 		OfferedOperatorArrivalsPerSecond: phase.OperatorArrivalsPerSecond,
 		OfferedSessions:                  phase.Sessions,
 		OfferedConnectedAgents:           phase.ConnectedAgents,
 		AchievedConnectedAgents:          held,
-		// The other end's count of it, and the reading that bounds that count
-		// below. Absent where the target could not be asked.
+		// The target's own count and its lower-bounding readings, absent where it could not be asked.
 		TargetConnectedAgents: census.Agents,
 		TargetGoroutines:      census.Goroutines,
 		TargetResidentBytes:   census.ResidentBytes,
 		TargetCensusAbsent:    census.Absent,
-		// How long the target took to account for the fleet the run was
-		// holding. It is a reading of how far behind its own arrivals the
-		// target was, which nothing else produces.
+		// How long the target took to account for the fleet the run held.
 		TargetCensusWaitedMs: millis(census.Waited),
-		// The two terms the counts are allowed to differ by: what the run was
-		// holding before it asked, and what left before the answer came back.
+		// The two terms the counts may differ by: held before the census, and departed during it.
 		ConnectedAgentsBeforeCensus: heldBefore,
 		DeparturesDuringCensus:      departedDuring,
 		LatencyP50Ms:                millis(percentile(samples, 50)),
 		LatencyP95Ms:                millis(percentile(samples, 95)),
 		LatencyP99Ms:                millis(percentile(samples, 99)),
 		ErrorRate:                   saw.ErrorRate(),
-		// What the target did with the allowance it was given while this phase
-		// ran, beside the wait times the phase produced. Absent where it could
-		// not be read.
+		// What the target did with its allowance this phase, absent where it could not be read.
 		TargetBusyPercent: targetBusy,
 		TargetBusyAbsent:  busyAbsent,
-		// What the generator had, and what each end's kernel dropped, over the
-		// same window — the readings that say what ran out when the target's
-		// own busy-ness does not.
+		// The generator's room and each end's kernel drops over the same window.
 		GeneratorCPUHeadroomPercent: generatorHeadroom,
 		GeneratorCPURefusedPercent:  generatorRefused,
 		GeneratorUDPReceiveErrors:   generatorDrops,
@@ -280,8 +183,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 	}, nil
 }
 
-// ratePerSecond is a count over a window, or zero for a window with no length —
-// a rate over no time is not a fast run.
+// ratePerSecond is a count over a window, or zero for a window with no length.
 func ratePerSecond(count int64, seconds float64) float64 {
 	if seconds <= 0 {
 		return 0
@@ -289,10 +191,8 @@ func ratePerSecond(count int64, seconds float64) float64 {
 	return float64(count) / seconds
 }
 
-// levelAt is how many machines are connected at step i of n, climbing from one
-// level to the next. The last step lands exactly on the target rather than near
-// it, because a phase that ends one machine short of its own declaration is a
-// phase nobody can compare against another run.
+// levelAt is how many machines are connected at step i of n, climbing from one level to the next.
+// The last step lands exactly on the target.
 func levelAt(from, to, i, n int) int {
 	if i >= n {
 		return to

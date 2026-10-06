@@ -40,10 +40,6 @@ describe('device store', () => {
     });
   });
 
-  // Helper: subscribe to the store across the awaited promise and capture the
-  // peak value of isLoading. Silent mutation calls (apiAction(..., false)) MUST
-  // never flip isLoading=true. This kills the BooleanLiteral `false`→`true`
-  // mutants on every apiAction silent-mode call site.
   async function captureIsLoading(action: () => Promise<unknown>): Promise<{ peak: boolean }> {
     let peak = false;
     const unsub = useDeviceStore.subscribe((s) => {
@@ -58,9 +54,6 @@ describe('device store', () => {
   }
 
   it('silent operations never toggle isLoading', async () => {
-    // createSite, deleteSite, deleteDevice, updateDeviceSite, restartAgent,
-    // fetchHardware, upgradeAgent, refreshDevice — all pass `loading: false`.
-    // Any mutant flipping that to `true` would briefly set isLoading=true.
     mockPost.mockResolvedValue({ data: { id: 'g2', name: 'g', created_at: '', updated_at: '' }, error: undefined });
     mockDelete.mockResolvedValue({ error: undefined });
     mockPatch.mockResolvedValue({ data: { id: 'd1' }, error: undefined });
@@ -76,15 +69,11 @@ describe('device store', () => {
     peaks.push((await captureIsLoading(() => useDeviceStore.getState().upgradeAgent('d1', '2.0', 'linux', 'amd64'))).peak);
     peaks.push((await captureIsLoading(() => useDeviceStore.getState().fetchHardware('d1'))).peak);
 
-    // All silent operations must keep isLoading false throughout — kills every
-    // `false` → `true` mutant on the apiAction `loading` argument.
     expect(peaks.every((p) => p === false)).toBe(true);
   });
 
   it('fetchHardware keeps the last known inventory when a refresh fails', async () => {
-    // The pull happens on reconnect with no manual re-pull left in the UI, so
-    // blanking first would strand the card empty on a transient failure until
-    // the device next goes offline and back.
+    // The pull runs on reconnect, so blanking first would leave the card empty after a failure.
     vi.useFakeTimers();
     useDeviceStore.setState({ hardware: mockHardware });
     mockGet
@@ -127,15 +116,12 @@ describe('device store', () => {
   });
 
   it('fetchLogs does NOT set logs when status is 404', async () => {
-    // Kills `if (response.status === 200 && data)` → `if (true && data)` mutant.
     mockGet.mockResolvedValueOnce({ data: { entries: [{ a: 1 }] }, response: { status: 404 } });
     await useDeviceStore.getState().fetchLogs('agent', 'd1');
     expect(useDeviceStore.getState().logs.agent).toBeNull();
   });
 
   it('fetchLogs does NOT set logs when data is missing even on 200', async () => {
-    // Kills `if (response.status === 200 && data)` → `if (response.status === 200 || data)` mutant
-    // when data=undefined.
     mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 200 } });
     await useDeviceStore.getState().fetchLogs('agent', 'd1');
     expect(useDeviceStore.getState().logs.agent).toBeNull();
@@ -143,8 +129,6 @@ describe('device store', () => {
   });
 
   it('fetchHardware retry catch block fires toast for non-Error rejections', async () => {
-    // Kills BlockStatement / StringLiteral mutants on the catch{} body of
-    // retryHardwareFetch (covers the toast literal interpolation).
     vi.useFakeTimers();
     mockGet
       .mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } })
@@ -193,7 +177,6 @@ describe('device store', () => {
     useDeviceStore.getState().selectSite('g1');
 
     expect(useDeviceStore.getState().selectedSiteId).toBe('g1');
-    // fetchDevices was called
     expect(mockGet).toHaveBeenCalledWith('/api/v1/devices', {
       params: { query: { site_id: 'g1' } },
     });
@@ -219,7 +202,6 @@ describe('device store', () => {
 
     await useDeviceStore.getState().createSite('New Site');
 
-    // Kills `if (res.ok)` → `if (true)` mutant on createSite.
     expect(useDeviceStore.getState().sites).toHaveLength(1);
   });
 
@@ -255,7 +237,6 @@ describe('device store', () => {
 
     await useDeviceStore.getState().deleteSite('g1');
 
-    // Kills `selectedSiteId === id ? null : state.selectedSiteId` → `true ? null : ...` mutant.
     expect(useDeviceStore.getState().selectedSiteId).toBe('g2');
   });
 
@@ -270,7 +251,6 @@ describe('device store', () => {
 
     await useDeviceStore.getState().deleteSite('g1');
 
-    // Kills `if (res.ok)` → `if (true)` mutant on deleteSite.
     expect(useDeviceStore.getState().sites).toHaveLength(1);
     expect(useDeviceStore.getState().selectedSiteId).toBe('g1');
   });
@@ -287,9 +267,6 @@ describe('device store', () => {
   });
 
   it('fetchDevice populates selectedDevice and resets stale per-device fields synchronously', async () => {
-    // Seed stale state from a previously viewed device — fetchDevice must clear
-    // these synchronously before awaiting, so the mutation `set({})` (no fields)
-    // is killed.
     useDeviceStore.setState({
       selectedDevice: { id: 'old', organization_id: 'org-1', site_id: 'g1', hostname: 'old', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
       hardware: mockHardware,
@@ -302,7 +279,6 @@ describe('device store', () => {
     });
 
     const promise = useDeviceStore.getState().fetchDevice('d1');
-    // Synchronous reset BEFORE await resolves.
     expect(useDeviceStore.getState().selectedDevice).toBeNull();
     expect(useDeviceStore.getState().hardware).toBeNull();
     expect(useDeviceStore.getState().logs).toEqual({ agent: null, system: null });
@@ -339,7 +315,6 @@ describe('device store', () => {
 
     await useDeviceStore.getState().deleteDevice('d1');
 
-    // Kills `if (res.ok)` → `if (true)` mutant on deleteDevice.
     expect(useDeviceStore.getState().devices).toHaveLength(1);
   });
 
@@ -361,7 +336,6 @@ describe('device store', () => {
     mockGet.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
 
     const pending = useDeviceStore.getState().fetchLogs('system', 'd1');
-    // Only the system pane flips loading; the agent pane is untouched.
     expect(useDeviceStore.getState().logsLoading.system).toBe(true);
     expect(useDeviceStore.getState().logsLoading.agent).toBe(false);
 
@@ -391,7 +365,6 @@ describe('device store', () => {
 
       await useDeviceStore.getState().fetchLogs('agent', 'd1');
 
-      // Synchronous broker: a single request, no retry.
       expect(mockGet).toHaveBeenCalledTimes(1);
       expect(useDeviceStore.getState().logsLoading.agent).toBe(false);
       expect(useDeviceStore.getState().logs.agent).toBeNull();
@@ -427,17 +400,13 @@ describe('device store', () => {
 
   it('fetchHardware retries on non-ok and sets hardware on retry success', async () => {
     vi.useFakeTimers();
-    // First call returns 202 (non-ok via apiAction)
     mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } });
-    // Retry returns success
     mockGet.mockResolvedValueOnce({ data: mockHardware, error: undefined });
 
     await useDeviceStore.getState().fetchHardware('d1');
 
-    // Hardware not set yet — waiting for retry
     expect(useDeviceStore.getState().hardware).toBeNull();
 
-    // Advance past the 2s retry timeout
     vi.advanceTimersByTime(2500);
     await vi.runAllTimersAsync();
 
@@ -488,8 +457,6 @@ describe('device store', () => {
     const ok = await useDeviceStore.getState().restartAgent('d1');
 
     expect(ok).toBe(true);
-    // Pin both path and the literal reason — kills StringLiteral / ObjectLiteral mutants
-    // on the body and `body: {}` mutant.
     expect(mockPost).toHaveBeenCalledWith('/api/v1/devices/{id}/restart', {
       params: { path: { id: 'd1' } },
       body: { reason: 'restart requested from web UI' },
@@ -537,8 +504,7 @@ describe('device store', () => {
   });
 
   it('restartAgent returns false on an empty-bodied 409 (no JSON error)', async () => {
-    // Regression: openapi-fetch leaves error undefined for an empty 409 body,
-    // which a response-blind apiAction would misread as success.
+    // openapi-fetch leaves error undefined for an empty 409 body.
     mockPost.mockResolvedValueOnce({ data: undefined, error: undefined, response: { ok: false, status: 409 } });
 
     const ok = await useDeviceStore.getState().restartAgent('d1');
@@ -640,7 +606,6 @@ describe('device store', () => {
 
     await useDeviceStore.getState().setMaintenance('d1', false);
 
-    // Exit carries no reason — kills a mutant that always spreads a reason key.
     expect(mockPost).toHaveBeenCalledWith('/api/v1/devices/{id}/maintenance', {
       params: { path: { id: 'd1' } },
       body: { enabled: false },
@@ -658,9 +623,6 @@ describe('device store', () => {
 
     const devices = useDeviceStore.getState().devices;
     expect(devices.find((d) => d.id === 'd1')?.maintenance_on).toBe(true);
-    // Identity of every row is preserved. Asserting on find() alone is not
-    // enough: a mutant that rewrites every row to the response leaves no 'd2' to
-    // find, and an assertion on the missing row's field passes vacuously.
     expect(devices.map((d) => d.id)).toEqual(['d1', 'd2']);
     expect(devices.find((d) => d.id === 'd2')?.hostname).toBe('other');
     expect(devices.find((d) => d.id === 'd2')?.maintenance_on).toBeUndefined();
@@ -679,7 +641,6 @@ describe('device store', () => {
 
     await useDeviceStore.getState().setMaintenance('d1', true);
 
-    // The response describes d1, so the pane showing d2 must not adopt it.
     expect(useDeviceStore.getState().selectedDevice?.id).toBe('d2');
     expect(useDeviceStore.getState().selectedDevice?.maintenance_on).toBeUndefined();
   });
@@ -692,7 +653,6 @@ describe('device store', () => {
     const ok = await useDeviceStore.getState().setMaintenance('d1', true);
 
     expect(ok).toBe(false);
-    // Kills `if (res.ok)` → `if (true)` mutant on setMaintenance.
     expect(useDeviceStore.getState().selectedDevice?.maintenance_on).toBe(false);
     expect(useDeviceStore.getState().devices[0]?.maintenance_on).toBe(false);
   });
@@ -727,13 +687,10 @@ describe('device store', () => {
 
     await useDeviceStore.getState().fetchSummary();
 
-    // Kills `if (res.ok)` → `if (true)` mutant (would blank the tiles).
     expect(useDeviceStore.getState().summary).toEqual(summary);
   });
 
   it('fetchSummary refreshes the tiles without a full-page spinner', async () => {
-    // The dashboard polls this rollup, so raising isLoading would flash the
-    // whole page on every tick.
     mockGet.mockResolvedValue({
       data: {
         total: 1, online: 1, offline: 0, maintenance: 0,
@@ -748,8 +705,6 @@ describe('device store', () => {
   });
 
   it('the delayed hardware retry refreshes the card without a spinner', async () => {
-    // The retry fires 2s after the first pull came back empty, long after the
-    // user moved on; raising isLoading then would flash the page unprompted.
     vi.useFakeTimers();
     const refreshed = { ...mockHardware, cpu_cores: 32 };
     mockGet
@@ -766,15 +721,12 @@ describe('device store', () => {
       vi.useRealTimers();
     }
 
-    // The retry landed (so the assertion is about a path that actually ran)…
     expect(useDeviceStore.getState().hardware).toEqual(refreshed);
-    // …and it stayed silent.
     expect(peak).toBe(false);
   });
 
   it('serializes overlapping log pulls for one device', async () => {
-    // The server brokers exactly one raw-log request per agent and answers a
-    // second with 409, so the two panes take turns.
+    // The server answers a second concurrent raw-log request for one agent with 409.
     const pending: ((value: unknown) => void)[] = [];
     let inFlight = 0;
     let maxInFlight = 0;
@@ -790,14 +742,11 @@ describe('device store', () => {
     const agentPull = store.fetchLogs('agent', 'd1');
     const systemPull = store.fetchLogs('system', 'd1');
 
-    // Only the agent pane's request is out; the system pane waits its turn.
     await vi.waitFor(() => { expect(pending).toHaveLength(1); });
     pending[0]!(undefined);
     await agentPull;
 
-    // A pull started *after* the first finished must still queue behind the
-    // second, which is only in flight now. Releasing the queue entry too eagerly
-    // when the first settles would let this third pull race it into a 409.
+    // A pull started after the first settled still queues behind the system pull.
     const latePull = store.fetchLogs('agent', 'd1');
     await vi.waitFor(() => { expect(pending).toHaveLength(2); });
     pending[1]!(undefined);
@@ -829,7 +778,6 @@ describe('device store', () => {
 
     await useDeviceStore.getState().fetchDevice('d1');
 
-    // Re-opening the same device serves the cache — no refetch, no 409.
     expect(useDeviceStore.getState().logs.system).toEqual(cached);
     expect(useDeviceStore.getState().logsDeviceId.system).toBe('d1');
   });
@@ -844,8 +792,6 @@ describe('device store', () => {
 
     await useDeviceStore.getState().fetchDevice('d1');
 
-    // Each pane carries its own device id, so the agent pane must survive on its
-    // own — exercising only the system pane leaves this branch unverified.
     expect(useDeviceStore.getState().logs.agent).toEqual(cached);
     expect(useDeviceStore.getState().logsDeviceId.agent).toBe('d1');
     expect(useDeviceStore.getState().logs.system).toBeNull();
@@ -876,7 +822,6 @@ describe('device store', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // Both panes report loading, but only one request is in flight.
     expect(useDeviceStore.getState().logsLoading).toEqual({ agent: true, system: true });
     expect(mockGet).toHaveBeenCalledTimes(1);
 
@@ -896,7 +841,6 @@ describe('device store', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // Different agents, different brokers — no reason to queue.
     expect(mockGet).toHaveBeenCalledTimes(2);
   });
 
@@ -911,7 +855,6 @@ describe('device store', () => {
     expect(ok).toBe(true);
     const devices = useDeviceStore.getState().devices;
     expect(devices.find((d) => d.id === 'd1')?.site_id).toBe('g2');
-    // The sibling is untouched — kills a mutant that rewrites every row.
     expect(devices.find((d) => d.id === 'd2')?.site_id).toBe('g1');
   });
 
@@ -936,8 +879,7 @@ describe('device store', () => {
   });
 
   it('sendPowerAction posts to the AMT uuid, not the device id', async () => {
-    // AMT connections are addressed by their own CIRA identity; sending the
-    // device id would target nothing.
+    // AMT connections are addressed by their own CIRA identity.
     mockPost.mockResolvedValue({ data: undefined, error: undefined });
 
     const ok = await useDeviceStore.getState().sendPowerAction('amt-1', 'power_on');

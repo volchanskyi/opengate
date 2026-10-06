@@ -1,56 +1,20 @@
 #!/usr/bin/env bash
-# sonar-coverage-exclusion-guard.sh — keeps sonar.coverage.exclusions true as
-# files move.
+# Keeps sonar.coverage.exclusions true as files move, from the exclusion list and the diff.
+# It checks inheritance by carved-out files, live literal paths, justifications and ignore lists.
 #
-# `sonar.coverage.exclusions` holds the IO/transport modules that integration
-# tests cover rather than unit tests. Two ordinary edits silently drop a file out
-# of that set, and neither is visible in a local `make sonar`:
+# Environment:
+#   SCEG_PROPERTIES       sonar-project.properties path (default: the repo-root file)
+#   SCEG_BASE             git ref the diff is taken against (default: merge-base with origin/dev)
+#   SCEG_COPIES_OVERRIDE  "source<TAB>newpath" lines replacing git's copy detection, empty for none
+#   SCEG_CI_WORKFLOW      ci.yml path (default: under SCEG_ROOT)
+#   SCEG_GAUNTLET         precommit-gauntlet.sh path (default: under SCEG_ROOT)
+#   SCEG_MAKEFILE         Makefile path (default: under SCEG_ROOT)
+#   SCEG_ROOT             directory literal paths resolve against (default: properties directory)
 #
-#   1. Splitting an excluded file. The carved-out half is a NEW path, so it is
-#      not excluded, and git blame dates every relocated line to the split — the
-#      code becomes brand-new uncovered code in one step. Splitting server.go
-#      into server_connection.go put 124 lines of the QUIC accept path into new
-#      code at 3% coverage and dropped new_coverage to 31.7% (CI run
-#      31904922362). SonarCloud derives "new" from blame, so a pre-commit scan —
-#      which runs before the commit exists — cannot see those lines as new: the
-#      local gate and the new_coverage margin guard both read green.
-#   2. Renaming or deleting an excluded file, which leaves a listed path
-#      matching nothing.
-#
-# This guard is blame-independent: it reads the exclusion list and the diff, not
-# SonarCloud, so it fires at the commit that causes the drift rather than in CI.
-#
-# Checks:
-#   inheritance   — a file added since the base that git detects as a rename/copy
-#                   of an excluded file must itself be excluded, or be genuinely
-#                   unit-testable and deliberately left in. The fix is one line in
-#                   sonar-project.properties, or tests for the new file.
-#   staleness     — every literal (non-glob) path in the list must exist.
-#   justification — every entry is named in the JUSTIFICATIONS comment block above
-#                   the property, so no exclusion can be added without writing why.
-#   agreement     — the per-language ignore lists in ci.yml, precommit-gauntlet.sh
-#                   and the Makefile's sonar-coverage target all match. A path
-#                   exempt in every place coverage is enforced is measured by
-#                   nothing at all; and the Makefile is the one that generates the
-#                   report SonarCloud reads, so a list that drifts there narrows
-#                   the gate's view of the workspace without narrowing either
-#                   ≥80% job. It had drifted by four files.
-#
-# Env:
-#   SCEG_PROPERTIES     sonar-project.properties path, default repo-root file.
-#   SCEG_BASE           git ref the diff is taken against, default the
-#                       merge-base with origin/dev.
-#   SCEG_COPIES_OVERRIDE  test seam: newline-separated "source<TAB>newpath"
-#                       lines (skips git; set-but-empty means "no copies").
-#   SCEG_CI_WORKFLOW    ci.yml path, default under SCEG_ROOT.
-#   SCEG_GAUNTLET       precommit-gauntlet.sh path, default under SCEG_ROOT.
-#   SCEG_MAKEFILE       Makefile path, default under SCEG_ROOT.
-#   SCEG_ROOT           directory literal paths are resolved against, default
-#                       the properties file's directory.
-#
-# Exit codes: 0 = the exclusion list matches the tree;
-#             1 = a carved-out file lost its exclusion, or a listed path is gone;
-#             2 = prerequisite missing (no properties file).
+# Exit codes:
+#   0  the exclusion list matches the tree
+#   1  a carved-out file lost its exclusion, or a listed path is gone
+#   2  prerequisite missing (no properties file)
 set -uo pipefail
 
 SCEG_PROPERTIES="${SCEG_PROPERTIES:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/sonar-project.properties}"
@@ -59,8 +23,7 @@ SCEG_CI_WORKFLOW="${SCEG_CI_WORKFLOW:-$SCEG_ROOT/.github/workflows/ci.yml}"
 SCEG_GAUNTLET="${SCEG_GAUNTLET:-$SCEG_ROOT/scripts/precommit-gauntlet.sh}"
 SCEG_MAKEFILE="${SCEG_MAKEFILE:-$SCEG_ROOT/Makefile}"
 
-# sceg_exclusions — print one sonar.coverage.exclusions pattern per line. The
-# property spans several physical lines joined by trailing backslashes.
+# sceg_exclusions prints one pattern per line from the property's backslash-joined lines.
 sceg_exclusions() {
   awk '
     /^sonar\.coverage\.exclusions=/ {
@@ -81,8 +44,8 @@ sceg_exclusions() {
   ' "$1"
 }
 
-# sceg_justified — print every pattern named in the JUSTIFICATIONS comment block
-# that precedes the property. A line looks like "#   <pattern> — <reason>".
+# sceg_justified prints every pattern in the JUSTIFICATIONS block, one "#   <pattern> — <reason>"
+# line each.
 sceg_justified() {
   awk '
     /^# JUSTIFICATIONS/ { collecting = 1; next }
@@ -101,17 +64,16 @@ sceg_justified() {
   ' "$1"
 }
 
-# sceg_rust_ignore <file> — print the cargo-llvm-cov --ignore-filename-regex value.
+# sceg_rust_ignore prints the cargo-llvm-cov --ignore-filename-regex value.
 sceg_rust_ignore() {
-  # Matched into a variable, then the first line taken off it. `head` stops at
-  # that line, and pipefail turns the writer's failed write into the answer.
+  # The first line is cut from a variable because `head` ends the pipe early and pipefail fails it.
   local found
   found="$(grep -oE -- "--ignore-filename-regex[= ]+[\"'][^\"']+[\"']" "$1" 2>/dev/null \
     | sed -E "s/.*[\"']([^\"']+)[\"']/\1/" || true)"
   printf '%s\n' "${found%%$'\n'*}"
 }
 
-# sceg_go_ignore <file> — print the grep -v -E pattern applied to coverage.out.
+# sceg_go_ignore prints the grep -v -E pattern applied to coverage.out.
 sceg_go_ignore() {
   local found
   found="$(grep -oE -- "grep -v -E [\"'][^\"']+[\"'] coverage\.out" "$1" 2>/dev/null \
@@ -119,7 +81,7 @@ sceg_go_ignore() {
   printf '%s\n' "${found%%$'\n'*}"
 }
 
-# sceg_base — the committed ref the working tree is compared against.
+# sceg_base prints the committed ref the working tree is compared against.
 sceg_base() {
   if [ -n "${SCEG_BASE:-}" ]; then
     printf '%s' "$SCEG_BASE"
@@ -128,9 +90,8 @@ sceg_base() {
   git merge-base HEAD origin/dev 2>/dev/null || git rev-parse HEAD 2>/dev/null
 }
 
-# sceg_snapshot_worktree — build a throwaway index holding staged, unstaged and
-# untracked changes, so the diff sees the split as it exists in the work tree
-# rather than only in the index. Echoes the index path, or "" outside a work tree.
+# sceg_snapshot_worktree builds a throwaway index of staged, unstaged and untracked changes.
+# It echoes the index path, or "" outside a work tree.
 sceg_snapshot_worktree() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     echo ""
@@ -148,8 +109,7 @@ sceg_snapshot_worktree() {
   fi
 }
 
-# sceg_copies — print "source<TAB>newpath" for every file the diff reports as a
-# rename or copy of another file.
+# sceg_copies prints "source<TAB>newpath" for every file the diff reports as a rename or copy.
 sceg_copies() {
   if [ -n "${SCEG_COPIES_OVERRIDE+x}" ]; then
     printf '%s' "$SCEG_COPIES_OVERRIDE" | grep -v '^$' || :
@@ -166,17 +126,14 @@ sceg_copies() {
   rm -f "$index"
 }
 
-# sceg_is_excluded <path> <patterns...> — true when path is covered by a literal
-# entry or a glob in the exclusion list.
+# sceg_is_excluded is true when the path matches a literal entry or a glob in the exclusion list.
 sceg_is_excluded() {
   local path="$1"
   shift
   local pattern
   for pattern in "$@"; do
     [ "$pattern" = "$path" ] && return 0
-    # Sonar's ** spans directory separators, which is what bash globbing does
-    # under globstar; a single * does not, but treating both the same way only
-    # ever makes this guard quieter about a file that is already excluded.
+    # Sonar's ** spans directory separators like bash globbing; a single * is treated the same way.
     # shellcheck disable=SC2053 # intentional glob match, not a literal compare
     [[ "$path" == $pattern ]] && return 0
   done
@@ -196,7 +153,7 @@ sceg_main() {
 
   local failed=0
 
-  # Check 1 — a file carved out of an excluded file inherits its exclusion.
+  # A file carved out of an excluded file inherits its exclusion.
   local source new
   while IFS=$'\t' read -r source new; do
     [ -n "$new" ] || continue
@@ -214,7 +171,7 @@ sceg_main() {
     fi
   done < <(sceg_copies)
 
-  # Check 2 — a listed literal path still names a file.
+  # A listed literal path names an existing file.
   local pattern
   for pattern in "${patterns[@]}"; do
     case "$pattern" in
@@ -231,7 +188,7 @@ sceg_main() {
     fi
   done
 
-  # Check 3 — every entry states why no in-process test can execute it.
+  # Every entry states why no in-process test can execute it.
   local justified=()
   while IFS= read -r entry; do
     justified+=("$entry")
@@ -253,7 +210,7 @@ sceg_main() {
     fi
   done
 
-  # Check 4 — the per-language ignore lists agree wherever coverage is enforced.
+  # The per-language ignore lists agree wherever coverage is enforced.
   local ci="$SCEG_CI_WORKFLOW" gauntlet="$SCEG_GAUNTLET"
   if [ -f "$ci" ] && [ -f "$gauntlet" ]; then
     local lang
@@ -274,10 +231,7 @@ sceg_main() {
     done
   fi
 
-  # The Makefile's sonar-coverage target writes the report SonarCloud reads, so a
-  # list that drifts there narrows the gate's view of the workspace while both
-  # ≥80% jobs go on measuring the wider one. Rust only: the Go report is the same
-  # profile all three read, filtered at the point of use.
+  # The Makefile's sonar-coverage target writes the report SonarCloud reads; only Rust has a list.
   local makefile="$SCEG_MAKEFILE"
   if [ -f "$ci" ] && [ -f "$makefile" ]; then
     local ci_rust make_rust
@@ -303,7 +257,7 @@ sceg_main() {
   return 0
 }
 
-# Run only when executed directly; sourcing exposes the functions for unit tests.
+# Sourcing the file exposes the functions without running the guard.
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   sceg_main
 fi

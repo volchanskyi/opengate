@@ -1,33 +1,6 @@
 #!/usr/bin/env bash
-# Retry one short cluster call whose connection was dropped, and nothing else.
-#
-# A drill died three minutes and forty-nine seconds in because a `chmod` inside a
-# pod that was already created and ready had its connection dropped: `Internal
-# error occurred: error sending request: ... EOF`. Twelve steps of setup, then
-# nothing measured. The health check seven lines below it retried sixty times
-# over two minutes; the calls above it got one attempt each. The step already
-# knew the cluster was unreliable and guarded the wrong half. The same signature
-# has cost three nights across the drill and the load tests.
-#
-# The contract is narrower than "retry a cluster call", and the narrowness is
-# what keeps it safe: short, idempotent, fire-and-forget calls whose only failure
-# mode of interest is the transport. Three kinds of call in these workflows must
-# never be repeated — a probe whose failure *is* the measurement being taken
-# during a deliberate network fault, a long-lived exec carrying the workload
-# (where a dropped connection does not kill the process in the pod, so a second
-# attempt runs a second generator against the same server), and a non-idempotent
-# write (where a transport drop cannot say whether the statement landed).
-#
-# A refusal that will never succeed is not retried either. A missing pod does not
-# become present by asking again, and four attempts at it is four times the wait
-# before the real reason is printed. Nor is a command the pod ran and that
-# exited non-zero: that is the command's own answer, whatever words it used.
-#
-# Two of those three kinds can still be asked again in one case: when the
-# cluster says the request never reached the node. Nothing ran, so there is no
-# reading to lose and no write to repeat. `--unstarted` narrows the retry to
-# exactly that, and the drill's probes and the alert quiet period go through it.
-#
+# Retries a short cluster call after a dropped connection; any other failure returns at once.
+# Probes under a fault, long-lived workload execs and non-idempotent writes are never repeated.
 # Environment:
 #   KUBECTL_RETRY_ATTEMPTS  how many times in total (default 4)
 #   KUBECTL_RETRY_DELAY     seconds between attempts (default 3)
@@ -35,33 +8,20 @@
 #
 # Usage:  . scripts/lib/kubectl-retry.sh   then   kubectl_retry <kubectl args...>
 
-# What a dropped connection looks like coming back out of kubectl. Anything not
-# on this list is taken at its word and fails on the first attempt.
+# Dropped-connection texts from kubectl; any other text fails on the first attempt.
 KUBECTL_RETRY_TRANSPORT='EOF|error sending request|connection refused|connection reset|broken pipe|i/o timeout|TLS handshake timeout|Unable to connect to the server|client connection lost|etcdserver: request timed out|http2: |unexpected stream'
 
-# The subset that says the request never reached the node: the API server's own
-# request to the kubelet died, or kubectl never reached the API server.
+# The subset showing the request never reached the node, so nothing ran.
 KUBECTL_RETRY_UNSTARTED='error sending request|Unable to connect to the server|TLS handshake timeout'
 
-# How kubectl reports a command the pod ran and that exited non-zero.
+# How kubectl reports a command the pod ran that exited non-zero, the command's own answer.
 KUBECTL_RETRY_COMMAND_EXIT='command terminated with exit code'
 
-# The status kubectl_retry returns when every attempt lost its connection, so a
-# caller can say the target never heard the request rather than that it refused.
+# The status returned when every attempt lost its connection, telling the caller no answer came.
 KUBECTL_RETRY_LOST=75
 
-# kubectl_retry <args...>             — run one kubectl call with no standard input.
-# kubectl_retry --stdin <args...>     — the same, reading standard input once and
-#                                       replaying it on every attempt.
-# kubectl_retry --unstarted <args...> — retry only a request that never reached
-#                                       the node. May precede --stdin.
-#
-# Whether there is input to read is stated rather than sniffed. A library that
-# guesses from "is standard input a terminal" answers yes for every call made
-# from a script, and then waits forever on a pipe nobody is writing to — which is
-# the alert not arriving, slowly. And a retry that replays the command but not
-# what was piped into it delivers an empty file into the pod and reports success,
-# so the two have to be replayed together.
+# kubectl_retry [--unstarted] [--stdin] <args...> runs a kubectl call, retrying dropped connections.
+# --stdin replays the buffered input on each attempt; --unstarted retries only undelivered requests.
 kubectl_retry() {
   local attempts="${KUBECTL_RETRY_ATTEMPTS:-4}"
   local delay="${KUBECTL_RETRY_DELAY:-3}"
@@ -94,8 +54,7 @@ kubectl_retry() {
       return 0
     fi
 
-    # Whatever it said goes to the caller's stderr either way, so a failure that
-    # is about to be retried is still visible in the log.
+    # The output reaches the caller's stderr on every attempt, so a retried failure stays logged.
     cat "$stderr_copy" >&2
 
     if grep -qF "$KUBECTL_RETRY_COMMAND_EXIT" "$stderr_copy" \

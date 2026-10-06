@@ -8,9 +8,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// PostgresWebPush implements [WebPushRepository] against PostgreSQL. The db
-// package owns the web_push_subscriptions schema and migrations; this adapter
-// only issues queries.
+// PostgresWebPush implements [WebPushRepository] against PostgreSQL.
 type PostgresWebPush struct {
 	db *sql.DB
 }

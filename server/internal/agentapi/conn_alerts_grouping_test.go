@@ -10,13 +10,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/alerts"
 )
 
-// How wide a room is and how long firings stay one thing are the rule's to say,
-// not the ingest path's. What follows pins where each answer is read from, and
-// what happens when the rule cannot be resolved at all.
-// TestGroupingComesFromTheRulesOwnDefinition pins where a room's shape is
-// decided. The rule says what its alerts are about and how long two firings stay
-// one thing; anything the ingest path decided for itself would put a rule's
-// alerts in a room its author never described.
 func TestGroupingComesFromTheRulesOwnDefinition(t *testing.T) {
 	t.Parallel()
 	f := alertConn(t)
@@ -34,12 +27,6 @@ func TestGroupingComesFromTheRulesOwnDefinition(t *testing.T) {
 		"disk-critical is about a machine's volumes, so the room is about the machine")
 }
 
-// TestGroupingKeysThatAreNotRungsDoNotWidenTheRoom is why the shipped disk rule
-// above lands at device scope despite naming two keys. A rule may group on the
-// mount or the metric as well as the machine, but those say which volume or
-// dimension a firing was about — a property of the alert, not of the room. A
-// server with a full data volume and a full system volume has two alerts and one
-// room to visit it in.
 func TestGroupingKeysThatAreNotRungsDoNotWidenTheRoom(t *testing.T) {
 	t.Parallel()
 
@@ -63,11 +50,6 @@ func TestGroupingKeysThatAreNotRungsDoNotWidenTheRoom(t *testing.T) {
 	}
 }
 
-// TestAnUnknownRuleGetsTheNarrowestRoom keeps a wiring gap from merging
-// customers. A connection with no catalogue cannot say how a rule groups, and
-// the two ways of guessing are not equally bad: too wide puts two customers'
-// unrelated events in one room, while too narrow only ever produces more rooms
-// than necessary.
 func TestAnUnknownRuleGetsTheNarrowestRoom(t *testing.T) {
 	t.Parallel()
 	f := alertConn(t)

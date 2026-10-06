@@ -55,11 +55,9 @@ describe('buildFamilyChart', () => {
 
   it('renders only an avg line (no band) when min_max_source is none', () => {
     const chart = buildFamilyChart([1000, 1010], [series({ name: 'cpu.util', avg: [10, 20] })]);
-    // data = [x, avg]
     expect(chart.data).toHaveLength(2);
     expect(chart.data[1]).toBeInstanceOf(Float32Array);
     expect(chart.bands).toHaveLength(0);
-    // series[0] is the implicit x series; series[1] is the avg line
     expect(chart.series).toHaveLength(2);
     expect(chart.series[1]!.label).toBe('cpu.util');
   });
@@ -69,14 +67,11 @@ describe('buildFamilyChart', () => {
       [1000, 1010, 1020],
       [series({ name: 'cpu.util', avg: [10, null, 30], min: [5, null, 25], max: [15, null, 35], min_max_source: 'avg_of_60s' })],
     );
-    // data = [x, avg, min, max]
     expect(chart.data).toHaveLength(4);
     expect(chart.data[1]).toBeInstanceOf(Float32Array);
     expect(chart.data[2]).toBeInstanceOf(Float32Array);
     expect(chart.data[3]).toBeInstanceOf(Float32Array);
-    // avg gap preserved as NaN
     expect(Number.isNaN(chart.data[1]![1]!)).toBe(true);
-    // one band filling between the max (idx 3) and min (idx 2) series
     expect(chart.bands).toHaveLength(1);
     expect(chart.bands[0]!.series).toEqual([3, 2]);
     expect(chart.bands[0]!.fill).toBe(`${FAMILY_PALETTE[0]}22`);
@@ -141,8 +136,6 @@ describe('buildFamilyChart', () => {
   });
 
   it('tracks the family maximum even when it is not the final sample', () => {
-    // avg peaks at 30 mid-series then falls; the y-scale top must reflect the
-    // running maximum (30), not merely the last value.
     const chart = buildFamilyChart([1000, 1010, 1020], [series({ name: 'cpu.util', avg: [10, 30, 20] })]);
     expect(chart.scaleRange).toEqual([9, 31]);
   });
@@ -151,15 +144,12 @@ describe('buildFamilyChart', () => {
     const chart = buildFamilyChart([1000, 1010], [
       series({ name: 'cpu.util', avg: [10, 20], min: [5, 15], max: [15, 25], min_max_source: 'none' }),
     ]);
-    // Provenance none means avg-only: no min/max columns, no band.
     expect(chart.data).toHaveLength(2);
     expect(chart.bands).toHaveLength(0);
     expect(chart.series).toHaveLength(2);
   });
 
   it('renders a wide sparse window as gaps across its full span, never a line over the hole', () => {
-    // What the server now returns for 7 d over a device with ~20 min of data:
-    // the full request-derived grid, two buckets carrying a value, the rest null.
     const BUCKETS = 1008;
     const t = Array.from({ length: BUCKETS }, (_, i) => 1_000_000 + i * 600);
     const avg: (number | null)[] = Array.from({ length: BUCKETS }, () => null);
@@ -168,13 +158,10 @@ describe('buildFamilyChart', () => {
 
     const chart = buildFamilyChart(t, [series({ name: 'cpu.util', avg })]);
 
-    // The x axis spans the whole requested window, not just the answered part.
     expect(chart.data[0]).toHaveLength(BUCKETS);
     expect(chart.data[0]![0]).toBe(1_000_000);
     expect(chart.data[0]![BUCKETS - 1]).toBe(1_000_000 + (BUCKETS - 1) * 600);
 
-    // Every unanswered bucket is NaN. uPlot skips NaN, so the canvas breaks the
-    // line there instead of interpolating a value the device never reported.
     const column = chart.data[1]!;
     expect(column).toHaveLength(BUCKETS);
     expect(column[499]).toBeNaN();
@@ -183,10 +170,7 @@ describe('buildFamilyChart', () => {
     expect(column[502]).toBeNaN();
     expect([...column].filter((v) => !Number.isNaN(v))).toEqual([42, 44]);
 
-    // spanGaps is asserted rather than assumed: flipping it true would bridge
-    // three days of device downtime with a straight line.
     expect(chart.series[1]!.spanGaps).toBe(false);
-    // The gaps must not poison the scale either.
     expect(chart.scaleRange).toEqual([41.9, 44.1]);
   });
 
@@ -198,8 +182,6 @@ describe('buildFamilyChart', () => {
         min_max_source: 'avg_of_60s',
       }),
     ]);
-    // A band whose edges spanned the hole would fill a region the avg line
-    // leaves empty — a shape with no measurement behind it.
     expect(chart.series[2]!.spanGaps).toBe(false);
     expect(chart.series[3]!.spanGaps).toBe(false);
     expect(Number.isNaN(chart.data[2]![1]!)).toBe(true);
@@ -207,8 +189,6 @@ describe('buildFamilyChart', () => {
   });
 
   it('pads a short column to the grid rather than misaligning it against the axis', () => {
-    // uPlot reads column i against x[i]. A column shorter than the axis would
-    // silently shift every later reading left, so it is padded with gaps.
     const chart = buildFamilyChart([1000, 1010, 1020, 1030], [
       series({ name: 'cpu.util', avg: [10, 20], min: [5], max: [15], min_max_source: 'avg_of_60s' }),
     ]);
@@ -228,7 +208,6 @@ describe('buildFamilyChart', () => {
     expect(chart.data[0]).toHaveLength(2);
     expect(chart.data[1]).toHaveLength(2);
     expect([...chart.data[1]!]).toEqual([10, 20]);
-    // The dropped readings must not stretch the scale of a window they are not in.
     expect(chart.scaleRange).toEqual([9.5, 20.5]);
   });
 });
@@ -322,9 +301,6 @@ describe('the stall family', () => {
   });
 
   it('shows no single "current" reading, because three resources share the chart', () => {
-    // Every stall vital is a percentage, so any one of them would render as a
-    // plausible badge — and a 3 % CPU stall standing in for a 62 % I/O stall is
-    // exactly the wrong summary. The chart shows all five lines instead.
     expect(familyCurrentLabel(stall)).toBeNull();
   });
 });
@@ -345,16 +321,10 @@ describe('the disk family', () => {
   });
 
   it('reads its "current" badge from the capacity percent, never from a latency', () => {
-    // Service time is milliseconds and queue depth is a count. Either would
-    // render as a plausible percentage — "812%" full — so the badge must keep
-    // picking the one dimension that actually is one.
     expect(familyCurrentLabel(disk)).toBe('63%');
   });
 
   it('shows no badge at all for a host that reports only disk performance', () => {
-    // A host with no measurable mount reports how fast its devices are and not
-    // how full they are. A millisecond figure in the percent badge would be a
-    // wrong number where a missing one is the truth.
     expect(familyCurrentLabel(disk.slice(2))).toBeNull();
   });
 });

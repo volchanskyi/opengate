@@ -1,7 +1,5 @@
--- Edge Sentinel auto-discovery: per-device inventory footprint in Postgres RLS.
--- One row per discovered component (a listening port, host service, DB engine,
--- container, or installed package). Descriptive/relational data only — never a
--- VictoriaMetrics label and never a connection string or credential.
+-- One row per discovered component: port, service, DB engine, container or package.
+-- Rows hold descriptive data only, never a connection string or credential.
 
 CREATE TABLE IF NOT EXISTS device_inventory (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

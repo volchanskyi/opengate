@@ -77,7 +77,6 @@ func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 		return nil, fmt.Errorf("get device info: %w", err)
 	}
 
-	// Parse basic fields from the response XML.
 	info := &DeviceInfo{}
 	bodyXML, err := ParseEnvelopeBody(resp)
 	if err != nil {
@@ -90,14 +89,8 @@ func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 	return info, nil
 }
 
-// GetGeneralInfo queries the two attributes the server files on a linked
-// device's hardware row: the machine model from CIM_ComputerSystem and the AMT
-// firmware version from the CIM_SoftwareIdentity instance the Management Engine
-// publishes for AMT.
-//
-// The firmware read is best-effort: a device that answers for its model but not
-// for its software inventory still yields a usable model, and a blank attribute
-// leaves the stored value alone.
+// GetGeneralInfo returns the machine model from CIM_ComputerSystem and the AMT firmware
+// version from CIM_SoftwareIdentity; the firmware read is best-effort and may be blank.
 func (c *Client) GetGeneralInfo(ctx context.Context) (*DeviceInfo, error) {
 	info, err := c.GetDeviceInfo(ctx)
 	if err != nil {

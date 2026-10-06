@@ -1,12 +1,7 @@
 name: Fuzz
 
-# Coverage-guided fuzzing of the mesh-protocol wire decoder, as observability.
-# Runs nightly on a bounded budget; never gates merges or deploys. libFuzzer
-# requires a nightly toolchain, so this is kept off the stable critical path —
-# the always-run guard is the stable corpus-replay test
-# (crates/mesh-protocol/tests/decode_corpus_test.rs), which runs in the normal
-# CI Rust test job. A crash here is minimized and committed under
-# agent/fuzz/corpus/decode so the stable replay re-runs it forever.
+# Nightly fuzzing of the mesh-protocol wire decoder on a bounded budget; it gates no merge.
+# libFuzzer needs nightly Rust; the stable replay is mesh-protocol's decode_corpus_test.rs.
 
 on:
   schedule:
@@ -58,17 +53,9 @@ jobs:
           path: agent/fuzz/artifacts/
           if-no-files-found: ignore
 
-  # Alert if the run did not finish.
-  #
-  # Every nightly here published its verdict into its own result and nothing
-  # read it: a run that died, was cancelled, or was killed at its timeout went
-  # red on a page nobody opens. The alert path is the part that makes a red run
-  # a thing somebody knows about.
   alert:
     name: Alert if the run did not finish
-    # A crash the fuzzer found is reported by the run's own result, and a run
-    # that never got as far as fuzzing reports nothing at all unless something
-    # outside it is looking.
+    # A run that dies, is cancelled or times out before fuzzing reports nothing by itself.
     needs: [decode]
     if: always()
     runs-on: ubuntu-24.04
@@ -82,10 +69,7 @@ jobs:
       - uses: ./.github/actions/setup-pinned-tools
 
       - name: Send Telegram alert
-        # `needs.<job>.result` rather than `failure()`: the result is a fact
-        # about the job named, and it is what the repository's other gate jobs
-        # already read. It also tells a cancel from a failure, which matters —
-        # one of them is somebody's decision and the other is a lost night.
+        # `needs.<job>.result` is a fact about the named job and tells a cancel from a failure.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}

@@ -11,30 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The database layer already has a completeness gate in both directions:
-// TestTenantIsolationCoversEveryTenantTable probes every table carrying a
-// tenant_id, and TestEveryTenantTableIsProbed reads the live schema and fails
-// when a table appears without a probe. So a table cannot ship unproven.
-//
-// A repository could. Every package below already proves its scoped queries
-// refuse another customer's rows, and no two of those proofs are named alike —
-// which is why nothing was checking that the set was complete. A new repository
-// package shipping without one would have failed nothing at all.
-//
-// This is that gate, at the layer above the schema. A repository is where a
-// query's tenant clause is written, so it is where a missing one has to be
-// caught: the row-level policy underneath is the second wall, not the first.
-
-// The test in each package that proves its scoped queries refuse another
-// customer's rows. Hand-written like the probe list it is modelled on, and for
-// the same reason — the proofs are prose, not a pattern, and a gate that
-// recognised them by name would be asking every author to name a test after
-// the gate rather than after what it proves.
-//
-// Held against the tree in both directions below, so it cannot drift: a
-// package that starts issuing scoped SQL without an entry fails, an entry
-// naming a test that is not there fails, and an entry for a package that has
-// stopped issuing scoped SQL fails.
+// tenantDenyProofs names, per package, the test proving its scoped queries refuse another
+// customer's rows.
 var tenantDenyProofs = map[string][]string{
 	"alerts":        {"TestCrossTenantReadIsDeniedByACraftedKey"},
 	"amt":           {"TestPostgresAMTDevices_TenantDeny"},
@@ -52,9 +30,6 @@ var tenantDenyProofs = map[string][]string{
 	"updater":       {"TestPostgresDeviceUpdates_TenantDeny", "TestPostgresEnrollment_TenantDeny"},
 }
 
-// TestEveryScopedRepositoryProvesItRefusesAnotherCustomer fails when a package
-// opens a tenant-scoped transaction and nothing beside it is named as the proof
-// that the scope holds.
 func TestEveryScopedRepositoryProvesItRefusesAnotherCustomer(t *testing.T) {
 	t.Parallel()
 
@@ -79,9 +54,6 @@ func TestEveryScopedRepositoryProvesItRefusesAnotherCustomer(t *testing.T) {
 			"it to tenantDenyProofs")
 }
 
-// TestEveryNamedTenantDenyProofExists is the other half. A proof named here and
-// deleted, renamed or moved would leave the gate above satisfied by a name and
-// nothing else.
 func TestEveryNamedTenantDenyProofExists(t *testing.T) {
 	t.Parallel()
 
@@ -126,9 +98,7 @@ func packagesIssuingScopedSQL() ([]string, error) {
 	return pkgs, nil
 }
 
-// testFunctionNames lists the test functions declared directly in a package
-// directory. A sub-package carries its own production code and is reached by
-// the walk in its own right.
+// testFunctionNames lists the test functions declared directly in a package directory.
 func testFunctionNames(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

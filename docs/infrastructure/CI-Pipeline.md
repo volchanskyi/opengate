@@ -39,7 +39,7 @@ human commits  ──► dev ──► main
 
 - **`dev`** — primary development branch. Human commits land directly; Dependabot opens PRs against it. After all CI checks pass, the `merge-to-main` job forwards `dev` → `main`.
 - **`main`** — stable branch. Receives code from `dev` only, via the automated `merge-to-main` job. Protected: requires 1 PR review for non-admin pushes; force-push and deletion disabled.
-- **Dependabot** — PRs open against `dev` with the same gate any human commit clears. [`dependabot-auto-merge.yml`](../../.github/workflows/dependabot-auto-merge.yml) squash-merges patch + minor updates once CI is green; major-version bumps stay open for review.
+- **Dependabot** — PRs open against `dev` with the same gate any human commit clears. [`dependabot-auto-merge.yml`](../../.github/workflows/dependabot-auto-merge.yml) squash-merges patch + minor updates once CI is green; major-version bumps stay open for review. Its `gh pr merge --auto` needs the repository setting **Allow auto-merge** (Settings → General) enabled.
 
 ## Job graph
 
@@ -111,7 +111,7 @@ The CI workflow jobs are grouped by concern:
 | **Web** | `web-lint`, `web-unit`, `web-integration` | ESLint; unit/component tests (with v8 coverage) + Vite build; integration tests |
 | **Bundle Size** | `web-bundle-size` | `size-limit` gzip budgets for first-paint JS, total JS, the charts chunk and CSS ([`web/.size-limit.json`](../../web/.size-limit.json)). Runs in parallel with other web jobs. |
 | **API Docs** | `deploy-api-docs` | Deploys OpenAPI spec + Scalar viewer to gh-pages (dev push only) |
-| **Config** | `config-lint` | actionlint, yamllint, `terraform fmt/validate`, tflint, `terraform test` (module invariants), output-sensitivity grep, gitleaks (L2), Hadolint Dockerfile policy (L4), Checkov (L4: terraform + dockerfile + github_actions, baseline at `.checkov.baseline`), Conftest+Rego custom policies (L5: compose images, action SHA-pinning), `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
+| **Config** | `config-lint` | the shell behavioural tests, including the [comment sweep](../../scripts/tests/check-comments.test.sh), actionlint, yamllint, `terraform fmt/validate`, tflint, `terraform test` (module invariants), output-sensitivity grep, gitleaks (L2), Hadolint Dockerfile policy (L4), Checkov (L4: terraform + dockerfile + github_actions, baseline at `.checkov.baseline`), Conftest+Rego custom policies (L5: compose images, action SHA-pinning), `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
 | **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](OCI-Terraform.md#plan-and-destroy-gate). |
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck, cargo audit, npm audit |
@@ -234,8 +234,18 @@ The [`sonarcloud` job](../../.github/workflows/ci.yml) runs after Go unit, Rust
 test, and Web test jobs complete. It downloads all three coverage artifacts
 and runs the pinned SonarQube scan action against the full codebase. If the
 action download path fails, the job retries the same analysis through the
-Docker scanner image using the shared Docker Hub pull protection. The scan is
-skipped on scheduled runs.
+Docker scanner image using the shared Docker Hub pull protection. Both take
+their scanner from [`tool-versions.sh`](../../scripts/lib/tool-versions.sh).
+The scan is skipped on scheduled runs.
+
+The scan keeps its report in `.scannerwork/scanner-report/`, and
+[`check-duplication`](../../scripts/check-duplication/) reads the repeated code
+the scanner computed there for every file in the codebase, refusing any
+production file whose repeated lines exceed 3% of its length. The quality
+gate's own duplication condition counts only new code, and only lines it can
+attribute to a commit; the reader counts every line of every file, so the CI
+job and the [precommit gauntlet](../../scripts/precommit-gauntlet.sh) reach the
+same verdict.
 
 Configuration lives in `sonar-project.properties` at the repo root (organization: `volchanskyi`, project key: `volchanskyi`).
 
@@ -256,7 +266,7 @@ Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action
 
 ### Running SonarCloud locally
 
-The same SonarCloud scan that runs in CI can be executed locally using the `sonarsource/sonar-scanner-cli` Docker image. This catches code smells, bugs, security hotspots, duplication, and coverage gate failures before pushing.
+The same SonarCloud scan that runs in CI can be executed locally using the `sonarsource/sonar-scanner-cli` Docker image, at the tag [`tool-versions.sh`](../../scripts/lib/tool-versions.sh) pins. This catches code smells, bugs, security hotspots, duplication, and coverage gate failures before pushing.
 
 **Prerequisites:**
 - Docker running
@@ -270,7 +280,7 @@ The same SonarCloud scan that runs in CI can be executed locally using the `sona
 | `make sonar-quick` | Runs the scanner without regenerating coverage | Quick check for code quality issues only |
 | `make sonar-coverage` | Generates coverage files without running the scanner | When you only need coverage reports |
 
-All targets reuse the existing `sonar-project.properties` configuration. The scanner runs with `-Dsonar.qualitygate.wait=true` and `-Dsonar.branch.name=dev`, matching CI behavior. Results appear on the SonarCloud dashboard under the `dev` branch analysis.
+All targets reuse the existing `sonar-project.properties` configuration. The scanner runs with `-Dsonar.qualitygate.wait=true` and `-Dsonar.branch.name=dev`, matching CI behavior, and `make sonar` keeps the report for the repeated-code reader. Results appear on the SonarCloud dashboard under the `dev` branch analysis.
 
 **Note:** The first run pulls the `sonarsource/sonar-scanner-cli` Docker image (~600 MB). Subsequent runs use the cached image. An active internet connection is required since the analysis runs against SonarCloud (not a local SonarQube instance).
 

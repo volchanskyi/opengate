@@ -12,18 +12,12 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-// The incidents strip owns its own read and is exercised in
-// DeviceIncidentsStrip.test.tsx; stub it here so these tests assert only that
-// the device page carries it, keyed to the device on screen.
 vi.mock('../investigations', () => ({
   DeviceIncidentsStrip: ({ deviceId }: { deviceId: string }) => (
     <div data-testid="incidents-strip">{deviceId}</div>
   ),
 }));
 
-// The telemetry panel is exercised in DeviceMetrics.test.tsx; stub it here so
-// these tests stay isolated from uPlot/canvas and the metrics fetch. The stub
-// exposes onViewLogs so the correlation-jump glue can be driven.
 vi.mock('./DeviceMetrics', () => ({
   DeviceMetrics: ({ deviceId, onViewLogs }: { deviceId: string; onViewLogs?: (f: number, t: number) => void }) => (
     <div data-testid="device-metrics">
@@ -60,7 +54,7 @@ describe('DeviceDetail — hardware and inventory', () => {
 
   it('auto-loads hardware once when the device is already online on mount', () => {
     const fetchHardwareFn = vi.fn();
-    useDeviceStore.setState({ fetchHardware: fetchHardwareFn }); // mockDevice is online
+    useDeviceStore.setState({ fetchHardware: fetchHardwareFn });
     renderDetail();
     expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
     expect(fetchHardwareFn).toHaveBeenCalledWith('d1');
@@ -73,13 +67,9 @@ describe('DeviceDetail — hardware and inventory', () => {
       selectedDevice: { ...mockDevice, status: 'offline' as const },
     });
     renderDetail();
-    expect(fetchHardwareFn).not.toHaveBeenCalled(); // offline: nothing pulled
-
-    // Agent comes back online → pull once.
+    expect(fetchHardwareFn).not.toHaveBeenCalled();
     act(() => { useDeviceStore.setState({ selectedDevice: { ...mockDevice, status: 'online' as const } }); });
     expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
-
-    // A subsequent poll that leaves the device online must not re-pull.
     act(() => { useDeviceStore.setState({ selectedDevice: { ...mockDevice, status: 'online' as const, last_seen: '2026-01-02T00:00:00Z' } }); });
     expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
   });
@@ -113,9 +103,7 @@ describe('DeviceDetail — hardware and inventory', () => {
       },
     });
     renderDetail();
-    // Collapsed on open — the host card stays short and scannable.
     expect(screen.queryByText('CPU')).toBeNull();
-    // The caret toggle reveals the details (same pattern as Intel AMT Setup).
     await user.click(screen.getByText('Hardware'));
     expect(screen.getByText('CPU')).toBeInTheDocument();
     await user.click(screen.getByText('Hardware'));
@@ -156,10 +144,8 @@ describe('DeviceDetail — hardware and inventory', () => {
   });
 
   it('the interface list carries its heading as an accessible name', () => {
-    // A short interface name — `lo` is on every Linux host — is a substring of
-    // plenty of unrelated text on this page, so a reader looking for one has to
-    // be able to ask inside the list rather than across the document. The
-    // accessible name is what makes that possible.
+    // A short interface name such as `lo` matches unrelated page text, so the list is
+    // queried through its accessible name.
     useDeviceStore.setState({
       hardware: {
         device_id: 'd1', cpu_model: 'cpu', cpu_cores: 1,
@@ -222,8 +208,6 @@ describe('DeviceDetail — hardware and inventory', () => {
     expect(screen.getByText(/Intel i7-12700/)).toBeInTheDocument();
     expect(screen.getByText(/12 cores/)).toBeInTheDocument();
     expect(screen.getByText('RAM').nextElementSibling?.textContent).toBe('32.0 GB');
-    // Free before total, and neither reading the other: a disk with 100 GB left
-    // of 500 must not read as a full one, nor an empty one.
     expect(screen.getByText('Disk').nextElementSibling?.textContent).toBe(
       '100 GB free / 500 GB',
     );

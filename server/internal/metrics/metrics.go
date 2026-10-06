@@ -1,6 +1,5 @@
-// Package metrics provides Prometheus instrumentation for the OpenGate server.
-// It exposes HTTP, relay, agent, MPS, and database metrics via a
-// custom registry (not the global default).
+// Package metrics provides Prometheus instrumentation for the OpenGate server
+// through a custom registry.
 package metrics
 
 import (
@@ -14,10 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
-// GaugeSource is where the runtime counts come from: the assembled product's own
-// tallies of what it is holding, and of the relay sessions it has opened. Each
-// callback is a single read of a value the process already keeps, which is what
-// lets the page ask at the moment it is built. See live_counts.go.
+// GaugeSource supplies the runtime counts; each callback is one read of a tally the process keeps.
 type GaugeSource struct {
 	ActiveSessions      func() int
 	SessionsStarted     func() uint64
@@ -31,36 +27,25 @@ type Metrics struct {
 	HTTPRequestsTotal   *prometheus.CounterVec
 	HTTPRequestDuration *prometheus.HistogramVec
 
-	// The counts of what the process is holding right now — relay sessions,
-	// connected agents, connected MPS devices — and the relay sessions it has
-	// opened. They are read where the page is built rather than held here, so
-	// what the page says is what is true when it is asked. See live_counts.go.
+	// Live counts are read when the page is built, so the page shows the value at scrape time.
 	runtime *runtimeCounts
 
 	// Agent registration, measured server-side where the device row lands.
-	// See registration_pool.go for why the outcome and the duration travel
-	// together.
 	AgentRegistrationsTotal   *prometheus.CounterVec
 	AgentRegistrationDuration *prometheus.HistogramVec
 
-	// Agent transport, measured where the honest answer lives. A client cannot
-	// report whether its TLS session resumed — it can present a ticket the
-	// server then declines — so the resumed/not-resumed split is taken from the
-	// server's own connection state.
+	// The resumed split comes from the server's connection state, since a client
+	// can present a ticket the server declines.
 	AgentTLSHandshakesTotal *prometheus.CounterVec
 
-	// Audit, by outcome. Every audited action is written, failed or shed, so
-	// the three together answer whether any audit row went missing rather than
-	// only whether the ones that arrived look right.
+	// Every audited action is written, failed or shed, so the three outcomes account for each row.
 	AuditWritesTotal *prometheus.CounterVec
 
 	// Database
 	DBQueryDuration *prometheus.HistogramVec
 	DBQueriesTotal  *prometheus.CounterVec
 	DBSizeBytes     prometheus.Gauge
-	// Connection-pool occupancy, plus the running account of callers that had
-	// to queue for a connection — see registration_pool.go for why the waits
-	// are counters rather than a live queue length.
+	// Pool occupancy plus cumulative callers that queued for a connection.
 	DBPoolConnections      *prometheus.GaugeVec
 	DBPoolWaitsTotal       prometheus.Counter
 	DBPoolWaitSecondsTotal prometheus.Counter
@@ -69,8 +54,7 @@ type Metrics struct {
 	DeviceLogPullsTotal   *prometheus.CounterVec
 	DeviceLogPullDuration *prometheus.HistogramVec
 
-	// Edge Sentinel telemetry ingest path (WS-4) + reconnect-backfill scheduler
-	// (WS-15). These drive the WS-15b sustained-soak / default-on dashboard.
+	// Edge Sentinel telemetry ingest path and reconnect-backfill scheduler.
 	EdgeTelemetryIngestedTotal     *prometheus.CounterVec
 	EdgeTelemetryDropsTotal        *prometheus.CounterVec
 	EdgeTelemetryClockClampedTotal *prometheus.CounterVec
@@ -78,9 +62,7 @@ type Metrics struct {
 	EdgeBackfillActiveSlots        prometheus.Gauge
 	EdgeBackfillGrantRate          prometheus.Gauge
 
-	// Investigations: platform meta-monitoring of the rule pack and the queue it
-	// feeds. Every series here is O(rules); see investigations.go for why that is
-	// the binding constraint rather than a preference.
+	// Investigations meta-monitoring of the rule pack; every series here is O(rules).
 	AlertsSuppressedTotal *prometheus.CounterVec
 	AlertsCreatedTotal    *prometheus.CounterVec
 	AlertsOpen            prometheus.Gauge
@@ -90,19 +72,14 @@ type Metrics struct {
 	// Chart read path
 	MetricsGridMisalignedTotal prometheus.Counter
 
-	// rules is the rule-id vocabulary the investigation series are bounded by.
-	// It is written once at start-up from the embedded catalogue and read from
-	// every ingest goroutine, so it is held atomically rather than behind a lock
-	// nothing else needs.
+	// rules is the rule-id vocabulary bounding the investigation series, set once at start-up.
 	rules atomic.Pointer[ruleVocabulary]
 }
 
 // namespace prefixes every series this package exposes.
 const namespace = "opengate"
 
-// counterVec, histogramVec, and gauge build a namespaced collector, so each
-// metric below reads as its name, help text, and labels instead of repeating an
-// options literal.
+// counterVec builds a namespaced counter vector.
 func counterVec(name, help string, labels ...string) *prometheus.CounterVec {
 	return prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
@@ -136,9 +113,7 @@ func gauge(name, help string) prometheus.Gauge {
 	})
 }
 
-// desc builds a namespaced descriptor for a collector that renders its own
-// metrics rather than holding one — the runtime counts in live_counts.go, which
-// are read where the page is built.
+// desc builds a namespaced descriptor for a collector that renders its own metrics.
 func desc(name, help string) *prometheus.Desc {
 	return prometheus.NewDesc(namespace+"_"+name, help, nil, nil)
 }
@@ -263,18 +238,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	reg.MustRegister(newRegistrationAndPoolMetrics(m)...)
 	seedRegistrationAndPoolMetrics(m)
 
-	// The open-work gauges carry a closed vocabulary, so every status is
-	// exported from the start. A missing series reads as "no data", which is not
-	// the same answer as "nothing open" and looks identical exactly when
-	// somebody is checking whether a queue has drained.
+	// Every status is exported from start-up so an empty queue reads 0 and never "no data".
 	for _, status := range openIncidentStatuses {
 		m.IncidentsOpen.WithLabelValues(status)
 	}
 
-	// Both handshake outcomes are published from start-up for the same reason:
-	// the resumption share divides one series by the sum of the two, and an
-	// absent denominator answers "no data" where the question was whether
-	// reconnects resume.
+	// Both outcomes exist from start-up because the resumption share divides by their sum.
 	m.AgentTLSHandshakesTotal.WithLabelValues("true")
 	m.AgentTLSHandshakesTotal.WithLabelValues("false")
 
@@ -283,47 +252,31 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	return m
 }
 
-// ObserveAuditWrite counts one audited action under what became of its row:
-// written, failed, or shed because every write slot was busy. The three close a
-// ledger against the actions themselves — an audit trail that quietly lost rows
-// under load is one nobody can rely on, and a shed write that nothing counted is
-// exactly that.
+// ObserveAuditWrite counts one audited action as written, failed, or shed
+// because every write slot was busy.
 func (m *Metrics) ObserveAuditWrite(result string) {
 	m.AuditWritesTotal.WithLabelValues(result).Inc()
 }
 
-// ObserveEdgeTelemetryIngest counts one accepted Edge-Sentinel telemetry
-// message for the given control type (e.g. AgentMetricWindow). It is the
-// numerator of the soak dashboard's ingest-rate panels.
+// ObserveEdgeTelemetryIngest counts one accepted telemetry message of the given control type.
 func (m *Metrics) ObserveEdgeTelemetryIngest(msgType string) {
 	m.EdgeTelemetryIngestedTotal.WithLabelValues(msgType).Inc()
 }
 
-// ObserveEdgeTelemetryDrop counts n dropped telemetry messages under one reason
-// (an admission bound such as payload_too_large or interval_floor, an
-// empty-payload reason such as empty_dims, or a persist-path failure such as
-// tenant_missing, persist_failed, persist_slots_full). n is above 1 when one
-// coalesced batch carrying several messages is discarded, so the drop count
-// stays comparable with the ingest count. Backfill never backpressures live
-// paths, so a rising drop rate under soak is the signal that a server-side bound
-// is binding.
+// ObserveEdgeTelemetryDrop counts n dropped telemetry messages under one reason.
+// n exceeds 1 when a coalesced batch is discarded, keeping drops comparable with ingests.
 func (m *Metrics) ObserveEdgeTelemetryDrop(reason string, n int) {
 	m.EdgeTelemetryDropsTotal.WithLabelValues(reason).Add(float64(n))
 }
 
-// ObserveEdgeTelemetryClockClamp counts one agent-stamped telemetry timestamp
-// pulled inside the accepted clock window: direction is future for a host clock
-// ahead of the server, past for one behind. The message is still persisted —
-// clamping corrects the timestamp rather than discarding the sample — so this
-// is deliberately its own counter and never a drop reason.
+// ObserveEdgeTelemetryClockClamp counts one timestamp pulled inside the accepted clock window.
+// Direction is future for a host clock ahead of the server; the sample is still persisted.
 func (m *Metrics) ObserveEdgeTelemetryClockClamp(direction string) {
 	m.EdgeTelemetryClockClampedTotal.WithLabelValues(direction).Inc()
 }
 
 // ObserveBackfillDecision records one reconnect-backfill admission decision.
-// A grant records its per-slot rate; a defer leaves the grant-rate gauge
-// unchanged. active is the scheduler's current live-slot count after the
-// decision, letting the dashboard chart storm drain-down.
+// A grant sets the grant-rate gauge; active is the live-slot count after the decision.
 func (m *Metrics) ObserveBackfillDecision(granted bool, rate uint32, active int) {
 	if granted {
 		m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillGrant).Inc()
@@ -334,50 +287,32 @@ func (m *Metrics) ObserveBackfillDecision(granted bool, rate uint32, active int)
 	m.EdgeBackfillActiveSlots.Set(float64(active))
 }
 
-// ObserveAlertSuppressed counts one alert that reached the server and did not
-// become a stored row: organization_ceiling for a customer's spent hourly
-// budget, duplicate for a reconnect replaying one already stored.
-//
-// The two are not the same event. A duplicate cost nothing — the alert is
-// already held. Suppression cost an incident nobody will be able to
-// reconstruct, which is why it is also folded into a storm room carrying the
-// count rather than left as a number on a dashboard.
+// ObserveAlertSuppressed counts one alert refused a stored row.
+// organization_ceiling is a spent hourly budget.
 func (m *Metrics) ObserveAlertSuppressed(reason string) {
 	m.AlertsSuppressedTotal.WithLabelValues(reason).Inc()
 }
 
-// ObserveAgentTLSHandshake counts one agent connection that reached the
-// application handshake, recording whether its TLS session resumed. It is
-// called once per connection, from the server side, because that is the only
-// place the outcome is known: the agent's own transport reports no resumption
-// result, and a ticket taken from its store may still be declined here.
+// ObserveAgentTLSHandshake counts one agent connection by whether its TLS session resumed.
+// It is called once per connection, server side, where the outcome is known.
 func (m *Metrics) ObserveAgentTLSHandshake(resumed bool) {
 	m.AgentTLSHandshakesTotal.WithLabelValues(strconv.FormatBool(resumed)).Inc()
 }
 
-// ObserveMetricsGridMisalignment counts n chart samples that arrived outside
-// the request-derived grid of the range query they answered. The read path
-// issues that query at the grid's own instants, so this counter should stay at
-// zero; a rising value means the store's evaluation instants and the axis the
-// API publishes have diverged, which would shift every charted value into the
-// wrong bucket.
+// ObserveMetricsGridMisalignment counts n chart samples outside the request-derived grid.
+// The query runs at the grid's own instants, so any non-zero value is a defect.
 func (m *Metrics) ObserveMetricsGridMisalignment(n int) {
 	m.MetricsGridMisalignedTotal.Add(float64(n))
 }
 
-// ObserveDeviceLogPull records one on-demand raw-log broker pull against the
-// pull-count and pull-duration metrics, keyed by outcome (ok, busy, timeout,
-// offline, unsupported, error). The ok series is the audited pull count — every
-// ok pull writes exactly one device.logs.read audit event.
+// ObserveDeviceLogPull records one raw-log broker pull by outcome.
+// Every ok pull writes exactly one device.logs.read audit event.
 func (m *Metrics) ObserveDeviceLogPull(result string, duration time.Duration) {
 	m.DeviceLogPullsTotal.WithLabelValues(result).Inc()
 	m.DeviceLogPullDuration.WithLabelValues(result).Observe(duration.Seconds())
 }
 
-// Observe records a single DB-shaped operation against the standard db_query_*
-// metric pair. It lets the per-aggregate Instrumented decorators (audit,
-// updater, auth, device, notifications, amt, session) reuse the same
-// dashboards without importing this package or duplicating label discipline.
+// Observe records one DB-shaped operation against the db_query_* metric pair.
 func (m *Metrics) Observe(operation string, duration time.Duration, ok bool) {
 	status := "ok"
 	if !ok {

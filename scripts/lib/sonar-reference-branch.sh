@@ -1,42 +1,9 @@
 #!/usr/bin/env bash
-# sonar-reference-branch.sh — keeps the workstation's copy of the reference
-# branch level with the remote, so a local scan measures this change rather than
-# a season of history.
-#
-# Sourced by scripts/precommit-gauntlet.sh (and by
-# scripts/tests/sonar-reference-branch.test.sh). NOT executable on its own —
-# this is a library of bash functions.
-#
-# Why it exists: on SonarCloud `dev` is a short-lived branch, so its new code is
-# everything since it left the long-lived branch above it, and the boundary is
-# the merge base between the two. The scanner computes that merge base from the
-# repository it is handed, and it resolves the reference branch by name — which
-# finds the local `refs/heads/main`, not the remote-tracking ref. Nothing on a
-# workstation ever needs that local branch, so nothing updates it, and nothing
-# reads it either.
-#
-# What that costs: the merge base falls back to wherever the two last agreed. On
-# this repository the local `main` had not moved since April, so a scan run in
-# September measured five months as new code and failed the gate on thirteen
-# findings and eighty-five smells from files the change had never opened. The
-# three blame-independent guards beside it all passed, correctly, because they
-# judge the files the change touched. And CI could not reproduce any of it: a
-# fresh checkout has a current reference branch by construction, so the workstation
-# is the only place the question is ever asked wrongly.
-#
-# .claude/rules/git.md already says to pull `main` before starting work, for the
-# separate reason that Dependabot's security updates land there and never reach
-# `dev`. This is the same command, checked rather than remembered.
-#
-# Functions exported:
-#   sonar_reference_branch_check REPO_ROOT BRANCH   — the gate; logs to stderr
+# The scanner takes its merge base from the local refs/heads/<branch>, so a stale one reads old
+# history as new code. Sourced by scripts/precommit-gauntlet.sh; the check logs to stderr.
 
-# sonar_reference_branch_check REPO_ROOT BRANCH — 0 when the local reference
-# branch is level with or ahead of its remote-tracking ref, 1 when it is behind
-# or the refs could not be read.
-#
-# Ahead is not drift: between a commit and its push every workstation is ahead,
-# and the merge base is correct throughout. Only behind moves the boundary.
+# Returns 0 when the local branch is level with or ahead of its remote ref, 1 when behind or unread.
+# Ahead leaves the merge base correct; only behind moves the boundary.
 sonar_reference_branch_check() {
   local root="$1" branch="$2"
   local local_ref="refs/heads/$branch" remote_ref="refs/remotes/origin/$branch"
@@ -48,8 +15,7 @@ sonar_reference_branch_check() {
     return 1
   fi
 
-  # No local branch is no problem: the scanner then resolves the
-  # remote-tracking ref, which a fetch keeps current.
+  # Without a local branch the scanner uses the remote-tracking ref, which a fetch keeps current.
   if ! local_tip="$(git -C "$root" rev-parse --verify --quiet "$local_ref")"; then
     return 0
   fi

@@ -117,8 +117,6 @@ describe('MaintenancePanel — what the reason carries', () => {
     expect(onToggle).toHaveBeenCalledWith(true, 'kernel upgrade');
   });
 
-  // Clearing the box on a failed request would lose what the operator typed
-  // and leave them retyping it to retry.
   it('keeps what was typed when the request is refused', async () => {
     const onToggle = vi.fn().mockResolvedValue(false);
     const user = userEvent.setup();
@@ -133,8 +131,6 @@ describe('MaintenancePanel — what the reason carries', () => {
 });
 
 describe('MaintenancePanel — reading the banner', () => {
-  // A window with no recorded start says so by saying nothing, rather than
-  // rendering "in maintenance since " with nothing after it.
   it('says nothing about a start it does not know', () => {
     render(<MaintenancePanel device={device({ maintenance_on: true })} onToggle={vi.fn()} />);
     expect(screen.getByText(/In maintenance\./)).toBeInTheDocument();
@@ -146,8 +142,6 @@ describe('MaintenancePanel — reading the banner', () => {
     expect(screen.queryByText(/Reason:/)).toBeNull();
   });
 
-  // A day is the point the window stops being routine. The day before it is
-  // ordinary work, so the escalation starts on the first full day and not after.
   it('raises the alert on the first full day, not the one after', () => {
     render(<MaintenancePanel device={device({ maintenance_on: true, maintenance_since: daysAgo(1) })} onToggle={vi.fn()} />);
     expect(screen.getByRole('alert')).toHaveTextContent(/1 day/);

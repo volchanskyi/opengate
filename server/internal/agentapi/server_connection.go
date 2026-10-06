@@ -17,16 +17,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// One agent's connection, from the QUIC stream it opens to the moment the
-// machine is marked offline.
-//
-// Every step here is a door the endpoint knocks on, so each is bounded and each
-// failure closes the connection with a code rather than leaving it half-open:
-// the stream is accepted under a timeout, the handshake runs under its own, a
-// device the administrator deleted is turned away before it can register, and a
-// teardown that finds a newer connection for the same machine leaves that one
-// alone rather than marking a live machine offline.
-
 // accept handles a single QUIC connection.
 func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	logger := s.logger.With("remote_addr", conn.RemoteAddr())
@@ -82,20 +72,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 }
 
 // registerConn stores the connection in the server map and emits an online event.
-//
-// The count follows the machine rather than the connection. A machine that
-// drops and dials straight back is registered while its previous connection is
-// still tearing down, and that teardown will decline to decrement — it finds a
-// newer connection in the map and leaves it alone. Counting the replacement as
-// an arrival too would add one the process can never take back, and the
-// connected-agents gauge would climb by one on every reconnect race for as long
-// as the server runs.
-//
-// Taking the device's status gate is what gives that teardown something to lose
-// to: a machine only becomes this connection's once the departing connection
-// has finished the offline write it was already authorised to make, so the two
-// writes reach the row in the order the connections arrived. See
-// releaseDeviceStatus.
+// The count follows the machine, so a replacement connection is not counted as a second arrival.
 func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname string) {
 	leave := s.statusGate.enter(ac.DeviceID)
 	if _, replaced := s.conns.Swap(ac.DeviceID, ac); !replaced {
@@ -108,23 +85,15 @@ func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname 
 		DeviceHostname: hostname,
 		Timestamp:      time.Now(),
 	}
-	_ = s.notifier.Notify(ctx, onlineEvt) // fire-and-forget
+	_ = s.notifier.Notify(ctx, onlineEvt)
 }
 
 // unregisterConn releases the device's status and closes the stream and
 // connection.
 func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *AgentConn, hostname string, logger *slog.Logger) {
-	// First, so nothing writes down a connection the server has stopped
-	// treating as the machine's. A handler that resolved this connection a
-	// moment ago is still holding it, and the writes below take several
-	// database round trips to reach the close.
+	// Runs first so handlers still holding this connection stop writing for the machine.
 	ac.markReleased()
-	// Free any backfill admission slot this connection held so a reconnect (or
-	// another agent) can drain. Idempotent for agents that never backfilled, and
-	// a no-op when the server carries no scheduler.
 	s.scheduler.Release(ac.DeviceID)
-	// A machine that drops off becomes unknown for every rule rather than
-	// staying counted as one that is still being watched.
 	s.coverage.Forget(ac.DeviceID)
 	s.releaseDeviceStatus(ac, hostname, logger)
 	_ = stream.Close()
@@ -132,17 +101,8 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 	logger.Info("agent disconnected")
 }
 
-// releaseDeviceStatus marks the device offline when this connection is still
-// the one the server holds for it.
-//
-// Both halves run under the device's gate because they are one decision. A
-// machine that drops and dials straight back has two connections writing its
-// status at once, and the connection map only says which of them owns the row
-// at the instant it is asked: a departing connection that reads the map, loses
-// the device to the reconnect, and only then reaches the database writes
-// offline over an online that is already true. Nothing writes the row again
-// until the machine next connects, so a technician's device list shows a
-// connected machine as offline and refuses a session to it.
+// releaseDeviceStatus marks the device offline when this connection is still the one held for it.
+// The map check and the status write share the device's gate so a reconnect is never overwritten.
 func (s *AgentServer) releaseDeviceStatus(ac *AgentConn, hostname string, logger *slog.Logger) {
 	defer s.statusGate.enter(ac.DeviceID)()
 
@@ -167,14 +127,11 @@ func (s *AgentServer) releaseDeviceStatus(ac *AgentConn, hostname string, logger
 		DeviceHostname: hostname,
 		Timestamp:      time.Now(),
 	}
-	_ = s.notifier.Notify(offlineCtx, offlineEvt) // fire-and-forget
+	_ = s.notifier.Notify(offlineCtx, offlineEvt)
 }
 
-// deviceStatusGate serializes one device's status transitions. It holds a lock
-// per device currently transitioning rather than one per device the server has
-// ever seen: the entry is created on the way in and dropped once nobody is left
-// waiting on it, so a fleet that has cycled through a million machines carries
-// as many gates as it has reconnects in flight. The zero value is ready to use.
+// deviceStatusGate serializes one device's status transitions.
+// A lock exists only while a transition is in flight, and the zero value is ready to use.
 type deviceStatusGate struct {
 	mu    sync.Mutex
 	locks map[protocol.DeviceID]*deviceStatusLock
@@ -185,8 +142,7 @@ type deviceStatusLock struct {
 	waiting int
 }
 
-// enter blocks until this device's gate is free and returns the function that
-// leaves it.
+// enter blocks until the device's gate is free and returns the function that leaves it.
 func (g *deviceStatusGate) enter(id protocol.DeviceID) func() {
 	g.mu.Lock()
 	if g.locks == nil {
@@ -245,9 +201,7 @@ func agentTenantID(ctx context.Context) uuid.UUID {
 
 // runControlLoop processes control messages until the stream errors or the context is cancelled.
 func (s *AgentServer) runControlLoop(ctx context.Context, ac *AgentConn, logger *slog.Logger) {
-	// Flush any telemetry buffered since the last heartbeat on teardown so a
-	// disconnect never silently drops the in-flight burst. WithoutCancel keeps
-	// the connection's tenant scope while surviving the cancelled loop context.
+	// WithoutCancel keeps the tenant scope while the flush outlives the cancelled loop context.
 	defer ac.flushTelemetry(context.WithoutCancel(ctx))
 	for {
 		if err := ac.handleControl(ctx); err != nil {
@@ -260,10 +214,7 @@ func (s *AgentServer) runControlLoop(ctx context.Context, ac *AgentConn, logger 
 	}
 }
 
-// acceptControlStream accepts the agent-initiated control stream on the QUIC
-// connection. The agent opens the stream and writes first; the server accepts
-// it and replies during the handshake. On error, it closes the connection and
-// returns the error.
+// acceptControlStream accepts the agent-opened control stream and closes the connection on error.
 func (s *AgentServer) acceptControlStream(ctx context.Context, conn *quic.Conn, logger *slog.Logger) (*quic.Stream, error) {
 	acceptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -281,9 +232,7 @@ func (s *AgentServer) acceptControlStream(ctx context.Context, conn *quic.Conn, 
 // it closes the connection.
 func (s *AgentServer) performHandshake(ctx context.Context, conn *quic.Conn, stream *quic.Stream, logger *slog.Logger) (*HandshakeResult, error) {
 	tlsState := conn.ConnectionState().TLS
-	// Counted here, before the application handshake can fail, so the series is
-	// TLS handshakes rather than successful registrations. Only this side knows
-	// the answer: the machine cannot report whether its session resumed.
+	// Counted before the application handshake so the series covers every TLS handshake.
 	if s.metrics != nil {
 		s.metrics.ObserveAgentTLSHandshake(tlsState.DidResume)
 	}

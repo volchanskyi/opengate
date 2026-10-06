@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-# Tests for deploy/scripts/pg-app-role-sql.sh.
-#
-# The emitter exists so the app-role password reaches psql over stdin instead of
-# on the command line: a `psql --set=app_password=…` argv is visible to every
-# process in the Postgres pod and is recorded verbatim in the Kubernetes API
-# server's audit entry for the exec subresource.
-#
-# Run: ./scripts/tests/pg-app-role-sql.test.sh
+# Tests for deploy/scripts/pg-app-role-sql.sh, which sends the app-role password to psql over stdin.
+# A command-line argument would show in every pod process and in the API server's exec audit entry.
 
 set -euo pipefail
 
@@ -51,14 +45,10 @@ assert_not_contains() {
   fi
 }
 
-# --- password never lands on a command line ---------------------------------
-
 out="$(POSTGRES_APP_PASSWORD='simplepass' "$EMITTER")"
 assert_contains "sets the psql variable from stdin" "$out" "\\set app_password 'simplepass'"
 assert_contains "emits the ALTER ROLE using the psql variable" "$out" "PASSWORD :'app_password'"
 assert_not_contains "never emits a --set command-line flag" "$out" "--set=app_password"
-
-# --- SQL body is carried intact ---------------------------------------------
 
 assert_contains "creates the role when absent" "$out" "CREATE ROLE opengate_app"
 assert_contains "keeps the role subject to RLS" "$out" "NOSUPERUSER NOBYPASSRLS"
@@ -67,20 +57,15 @@ assert_contains "reassigns sequence ownership" "$out" "ALTER SEQUENCE %s OWNER T
 assert_contains "fails loudly if the role can bypass RLS" "$out" \
   "database role opengate_app must be NOSUPERUSER and NOBYPASSRLS"
 
-# --- psql meta-command quoting ----------------------------------------------
-
 out="$(POSTGRES_APP_PASSWORD="pa'ss" "$EMITTER")"
 assert_contains "escapes a single quote for the psql lexer" "$out" "\\set app_password 'pa\\'ss'"
 
 out="$(POSTGRES_APP_PASSWORD='pa\ss' "$EMITTER")"
 assert_contains "escapes a backslash for the psql lexer" "$out" "\\set app_password 'pa\\\\ss'"
 
-# A password whose raw form would terminate the quoted argument must never
-# appear unescaped — that would let the value be read as psql meta-commands.
+# A password carrying a quote is escaped, so psql reads it as data and not a meta-command.
 out="$(POSTGRES_APP_PASSWORD="x'; \\echo pwned" "$EMITTER")"
 assert_not_contains "never emits an unescaped quote-break" "$out" "'x'; \\echo pwned'"
-
-# --- required input ----------------------------------------------------------
 
 if (
   unset POSTGRES_APP_PASSWORD

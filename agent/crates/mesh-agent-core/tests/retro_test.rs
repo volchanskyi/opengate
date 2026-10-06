@@ -1,12 +1,4 @@
-//! Re-running a rule over the history a device already holds.
-//!
-//! "Has this happened before?" is answered on the machine, by evaluating a newly
-//! pushed rule against the minute-by-minute history in the local store — not by
-//! shipping every device's seconds to a central recorder. The tests here pin the
-//! three things that makes that safe to do: a finding is stamped with the time it
-//! *happened*, a scan can be stopped and resumed without changing its answer, and
-//! a scan can never take more of the machine, or more of the device's alert
-//! allowance, than a live rule would.
+//! Retro scans evaluate a pushed rule over the minute-resolution history in the local store.
 
 use std::time::Duration;
 
@@ -21,9 +13,6 @@ use mesh_protocol::{
     RuleTerm, ThresholdRule,
 };
 
-/// The readings a finding actually ships, read back out of the packed evidence.
-/// What the far end stores is this blob, so this is the only reading that says
-/// what a technician will see behind the finding.
 fn shipped_readings(alert: &EdgeAlert) -> Vec<HistoryPoint> {
     let evidence = AlertEvidence::decode(&alert.evidence, &alert.evidence_codec)
         .expect("a finding's evidence must read back");
@@ -34,16 +23,12 @@ fn shipped_readings(alert: &EdgeAlert) -> Vec<HistoryPoint> {
         .collect()
 }
 
-/// Bucket-aligned, so a second's timestamp and its minute bucket line up and
-/// every expectation can be read off the offset from here.
+/// Bucket-aligned, so each second's minute bucket lines up with its offset from here.
 const START: i64 = 1_700_000_040;
 const MICROS_PER_SEC: i64 = 1_000_000;
-/// Wall-clock instant the scans below run at — years after the history they read,
-/// so an alert stamped with scan time instead of event time is unmistakable.
+/// Scan time, years after the history, so a finding stamped with it is unmistakable.
 const SCAN_NOW_MICROS: i64 = 1_900_000_000 * MICROS_PER_SEC;
 
-/// The shipped shape of `disk-critical`: a percentage that has to stay over the
-/// line for five minutes, with a hysteresis band under it.
 fn disk_critical() -> ThresholdRule {
     ThresholdRule {
         id: "disk-critical".to_string(),
@@ -60,9 +45,7 @@ fn disk_critical() -> ThresholdRule {
     }
 }
 
-/// A store holding one second-by-second series, valued by `value_at(second)`.
-/// `None` writes nothing for that second, which is the hole a device that was
-/// switched off leaves behind.
+/// A `None` from `value_at` writes nothing for that second, leaving a hole in the history.
 fn seed(
     dir: &std::path::Path,
     series: SeriesId,
@@ -74,7 +57,6 @@ fn seed(
     db
 }
 
-/// Append one more second-by-second series into an open store.
 fn write_series(
     db: &mut LocalTsdb,
     series: SeriesId,
@@ -90,15 +72,12 @@ fn write_series(
     db.commit(Durability::Full).unwrap();
 }
 
-/// Whether second `i` falls inside one of `episodes`, each `(start, length)` in
-/// seconds from [`START`].
 fn inside(i: i64, episodes: &[(i64, i64)]) -> bool {
     episodes
         .iter()
         .any(|&(from, len)| (from..from + len).contains(&i))
 }
 
-/// Three separated stretches of a nearly-full disk in three hours of history.
 fn three_full_disk_episodes() -> impl Fn(i64) -> Option<f64> {
     move |i| {
         let episodes = [(600, 600), (3_600, 600), (7_200, 600)];
@@ -106,9 +85,6 @@ fn three_full_disk_episodes() -> impl Fn(i64) -> Option<f64> {
     }
 }
 
-/// Run a scan to its end, returning everything it raised and the step it
-/// finished on. A generous budget keeps chunking out of the way of tests that
-/// are about findings rather than pacing.
 fn drain_scan(scan: &mut RetroScan, db: &LocalTsdb, sink: &AlertSink) -> RetroStep {
     let mut steps = 0;
     loop {
@@ -123,10 +99,6 @@ fn drain_scan(scan: &mut RetroScan, db: &LocalTsdb, sink: &AlertSink) -> RetroSt
     }
 }
 
-/// Walk a whole history in small chunks, throwing the scan away after each one
-/// and rebuilding it from nothing but the cursor — an agent restart between
-/// every chunk. Bounded, so a cursor that stops advancing fails rather than
-/// hangs.
 fn resume_scan_to_the_end(rule: &ThresholdRule, db: &LocalTsdb, sink: &AlertSink) {
     let budget = RetroBudget::new(30, 2.0);
     let mut cursor = RetroCursor::default();
@@ -147,13 +119,10 @@ fn resume_scan_to_the_end(rule: &ThresholdRule, db: &LocalTsdb, sink: &AlertSink
     panic!("a resumed scan that never finishes");
 }
 
-/// A roomy sink, so the ceiling is only in play in the test that is about it.
 fn roomy() -> AlertSink {
     AlertSink::new(512, 512)
 }
 
-/// The store as the fleet ships it: a hard cap, with a backoff against the
-/// host's own free space.
 fn shipped_store() -> TsdbConfig {
     TsdbConfig {
         cap_bytes: 512 * 1024 * 1024,
@@ -169,9 +138,6 @@ fn event_times(alerts: &[EdgeAlert]) -> Vec<i64> {
         .collect()
 }
 
-/// Three stretches of a full disk in history produce exactly three findings —
-/// one per episode, not one per breaching minute — and every one of them is
-/// marked as having come from history rather than from now.
 #[test]
 fn three_episodes_in_history_produce_three_backfilled_findings() {
     let dir = tempfile::tempdir().unwrap();
@@ -195,9 +161,6 @@ fn three_episodes_in_history_produce_three_backfilled_findings() {
     assert_eq!(scan.stats().findings, 3);
 }
 
-/// A finding is stamped with the minute it happened, not the minute it was
-/// found. Scan time would fold a freeze from three weeks ago into today's
-/// incident and make every historical finding look simultaneous.
 #[test]
 fn a_finding_carries_the_time_it_happened_not_the_time_it_was_found() {
     let dir = tempfile::tempdir().unwrap();
@@ -210,16 +173,12 @@ fn a_finding_carries_the_time_it_happened_not_the_time_it_was_found() {
 
     drain_scan(&mut scan, &db, &sink);
 
-    // Each episode fires once its five-minute sustain has elapsed inside it.
     assert_eq!(
         event_times(&sink.drain()),
         vec![START + 900, START + 3_900, START + 7_500]
     );
 }
 
-/// All three findings share one grouping key — the rule and what on this device
-/// it is about — so the incident engine folds a retro scan into one incident
-/// rather than one per episode.
 #[test]
 fn every_finding_of_one_scan_shares_one_grouping_key() {
     let dir = tempfile::tempdir().unwrap();
@@ -246,10 +205,6 @@ fn every_finding_of_one_scan_shares_one_grouping_key() {
     );
 }
 
-/// A scan stopped part-way and resumed from its cursor answers exactly what an
-/// uninterrupted scan answers: no finding delivered twice, none lost across the
-/// seam. The seam is the interesting case — an episode straddling it must be
-/// reported once.
 #[test]
 fn an_interrupted_scan_resumes_to_the_same_findings() {
     let dir = tempfile::tempdir().unwrap();
@@ -263,8 +218,6 @@ fn an_interrupted_scan_resumes_to_the_same_findings() {
     drain_scan(&mut whole, &db, &uninterrupted);
     let expected = event_times(&uninterrupted.drain());
 
-    // Walk the same history in small chunks, throwing the scan away after each
-    // one and rebuilding it from nothing but the cursor — an agent restart.
     let resumed = roomy();
     let budget = RetroBudget::new(30, 2.0);
     let mut cursor = RetroCursor::default();
@@ -288,17 +241,11 @@ fn an_interrupted_scan_resumes_to_the_same_findings() {
     assert!(!expected.is_empty(), "the fixture has findings to lose");
 }
 
-/// A rule whose sustain is not a whole number of minutes resumes onto the minute
-/// grid, not off it. The window a resume re-reads is as long as the rule's own
-/// memory, so an odd sustain lands the read between two stored minutes — and a
-/// read that lines up with nothing finds nothing, silently, for the rest of the
-/// scan.
 #[test]
 fn a_rule_with_an_odd_sustain_resumes_onto_the_stored_minutes() {
     let dir = tempfile::tempdir().unwrap();
     let db = seed(dir.path(), SERIES_DISK, 10_800, three_full_disk_episodes());
-    // 90 s: over the stored minute, so history can answer it, but not a whole
-    // number of them.
+    // 90 s spans one and a half stored minutes.
     let odd = ThresholdRule {
         sustain_secs: 90,
         ..disk_critical()
@@ -334,9 +281,6 @@ fn a_rule_with_an_odd_sustain_resumes_onto_the_stored_minutes() {
         }
     }
 
-    // Every minute the uninterrupted run looked at was looked at here too — a
-    // resumed chunk that lands between two stored minutes reads nothing and
-    // reports nothing, which is the quietest way to lose half a scan.
     assert!(
         evaluated >= whole.stats().buckets_evaluated,
         "the resumed scan evaluated {evaluated} minutes, the uninterrupted one {}",
@@ -345,8 +289,6 @@ fn a_rule_with_an_odd_sustain_resumes_onto_the_stored_minutes() {
     assert_eq!(event_times(&resumed.drain()), expected);
 }
 
-/// A scan whose rule version is replaced mid-run stops rather than finishing
-/// against a definition nobody is using any more.
 #[test]
 fn a_scan_stops_when_its_rule_version_is_superseded() {
     let dir = tempfile::tempdir().unwrap();
@@ -383,9 +325,6 @@ fn a_scan_stops_when_its_rule_version_is_superseded() {
     );
 }
 
-/// A device enrolled this morning has nothing to look back over, and the scan
-/// says so. Reporting an empty scope as a completed scan would claim the machine
-/// has been checked back through history it never had.
 #[test]
 fn a_device_with_no_history_reports_an_empty_scope() {
     let dir = tempfile::tempdir().unwrap();
@@ -406,10 +345,6 @@ fn a_device_with_no_history_reports_an_empty_scope() {
     assert_eq!(scan.scope(), None);
 }
 
-/// The throttle is in the shape of the work, not in how fast the machine
-/// happens to be: a chunk reads at most the budgeted number of stored readings,
-/// and every chunk hands back a stand-down the caller has to observe before the
-/// next one.
 #[test]
 fn a_chunk_is_bounded_and_every_chunk_stands_down() {
     let dir = tempfile::tempdir().unwrap();
@@ -450,9 +385,6 @@ fn a_chunk_is_bounded_and_every_chunk_stands_down() {
     assert_eq!(sink.drain().len(), 3, "chunking does not change the answer");
 }
 
-/// Whatever a chunk costs, the stand-down after it keeps the scan's share of the
-/// machine inside its budget. Asserted as arithmetic over the budget rather than
-/// by timing a run, which no test can do deterministically.
 #[test]
 fn the_stand_down_keeps_a_scan_inside_its_share_of_the_machine() {
     let budget = RetroBudget::new(4_096, 2.0);
@@ -472,9 +404,6 @@ fn the_stand_down_keeps_a_scan_inside_its_share_of_the_machine() {
     );
 }
 
-/// The scan stands down while the host disk is filling, and it does so *before*
-/// the store starts shrinking what it keeps — a scan competing for the last of a
-/// host's disk with the eviction that is trying to free it helps nobody.
 #[test]
 fn a_scan_stands_down_before_the_store_changes_what_it_keeps() {
     let store = shipped_store();
@@ -484,7 +413,6 @@ fn a_scan_stands_down_before_the_store_changes_what_it_keeps() {
         host_free_bytes: free,
     };
 
-    // The point where the store's own backoff starts to bite.
     let engage = (store.cap_bytes as f64 / store.host_free_fraction) as u64;
     assert_eq!(
         mesh_agent_core::alerts::retro_hold(&idle(Some(engage)), store),
@@ -492,8 +420,6 @@ fn a_scan_stands_down_before_the_store_changes_what_it_keeps() {
         "the scan is already standing down where the store starts backing off"
     );
 
-    // And at the point the scan stands down, the store is still keeping
-    // everything it was keeping before.
     let mut free = engage;
     while mesh_agent_core::alerts::retro_hold(&idle(Some(free)), store).is_some() {
         free = free.saturating_add(engage / 8);
@@ -514,9 +440,6 @@ fn a_scan_stands_down_before_the_store_changes_what_it_keeps() {
     );
 }
 
-/// A scan waits for a quiet machine and never runs during maintenance: it is
-/// answering a question about the past, which can always wait for the present to
-/// calm down.
 #[test]
 fn a_scan_waits_for_a_quiet_machine_and_never_runs_in_maintenance() {
     let store = shipped_store();
@@ -547,8 +470,6 @@ fn a_scan_waits_for_a_quiet_machine_and_never_runs_in_maintenance() {
     );
 }
 
-/// A rule asking about something finer than the stored minute is reported as one
-/// history cannot answer, rather than answered wrongly at a coarser resolution.
 #[test]
 fn a_rule_finer_than_the_stored_minute_cannot_be_re_run() {
     assert!(RetroPlan::for_rule(&disk_critical()).is_ok());
@@ -591,12 +512,9 @@ fn a_rule_finer_than_the_stored_minute_cannot_be_re_run() {
     );
 }
 
-/// A scan cannot spend a device's alert allowance just because what it found is
-/// old. Twenty-five historical episodes are still twenty alerts an hour.
 #[test]
 fn a_scan_cannot_blow_the_device_alert_ceiling() {
     let dir = tempfile::tempdir().unwrap();
-    // Twenty-five short episodes: two minutes over the line, two minutes under.
     let db = seed(dir.path(), SERIES_DISK, 6_000, |i| {
         Some(if (i / 120) % 2 == 0 { 96.0 } else { 50.0 })
     });
@@ -625,14 +543,10 @@ fn a_scan_cannot_blow_the_device_alert_ceiling() {
     );
 }
 
-/// A hole in history breaks the run rather than being read through. The device
-/// was switched off; nobody knows what the disk was doing, and a rule that needs
-/// five continuous minutes has not seen them.
 #[test]
 fn a_gap_in_history_does_not_carry_a_breach_across_it() {
     let dir = tempfile::tempdir().unwrap();
-    // Over the line the whole time, except for two minutes with no readings at
-    // all in the middle of what would otherwise be a firing stretch.
+    // Two minutes with no readings sit in the middle of a stretch over the line.
     let db = seed(dir.path(), SERIES_DISK, 900, |i| {
         (!(180..300).contains(&i)).then_some(96.0)
     });
@@ -644,19 +558,13 @@ fn a_gap_in_history_does_not_carry_a_breach_across_it() {
 
     drain_scan(&mut scan, &db, &sink);
 
-    // The first stretch is three minutes, the second ten: only the second one is
-    // long enough, and it fires five minutes into itself rather than five
-    // minutes into the pair.
     assert_eq!(event_times(&sink.drain()), vec![START + 600]);
 }
 
-/// A rule requiring two things at once reads both sides at the same minute. This
-/// is the slow-disk-versus-busy-disk case: a queue 28 deep at a healthy 3 ms is
-/// a nightly backup, and only the two readings together tell them apart.
 #[test]
 fn a_rule_with_two_sides_reads_both_at_the_same_minute() {
     let dir = tempfile::tempdir().unwrap();
-    // Service time is bad throughout; the queue only backs up in the second half.
+    // Service time is bad throughout; the queue backs up only in the second half.
     let mut db = seed(dir.path(), SERIES_DISK_AWAIT_MS, 1_800, |_| Some(40.0));
     write_series(&mut db, SERIES_DISK_QUEUE_DEPTH, 1_800, |i| {
         Some(if i >= 900 { 28.0 } else { 1.0 })
@@ -697,14 +605,9 @@ fn a_rule_with_two_sides_reads_both_at_the_same_minute() {
     );
 }
 
-/// The minute a rule reads is the minute its own question needs. A rule about
-/// the peak reads the peak; a rule about the average reads the average — and a
-/// machine that spikes for one second a minute is not a machine that is averaging
-/// badly.
 #[test]
 fn a_peak_rule_and_an_average_rule_read_different_things_from_one_minute() {
     let dir = tempfile::tempdir().unwrap();
-    // One second in every minute pinned at 99, the rest quiet at 10.
     let db = seed(dir.path(), SERIES_DISK, 3_600, |i| {
         Some(if i % 60 == 0 { 99.0 } else { 10.0 })
     });
@@ -745,17 +648,6 @@ fn a_peak_rule_and_an_average_rule_read_different_things_from_one_minute() {
     );
 }
 
-/// Every shape the live evaluator refuses, history refuses too.
-///
-/// The two sides ask the same question of a rule's declared shape — which
-/// predicate may carry a window, and how wide — and they ask it through one
-/// statement of the rule. Two copies of it would eventually disagree, and the
-/// direction that disagreement runs matters: a scan evaluating a shape the live
-/// evaluator will not touch reports history nobody can reproduce live.
-///
-/// The converse is deliberately *not* asserted. A rule about thirty seconds is
-/// perfectly evaluable live and unanswerable from minute-by-minute history, and
-/// that asymmetry is the whole point of [`RetroUnsupported`].
 #[test]
 fn a_shape_the_live_evaluator_refuses_is_refused_over_history_too() {
     let ill_formed = [
@@ -797,13 +689,6 @@ fn a_shape_the_live_evaluator_refuses_is_refused_over_history_too() {
     }
 }
 
-/// What a retrospective finding *says*. Every other test here is about when a
-/// finding happens and what it costs the machine; this is about the two fields a
-/// technician actually reads, and they had nothing holding them: replacing the
-/// summary with an empty string, or the readings with an empty list, changed
-/// nothing any test asserted. A finding that reaches the queue with a blank
-/// explanation is worse than no finding — it says a machine had a problem and
-/// refuses to say which.
 #[test]
 fn a_finding_says_what_the_rule_means_and_shows_the_readings_behind_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -874,9 +759,6 @@ fn a_finding_says_what_the_rule_means_and_shows_the_readings_behind_it() {
     }
 }
 
-/// The same fields, for the other three comparators and for a rule with no
-/// sustain at all. A summary that read "past" for everything, or that appended
-/// a hold to a rule that has none, would still be a non-empty string.
 #[test]
 fn a_summary_names_the_relation_the_rule_actually_uses() {
     let dir = tempfile::tempdir().unwrap();
@@ -909,19 +791,12 @@ fn a_summary_names_the_relation_the_rule_actually_uses() {
     }
 }
 
-/// A resume has to re-read across everything the live rule was remembering:
-/// how long it must hold a breach, plus how far its widest window looks back.
-/// A windowed rule is where that second term shows — read one term short and a
-/// resumed scan starts blind to the average it was in the middle of, so the
-/// breach it was carrying disappears at the seam and never comes back.
 #[test]
 fn a_windowed_rule_resumes_across_its_window_as_well_as_its_sustain() {
     let dir = tempfile::tempdir().unwrap();
     let db = seed(dir.path(), SERIES_DISK, 10_800, three_full_disk_episodes());
 
-    // A five-minute average held for two, inside ten-minute episodes: the
-    // window is the wider term, so it is the one a resume gets wrong if the
-    // arithmetic drops it.
+    // A five-minute average held for two minutes: the window is the wider term.
     let windowed = ThresholdRule {
         predicate: RulePredicate::WindowMean,
         window_secs: 300,

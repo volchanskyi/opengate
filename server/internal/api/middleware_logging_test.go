@@ -12,15 +12,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// captureRequestLog runs RequestLogger over a GET to path and returns the
-// emitted log text.
 func captureRequestLog(path string) string {
 	return captureRequestLogWithID(path, "")
 }
 
-// captureRequestLogWithID is captureRequestLog with chi's RequestID middleware
-// in front. That middleware honours an inbound X-Request-Id, so passing a
-// non-empty reqID makes the correlation value assertable end to end.
 func captureRequestLogWithID(path, reqID string) string {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
@@ -37,10 +32,6 @@ func captureRequestLogWithID(path, reqID string) string {
 	return buf.String()
 }
 
-// TestRequestLoggerRedaction asserts every path segment that is itself a
-// bearer credential is redacted in request logs, while ordinary API paths are
-// logged verbatim. Request logs ship to Loki, so a full token here crosses a
-// trust boundary.
 func TestRequestLoggerRedaction(t *testing.T) {
 	t.Parallel()
 
@@ -77,9 +68,6 @@ func TestRequestLoggerRedaction(t *testing.T) {
 	})
 }
 
-// TestRequestLoggerCorrelationID asserts the access log carries the chi request
-// ID. Without it a multi-request incident — credential stuffing walking across
-// endpoints, a session-hijack probe — cannot be stitched together in Loki.
 func TestRequestLoggerCorrelationID(t *testing.T) {
 	t.Parallel()
 
@@ -93,7 +81,6 @@ func TestRequestLoggerCorrelationID(t *testing.T) {
 
 	t.Run("omits an empty request id rather than logging a blank field", func(t *testing.T) {
 		t.Parallel()
-		// No RequestID middleware in the chain — nothing to correlate on.
 		assert.NotContains(t, captureRequestLog("/api/v1/devices"), "request_id=")
 	})
 }

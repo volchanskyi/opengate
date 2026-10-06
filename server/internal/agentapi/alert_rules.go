@@ -10,48 +10,24 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// AlertRuleProvider returns the threshold-alert ruleset for one machine. The
-// argument is the machine's whole place in the tenancy ladder — itself, the
-// site it is filed into, the customer that site belongs to, and the tenant —
-// so a provider can answer for a customer or a site without the caller having
-// to look either up. The tenant in that ladder is the connecting agent's
-// authoritative one, which is what keeps one tenant's rules from reaching
-// another.
+// AlertRuleProvider returns the threshold-alert ruleset for one machine, keyed by its scope.
 type AlertRuleProvider interface {
-	// RulesFor returns the rules to push to the machine at scope. An error
-	// means the ruleset could not be assembled — the caller pushes nothing
-	// rather than something that might ignore what the customer configured.
+	// RulesFor returns the rules for the machine at scope; an error means the caller pushes nothing.
 	RulesFor(ctx context.Context, scope settings.Scope) (RuleSet, error)
 }
 
-// RuleSet is everything one machine is told about detection: the rules it
-// evaluates, and how many alerts it may raise in a rolling hour.
-//
-// The allowance is here rather than in a message of its own because it is
-// enforced on the machine, and a machine that received new rules but not the
-// budget they run under would be tuned by half. A ceiling of zero leaves the
-// machine on the allowance it already has, which is what a deployment with no
-// stored budget means.
+// RuleSet is the rules one machine evaluates plus its hourly alert ceiling, where zero keeps
+// the machine's current allowance.
 type RuleSet struct {
 	Rules               []protocol.ThresholdRule
 	DeviceHourlyCeiling uint32
-	// EventRules names which rules about the machine's own words this customer
-	// still wants, keyed by rule id.
-	//
-	// They are not in Rules and never travel, because the machine's log reader
-	// already carries them. What it cannot carry is the customer's decision to
-	// stop one: the matching goes on whatever anybody set, so the stop is kept
-	// here and applied where the alert arrives. Absent from this set means the
-	// customer switched it off or it was killed, and the alert is refused under
-	// its own counted reason rather than filed into a queue somebody chose to
-	// stop watching.
+	// EventRules holds the log-event rule ids the customer keeps enabled; alerts from absent
+	// ids are refused on arrival.
 	EventRules map[string]struct{}
 }
 
-// StaticAlertRuleProvider serves a minimal default ruleset to every tenant, with
-// optional per-tenant overrides. It is the in-memory delivery mechanism for WS-19:
-// rules are server configuration rather than a tenant Postgres table, and the
-// per-tenant keying makes cross-tenant leakage structurally impossible.
+// StaticAlertRuleProvider serves a default ruleset with per-tenant overrides, keyed by tenant
+// so one tenant's rules cannot reach another.
 type StaticAlertRuleProvider struct {
 	defaultRules []protocol.ThresholdRule
 	byTenant     map[uuid.UUID][]protocol.ThresholdRule
@@ -70,10 +46,7 @@ func NewStaticAlertRuleProvider(defaultRules []protocol.ThresholdRule, byTenant 
 	return p
 }
 
-// RulesFor returns a defensive copy of the ruleset for the scope's tenant, or
-// the default set when that tenant has no override. It reads only the tenant
-// rung; the narrower rungs are carried for the providers that resolve them. It
-// reads nothing outside itself, so it never fails.
+// RulesFor returns a copy of the scope's tenant override, or the default set, and never fails.
 func (p *StaticAlertRuleProvider) RulesFor(_ context.Context, scope settings.Scope) (RuleSet, error) {
 	if rules, ok := p.byTenant[scope.TenantID]; ok {
 		return RuleSet{Rules: cloneRules(rules)}, nil
@@ -90,10 +63,8 @@ func resolveAlertRuleProvider(provider AlertRuleProvider) AlertRuleProvider {
 	return NewStaticAlertRuleProvider(DefaultAlertRules(), nil)
 }
 
-// DefaultAlertRules is the minimal built-in ruleset shipped to every tenant that
-// has no custom configuration: sustained resource-saturation alerts with
-// hysteresis, tuned conservatively because delivery is investigation-aid only.
-// Each names the canonical vitals dimension it watches.
+// DefaultAlertRules returns the built-in sustained-saturation rules with hysteresis, each on a
+// canonical vitals dimension.
 func DefaultAlertRules() []protocol.ThresholdRule {
 	return []protocol.ThresholdRule{
 		{ID: "disk-critical", Metric: "disk.used_percent", Comparator: protocol.AlertComparatorGte, Threshold: 90, Clear: 85, SustainSecs: 300},
@@ -113,12 +84,7 @@ func cloneRules(rules []protocol.ThresholdRule) []protocol.ThresholdRule {
 	return out
 }
 
-// pushAlertRules delivers the connecting agent's threshold-alert ruleset,
-// resolved against the machine's own place in the tenancy ladder so a rule
-// tuned for one customer or one office reaches the machines it was tuned for.
-// The tenant in that ladder is the connection's authoritative one, so one
-// tenant's rules never reach another. A nil provider is a no-op; a missing
-// capability surfaces as a capability error the caller can ignore.
+// pushAlertRules delivers the ruleset resolved for this machine's scope; a nil provider is a no-op.
 func (a *AgentConn) pushAlertRules(ctx context.Context) error {
 	if a.alertRules == nil {
 		return nil
@@ -128,11 +94,7 @@ func (a *AgentConn) pushAlertRules(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("assemble alert rules: %w", err)
 	}
-	// Kept until the next push. Rules about the machine's own words never
-	// travel, so this is the only place the customer's decision to stop one can
-	// be applied — and it is read here, beside the ruleset, rather than queried
-	// again on every alert that arrives. The customer is remembered with it, so
-	// a change that customer makes can find this connection again.
+	// The remembered event rules and customer filter incoming alerts until the next push.
 	a.rememberRuleset(scope.OrganizationID, ruleset.EventRules)
 	return a.SendPushAlertRules(ctx, ruleset)
 }
@@ -146,22 +108,13 @@ func (a *AgentConn) rememberRuleset(organizationID uuid.UUID, wanted map[string]
 	a.wantedEventRules = wanted
 }
 
-// PushAlertRules re-resolves this machine's ruleset and delivers it.
-//
-// It is what makes an administrator's change reach a machine that is already
-// connected. A healthy link is held open indefinitely, so waiting for the next
-// registration means waiting for something unrelated to break it — long enough
-// for somebody to switch a rule off, watch the screen say so, and have it go on
-// firing every night.
+// PushAlertRules re-resolves this machine's ruleset and delivers it over the live connection.
 func (a *AgentConn) PushAlertRules(ctx context.Context) error {
 	return a.pushAlertRules(ctx)
 }
 
-// settingsScope reads the machine's place in the tenancy ladder. Alerts and
-// vitals arrive on this connection and need the right customer attached, so the
-// walk happens here rather than being inferred later. A read that fails leaves
-// the rungs this connection already knows for itself, which keeps the tenant
-// boundary intact and simply loses the narrower targeting.
+// settingsScope reads the machine's place in the tenancy ladder; a failed read keeps the rungs
+// the connection knows, so the tenant boundary holds.
 func (a *AgentConn) settingsScope(ctx context.Context) settings.Scope {
 	known := settings.Scope{DeviceID: a.DeviceID, SiteID: a.SiteID, TenantID: a.TenantID}
 	if a.settings == nil {
@@ -175,36 +128,23 @@ func (a *AgentConn) settingsScope(ctx context.Context) settings.Scope {
 	return scope
 }
 
-// RefreshAlertRules re-resolves and delivers the ruleset to every connected
-// machine of one customer, and answers how many were reached.
-//
-// This is what an administrator's change rides out on. Each machine's ruleset
-// is resolved for its own place in the tenancy ladder, so this is a resolve per
-// machine rather than one ruleset copied about: a threshold aimed at the file
-// servers must not reach the workstations beside them.
-//
-// A machine that cannot be written to costs itself and nobody else. A
-// connection breaking mid-push is ordinary, and that machine is given the
-// change as it reconnects — which is the same path an offline machine has
-// always taken.
+// RefreshAlertRules re-resolves each connected machine's ruleset for one customer and returns
+// how many were reached; a failed push costs only that machine.
 func (s *AgentServer) RefreshAlertRules(ctx context.Context, organizationID uuid.UUID) int {
 	return s.refreshRules(ctx, func(meta AgentMeta) bool {
 		return meta.OrganizationID == organizationID
 	})
 }
 
-// RefreshAlertRulesForTenant does the same for every customer in one tenant. It
-// is the delivery half of the tenant-wide stop, which exists because the reason
-// to stop a rule is usually that it is wrong everywhere.
+// RefreshAlertRulesForTenant refreshes the ruleset of every connected machine in one tenant.
 func (s *AgentServer) RefreshAlertRulesForTenant(ctx context.Context, tenantID uuid.UUID) int {
 	return s.refreshRules(ctx, func(meta AgentMeta) bool {
 		return meta.TenantID == tenantID
 	})
 }
 
-// refreshRules pushes to every connected machine the filter selects. A machine
-// that has never been given a ruleset has nothing to refresh and is skipped:
-// its scope is not known yet, and it will be given the current one when it is.
+// refreshRules pushes to every selected machine and skips one never given a ruleset, whose scope
+// is unknown.
 func (s *AgentServer) refreshRules(ctx context.Context, selects func(AgentMeta) bool) int {
 	reached := 0
 	for _, conn := range s.ListConnectedAgents() {

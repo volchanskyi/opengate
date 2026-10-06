@@ -12,10 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// The count on a rule belongs to the customer whose estate it was taken from.
-// Isolation stops it crossing a tenant; nothing in the database stops it
-// crossing a customer, so that scoping is the query's own job — and a query
-// missing it returns a plausible number belonging to somebody else.
 func TestNoiseIsCountedPerCustomer(t *testing.T) {
 	t.Parallel()
 
@@ -37,18 +33,14 @@ func TestNoiseIsCountedPerCustomer(t *testing.T) {
 	assert.Equal(t, 40, theirs["disk-critical"].Recent)
 }
 
-// The colour is relative to the rule's own usual rate, so a rule meant to be
-// chatty does not sit permanently red.
 func TestNoiseIsMeasuredAgainstTheRulesOwnHistory(t *testing.T) {
 	t.Parallel()
 
 	e := newEstate(t)
 
-	// A chatty rule: ten an hour for the past week, ten in the last hour.
 	e.seedRuleAlerts(t, "chatty", e.org, e.device, 10, e.now.Add(-10*time.Minute))
 	e.seedRuleAlerts(t, "chatty", e.org, e.device, 1670, e.now.Add(-3*24*time.Hour))
 
-	// A quiet rule with the same recent count and none of the history.
 	e.seedRuleAlerts(t, "quiet", e.org, e.device, 10, e.now.Add(-10*time.Minute))
 	e.seedRuleAlerts(t, "quiet", e.org, e.device, 167, e.now.Add(-3*24*time.Hour))
 
@@ -64,8 +56,6 @@ func TestNoiseIsMeasuredAgainstTheRulesOwnHistory(t *testing.T) {
 		"the same ten on a rule that does one an hour is what the badge is for")
 }
 
-// A rule with no history yet renders neutral rather than alarming. A fresh
-// customer whose whole pack read red would be told nothing at all.
 func TestARuleWithNoHistoryRendersNeutral(t *testing.T) {
 	t.Parallel()
 
@@ -81,7 +71,6 @@ func TestARuleWithNoHistoryRendersNeutral(t *testing.T) {
 	assert.Equal(t, NoiseUnknown, got.Level())
 }
 
-// The levels themselves, stated without a database so each boundary is exact.
 func TestNoiseLevels(t *testing.T) {
 	t.Parallel()
 
@@ -113,7 +102,6 @@ func TestNoiseLevels(t *testing.T) {
 	}
 }
 
-// A read with no tenant on the context is refused rather than answered.
 func TestNoiseRequiresTenantScope(t *testing.T) {
 	t.Parallel()
 
@@ -122,8 +110,8 @@ func TestNoiseRequiresTenantScope(t *testing.T) {
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
-// seedRuleAlerts writes n alerts for one rule, received at receivedAt, spread
-// across distinct windows so the identity constraint does not collapse them.
+// seedRuleAlerts writes n alerts for one rule across distinct windows so the identity constraint
+// keeps them apart.
 func (e estate) seedRuleAlerts(t *testing.T, ruleID string, org, device any, n int, receivedAt time.Time) {
 	t.Helper()
 	e.exec(t,

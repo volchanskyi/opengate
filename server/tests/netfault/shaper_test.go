@@ -1,5 +1,3 @@
-// What the shaper reports about itself, and what it does when it is stood up
-// and taken down. The counters are what tell the runner a scenario ran at all.
 package main
 
 import (
@@ -10,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A scenario whose drop count does not match its instruction did not run. The
-// counters are what the runner reads at each phase boundary to know it did.
 func TestShaperAccountsForEveryDatagramItHandles(t *testing.T) {
 	t.Parallel()
 	shaper, addr, _ := startShaper(t, 1)
@@ -37,8 +33,6 @@ func TestShaperAccountsForEveryDatagramItHandles(t *testing.T) {
 	assert.Equal(t, int64(1), dark.ToServer.Out, "a dropped datagram was counted as forwarded")
 }
 
-// The counters carry the seed, so the evidence bundle records which run of the
-// generator produced the night's drops without the runner having to be told.
 func TestCountersCarryTheSeedAndTheProfileInForce(t *testing.T) {
 	t.Parallel()
 	shaper, _, _ := startShaper(t, 99)
@@ -49,18 +43,12 @@ func TestCountersCarryTheSeedAndTheProfileInForce(t *testing.T) {
 	assert.InDelta(t, 0.2, got.Profile.LossToServer, 0)
 }
 
-// A profile the shaper cannot honour is refused at the door, so a scenario
-// that mistyped its instruction fails loudly rather than running as whatever
-// the shaper made of it.
 func TestShaperRefusesAnImpossibleProfile(t *testing.T) {
 	t.Parallel()
 	shaper, _, _ := startShaper(t, 1)
 	assert.Error(t, shaper.SetProfile(Profile{LossToServer: 2}))
 }
 
-// Closing must not leave a timer about to write into a socket the shaper has
-// already released. This is the shape that would surface as a panic in a
-// teardown nobody reads the logs of.
 func TestCloseWaitsForWhatIsStillOnTheWire(t *testing.T) {
 	t.Parallel()
 	shaper, addr, _ := startShaper(t, 1)
@@ -73,20 +61,14 @@ func TestCloseWaitsForWhatIsStillOnTheWire(t *testing.T) {
 		readDeadline, time.Millisecond, "the shaper never read the datagram")
 
 	shaper.Close()
-	shaper.Close() // closing twice is what a failed run's teardown does
+	shaper.Close() // a failed run's teardown closes twice
 }
 
-// Teardown lands while the link is still carrying traffic, which is what a
-// failed run's teardown actually does: the machines are not asked to stop
-// first. Closing has to be safe against the forwarder still running, or the
-// instrument reports a race in a drill that found nothing wrong with the
-// product.
 func TestCloseIsSafeWhileTheLinkIsStillCarryingTraffic(t *testing.T) {
 	t.Parallel()
 	shaper, addr, _ := startShaper(t, 1)
 	conn := machine(t, addr)
-	// A delay is what leaves a datagram on the wire for the teardown to have
-	// something to wait for.
+	// A delay leaves a datagram on the wire for the teardown to wait for.
 	require.NoError(t, shaper.SetProfile(Profile{DelayEachWay: 50 * time.Millisecond}))
 
 	sent := make(chan struct{})
@@ -105,9 +87,6 @@ func TestCloseIsSafeWhileTheLinkIsStillCarryingTraffic(t *testing.T) {
 	<-sent
 }
 
-// A shaper that cannot be stood up says so. The alternative is a drill that
-// runs its scenarios against a forwarder that never bound anything and reports
-// every one of them as a total outage.
 func TestNewShaperRefusesAnAddressItCannotUse(t *testing.T) {
 	t.Parallel()
 	cases := map[string]Config{

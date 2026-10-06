@@ -1,15 +1,5 @@
 #!/usr/bin/env bash
-# Policy tests for the FI6 fault-tolerance CI wiring:
-#   .github/workflows/fault-tolerance.yml  (reusable staging drill)
-#   .github/workflows/cd.yml               (staging fault-drill gate)
-#
-# These are static-policy assertions over the workflow YAML — no runner needed.
-# They pin the safety invariants FI6 must hold regardless of how the YAML is
-# later reformatted: enumerated (never free-form) scenario inputs, a runtime
-# allow-list guard that also covers the workflow_call path, a concurrency guard,
-# an always() cleanup, evidence upload, the STAGING_FAULT_TESTS activation gate,
-# a production gate on the drill result, and — the load-bearing negative — that
-# the deferred Chaos Mesh / network path is never an enumerated gating scenario.
+# Static policy assertions over fault-tolerance.yml and cd.yml; no runner needed.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,7 +23,6 @@ assert_file() {
   local name="$1" path="$2"
   if [ -f "$path" ]; then pass "$name"; else fail "$name (missing [$path])"; fi
 }
-# assert_re <name> <file> <extended-regex>
 assert_re() {
   local name="$1" file="$2" re="$3"
   if grep -Eq -- "$re" "$file"; then pass "$name"; else fail "$name (no match /$re/ in ${file##*/})"; fi
@@ -42,7 +31,6 @@ assert_no_re() {
   local name="$1" file="$2" re="$3"
   if grep -Eiq -- "$re" "$file"; then fail "$name (unexpected /$re/ in ${file##*/})"; else pass "$name"; fi
 }
-# assert_fixed <name> <file> <literal-string>
 assert_fixed() {
   local name="$1" file="$2" lit="$3"
   if grep -Fq -- "$lit" "$file"; then pass "$name"; else fail "$name (no literal [$lit] in ${file##*/})"; fi
@@ -59,54 +47,40 @@ assert_file "cd.yml exists" "$CD"
   exit 1
 }
 
-# --- Enumerated scenarios, never free-form ----------------------------------
-# The four self-contained, reversible gating scenarios. With workflow_call as
-# the only entry point, the runtime guard is the sole allow-list, so each
-# scenario must appear both there and as a dispatch branch that runs it.
+# The runtime guard is the sole allow-list, so each scenario appears there and as a dispatch branch.
 for s in pod-delete bad-rollout ingress-504 ingress-502; do
   assert_fixed "scenario '$s' is on the runtime allow-list" "$WF" "$s"
   assert_re "scenario '$s' has a dispatch branch" "$WF" "^[[:space:]]*$s\)"
 done
 
-# --- Runtime allow-list guard (covers the workflow_call string path) ---------
-# workflow_call passes scenario as a free string from a repo variable, so a
-# runtime case-guard must reject anything outside the allow-list.
+# workflow_call passes scenario as a free string, so a runtime case-guard rejects the rest.
 assert_fixed "a runtime guard validates the scenario against an allow-list" "$WF" \
   'pod-delete | bad-rollout | ingress-504 | ingress-502)'
 
-# --- Reusable entry callable after staging E2E ------------------------------
 assert_re "fault-tolerance is a reusable workflow (workflow_call)" "$WF" \
   '^[[:space:]]*workflow_call:'
-# The deploy pipeline is the only way to start a staging drill, so a run is
-# always attached to the deploy it gates and can never be fired at staging on
-# its own.
+# Only the deploy pipeline starts a staging drill, so every run is attached to the deploy it gates.
 assert_no_re "fault-tolerance has no manual dispatch entry point" "$WF" \
   '^[[:space:]]*workflow_dispatch:'
 
-# --- Concurrency guard (no two overlapping staging fault runs) --------------
 assert_re "concurrency guard present" "$WF" '^concurrency:'
 
-# --- Hard timeout longer than the longest bounded scenario ------------------
 assert_re "hard job timeout present" "$WF" 'timeout-minutes:'
 
-# --- always() cleanup + evidence upload -------------------------------------
 assert_re "a cleanup/restore step runs under always()" "$WF" 'if:[[:space:]]*always\(\)'
 assert_re "cleanup restores ingress faults" "$WF" 'ingress-restore\.sh'
 assert_re "evidence is uploaded as an artifact" "$WF" 'upload-artifact'
 
-# --- Staging-only namespace + OCI reach (Model: cluster-internal, not public) -
 assert_re "drill targets the opengate-staging namespace" "$WF" 'opengate-staging'
 assert_re "drill reaches the cluster via the OCI/kubeconfig action" "$WF" \
   'oci-kube-setup'
 
-# --- The deferred Chaos Mesh / network (D1) path is NEVER a gating scenario ---
 assert_no_re "no chaos-mesh scenario is wired into the workflow" "$WF" 'chaos.?mesh'
 assert_no_re "no NetworkChaos/StressChaos scenario is wired in" "$WF" \
   'networkchaos|stresschaos'
 assert_no_re "no 'network' fault profile is an enumerated option" "$WF" \
   '-[[:space:]]*network[[:space:]]*$'
 
-# --- cd.yml: activation gate + production gate ------------------------------
 assert_re "cd.yml invokes the reusable fault-tolerance workflow" "$CD" \
   'uses:[[:space:]]*\./\.github/workflows/fault-tolerance\.yml'
 assert_re "the staging fault drill is gated by STAGING_FAULT_TESTS" "$CD" \

@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
-# Install the pinned release binaries of the linters `make lint-deploy` and the
-# gauntlet run, into ~/.local/bin, from the same release URLs CI downloads.
-#
-# These had been installed once by hand, a release or more off the versions CI
-# runs, and nothing compared the two until the gauntlet's prerequisite phase
-# started asking (scripts/lib/toolchain-parity.sh). This is the command that
-# answers it. Versions come from scripts/lib/tool-versions.sh.
+# Installs the pinned release binaries of the deploy and gauntlet linters into ~/.local/bin.
 #
 # Usage: install-release-tools.sh [tool...]
 #   tools: gitleaks hadolint helm kubeconform conftest tflint trivy actionlint
-#   With no tool named, installs all of them. Each is asked its version after
-#   the install, and a copy that does not answer with the pin fails the run.
+#   With no tool named, installs all; a copy that does not answer with the pin fails the run.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

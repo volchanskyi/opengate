@@ -34,10 +34,6 @@ type maintEnv struct {
 	ctx   context.Context
 }
 
-// setupMaintenanceEnv wires a server with one owned device. When connected is
-// true the device's agent is in the lookup (so a push is attempted); when false
-// the device is offline, exercising the "maintenance is a desired state, not a
-// live command" path where the toggle still succeeds.
 func setupMaintenanceEnv(t *testing.T, connected bool) *maintEnv {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -69,8 +65,7 @@ func decodeDevice(t *testing.T, w interface{ Bytes() []byte }) Device {
 	return d
 }
 
-// maintenanceOn reads the optional maintenance_on flag: absent (nil) means the
-// device is Active.
+// maintenanceOn reports the optional maintenance_on flag, where absent means Active.
 func maintenanceOn(d Device) bool {
 	return d.MaintenanceOn != nil && *d.MaintenanceOn
 }
@@ -79,7 +74,6 @@ func TestSetDeviceMaintenance_EnterAndExit(t *testing.T) {
 	t.Parallel()
 	env := setupMaintenanceEnv(t, true)
 
-	// Enter maintenance.
 	w := doRequest(env.srv, http.MethodPost, maintenancePath(env.dev.ID), env.token,
 		map[string]any{"enabled": true, "reason": "kernel upgrade"})
 	require.Equal(t, http.StatusOK, w.Code)
@@ -92,12 +86,10 @@ func TestSetDeviceMaintenance_EnterAndExit(t *testing.T) {
 	require.NotNil(t, d.MaintenanceBy)
 	assert.Equal(t, env.owner.ID, *d.MaintenanceBy)
 
-	// The desired state was pushed to the connected agent.
 	assert.Equal(t, 1, env.fake.maintenanceCalls)
 	assert.True(t, env.fake.maintenanceEnabled)
 
-	// The enter was audited against the device. auditLog is async
-	// (fire-and-forget goroutine) — poll until it lands.
+	// auditLog runs in a goroutine, so the test polls until the event lands.
 	var events []*audit.Event
 	require.Eventually(t, func() bool {
 		var err error
@@ -106,7 +98,6 @@ func TestSetDeviceMaintenance_EnterAndExit(t *testing.T) {
 	}, 2*time.Second, 25*time.Millisecond, "device.maintenance.enter audit event should be written")
 	assert.Equal(t, env.dev.ID.String(), events[0].Target)
 
-	// Exit maintenance clears the fields and pushes false.
 	w = doRequest(env.srv, http.MethodPost, maintenancePath(env.dev.ID), env.token,
 		map[string]any{"enabled": false})
 	require.Equal(t, http.StatusOK, w.Code)
@@ -123,8 +114,6 @@ func TestSetDeviceMaintenance_OfflineDeviceSucceeds(t *testing.T) {
 	t.Parallel()
 	env := setupMaintenanceEnv(t, false)
 
-	// No connected agent: the toggle is a desired state, so it must succeed
-	// (persist + reconcile on reconnect) rather than 409 like RestartDevice.
 	w := doRequest(env.srv, http.MethodPost, maintenancePath(env.dev.ID), env.token,
 		map[string]any{"enabled": true, "reason": "offline reboot"})
 	require.Equal(t, http.StatusOK, w.Code)
@@ -139,7 +128,6 @@ func TestSetDeviceMaintenance_PushFailureIsNonFatal(t *testing.T) {
 	env := setupMaintenanceEnv(t, true)
 	env.fake.maintenanceErr = errors.New("stream closed")
 
-	// A failed push must not roll back the persisted desired state.
 	w := doRequest(env.srv, http.MethodPost, maintenancePath(env.dev.ID), env.token,
 		map[string]any{"enabled": true})
 	require.Equal(t, http.StatusOK, w.Code)
@@ -147,8 +135,6 @@ func TestSetDeviceMaintenance_PushFailureIsNonFatal(t *testing.T) {
 	assert.Equal(t, 1, env.fake.maintenanceCalls)
 }
 
-// TestSetDeviceMaintenance_OpenToTenantMembers pins the command boundary: toggling
-// maintenance is a device command, so any member of the tenant may do it.
 func TestSetDeviceMaintenance_OpenToTenantMembers(t *testing.T) {
 	t.Parallel()
 	env := setupMaintenanceEnv(t, true)
@@ -170,13 +156,11 @@ func TestSetDeviceMaintenance_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-// TestMaintenanceCountReachesTheSummary proves the toggle and the dashboard
-// rollup agree, through the one endpoint the dashboard polls.
 func TestMaintenanceCountReachesTheSummary(t *testing.T) {
 	t.Parallel()
 	env := setupMaintenanceEnv(t, true)
 
-	// Static route must resolve ahead of /devices/{id}.
+	// The static summary route resolves ahead of /devices/{id}.
 	w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/summary", env.token, nil)
 	require.Equal(t, http.StatusOK, w.Code)
 

@@ -15,7 +15,7 @@ interface FakeInstance {
 
 const mock = vi.hoisted(() => {
   const instances: FakeInstance[] = [];
-  // Regular function (not arrow) so `new uPlot(...)` in the adapter can construct it.
+  // A regular function, so `new uPlot(...)` in the adapter can construct it.
   const ctor = vi.fn(function FakeUplot(opts: uPlot.Options, data: uPlot.AlignedData, target?: HTMLElement) {
     const inst: FakeInstance = {
       opts,
@@ -52,7 +52,6 @@ describe('TimeSeriesChart adapter', () => {
     expect(mock.ctor).toHaveBeenCalledTimes(1);
     const inst = mock.instances[0]!;
     expect(inst.opts.series).toEqual(series);
-    // x axis stays a Float64Array — the render path never touches React state.
     expect(inst.data[0]).toBeInstanceOf(Float64Array);
     expect(inst.data[1]).toBeInstanceOf(Float32Array);
   });
@@ -71,7 +70,7 @@ describe('TimeSeriesChart adapter', () => {
     const { rerender } = render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} />);
     const next = makeData([9, 8, 7]);
     rerender(<TimeSeriesChart data={next} series={series} />);
-    expect(mock.ctor).toHaveBeenCalledTimes(1); // no reconstruction
+    expect(mock.ctor).toHaveBeenCalledTimes(1);
     expect(mock.instances[0]!.setData).toHaveBeenLastCalledWith(next);
   });
 
@@ -82,8 +81,6 @@ describe('TimeSeriesChart adapter', () => {
     expect(inst.destroy).toHaveBeenCalledTimes(1);
   });
 
-  // A chart that leaves while still watching its container resizes a destroyed
-  // canvas on the next layout change.
   it('stops watching its container on unmount', () => {
     const observers: { observed: number; disconnected: boolean }[] = [];
     vi.stubGlobal('ResizeObserver', class {
@@ -123,10 +120,8 @@ describe('TimeSeriesChart adapter', () => {
   it('re-applies the y-scale via setScale when a poll brings a wider yRange (clip regression)', () => {
     const { rerender } = render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} yRange={[0, 10]} />);
     const inst = mock.instances[0]!;
-    // A later poll brings a new peak (50) beyond the initial window → the caller
-    // passes a wider yRange. Without setScale the stale fixed range clips the line.
     rerender(<TimeSeriesChart data={makeData([1, 2, 50])} series={series} yRange={[0, 55]} />);
-    expect(mock.ctor).toHaveBeenCalledTimes(1); // no reconstruction
+    expect(mock.ctor).toHaveBeenCalledTimes(1);
     expect(inst.setScale).toHaveBeenLastCalledWith('y', { min: 0, max: 55 });
   });
 });

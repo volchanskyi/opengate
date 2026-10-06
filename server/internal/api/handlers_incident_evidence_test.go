@@ -16,16 +16,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// Reading the frozen evidence behind one alert.
-//
-// It is the one read that can answer three different ways, and the three have to
-// stay distinguishable: here is what the machine sent, there is none, and this
-// build cannot read what is stored. The third is what keeps a future codec an
-// additive change rather than a page full of nonsense.
-
-// TestEvidenceIsDecodedByTheServer. The stored blob is DEFLATE around msgpack
-// and the browser has neither, so the decode happens here — and a codec this
-// build does not read is reported as such rather than handed back as bytes.
 func TestEvidenceIsDecodedByTheServer(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -47,8 +37,6 @@ func TestEvidenceIsDecodedByTheServer(t *testing.T) {
 	assert.Equal(t, want.LogSamples, got.LogSamples)
 	assert.True(t, got.Truncated, "a truncated blob is served with the flag intact so the page can say so")
 
-	// The response carries the evidence contract and nothing else: the read path
-	// must not fold in anything the machine did not redact before sending.
 	var fields map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &fields))
 	assert.ElementsMatch(t,
@@ -56,9 +44,6 @@ func TestEvidenceIsDecodedByTheServer(t *testing.T) {
 		keysOf(fields))
 }
 
-// TestEvidenceRefusesWhatItCannotRead. Three different answers, because they
-// are three different situations: an alert that carries none, a room that does
-// not hold that alert, and a blob written by something this build cannot read.
 func TestEvidenceRefusesWhatItCannotRead(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -71,15 +56,13 @@ func TestEvidenceRefusesWhatItCannotRead(t *testing.T) {
 	w = doRequest(e.srv, http.MethodGet, base+uuid.New().String()+"/evidence", e.token, nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	// A blob stored under a codec nobody named is unreadable rather than
-	// missing, and saying so is the whole point of carrying the codec.
+	// A blob under an unknown codec answers 422, distinct from a missing alert's 404.
 	e.rewriteEvidence(t, alert, []byte("whatever this is"), "brotli-9")
 	w = doRequest(e.srv, http.MethodGet, base+alert.String()+"/evidence", e.token, nil)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
 }
 
-// sampleEvidence is one machine's account of why an alert fired, already
-// redacted the way the agent redacts it before sending.
+// sampleEvidence returns evidence already redacted the way the agent redacts it before sending.
 func sampleEvidence() protocol.AlertEvidence {
 	return protocol.AlertEvidence{
 		Ranked: []protocol.RankedDim{
@@ -95,7 +78,6 @@ func sampleEvidence() protocol.AlertEvidence {
 	}
 }
 
-// encodedEvidence compresses evidence the way the agent does.
 func encodedEvidence(t *testing.T, evidence protocol.AlertEvidence) []byte {
 	t.Helper()
 	packed, err := msgpack.Marshal(evidence)
@@ -110,8 +92,6 @@ func encodedEvidence(t *testing.T, evidence protocol.AlertEvidence) []byte {
 	return out.Bytes()
 }
 
-// keysOf names the fields a response carried, which is how a case asserts that
-// nothing beyond the contract came back.
 func keysOf(fields map[string]json.RawMessage) []string {
 	out := make([]string, 0, len(fields))
 	for name := range fields {

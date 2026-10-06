@@ -1,24 +1,6 @@
 #!/usr/bin/env bash
-# Read every leg of the volume family together, publish the curve, and refuse a
-# sweep that did not measure its own variable.
-#
-# The family runs the same load against estates of different sizes. Three
-# bundles a night were produced and nothing compared them: the legs read none of
-# each other's output, there was no publish step and no gate. The whole subject
-# of the family — whether the system slows down as an estate grows — lives in
-# the comparison between those three and nowhere else, so three runs that happen
-# to share a profile is what it was.
-#
-# What it enforces is the sweep's ability to answer that question at all: legs
-# that held different amounts of data, each of them weighed, each of them
-# offered the technician load the family holds constant, and not all of them
-# reporting the same thing.
-#
-# What it deliberately does not enforce is that the curve rises. One night is
-# one sample per leg, and a night where a larger estate came back faster is a
-# finding worth reading rather than a fault — the same reasoning the scaling
-# sweep's curve is published under.
-#
+# Reads every leg of the volume family, publishes the curve, and refuses legs that held the same
+# estate, went unweighed, lacked a technician reading or reported identical readings.
 # Usage: perf-volume-curve.sh <directory holding the legs>
 set -euo pipefail
 
@@ -26,9 +8,7 @@ usage() {
   echo "usage: $0 <directory holding the legs' bundles>" >&2
 }
 
-# MINIMUM_LEGS is what a curve needs to be one. Two points is the fewest that
-# can differ; a single leg is a run, and reporting it as a sweep is how a sweep
-# comes to be missing two of its three legs without anything saying so.
+# Two points is the fewest a curve needs to differ.
 MINIMUM_LEGS=2
 
 main() {
@@ -72,10 +52,7 @@ main() {
   return 0
 }
 
-# read_leg turns one bundle into a row of the curve: the estate the leg ended up
-# holding, what it weighs, what the server took to record a machine into it, and
-# what a technician waited to read the fleet back out. A leg that measured
-# nothing is refused here rather than drawn as a point it says nothing about.
+# read_leg turns one bundle into a tab-separated curve row and refuses a leg that measured nothing.
 read_leg() {
   local path="$1" row
 
@@ -98,8 +75,7 @@ read_leg() {
     return 1
   fi
 
-  # The family's own axis. A leg nobody weighed cannot be placed on it, and
-  # averaging it in would put the whole curve at a size that is not a reading.
+  # An unweighed leg has no data size to place on the curve's axis.
   local bytes
   bytes="$(cut -f3 <<<"$row")"
   if [ "$bytes" = "0" ]; then
@@ -114,10 +90,7 @@ read_leg() {
     return 1
   fi
 
-  # The half the family holds constant. A leg with no technician reading offered
-  # machines arriving and nothing else, and the cost of a machine arriving
-  # barely moves with how much data is already there — so that leg varied the
-  # family's variable against a load that cannot feel it.
+  # The family holds technician load constant, so a leg without a technician reading is refused.
   local journey
   journey="$(cut -f5 <<<"$row")"
   if [ "$journey" = "absent" ]; then
@@ -128,9 +101,7 @@ read_leg() {
   printf '%s\n' "$row"
 }
 
-# publish_curve prints the shape for a reader. It is the whole point of the
-# aggregation: the enforcement below only says the sweep could measure, and what
-# the sweep is for is the shape.
+# publish_curve prints the curve as a Markdown table.
 publish_curve() {
   local rows="$1"
   echo "### Volume sweep"
@@ -142,10 +113,6 @@ publish_curve() {
 }
 
 # check_estates_are_distinct refuses a sweep whose legs held the same estate.
-# Every reading is a property of the pair that produced it, so three bundles
-# naming one fleet size each are three runs of the same point however the matrix
-# was written — which is the shape the family had while its legs differed only
-# in the fixture's name.
 check_estates_are_distinct() {
   local rows="$1" estates unique total
   estates="$(awk -F'\t' 'NF == 5 { print $1 }' <<<"$rows")"
@@ -158,9 +125,7 @@ check_estates_are_distinct() {
   fi
 }
 
-# check_legs_are_not_identical refuses a sweep whose legs all came back saying
-# the same thing. A comparison between estate sizes that produced one answer
-# measured something other than the estate.
+# check_legs_are_not_identical refuses a sweep whose legs all report the same readings.
 check_legs_are_not_identical() {
   local rows="$1" readings unique
   readings="$(awk -F'\t' 'NF == 5 { print $4 "\t" $5 }' <<<"$rows")"

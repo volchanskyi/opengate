@@ -1,9 +1,4 @@
-//! Substrate C — the no-persist control.
-//!
-//! A bounded in-RAM ring per series. It exists to quantify exactly what the
-//! offline promise costs and buys: it has zero write-amplification and the
-//! lowest possible latency, but loses all history on restart, so it can never
-//! back true min/max or deep backfill. Every reopen is empty by construction.
+//! Substrate C: a bounded in-RAM ring per series that loses all history on restart.
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
@@ -24,7 +19,6 @@ pub struct BaselineStore {
 
 impl Substrate for BaselineStore {
     fn open(_path: &Path) -> Result<Self> {
-        // No persistence: a fresh instance is always empty.
         Ok(Self::default())
     }
 
@@ -78,7 +72,6 @@ mod tests {
         }
         assert_eq!(s.total_samples().unwrap(), RING_CAP);
         assert_eq!(s.size_on_disk().unwrap(), 0);
-        // Oldest 100 evicted.
         assert!(s.range(9, 0, 100).unwrap().is_empty());
     }
 }

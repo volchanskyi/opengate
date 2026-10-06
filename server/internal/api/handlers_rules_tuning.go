@@ -8,12 +8,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
-// The numbers a customer may retune, and the moves a rule upgrade made to them.
-//
-// A value outside what the rule allows is refused here, where an operator can
-// still see why, rather than reaching five thousand endpoints and being
-// discovered later from the alerts it did not raise.
-
 // PutRuleBinding implements StrictServerInterface.
 func (s *Server) PutRuleBinding(ctx context.Context, request PutRuleBindingRequestObject) (PutRuleBindingResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, PutRuleBinding403JSONResponse{Error: msgAdminRequired}); denied {
@@ -46,16 +40,13 @@ func (s *Server) PutRuleBinding(ctx context.Context, request PutRuleBindingReque
 		return nil, err
 	}
 
-	// A retuned number is no use sitting in a table: the machines are what
-	// compare against it.
 	s.deliverRuleChange(ctx, organizationID, false)
 	s.auditLog(ctx, ContextUserID(ctx), "rule.binding.set", request.RuleId,
 		fmt.Sprintf("level=%s params=%v", request.Body.Level, request.Body.Params))
 	return PutRuleBinding200JSONResponse(bindingToAPI(binding)), nil
 }
 
-// DeleteRuleBinding implements StrictServerInterface. The machines the value
-// covered fall back to the next rung up, which is the point of removing it.
+// DeleteRuleBinding implements StrictServerInterface.
 func (s *Server) DeleteRuleBinding(ctx context.Context, request DeleteRuleBindingRequestObject) (DeleteRuleBindingResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, DeleteRuleBinding403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
@@ -72,9 +63,7 @@ func (s *Server) DeleteRuleBinding(ctx context.Context, request DeleteRuleBindin
 	return DeleteRuleBinding204Response{}, nil
 }
 
-// AcknowledgeRuleClamp implements StrictServerInterface. A move a rule version
-// made stays on the screen until somebody has seen it, because it was not the
-// customer's decision.
+// AcknowledgeRuleClamp implements StrictServerInterface.
 func (s *Server) AcknowledgeRuleClamp(ctx context.Context, request AcknowledgeRuleClampRequestObject) (AcknowledgeRuleClampResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, AcknowledgeRuleClamp403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil

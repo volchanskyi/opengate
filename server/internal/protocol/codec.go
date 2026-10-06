@@ -77,9 +77,7 @@ func (c *Codec) DecodeFileFrame(data []byte) (*FileFrame, error) {
 	return &f, nil
 }
 
-// WriteFrame writes a typed frame to a writer.
-// Wire format: [type_byte][4-byte big-endian length][payload]
-// Ping/Pong are written as a single type byte with no length or payload.
+// WriteFrame writes [type_byte][4-byte big-endian length][payload]; Ping/Pong are one byte.
 func (c *Codec) WriteFrame(w io.Writer, frameType byte, payload []byte) error {
 	if frameType == FramePing || frameType == FramePong {
 		_, err := w.Write([]byte{frameType})
@@ -167,9 +165,8 @@ func EncodeAgentHello(nonce [32]byte, agentCertHash [48]byte) []byte {
 	return buf
 }
 
-// EncodeSkipAuth encodes a SkipAuth (0x14) fast-path handshake message. The
-// agent sends it on reconnect carrying the cached CA cert hash, letting the
-// server skip the ServerHello/AgentHello exchange when the hash is current.
+// EncodeSkipAuth encodes the SkipAuth (0x14) fast-path message carrying the agent's cached CA
+// cert hash, which lets the server skip ServerHello/AgentHello when the hash is current.
 func EncodeSkipAuth(cachedCertHash [48]byte) []byte {
 	buf := make([]byte, 49)
 	buf[0] = MsgSkipAuth

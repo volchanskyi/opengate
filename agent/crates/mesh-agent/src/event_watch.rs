@@ -1,16 +1,5 @@
-//! The periodic system-event watch: reads a bounded window of host log records,
-//! hands them to the curated rule pack, and puts whatever fires into the shared
-//! alert sink.
-//!
-//! The reader is an on-demand read rather than a stream, so this is a poll with
-//! a window that deliberately reaches back further than the interval between
-//! polls. A window exactly as wide as the interval would lose every record
-//! written while a poll was in flight; overlapping windows re-present records
-//! instead, and the pack's cursor is what makes re-presentation free.
-//!
-//! What the watch reads is bounded by what the pack could act on: the level
-//! floor is asked of the pack rather than assumed here, so a rule that watches
-//! something less severe widens the read by existing.
+//! The periodic system-event watch: polls a bounded window of host log records, feeds them to
+//! the rule pack and sinks whatever fires.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -30,15 +19,13 @@ use crate::logs::LogFilter;
 /// How often the host log is looked at.
 const POLL_INTERVAL: Duration = Duration::from_secs(60);
 
-/// How far back each poll asks for. Three times the interval, so a poll delayed
-/// by a busy host still overlaps the last one rather than leaving a gap that no
-/// later poll ever covers.
+/// Seconds each poll reaches back, three intervals, so overlapping windows leave no gap and
+/// the pack's cursor absorbs the re-presented records.
 const POLL_WINDOW_SECS: i64 = 180;
 
 const MICROS_PER_SEC: i64 = 1_000_000;
 
-/// One device's system-event watch: the rule pack, its cursor, and the sink the
-/// alerts go to.
+/// One device's system-event watch: the rule pack, its cursor and the alert sink.
 pub(crate) struct EventWatch {
     pack: EventPack,
     sink: AlertSink,
@@ -46,7 +33,7 @@ pub(crate) struct EventWatch {
 }
 
 impl EventWatch {
-    /// A watch that starts looking from `start_micros` and raises into `sink`.
+    /// Creates a watch that looks from `start_micros` and raises into `sink`.
     pub(crate) fn new(sink: AlertSink, start_micros: i64) -> Self {
         Self {
             pack: EventPack::new(
@@ -59,20 +46,13 @@ impl EventWatch {
         }
     }
 
-    /// The least severe record the pack could act on, for the reader's
-    /// push-down.
+    /// The least severe record level the pack acts on, used as the reader's level filter.
     pub(crate) fn min_level(&self) -> EventLevel {
         self.pack.min_level()
     }
 
-    /// Evaluates one poll's records and sinks whatever fires.
-    ///
-    /// A record whose timestamp cannot be read is not evaluated: with nothing to
-    /// order it by, the cursor could neither place it nor recognize it on the
-    /// next overlapping poll, so it would fire again every poll for as long as
-    /// it stayed in the window. It is counted instead — an unreadable record is
-    /// a reader defect, and a defect that fires alerts is worse than one that
-    /// shows up as a number climbing.
+    /// Evaluates one poll's records and sinks whatever fires; a record with an unreadable
+    /// timestamp is counted, since the cursor could not recognize it on the next poll.
     pub(crate) fn ingest(&mut self, entries: &[LogEntry], saturated: bool, now_micros: i64) {
         let mut events = Vec::with_capacity(entries.len());
         for entry in entries {
@@ -99,16 +79,12 @@ impl EventWatch {
         self.report_losses();
     }
 
-    /// Moves the watch past a window without evaluating it — what maintenance
-    /// mode does, so an admin's own disruption never pages anyone.
+    /// Moves the watch past a window without evaluating it, as maintenance mode does.
     pub(crate) fn skip(&mut self, now_micros: i64) {
         self.pack.skip_to(now_micros);
     }
 
-    /// Anything either the reader or the caps cost this watch is carried on a
-    /// log line with its running total, so a device losing records shows up as
-    /// a climbing number rather than as silence. The wire carriage of these
-    /// counts belongs to the alert transport.
+    /// Logs the running totals of records and alerts this watch has lost, once any is non-zero.
     fn report_losses(&self) {
         let saturated = self.pack.saturated_polls();
         let untracked = self.pack.untracked_services();
@@ -149,12 +125,8 @@ fn iso_from_micros(micros: i64) -> String {
         .unwrap_or_default()
 }
 
-/// The level label the reader pushes down for a pack floor.
-///
-/// `None` means no ceiling at all — read everything and let the rules decide.
-/// That is also the answer for a level this build does not know, which is the
-/// only safe direction: a push-down guessed too high would bound the read
-/// tighter than the rules need and hide records from them.
+/// The level label the reader filters on; `None` reads everything, including for an unknown
+/// level, so a mistaken filter never hides records from the rules.
 fn level_label(level: EventLevel) -> Option<&'static str> {
     match level {
         EventLevel::Error => Some("ERROR"),
@@ -178,11 +150,7 @@ fn poll_filter(now_micros: i64, level: EventLevel) -> LogFilter {
     }
 }
 
-/// Spawns the system-event watch.
-///
-/// On a platform with no host log reader the task returns instead of looping: a
-/// watch that wakes every minute to read a source that does not exist is a
-/// heartbeat with no signal in it.
+/// Spawns the system-event watch, which returns at once on a platform with no host log reader.
 pub(crate) fn spawn_event_watch(
     sink: AlertSink,
     maintenance: MaintenanceGate,
@@ -190,11 +158,8 @@ pub(crate) fn spawn_event_watch(
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         let source = host_logs::resolve_host_source();
-        // Published before anything else, and published either way. A machine
-        // that cannot read its own log is a standing hole in what the estate is
-        // watching for, and saying nothing would leave it counted as a machine
-        // nobody has heard from — which reads as a machine that is merely
-        // offline rather than one these rules can never answer for.
+        // Coverage is published whether or not a reader exists, so an unreadable log reports
+        // its rules as unsupported.
         publish_coverage(&coverage, source.is_some());
         let Some(source) = source else {
             info!("no host log reader on this platform; system-event rules are not evaluated");
@@ -206,10 +171,8 @@ pub(crate) fn spawn_event_watch(
             std::thread::sleep(POLL_INTERVAL);
             let now = unix_micros();
 
-            // In maintenance the window is skipped rather than deferred. An
-            // admin rebooting a host produces exactly the records this pack
-            // matches, and holding them until maintenance ends would page
-            // someone for the maintenance itself.
+            // Maintenance skips the window because an admin's reboot
+            // writes the records the pack matches.
             if maintenance.in_maintenance() {
                 watch.skip(now);
                 continue;
@@ -220,11 +183,10 @@ pub(crate) fn spawn_event_watch(
     })
 }
 
-/// What this machine can answer for, shared with whatever reports to the
-/// server. Empty until the watch has looked.
+/// The rule coverage this machine reports to the server, empty until the watch has published.
 pub(crate) type EventCoverage = Arc<Mutex<Vec<RuleCoverage>>>;
 
-/// States what the pack can do on this machine, for the next report.
+/// Stores the pack's per-rule coverage for the next report.
 fn publish_coverage(coverage: &EventCoverage, can_read_its_log: bool) {
     if let Ok(mut slot) = coverage.lock() {
         *slot = EventPack::coverage(
@@ -259,9 +221,6 @@ mod tests {
 
     const START: i64 = 1_700_000_000 * MICROS_PER_SEC;
 
-    /// Every rule in the pack is reported either way: evaluated on a machine
-    /// that can read its own log, and unevaluable on one that cannot — never
-    /// left out, which would read as a machine nobody has heard from.
     #[test]
     fn every_rule_in_the_pack_is_reported_whether_or_not_the_log_can_be_read() {
         let coverage: EventCoverage = Arc::new(Mutex::new(Vec::new()));
@@ -282,8 +241,6 @@ mod tests {
         assert!(unreadable.iter().any(|c| c.rule_id == "linux-oom-kill"));
     }
 
-    /// A matching record reaches the sink as an alert, and the same record on
-    /// the next overlapping poll does not reach it again.
     #[test]
     fn a_matching_record_reaches_the_sink_once() {
         let sink = AlertSink::default();
@@ -304,10 +261,6 @@ mod tests {
         assert_eq!(alerts[0].severity, AlertSeverity::Critical);
     }
 
-    /// A record the reader could not timestamp is counted rather than
-    /// evaluated. Evaluating it would fire it again on every poll for as long
-    /// as it sat in the window, because nothing could recognize it as the same
-    /// record twice.
     #[test]
     fn an_undated_record_is_counted_and_not_evaluated() {
         let sink = AlertSink::default();
@@ -331,8 +284,6 @@ mod tests {
         assert_eq!(watch.undated_records, 1, "and is counted");
     }
 
-    /// A skipped window is suppressed, not deferred: records from inside it
-    /// never fire, and the watch resumes afterwards.
     #[test]
     fn a_skipped_window_fires_nothing_and_the_watch_resumes() {
         let sink = AlertSink::default();
@@ -367,8 +318,6 @@ mod tests {
         assert_eq!(sink.drain().len(), 1, "the watch resumes after the window");
     }
 
-    /// The window asked for reaches back further than the gap between polls, so
-    /// a delayed poll overlaps the last one instead of leaving a hole.
     #[test]
     fn the_poll_window_overlaps_the_interval() {
         assert!(
@@ -386,8 +335,6 @@ mod tests {
         assert!(filter.time_to.is_none(), "a poll reads up to now");
     }
 
-    /// The push-down is derived from the pack, so it can never bound the read
-    /// tighter than the rules need.
     #[test]
     fn the_push_down_level_comes_from_the_pack() {
         let watch = EventWatch::new(AlertSink::default(), START);
@@ -413,8 +360,6 @@ mod tests {
         assert_eq!(entry_micros(&entry("yesterday", "ERROR", "a", "m")), None);
     }
 
-    /// The watch is safe to drive on a host whose reader returns nothing, which
-    /// is every container without a journal.
     #[test]
     fn a_poll_that_reads_nothing_fires_nothing() {
         let sink = AlertSink::default();
@@ -424,9 +369,6 @@ mod tests {
         assert_eq!(watch.undated_records, 0);
     }
 
-    /// Runs `f` with the watch's own log lines captured, so what it says about
-    /// its losses can be read back. The subscriber is thread-local, so a test
-    /// reads only its own lines.
     fn watch_log_lines(f: impl FnOnce()) -> String {
         use std::io::Write;
         use std::sync::{Arc, Mutex};
@@ -454,11 +396,6 @@ mod tests {
         String::from_utf8_lossy(&captured).into_owned()
     }
 
-    /// A device losing records says so on its own log line with the running
-    /// count, and a device losing nothing stays quiet. Both halves matter: a
-    /// watch that never says it is losing records is indistinguishable from one
-    /// that is not, and a watch that says it always is buries the machine that
-    /// really is among the ones that are fine.
     #[test]
     fn a_watch_reports_what_it_lost_and_stays_quiet_when_it_lost_nothing() {
         let sink = AlertSink::default();

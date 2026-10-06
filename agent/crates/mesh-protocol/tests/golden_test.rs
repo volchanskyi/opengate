@@ -1,15 +1,12 @@
-//! Golden file tests for cross-language protocol compatibility.
-//!
-//! When GENERATE_GOLDEN=1, generates golden files to testdata/golden/.
-//! Otherwise, reads and verifies existing golden files.
+//! Golden-file tests for Rust and Go protocol compatibility; `GENERATE_GOLDEN=1` rewrites
+//! `testdata/golden/`, otherwise the existing files are verified.
 
 use mesh_protocol::*;
 use serde::Serialize;
 use std::path::PathBuf;
 
 fn golden_dir() -> PathBuf {
-    // OPENGATE_GOLDEN_DIR overrides the default lookup for environments where
-    // the workspace tree is copied without `testdata/` (e.g. cargo-mutants).
+    // OPENGATE_GOLDEN_DIR overrides the lookup where the tree is copied without `testdata/`.
     if let Ok(dir) = std::env::var("OPENGATE_GOLDEN_DIR") {
         return PathBuf::from(dir);
     }
@@ -94,8 +91,7 @@ fn golden_control_frame_agent_health_summary() {
             metric: "disk.used".to_string(),
             value: 95.5,
         }],
-        // Deliberately absent: this fixture is also the shape an agent that
-        // predates coverage sends, so the Go decoder is proven against it.
+        // Left empty: an agent without coverage reporting sends this shape, which Go decodes.
         rule_coverage: Vec::new(),
     };
     let frame = Frame::Control(msg);
@@ -340,9 +336,6 @@ fn golden_control_frame_hardware_report() {
     golden_check("control_hardware_report.bin", &encoded);
 }
 
-/// A host with no Management Engine: the presence flag must ride the wire as a
-/// stated `false`, which is what lets the server tell "no AMT here" apart from
-/// "this agent predates AMT reporting".
 #[test]
 fn golden_control_frame_hardware_report_no_amt() {
     let msg = ControlMessage::HardwareReport {
@@ -373,8 +366,6 @@ fn golden_control_frame_hardware_report_error() {
 
 #[test]
 fn golden_control_frame_request_device_logs() {
-    // The on-demand log query carries a host-source selector and a structured
-    // emitting-unit filter, both additive and default-empty.
     let msg = ControlMessage::RequestDeviceLogs {
         log_level: "WARN".to_string(),
         time_from: "2026-04-01T00:00:00Z".to_string(),
@@ -392,24 +383,7 @@ fn golden_control_frame_request_device_logs() {
 
 #[test]
 fn golden_control_frame_agent_metric_window_host_metrics() {
-    // The host-metric emitter aggregates the 1 s sampler into a 60 s
-    // AgentMetricWindow over the thirteen host-resource series, five of which
-    // also carry the window maximum: an average over a minute hides a stall, and
-    // the maximum is what recovers it. The dim names are the shared central
-    // labels from `store_sink::series_dim_name` and `series_max_dim_name`, in
-    // the order a window emits them; the net dims are primary-interface
-    // throughput in bytes/second, reduced the same way reconnect-backfill rolls
-    // them. `disk.used_percent` is the fullest mount and `disk.mounts_critical`
-    // counts the mounts at or above the critical threshold, the five stall dims
-    // are the share of the minute tasks spent stalled straight from the kernel's
-    // pressure accounting, and the last three are how slow the worst block
-    // device was: service time per I/O, its within-minute peak, and how many
-    // I/Os were outstanding on average. So this fixture carries a file server
-    // whose small system volume is nearly full beside a large, mostly empty data
-    // volume, during a minute whose CPU briefly pinned, whose readers spent two
-    // fifths of their time waiting on the disk, and whose data device answered a
-    // typical I/O in 18.5 ms while one stretch of the minute took 812. It pins
-    // that naming contract for the server.
+    // Dim names follow `store_sink::series_dim_name` and `series_max_dim_name`, in emission order.
     let msg = ControlMessage::AgentMetricWindow {
         ts: 1700000260,
         tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
@@ -533,8 +507,6 @@ fn golden_control_frame_device_logs_error() {
     golden_check("control_device_logs_error.bin", &encoded);
 }
 
-// --- WS-15: offline reconnect-backfill wire contract ---
-
 #[test]
 fn golden_control_frame_request_backfill_slot() {
     let msg = ControlMessage::RequestBackfillSlot {
@@ -633,8 +605,6 @@ fn golden_control_frame_local_history_response() {
     golden_check("control_local_history_response.bin", &encoded);
 }
 
-// --- WS-16: auto-discovery report wire contract ---
-
 #[test]
 fn golden_control_frame_discovery_report() {
     let msg = ControlMessage::DiscoveryReport {
@@ -678,13 +648,8 @@ fn golden_control_frame_discovery_report() {
     golden_check("control_discovery_report.bin", &encoded);
 }
 
-// --- Maintenance mode wire contract ---
-
 #[test]
 fn golden_control_frame_maintenance_applied() {
-    // Agent → server applied-state report: the agent echoes the maintenance
-    // state it actually reconciled to, so the server can track applied vs.
-    // desired. Rust-encoded here; the Go verifier asserts struct fidelity.
     let msg = ControlMessage::MaintenanceApplied { enabled: true };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
@@ -709,12 +674,6 @@ fn golden_handshake_skip_auth() {
     let encoded = msg.encode_binary();
     golden_check("handshake_skip_auth.bin", &encoded);
 }
-
-// --- Phase A: cross-boundary ControlMessage goldens ---
-//
-// Every variant below is encoded by Rust and decoded by Go in production.
-// The corresponding Go verifier lives in server/internal/protocol/golden_test.go
-// and asserts full struct fidelity — not just err == nil.
 
 const GOLDEN_SESSION_TOKEN: &str =
     "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
@@ -849,12 +808,9 @@ fn golden_control_frame_chat_message() {
     golden_check("control_chat_message.bin", &encoded);
 }
 
-// --- Phase A: edge-case goldens ---
-
 #[test]
 fn golden_control_agent_register_empty_capabilities() {
-    // Optional-field-absent: empty Vec should round-trip as an empty msgpack array,
-    // which Go must decode as a nil/empty Capabilities slice.
+    // An empty Vec encodes as an empty msgpack array, which Go decodes as an empty slice.
     let msg = ControlMessage::AgentRegister {
         capabilities: vec![],
         hostname: "headless-ci-runner".to_string(),
@@ -869,7 +825,7 @@ fn golden_control_agent_register_empty_capabilities() {
 
 #[test]
 fn golden_control_agent_register_utf8() {
-    // Multi-byte UTF-8 (emoji + CJK) must survive round-trip bit-for-bit.
+    // Multi-byte UTF-8 (emoji and CJK) survives the round-trip bit-for-bit.
     let msg = ControlMessage::AgentRegister {
         capabilities: vec![AgentCapability::RemoteDesktop],
         hostname: "ラップトップ-🖥️-办公室".to_string(),
@@ -884,9 +840,7 @@ fn golden_control_agent_register_utf8() {
 
 #[test]
 fn golden_control_hardware_report_large_size() {
-    // Exercise multi-byte length header and heavy payloads without bloating the repo.
-    // Each interface record is ~60 bytes; 2000 of them yields a ~100-kiB payload, which
-    // forces the 4-byte BE frame length to use its high bytes (0x00 0x01 ...).
+    // 2000 interface records exceed 64 KiB, so the BE length uses high bytes.
     let network_interfaces: Vec<NetworkInterface> = (0..2000)
         .map(|i| NetworkInterface {
             name: format!("veth{i:04}"),
@@ -918,10 +872,7 @@ fn golden_control_hardware_report_large_size() {
 
 #[test]
 fn golden_control_chat_message_forward_compat() {
-    // Forward-compatibility: an encoder adds a new msgpack key ("future_field")
-    // that the current Go decoder does not know about. Go's rmp_serde-compatible
-    // msgpack library ignores unknown map keys, so this frame must still decode
-    // into a valid ChatMessage with the known fields intact.
+    // The Go decoder ignores the unknown msgpack key "future_field" and keeps the known fields.
     #[derive(Serialize)]
     struct ChatMessageWithExtra<'a> {
         #[serde(rename = "type")]
@@ -945,9 +896,7 @@ fn golden_control_chat_message_forward_compat() {
 
 #[test]
 fn golden_control_unknown_future_agent_to_server() {
-    // Forward-compatibility: a newer agent emits an unknown control type.
-    // The Go server must decode the frame, keep the type string, and ignore it
-    // at dispatch without dropping the connection.
+    // The Go server decodes an unknown control type, keeps its type string and ignores it at dispatch.
     #[derive(Serialize)]
     struct FutureControl<'a> {
         #[serde(rename = "type")]
@@ -965,10 +914,8 @@ fn golden_control_unknown_future_agent_to_server() {
 
 #[test]
 fn golden_frame_control_le_length() {
-    // Negative test: frame length field encoded little-endian instead of big-endian.
-    // Under BE interpretation the declared length (10 in LE = 0x0a000000 in BE =
-    // ~167 MiB) exceeds MAX_FRAME_SIZE, so Go's ReadFrame must return
-    // ErrFrameTooLarge rather than hang or silently truncate.
+    // A little-endian length of 10 reads as 0x0a000000 (160 MiB) in big-endian, above
+    // MAX_FRAME_SIZE, so Go's ReadFrame returns ErrFrameTooLarge.
     let payload = [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0x00, 0x00, 0x00, 0x00];
     let mut encoded = Vec::with_capacity(5 + payload.len());
     encoded.push(0x01); // FRAME_CONTROL
@@ -977,18 +924,8 @@ fn golden_frame_control_le_length() {
     golden_check("frame_control_le_length.bin", &encoded);
 }
 
-// --- AgentAlert: the alert transport and its self-contained evidence ---
-//
-// Two fixtures, because an alert has two failure modes and they are unrelated.
-// The full one proves the envelope carries every field and that the evidence
-// blob survives as bytes; the smallest emittable one proves that an alert
-// carrying almost nothing still decodes, since both encoders drop what is empty
-// and the resulting three-key map is what a quiet rule actually sends.
-
-/// Deterministic evidence at the composition the fleet ships: eight ranked
-/// dimensions, three series, ten processes, twenty redacted log lines. Built
-/// here rather than borrowed from the agent so the fixture depends on the wire
-/// contract alone.
+/// Deterministic evidence: eight ranked dimensions, three series, ten processes and
+/// twenty redacted log lines, built from the wire contract alone.
 fn golden_evidence() -> AlertEvidence {
     AlertEvidence {
         ranked: (0..8)
@@ -1046,10 +983,7 @@ fn golden_control_frame_agent_alert() {
 
 #[test]
 fn golden_control_frame_agent_alert_min() {
-    // The smallest alert that can be emitted: severity and backfilled are always
-    // stated, everything else is absent. Three keys is the whole map, and the Go
-    // decoder has to accept it — reading "no severity said" as anything but a
-    // decode failure is how a critical alert turns into an informational one.
+    // Severity and backfilled are always stated; every other field is absent, leaving three keys.
     let msg = ControlMessage::AgentAlert {
         alert_id: String::new(),
         rule_id: String::new(),
@@ -1071,10 +1005,7 @@ fn golden_control_frame_agent_alert_min() {
 
 #[test]
 fn golden_alert_evidence_blob() {
-    // The evidence blob on its own, so the Go side can prove it inflates with
-    // stdlib compress/flate and decodes to the exact composition above. The
-    // envelope fixture cannot prove that: it carries the blob as opaque bytes,
-    // which is the whole point of a codec named on the message.
+    // The blob alone, so Go can inflate it with compress/flate and decode the composition above.
     golden_check("alert_evidence.bin", &golden_evidence().encode().unwrap());
 }
 
@@ -1105,10 +1036,7 @@ fn alert_evidence_refuses_a_codec_it_cannot_read() {
 
 #[test]
 fn alert_evidence_refuses_a_damaged_blob() {
-    // Two ways a blob arrives damaged, and neither may produce evidence. Half a
-    // blob may fail in the decompressor or in the decoder that reads what came
-    // out of it — which of the two is not the contract; that nothing partial is
-    // ever handed back as if it were the device's account of the event is.
+    // A damaged blob never yields evidence, whether it fails in the decompressor or the decoder.
     let whole = golden_evidence().encode().unwrap();
 
     let mut halved = whole.clone();
@@ -1128,11 +1056,8 @@ fn alert_evidence_refuses_a_damaged_blob() {
     );
 }
 
-// --- helpers ---
-
 fn session_token() -> SessionToken {
-    // SessionToken has no public constructor-from-string; we generate a token and
-    // then override its contents via msgpack round-trip to keep determinism.
+    // SessionToken has no public constructor from a string; a msgpack round-trip sets fixed contents.
     let fixed: SessionTokenShim = SessionTokenShim(GOLDEN_SESSION_TOKEN.to_string());
     let bytes = rmp_serde::to_vec(&fixed).unwrap();
     rmp_serde::from_slice(&bytes).unwrap()

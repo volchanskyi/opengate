@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/sonar-rating-guard.sh. Plain bash; no network and no git.
-# CURL_BIN is stubbed for the whole file and answers with STUB_JSON (empty unless
-# a case sets it), so a case that names no override still cannot reach the API.
-# Changed files come from RATING_CHANGED_OVERRIDE, findings from
-# RATING_ISSUES_OVERRIDE / RATING_HOTSPOTS_OVERRIDE, and the analysis-processing
-# state from RATING_PENDING_OVERRIDE.
-# Run: ./scripts/tests/sonar-rating-guard.test.sh
+# CURL_BIN is stubbed for the whole file and answers with STUB_JSON, so no case reaches the API.
+# The RATING_*_OVERRIDE variables supply changed files, findings and the processing state.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,9 +39,7 @@ assert_rc() {
   local got=$?
   if [ "$got" = "$want" ]; then pass "$n"; else fail "$n (want rc=$want got=$got)"; fi
 }
-# The output is captured before it is searched rather than piped into grep:
-# under `pipefail` a piped `grep -q` exits on the first match, the guard takes
-# SIGPIPE, and the pipeline reports that instead of whether the text was found.
+# The output is captured before the search because a piped `grep -q` loses the match to SIGPIPE.
 assert_says() {
   local n="$1" want="$2"
   shift 2
@@ -58,7 +51,6 @@ assert_says() {
   esac
 }
 
-# --- Stub curl: echoes a canned SonarCloud response from STUB_JSON. ---
 STUB_DIR="$(mktemp -d)"
 cat >"$STUB_DIR/curl" <<'STUB'
 #!/usr/bin/env bash
@@ -73,8 +65,6 @@ trap cleanup EXIT
 # shellcheck source=../sonar-rating-guard.sh disable=SC1091
 source "$GUARD"
 
-# Every case runs against the stub, never the network, and against an analysis
-# that has finished processing unless the case says otherwise.
 export CURL_BIN="$STUB_DIR/curl"
 export SONAR_TOKEN=stub
 export RATING_PENDING_OVERRIDE=0
@@ -88,10 +78,7 @@ assert_ok "web tsx source" srat_is_source web/src/features/rules/TuningPanel.tsx
 assert_fail "go test file is not main code" srat_is_source server/internal/api/handlers_test.go
 assert_fail "ts test file is not main code" srat_is_source web/src/features/rules/RuleList.test.tsx
 assert_fail "rust integration test is not main code" srat_is_source agent/crates/edge-tsdb/tests/store_test.rs
-# A file is out of the ratings' reach because sonar.exclusions removes it from
-# analysis, not because its path reads like a test. server/tests holds Go that
-# is not *_test.go, so SonarCloud analyses it and a vulnerability there lands on
-# new_security_rating like any other — which the blanket */tests/* skip hid.
+# A file leaves the ratings' reach through sonar.exclusions, whatever its path reads like.
 assert_ok "analysed Go under server/tests is main code" srat_is_source server/tests/loadtest/credentials.go
 assert_fail "generated go is not main code" srat_is_source server/internal/api/openapi_gen.go
 assert_fail "outside the sonar roots" srat_is_source scripts/foo.go
@@ -113,7 +100,6 @@ assert_fail "a code smell only moves maintainability" srat_blocks CODE_SMELL
 
 echo
 echo "srat_main — a finding on a file this change touched:"
-# The two findings that actually failed CI on 2acbdbdc, in their real shape.
 RATING_CHANGED_OVERRIDE="web/src/features/rules/TuningPanel.tsx" \
   RATING_ISSUES_OVERRIDE="web/src/features/rules/TuningPanel.tsx	BUG	CRITICAL	typescript:S2871	88	Provide a compare function" \
   assert_rc "a BUG on a changed source file fails" 1 srat_main
@@ -145,26 +131,18 @@ RATING_CHANGED_OVERRIDE="server/internal/rules/tags.go" \
 
 echo
 echo "srat_main — what warns instead of failing:"
-# A code smell leaves maintainability at A, which is what the gate measures, so
-# it is reported and does not block. Reporting matters on its own: nine of the
-# twelve findings on 2acbdbdc were smells, and the local scan showed none.
+# A code smell moves no gate condition, so it is reported without blocking.
 RATING_CHANGED_OVERRIDE="web/src/features/rules/RuleList.tsx" \
   RATING_ISSUES_OVERRIDE="web/src/features/rules/RuleList.tsx	CODE_SMELL	MAJOR	typescript:S3358	31	nested ternary" \
   assert_rc "a code smell on a changed file passes" 0 srat_main
 RATING_CHANGED_OVERRIDE="web/src/features/rules/RuleList.tsx" \
   RATING_ISSUES_OVERRIDE="web/src/features/rules/RuleList.tsx	CODE_SMELL	MAJOR	typescript:S3358	31	nested ternary" \
   assert_says "a code smell is still named in the output" "typescript:S3358" srat_main
-# A bug on a file sonar.exclusions removes from analysis cannot move a rating,
-# because no finding can exist there at all. That is why this passes — not
-# because the path reads like a test.
+# No finding can exist on a file sonar.exclusions removes, so a bug there cannot move a rating.
 RATING_CHANGED_OVERRIDE="web/src/features/rules/RuleList.test.tsx" \
   RATING_ISSUES_OVERRIDE="web/src/features/rules/RuleList.test.tsx	BUG	CRITICAL	typescript:S2871	10	sort" \
   assert_rc "a bug in an unanalysed test file does not fail the gate's metric" 0 srat_main
 
-# The distinction the guard used to miss. A file SonarCloud analyses moves the
-# rating whatever its path looks like: two rust:S2612 findings on a Rust
-# integration test took new_security_rating to 3 and failed CI while this guard
-# reported the commit clean, because it skipped every path containing /tests/.
 RATING_CHANGED_OVERRIDE="server/tests/loadtest/credentials.go" \
   RATING_ISSUES_OVERRIDE="server/tests/loadtest/credentials.go	VULNERABILITY	MAJOR	go:S2077	45	dynamically formatted SQL" \
   assert_rc "a vulnerability on an analysed file under tests/ fails" 1 srat_main
@@ -174,8 +152,7 @@ RATING_CHANGED_OVERRIDE="web/src/features/rules/RuleList.test.tsx" \
 
 echo
 echo "srat_main — an unindexed analysis must never read as a clean one:"
-# Zero findings and "not finished counting" are the same empty list, and one of
-# them is a false green. The guard refuses the answer rather than reporting it.
+# Zero findings and an unfinished count are the same empty list, so the guard refuses the answer.
 RATING_PENDING_OVERRIDE=1 \
   RATING_CHANGED_OVERRIDE="server/internal/alerts/postgres_noise.go" \
   assert_rc "still processing → refuse, do not pass" 1 srat_main

@@ -65,7 +65,8 @@ After completing significant work:
 | [`rules/tool-versions.md`](.claude/rules/tool-versions.md) | one version, written down once — local and CI provision from the same manifest, and a typed install names the pin | `tool-version-parity.test.sh`, `toolchain-parity.sh`, `pretooluse-tool-install-guard.sh` |
 | [`rules/cache-hygiene.md`](.claude/rules/cache-hygiene.md) | reclaim local build caches after every push | `post-push-clean-caches.sh`, `posttooluse-cache-clean.sh` |
 | [`rules/ci-cd-determinism.md`](.claude/rules/ci-cd-determinism.md) | a CI/CD step whose work was refused must not report success | `ci-cd-determinism.test.sh`, `alert-delivery.test.sh`, `assert-cache-written.sh` |
-| [`rules/docs-live-state.md`](.claude/rules/docs-live-state.md) | docs and comments describe live state only; the three-tree seam | `docs-live-state.test.sh`, `docs-seam.test.sh` |
+| [`rules/docs-live-state.md`](.claude/rules/docs-live-state.md) | docs describe live state only; the three-tree seam | `docs-live-state.test.sh`, `docs-seam.test.sh` |
+| [`rules/code-comments.md`](.claude/rules/code-comments.md) | every comment is a short positive statement about the code it sits on | `pretooluse-comment-check.sh`, `check-comments.test.sh` |
 | [`rules/resource-conservation.md`](.claude/rules/resource-conservation.md) | a completed operation gives back what it took; a counter is not a measurement | `conservation_test.go`, `hijacked-request-context.yaml` |
 
 ## Code and Process Conventions

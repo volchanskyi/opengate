@@ -1,13 +1,5 @@
-//! Non-intrusive, read-only host auto-discovery (WS-16).
-//!
-//! Profiles the host — listening ports, host services, database engines,
-//! containers, and installed packages — into a bounded, secret-free
-//! [`DiscoveryProfile`] that serializes to a `DiscoveryReport` control message.
-//! Every collector is OS/localhost introspection only (no WMI, no network
-//! scanning), caps its own output, and no-ops (returns empty) on a platform
-//! where its source is absent, so one call is safe on every fleet host. The
-//! payload carries engine/port/version and package/service names only — never a
-//! connection string, credential, or bound address.
+//! Read-only host discovery into a bounded [`DiscoveryProfile`] that carries no connection strings,
+//! credentials or bound addresses.
 
 pub mod containers;
 pub mod db_engines;
@@ -23,9 +15,7 @@ use mesh_protocol::{
     DiscoveredService,
 };
 
-/// Per-category output caps. A busy host cannot explode the report or the
-/// central inventory table; [`DiscoveryProfile::truncated`] flags any category
-/// that was capped.
+/// Cap on listening ports in one report.
 pub const MAX_PORTS: usize = 256;
 /// Cap on host services in one report.
 pub const MAX_SERVICES: usize = 512;
@@ -36,10 +26,7 @@ pub const MAX_CONTAINERS: usize = 256;
 /// Cap on installed packages in one report.
 pub const MAX_PACKAGES: usize = 4096;
 
-/// A complete, bounded host profile ready to serialize into a `DiscoveryReport`.
-/// Categories are individually capped and deterministically ordered so the
-/// [`DiscoveryProfile::fingerprint`] used for change-triggered re-profiling is
-/// stable across collections that observed the same host state.
+/// A bounded host profile ready to serialize into a `DiscoveryReport`.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[non_exhaustive]
 pub struct DiscoveryProfile {
@@ -57,7 +44,6 @@ pub struct DiscoveryProfile {
     pub truncated: bool,
 }
 
-/// Truncates `values` to `max` in place, returning whether anything was dropped.
 fn cap<T>(values: &mut Vec<T>, max: usize) -> bool {
     if values.len() > max {
         values.truncate(max);
@@ -68,8 +54,6 @@ fn cap<T>(values: &mut Vec<T>, max: usize) -> bool {
 }
 
 impl DiscoveryProfile {
-    /// Applies the per-category caps, recording whether any category was
-    /// truncated. Idempotent: a profile already within the caps is unchanged.
     fn apply_caps(&mut self) {
         let mut truncated = false;
         truncated |= cap(&mut self.ports, MAX_PORTS);
@@ -80,10 +64,7 @@ impl DiscoveryProfile {
         self.truncated = truncated;
     }
 
-    /// A stable content fingerprint used to suppress unchanged reports. Two
-    /// profiles describing the same host state hash equal regardless of when
-    /// they were collected (the wall-clock timestamp is not part of the
-    /// profile), so the periodic task only ships a report when the host changed.
+    /// A content fingerprint that excludes the timestamp, so unchanged host state hashes equal.
     pub fn fingerprint(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         for port in &self.ports {
@@ -114,9 +95,7 @@ impl DiscoveryProfile {
         hasher.finish()
     }
 
-    /// Serializes the profile into a `DiscoveryReport` control message stamped
-    /// with `ts`. The server assigns the authoritative tenant, so `tenant_id` is left
-    /// empty (the agent never asserts a tenant).
+    /// Serializes the profile into a `DiscoveryReport` stamped with `ts`; `tenant_id` stays empty.
     pub fn into_report(self, ts: i64) -> ControlMessage {
         ControlMessage::DiscoveryReport {
             ts,
@@ -131,10 +110,7 @@ impl DiscoveryProfile {
     }
 }
 
-/// Runs every collector once and assembles a bounded [`DiscoveryProfile`]. Each
-/// collector independently no-ops on an unsupported platform, so this returns a
-/// partial (possibly empty) profile rather than failing. Database engines are
-/// inferred from the collected ports, so no additional host access is needed.
+/// Runs every collector once into a bounded [`DiscoveryProfile`]; a sourceless collector adds none.
 pub fn collect_profile() -> DiscoveryProfile {
     let ports = ports::collect_ports();
     let db_engines = db_engines::infer_db_engines(&ports);
@@ -184,9 +160,6 @@ mod tests {
         }
     }
 
-    /// The wall-clock timestamp is not part of the profile, so two reports of
-    /// the same host state at different times share a fingerprint (the
-    /// change-detection invariant) yet still carry their own `ts`.
     #[test]
     fn fingerprint_is_timestamp_independent() {
         let profile = sample_profile();
@@ -206,7 +179,6 @@ mod tests {
         }
     }
 
-    /// Any content change moves the fingerprint, so a changed host re-ships.
     #[test]
     fn fingerprint_changes_with_content() {
         let base = sample_profile().fingerprint();
@@ -215,7 +187,6 @@ mod tests {
         assert_ne!(base, changed.fingerprint());
     }
 
-    /// Over-cap categories are truncated and the report is flagged truncated.
     #[test]
     fn apply_caps_truncates_and_flags() {
         let mut profile = DiscoveryProfile {
@@ -232,7 +203,6 @@ mod tests {
         assert!(profile.truncated, "hitting a cap sets truncated");
     }
 
-    /// A profile within every cap is not flagged truncated.
     #[test]
     fn apply_caps_within_bounds_not_flagged() {
         let mut profile = sample_profile();
@@ -240,17 +210,11 @@ mod tests {
         assert!(!profile.truncated);
     }
 
-    /// Every category carries the truncation flag on its own. A profile that
-    /// overflows exactly one category must still report `truncated`, so each
-    /// category's contribution is asserted separately rather than through one
-    /// over-cap category standing in for all five.
     #[test]
     fn each_category_over_cap_flags_truncated() {
         struct CapCase {
             label: &'static str,
-            /// Fills exactly one category past its cap.
             overflow: fn(&mut DiscoveryProfile),
-            /// Reads back that category's length.
             len_of: fn(&DiscoveryProfile) -> usize,
             cap: usize,
         }
@@ -341,9 +305,6 @@ mod tests {
         }
     }
 
-    /// Exactly at the cap is within bounds: the cap is an inclusive maximum, so
-    /// a category holding precisely `max` entries keeps all of them and does not
-    /// flag the report as truncated.
     #[test]
     fn category_exactly_at_cap_is_not_truncated() {
         let mut profile = DiscoveryProfile {
@@ -360,8 +321,6 @@ mod tests {
         assert!(!profile.truncated, "a full-but-not-over category is intact");
     }
 
-    /// The report leaves `tenant_id` empty (the server assigns the tenant) and
-    /// carries every category through unchanged.
     #[test]
     fn into_report_leaves_tenant_empty_and_preserves_categories() {
         let report = sample_profile().into_report(1_700_000_000);
@@ -389,8 +348,6 @@ mod tests {
         }
     }
 
-    /// `collect_profile` never panics and returns a within-caps profile on any
-    /// host (categories may be empty when their source is absent, e.g. in CI).
     #[test]
     fn collect_profile_is_bounded_and_safe() {
         let profile = collect_profile();

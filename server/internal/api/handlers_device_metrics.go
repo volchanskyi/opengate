@@ -11,9 +11,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-// Metric names and tuning for the device range endpoint. The dim label carries
-// the numeric dimension name; process basenames live only in the RLS table and
-// are never charted.
+// Metric names and tuning for the device range endpoint. The dim label carries the numeric
+// dimension name.
 const (
 	metricAvgName         = "opengate_edge_metric_avg"
 	metricNodeAnomalyRate = telemetry.MetricNodeAnomalyRate
@@ -23,18 +22,13 @@ const (
 	defaultMaxPoints      = 1000 // chart pixel width order of magnitude
 	minMaxPointsBound     = 10
 	maxMaxPointsBound     = 2000
-	// anomalyBadgeLookback bounds how stale the fleet-health badge's node anomaly
-	// rate may be: the summary is low-rate, so a bare instant query at `now` can
-	// miss a sample that landed a minute ago. last_over_time over this window
-	// keeps the badge showing the most recent rate without going indefinitely
-	// stale.
+	// anomalyBadgeLookback is the window of last_over_time for the badge's anomaly rate; the
+	// summary is low-rate, so an instant query at now can miss a recent sample.
 	anomalyBadgeLookback = 10 * time.Minute
 )
 
-// enrichAnomalyRates fills each device's AnomalyRate from the latest node
-// anomaly-rate sample in VictoriaMetrics via a single tenant-scoped instant
-// query. It is best-effort: when telemetry is disabled, the tenant is unknown,
-// or the query fails, the field is simply left unset and the list still returns.
+// enrichAnomalyRates fills each device's AnomalyRate from one tenant-scoped instant query.
+// It is best-effort: with telemetry disabled, no tenant or a failed query the field stays unset.
 func (s *Server) enrichAnomalyRates(ctx context.Context, devices []Device) {
 	if s.telemetryReader == nil || len(devices) == 0 {
 		return
@@ -62,10 +56,8 @@ func (s *Server) enrichAnomalyRates(ctx context.Context, devices []Device) {
 	}
 }
 
-// GetDeviceMetrics implements StrictServerInterface. It returns column-oriented
-// downsampled numeric telemetry for a device window, read tenant-scoped from
-// VictoriaMetrics with a bucket width chosen so the point count stays within
-// max_points regardless of window span.
+// GetDeviceMetrics implements StrictServerInterface, returning column-oriented downsampled
+// telemetry read tenant-scoped, with a bucket width that keeps the points within max_points.
 func (s *Server) GetDeviceMetrics(ctx context.Context, request GetDeviceMetricsRequestObject) (GetDeviceMetricsResponseObject, error) {
 	if s.telemetryReader == nil {
 		return GetDeviceMetrics503JSONResponse{Error: "telemetry not available"}, nil
@@ -108,15 +100,8 @@ type metricRangeQuery struct {
 	wantBand bool
 }
 
-// buildMetricRange fetches the avg line (and optional avg_of_60s band) for the
-// device's numeric dimensions and projects every series onto the grid the
-// request implies, so the payload maps 1:1 to a client charting engine's
-// aligned data and covers the window that was asked for however much of it the
-// device recorded.
-//
-// One grid drives both halves: the range reads are issued at its first and last
-// bucket, and the response publishes it as the time axis. That is what keeps
-// the query and the axis from drifting apart.
+// buildMetricRange fetches the avg line and optional avg_of_60s band per dimension and projects
+// each series onto one grid, which also bounds the range reads and is the response's time axis.
 func (s *Server) buildMetricRange(ctx context.Context, tenantID, deviceID uuid.UUID, q metricRangeQuery) (MetricRangeResponse, error) {
 	grid := buildMetricGrid(q.from, q.to, q.step)
 	matchers := map[string]string{"device_id": deviceID.String()}
@@ -147,10 +132,8 @@ func (s *Server) buildMetricRange(ctx context.Context, tenantID, deviceID uuid.U
 	return resp, nil
 }
 
-// reportGridMisalignment surfaces samples that arrived outside the grid their
-// own query was issued on. They cannot be placed without misreporting when they
-// were measured, so they are counted and logged with enough detail to find the
-// cause — never discarded in silence.
+// reportGridMisalignment counts and logs samples that fall outside the grid of their own
+// query, since placing them would misreport when they were measured.
 func (s *Server) reportGridMisalignment(ctx context.Context, deviceID uuid.UUID, grid metricGrid, off offGridPoints) {
 	if off.count == 0 {
 		return

@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
-# Convert canonical load-test rows to Prometheus text and push them to VM.
-#
-# The workload label rides with every sample so the gate can tell one scenario's
-# work from the work it replaced. See workload_name in loadtest-summarize.sh.
+# Converts canonical load-test rows to Prometheus text and pushes them to VM, with the workload
+# label on every sample (see workload_name in loadtest-summarize.sh).
 set -euo pipefail
 
 SUMMARY_FILE="${1:-loadtest-summary.json}"
 
-# The consecutive-night counts the regression check wrote, which are what make an
-# advisory that repeats into a finding rather than a line in a summary. Without
-# them the check has no memory between nights and each bad night raises the
-# comparison point the next one is judged against, until the advisory goes quiet
-# with the slowdown recorded as normal.
+# The consecutive-night counts the regression check wrote, which turn a repeated advisory
+# into a finding.
 STREAK_FILE="${2:-loadtest-p99-streaks.json}"
 
 if [[ ! -f "$SUMMARY_FILE" ]]; then
@@ -45,8 +40,7 @@ if [[ -z "$metrics" ]]; then
   exit 2
 fi
 
-# The counts ride on the same push, keyed the same way the window is, so the next
-# night reads them with one query and nothing new has to persist.
+# The counts ride on the same push, keyed as the window is, so one query reads them back.
 if [[ -f "$STREAK_FILE" ]]; then
   streaks="$(
     jq -r '

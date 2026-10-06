@@ -33,6 +33,8 @@
 | Load testing | What makes a run valid, where it happens, one home for the numbers it is judged by, a venue ceiling no profile may ask past, two counts of one fleet at one instant, a run that opens the sessions it names, and a night that says what it was refused. [ADR-076](../docs/adr/ADR-076-platform-metrics.md), [ADR-082](../docs/adr/ADR-082-load-run-validity.md), [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md), [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md), [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md). |
 | Gate honesty | A benchmark measures the code rather than its own harness, and a coverage report is written in the coordinates of whatever reads it. [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md), [ADR-091](../docs/adr/ADR-091-coverage-reports.md). |
 | Seeing inside a leak | A long run keeps the target's profiles on an interval and reports what grew at a named line; a core taken off the running server says what still holds the heaviest objects. [ADR-119](../docs/adr/ADR-119-finding-a-leak.md). |
+| Comments and repeated code | Every comment is a short positive statement about its code, checked at write time and on every commit; repeated code is read from the scanner's own report for every file, and no production file repeats more than 3% of its lines. [ADR-125](../docs/adr/ADR-125-comments-and-repeated-code.md), [ADR-012](../docs/Architecture-Decision-Records.md). |
+| Advisory exceptions | An npm advisory that no release fixes may be excepted by ID with a reason and a review date; the exception lapses on its own on that date, on a new release of the package, or once the audit stops reporting it. [ADR-126](../docs/adr/ADR-126-advisory-exceptions-lapse.md). |
 
 ## In Progress
 

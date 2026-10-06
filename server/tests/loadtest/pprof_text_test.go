@@ -7,16 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What a kept profile has to yield, and what it must refuse to yield.
-//
-// The pages below are the two forms the target writes, abbreviated but not
-// altered: a weight, its addresses, and one tab-indented frame line each. They
-// are shared with leak_trail_test.go, which reads a series of them.
-//
-// The refusals matter as much as the readings. A page that is not the profile it
-// was asked for parses as no stacks, and no stacks reads as nothing grew — which
-// is the healthiest answer a leak detector can give and the one a 404 produces.
-
 const goroutinePageAtStart = `goroutine profile: total 7
 4 @ 0x43e5ce 0x44e5ed 0x6b0b4d 0x471b61
 #	0x43e5cd	runtime.gopark+0x10d	/usr/local/go/src/runtime/proc.go:435
@@ -89,17 +79,10 @@ func TestParseHeapStacksWeighsBytesInUse(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, stacks, 2)
 
-	// The weight is the bytes still held, not the bytes ever allocated: a leak
-	// is what was not given back, and the allocation total rises on every
-	// healthy server that has ever run.
 	assert.Equal(t, float64(1024), stacks[0].Weight)
 	assert.Equal(t, float64(176), stacks[1].Weight)
 }
 
-// A page the target did not answer with must not parse as a profile carrying no
-// stacks. Nothing distinguishes "the server holds nothing" from "the server
-// said 404" once an empty slice is all that is left, and the first of those is
-// the healthiest reading there is.
 func TestParsersRefuseAPageThatIsNotTheProfileTheyAskedFor(t *testing.T) {
 	for name, page := range map[string]string{
 		"an error page":     "404 page not found\n",
@@ -116,9 +99,6 @@ func TestParsersRefuseAPageThatIsNotTheProfileTheyAskedFor(t *testing.T) {
 	require.Error(t, err)
 }
 
-// The site is the line somebody can open. A parked goroutine's own top frame is
-// always the runtime parking it, so naming that would report every leak in the
-// product at the same line in proc.go.
 func TestSiteNamesTheFirstFrameThatIsNotStandardLibrary(t *testing.T) {
 	stacks, err := ParseGoroutineStacks(goroutinePageAtStart)
 	require.NoError(t, err)
@@ -126,8 +106,6 @@ func TestSiteNamesTheFirstFrameThatIsNotStandardLibrary(t *testing.T) {
 	assert.Contains(t, stacks[0].Site(), "relay.(*Relay).pump")
 	assert.Contains(t, stacks[0].Site(), "/src/server/internal/relay/relay.go:118")
 
-	// A stack that is standard library all the way down has no product frame to
-	// name, so it names its own top rather than claiming there is nothing there.
 	assert.Contains(t, stacks[2].Site(), "runtime.gopark")
 }
 

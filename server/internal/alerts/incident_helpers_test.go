@@ -14,15 +14,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// Shared scaffolding for the incident cases.
-//
-// Almost every case below is "one customer's machines raising one rule's alerts
-// at stated moments", so they all start from the same handful of moves and each
-// case states only what it is about. Event time is what the fold measures
-// against, so when an alert happened is the single thing most cases vary.
-
-// The reads the incident cases make, as static literals so no value is ever
-// interpolated into SQL.
 const (
 	qRoomsForRuleAndScope = `SELECT COUNT(*) FROM incidents
 	                          WHERE organization_id = $1 AND rule_id = $2 AND scope = $3`
@@ -34,25 +25,18 @@ const (
 )
 
 // rooms counts every room a rule has opened at a scope, closed ones included.
-// That total is what tells a fold that gathered from one that fragmented: one
-// room means the window held, thirty means it did not.
 func (e estate) rooms(t *testing.T, ruleID string, scope Scope) int {
 	t.Helper()
 	return e.count(t, qRoomsForRuleAndScope, e.org, ruleID, string(scope))
 }
 
-// at moves an alert to the moment it happened — the window it covered and when
-// the machine saw it, which the fold reads as one instant. Event time is what a
-// room's span is measured against, so this is the single thing most cases below
-// vary from their neighbour.
+// at moves an alert to the instant it happened, the event time the fold measures against.
 func at(when time.Time) func(*Alert) {
 	return func(a *Alert) {
 		a.WindowStart, a.WindowEnd, a.ObservedAt = when, when, when
 	}
 }
 
-// roomEvent is one line of a room's history, which is what a handover between
-// two technicians reads.
 type roomEvent struct {
 	kind  string
 	actor string
@@ -89,8 +73,6 @@ func (e estate) roomOf(t *testing.T, alertID uuid.UUID) string {
 	return room
 }
 
-// recordUnder files one alert under an explicit grouping and asserts the
-// outcome, which is the single move almost every case here is made of.
 func (e estate) recordUnder(t *testing.T, a Alert, g Grouping, want Outcome) {
 	t.Helper()
 	got, err := e.alerts.Record(e.ctx, a, g)
@@ -98,8 +80,7 @@ func (e estate) recordUnder(t *testing.T, a Alert, g Grouping, want Outcome) {
 	require.Equal(t, want, got)
 }
 
-// openRoomAt seeds a room in a given state, which is how the lifecycle cases
-// start from each status without driving alerts through the fold to reach it.
+// openRoomAt seeds a room in a given state without driving alerts through the fold.
 func (e estate) openRoomAt(t *testing.T, status Status, lastSeen time.Time) uuid.UUID {
 	t.Helper()
 	return e.openRoomIn(t, tenancy{ctx: e.ctx, tenant: e.tenant, org: e.org}, status, lastSeen)
@@ -112,8 +93,6 @@ type tenancy struct {
 	org    uuid.UUID
 }
 
-// openRoomIn seeds a room for a customer that may not be the one under test,
-// which is what the cross-tenant sweep case needs.
 func (e estate) openRoomIn(t *testing.T, in tenancy, status Status, lastSeen time.Time) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
@@ -130,8 +109,6 @@ func (e estate) openRoomIn(t *testing.T, in tenancy, status Status, lastSeen tim
 	return id
 }
 
-// outcomeIn reads how a room ended for a customer that is not the one under
-// test.
 func (e estate) outcomeIn(t *testing.T, in tenancy, id uuid.UUID) (status string, cause sql.NullString, resolvedAt sql.NullTime) {
 	t.Helper()
 	require.NoError(t, dbtx.Scoped(in.ctx, e.store.DB(), func(tx *sql.Tx) error {
@@ -140,8 +117,7 @@ func (e estate) outcomeIn(t *testing.T, in tenancy, id uuid.UUID) (status string
 	return status, cause, resolvedAt
 }
 
-// neighbour seeds a second tenant with a customer and a machine of its own, so
-// a case can prove a sweep or a read reaches — or stops at — the wall.
+// neighbour seeds a second tenant with a customer and a machine of its own.
 func (e estate) neighbour(t *testing.T, name string) tenancy {
 	t.Helper()
 	tenantID := uuid.New()
@@ -151,10 +127,7 @@ func (e estate) neighbour(t *testing.T, name string) tenancy {
 	return tenancy{ctx: ctx, tenant: tenantID, org: site.OrganizationID}
 }
 
-// sweepAt runs the auto-resolve janitor at a stated instant and asserts how many
-// rooms it closed. The clock is injected because a seven-day recurrence window
-// is otherwise untestable, and because a sweep driven by sleeping is a test that
-// passes on a fast machine.
+// sweepAt runs the auto-resolve janitor at an injected instant and asserts the rooms closed.
 func (e estate) sweepAt(t *testing.T, at time.Time, windows map[string]time.Duration, want int) {
 	t.Helper()
 	e.alerts.now = func() time.Time { return at }
@@ -174,8 +147,6 @@ func (e estate) fleet(t *testing.T, n int) []uuid.UUID {
 	return out
 }
 
-// roomFor resolves a grouping key to the open room holding it, failing when
-// there is none — every caller here has already established there should be.
 func (e estate) roomFor(t *testing.T, g Grouping, ruleID string, scopeKey uuid.UUID) Incident {
 	t.Helper()
 	incident, found, err := e.alerts.OpenIncident(e.ctx, e.org, ruleID, g.Scope, scopeKey)
@@ -184,8 +155,6 @@ func (e estate) roomFor(t *testing.T, g Grouping, ruleID string, scopeKey uuid.U
 	return incident
 }
 
-// outcome reads how a room ended: where it stands, the answer a person gave for
-// closing it, and when.
 func (e estate) outcome(t *testing.T, id uuid.UUID) (status string, cause sql.NullString, resolvedAt sql.NullTime) {
 	t.Helper()
 	e.readOne(t, qRoomOutcome, []any{id}, &status, &cause, &resolvedAt)

@@ -2,10 +2,6 @@ package api
 
 import "testing"
 
-// dimFilter builds a lookup set from the requested dimension names, dropping
-// empties, and returns nil when nothing usable remains. These cases pin the
-// `d != ""` and `len(want) == 0` guards (both flagged as uncovered by the
-// mutation suite) so a flipped comparison changes the observable result.
 func TestDimFilter(t *testing.T) {
 	t.Parallel()
 
@@ -16,12 +12,10 @@ func TestDimFilter(t *testing.T) {
 		t.Fatalf("dimFilter(empty) = %v, want nil", got)
 	}
 
-	// Only blank names → nothing usable → nil.
 	if got := dimFilter(&[]string{"", ""}); got != nil {
 		t.Fatalf("dimFilter(all-blank) = %v, want nil", got)
 	}
 
-	// Mixed: blanks dropped, real names kept.
 	got := dimFilter(&[]string{"cpu.util", "", "mem.used"})
 	if got == nil {
 		t.Fatal("dimFilter(mixed) = nil, want a populated set")

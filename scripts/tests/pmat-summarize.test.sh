@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/pmat-summarize.sh (ADR-019 nightly analytics summarizer).
-# Plain bash; no bats. Feeds fixture JSON (with a leading banner, like the real
-# `check-quality` output) and asserts the canonical row + regression behavior.
-# Run: ./scripts/tests/pmat-summarize.test.sh
+# Tests the nightly summarizer against fixture JSON that carries a leading banner.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,7 +29,6 @@ assert_eq() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# repo-score.json — no banner (matches `pmat repo-score --format json`).
 cat >"$WORK/repo-score.json" <<'JSON'
 {
   "total_score": 64.5,
@@ -44,11 +40,8 @@ cat >"$WORK/repo-score.json" <<'JSON'
 }
 JSON
 
-# tdg-check.json — mirrors REAL `check-quality -p .` output (regression for
-# pmat-trend run 26730207721): an ANSI-coloured banner, then TWO JSON objects
-# — the F-grade-cap gate FIRST (1 violation) and the MIN-GRADE gate LAST
-# (3 violations = files below B+). slice_json must strip the ANSI and pick the
-# LAST (min-grade) object, so below_bplus must be 3, not the F-cap's 1.
+# The fixture has an ANSI banner, then the F-cap object (1 violation) and the min-grade object
+# (3 violations); slice_json picks the last, so below_bplus is 3.
 {
   printf '\033[1m\033[4m🔍 Checking quality thresholds...\033[0m\n'
   printf '\033[36m✓ Baseline saved to: /tmp/pmat-quality-check.json\033[0m\n'
@@ -72,7 +65,7 @@ JSON
 JSON
 } >"$WORK/tdg-check.json"
 
-run() { # run the summarizer with the fixtures + given env; capture row + rc.
+run() {
   REPO_SCORE_JSON="$WORK/repo-score.json" TDG_CHECK_JSON="$WORK/tdg-check.json" \
     GITHUB_SHA="deadbeef" "$@" "$SUMMARIZE"
 }

@@ -6,11 +6,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// SendSetMaintenanceMode pushes the desired maintenance state to the agent. It
-// is the server-authoritative desired state, delivered whenever an operator
-// toggles it and (for a suppressed device) on register to reconcile a
-// reconnecting agent. It is ungated — maintenance is a universal operational
-// control, not a capability.
+// SendSetMaintenanceMode pushes the server-authoritative maintenance state to the agent. It
+// requires no capability.
 func (a *AgentConn) SendSetMaintenanceMode(ctx context.Context, enabled bool) error {
 	return a.sendControl(&protocol.ControlMessage{
 		Type:    protocol.MsgSetMaintenanceMode,
@@ -18,11 +15,8 @@ func (a *AgentConn) SendSetMaintenanceMode(ctx context.Context, enabled bool) er
 	})
 }
 
-// pushMaintenanceState pushes SetMaintenanceMode(true) when the device is in
-// maintenance, so a (re)connecting agent re-enters suppression. Active devices
-// need no message — the agent's registration-time default is Active. A read or
-// send failure only degrades reconcile, never fails registration, so it is
-// logged, not returned.
+// pushMaintenanceState pushes SetMaintenanceMode(true) for a device in maintenance so a
+// reconnecting agent re-enters suppression; a failure is logged and never fails registration.
 func (a *AgentConn) pushMaintenanceState(ctx context.Context) {
 	d, err := a.devices.Get(ctx, a.DeviceID)
 	if err != nil {
@@ -37,9 +31,8 @@ func (a *AgentConn) pushMaintenanceState(ctx context.Context) {
 	}
 }
 
-// handleMaintenanceApplied records the maintenance state the agent reported
-// applying. The desired state is server-authoritative (Postgres); this is the
-// agent's confirmation that it reconciled, kept for observability.
+// handleMaintenanceApplied records the maintenance state the agent reports applying; the desired
+// state lives in Postgres.
 func (a *AgentConn) handleMaintenanceApplied(msg *protocol.ControlMessage) error {
 	enabled := msg.Enabled != nil && *msg.Enabled
 	a.maintenanceApplied.Store(enabled)

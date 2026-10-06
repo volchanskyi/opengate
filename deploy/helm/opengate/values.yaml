@@ -1,6 +1,4 @@
-# Default values for the opengate chart.
-# Overlays: values-staging.yaml / values-production.yaml (CD picks one via -f).
-# Secrets are NEVER set here — see `existingSecret` and secrets.example.yaml.
+# Default values for the opengate chart; secrets come from `existingSecret`, never from here.
 
 nameOverride: ""
 fullnameOverride: ""
@@ -27,45 +25,25 @@ server:
   mpsPort: 4433            # Intel AMT CIRA / MPS (TCP, L4)
   webDir: /srv/web          # server serves the SPA itself (api.go os.OpenRoot)
   amtUser: admin
-  # GitHub repo the server syncs agent-update manifests from. When set, the server
-  # (a) starts the periodic GitHub-Releases sync that backs /api/v1/updates/manifests
-  # and (b) injects OPENGATE_GITHUB_REPO into the served install.sh so the installer
-  # resolves binaries directly. Empty disables both — which is why an unset value
-  # yields "No agent binary found for <os>/<arch>".
+  # The repository whose releases feed the agent-update manifests and the served install.sh.
   githubRepo: volchanskyi/opengate
-  # Public hostname agents reach the QUIC listener on (bypasses the CDN/ingress —
-  # QUIC is L4 hostPort straight to the node). Added to the server TLS cert SAN;
-  # if empty, the cert is localhost-only and agents fail the QUIC handshake with
-  # "certificate not valid for name <host>". Set per environment.
+  # Public hostname of the QUIC listener, added to the server certificate SAN.
+  # Empty leaves a localhost-only certificate that agents reject.
   quicHost: ""
-  # The reverse proxies whose X-Forwarded-For decides which request allowance a
-  # caller spends. A request bucket is an identity, so anything believed here
-  # can choose which allowance it spends — and inside a cluster every workload
-  # shares the private address range, which is what the shape-based rule this
-  # replaced believed.
-  #
-  # An entry is either a service, written "<service>.<namespace>", or a range.
-  # A service is named rather than an address because the address belongs to the
-  # controller's pod and changes whenever that pod is replaced. Empty believes
-  # nobody, which is the right answer for a server reached directly.
+  # Proxies whose X-Forwarded-For picks the rate-limit identity: a "<service>.<namespace>" or a range.
+  # A service name tracks the controller pod across replacements; empty trusts no proxy.
   trustedProxies:
     - ingress-nginx-controller.ingress-nginx
-  # Public base URL baked into the served install.sh as SERVER_URL (manifest
-  # fetches). Empty leaves SERVER_URL blank, breaking the server-manifest install
-  # path. Set per environment, e.g. https://<domain>.
+  # Public base URL baked into the served install.sh as SERVER_URL.
   baseURL: ""
   # Server log verbosity; "debug" enables verbose logging, anything else is info.
   logLevel: ""
   # VictoriaMetrics base URL for Edge Sentinel numeric telemetry ingestion.
   # Empty disables numeric writes; process snapshots still use Postgres RLS.
   victoriaMetricsURL: "http://monitoring-victoriametrics.monitoring.svc:8428"
-  # L4 exposure: bind QUIC+MPS straight to the node IP via hostPort. This is
-  # budget-free on the single-node deployment and preserves the client source
-  # IP that AMT CIRA / QUIC need.
+  # Binds QUIC and MPS to the node through hostPort, which preserves the client source IP.
   hostPortL4: true
-  # Secret with keys: JWT_SECRET, POSTGRES_PASSWORD, POSTGRES_APP_PASSWORD,
-  # AMT_PASS, VAPID_CONTACT.
-  # Created out-of-band (kubectl / sealed-secrets); see secrets.example.yaml.
+  # Secret holding JWT_SECRET, POSTGRES_PASSWORD, POSTGRES_APP_PASSWORD, AMT_PASS and VAPID_CONTACT.
   existingSecret: opengate-secrets
   resources:
     requests:
@@ -74,30 +52,18 @@ server:
     limits:
       cpu: "1"
       memory: 512Mi
-  # /data holds the server's self-signed CA + VAPID keys + agent-update signing
-  # keys. Single-replica PVC keeps them stable across restarts.
-  # `persistent: false` swaps the RWO PVC for an emptyDir (the CA/keys reset on
-  # restart) — used by staging only to stay under the OCI free-tier block-volume
-  # cap (ADR-035). Production keeps these keys in the shared Secret (sharedKeys),
-  # so its /data is already an emptyDir regardless of this flag.
+  # /data holds the CA, VAPID and signing keys; `persistent: false` swaps its PVC for an emptyDir.
   dataVolume:
     persistent: true
     storageClass: oci-bv
     size: 1Gi
-  # For multi-replica operation every replica must serve the SAME
-  # enrollment CA, VAPID keypair, and update-signing keypair, else mTLS
-  # enrollment, web push, and update verification split across pods. When
-  # enabled, /data becomes an emptyDir (writable manifest cache) and the four key
-  # files are mounted read-only via subPath from existingSecret; the per-replica
-  # PVC is dropped and the rollout switches Recreate→RollingUpdate. The server
-  # loads keys if present (no code change). Populate the secret once at install —
-  # see secrets.example.yaml. REQUIRED before scaling past one replica.
+  # Every replica serves the same CA, VAPID and signing keys, mounted read-only from existingSecret.
+  # Enabling it makes /data an emptyDir and the rollout a RollingUpdate.
   sharedKeys:
     enabled: false
 
 postgres:
-  # Fully-qualified registry path: OKE's cri-o nodes run short-name-mode=enforcing
-  # and reject bare names like `postgres:17-alpine` (ImageInspectError).
+  # Fully-qualified registry path: cri-o nodes run short-name-mode=enforcing and reject bare names.
   image: docker.io/library/postgres:17-alpine
   resources:
     requests:
@@ -106,11 +72,7 @@ postgres:
     limits:
       cpu: "1"
       memory: 512Mi
-  # Measures the database from a pod of its own in the same namespace, so each
-  # environment's readings carry that environment's name. The postmaster
-  # collector publishes the database's start time. Scraped several times a
-  # second it peaked at 12.6 MiB and held 8.6 MiB resident, and at the 15 s the
-  # store scrapes it uses well under 5m; the ceiling leaves room above that peak.
+  # Runs in a pod of its own in the same namespace, so readings carry the environment name.
   exporter:
     image: docker.io/prometheuscommunity/postgres-exporter:v0.20.1
     resources:
@@ -121,22 +83,16 @@ postgres:
         cpu: 100m
         memory: 32Mi
   storage:
-    # `persistent: false` swaps the StatefulSet's RWO volumeClaimTemplate for an
-    # emptyDir (DB resets on pod restart) — staging only, to stay under the OCI
-    # free-tier block-volume cap (ADR-035). Production keeps the block volume.
+    # `persistent: false` swaps the volumeClaimTemplate for an emptyDir that resets on restart.
     persistent: true
     storageClass: oci-bv
     size: 10Gi
   backup:
     enabled: true
     schedule: "@daily"
-    # Off-cluster to OCI Object Storage via a write-only PAR URL (ADR-035): no
-    # backups PVC. The dump runs in the postgres image (pg_dump, no curl); the
-    # upload runs in this image (curl, no pg_dump). Fully-qualified for OKE cri-o.
+    # The upload container image; the dump runs in the postgres image, which has no curl.
     uploadImage: docker.io/curlimages/curl:8.11.1
-    # Retention is enforced by an OCI Object Storage lifecycle policy on the bucket
-    # (delete objects older than keepDays), created out-of-band — see NOTES.txt.
-    # The CronJob no longer prunes; keepDays only documents the policy's threshold.
+    # Retention is a lifecycle policy on the bucket; keepDays records its threshold.
     keepDays: 7
     resources:
       requests:
@@ -149,13 +105,9 @@ postgres:
 ingress:
   enabled: true
   className: nginx
-  # Production terminates TLS and sends HSTS; staging runs behind the prod
-  # proxy on plain HTTP and disables HSTS (mirrors Caddyfile vs Caddyfile.staging).
   tls: true
   hsts: true
-  # Security headers ported verbatim from deploy/caddy/Caddyfile. Folded (>-)
-  # so it stays under the yamllint line-length cap; breaks fall on existing
-  # single-space boundaries, so it reassembles to the identical CSP string.
+  # Folded to stay under the yamllint line-length cap; breaks fall on single spaces.
   csp: >-
     default-src 'self'; script-src 'self' 'wasm-unsafe-eval';
     style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;
@@ -168,16 +120,9 @@ certManager:
   email: admin@opengate.example.com   # ACME registration contact; override per environment
   server: https://acme-v02.api.letsencrypt.org/directory
 
-# The account a nightly load run mints its enrollment token against.
-#
-# Off by default. Only an environment that a load run is allowed to fill and
-# empty turns it on, and production is not one of them. See the job template for
-# why the account exists and why it holds no usable password.
+# The account a nightly load run mints its enrollment token against; on only where a run may write.
 loadTest:
-  # The pods a load run's generators sit in. They are created by the run and
-  # destroyed with it, so they are named by a service rather than by an address:
-  # the server believes a presented address only from a peer the cluster says
-  # answers for one of the services it was told about.
+  # Generators are named by a service because the run creates and destroys their pods.
   generators:
     enabled: false
     label: opengate.io/loadtest-generator

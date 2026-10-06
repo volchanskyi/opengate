@@ -7,10 +7,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
-// ListDevices implements StrictServerInterface. The repository predicate is the
-// whole gate: a caller sees its own tenant's devices. Narrowing to a customer or
-// a site is a filter, not a permission — a technician sees every customer in
-// the tenant, and the picker chooses which one to look at.
+// ListDevices implements StrictServerInterface; the repository's tenant predicate is the gate
+// and a customer or site parameter only filters within the tenant.
 func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error) {
 	devices, err := s.devices.List(ctx, deviceFilterFromParams(request.Params))
 	if err != nil {
@@ -35,9 +33,8 @@ func deviceFilterFromParams(params ListDevicesParams) device.Filter {
 	return filter
 }
 
-// MoveDeviceOrganization implements StrictServerInterface. Reassigning a device
-// to another customer changes who it is billed and reported under, so it sits
-// behind the admin gate.
+// MoveDeviceOrganization implements StrictServerInterface; reassigning a customer changes
+// billing and reporting, so it sits behind the admin gate.
 func (s *Server) MoveDeviceOrganization(ctx context.Context, request MoveDeviceOrganizationRequestObject) (MoveDeviceOrganizationResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, MoveDeviceOrganization403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil

@@ -1,17 +1,8 @@
-//! Installed-package discovery (WS-16).
-//!
-//! Enumerates installed OS packages through read-only package-manager queries:
-//! `dpkg-query` (Debian/Ubuntu) or `rpm -qa` (RHEL/SUSE) on Linux. Nothing is
-//! installed, removed, or upgraded. The output is bounded by
-//! [`super::MAX_PACKAGES`]; a host with no recognized package manager
-//! contributes nothing.
+//! Installed-package discovery through read-only `dpkg-query` and `rpm -qa` queries on Linux.
 
 use mesh_protocol::DiscoveredPackage;
 
-/// Parses tab-separated `name\tversion` lines (the format emitted by both
-/// `dpkg-query -W -f='${Package}\t${Version}\n'` and
-/// `rpm -qa --qf '%{NAME}\t%{VERSION}\n'`). Blank lines and lines missing a
-/// version are skipped.
+/// Parses `name\tversion` lines, skipping blank lines and rows missing either half.
 fn parse_name_tab_version(stdout: &str) -> Vec<DiscoveredPackage> {
     let mut out = Vec::new();
     for line in stdout.lines() {
@@ -31,18 +22,15 @@ fn parse_name_tab_version(stdout: &str) -> Vec<DiscoveredPackage> {
     out
 }
 
-/// Parses `dpkg-query -W -f='${Package}\t${Version}\n'` output.
 pub(crate) fn parse_dpkg(stdout: &str) -> Vec<DiscoveredPackage> {
     parse_name_tab_version(stdout)
 }
 
-/// Parses `rpm -qa --qf '%{NAME}\t%{VERSION}\n'` output.
 pub(crate) fn parse_rpm(stdout: &str) -> Vec<DiscoveredPackage> {
     parse_name_tab_version(stdout)
 }
 
-/// Reads installed packages, bounded and normalized. Empty on any platform
-/// where no recognized package manager is present.
+/// Lists installed packages; empty where no recognized package manager is present.
 pub fn collect_packages() -> Vec<DiscoveredPackage> {
     #[cfg(target_os = "linux")]
     {
@@ -54,7 +42,6 @@ pub fn collect_packages() -> Vec<DiscoveredPackage> {
     }
 }
 
-/// Tries `dpkg-query` first, then `rpm`. Empty when neither is present.
 #[cfg(target_os = "linux")]
 fn collect_packages_linux() -> Vec<DiscoveredPackage> {
     let dpkg = std::process::Command::new("dpkg-query")
@@ -83,8 +70,6 @@ fn collect_packages_linux() -> Vec<DiscoveredPackage> {
 mod tests {
     use super::*;
 
-    /// dpkg/rpm tab-separated lines parse to name + version; blank and
-    /// version-less lines are skipped.
     #[test]
     fn parse_name_tab_version_reads_pairs() {
         let out = "openssl\t3.0.13-0ubuntu3\nlibc6\t2.39-0ubuntu8\n\nbroken-no-version\n";
@@ -95,12 +80,6 @@ mod tests {
         assert_eq!(packages[1].name, "libc6");
     }
 
-    /// A tab-separated line with either half missing is dropped — **either**
-    /// half, not only both. `dpkg-query` emits a bare tab for a package whose
-    /// version field is unset, and a nameless or versionless row would reach the
-    /// inventory as a package that cannot be identified or matched against an
-    /// advisory. The line still splits on its tab, so this is the only input
-    /// that reaches the emptiness check at all.
     #[test]
     fn parse_name_tab_version_drops_a_row_missing_either_half() {
         assert!(
@@ -119,7 +98,6 @@ mod tests {
         );
     }
 
-    /// rpm output uses the same tab format and parses identically.
     #[test]
     fn parse_rpm_reads_pairs() {
         let out = "bash\t5.2.15\ncoreutils\t9.1\n";
@@ -129,11 +107,6 @@ mod tests {
         assert_eq!(packages[1].version, "9.1");
     }
 
-    /// The collector reads this platform's own package manager: on Linux every
-    /// entry it reports carries a name and a version (`dpkg-query`, then `rpm`),
-    /// and a host with neither installed contributes nothing. On a platform with
-    /// no package manager to read there is nothing to report at all. The call is
-    /// safe either way — never a panic, so no caller needs a platform branch.
     #[test]
     fn collect_packages_reads_the_platform_or_reports_nothing() {
         let packages = collect_packages();

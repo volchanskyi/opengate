@@ -10,16 +10,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// contoso is one customer's estate: a tenant, the customer inside it, a site,
-// and two machines with different jobs. The whole point of the ladder is that
-// one estate can hold both without either needing its own rule.
 type contoso struct {
 	tenant  uuid.UUID
 	org     uuid.UUID
 	site    uuid.UUID
-	fs01    Device // a file server; its disks run full by design
-	dalWS12 Device // a workstation; a full disk there is a user's problem
-	laptop  Device // neither tagged nor filed, so only the customer default reaches it
+	fs01    Device
+	dalWS12 Device
+	laptop  Device
 }
 
 func newContoso() contoso {
@@ -47,14 +44,15 @@ func newContoso() contoso {
 	}
 }
 
-// The plan's own case: Contoso runs one disk-critical rule, its file servers
-// want 95, DAL-WS-012 wants 90, and everything else takes the customer default.
-// Each machine resolves to its own number, most-specific first.
+func assertThreshold(t *testing.T, want float64, def Definition, d Device, bindings []Binding, msg ...any) {
+	t.Helper()
+	assert.InEpsilon(t, want, Resolve(def, d, bindings).Threshold, 0.0001, msg...)
+}
+
 func TestResolveTargetsMachinesByTagWithinOneCustomerRule(t *testing.T) {
 	t.Parallel()
 
-	def := diskCritical(t)
-	c := newContoso()
+	def, c := diskCritical(t), newContoso()
 
 	bindings := []Binding{
 		orgBinding(c.org, def.ID, threshold(88)),
@@ -64,48 +62,37 @@ func TestResolveTargetsMachinesByTagWithinOneCustomerRule(t *testing.T) {
 
 	assert.Equal(t, 95.0, Resolve(def, c.fs01, bindings).Threshold)
 	assert.Equal(t, 90.0, Resolve(def, c.dalWS12, bindings).Threshold)
-	assert.InEpsilon(t, 88.0, Resolve(def, c.laptop, bindings).Threshold, 0.0001,
-		"an untagged machine takes the customer default")
+	assertThreshold(t, 88, def, c.laptop, bindings, "an untagged machine takes the customer default")
 }
 
-// A machine beats its site, a site beats its customer, a customer beats the
-// tenant, and the tenant beats what shipped. The ordering itself lives in
-// internal/settings; this proves the rule layer reads it rather than inventing
-// a second one.
 func TestResolveWalksTheTenancyLadderNarrowestFirst(t *testing.T) {
 	t.Parallel()
 
-	def := diskCritical(t)
-	c := newContoso()
+	def, c := diskCritical(t), newContoso()
 
 	at := func(level settings.Level, key uuid.UUID, value float64) Binding {
 		return newBinding(c.org, def.ID, level, key, threshold(value))
 	}
 
 	tenantOnly := []Binding{at(settings.LevelTenant, c.tenant, 70)}
-	assert.InEpsilon(t, 70.0, Resolve(def, c.fs01, tenantOnly).Threshold, 0.0001)
+	assertThreshold(t, 70, def, c.fs01, tenantOnly)
 
 	withOrg := append(tenantOnly, at(settings.LevelOrganization, c.org, 75))
-	assert.InEpsilon(t, 75.0, Resolve(def, c.fs01, withOrg).Threshold, 0.0001)
+	assertThreshold(t, 75, def, c.fs01, withOrg)
 
 	withSite := append(withOrg, at(settings.LevelSite, c.site, 80))
-	assert.InEpsilon(t, 80.0, Resolve(def, c.fs01, withSite).Threshold, 0.0001)
+	assertThreshold(t, 80, def, c.fs01, withSite)
 
 	withDevice := append(withSite, at(settings.LevelDevice, c.fs01.Scope.DeviceID, 85))
-	assert.InEpsilon(t, 85.0, Resolve(def, c.fs01, withDevice).Threshold, 0.0001)
+	assertThreshold(t, 85, def, c.fs01, withDevice)
 
-	// The unfiled laptop has no site rung, so the site binding simply does not
-	// apply to it rather than failing.
-	assert.InEpsilon(t, 75.0, Resolve(def, c.laptop, withSite).Threshold, 0.0001)
+	assertThreshold(t, 75, def, c.laptop, withSite)
 }
 
-// Each parameter resolves on its own, so retuning a threshold on one machine
-// does not silently drag the customer's sustain window down with it.
 func TestResolveResolvesEachParameterIndependently(t *testing.T) {
 	t.Parallel()
 
-	def := diskCritical(t)
-	c := newContoso()
+	def, c := diskCritical(t), newContoso()
 
 	bindings := []Binding{
 		orgBinding(c.org, def.ID, map[string]float64{"threshold": 85, "sustain_secs": 600}),
@@ -118,27 +105,19 @@ func TestResolveResolvesEachParameterIndependently(t *testing.T) {
 	assert.InEpsilon(t, def.Clear, got.Clear, 0.0001, "what nobody set stays what shipped")
 }
 
-// Two tag selectors can match one machine. Which of them wins is stated by the
-// operator through precedence, and never left to whatever order the rows came
-// back in.
 func TestResolveBreaksSelectorTiesByPrecedenceThenDeterministically(t *testing.T) {
 	t.Parallel()
 
-	def := diskCritical(t)
-	c := newContoso()
+	def, c := diskCritical(t), newContoso()
 
 	byRole := targeted(orgBinding(c.org, def.ID, threshold(95)), Selector{"role": "file-server"}, 10)
 	byRole.ID = uuid.MustParse("00000000-0000-0000-0000-0000000000ff")
 	byEnv := targeted(orgBinding(c.org, def.ID, threshold(60)), Selector{"env": "prod"}, 20)
 	byEnv.ID = uuid.MustParse("00000000-0000-0000-0000-00000000000a")
 
-	// The higher precedence wins whichever order the rows arrive in.
-	assert.InEpsilon(t, 60.0, Resolve(def, c.fs01, []Binding{byRole, byEnv}).Threshold, 0.0001)
-	assert.InEpsilon(t, 60.0, Resolve(def, c.fs01, []Binding{byEnv, byRole}).Threshold, 0.0001)
+	assertThreshold(t, 60, def, c.fs01, []Binding{byRole, byEnv})
+	assertThreshold(t, 60, def, c.fs01, []Binding{byEnv, byRole})
 
-	// With precedence tied, resolution is still an answer rather than a coin
-	// toss: the lowest binding id wins, in either row order. The database
-	// refuses to store this pair at all, so it is a last-resort guarantee.
 	byEnv.Precedence = 10
 	first := Resolve(def, c.fs01, []Binding{byRole, byEnv}).Threshold
 	second := Resolve(def, c.fs01, []Binding{byEnv, byRole}).Threshold
@@ -146,38 +125,30 @@ func TestResolveBreaksSelectorTiesByPrecedenceThenDeterministically(t *testing.T
 	assert.InEpsilon(t, 60.0, first, 0.0001, "the lowest binding id is the stated tie-break")
 }
 
-// A targeted binding is more specific than the level's blanket one, so it wins
-// even when nobody set a precedence.
 func TestResolvePrefersATargetedBindingOverTheLevelDefault(t *testing.T) {
 	t.Parallel()
 
-	def := diskCritical(t)
-	c := newContoso()
+	def, c := diskCritical(t), newContoso()
 
 	bindings := []Binding{
 		orgBinding(c.org, def.ID, threshold(88)),
 		targeted(orgBinding(c.org, def.ID, threshold(95)), Selector{"role": "file-server"}, 0),
 	}
-	assert.InEpsilon(t, 95.0, Resolve(def, c.fs01, bindings).Threshold, 0.0001)
-	assert.InEpsilon(t, 88.0, Resolve(def, c.dalWS12, bindings).Threshold, 0.0001)
+	assertThreshold(t, 95, def, c.fs01, bindings)
+	assertThreshold(t, 88, def, c.dalWS12, bindings)
 }
 
-// Another customer's bindings are not this customer's, even inside one tenant —
-// the case a tenant-scoped database read does not catch on its own.
 func TestResolveIgnoresAnotherCustomersBindings(t *testing.T) {
 	t.Parallel()
 
-	def := diskCritical(t)
-	c := newContoso()
+	def, c := diskCritical(t), newContoso()
 	fabrikam := uuid.New()
 
 	bindings := []Binding{orgBinding(fabrikam, def.ID, threshold(55))}
 
-	assert.InEpsilon(t, def.Threshold, Resolve(def, c.fs01, bindings).Threshold, 0.0001)
+	assertThreshold(t, def.Threshold, def, c.fs01, bindings)
 }
 
-// The resolved rule is what actually goes on the wire, so its shape has to
-// survive resolution intact.
 func TestResolveProducesTheWireRule(t *testing.T) {
 	t.Parallel()
 
@@ -192,8 +163,6 @@ func TestResolveProducesTheWireRule(t *testing.T) {
 	assert.Equal(t, uint32(300), got.WindowSecs)
 }
 
-// A rule pushed under a name from before the vitals rename still resolves to the
-// dimension the fleet actually collects, so it keeps firing.
 func TestResolveCanonicalizesALegacyMetricName(t *testing.T) {
 	t.Parallel()
 
@@ -207,9 +176,6 @@ func TestResolveCanonicalizesALegacyMetricName(t *testing.T) {
 		"a rule written against the old name must reach the dimension that exists")
 }
 
-// The screen has to be able to say why a machine is at the number it is at, and
-// name the tuned value that decided it — a rung, the labels it was aimed at, or
-// the pack itself.
 func TestWhatDecidedAMachinesNumber(t *testing.T) {
 	t.Parallel()
 
@@ -222,28 +188,27 @@ func TestWhatDecidedAMachinesNumber(t *testing.T) {
 
 	aimed := targeted(orgBinding(org, def.ID, threshold(95)), Selector{"role": "file-server"}, 10)
 
-	level, source := DecidedBy(def, machine, []Binding{aimed}, "threshold")
+	atSite := newBinding(org, def.ID, settings.LevelSite, site, threshold(93))
+	decided := func(bindings []Binding, param string) (settings.Level, string) {
+		return DecidedBy(def, machine, bindings, param)
+	}
+
+	level, source := decided([]Binding{aimed}, "threshold")
 	assert.Equal(t, settings.LevelOrganization, level)
 	assert.Equal(t, "set on this machine's customer, for machines labelled role=file-server", source)
 
-	// A rung with nothing aimed at it says so without naming labels.
-	atSite := newBinding(org, def.ID, settings.LevelSite, site, threshold(93))
-	level, source = DecidedBy(def, machine, []Binding{aimed, atSite}, "threshold")
+	level, source = decided([]Binding{aimed, atSite}, "threshold")
 	assert.Equal(t, settings.LevelSite, level, "the narrower rung decides it")
 	assert.Equal(t, "set on this machine's office", source)
 
-	// A parameter nobody tuned falls to the pack, and so does one the rule does
-	// not offer at all.
-	level, source = DecidedBy(def, machine, []Binding{aimed}, "sustain_secs")
+	level, source = decided([]Binding{aimed}, "sustain_secs")
 	assert.Equal(t, settings.LevelShipped, level)
 	assert.Equal(t, "the value the rule ships", source)
 
-	level, _ = DecidedBy(def, machine, []Binding{aimed}, "not_a_parameter")
+	level, _ = decided([]Binding{aimed}, "not_a_parameter")
 	assert.Equal(t, settings.LevelShipped, level)
 }
 
-// Every rung is named the way a person reads it, so a screen never has to
-// translate "organization" into "customer" for itself.
 func TestEachRungIsNamedForAPerson(t *testing.T) {
 	t.Parallel()
 
@@ -258,7 +223,6 @@ func TestEachRungIsNamedForAPerson(t *testing.T) {
 	}
 }
 
-// A selector reads back as the labels it names, in a stable order.
 func TestDescribingWhichMachinesAValueIsAimedAt(t *testing.T) {
 	t.Parallel()
 

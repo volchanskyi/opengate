@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# Enforces that a completed phase's plan has been deleted.
-#
-# A plan is a working document. Once its implementation has landed, what it
-# described lives in the code, in docs/ and in the ADRs, and the plan is a
-# second, stale account of the same thing. Recurring failure: the
-# implementation lands and the plan is left behind "for later".
-#
-# This gate ties retirement to the completion record: no row in the phases.md
-# "Completed" section may link a plan at all. Recording a phase as done
-# therefore forces its plan out of the tree. See .claude/rules/plans-and-adrs.md.
+# Fails when a row in the phases.md "Completed" section links a plan.
+# See .claude/rules/plans-and-adrs.md.
 
 set -euo pipefail
 
@@ -57,9 +49,7 @@ else
   done
 fi
 
-# A plan left in the working area with no phase recording it is the other half
-# of the same miss, but an in-flight plan is the ordinary case, so this only
-# reports what is there rather than failing on it.
+# In-flight plans are reported and never fail the run.
 if [ -d "$REPO_ROOT/.claude/plans" ]; then
   active="$(find "$REPO_ROOT/.claude/plans" -maxdepth 1 -name '*.md' | wc -l)"
   pass "$active plan(s) in flight under .claude/plans/"

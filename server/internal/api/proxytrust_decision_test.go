@@ -8,17 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Which peer a deployment believes. proxytrust_test.go is about reading the
-// list it was given; this is about the answer it gives for one address.
-
 const (
 	edgeAddr      = "10.244.0.10"
 	neighbourAddr = "10.244.0.99"
 	edgeService   = "ingress-nginx-controller.ingress-nginx"
 )
 
-// edgeNames is what the cluster's resolver actually answers for the controller
-// pod, read off staging on 2026-09-10.
 var edgeNames = []string{
 	"10-244-0-10.ingress-nginx-controller-admission.ingress-nginx.svc.cluster.local.",
 	"10-244-0-10.ingress-nginx-controller.ingress-nginx.svc.cluster.local.",
@@ -40,8 +35,6 @@ func TestTrustedProxiesReadsAName(t *testing.T) {
 			[]string{"10-244-0-99.ingress-nginx-controller.someone-elses.svc.cluster.local."}, false},
 		{"a name that stops at svc names no cluster", edgeService, neighbourAddr,
 			[]string{"10-244-0-99.ingress-nginx-controller.ingress-nginx.svc."}, false},
-		// The leading label is the pod's, and which pod it is was never the
-		// question: a pod in a set is named by its own hostname.
 		{"a stateful pod still answers for its service", edgeService, neighbourAddr,
 			[]string{"edge-0.ingress-nginx-controller.ingress-nginx.svc.cluster.local."}, true},
 	}

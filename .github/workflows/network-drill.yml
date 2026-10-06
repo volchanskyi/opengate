@@ -1,23 +1,10 @@
 name: Network Drill
 
-# The link between a customer's machine and the server is the most common
-# failure a remote-management product meets in the field, and it is the one the
-# reconnect backoff, the flap governor and the whole backfill engine exist to
-# survive. Nothing else in this repository breaks it.
-#
-# The drill runs its machines through a link shaper of its own — an ordinary
-# unprivileged pod forwarding datagrams — because the worker node ships no
-# kernel network emulator and every off-the-shelf impairment tool is a wrapper
-# around one. It reports and trends; it never gates a deploy.
+# The drill runs its machines through an unprivileged pod that shapes the link, because the
+# worker node ships no kernel network emulator. It reports and trends and does not gate a deploy.
 on:
   schedule:
-    # After the load test, which holds the same namespace claim — and the claim
-    # is what actually keeps the two apart. A scheduled run starts four and a
-    # half to six and a half hours after the time it names, and the spacing
-    # compresses as it slips: the load test has begun inside the mutation
-    # matrix's window on two of the last three nights. So the hour here is an
-    # order rather than an appointment, and whichever of the two arrives second
-    # waits for the first to release the namespace.
+    # Runs after the load test; both claim the staging namespace and the later arrival waits.
     - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
@@ -33,21 +20,15 @@ concurrency:
 env:
   NAMESPACE: opengate-staging
   RELEASE: opengate-staging
-  # Named once: the release step matches on this identity, and a claim released
-  # under a different one is left to time out instead.
+  # The release step matches on this identity.
   STAGING_LEASE_HOLDER: network-drill-${{ github.run_id }}-${{ github.run_attempt }}
-  # The administrator the enrolment token is minted against. The deployment
-  # seeds it and no cleanup removes it.
+  # The administrator the enrolment token is minted against; the deployment seeds it.
   DRILL_SERVICE_ACCOUNT: opengate-service@service.invalid
   DRILL_MEASUREMENTS: /tmp/netdrill/measurements.jsonl
   DRILL_EVIDENCE: /tmp/netdrill/evidence
-  # Twenty machines in one tenant produce a real queue against the four
-  # concurrent drains the server admits per customer — four draining, sixteen
-  # deferred — which is the herd behaviour the thin-uplink scenario is about.
+  # Twenty machines in one tenant queue against the four concurrent drains admitted per customer.
   DRILL_FLEET_AGENTS: "20"
-  # The herd carries a name of its own. Sharing the load run's leaves the drill
-  # unable to count its own twenty, and leaves them to be swept the next morning
-  # by a cleanup that belongs to another workflow.
+  # A prefix of its own lets the drill count its herd apart from the load run's.
   DRILL_FLEET_PREFIX: netdrill-fleet
 
 permissions:
@@ -57,13 +38,9 @@ jobs:
   network-drill:
     name: Network drill (four scenarios, two victims)
     runs-on: ubuntu-24.04
-    # Twenty-four minutes of scenarios plus setup, teardown, and room for a wait
-    # on the namespace lease behind a staging deploy.
+    # Covers the scenarios, setup, teardown and the wait for the namespace lease.
     timeout-minutes: 60
-    # Deliberately no `environment: staging`: its required reviewers would leave
-    # a scheduled run waiting for a human who never comes. This reaches the
-    # cluster with repository-level OCI credentials and creates only short-lived
-    # test pods, exactly as the nightly load run does.
+    # No `environment: staging`: its required reviewers would stall a scheduled run.
     permissions:
       contents: read
       actions: read
@@ -71,9 +48,7 @@ jobs:
       started_at: ${{ steps.started.outputs.at }}
       measured: ${{ steps.summarize.outputs.measured }}
     steps:
-      # The night's date. Every sample the night writes carries this time, so a
-      # run is one point on one date however long it takes, and a re-run of its
-      # failed jobs writes the same point.
+      # Every sample of the night carries this time, so a re-run of failed jobs writes the same point.
       - name: Record when the run started
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
@@ -96,16 +71,8 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      # The staging deploy and the load run drive this same release. Each takes
-      # the namespace before touching it and gives it back after.
-      #
-      # The wait is sized against what a holder in front can legitimately hold
-      # rather than against the gap between two crons: every scheduled run
-      # starts four and a half to six and a half hours after the hour it names,
-      # and the spacing compresses as it slips. The claim is renewed for as long
-      # as its holder works, so there is no stale claim to take over and waiting
-      # it out is the only way past — thirty minutes covers the deploy and the
-      # load run, inside this job's own hour.
+      # A holder renews its claim while it works, so waiting is the only way past it.
+      # Thirty minutes covers the staging deploy and the load run inside this job's hour.
       - name: Take the staging namespace
         env:
           STAGING_LEASE_WAIT_SECONDS: "1800"
@@ -132,37 +99,24 @@ jobs:
             echo "SERVER_POD_IP=$SERVER_POD_IP"
             echo "NODE_ARCH=$NODE_ARCH"
             echo "AGENT_TARGET=$AGENT_TARGET"
-            # Enrolment goes to the Service by its fully-qualified name. The
-            # short name is the one on the certificate and is pointed at the
-            # shaper with a hostAliases entry, which an /etc/hosts entry does
-            # not intercept for the qualified form — so enrolment resolves
-            # through cluster DNS to the Service while QUIC goes to the shaper.
+            # The fully-qualified name resolves to the Service while the short name goes to the shaper.
             echo "DRILL_ENROLL_URL=http://${RELEASE}-server.${NAMESPACE}.svc.cluster.local:8080"
             echo "DRILL_API_URL=http://${RELEASE}-server.${NAMESPACE}.svc.cluster.local:8080"
           } >>"$GITHUB_ENV"
 
-      # The mechanism this whole drill rests on is that the node ships no kernel
-      # network emulator. It is re-read every night rather than trusted from a
-      # document, so a node image that starts shipping one is visible in the
-      # record instead of only in a decision nobody re-checks.
+      # The node's lack of a kernel network emulator is re-read every night and recorded.
       - name: Record what the node's kernel offers
         run: |
           set -euo pipefail
           . scripts/lib/kubectl-retry.sh
           mkdir -p "$DRILL_EVIDENCE"
-          # The chart labels each monitoring component by its role, so the
-          # exporter is found by that label.
           EXPORTER="$(kubectl_retry -n monitoring get pods -l app.kubernetes.io/component=node-exporter \
             -o jsonpath='{.items[0].metadata.name}')"
           if [ -z "$EXPORTER" ]; then
             echo "::error::there is no node-exporter pod to read the node's kernel through, so the drill cannot say what the node offers" >&2
             exit 1
           fi
-          # A container shares its node's kernel, so the release the exporter
-          # reports is the node's. Reading it here rather than inside the remote
-          # shell keeps the paths below expanded by this shell, where they can be
-          # seen. Every read fails the step when it cannot be made; a count of
-          # nought is an answer.
+          # A container shares its node's kernel, so the exporter reports the node's release.
           K="$(kubectl_retry -n monitoring exec "$EXPORTER" -- uname -r)"
           if [ -z "$K" ]; then
             echo "::error::the node exporter reported no kernel release" >&2
@@ -194,14 +148,8 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH_FOR_NODE" \
             go build -trimpath -o /tmp/loadtest ./tests/loadtest/
 
-      # The agent binary is taken, not built. An aarch64 Rust release build
-      # would not fit beside twenty-four minutes of scenarios in this job's
-      # hour, and the commit that produced the image staging is running is the
-      # one the drill wants anyway.
-      #
-      # A run that cannot resolve one is inconclusive by the same rule a dead
-      # shaper is: it emits no rows rather than rows about a machine that never
-      # existed.
+      # The agent binary is taken from the staging build; an aarch64 build would not fit the hour.
+      # A run that cannot resolve one is inconclusive and emits no rows.
       - name: Resolve the agent built for the staging node
         id: agent-build
         env:
@@ -258,24 +206,14 @@ jobs:
           test -n "$PASSWORD"
           echo "::add-mask::$PASSWORD"
           echo "DRILL_SERVICE_PASSWORD=$PASSWORD" >>"$GITHUB_ENV"
-          # The staging deploy's database reset truncates this account away, so
-          # whether it is present when a run starts depends on what a deploy did
-          # hours earlier. The statements are idempotent, and they go over
-          # standard input because a psql argv is readable by every process in
-          # the Postgres pod and is recorded in the exec audit entry.
-          #
-          # Not retried: a connection dropped part-way through cannot say whether
-          # the statements landed, so a second attempt is either a no-op or a
-          # duplicate and nothing here can tell which.
+          # The statements go over stdin because a psql argv is visible in the pod and exec audit.
+          # Not retried: a dropped connection cannot say whether the statements landed.
           ACCOUNT_EMAIL="$DRILL_SERVICE_ACCOUNT" ACCOUNT_PASSWORD="$PASSWORD" \
             deploy/scripts/loadtest-account-sql.sh \
             | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
                 psql -U opengate -d opengate -v ON_ERROR_STOP=1 -q
 
-      # Everything the runner asks the cluster goes through this one client:
-      # both the shaper's control endpoint and the server's API are
-      # cluster-internal, and a port-forward held open for half an hour across
-      # four scenarios is a second thing that can fail quietly mid-measurement.
+      # One in-cluster client carries every request, so no port-forward stays open across scenarios.
       - name: Stand up the in-cluster client
         run: |
           set -euo pipefail
@@ -291,9 +229,7 @@ jobs:
       - name: Mint the enrolment credential the machines spend
         run: |
           set -euo pipefail
-          # Asked again only when the cluster says the request never reached the
-          # probe pod: nothing ran, so nothing is repeated. A request that
-          # reached the server and failed is the server's answer.
+          # Asked again only when the request never reached the probe pod.
           . scripts/lib/kubectl-retry.sh
           probe() { kubectl_retry --unstarted -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
 
@@ -305,9 +241,8 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "DRILL_API_TOKEN=$TOKEN" >>"$GITHUB_ENV"
 
-          # Through the same public endpoint an installer uses, expiring within
-          # the hour. Nothing copies the certificate authority's key out of the
-          # cluster: that key mints a trusted machine for the whole fleet.
+          # The token comes from the public endpoint an installer uses and expires within the hour.
+          # The certificate authority's key stays in the cluster: it mints a trusted machine.
           ENROLMENT="$(probe -X POST "$DRILL_API_URL/api/v1/enrollment-tokens" \
             -H 'Content-Type: application/json' \
             -H "Authorization: Bearer $TOKEN" \
@@ -324,13 +259,10 @@ jobs:
       - name: Start the link shaper
         run: |
           set -euo pipefail
-          # A dropped connection to the cluster is what has been costing
-          # nights here; see the helper for which calls may be repeated.
           . scripts/lib/kubectl-retry.sh
           SHAPER_POD="netdrill-shaper-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "SHAPER_POD=$SHAPER_POD" >>"$GITHUB_ENV"
-          # The seed is the run's own, recorded in the evidence, so a night can
-          # be compared against the one before it.
+          # The seed is recorded in the evidence so a night can be compared with the one before.
           echo "SHAPER_SEED=$GITHUB_RUN_ID" >>"$GITHUB_ENV"
 
           MACHINE="$SHAPER_POD" RELEASE="$RELEASE" NODE_ARCH="$NODE_ARCH" \
@@ -338,11 +270,7 @@ jobs:
             deploy/scripts/netfault-shaper-pod.sh \
             | kubectl -n "$NAMESPACE" apply -f -
           deploy/scripts/wait-for-pod-ready.sh "$SHAPER_POD" 180
-          # The pod is created and ready by here, so what is left to fail is the
-          # connection. It already has: a night died at the chmod below with
-          # `error sending request: ... EOF`, after twelve steps of setup and
-          # before anything was measured. All three are short, idempotent and
-          # repeatable, which is what makes them safe to ask for twice.
+          # All three calls are short and idempotent, so asking twice is safe.
           kubectl_retry -n "$NAMESPACE" cp /tmp/netfault "$SHAPER_POD:/tmp/netfault"
           kubectl_retry -n "$NAMESPACE" exec "$SHAPER_POD" -- chmod 0755 /tmp/netfault
           kubectl_retry -n "$NAMESPACE" exec "$SHAPER_POD" -- touch /tmp/ready
@@ -353,9 +281,7 @@ jobs:
           echo "SHAPER_URL=http://${SHAPER_IP}:9091" >>"$GITHUB_ENV"
 
           for _ in $(seq 1 60); do
-            # Not retried: the loop around this call is the retry, sixty times over
-            # two minutes, and a retry inside a retry multiplies the wait for a pod
-            # that is never going to answer.
+            # Not retried: the surrounding loop is the retry, and a nested retry multiplies the wait.
             if kubectl -n "$NAMESPACE" exec "$PROBE_POD" -- \
               curl -sS --max-time 5 "http://${SHAPER_IP}:9091/healthz" >/dev/null 2>&1; then
               echo "the shaper is answering"
@@ -366,14 +292,11 @@ jobs:
           echo "::error::the shaper never answered on its control endpoint"
           exit 1
 
-      # Both machines dial the name on the certificate, and for them that name
-      # resolves to the shaper rather than to the server pod. Enrolment takes
-      # the fully-qualified Service name, which the alias does not intercept.
+      # Both machines dial the certificate's name, which the alias resolves to the shaper.
+      # Enrolment takes the fully-qualified Service name, which the alias skips.
       - name: Start the real machine, with its path through the shaper
         run: |
           set -euo pipefail
-          # A dropped connection to the cluster is what has been costing
-          # nights here; see the helper for which calls may be repeated.
           . scripts/lib/kubectl-retry.sh
           MACHINE_POD="netdrill-machine-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "MACHINE_POD=$MACHINE_POD" >>"$GITHUB_ENV"
@@ -386,8 +309,6 @@ jobs:
             | kubectl -n "$NAMESPACE" apply -f -
 
           deploy/scripts/wait-for-pod-ready.sh "$MACHINE_POD" 180
-          # Same shape as the shaper above: short, idempotent setup into a pod
-          # that is already up, where the only failure of interest is transport.
           kubectl_retry -n "$NAMESPACE" exec "$MACHINE_POD" -- mkdir -p /tmp/agent
           kubectl_retry -n "$NAMESPACE" cp /tmp/mesh-agent "$MACHINE_POD:/tmp/mesh-agent"
           kubectl_retry -n "$NAMESPACE" exec "$MACHINE_POD" -- chmod 0755 /tmp/mesh-agent
@@ -396,9 +317,7 @@ jobs:
       - name: Wait for the machine to arrive, and learn which one it is
         run: |
           set -euo pipefail
-          # Asked again only when the cluster says the request never reached the
-          # probe pod: nothing ran, so nothing is repeated. A request that
-          # reached the server and failed is the server's answer.
+          # Asked again only when the request never reached the probe pod.
           . scripts/lib/kubectl-retry.sh
           probe() { kubectl_retry --unstarted -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
           for _ in $(seq 1 60); do
@@ -416,46 +335,26 @@ jobs:
           echo "::error::the drill's machine never came online through the shaper — the enrolment split may have been missed"
           exit 1
 
-      # The simulated fleet is what makes the thin-uplink scenario a herd rather
-      # than one machine: twenty in one tenant against four concurrent drains.
+      # The simulated fleet makes the thin-uplink scenario a herd of twenty machines in one tenant.
       - name: Start the simulated fleet behind the same shaper
         run: |
           set -euo pipefail
-          # A dropped connection to the cluster is what has been costing
-          # nights here; see the helper for which calls may be repeated.
           . scripts/lib/kubectl-retry.sh
           FLEET_POD="netdrill-fleet-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "FLEET_POD=$FLEET_POD" >>"$GITHUB_ENV"
 
-          # It reserves what twenty simulated machines actually need, which is
-          # what the drill's real machine reserves beside it. Reserving a tenth
-          # of a processor was what the scheduler refused: this node is
-          # ordinarily 91% claimed before the drill starts any pod at all, and
-          # the fleet's is the last of four.
+          # The request is sized to twenty simulated machines because the node is mostly claimed.
           kubectl -n "$NAMESPACE" run "$FLEET_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
             --overrides='{"spec":{"hostAliases":[{"ip":"'"$SHAPER_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$FLEET_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","2700"],"resources":{"requests":{"cpu":"25m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep 2700
           deploy/scripts/wait-for-pod-ready.sh "$FLEET_POD" 120
-          # And the fleet binary. A dropped copy here loses the whole drill for a
-          # connection that would have worked on the next attempt.
           kubectl_retry -n "$NAMESPACE" cp /tmp/loadtest "$FLEET_POD:/tmp/loadtest"
           kubectl_retry -n "$NAMESPACE" exec "$FLEET_POD" -- chmod 0755 /tmp/loadtest
 
-          # The fleet is held for the whole drill, so every scenario has the herd
-          # in place rather than standing one up per scenario. The harness is
-          # launched into the pod named in LOADTEST_POD, which is this drill's
-          # fleet pod.
-          # The switches below are what make these machines a site rather than a
-          # load generator, and they are the drill's alone: a load run measuring
-          # what the server carries wants a severance reported and a deferral
-          # shed, not repaired and queued through.
-          #
-          # The stay covers all four scenarios with room to spare. Twenty-five
-          # minutes did not: the scenarios take about twenty-four and a half and
-          # the herd starts two minutes ahead of them, so its time ran out inside
-          # the last one.
+          # The fleet is held for the whole drill, so every scenario finds the herd in place.
+          # The hold covers all four scenarios plus the herd's head start.
           LOADTEST_POD="$FLEET_POD" \
           scripts/loadtest-quic-incluster.sh start -- \
             /tmp/loadtest \
@@ -480,9 +379,7 @@ jobs:
           mkdir -p "$DRILL_EVIDENCE" "$(dirname "$DRILL_MEASUREMENTS")"
           : >"$DRILL_MEASUREMENTS"
           inconclusive=0
-          # errexit off around the scenario, because its exit code is the thing
-          # being read: a scenario that could not observe the system exits 2, and
-          # under errexit that ends the step before the line that says so.
+          # errexit is off around the scenario because exit code 2 means it could not observe.
           set +e
           for scenario in $NETDRILL_RUN_SCENARIOS; do
             echo "::group::$scenario"
@@ -501,10 +398,7 @@ jobs:
               scripts/fault/network-drill.sh "$scenario"
             rc=$?
             echo "::endgroup::"
-            # A scenario that could not observe the system is not a failed
-            # drill: it contributes no row and the run says so. A scenario that
-            # measured the product and found it wanting is a measurement, and
-            # the regression check is what decides about it.
+            # A scenario that could not observe the system contributes no row; the run says so.
             if [ "$rc" -eq 2 ]; then
               echo "::warning::$scenario was inconclusive and contributed no measurement"
               inconclusive=$((inconclusive + 1))
@@ -516,14 +410,8 @@ jobs:
           set -e
           echo "inconclusive=$inconclusive" >>"$GITHUB_OUTPUT"
 
-      # What the herd itself decided. It is written to a file inside the fleet
-      # pod, and the pod's own output carries nothing — so a drill that never
-      # asked for it had no account of its herd at all, while every row it
-      # published was about the one machine in front of it.
-      #
-      # The harness's verdict is evidence rather than a gate: twenty machines
-      # reporting a severance is what a drill that blackholes their link is
-      # supposed to produce. It is read for the count, not the exit code.
+      # The herd's verdict is written to a file inside the fleet pod and read for its count.
+      # Twenty machines reporting a severance is the expected result of a blackholed link.
       - name: Read the herd's own verdict
         if: always()
         run: |
@@ -569,8 +457,7 @@ jobs:
         with:
           name: netdrill-evidence
           path: /tmp/netdrill/evidence
-          # The bundle is what a human reads to understand a night; an empty
-          # upload would leave a run looking collected when nothing was.
+          # An empty bundle would leave a run looking collected when nothing was.
           if-no-files-found: error
           retention-days: 14
 
@@ -583,15 +470,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # A drill that removes its pods and leaves its machines has cleaned up the
-      # half that is visible. The twenty-one rows it enrolled are removed here,
-      # through the same call a technician's delete uses and with the credential
-      # the run already holds — before the probe pod goes, because every request
-      # travels through it.
-      #
-      # Nothing else was removing them: the herd used to be swept the next
-      # morning by the load run's cleanup, which selects on a name the drill
-      # merely happened to share, and the real machine matched no sweep at all.
+      # The enrolled machines are deleted through a technician's delete call, before the probe
+      # pod goes, because every request travels through it.
       - name: Remove every machine the drill enrolled
         if: always()
         run: |
@@ -600,9 +480,7 @@ jobs:
             echo "no in-cluster client or credential; the machines are left for the next deploy's reset"
             exit 0
           fi
-          # Asked again only when the cluster says the request never reached the
-          # probe pod: nothing ran, so nothing is repeated. A request that
-          # reached the server and failed is the server's answer.
+          # Asked again only when the request never reached the probe pod.
           . scripts/lib/kubectl-retry.sh
           probe() { kubectl_retry --unstarted -n "$NAMESPACE" exec "$PROBE_POD" -- curl -sS --max-time 20 "$@"; }
 
@@ -660,17 +538,14 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # This job's result is the observability environment's deployment status, so
-    # it reports only whether the trend was collected and published. The
-    # regression verdict is the job below: a regression is a finding about the
-    # system under test, not a failure to publish.
+    # The job result is the observability environment's deployment status: it reports only
+    # whether the trend was published, and the regression verdict is the job below.
     environment: observability
     permissions:
       contents: read
     outputs:
       regression: ${{ steps.check.outputs.regression }}
     env:
-      # When the run started, which every sample of the night carries.
       VM_RUN_STARTED_AT: ${{ needs.network-drill.outputs.started_at }}
     steps:
       - uses: actions/checkout@v7
@@ -686,9 +561,7 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      # A run that measured nothing has nothing to publish, and saying so is the
-      # point: rows of zeroes pull a window median down and one bad night
-      # quietly costs two.
+      # A run that measured nothing publishes nothing, since rows of zeroes pull a median down.
       - name: Read whether the run measured anything at all
         run: |
           set -euo pipefail
@@ -713,10 +586,7 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: |
           set -uo pipefail
-          # errexit off around the capture. The check exits 1 on a regression,
-          # which is the case this step exists to handle — under errexit the
-          # assignment ends the step, so the output is never printed and the
-          # alert below is never raised.
+          # errexit is off around the capture because the check exits 1 on a regression.
           set +e
           OUT="$(scripts/network-drill-regression-check.sh artifacts/netdrill/netdrill-summary.json netdrill-table.md 2>&1)"
           rc=$?
@@ -747,8 +617,7 @@ jobs:
             if [ "${{ needs.network-drill.outputs.measured }}" != "1" ]; then
               echo "This run measured nothing; no rows entered the trend."
             elif [ -s netdrill-table.md ]; then
-              # Written by the check that judged the readings, so the page and
-              # the verdict cannot disagree about a floor.
+              # The check that judged the readings wrote this, so page and verdict share a floor.
               cat netdrill-table.md
             else
               echo "The readings could not be checked, so there is no table; see the check step."
@@ -756,14 +625,8 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Send Telegram alert
-        # Runs whatever happened above it, and the message names which of the
-        # three it was. The shape this replaces was gated on a flag an earlier
-        # step in this job produced, so a night that died before that step said
-        # nothing at all: the louder the failure, the more certain the silence.
-        #
-        # And the send below reports a refused delivery rather than swallowing
-        # it. It can afford to — the verdict this run carries is read by a job of
-        # its own, so a Telegram outage reddens this job and hides nothing.
+        # Runs whatever happened above, and the message names which of the three it was.
+        # A refused delivery fails the step; a separate job reads the verdict.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
@@ -799,9 +662,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      # The drill never blocks a deploy. What this decides is whether the
-      # nightly goes red, which is a finding to read rather than a reason to
-      # stop shipping.
+      # The drill does not block a deploy; this job decides whether the nightly goes red.
       - name: Fail the workflow red on a regression
         run: |
           if [ "${{ needs.publish.result }}" != "success" ]; then

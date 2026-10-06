@@ -24,13 +24,11 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// testLogger returns an error-level-only slog.Logger to keep test output quiet.
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// performClientHandshake sends AgentHello (the agent opened the stream, so
-// it writes first per RFC 9000 stream-discovery) and reads back ServerHello.
+// The agent opened the stream, so it writes AgentHello first (RFC 9000 stream discovery).
 func performClientHandshake(t *testing.T, stream *quic.Stream, agentCertDER []byte) {
 	t.Helper()
 
@@ -48,7 +46,6 @@ func performClientHandshake(t *testing.T, stream *quic.Stream, agentCertDER []by
 	require.Equal(t, byte(protocol.MsgServerHello), serverHello[0])
 }
 
-// sendAgentRegister encodes and writes a fixed test AgentRegister control frame.
 func sendAgentRegister(t *testing.T, stream *quic.Stream) {
 	t.Helper()
 
@@ -66,7 +63,6 @@ func sendAgentRegister(t *testing.T, stream *quic.Stream) {
 	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
 }
 
-// agentTestEnv sets up a real in-process agentapi server for integration tests.
 type agentTestEnv struct {
 	store   *db.PostgresStore
 	devices device.Repository
@@ -76,8 +72,6 @@ type agentTestEnv struct {
 	cancel  context.CancelFunc
 }
 
-// newAgentTestEnv starts a real in-process agentapi QUIC server backed by a
-// throwaway Postgres schema, for use by agent-connection integration tests.
 func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	t.Helper()
 
@@ -105,12 +99,10 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 		srv.ListenAndServe(ctx, "127.0.0.1:0")
 	}()
 
-	// Wait for the server to be listening and get the actual address.
 	actualAddr := srv.Addr()
 
 	t.Cleanup(func() {
 		cancel()
-		// Wait for the QUIC server goroutine to exit instead of a blind sleep.
 		select {
 		case <-listenDone:
 		case <-time.After(2 * time.Second):
@@ -128,14 +120,11 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	}
 }
 
-// caCertHash returns the SHA-384 of the env's CA cert — the value an agent
-// caches and replays on the 0x14 fast path.
 func (e *agentTestEnv) caCertHash() [48]byte {
 	return sha512.Sum384(e.certMgr.CACert().Raw)
 }
 
-// seedDevice pre-creates an offline device row BEFORE the agent connects, so
-// the server can resolve its site during accept() without a race.
+// The device row exists before the agent connects so accept resolves its site without a race.
 func (e *agentTestEnv) seedDevice(t *testing.T, deviceID, siteID uuid.UUID) {
 	t.Helper()
 	require.NoError(t, e.devices.Upsert(defaultTenantContext(), &device.Device{
@@ -147,8 +136,6 @@ func (e *agentTestEnv) seedDevice(t *testing.T, deviceID, siteID uuid.UUID) {
 	}))
 }
 
-// dialAgentStream signs an agent cert for deviceID, dials QUIC, and opens the
-// client-initiated control stream. Returns the stream and the agent cert DER.
 func (e *agentTestEnv) dialAgentStream(t *testing.T, deviceID uuid.UUID) (*quic.Stream, []byte) {
 	t.Helper()
 	ctx := context.Background()
@@ -162,8 +149,6 @@ func (e *agentTestEnv) dialAgentStream(t *testing.T, deviceID uuid.UUID) (*quic.
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.CloseWithError(0, "test done") })
 
-	// Agent opens the control stream and writes first (RFC 9000
-	// stream-discovery); client-initiated stream IDs are even (§2.1).
 	stream, err := conn.OpenStreamSync(ctx)
 	require.NoError(t, err)
 	require.Zero(t, int64(stream.StreamID())%2, "control stream must be client-initiated (even ID)")
@@ -171,11 +156,7 @@ func (e *agentTestEnv) dialAgentStream(t *testing.T, deviceID uuid.UUID) (*quic.
 	return stream, tlsCert.Certificate[0]
 }
 
-// drainRegisterHardwareRequest consumes the RequestHardwareReport the server
-// pushes as an agent registers — the pull that refreshes a reconnecting
-// device's inventory. Registration advertises HardwareInventory, so the request
-// is always sent; draining it here leaves each test's own control-frame reads
-// starting from a clean stream.
+// Registration advertises HardwareInventory, so the server always sends RequestHardwareReport.
 func drainRegisterHardwareRequest(t *testing.T, stream *quic.Stream) {
 	t.Helper()
 	require.NoError(t, stream.SetReadDeadline(time.Now().Add(5*time.Second)))
@@ -189,8 +170,6 @@ func drainRegisterHardwareRequest(t *testing.T, stream *quic.Stream) {
 	require.NoError(t, stream.SetReadDeadline(time.Time{}))
 }
 
-// connectAgentWithID establishes a QUIC connection as a test agent with a
-// specific device ID (which must already exist in the DB) via the full handshake.
 func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *quic.Stream {
 	t.Helper()
 	stream, agentCertDER := e.dialAgentStream(t, deviceID)
@@ -200,8 +179,6 @@ func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *qui
 	return stream
 }
 
-// connectAgent seeds a fresh device and connects a test agent via the full
-// handshake. Returns the stream and device ID.
 func (e *agentTestEnv) connectAgent(t *testing.T, siteID uuid.UUID) (*quic.Stream, uuid.UUID) {
 	t.Helper()
 	deviceID := uuid.New()
@@ -213,9 +190,6 @@ func (e *agentTestEnv) connectAgent(t *testing.T, siteID uuid.UUID) (*quic.Strea
 	return stream, deviceID
 }
 
-// connectAgentFastPath seeds a fresh device and connects via the 0x14
-// fast path, sending SkipAuth with the given cached CA hash (no full
-// handshake). Returns the stream and device ID; the caller drives registration.
 func (e *agentTestEnv) connectAgentFastPath(t *testing.T, siteID uuid.UUID, cachedCAHash [48]byte) (*quic.Stream, uuid.UUID) {
 	t.Helper()
 	deviceID := uuid.New()
@@ -226,7 +200,6 @@ func (e *agentTestEnv) connectAgentFastPath(t *testing.T, siteID uuid.UUID, cach
 	return stream, deviceID
 }
 
-// getDevice fetches a device by ID, failing the test on error.
 func getDevice(t *testing.T, env *agentTestEnv, deviceID uuid.UUID) *device.Device {
 	t.Helper()
 	d, err := env.devices.Get(defaultTenantContext(), deviceID)
@@ -247,7 +220,6 @@ func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 
 	originalLastSeen := getDevice(t, env, deviceID).UpdatedAt
 
-	// Send heartbeat
 	codec := &protocol.Codec{}
 	hbMsg := &protocol.ControlMessage{
 		Type:      protocol.MsgAgentHeartbeat,
@@ -257,7 +229,6 @@ func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
 
-	// Verify last_seen updated, still online
 	require.Eventually(t, func() bool {
 		d, err := env.devices.Get(defaultTenantContext(), deviceID)
 		return err == nil && !d.UpdatedAt.Before(originalLastSeen)
@@ -269,15 +240,11 @@ func TestAgentConnect_DisconnectSetsOffline(t *testing.T) {
 	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
 
-	// Close the stream to disconnect
 	stream.Close()
 
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOffline)
 }
 
-// TestAgentConnect_FastPath_ValidHashRegisters verifies the 0x14 reconnect
-// path: an agent that replays the current CA hash skips the ServerHello
-// exchange and still registers (Skipped path), driven end-to-end over QUIC.
 func TestAgentConnect_FastPath_ValidHashRegisters(t *testing.T) {
 	t.Parallel()
 	env := newAgentTestEnv(t)
@@ -290,20 +257,15 @@ func TestAgentConnect_FastPath_ValidHashRegisters(t *testing.T) {
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
 }
 
-// TestAgentConnect_FastPath_StaleHashRejected verifies a stale cached CA hash
-// is rejected: the server tears the connection down (so the agent would fall
-// back to a full handshake) and the device never registers.
 func TestAgentConnect_FastPath_StaleHashRejected(t *testing.T) {
 	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
 	site := testutil.SeedSite(t, ctx, env.store)
 
-	var staleHash [48]byte // all zeros — never the real CA hash
+	var staleHash [48]byte
 	stream, deviceID := env.connectAgentFastPath(t, site.ID, staleHash)
 
-	// The server rejects the stale hash and closes the connection, so a read
-	// on the agent stream fails rather than blocking.
 	require.NoError(t, stream.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, err := stream.Read(make([]byte, 1))
 	require.Error(t, err, "server must reject a stale fast-path hash")

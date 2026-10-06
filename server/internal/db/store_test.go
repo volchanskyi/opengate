@@ -11,16 +11,9 @@ import (
 	"time"
 )
 
-// pgTestDB is the shared Postgres store for this package, migrated into a
-// fixed test schema. Each test TRUNCATEs tables before use to isolate state.
-// Using a shared pool + TRUNCATE is much faster than creating a new schema
-// per test, and uses only static SQL (no dynamic identifiers) — so go:S2077
-// stays green.
+// pgTestDB is the shared Postgres store, migrated into a fixed schema and truncated per test.
 var pgTestDB *PostgresStore
 
-// TestMain provisions the shared Postgres store once per package run. The base
-// database comes from POSTGRES_TEST_URL or an auto-provisioned container; either
-// way the tests run — they never skip on a missing database.
 func TestMain(m *testing.M) {
 	baseURL, err := testpg.URL()
 	if err != nil {
@@ -38,15 +31,11 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// setupPostgresTestDB drops and recreates the opengate_test schema, then runs
-// migrations into it. Schema name is a compile-time literal, so this is all
-// static SQL.
+// setupPostgresTestDB recreates the opengate_test schema, whose literal name keeps the SQL static.
 func setupPostgresTestDB(baseURL string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Open a temp connection to drop/create the isolation schema. The schema
-	// name is the fixed literal opengate_test — no user input, no dynamic SQL.
 	setup, err := NewPostgresStore(ctx, baseURL)
 	if err != nil {
 		return fmt.Errorf("open base url: %w", err)
@@ -61,7 +50,6 @@ func setupPostgresTestDB(baseURL string) error {
 	}
 	_ = setup.Close()
 
-	// Reopen pinned to the isolation schema so migrations land in opengate_test.
 	sep := "?"
 	if strings.Contains(baseURL, "?") {
 		sep = "&"
@@ -75,8 +63,7 @@ func setupPostgresTestDB(baseURL string) error {
 	return nil
 }
 
-// newPostgresTestStore returns the shared test store after wiping all rows.
-// Tests run sequentially (no t.Parallel), so a shared pool is safe.
+// newPostgresTestStore returns the shared store after wiping all rows; tests run sequentially.
 func newPostgresTestStore(t *testing.T) *PostgresStore {
 	t.Helper()
 	require.NotNil(t, pgTestDB, "shared Postgres store not initialised by TestMain")

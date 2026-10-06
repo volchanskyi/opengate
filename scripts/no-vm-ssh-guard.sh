@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Guard the Kubernetes-only fleet: fail if any CI file reintroduces an SSH path
-# to a compute VM. The pattern table below names the building blocks that would
-# reconstruct such a path.
+# Fails when any CI file holds the building blocks of an SSH path to a compute VM.
 
 set -euo pipefail
 

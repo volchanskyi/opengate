@@ -81,9 +81,6 @@ func TestPostgres_WebPushCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, notifications.ErrSubscriptionNotFound))
 	})
 
-	// Tenant scope alone would let any colleague cancel another user's
-	// notifications given only the endpoint URL; the subscription belongs to
-	// one user, so the delete is bound to that user too.
 	t.Run("delete is bound to the owning user", func(t *testing.T) {
 		other := testutil.SeedUser(t, ctx, store)
 		endpoint := "https://push.example.com/own-" + uuid.New().String()[:8]
@@ -152,7 +149,6 @@ func TestPostgresWebPush_TenantDeny(t *testing.T) {
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
-// fakeObserver records every Observe call for the Instrumented decorator test.
 type fakeObserver struct {
 	calls []observerCall
 }
@@ -167,8 +163,6 @@ func (f *fakeObserver) Observe(op string, d time.Duration, ok bool) {
 	f.calls = append(f.calls, observerCall{op: op, duration: d, ok: ok})
 }
 
-// memWebPushRepo is an in-memory WebPushRepository used for testing the
-// Instrumented decorator without Postgres.
 type memWebPushRepo struct {
 	upsertErr error
 	listErr   error
@@ -254,7 +248,6 @@ func TestInstrumented_ObservesDelete(t *testing.T) {
 	assert.True(t, obs.calls[0].ok)
 }
 
-// endpointsOf projects subscription endpoints for membership assertions.
 func endpointsOf(subs []*notifications.WebPushSubscription) []string {
 	out := make([]string, 0, len(subs))
 	for _, s := range subs {

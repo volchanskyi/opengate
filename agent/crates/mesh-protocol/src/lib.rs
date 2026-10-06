@@ -1,8 +1,4 @@
-//! Shared protocol types and codec for the OpenGate wire protocol.
-//!
-//! This crate defines every wire type, codec, and structure that crosses
-//! the agent–server boundary. Both the Rust agent and Go server implement
-//! this protocol identically.
+//! Wire types and codec for everything that crosses the agent–server boundary.
 
 pub mod codec;
 pub mod control;

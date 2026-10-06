@@ -1,31 +1,8 @@
 #!/usr/bin/env bash
-# git-post-commit.sh — deterministic auto-push, run by git's NATIVE post-commit
-# hook (installed each session by sessionstart-install-git-hooks.sh). It is the
-# push half of the "commit ⇒ push, no pause" rule.
-#
-# WHY A GIT HOOK (not a Claude PostToolUse hook): a Claude PostToolUse hook does
-# NOT fire after a BACKGROUNDED `git commit` tool call — for a background command
-# the tool "returns" at launch (before the commit object exists), so the old
-# PostToolUse auto-push silently no-op'd whenever the commit ran in the
-# background (the standard gauntlet-monitoring flow). Git runs post-commit
-# synchronously, in-process, after EVERY successful commit — foreground OR
-# background — so the push is deterministic and independent of harness timing.
-#
-# The push is a subprocess of `git commit`, not a Claude tool call, so the Claude
-# push-guard never intercepts it. So it pushes only what that guard would let
-# through: a commit whose content /refactor finished on, after a gauntlet pass
-# (lib/tidy-up.sh). That commit is written into the refactor marker, which a
-# later MANUAL `git push` tool call is checked against. A commit with no such
-# proof gets neither the marker nor the push.
-#
-# Safe by construction: only branch `dev`; never under CI; re-entrancy-guarded;
-# never fails the commit (post-commit exit codes are ignored by git, and we exit
-# 0 regardless) — push issues are reported, not fatal.
+# Auto-push run by git's native post-commit hook, which fires after every commit, background or not.
+# It pushes only a commit made from content /refactor finished on, and always exits 0.
 set -uo pipefail
 
-# Optional step tracer: when OPENGATE_AUTOPUSH_DEBUG is set, each gate emits a
-# line to stderr so an environment we cannot reproduce locally (e.g. CI) can show
-# exactly where the hook exits. Silent otherwise.
 dbg() {
   if [ -n "${OPENGATE_AUTOPUSH_DEBUG:-}" ]; then
     printf 'autopush-dbg: %s\n' "$1" >&2
@@ -33,32 +10,25 @@ dbg() {
 }
 dbg "enter: pwd=$(pwd) GIT_DIR=${GIT_DIR:-unset} CI=${CI:-unset} GHA=${GITHUB_ACTIONS:-unset}"
 
-# 1. Re-entrancy guard: the pull --rebase / push below must never recurse back
-#    into this hook (belt-and-suspenders — git does not run post-commit during
-#    rebase, but a future git/config might).
+# The pull --rebase and push below never re-enter this hook.
 if [ -n "${OPENGATE_AUTOPUSH_ACTIVE:-}" ]; then
   dbg "exit: re-entrancy guard (OPENGATE_AUTOPUSH_ACTIVE set)"
   exit 0
 fi
 export OPENGATE_AUTOPUSH_ACTIVE=1
 
-# 2. Never auto-push from CI or other non-interactive automation.
 if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
   dbg "exit: CI guard (CI=${CI:-} GHA=${GITHUB_ACTIONS:-})"
   exit 0
 fi
 
-# 3. Resolve the work tree, then drop git's hook env so the pull/push re-discover
-#    the repo from the working directory. A post-commit hook runs with GIT_DIR /
-#    GIT_INDEX_FILE set; leaving them set would mis-target subsequent git
-#    commands (e.g. operate on the wrong index).
+# The hook env (GIT_DIR, GIT_INDEX_FILE) is dropped so later git commands find the repo by cwd.
 root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 dbg "root='$root'"
 [ -n "$root" ] || exit 0
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
 cd "$root" || exit 0
 
-# 4. Only ever act on dev.
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo)"
 dbg "branch='$branch'"
 if [ "$branch" != "dev" ]; then
@@ -66,9 +36,7 @@ if [ "$branch" != "dev" ]; then
   exit 0
 fi
 
-# 5. Only a commit of the content /refactor finished on, after a gauntlet pass,
-#    is marked or pushed. The commit leaves the work tree as it was, so the
-#    proof still names what is on disk exactly when the commit carried it.
+# Only a commit of the content /refactor finished on, after a gauntlet pass, is marked or pushed.
 # shellcheck source=lib/tidy-up.sh
 source "$root/.claude/hooks/lib/tidy-up.sh"
 if ! tidy_done_matches; then
@@ -77,14 +45,11 @@ if ! tidy_done_matches; then
   exit 0
 fi
 
-# Marked now, so a later manual `git push` tool call passes the push-guard even
-# if the push below cannot reach the remote.
+# Marking before the push lets a later manual push pass the push guard if this push fails.
 tidy_write refactor.head "$(git rev-parse HEAD)"
 dbg "marker written: $(tidy_read refactor.head)"
 
-# 6. Rebase onto the latest dev; abort cleanly on conflict (never leave a
-#    half-rebase). A rebase that replays our commit changes HEAD, so re-point the
-#    marker afterward before pushing.
+# A conflicting rebase is aborted; a replayed commit changes HEAD, so the marker is re-pointed.
 if ! git pull --rebase origin dev; then
   git rebase --abort 2>/dev/null || true
   dbg "exit: 'git pull --rebase origin dev' failed"
@@ -97,9 +62,7 @@ dbg "rebased; marker now $(tidy_read refactor.head)"
 if git push origin dev; then
   dbg "pushed ok"
   echo "auto-push: pushed $(git rev-parse --short HEAD) to origin/dev"
-  # 7. Post-push: reclaim large regenerable local caches (best-effort, never
-  #    fatal). Only runs after a successful push so a failed push keeps its
-  #    build cache for the retry.
+  # Caches are reclaimed only after a successful push, so a failed push keeps its build cache.
   cleaner="$root/.claude/hooks/post-push-clean-caches.sh"
   if [ -x "$cleaner" ]; then
     dbg "running post-push cache clean"

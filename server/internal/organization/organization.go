@@ -1,7 +1,5 @@
-// Package organization owns the Organization aggregate: one customer inside a
-// tenant. A tenant is the wall the database enforces; an organization is who the
-// work is for, and every device belongs to exactly one. The outbound persistence
-// port lives here and its Postgres adapter alongside in postgres.go.
+// Package organization owns the Organization aggregate: one customer inside a tenant.
+// Every device belongs to exactly one organization.
 package organization
 
 import (
@@ -23,9 +21,8 @@ const DefaultName = "Default Organization"
 // is a mistake or an attempt to smuggle content through a display field.
 const MaxNameLen = 128
 
-// ErrNotFound is returned when no organization with the given id is visible in
-// the caller's tenant — which covers both "no such row" and "not yours",
-// deliberately indistinguishable to the caller.
+// ErrNotFound is returned when the id names no organization visible in the caller's tenant.
+// A row in another tenant reads the same as a missing row.
 var ErrNotFound = errors.New("organization not found")
 
 // ErrNameTaken is returned when a tenant already has a customer by that name.
@@ -34,15 +31,11 @@ var ErrNameTaken = errors.New("organization name already used in this tenant")
 // ErrNameRequired is returned when a create or rename carries an empty name.
 var ErrNameRequired = errors.New("organization name is required")
 
-// Organization is one customer inside a tenant. The tenant is not a field: it
-// comes from the caller's scope, so an organization can never be addressed
-// outside the tenant that owns it.
+// Organization is one customer inside a tenant, which comes from the caller's scope.
 type Organization struct {
 	ID   ID     `json:"id"`
 	Name string `json:"name"`
-	// ArchivedAt is set when the customer is retired. The rows stay — an
-	// archived organization keeps its devices and its history and is simply out
-	// of the working set.
+	// ArchivedAt is set when the customer is retired; its devices and history stay.
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
@@ -70,9 +63,8 @@ type Repository interface {
 	// Delete removes a customer, cascading its devices and everything hanging
 	// off them.
 	Delete(ctx context.Context, id ID) error
-	// EnsureDefault returns an organization the caller's tenant can put a device
-	// in, creating the default one when the tenant has none. It is idempotent:
-	// a tenant that already has a customer gets that one back.
+	// EnsureDefault returns an organization the caller's tenant can put a device in,
+	// creating the default one when the tenant has none.
 	EnsureDefault(ctx context.Context) (ID, error)
 }
 

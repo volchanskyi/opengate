@@ -26,10 +26,6 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# gh CLI wrapper
-# ---------------------------------------------------------------------------
-
 def gh(*args: str) -> tuple[str, str, int]:
     """Run a ``gh`` CLI command and return (stdout, stderr, returncode).
 
@@ -44,10 +40,6 @@ def gh(*args: str) -> tuple[str, str, int]:
     )
     return result.stdout.strip(), result.stderr.strip(), result.returncode
 
-
-# ---------------------------------------------------------------------------
-# Data collection
-# ---------------------------------------------------------------------------
 
 def fetch_failed_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     """Return a list of job dicts whose conclusion is ``failure``."""
@@ -135,10 +127,6 @@ def first_line(body: str) -> str:
     return ""
 
 
-# ---------------------------------------------------------------------------
-# Markdown body
-# ---------------------------------------------------------------------------
-
 def build_issue_body(
     *,
     job_name: str,
@@ -163,10 +151,7 @@ def build_issue_body(
     if excerpt_lines:
         excerpt = "\n".join(excerpt_lines)
     else:
-        # The issue outlives the run's logs, so a log that could not be read
-        # says which routes were tried and what each one answered. "No log
-        # output available." on its own describes nothing and is what every
-        # issue said for months.
+        # The issue outlives the run's logs, so it names each route tried and its answer.
         excerpt = "\n".join(
             ["Could not read this job's log. Each route was tried and refused:"]
             + [f"  - {r}" for r in log_refusals]
@@ -199,10 +184,6 @@ def build_issue_body(
         body = body[:MAX_BODY_LENGTH] + f"\n\n_Log truncated. [Full run]({run_url})_"
     return body
 
-
-# ---------------------------------------------------------------------------
-# Issue creation / dedup
-# ---------------------------------------------------------------------------
 
 def create_or_comment_issue(
     repo: str,
@@ -244,10 +225,6 @@ def create_or_comment_issue(
         )
         log.info("Created issue for job '%s'", job_name)
 
-
-# ---------------------------------------------------------------------------
-# CLI + main
-# ---------------------------------------------------------------------------
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments with env-var fallbacks."""
@@ -321,10 +298,7 @@ def main(argv: list[str] | None = None) -> None:
             workflow=args.workflow,
         )
 
-    # The issue is filed either way — a failure with no log is still worth
-    # recording — but a step that could not do the one thing it exists to do
-    # does not report success. A green step is how this went unnoticed until two
-    # staging failures had aged past their log retention with nothing to read.
+    # The issue is filed either way, and a job whose log could not be read still fails the step.
     if unreadable:
         log.error(
             "::error::no log could be read for: %s", ", ".join(unreadable)

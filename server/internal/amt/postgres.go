@@ -10,9 +10,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// PostgresAMTDevices implements [Repository] against PostgreSQL. The db
-// package owns the amt_devices schema and migrations; this adapter only
-// issues queries.
+// PostgresAMTDevices implements [Repository] against the amt_devices table.
 type PostgresAMTDevices struct {
 	db *sql.DB
 }
@@ -22,9 +20,7 @@ func NewPostgresAMTDevices(d *sql.DB) *PostgresAMTDevices {
 	return &PostgresAMTDevices{db: d}
 }
 
-// Upsert records the connection state of one AMT device. The caller resolves the
-// device and its tenant from the CIRA system UUID first and supplies both
-// on ctx, so this write always lands in the tenant that owns the machine.
+// Upsert records the connection state of one AMT device in the tenant carried on ctx.
 func (p *PostgresAMTDevices) Upsert(ctx context.Context, d *db.AMTDevice) error {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {

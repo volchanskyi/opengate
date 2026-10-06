@@ -20,10 +20,7 @@ runs:
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
     - name: Verify the pinned tools are the ones on PATH
       shell: bash
-      # The install script checks what it wrote; this checks what the job will
-      # actually resolve, which is a different question once PATH has an image
-      # copy in it too. A tool that reports the wrong version here fails the job
-      # rather than quietly changing a result somewhere downstream.
+      # Checks the copy PATH resolves, which can be an image copy ahead of the installed one.
       run: |
         set -euo pipefail
         . scripts/lib/tool-versions.sh

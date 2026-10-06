@@ -11,7 +11,7 @@ import (
 )
 
 // gridWindow is the fixture window shared by the grid tests: seven days from a
-// step-aligned instant, bucketed at 600 s → 1008 buckets.
+// step-aligned instant, bucketed at 600 s into 1008 buckets.
 var (
 	gridFrom = time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
 	gridTo   = gridFrom.Add(7 * 24 * time.Hour)
@@ -28,9 +28,27 @@ func nonNullSlots(vals []*float64) []int {
 	return slots
 }
 
-// TestBuildMetricGridComesFromTheRequest pins the axis to (from, to, step) only.
-// A window's bucket count is span/step whatever the store happens to hold, so a
-// 7 d request can never render as the two points a near-empty device returns.
+func hourGrid() metricGrid {
+	return buildMetricGrid(gridFrom, gridFrom.Add(time.Hour), 600*time.Second)
+}
+
+func cpuSeries(ts []int64, vals []float64) []telemetry.RangeSeries {
+	return []telemetry.RangeSeries{{
+		Labels:     map[string]string{"dim": "cpu.util"},
+		Timestamps: ts,
+		Values:     vals,
+	}}
+}
+
+func assembledAvgSlots(g metricGrid, buckets []int, vals []float64) ([]int, offGridPoints) {
+	ts := make([]int64, len(buckets))
+	for i, b := range buckets {
+		ts[i] = g.ts[b]
+	}
+	got, off := assembleMetricRange(cpuSeries(ts, vals), nil, nil, nil, false, g)
+	return nonNullSlots(got.Series[0].Avg), off
+}
+
 func TestBuildMetricGridComesFromTheRequest(t *testing.T) {
 	t.Parallel()
 	g := buildMetricGrid(gridFrom, gridTo, gridStep)
@@ -40,15 +58,10 @@ func TestBuildMetricGridComesFromTheRequest(t *testing.T) {
 	for i, ts := range g.ts {
 		require.Equal(t, g.ts[0]+int64(i)*600, ts, "bucket %d is off the lattice", i)
 	}
-	// The end instant is exclusive: the last bucket sits one step short of `to`.
 	assert.Equal(t, gridTo.Unix()-600, g.ts[1007])
 	assert.Equal(t, int64(600), g.step)
 }
 
-// TestBuildMetricGridFloorsToTheStepLattice pins the alignment rule VM itself
-// applies: a start that is not a whole multiple of the step is rounded *down*.
-// Matching it is what keeps every value in its own bucket instead of shifted by
-// one — see the measured evidence in the testvm alignment test.
 func TestBuildMetricGridFloorsToTheStepLattice(t *testing.T) {
 	t.Parallel()
 	unaligned := gridFrom.Add(7 * time.Second)
@@ -59,9 +72,6 @@ func TestBuildMetricGridFloorsToTheStepLattice(t *testing.T) {
 	assert.Len(t, g.ts, 60)
 }
 
-// TestBuildMetricGridAlwaysHasOneBucket keeps a sub-step window renderable: a
-// 5 s window at the 10 s raw cadence is one bucket, never an empty axis that
-// would make the response shapeless.
 func TestBuildMetricGridAlwaysHasOneBucket(t *testing.T) {
 	t.Parallel()
 	g := buildMetricGrid(gridFrom, gridFrom.Add(5*time.Second), minRangeStepSecs*time.Second)
@@ -70,10 +80,6 @@ func TestBuildMetricGridAlwaysHasOneBucket(t *testing.T) {
 	assert.Equal(t, gridFrom.Unix(), g.queryEnd().Unix())
 }
 
-// TestBuildMetricGridQueryBoundsAreTheGridEdges proves the query and the axis
-// cannot drift: the range read is issued at exactly the first and last bucket,
-// both whole multiples of the step, so VictoriaMetrics evaluates the query on
-// the grid the response declares.
 func TestBuildMetricGridQueryBoundsAreTheGridEdges(t *testing.T) {
 	t.Parallel()
 	g := buildMetricGrid(gridFrom.Add(31*time.Second), gridTo, gridStep)
@@ -84,9 +90,6 @@ func TestBuildMetricGridQueryBoundsAreTheGridEdges(t *testing.T) {
 	assert.Zero(t, g.queryEnd().Unix()%600)
 }
 
-// TestBuildMetricGridStaysWithinMaxPoints pins that the request-derived builder
-// cannot widen the response beyond the bound chooseStep already enforces —
-// wide windows get coarser buckets, never more of them.
 func TestBuildMetricGridStaysWithinMaxPoints(t *testing.T) {
 	t.Parallel()
 	for _, window := range []time.Duration{
@@ -102,13 +105,9 @@ func TestBuildMetricGridStaysWithinMaxPoints(t *testing.T) {
 	}
 }
 
-// TestMetricGridSlotRejectsOffLatticePoints pins the projection rule: a
-// timestamp only claims a bucket when it is on the lattice and inside the
-// window. Everything else is a defect the caller must account for, not a value
-// nudged into a neighbouring slot.
 func TestMetricGridSlotRejectsOffLatticePoints(t *testing.T) {
 	t.Parallel()
-	g := buildMetricGrid(gridFrom, gridFrom.Add(time.Hour), 600*time.Second)
+	g := hourGrid()
 	first := g.ts[0]
 
 	for _, tc := range []struct {
@@ -135,17 +134,10 @@ func TestMetricGridSlotRejectsOffLatticePoints(t *testing.T) {
 	}
 }
 
-// TestAssembleMetricRangeProjectsSparseAnswerOntoFullGrid is the A3 defect in
-// miniature: VictoriaMetrics answers 2 of 1008 buckets and the response still
-// spans the full requested window, with an honest hole everywhere else.
 func TestAssembleMetricRangeProjectsSparseAnswerOntoFullGrid(t *testing.T) {
 	t.Parallel()
 	g := buildMetricGrid(gridFrom, gridTo, gridStep)
-	avg := []telemetry.RangeSeries{{
-		Labels:     map[string]string{"dim": "cpu.util"},
-		Timestamps: []int64{g.ts[500], g.ts[501]},
-		Values:     []float64{12, 13},
-	}}
+	avg := cpuSeries([]int64{g.ts[500], g.ts[501]}, []float64{12, 13})
 
 	got, off := assembleMetricRange(avg, nil, nil, nil, false, g)
 
@@ -163,22 +155,15 @@ func TestAssembleMetricRangeProjectsSparseAnswerOntoFullGrid(t *testing.T) {
 	assert.InDelta(t, 13.0, *vals[501], 1e-9)
 }
 
-// TestAssembleMetricRangeCountsOffGridPoints applies the WS-A accounting lesson
-// to the read path: a point that does not land on the grid is a defect, so it is
-// counted (and reported for the log) rather than dropped in silence.
 func TestAssembleMetricRangeCountsOffGridPoints(t *testing.T) {
 	t.Parallel()
-	g := buildMetricGrid(gridFrom, gridFrom.Add(time.Hour), 600*time.Second)
-	avg := []telemetry.RangeSeries{{
-		Labels: map[string]string{"dim": "cpu.util"},
-		Timestamps: []int64{
-			g.ts[0] + 1,             // shifted off the lattice
-			g.ts[0] - 600,           // before the window
-			g.ts[len(g.ts)-1] + 600, // past the window
-			g.ts[2],                 // the one honest point
-		},
-		Values: []float64{1, 2, 3, 4},
-	}}
+	g := hourGrid()
+	avg := cpuSeries([]int64{
+		g.ts[0] + 1,             // shifted off the lattice
+		g.ts[0] - 600,           // before the window
+		g.ts[len(g.ts)-1] + 600, // past the window
+		g.ts[2],                 // the one honest point
+	}, []float64{1, 2, 3, 4})
 
 	got, off := assembleMetricRange(avg, nil, nil, nil, false, g)
 
@@ -188,16 +173,12 @@ func TestAssembleMetricRangeCountsOffGridPoints(t *testing.T) {
 	assert.Equal(t, []int{2}, nonNullSlots(got.Series[0].Avg), "an off-grid point never lands in a neighbouring bucket")
 }
 
-// TestAssembleMetricRangeBandSharesTheRequestGrid keeps min/max on the same axis
-// as the avg line. A band aligned to a different grid would draw a fill that
-// does not belong to the line it wraps.
 func TestAssembleMetricRangeBandSharesTheRequestGrid(t *testing.T) {
 	t.Parallel()
 	g := buildMetricGrid(gridFrom, gridTo, gridStep)
-	dim := map[string]string{"dim": "cpu.util"}
-	avg := []telemetry.RangeSeries{{Labels: dim, Timestamps: []int64{g.ts[7]}, Values: []float64{20}}}
-	mins := []telemetry.RangeSeries{{Labels: dim, Timestamps: []int64{g.ts[7]}, Values: []float64{10}}}
-	maxs := []telemetry.RangeSeries{{Labels: dim, Timestamps: []int64{g.ts[7], g.ts[7] + 1}, Values: []float64{30, 99}}}
+	avg := cpuSeries([]int64{g.ts[7]}, []float64{20})
+	mins := cpuSeries([]int64{g.ts[7]}, []float64{10})
+	maxs := cpuSeries([]int64{g.ts[7], g.ts[7] + 1}, []float64{30, 99})
 
 	got, off := assembleMetricRange(avg, mins, maxs, nil, true, g)
 
@@ -212,36 +193,18 @@ func TestAssembleMetricRangeBandSharesTheRequestGrid(t *testing.T) {
 	assert.Equal(t, 1, off.count, "the band's off-grid point is accounted for too")
 }
 
-// TestAssembleMetricRangeSkipsNonFiniteValues keeps a NaN/Inf out of the payload:
-// the slot stays null (a gap) rather than serialising an unrepresentable number.
 func TestAssembleMetricRangeSkipsNonFiniteValues(t *testing.T) {
 	t.Parallel()
-	g := buildMetricGrid(gridFrom, gridFrom.Add(time.Hour), 600*time.Second)
-	avg := []telemetry.RangeSeries{{
-		Labels:     map[string]string{"dim": "cpu.util"},
-		Timestamps: []int64{g.ts[0], g.ts[1], g.ts[2]},
-		Values:     []float64{math.NaN(), math.Inf(1), 5},
-	}}
-
-	got, off := assembleMetricRange(avg, nil, nil, nil, false, g)
+	slots, off := assembledAvgSlots(hourGrid(), []int{0, 1, 2}, []float64{math.NaN(), math.Inf(1), 5})
 
 	assert.Zero(t, off.count, "a non-finite value is not a grid defect")
-	assert.Equal(t, []int{2}, nonNullSlots(got.Series[0].Avg))
+	assert.Equal(t, []int{2}, slots)
 }
 
-// TestAssembleMetricRangeToleratesTruncatedSeries stops a malformed answer from
-// panicking the read path: values are read only where a timestamp has one.
 func TestAssembleMetricRangeToleratesTruncatedSeries(t *testing.T) {
 	t.Parallel()
-	g := buildMetricGrid(gridFrom, gridFrom.Add(time.Hour), 600*time.Second)
-	avg := []telemetry.RangeSeries{{
-		Labels:     map[string]string{"dim": "cpu.util"},
-		Timestamps: []int64{g.ts[0], g.ts[1], g.ts[2]},
-		Values:     []float64{1},
-	}}
-
-	got, off := assembleMetricRange(avg, nil, nil, nil, false, g)
+	slots, off := assembledAvgSlots(hourGrid(), []int{0, 1, 2}, []float64{1})
 
 	assert.Zero(t, off.count)
-	assert.Equal(t, []int{0}, nonNullSlots(got.Series[0].Avg))
+	assert.Equal(t, []int{0}, slots)
 }

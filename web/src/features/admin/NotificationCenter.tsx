@@ -3,9 +3,7 @@ import { usePushStore } from '../profile';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  // atob accepts unpadded input, so the padding is for spec-correctness rather
-  // than for the decode — mutating it away decodes identically and no test can
-  // tell the two apart.
+  // atob accepts unpadded input; the padding keeps the string spec-valid base64.
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replaceAll('-', '+').replaceAll('_', '/');
   const raw = atob(base64);

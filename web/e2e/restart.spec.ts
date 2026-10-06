@@ -2,18 +2,7 @@ import { test, expect } from "./fixtures";
 import type { Request, Route } from "@playwright/test";
 import { enrolledMachine, MACHINE_B } from "./helpers/enrolled-machine";
 
-// Restart Agent flow on the DeviceDetail page, against a machine that is
-// actually running. agent-b is the target, because restarting a machine is the
-// one action here that disturbs it.
-//
-// The page is the real machine's; only the restart endpoint's answer is
-// supplied, and only so the two paths a technician cannot produce on demand —
-// the confirm guard with a session in flight, and a refusal — are reachable.
-// Actually restarting the machine would leave it re-enrolling as a second row
-// under a fresh identity, since its data directory is a tmpfs.
-//
-// The unit suite (device-store.test.ts, DeviceDetail.test.tsx) covers the store
-// action and the button's label states in isolation.
+// A real restart would re-enroll agent-b as a second row, since its data directory is a tmpfs.
 
 function ok(route: Route, body: unknown) {
   return route.fulfill({
@@ -37,9 +26,6 @@ function fakeSession(DEVICE_ID: string) {
 
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 
-// answerRestartWith supplies the restart endpoint's reply, and optionally the
-// session list, so the confirm guard and the refusal are reachable. Everything
-// else on the page comes from the real machine.
 async function answerRestartWith(
   page: AuthedPage,
   DEVICE_ID: string,
@@ -54,8 +40,7 @@ async function answerRestartWith(
   await page.route(`**/api/v1/devices/${DEVICE_ID}/restart`, (route: Route) => {
     if (route.request().method() !== "POST") return route.fallback();
     if (restartStatus >= 400) {
-      // openapi-fetch only populates `error` (which drives the failure path)
-      // when the body parses as the ApiError schema, so a JSON body is required.
+      // openapi-fetch fills `error` only when the body parses as the ApiError schema.
       return route.fulfill({
         status: restartStatus,
         contentType: "application/json",
@@ -98,12 +83,10 @@ test.describe("Restart Agent flow", () => {
       return route.fulfill({ status: 200, body: "" });
     });
 
-    // First click only arms the confirm — no POST yet.
     await authedPage.getByRole("button", { name: "Restart Agent" }).click();
     await expect(authedPage.getByRole("button", { name: /confirm \(1 active\)/i })).toBeVisible();
     expect(restartPosts).toBe(0);
 
-    // Second click sends.
     await authedPage.getByRole("button", { name: /confirm \(1 active\)/i }).click();
     await expect(authedPage.getByRole("alert").filter({ hasText: "Restart command sent" })).toBeVisible();
     expect(restartPosts).toBe(1);

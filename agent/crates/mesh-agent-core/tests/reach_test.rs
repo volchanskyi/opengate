@@ -1,26 +1,5 @@
-//! How far back the local store actually reaches, measured.
-//!
-//! The reach of the minute-by-minute history is what makes re-running a rule
-//! over it worth doing at all, and it is the number that decided against keeping
-//! a central recorder of every device's seconds. It cannot be arrived at by
-//! dividing the store's cap by its density: that arithmetic assumes the store
-//! holds nothing but today's vitals and that the minute tier is never evicted,
-//! and neither is true — eviction takes the globally oldest block first,
-//! coarsest tier before finer at the same age, so the minutes go before the
-//! seconds of the same age do.
-//!
-//! So it is measured, through the production write path, at the production
-//! vitals shape: a store is driven until its cap is evicting, and then asked for
-//! the oldest minute it still holds. That is done at two cap sizes small enough
-//! to run in a test, the two are checked to scale with the cap, and the shipped
-//! cap is extrapolated from them with that check as the evidence.
-//!
-//! **The shape this assumed** is the whole vitals set as the sampler writes it —
-//! thirteen series at one reading a second, percentages at centi precision,
-//! disk-performance readings at milli, network rates as whole bytes. A device
-//! that starts storing more series than that reaches back proportionally less
-//! far, so the number below is only meaningful next to the shape it was measured
-//! at.
+//! Measures how far back the local store reaches once eviction runs, through the production
+//! write path, with the full vitals set (thirteen series at one reading a second).
 
 use std::time::Instant;
 
@@ -32,33 +11,24 @@ use mesh_agent_core::ml::store_sink::{LocalStoreSink, SERIES_CPU};
 /// Bucket-aligned start of the simulated history.
 const START: i64 = 1_700_000_040;
 
-/// Seconds between durable flushes. Larger than the agent's own cadence purely
-/// to keep the harness's fsync count sane: what survives eviction is decided by
-/// block boundaries and the cap, not by how often the store commits.
+/// Seconds between durable flushes; eviction is set by block boundaries and the cap.
 const COMMIT_EVERY: usize = 900;
 
-/// How long to keep writing after the cap starts evicting, so the oldest
-/// surviving minute is set by eviction rather than by where the run began. One
-/// stored minute-block spans twelve hours, so this has to cover several of them.
+/// Writing continues this long after eviction starts; one minute-block spans twelve hours.
 const STEADY_SECS: i64 = 36 * 3_600;
 
-/// Vitals one device writes at one reading a second.
 const SERIES_COUNT: i64 = 13;
 
 /// The cap the fleet ships with, which the measurement extrapolates to.
 const SHIPPED_CAP_BYTES: u64 = 512 * 1024 * 1024;
 
-/// The reach below which the case for keeping history on the device instead of
-/// centrally stops holding — the central recorder it was weighed against keeps
-/// 48 h.
+/// Seconds of history a central recorder keeps, the floor for the on-device reach.
 const CENTRAL_RECORDER_REACH_SECS: i64 = 48 * 3_600;
 
-/// A tiny, dependency-free, fully deterministic generator, so the measurement is
-/// the same number on every machine that runs it.
+/// A dependency-free deterministic generator, so every machine measures the same number.
 struct SplitMix64(u64);
 
 impl SplitMix64 {
-    /// Uniform in `[0, 1)`.
     fn unit(&mut self) -> f64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
@@ -68,19 +38,14 @@ impl SplitMix64 {
     }
 }
 
-/// One vital, modelled the way host telemetry at one reading a second actually
-/// behaves: it holds still for stretches and then moves, occasionally a long
-/// way. How often it moves is what decides how much room a second of it takes,
-/// so it is set per vital rather than shared — a disk that fills over months and
-/// a processor that is asked to do something different every second are not the
-/// same kind of number.
+/// One vital that holds still for stretches and then moves, at a per-vital rate.
 struct Gauge {
     value: f64,
-    /// Chance this second's reading differs from the last one at all.
+    /// Chance this second's reading differs from the last one.
     volatility: f64,
     /// How far an ordinary move goes.
     step: f64,
-    /// Chance a move is a jump rather than a nudge.
+    /// Chance a move is a jump.
     spike: f64,
     low: f64,
     high: f64,
@@ -115,7 +80,6 @@ impl Gauge {
     }
 }
 
-/// A deterministic stand-in for one machine's whole vitals set.
 struct Vitals {
     rng: SplitMix64,
     cpu: Gauge,
@@ -133,10 +97,6 @@ struct Vitals {
 }
 
 impl Vitals {
-    /// A machine doing real work: a processor that changes what it is doing
-    /// constantly, memory and a disk that move slowly, network rates that are
-    /// different every second, and stalling that is usually absent and
-    /// occasionally not.
     fn new(seed: u64) -> Self {
         Self {
             rng: SplitMix64(seed),
@@ -177,22 +137,17 @@ impl Vitals {
     }
 }
 
-/// What one cap size reaches back to.
 #[derive(Debug, Clone, Copy)]
 struct Reach {
     cap_bytes: u64,
     /// Seconds between the oldest and newest minute still stored.
     secs: i64,
-    /// Seconds of history written before the measurement was taken.
     written_secs: i64,
-    /// What one second of one vital costs, across all three tiers — the density
-    /// the reach follows from, and the number that says whether the machine this
-    /// was measured on was busy enough to be worth believing.
+    /// Bytes one second of one vital costs across all three tiers.
     bytes_per_sample: f64,
 }
 
 impl Reach {
-    /// Where this cap's reach lands when scaled to another cap.
     fn scaled_to(self, cap_bytes: u64) -> i64 {
         let ratio = cap_bytes as f64 / self.cap_bytes as f64;
         (self.secs as f64 * ratio) as i64
@@ -203,7 +158,6 @@ fn hours(secs: i64) -> f64 {
     secs as f64 / 3_600.0
 }
 
-/// The oldest and newest minute the store still holds.
 fn stored_span(sink: &LocalStoreSink) -> (i64, i64) {
     sink.store()
         .tier_span(SERIES_CPU, Tier::T1)
@@ -211,8 +165,6 @@ fn stored_span(sink: &LocalStoreSink) -> (i64, i64) {
         .expect("the store holds minutes as soon as one has been committed")
 }
 
-/// Drive a store at `cap_bytes` until eviction has been running for a while,
-/// then ask it how far back its minute tier still goes.
 fn measure(cap_bytes: u64) -> Reach {
     let dir = tempfile::tempdir().unwrap();
     let mut sink = LocalStoreSink::open(dir.path(), cap_bytes, COMMIT_EVERY).unwrap();
@@ -226,10 +178,8 @@ fn measure(cap_bytes: u64) -> Reach {
         sink.record(START + second, &sample, false).unwrap();
         second += 1;
 
-        // Checked on the commit boundary, because that is where eviction runs.
-        // "At its cap" is asked of the history rather than of the byte count: a
-        // store keeps itself just under its cap, so the moment that matters is
-        // the one where the beginning of the run stops being stored.
+        // Checked on the commit boundary, where eviction runs. A store stays just under its cap,
+        // so eviction shows as the start of the run dropping out of storage.
         if second % COMMIT_EVERY as i64 == 0 {
             if evicting_since.is_none() && stored_span(&sink).0 > START {
                 evicting_since = Some(second);
@@ -265,13 +215,9 @@ fn measure(cap_bytes: u64) -> Reach {
     reach
 }
 
-/// How far a measured reach may fall from what the cap below it predicts before
-/// the extrapolation stops being evidence of anything.
+/// Largest fractional gap between a measured reach and the one the next smaller cap predicts.
 const LINEARITY_TOLERANCE: f64 = 0.10;
 
-/// The measurement: three cap sizes across a fourfold range, a linearity check
-/// between each neighbouring pair, and the shipped cap extrapolated from the
-/// largest of them.
 #[test]
 fn the_minute_tier_reaches_back_far_enough_to_be_worth_scanning() {
     let measured: Vec<Reach> = [2, 4, 8]
@@ -279,9 +225,7 @@ fn the_minute_tier_reaches_back_far_enough_to_be_worth_scanning() {
         .map(|mib| measure(mib * 1024 * 1024))
         .collect();
 
-    // Each cap has to reach back proportionally further than the one below it.
-    // Two points can be joined by any line; three across a fourfold range are
-    // what makes the extrapolation below evidence rather than arithmetic.
+    // Three caps across a fourfold range check that reach scales linearly with the cap.
     for pair in measured.windows(2) {
         let (below, above) = (pair[0], pair[1]);
         let predicted = below.scaled_to(above.cap_bytes);

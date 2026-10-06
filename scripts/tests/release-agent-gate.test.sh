@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/release-agent-gate.sh — the path-detect helper used by
-# .github/workflows/release-agent.yml to decide whether the agent matrix
-# build should run for a given v* tag. Pure bash; no bats dependency.
-# Mirrors the pattern from scripts/tests/tdd-check.test.sh.
-#
-# Run: ./scripts/tests/release-agent-gate.test.sh
+# Tests the release gate that decides whether a v* tag builds the agent matrix.
 
 set -euo pipefail
 
@@ -30,8 +25,7 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Build a temp git repo seeded with a single initial commit. Sets REPO and
-# cd's into it. Caller must trap-cleanup.
+# Sets the global REPO and changes into it; the caller cleans it up.
 make_repo() {
   REPO="$(mktemp -d)"
   cd "$REPO"
@@ -54,7 +48,7 @@ cleanup_repo() {
 }
 trap 'cleanup_repo' EXIT
 
-# Helper: run the gate against $TAG and capture key=value lines into $RESULT.
+# Captures the gate's key=value lines into the global RESULT.
 run_gate() {
   local tag="$1"
   RESULT="$("$GATE" "$tag")"
@@ -62,7 +56,6 @@ run_gate() {
 
 echo "release-agent-gate:"
 
-# --- Case 1: no prior v* tag (first release) — must build.
 make_repo
 git tag v0.1.0
 if run_gate v0.1.0; then
@@ -77,10 +70,8 @@ else
 fi
 cleanup_repo
 
-# --- Case 2: prior tag exists, agent/ unchanged in range — must skip.
 make_repo
 git tag v0.1.0
-# Land a non-agent commit and tag it.
 echo "// server-only change" >>server/internal/server.go
 git add server/internal/server.go
 git commit --quiet -m "fix(server): tweak"
@@ -97,7 +88,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 3: prior tag exists, agent/ changed in range — must build.
 make_repo
 git tag v0.1.0
 echo "// agent change" >>agent/src/main.rs
@@ -116,7 +106,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 4: tag arg missing → must exit non-zero with usage message.
 make_repo
 git tag v0.1.0
 if "$GATE" >/dev/null 2>&1; then
@@ -126,7 +115,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 5: unknown tag → must exit non-zero (don't silently default).
 make_repo
 git tag v0.1.0
 if "$GATE" v9.9.9 >/dev/null 2>&1; then
@@ -136,8 +124,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 6: prior tag exists, agent/ changed but only inside a subdir
-#     deeper than the top-level — pathspec 'agent/**' must still match.
 make_repo
 git tag v0.1.0
 mkdir -p agent/crates/mesh-agent/src

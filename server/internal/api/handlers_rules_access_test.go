@@ -20,45 +20,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// The screen that administers detection, driven through the HTTP surface.
-//
-// Two things matter more than the shapes that come back. Every write is
-// administrator-only, refused one endpoint at a time rather than in one combined
-// case — a gate that is asserted in aggregate is a gate that can be missing from
-// one route and still pass. And every write lands in the audit log, asserted
-// table-driven over the whole list, so an endpoint added later without auditing
-// fails this test rather than being discovered from an incident nobody can
-// attribute.
-
-// How long an audit assertion waits. The write is fire-and-forget by design —
-// an audit record must not be able to fail the action it records — so the
-// assertion is eventual rather than immediate.
-
-// Who may administer detection, and where every write is recorded.
-//
-// Two contracts drive the whole screen. Every write is administrator-only,
-// refused one endpoint at a time rather than in one combined case — a gate
-// asserted in aggregate is a gate that can be missing from one route and still
-// pass. And every write lands in the audit log, asserted table-driven over the
-// whole list, so an endpoint added later without auditing fails this rather than
-// being discovered from an incident nobody can attribute.
-//
-// The estate and the endpoint list live here because the two files beside this
-// one are about what the endpoints do rather than who may reach them.
-
-// The screen that administers detection, driven through the HTTP surface.
-//
-// Two things matter more than the shapes that come back. Every write is
-// administrator-only, refused one endpoint at a time rather than in one combined
-// case — a gate that is asserted in aggregate is a gate that can be missing from
-// one route and still pass. And every write lands in the audit log, asserted
-// table-driven over the whole list, so an endpoint added later without auditing
-// fails this test rather than being discovered from an incident nobody can
-// attribute.
-
-// How long an audit assertion waits. The write is fire-and-forget by design —
-// an audit record must not be able to fail the action it records — so the
-// assertion is eventual rather than immediate.
 const (
 	auditWaitFor   = 3 * time.Second
 	auditPollEvery = 10 * time.Millisecond
@@ -67,9 +28,6 @@ const (
 	testPathDeviceTags = "/api/v1/device-tags"
 	testPathLimits     = "/api/v1/alert-limits"
 )
-
-// ruleAdminEstate is a server wired with everything the rules screen needs, plus
-// one customer holding one machine.
 
 // ruleAdminEstate is a server wired with everything the rules screen needs, plus
 // one customer holding one machine.
@@ -134,19 +92,11 @@ func newRuleAdminEstate(t *testing.T) ruleAdminEstate {
 }
 
 // query appends the customer the screen is showing.
-
-// query appends the customer the screen is showing.
 func (e ruleAdminEstate) query(path string) string {
 	return path + "?organization_id=" + e.org.String()
 }
 
-// write is one administrator action, named as the audit log names it. Every
-// entry is one case in both the permission table and the audit table, so a new
-// endpoint is added to both at once or to neither.
-
-// write is one administrator action, named as the audit log names it. Every
-// entry is one case in both the permission table and the audit table, so a new
-// endpoint is added to both at once or to neither.
+// write is one administrator action, named as the audit log names it.
 type write struct {
 	name   string
 	method string
@@ -155,8 +105,6 @@ type write struct {
 	action string
 	status int
 }
-
-// everyWrite is the whole administrator surface of the rules screen.
 
 // everyWrite is the whole administrator surface of the rules screen.
 func everyWrite() []write {
@@ -262,13 +210,6 @@ func everyWrite() []write {
 	}
 }
 
-// Every write is refused for an ordinary member, one endpoint at a time. A gate
-// asserted in aggregate is a gate that can be missing from one route and still
-// pass.
-
-// Every write is refused for an ordinary member, one endpoint at a time. A gate
-// asserted in aggregate is a gate that can be missing from one route and still
-// pass.
 func TestEveryRuleAdministrationWriteIsRefusedToAMember(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -286,11 +227,6 @@ func TestEveryRuleAdministrationWriteIsRefusedToAMember(t *testing.T) {
 	}
 }
 
-// And every write lands in the audit log, with the actor who made it. Driven
-// over the whole endpoint list so one added later without auditing fails here.
-
-// And every write lands in the audit log, with the actor who made it. Driven
-// over the whole endpoint list so one added later without auditing fails here.
 func TestEveryRuleAdministrationWriteIsAudited(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -313,11 +249,6 @@ func TestEveryRuleAdministrationWriteIsAudited(t *testing.T) {
 	}
 }
 
-// Reads are the other half of the access decision: a technician resolving
-// something as a false alarm has to be able to see the rule that produced it.
-
-// Reads are the other half of the access decision: a technician resolving
-// something as a false alarm has to be able to see the rule that produced it.
 func TestAnOrdinaryMemberReadsEverythingOnTheRulesScreen(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -336,11 +267,6 @@ func TestAnOrdinaryMemberReadsEverythingOnTheRulesScreen(t *testing.T) {
 	}
 }
 
-// A value outside what the rule allows is refused where somebody can still see
-// why, rather than reaching an estate.
-
-// A member of the admin security group is an administrator here too, which is
-// what keeps this screen's gate the same gate as every other one.
 func TestTheAdminGroupCanAdministerRules(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -355,12 +281,6 @@ func TestTheAdminGroupCanAdministerRules(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.Code)
 }
 
-// Acknowledging a move a rule version made: refused to a member, refused when
-// nothing is outstanding, and audited when it lands.
-
-// A deployment wired without the mutable half of the rule store can still serve
-// the read-only catalogue, and says so on everything it cannot do rather than
-// answering as though nothing were configured.
 func TestADeploymentWithoutRuleAdministrationSaysSo(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -392,11 +312,6 @@ func TestADeploymentWithoutRuleAdministrationSaysSo(t *testing.T) {
 		})
 	}
 
-	// The catalogue itself is still readable, which is the whole point of the
-	// two halves being separable.
 	assert.Equal(t, http.StatusOK,
 		doRequest(e.srv, http.MethodGet, e.query(testPathRules), e.memberToken, nil).Code)
 }
-
-// A rule page whose tuning cannot be read still renders the rule. A read that
-// failed costs the page its tuning, not the description somebody opened it for.

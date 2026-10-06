@@ -22,7 +22,6 @@ const sampleLogs = {
 
 type Logs = typeof sampleLogs | { entries: { timestamp: string; level: string; target: string; message: string }[]; total: number; has_more: boolean } | null;
 
-/** Set the agent pane's slice (the DeviceLogs wrapper renders `source=agent`). */
 function setAgentLogs(logs: Logs, loading = false) {
   useDeviceStore.setState({
     logs: { agent: logs, system: null },
@@ -42,8 +41,6 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
 
   afterEach(() => { vi.useRealTimers(); });
 
-  // Every control in the pane already pulls the window it describes, so there is
-  // no manual fetch/refresh affordance to duplicate them.
   it('renders the Agent Logs header with no manual fetch control', () => {
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('Agent Logs')).toBeInTheDocument();
@@ -145,19 +142,15 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
     render(<DeviceLogs deviceId="d1" />);
 
-    // offset 0 → cannot go back
     expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
 
     await user.click(screen.getByRole('button', { name: 'Next page' }));
-    // now on page 2 → prev is enabled and steps back one page
     expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Previous page' }));
     expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ offset: 0 }));
   });
 
   it('a single page of logs leaves both paginator arrows disabled', () => {
-    // The state an operator sees most. Next disabled on `has_more: false` is
-    // asserted nowhere else in this file.
     setAgentLogs({ ...sampleLogs, has_more: false, total: 3 });
     render(<DeviceLogs deviceId="d1" />);
 
@@ -179,15 +172,12 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     expect(screen.getByText('agent started')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
-    // The output — entries and pager — is gone …
     expect(screen.queryByText('agent started')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
-    // … while every control stays usable.
     expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '1h' })).toBeInTheDocument();
     expect(screen.getByLabelText('Severity')).toBeInTheDocument();
 
-    // Toggling again restores the entries.
     await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
     expect(screen.getByText('agent started')).toBeInTheDocument();
   });
@@ -468,7 +458,6 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     setAgentLogs({ ...sampleLogs, has_more: true, total: 100 }, true);
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
-    // prev is also disabled (offset 0), so assert the in-flight guard via next.
   });
 
   it('level dropdown contains all five named levels plus "All Levels"', () => {

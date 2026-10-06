@@ -8,16 +8,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// What a rule carries onto the wire beyond its numbers.
-//
-// A machine can only state what it was told. Both fields here are things the
-// far end refuses an alert for not stating, so a rule that reached a machine
-// without them would be a rule that machine can raise nothing from.
-
-// An alert's identity is the machine, the rule, the rule's revision and the
-// window it fired for, and the machine cannot state a revision nobody told it.
-// A retuned number is not a new revision — the revision says which definition
-// fired, so an alert raised last week still means what it meant then.
 func TestTheRuleReachingAMachineCarriesItsRevision(t *testing.T) {
 	t.Parallel()
 
@@ -34,10 +24,6 @@ func TestTheRuleReachingAMachineCarriesItsRevision(t *testing.T) {
 	assert.InDelta(t, 95.0, retuned.Threshold, 0.001, "and the retuned number still travels")
 }
 
-// A rule's severity is what orders a technician's queue, so it travels to the
-// machine with the rule and the machine states it on every alert it raises.
-// An alert that arrived saying nothing about how bad it is would file a disk
-// about to stop accepting writes beside one that merely feels slow.
 func TestTheRuleReachingAMachineCarriesHowBadItIs(t *testing.T) {
 	t.Parallel()
 
@@ -50,9 +36,6 @@ func TestTheRuleReachingAMachineCarriesHowBadItIs(t *testing.T) {
 	assert.Equal(t, protocol.AlertSeverityWarning, slow.Severity)
 }
 
-// A revision the wire cannot carry is carried as nothing, which the far end
-// refuses outright, rather than as a different number that would identify an
-// alert as some other revision's.
 func TestARevisionTheWireCannotCarryIsCarriedAsNothing(t *testing.T) {
 	t.Parallel()
 

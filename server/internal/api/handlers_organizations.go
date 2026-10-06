@@ -13,13 +13,8 @@ const (
 	msgLastOrganization     = "a tenant must keep at least one organization"
 )
 
-// ListOrganizations implements StrictServerInterface. The customer list is a
-// fleet read: every member of a tenant sees every customer in it, because the
-// organization is a targeting level and the tenant is the boundary.
-//
-// It also settles the no-orphan floor at the point the list is first asked for:
-// a tenant with no customers gets its own, so the picker is never empty and a
-// device always has somewhere to belong.
+// ListOrganizations implements StrictServerInterface; every member of a tenant sees every
+// customer, and a tenant with none is given one so a device always has somewhere to belong.
 func (s *Server) ListOrganizations(ctx context.Context, request ListOrganizationsRequestObject) (ListOrganizationsResponseObject, error) {
 	if _, err := s.organizations.EnsureDefault(ctx); err != nil {
 		return nil, err
@@ -45,8 +40,7 @@ func (s *Server) GetOrganization(ctx context.Context, request GetOrganizationReq
 	return GetOrganization200JSONResponse(organizationToAPI(org)), nil
 }
 
-// CreateOrganization implements StrictServerInterface. Taking on a customer
-// reshapes who the fleet is for, so it sits behind the admin gate.
+// CreateOrganization implements StrictServerInterface behind the admin gate.
 func (s *Server) CreateOrganization(ctx context.Context, request CreateOrganizationRequestObject) (CreateOrganizationResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, CreateOrganization403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
@@ -86,9 +80,8 @@ func (s *Server) UpdateOrganization(ctx context.Context, request UpdateOrganizat
 	return UpdateOrganization200JSONResponse(organizationToAPI(org)), nil
 }
 
-// applyOrganizationUpdate applies whichever halves the request carries. It
-// answers with the response to send when a half could not be applied, or with
-// two nils to say the caller should read the customer back and return it.
+// applyOrganizationUpdate applies each half the request carries; two nils mean the caller
+// reads the customer back.
 func (s *Server) applyOrganizationUpdate(ctx context.Context, request UpdateOrganizationRequestObject) (UpdateOrganizationResponseObject, error) {
 	if request.Body.Name != nil {
 		if msg := invalidText("name", *request.Body.Name, organization.MaxNameLen); msg != "" {
@@ -106,10 +99,8 @@ func (s *Server) applyOrganizationUpdate(ctx context.Context, request UpdateOrga
 	return nil, nil
 }
 
-// organizationUpdateFailure maps a repository error to the response the update
-// should answer with. Anything it does not recognise is returned as an error so
-// the middleware answers 500 rather than dressing an internal fault up as a
-// client mistake and echoing its text back.
+// organizationUpdateFailure maps a repository error to a client response; an unrecognised error
+// is returned so the middleware answers 500 without echoing its text.
 func organizationUpdateFailure(err error) (UpdateOrganizationResponseObject, error) {
 	switch {
 	case errors.Is(err, organization.ErrNotFound):
@@ -123,9 +114,8 @@ func organizationUpdateFailure(err error) (UpdateOrganizationResponseObject, err
 	}
 }
 
-// DeleteOrganization implements StrictServerInterface. Deleting a customer takes
-// its devices with it, so it is admin-gated — and a tenant's last customer is
-// refused, because a device must always have somewhere to belong.
+// DeleteOrganization implements StrictServerInterface behind the admin gate; it removes the
+// customer's devices and refuses a tenant's last customer.
 func (s *Server) DeleteOrganization(ctx context.Context, request DeleteOrganizationRequestObject) (DeleteOrganizationResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, DeleteOrganization403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil

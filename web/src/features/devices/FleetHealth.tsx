@@ -4,14 +4,9 @@ import { HEALTH_META, type HealthBand, type HealthMeta } from './health';
 
 type FleetHealthCounts = components['schemas']['FleetHealthCounts'];
 
-/**
- * Fleet-aggregate edge-health overview. The bands are counted server-side
- * inside the time-series store and arrive as four integers, so this stays the
- * same size and the same cost whatever the fleet size.
- */
+/** FleetHealth renders the four server-counted edge-health band totals of the fleet. */
 export function FleetHealth({ counts }: { readonly counts: FleetHealthCounts }) {
-  // Display order (worst first, "no data" last). Every band is read through a
-  // literal property access, never a computed key.
+  // Display order: worst first, "no data" last.
   const cards: { band: HealthBand; meta: HealthMeta; count: number }[] = [
     { band: 'anomalous', meta: HEALTH_META.anomalous, count: counts.anomalous },
     { band: 'watch', meta: HEALTH_META.watch, count: counts.watch },

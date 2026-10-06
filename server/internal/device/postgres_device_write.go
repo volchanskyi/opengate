@@ -20,16 +20,8 @@ func (p *PostgresDevices) Upsert(ctx context.Context, d *Device) error {
 	if err != nil {
 		return err
 	}
-	// A device that names no customer takes the tenant's oldest one — the row
-	// the agent connection path lands on, since a registering agent knows only
-	// its tenant. On a reconnect the existing customer wins, so a move is never
-	// undone by the device coming back online.
-	//
-	// Filing is a server-side decision: on registration an incoming site counts
-	// only when it belongs to the customer the device lands in, and on a
-	// reconnect the stored site stands. Otherwise a machine moved to another
-	// customer would come back naming an office that customer does not have,
-	// and the pair constraint would refuse the reconnect outright.
+	// A device naming no customer takes the tenant's oldest; a reconnect keeps its customer and site.
+	// A site on first registration counts only when it belongs to the customer the device lands in.
 	organizationID := nullableUUID(d.OrganizationID)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err = tx.ExecContext(ctx,
@@ -57,9 +49,8 @@ func (p *PostgresDevices) Upsert(ctx context.Context, d *Device) error {
 	})
 }
 
-// UpdateOrganization implements Repository. The customer is looked up in the
-// caller's tenant first: a foreign-key check runs past row-level security, so
-// the constraint alone would accept another tenant's customer.
+// UpdateOrganization implements Repository. It checks the customer against the caller's tenant
+// first because foreign-key checks bypass row-level security.
 func (p *PostgresDevices) UpdateOrganization(ctx context.Context, id DeviceID, organizationID OrganizationID) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		var exists bool
@@ -74,11 +65,7 @@ func (p *PostgresDevices) UpdateOrganization(ctx context.Context, id DeviceID, o
 		if !exists {
 			return ErrOrganizationNotFound
 		}
-		// The site is cleared in the same statement. A site belongs to one
-		// customer, so a machine that follows its owner to another customer must
-		// not arrive still filed into the office it left — the composite key
-		// would refuse the write, and keeping the old office would leak one
-		// customer's structure into another.
+		// The site clears in the same statement because a site belongs to one customer.
 		res, err := tx.ExecContext(ctx,
 			`UPDATE devices SET organization_id = $2, site_id = NULL, updated_at = NOW()
 			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`,
@@ -113,10 +100,7 @@ func (p *PostgresDevices) Delete(ctx context.Context, id DeviceID) error {
 	})
 }
 
-// UpdateSite implements Repository. The site and the device's customer are a
-// pair the database enforces through a composite key, so a mismatch surfaces as
-// a constraint failure; it is translated here into the typed error a caller can
-// act on rather than a raw database fault.
+// UpdateSite implements Repository. A composite-key violation maps to ErrSiteNotInOrganization.
 func (p *PostgresDevices) UpdateSite(ctx context.Context, id DeviceID, siteID SiteID) error {
 	sid := nullableUUID(siteID)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
@@ -142,9 +126,7 @@ func (p *PostgresDevices) SetStatus(ctx context.Context, id DeviceID, status Dev
 
 func (p *PostgresDevices) SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		// maintenance_since is stamped only on the Active→Maintenance transition
-		// (NOT maintenance_on AND on), so editing the reason in place while already
-		// in maintenance never resets the entry clock. Exiting clears all three.
+		// maintenance_since is stamped only on entering maintenance, so a reason edit keeps the clock.
 		res, err := tx.ExecContext(ctx,
 			`UPDATE devices SET
 			   maintenance_on = $1,
@@ -161,15 +143,11 @@ func (p *PostgresDevices) SetMaintenance(ctx context.Context, id DeviceID, on bo
 	})
 }
 
-// Counts collapses the whole fleet rollup into one aggregate row. It is
-// deliberately tenant-scoped for every caller, administrators included: the
-// dashboard describes the caller's own tenant, so the tiles and the
-// health bands always cover one device set.
+// Counts reads the fleet rollup in one aggregate row, tenant-scoped even for administrators.
 func (p *PostgresDevices) Counts(ctx context.Context, organizationID OrganizationID) (Counts, error) {
 	var c Counts
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		// A NULL customer counts the whole tenant, so the tiles describe
-		// whatever the picker currently has selected.
+		// A NULL customer counts the whole tenant.
 		return tx.QueryRowContext(ctx,
 			`SELECT COUNT(*),
 			        COUNT(*) FILTER (WHERE status = 'online'),

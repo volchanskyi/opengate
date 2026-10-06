@@ -1,8 +1,10 @@
 # Documentation Reflects Live State Only
 
-**Applies to:** all documentation (`docs/**`) and every code, config, and
-workflow comment. Companion to [`editing-and-scope.md`](editing-and-scope.md)
-and the [`docs/README.md`](../../docs/README.md) conventions.
+**Applies to:** all documentation (`docs/**`). Comments in code, config and
+workflows follow [`code-comments.md`](code-comments.md), which holds them to the
+same live state and checks them. Companion to
+[`editing-and-scope.md`](editing-and-scope.md) and the
+[`docs/README.md`](../../docs/README.md) conventions.
 
 **Enforced by:**
 [`scripts/tests/docs-live-state.test.sh`](../../scripts/tests/docs-live-state.test.sh)
@@ -41,5 +43,5 @@ Banned in live docs and comments (non-exhaustive):
 - Every ADR is out of the gate's scope: a Context section states the problem the
   decision solved. An ADR's descriptive body still follows this rule, and one
   whose decision leaves nothing behind is deleted rather than marked as past.
-- Code comments may carry concise design rationale — why the current design is
-  shaped this way — but not narration of removed features.
+- Code comments carry concise design rationale under
+  [`code-comments.md`](code-comments.md), never narration of removed features.

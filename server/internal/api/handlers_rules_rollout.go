@@ -13,16 +13,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
-// How far a rule spreads, how fast, and the switch that stops it.
-//
-// The stop is deliberately not the on/off toggle. Switching a rule off is an
-// ordinary choice about what a customer wants watched; stopping it is an
-// intervention against a rule that is doing harm, and afterwards the two have to
-// be tellable apart — which they cannot be if one endpoint writes both.
-
-// PutRuleRollout implements StrictServerInterface. There is nothing here for the
-// automatic pull-back: it is the mitigation for a bad rule degrading an estate,
-// so it is not configuration.
+// PutRuleRollout implements StrictServerInterface.
 func (s *Server) PutRuleRollout(ctx context.Context, request PutRuleRolloutRequestObject) (PutRuleRolloutResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, PutRuleRollout403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
@@ -56,10 +47,7 @@ func (s *Server) PutRuleRollout(ctx context.Context, request PutRuleRolloutReque
 	return PutRuleRollout200JSONResponse(rolloutToAPI(stored)), nil
 }
 
-// pacedRollout applies the settings an operator stated to the state already
-// stored. The stop and the reach are not this endpoint's to move: a stop is
-// lifted deliberately, and how far a rule has reached belongs to the rollout
-// machinery.
+// pacedRollout applies the operator's settings to the stored state, leaving the stop and the reach.
 func (s *Server) pacedRollout(
 	ctx context.Context, organizationID uuid.UUID, request PutRuleRolloutRequestObject,
 ) rules.Rollout {
@@ -100,9 +88,7 @@ func (s *Server) StopRule(ctx context.Context, request StopRuleRequestObject) (S
 	return StopRule204Response{}, nil
 }
 
-// applyStop reaches one customer or every customer in the tenant. The tenant
-// scope is a statement over the tenant's own customers rather than a list this
-// end assembles, so it cannot reach one customer short.
+// applyStop stops or resumes a rule for one customer or, tenant-wide, for every customer.
 func (s *Server) applyStop(ctx context.Context, request StopRuleRequestObject, organizationID uuid.UUID, actor string) error {
 	tenantWide := request.Body.Scope == RuleStopScopeTenant
 	switch {
@@ -117,9 +103,7 @@ func (s *Server) applyStop(ctx context.Context, request StopRuleRequestObject, o
 	}
 }
 
-// stopAction names the write for the audit log. A stop and its lifting are
-// different events, and reading them as one would make an audit trail that
-// cannot answer whether a rule is running.
+// stopAction names the audit-log event; a stop and its lifting are distinct events.
 func stopAction(stopped bool) string {
 	if stopped {
 		return "rule.stop"
@@ -127,20 +111,8 @@ func stopAction(stopped bool) string {
 	return "rule.resume"
 }
 
-// deliverRuleChange carries an administrator's change out to the machines that
-// are already connected.
-//
-// A rule runs on the customer's own machines, on processor time they pay for,
-// so a rule that turns out to be wrong has to be stoppable without waiting for
-// anything. A healthy link is held open indefinitely — a machine re-registers
-// only when something breaks it — so leaving the change for the next
-// registration means leaving it for days on a stable estate, while the screen
-// says it took effect.
-//
-// The push is best effort and never fails the change. What was asked for is
-// already stored, a machine that could not be written to takes it as it
-// reconnects, and refusing an administrator's stop because one link was in a
-// bad state would be the worse answer.
+// deliverRuleChange pushes a stored rule change to connected machines, best effort.
+// A machine that cannot be reached takes the stored change when it reconnects.
 func (s *Server) deliverRuleChange(ctx context.Context, organizationID uuid.UUID, tenantWide bool) {
 	if s.agents == nil {
 		return

@@ -2,14 +2,7 @@ import { useState } from 'react';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { useRuleStore } from './state/rule-store';
 
-/**
- * The rule as one named machine is actually running it.
- *
- * "Why is FS01 at 95?" is the question the tuning section exists to answer, and
- * a list of values filed at four levels does not answer it on its own. This
- * resolves the rule the way the delivery path does and names what decided each
- * number, so the answer is read rather than worked out.
- */
+// Resolves the rule for one machine as the delivery path does and names what decided each value.
 export function ResolvedFor({ ruleId }: { readonly ruleId: string }) {
   const resolved = useRuleStore((s) => s.resolved);
   const resolveFor = useRuleStore((s) => s.resolveFor);

@@ -1,15 +1,5 @@
 #!/usr/bin/env bash
-# Push the performance stack's and the endurance run's legs into the trend.
-#
-# Each leg writes an evidence bundle, and its numbers lived in that artifact
-# alone: nothing compared a leg with the nights before it. This reads each leg's
-# rows out of its own bundle (scripts/loadtest-bundle-rows.sh) — the rows its
-# profile's limits are held to — and pushes them named by the leg and by the
-# workload it measured, the profile's own name and version.
-#
-# A leg whose bundle says it did not measure the system stays out of the trend,
-# and the push says which: its figures describe something else, and a window
-# median drawn from them would move the bar a genuine collapse has to clear.
+# Pushes each leg's bundle rows into the trend, leaving out and naming a leg that measured nothing.
 #
 # Environment:
 #   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)

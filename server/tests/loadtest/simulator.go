@@ -2,19 +2,6 @@ package main
 
 import "time"
 
-// A machine is not a burst of connections.
-//
-// It connects once and stays connected for days. It sends on a cadence. It
-// occasionally loses its link and comes back carrying a backlog, sometimes
-// before the server has noticed the first connection is gone. A harness that
-// only opens connections and closes them measures the accept path, which is a
-// small fraction of what the server spends its time on.
-//
-// What a machine does next, and when, is decided here as a state machine, so
-// the behaviour can be stepped through without a network and a run is
-// reproducible from an agent id and a seed. Dialling belongs to the thin part
-// around this.
-
 // ActionKind is one thing a simulated machine does.
 type ActionKind string
 
@@ -48,14 +35,11 @@ type Action struct {
 
 // Behaviour is one machine's whole arc, declared up front.
 type Behaviour struct {
-	// HeartbeatEvery and TelemetryEvery are the cadences. Zero disables that
-	// message rather than sending it continuously.
+	// HeartbeatEvery and TelemetryEvery are the cadences. Zero disables that message.
 	HeartbeatEvery time.Duration
 	TelemetryEvery time.Duration
 
-	// JitterFraction spreads the cadence across the fleet. Every machine firing
-	// on the same instant is a shape no estate has, and it is the one that makes
-	// a server look fine right up until it does not.
+	// JitterFraction spreads the cadence across the fleet so machines do not all fire together.
 	JitterFraction float64
 
 	// HoldFor is how long the machine stays in the run. Zero means until the
@@ -67,14 +51,12 @@ type Behaviour struct {
 	// BackfillBatches is how many batches of backlog a reconnect carries.
 	BackfillBatches int
 
-	// DuplicateConnection opens a second connection for the same machine while
-	// the first is still registered, so which one the server keeps is exercised
-	// rather than assumed.
+	// DuplicateConnection opens a second connection for the same machine while the first is
+	// still registered, exercising which one the server keeps.
 	DuplicateConnection bool
 
-	// Tombstoned marks a machine whose device was purged. It keeps sending,
-	// which is what proves the server refuses it — a simulator that politely
-	// stopped would prove nothing.
+	// Tombstoned marks a machine whose device was purged. It keeps sending, which proves the
+	// server refuses it.
 	Tombstoned bool
 
 	// ResponseDelay is how long this machine takes to answer a request, which
@@ -124,9 +106,7 @@ func NewSimAgent(id uint64, behaviour Behaviour, startedAt time.Time) *SimAgent 
 	}
 }
 
-// ExpectsRejection reports whether everything this machine writes is supposed
-// to be refused. Those refusals are the system working, so they are counted
-// apart from faults.
+// ExpectsRejection reports whether everything this machine writes is supposed to be refused.
 func (a *SimAgent) ExpectsRejection() bool { return a.behaviour.Tombstoned }
 
 // ResponseDelay is how long this machine takes to answer.
@@ -160,9 +140,7 @@ func (a *SimAgent) Next(now time.Time) Action {
 	case phaseConnected:
 		return Action{Kind: ActionRegister, At: now}
 	case phaseBackfilling:
-		// The backlog drains before the cadence resumes: a machine that just
-		// came back has a queue, and the server admitting that queue is the
-		// behaviour under test.
+		// The backlog drains before the cadence resumes.
 		return Action{Kind: ActionBackfill, At: now}
 	case phaseRegistered, phaseStopped:
 	}
@@ -218,15 +196,11 @@ func (a *SimAgent) Did(kind ActionKind, at time.Time) {
 
 func (a *SimAgent) onRegistered(at time.Time) {
 	a.phase = phaseRegistered
-	// A machine that just came back has a queue, and how the server admits that
-	// queue is one of the things a load run exists to test — so the backlog is
-	// drained before the cadence resumes.
 	if a.backfillLeft > 0 {
 		a.phase = phaseBackfilling
 	}
-	// The first message of each cadence is one interval away rather than
-	// immediate: a machine that registers does not also report in the same
-	// instant, and counting that would put a spike at the start of every run.
+	// The first message of each cadence is one interval away, so registration and the first
+	// report never share an instant.
 	if a.behaviour.HeartbeatEvery > 0 {
 		a.nextHeartbeat = at.Add(a.behaviour.HeartbeatEvery + a.heartbeatShift)
 	}
@@ -267,10 +241,8 @@ func jitter(interval time.Duration, fraction float64, source *sequence) time.Dur
 	return time.Duration(source.below(2*span) - span)
 }
 
-// Ramp is how a fleet arrives. A step change and a ramp are different events
-// that the system absorbs differently, so both are expressible: a zero ramp
-// means everything at once, which is a site whose link came back, and a
-// non-zero one means arrival spread over that window.
+// Ramp is how a fleet arrives: a zero Over means everything at once, a positive one spreads
+// the arrivals over that window.
 type Ramp struct {
 	Total int
 	Over  time.Duration

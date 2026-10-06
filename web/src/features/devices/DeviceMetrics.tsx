@@ -12,8 +12,7 @@ import { useVisibleInterval } from '../../lib/use-visible-interval';
 type MinMaxSource = components['schemas']['MetricSeries']['min_max_source'];
 
 const MAX_POINTS = 1000;
-/** A device writes its vitals every 60 s; reading faster than that re-reads the
- *  same window. */
+/** A device writes its vitals every 60 s. */
 const POLL_MS = 60_000;
 
 const PRESETS = [
@@ -25,8 +24,7 @@ const PRESETS = [
 
 const DEFAULT_PRESET = '6h';
 
-/** Honest description of what a family's band represents (central VM is avg-only).
- *  Surfaced as a header `title` tooltip rather than an inline caption. */
+/** Describes what a family's band represents; the central store keeps averages only. */
 function bandProvenance(hasBand: boolean, source: MinMaxSource): string {
   if (!hasBand) return 'avg only';
   if (source === 'local') return 'Band: host min/max (local history)';
@@ -61,7 +59,6 @@ function AnomalyPanel({ anomalyRate, maintenanceSince }: { readonly anomalyRate:
   );
 }
 
-/** Non-chart states for the metrics area: paused-by-maintenance, empty, or loading. */
 function MetricsPlaceholder({ hasMetrics, loading, maintenanceSince }: {
   readonly hasMetrics: boolean;
   readonly loading: boolean;
@@ -85,20 +82,13 @@ function MetricsPlaceholder({ hasMetrics, loading, maintenanceSince }: {
 interface DeviceMetricsProps {
   readonly deviceId: string;
   readonly anomalyRate?: number | null;
-  /** When set, the device is in maintenance: telemetry is paused, so the panel
-   *  shows the since-when state rather than a stale health band or "no data". */
+  /** When set, telemetry is paused for maintenance and the panel shows since when. */
   readonly maintenanceSince?: string | null;
   /** Opens the logs explorer for the charted window (unix seconds). */
   readonly onViewLogs?: (fromSec: number, toSec: number) => void;
 }
 
-/**
- * Device-detail telemetry panel: an anomaly summary and per-family metric
- * timelines (avg line + honest provenance band). Ranking of which dimensions
- * broke pattern arrives with the alert the agent raises, so this panel is a
- * read of the window rather than a place to ask a question of it. All heavy
- * rendering is delegated to the imperative chart adapter.
- */
+/** DeviceMetrics shows an anomaly summary and per-family metric timelines for one device. */
 export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewLogs }: DeviceMetricsProps) {
   const metrics = useDeviceStore((s) => s.metrics);
   const metricsLoading = useDeviceStore((s) => s.metricsLoading);
@@ -120,8 +110,6 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
 
   useEffect(() => { load(); }, [load]);
 
-  // Keep the window fresh without re-running the React reconciler over points —
-  // the adapter pushes new data through setData.
   useVisibleInterval(load, POLL_MS);
 
   const handleViewLogs = useCallback(() => {
@@ -130,8 +118,7 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
     onViewLogs(toSec - seconds, toSec);
   }, [onViewLogs, seconds]);
 
-  // System-metric families exclude the `log` family: its dimensions are log
-  // volume/severity counts, not a system resource, so they are not charted here.
+  // The `log` family counts log volume and severity, not a system resource, so it is not charted.
   const families = useMemo(() => {
     if (!metrics) return [];
     return [...groupByFamily(metrics.series).entries()]

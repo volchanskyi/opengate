@@ -10,8 +10,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// answerLogPull is a machine handing back the lines it was asked for, one of
-// them carrying a secret in the clear the way a real log does.
+// answerLogPull hands back the requested lines, one carrying a secret in the clear.
 func (m *Machine) answerLogPull(secret string) {
 	m.t.Helper()
 	go func() {
@@ -28,10 +27,6 @@ func (m *Machine) answerLogPull(secret string) {
 	}()
 }
 
-// TestATechnicianPullsALogAndTheSecretInItNeverReachesThem is the sentence
-// Endpoint Logs promises: the pull waits on the machine, the lines come back
-// redacted whatever the machine sent, nothing is stored, and somebody can see
-// afterwards that the log was read.
 func TestATechnicianPullsALogAndTheSecretInItNeverReachesThem(t *testing.T) {
 	t.Parallel()
 
@@ -71,10 +66,6 @@ func TestATechnicianPullsALogAndTheSecretInItNeverReachesThem(t *testing.T) {
 	}, eventually, poll, "reading somebody's machine's log is itself a recorded act")
 }
 
-// TestATechnicianWithoutElevatedPermissionCannotPullALog pins the gate in
-// front of the machine round trip. A log is the most revealing thing a
-// technician can ask a machine for, so the refusal happens before the machine
-// is troubled at all.
 func TestATechnicianWithoutElevatedPermissionCannotPullALog(t *testing.T) {
 	t.Parallel()
 

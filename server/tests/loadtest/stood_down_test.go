@@ -10,21 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A machine the run stood down is not a machine that failed to arrive.
-//
-// A walk winds its level down between phases and again at the end, and the
-// starts still reaching for the server when it does are cancelled by the run
-// itself. Counted as failures to arrive they are indistinguishable from a
-// server that would not take them, and they land in whichever phase the
-// wind-down happened in — which for a recovery phase is every outcome it has,
-// because a phase that offers no arrivals records nothing else.
-//
-// It is the same rule the ramp already states about a machine let go before its
-// turn, applied where the tally is kept. The first night the fleet arrived, it
-// cost four legs of the performance stack and invalidated a fifth: every
-// failure in all of them was this, and the one genuine timeout among them was
-// the only reading anybody wanted.
-
 // aCancelledStart is a machine whose start ends because the run stood it down
 // before it ever registered.
 func aCancelledStart(ctx context.Context) agentResult {
@@ -46,8 +31,6 @@ func TestAMachineTheRunStoodDownIsNotCountedAsAFailureToArrive(t *testing.T) {
 	assert.Zero(t, outcomes.ErrorRate(), "a phase of nothing but wind-down has no error rate")
 }
 
-// A machine the server would not take is still a failure, and a wind-down
-// happening around it does not launder it.
 func TestAMachineTheServerWouldNotTakeIsStillAFailure(t *testing.T) {
 	fleet := NewQUICFleet(func(_ context.Context, index int, presence fleetPresence) agentResult {
 		if index == 0 {
@@ -65,8 +48,6 @@ func TestAMachineTheServerWouldNotTakeIsStillAFailure(t *testing.T) {
 	assert.Zero(t, outcomes.StoodDown)
 }
 
-// A machine that had already arrived and is then stood down is neither: it
-// turned up, and the run ending its life is what the run is for.
 func TestAnArrivedMachineStoodDownIsCountedAsArrived(t *testing.T) {
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
 		presence.Arrived()
@@ -86,10 +67,6 @@ func TestAnArrivedMachineStoodDownIsCountedAsArrived(t *testing.T) {
 	assert.Zero(t, outcomes.StoodDown, "it arrived, so it is not one the run never got")
 }
 
-// The results block counts the same way the fleet does, because the trend is
-// built by reading it: a run that stood machines down reported them as machines
-// that failed to connect, and the extraction turned that into an error rate the
-// system had nothing to do with.
 func TestTheResultsBlockHoldsStoodDownMachinesApartFromFailures(t *testing.T) {
 	results := []agentResult{
 		{arrivedAt: time.Now()},
@@ -108,16 +85,6 @@ func TestTheResultsBlockHoldsStoodDownMachinesApartFromFailures(t *testing.T) {
 	assert.Contains(t, printed, "Stood down:  2")
 }
 
-// And it counts a machine that got in and was severed under the load as one
-// that got in, because it did.
-//
-// The trend's aggregate error rate is built by reading this block, so counting
-// the survivors publishes an error rate that is part arrival failure and part
-// severance — with the severance already published beside it under its own
-// name. The night of 2026-09-13 read 439 of sixteen thousand that way, on a run
-// that had filed 10,520 machines under a customer. The timings go with it: a
-// machine that took 200ms to connect took 200ms to connect, and dropping it
-// takes the slowest arrivals out first.
 func TestTheResultsBlockCountsAMachineSeveredUnderLoad(t *testing.T) {
 	results := []agentResult{
 		{connectDur: 5 * time.Millisecond, arrivedAt: time.Now()},

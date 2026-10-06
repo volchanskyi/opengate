@@ -133,6 +133,12 @@ below 80%, and the pre-commit run reproduces all of it. So three independent
 layers together hold both the whole codebase and each change to it, even though
 the gate itself only measures the change.
 
+Repeated code is held the same way. The scan keeps its report, and every
+production file in the codebase must hold at most 3% repeated lines, read from
+the scanner's own result
+([ADR-125](./adr/ADR-125-comments-and-repeated-code.md)). The scanner is pinned
+in the [tool-version manifest](../scripts/lib/tool-versions.sh).
+
 Per-language thresholds alone miss what SonarCloud measures and `go test -cover`
 does not — duplication, cognitive complexity, security hotspots. Running it as a
 hard gate forces fixes on `dev` rather than letting them pile up on `main`.

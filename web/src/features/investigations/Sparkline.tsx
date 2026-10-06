@@ -6,15 +6,7 @@ const HEIGHT = 40;
 /** Trim a reading to the precision anybody acts on. */
 const trim = (v: number) => String(Number(v.toFixed(2)));
 
-/**
- * One evidence series, drawn from the frozen snapshot.
- *
- * The picture is inline SVG rather than a charting engine: evidence is a fixed
- * handful of points read once, and pulling a chart library into the room would
- * cost the whole feature its bundle budget for a shape this small. The label
- * carries the same reading in words, so the series is legible without the
- * picture.
- */
+/** One evidence series drawn as inline SVG, with a text label carrying the same reading. */
 export function Sparkline({ dim, points }: { readonly dim: string; readonly points: readonly Reading[] }) {
   const shape = sparklineShape(points, WIDTH, HEIGHT);
 

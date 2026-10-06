@@ -13,8 +13,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// defaultServerID is the serverID used when NewRelay is called without
-// WithRegistry. Any non-empty stable value satisfies the in-process adapter.
+// defaultServerID is the serverID used when NewRelay is called without WithRegistry.
 const defaultServerID = "local"
 
 var (
@@ -34,12 +33,10 @@ const (
 	SideBrowser
 )
 
-// Conn is the interface used by the relay. Implementations must preserve
-// message boundaries: each ReadMessage returns exactly one complete message,
-// and each WriteMessage sends exactly one complete message.
+// Conn is a message-oriented connection: each ReadMessage and WriteMessage
+// handles exactly one complete message.
 type Conn interface {
-	// ReadMessage reads one complete message. It blocks until a message is
-	// available or an error occurs.
+	// ReadMessage blocks until one complete message is available or an error occurs.
 	ReadMessage() ([]byte, error)
 	// WriteMessage sends one complete message.
 	WriteMessage(data []byte) error
@@ -51,15 +48,14 @@ type session struct {
 	mu       sync.Mutex
 	agent    Conn
 	browser  Conn
-	ready    chan struct{} // closed when both sides are registered
-	done     chan struct{} // closed when the session has ended
-	endOnce  sync.Once     // both teardown owners call end; only one close happens
+	ready    chan struct{}
+	done     chan struct{}
+	endOnce  sync.Once // both teardown owners call end; only one close happens
 	started  bool
-	piping   bool // guards the one-time local pipe start
+	piping   bool
 	released bool // Unregister claimed the session; no pipe may start on it
 }
 
-// newSession returns a session with both of its signalling channels open.
 func newSession() *session {
 	return &session{
 		ready: make(chan struct{}),
@@ -67,17 +63,12 @@ func newSession() *session {
 	}
 }
 
-// end announces that the session is over, exactly once.
-//
-// A session has two teardown owners — the pipe's defer for a pair that reached
-// the pipe, and Unregister for one that never did — and exactly one of them
-// runs for any given session. end is idempotent so neither has to know which.
+// end announces that the session is over; the pipe and Unregister may both call it.
 func (s *session) end() {
 	s.endOnce.Do(func() { close(s.done) })
 }
 
-// setSide assigns conn to the side's slot, returning ErrDuplicateSide if that
-// side is already registered. Callers must hold s.mu.
+// setSide assigns conn to the side's slot or returns ErrDuplicateSide. Callers hold s.mu.
 func (s *session) setSide(side Side, conn Conn) error {
 	switch side {
 	case SideAgent:
@@ -94,9 +85,8 @@ func (s *session) setSide(side Side, conn Conn) error {
 	return nil
 }
 
-// markStarted records the first registration on the session, incrementing the
-// active count and the started total exactly once. It returns true only for
-// that first side. Callers must hold s.mu.
+// markStarted counts the session once, on its first registration, and returns true for it.
+// Callers hold s.mu.
 func (s *session) markStarted(count *atomic.Int64, total *atomic.Uint64) bool {
 	if s.started {
 		return false
@@ -109,30 +99,23 @@ func (s *session) markStarted(count *atomic.Int64, total *atomic.Uint64) bool {
 
 // Relay pipes WebSocket connections from browsers and agents together.
 type Relay struct {
-	sessions sync.Map // map[protocol.SessionToken]*session
+	sessions sync.Map
 	count    atomic.Int64
-	// started counts every session ever opened. It rises with count and never
-	// falls, so started minus the sessions ended is what count holds.
+	// started counts every session ever opened and never falls.
 	started atomic.Uint64
 	logger  *slog.Logger
 
-	// registry records session metadata through the SessionRegistry port. The
-	// live Conn pair stays in the sessions map above; the in-process adapter is
-	// a local shadow used by readiness and lifecycle bookkeeping.
 	registry SessionRegistry
 	serverID string
 
-	// OnSessionEnd is called when a session finishes piping (both sides disconnected).
-	// It can be used to clean up external state such as DB sessions.
+	// OnSessionEnd is called when a session finishes piping, to clean up external state.
 	OnSessionEnd func(token protocol.SessionToken)
 }
 
 // Option configures a Relay at construction.
 type Option func(*Relay)
 
-// WithRegistry injects the SessionRegistry adapter and the caller's stable
-// serverID. Without it, NewRelay defaults to an in-process registry with
-// serverID "local". A future distributed adapter would be injected here.
+// WithRegistry injects the SessionRegistry and the caller's stable serverID.
 func WithRegistry(reg SessionRegistry, serverID string) Option {
 	return func(r *Relay) {
 		r.registry = reg
@@ -140,9 +123,7 @@ func WithRegistry(reg SessionRegistry, serverID string) Option {
 	}
 }
 
-// NewRelay creates a new Relay. By default the relay is backed by an in-process
-// SessionRegistry so the live path is always registry-driven; pass WithRegistry
-// to inject a distributed adapter.
+// NewRelay creates a Relay backed by an in-process SessionRegistry unless WithRegistry is passed.
 func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 	r := &Relay{
 		logger:   logger,
@@ -155,13 +136,8 @@ func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 	return r
 }
 
-// Register registers one side of a session identified by token. When both sides
-// are registered, piping starts automatically.
-//
-// It returns the session's done channel, closed when the session ends. The
-// channel comes back from the registering call rather than from a later lookup
-// by token: teardown deletes the token, so a lookup races the very event the
-// caller is asking to be told about.
+// Register registers one side of a session and starts piping once both sides are present.
+// It returns the done channel because teardown deletes the token a later lookup would use.
 func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) (<-chan struct{}, error) {
 	val, _ := r.sessions.LoadOrStore(token, newSession())
 	s := val.(*session)
@@ -174,11 +150,7 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 	firstSide := s.markStarted(&r.count, &r.started)
 	s.mu.Unlock()
 
-	// Express the session lifecycle through the SessionRegistry port. With the
-	// in-process adapter these calls shadow the live sessions map and never alter
-	// routing. Registry failures are logged, not fatal — the live relay remains
-	// the source of truth for the in-process Conn pair. token_prefix is redacted
-	// inline at each call site so the full token never reaches logs.
+	// Registry failures are logged and the sessions map stays authoritative for routing.
 	if firstSide {
 		r.writeOwnerMeta(ctx, token)
 	}
@@ -187,8 +159,7 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 	return s.done, nil
 }
 
-// writeOwnerMeta records the session metadata in the registry. Failures are
-// logged, not fatal — the live Conn pair in the sessions map is authoritative.
+// writeOwnerMeta records the session metadata in the registry and logs a failure.
 func (r *Relay) writeOwnerMeta(ctx context.Context, token protocol.SessionToken) {
 	if err := r.registry.SaveSession(ctx, token, SessionMeta{
 		CreatedAt:     time.Now(),
@@ -199,11 +170,8 @@ func (r *Relay) writeOwnerMeta(ctx context.Context, token protocol.SessionToken)
 	}
 }
 
-// startPipeIfReady starts the local pipe exactly once, when both sides are
-// present. Guarded by s.piping so the close of s.ready and the pipe goroutine
-// launch happen exactly once even though the lock is released between
-// registration phases. A session Unregister has already released stays dead:
-// its peer left, so pairing it now would resurrect a torn-down session.
+// startPipeIfReady starts the pipe once, when both sides are present, guarded by s.piping.
+// A session Unregister has released stays dead.
 func (r *Relay) startPipeIfReady(token protocol.SessionToken, s *session) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -238,24 +206,16 @@ func (r *Relay) ActiveSessionCount() int {
 	return int(r.count.Load())
 }
 
-// SessionsStarted returns how many sessions this process has opened, the ones
-// already ended included. A session counts once, when its first side registers.
+// SessionsStarted returns how many sessions this process has opened, ended ones included.
 func (r *Relay) SessionsStarted() uint64 {
 	return r.started.Load()
 }
 
-// drainPoll is how often WaitForDrain re-reads the active count. A shutdown is
-// bounded in seconds and teardown is driven by connection closes rather than by
-// this loop, so the interval only decides how promptly the last one is noticed.
+// drainPoll is how often WaitForDrain re-reads the active count.
 const drainPoll = 20 * time.Millisecond
 
-// WaitForDrain blocks until no session is live, or until ctx expires, in which
-// case it returns ctx's error.
-//
-// A shutting-down process cannot learn this from net/http: websocket.Accept
-// hijacked each relay connection, which untracks it, so Server.Shutdown neither
-// waits for a live session nor closes one and returns as though it had. The
-// relay's own count is what the process has to ask.
+// WaitForDrain blocks until no session is live, or returns ctx's error when ctx expires first.
+// Hijacked connections are untracked by net/http, so Server.Shutdown cannot report them.
 func (r *Relay) WaitForDrain(ctx context.Context) error {
 	ticker := time.NewTicker(drainPoll)
 	defer ticker.Stop()
@@ -271,9 +231,8 @@ func (r *Relay) WaitForDrain(ctx context.Context) error {
 	}
 }
 
-// ActiveTokens returns the tokens the relay currently holds, whether paired and
-// piping or still waiting for a peer. It is the liveness answer the stale-session
-// sweep needs: a token in this set is in use and must not be collected.
+// ActiveTokens returns the tokens the relay holds, paired or waiting; the stale-session sweep
+// must not collect them.
 func (r *Relay) ActiveTokens() []protocol.SessionToken {
 	var tokens []protocol.SessionToken
 	r.sessions.Range(func(key, _ any) bool {
@@ -283,14 +242,8 @@ func (r *Relay) ActiveTokens() []protocol.SessionToken {
 	return tokens
 }
 
-// Unregister releases a session that never paired, ending it as if it had piped:
-// the entry, the active count and the registry record all go, any conn still
-// waiting on the missing peer is closed, and OnSessionEnd fires so external
-// state (the caller's session row) is cleaned up too.
-//
-// A session that reached the pipe is left alone — the pipe's own teardown owns
-// it, and a second release would double-count. Unknown or already-released
-// tokens are a no-op, so a request handler can defer this unconditionally.
+// Unregister releases a session that never paired: it drops the entry, count and
+// registry record, closes waiting conns and fires OnSessionEnd. Other tokens are no-ops.
 func (r *Relay) Unregister(token protocol.SessionToken) {
 	val, ok := r.sessions.Load(token)
 	if !ok {
@@ -303,8 +256,7 @@ func (r *Relay) Unregister(token protocol.SessionToken) {
 		s.mu.Unlock()
 		return
 	}
-	// Set under the lock so a peer registering right now cannot start a pipe on
-	// a session this call has already claimed.
+	// Set under the lock so a concurrent registration cannot start a pipe on this session.
 	s.released = true
 	started, agent, browser := s.started, s.agent, s.browser
 	s.mu.Unlock()
@@ -320,20 +272,17 @@ func (r *Relay) Unregister(token protocol.SessionToken) {
 	if r.OnSessionEnd != nil {
 		r.OnSessionEnd(token)
 	}
-	// A graceful WebSocket close can wait for a peer acknowledgement. External
-	// cleanup must already be complete before that network wait begins.
+	// A graceful WebSocket close can wait for a peer acknowledgement, so cleanup precedes it.
 	for _, conn := range []Conn{agent, browser} {
 		if conn != nil {
 			_ = conn.Close()
 		}
 	}
-	// Last, matching the pipe: a parked handler unblocks after the graceful
-	// close has been attempted rather than racing it with its own abrupt one.
+	// Runs last so a parked handler unblocks after the graceful close.
 	s.end()
 }
 
-// copyMessages reads complete messages from src and writes them to dst,
-// preserving message boundaries. Returns when either side errors.
+// copyMessages copies whole messages from src to dst until either side errors.
 func (r *Relay) copyMessages(dst, src Conn, direction string, tp string) {
 	var count int
 	for {
@@ -359,10 +308,7 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 	var closeOnce sync.Once
 	closeBoth := func() {
 		closeOnce.Do(func() {
-			// Concurrently, not one after the other. Each graceful close waits
-			// on an acknowledgement, and a peer that is not answering the first
-			// one is not going to answer the second — sequencing them doubles
-			// the worst case for nothing.
+			// Each graceful close waits on an acknowledgement, so they run concurrently.
 			var closing sync.WaitGroup
 			for _, conn := range []Conn{s.agent, s.browser} {
 				closing.Add(1)
@@ -375,24 +321,16 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 		})
 	}
 
-	// One channel per direction, and both are waited for. Closing the conns
-	// unblocks whichever direction did not end the session, and a copier nobody
-	// observes is a leak the next edit to this function would introduce silently.
+	// Both directions are waited for so no copier goroutine outlives the session.
 	agentToBrowser := make(chan struct{})
 	browserToAgent := make(chan struct{})
 
 	defer func() {
-		// Books first, network last — the order Unregister already states. A
-		// graceful close waits on an acknowledgement an absent peer never
-		// sends, and for as long as it does a finished session must not still
-		// be counted, still be named by ActiveTokens (which the stale-session
-		// sweep reads as "in use", so the row cannot be collected), or still
-		// sit in the registry.
+		// Bookkeeping precedes the network close, which can wait on an absent peer.
 		cancel()
 		r.sessions.Delete(token)
 		r.count.Add(-1)
-		// Release the registry entry. Use a background context — the originating
-		// request context is long gone.
+		// A background context is used because the originating request context has ended.
 		if err := r.registry.DeleteSession(context.Background(), token); err != nil {
 			r.logger.Error("registry delete session", "token_prefix", protocol.RedactToken(string(token)), "error", err)
 		}
@@ -404,8 +342,7 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 		closeBoth()
 		<-agentToBrowser
 		<-browserToAgent
-		// Last, so the parked handlers unblock after the graceful close has
-		// been attempted rather than racing it with their own abrupt one.
+		// Runs last so parked handlers unblock after the graceful close.
 		s.end()
 	}()
 
@@ -417,7 +354,6 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 	go func() {
 		defer close(browserToAgent)
 		r.copyMessages(s.agent, s.browser, "browser→agent", tp)
-		// When this direction ends, close both to unblock the other.
 		closeBoth()
 	}()
 

@@ -12,10 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// This file holds the CIRA connection and channel types and their methods. The
-// server core lives in mps.go; the handshake in mps_handshake.go; post-handshake
-// message dispatch in mps_handlers.go.
-
 // BoundPort represents a port registered by the AMT device via tcpip-forward.
 type BoundPort struct {
 	Address string
@@ -32,10 +28,8 @@ type Conn struct {
 	mu         sync.RWMutex
 	logger     *slog.Logger
 
-	// deviceID and tenantID identify the managed device this connection was
-	// resolved to, and are zero until one reports the same SMBIOS system UUID.
-	// The keepalive retries the lookup, so a machine whose agent registers after
-	// the AMT firmware dialled in is adopted without reconnecting.
+	// deviceID and tenantID identify the managed device this connection resolved to; both
+	// are zero until a device reports the same SMBIOS system UUID.
 	deviceID uuid.UUID
 	tenantID uuid.UUID
 }
@@ -48,8 +42,7 @@ func (c *Conn) link(deviceID, tenantID uuid.UUID) {
 	c.tenantID = tenantID
 }
 
-// linked returns the resolved device and tenant, and whether this
-// connection has been linked at all.
+// linked returns the resolved device and tenant, and whether the connection is linked.
 func (c *Conn) linked() (uuid.UUID, uuid.UUID, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -86,12 +79,10 @@ func (c *Conn) OpenChannel(targetAddr string, targetPort uint16) (*Channel, erro
 	c.nextChanID++
 	c.mu.Unlock()
 
-	// Build channel open message for "direct-tcpip".
 	if err := writeChannelOpenDirect(c.netConn, localCh, targetAddr, targetPort); err != nil {
 		return nil, fmt.Errorf("write channel open: %w", err)
 	}
 
-	// Read the response.
 	if err := c.netConn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		return nil, err
 	}
@@ -156,7 +147,7 @@ func (ch *Channel) SetOnData(fn func([]byte)) {
 // writeChannelOpenDirect writes an APF channel open for "direct-tcpip".
 func writeChannelOpenDirect(w io.Writer, senderCh uint32, addr string, port uint16) error {
 	chType := "direct-tcpip"
-	// Build: type_str + sender_ch + window + max_pkt + connected_addr + connected_port + origin_addr + origin_port
+	// Layout: type, sender channel, window, max packet, connected addr and port, origin addr and port.
 	addrBytes := encodeAPFString(addr)
 	originBytes := encodeAPFString("0.0.0.0")
 

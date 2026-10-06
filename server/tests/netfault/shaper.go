@@ -11,50 +11,38 @@ import (
 )
 
 const (
-	// readBufferBytes is the largest a datagram can be, so a read that fills it
-	// exactly is the one reading that cannot be told apart from a truncation.
+	// readBufferBytes is the largest datagram size; a read that fills it exactly reads as truncated.
 	readBufferBytes = 64 * 1024
 
-	// mappingIdleExpiry is how long a machine's server-facing socket is held
-	// after its last datagram. It has to outlive the longest dark window the
-	// drill runs: a mapping that expired mid-outage would move the machine to a
-	// new server-facing address at restore, turning the outage scenario into
-	// the re-addressing one without saying so.
+	// mappingIdleExpiry is how long a machine's server-facing socket is held after its last
+	// datagram; it outlives the longest outage so the machine keeps its server-facing address.
 	mappingIdleExpiry = 600 * time.Second
 
-	// reapInterval is how often idle mappings are looked for. Nothing depends
-	// on the precision — the window it enforces is ten minutes wide.
+	// reapInterval is how often idle mappings are looked for.
 	reapInterval = 10 * time.Second
 )
 
 // Config is what a shaper needs to stand up.
 type Config struct {
-	// Listen is the machine-facing address. The drill points the server's
-	// certificate name at it with a hostAliases entry, so the machines dial the
-	// name on the certificate and arrive here.
+	// Listen is the machine-facing address.
 	Listen string
 	// ServerAddr is the real server's QUIC address.
 	ServerAddr string
-	// Seed drives every impairment's generator and is recorded in the evidence,
-	// so a night can be compared against the one before it.
+	// Seed drives every impairment's generator and is recorded in the evidence.
 	Seed uint64
 	// IdleExpiry is how long a machine's mapping survives silence.
 	IdleExpiry time.Duration
 }
 
-// DirectionCounters is what the shaper did with the datagrams travelling one
-// way. In is what arrived, Out is what was forwarded, and Dropped is what the
-// impairment discarded — three numbers rather than two, because a scenario
-// whose drop count does not match its instruction did not run, and In minus Out
-// cannot say so while a datagram is still waiting on a delay.
+// DirectionCounters counts the datagrams of one direction: In arrived, Out was forwarded and
+// Dropped was discarded by the impairment.
 type DirectionCounters struct {
 	In      int64 `json:"in"`
 	Out     int64 `json:"out"`
 	Dropped int64 `json:"dropped"`
 }
 
-// Counters is everything the shaper knows about itself, which is what the
-// runner reads at every phase boundary and what the evidence bundle keeps.
+// Counters is the shaper's account of itself, read at every phase boundary and kept as evidence.
 type Counters struct {
 	ToServer  DirectionCounters `json:"to_server"`
 	ToMachine DirectionCounters `json:"to_machine"`
@@ -75,10 +63,8 @@ func (t *directionTally) snapshot() DirectionCounters {
 	return DirectionCounters{In: t.in.Load(), Out: t.out.Load(), Dropped: t.dropped.Load()}
 }
 
-// mapping is one machine's path through the shaper: the address it dials from,
-// and the server-facing socket its traffic leaves by. One socket per machine,
-// so the server sees a distinct source per machine and every reply routes back
-// to the machine that asked — the shape any address translator has.
+// mapping is one machine's path through the shaper: its address and the server-facing socket
+// its traffic leaves by, so the server sees a distinct source per machine.
 type mapping struct {
 	machine *net.UDPAddr
 	conn    *net.UDPConn
@@ -141,9 +127,7 @@ func NewShaper(cfg Config) (*Shaper, error) {
 	return s, nil
 }
 
-// ListenAddr is the address machines dial. It does not move when the shaper
-// re-addresses: the re-addressing scenario is about the path the server sees,
-// and moving both ends at once would be two changes rather than one.
+// ListenAddr is the address machines dial; it stays fixed when the shaper rebinds.
 func (s *Shaper) ListenAddr() *net.UDPAddr { return s.listener.LocalAddr().(*net.UDPAddr) }
 
 // SetProfile puts an impairment in force, refusing one the shaper cannot run.
@@ -177,10 +161,8 @@ func (s *Shaper) Serve() {
 			return
 		}
 		if err := checkRead(n, len(buf)); err != nil {
-			// A truncated datagram would read downstream as corruption the
-			// drill never asked for, and the run would report a finding about
-			// the product that belongs to the instrument. There is nothing to
-			// recover: the rest of that datagram is gone.
+			// A truncated datagram would read downstream as corruption the drill never asked for,
+			// and the rest of it is gone.
 			panic(err)
 		}
 		s.toServer.in.Add(1)
@@ -199,9 +181,8 @@ func (s *Shaper) handleFromMachine(from *net.UDPAddr, payload []byte) {
 	}
 	m, err := s.mappingFor(from)
 	if err != nil {
-		// A machine whose path could not be opened is not a machine the drill
-		// impaired, so it is counted as dropped rather than forwarded and the
-		// scenario's own counter check is what notices.
+		// A machine whose path could not be opened is counted as dropped, which the scenario's
+		// counter check notices.
 		s.toServer.dropped.Add(1)
 		return
 	}
@@ -212,10 +193,8 @@ func (s *Shaper) handleFromMachine(from *net.UDPAddr, payload []byte) {
 	})
 }
 
-// mappingFor returns the machine's path, opening one the first time the machine
-// speaks. A machine that keeps talking keeps its mapping: minting a fresh one
-// per datagram would give the server a new source address per packet, which is
-// a re-addressing scenario nobody asked for.
+// mappingFor returns the machine's path, opening one on first contact so a machine that keeps
+// talking keeps one source address at the server.
 func (s *Shaper) mappingFor(from *net.UDPAddr) (*mapping, error) {
 	key := from.String()
 
@@ -236,10 +215,8 @@ func (s *Shaper) mappingFor(from *net.UDPAddr) (*mapping, error) {
 	return m, nil
 }
 
-// readFromServer carries one machine's replies back to it. It reads from the
-// socket it was handed rather than from the mapping, so a re-addressing that
-// replaces the mapping's socket does not leave two goroutines reading the same
-// one.
+// readFromServer carries one machine's replies back to it, reading the socket it was handed so a
+// rebind that replaces the mapping's socket leaves one reader per socket.
 func (s *Shaper) readFromServer(m *mapping, conn *net.UDPConn) {
 	buf := make([]byte, readBufferBytes)
 	for {
@@ -267,20 +244,15 @@ func (s *Shaper) readFromServer(m *mapping, conn *net.UDPConn) {
 	}
 }
 
-// after runs the write, either now or once the link has carried what is queued
-// ahead of it. The immediate case is not handed to a timer: the drill's clean
-// phases are the majority of its traffic, and every one of them would otherwise
-// pay for a goroutine it does not need.
+// after runs the write now or once the link has carried what is queued ahead of it; the
+// immediate case skips the timer goroutine.
 func (s *Shaper) after(delay time.Duration, write func()) {
 	if delay <= 0 {
 		write()
 		return
 	}
-	// Joining the group under the lock the teardown takes is what makes the
-	// group mean what it says. A datagram either joins before Close reads the
-	// group, or arrives to find the link already down and is not carried: a
-	// datagram that joined afterwards would be one Close had already finished
-	// waiting for.
+	// Joining under the lock Close takes means a datagram either joins before Close reads the
+	// group or finds the link down and is not carried.
 	s.mu.Lock()
 	select {
 	case <-s.closed:
@@ -302,9 +274,8 @@ func (s *Shaper) after(delay time.Duration, write func()) {
 	})
 }
 
-// Rebind moves every server-facing socket to a new local port, mid-connection,
-// leaving the machines' own addresses alone. This is a customer's router
-// rebooting at 3 a.m. and handing every machine a new public address.
+// Rebind moves every server-facing socket to a new local port mid-connection and leaves the
+// machines' own addresses alone.
 func (s *Shaper) Rebind() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -328,9 +299,8 @@ func (s *Shaper) Rebind() error {
 	return nil
 }
 
-// reap closes the mappings of machines that have gone quiet for longer than the
-// idle window, so a run that stands up and tears down many machines does not
-// hold a socket for every one of them for the life of the process.
+// reap closes the mappings of machines quiet past the idle window so a long run does not hold
+// a socket for every machine it ever saw.
 func (s *Shaper) reap() {
 	ticker := time.NewTicker(reapInterval)
 	defer ticker.Stop()
@@ -356,10 +326,8 @@ func (s *Shaper) reap() {
 func (s *Shaper) Close() {
 	s.closeOnce.Do(func() {
 		_ = s.listener.Close()
-		// Saying the link is down and releasing its sockets happen under one
-		// hold of the lock, so a forward already in progress has either joined
-		// the in-flight group or is refused by it. The wait is outside the
-		// lock because joining takes that same lock.
+		// The link-down flag and socket release share one lock hold; the wait is outside it
+		// because joining the in-flight group takes that lock.
 		s.mu.Lock()
 		close(s.closed)
 		for key, m := range s.mappings {
@@ -371,12 +339,8 @@ func (s *Shaper) Close() {
 	})
 }
 
-// checkRead reports a datagram that did not arrive whole.
-//
-// Go's ReadFromUDP truncates silently, so a read that exactly fills the buffer
-// is the one case where what was forwarded is not what was sent. At 64 KiB no
-// real datagram reaches it, which is precisely why a read that does is a defect
-// in the instrument rather than a large message.
+// checkRead reports a datagram that did not arrive whole: ReadFromUDP truncates silently, so a
+// read that exactly fills the buffer is a defect in the instrument.
 func checkRead(n, bufferLen int) error {
 	if n >= bufferLen {
 		return fmt.Errorf("a datagram filled the whole %d-byte read buffer, so it was truncated and what would be forwarded is not what was sent", bufferLen)
@@ -391,10 +355,8 @@ func cloneAddr(a *net.UDPAddr) *net.UDPAddr {
 	return out
 }
 
-// mappingTable is the idle-expiry policy on its own: which machines have gone
-// quiet for long enough that their path can be released. It is separated from
-// the sockets so the window can be asserted by an ordinary test that states the
-// passage of time rather than waiting out ten minutes of it.
+// mappingTable is the idle-expiry policy apart from the sockets, so a test can state the passage
+// of time.
 type mappingTable struct {
 	expiry   time.Duration
 	lastSeen map[string]time.Time
@@ -407,8 +369,7 @@ func newMappingTable(expiry time.Duration) *mappingTable {
 // touch records that this machine spoke at now.
 func (t *mappingTable) touch(key string, now time.Time) { t.lastSeen[key] = now }
 
-// expired names the machines that have been silent past the window, in a fixed
-// order so a run that reaps several is reproducible.
+// expired names the machines silent past the window, in a fixed order so a reap is reproducible.
 func (t *mappingTable) expired(now time.Time) []string {
 	var out []string
 	for key, seen := range t.lastSeen {

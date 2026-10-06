@@ -1,9 +1,7 @@
 package agentapi
 
-// Hardware-inventory ingest. The agent reports host facts plus the Intel AMT
-// presence it reads off the Management Engine interface; the AMT model and
-// firmware are written separately by the server's WSMAN query over a CIRA
-// connection, so this path deliberately touches only the agent's own columns.
+// The AMT model and firmware are written by the server's WSMAN query, so this path writes only
+// the agent's own columns.
 
 import (
 	"context"
@@ -47,10 +45,8 @@ func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.Cont
 	return nil
 }
 
-// parseSystemUUID validates the SMBIOS system UUID an agent reports. Anything
-// unparseable becomes nil, which the hardware upsert reads as "the agent said
-// nothing" and preserves the stored key rather than orphaning an AMT link. The
-// agent already rejects the all-zero and all-ones firmware placeholders.
+// parseSystemUUID validates the SMBIOS system UUID an agent reports; an unparseable one becomes
+// nil, which the hardware upsert reads as no change to the stored key.
 func parseSystemUUID(raw string) *uuid.UUID {
 	if raw == "" {
 		return nil
@@ -62,7 +58,7 @@ func parseSystemUUID(raw string) *uuid.UUID {
 	return &parsed
 }
 
-// clampInt64 narrows uint64 to int64, capping at math.MaxInt64 to avoid sign flip.
+// clampInt64 narrows uint64 to int64, capping at math.MaxInt64.
 func clampInt64(v uint64) int64 {
 	if v > math.MaxInt64 {
 		return math.MaxInt64

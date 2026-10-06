@@ -20,14 +20,6 @@ import (
 	servertestutil "github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// Registration is timed here, where the device row is written, because that is
-// the only place the whole operation has happened. A client that stops its own
-// clock after handing the register frame to its transport has measured a local
-// buffer write, so its number is near zero however slow the server is — which
-// is how two load-test ceilings on that number could never fire.
-
-// TestRegisterRecordsServerSideDuration proves a completed registration is
-// counted once as ok and lands in the duration histogram.
 func TestRegisterRecordsServerSideDuration(t *testing.T) {
 	store := servertestutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
@@ -43,9 +35,6 @@ func TestRegisterRecordsServerSideDuration(t *testing.T) {
 	assert.Equal(t, 1, countRegistrationObservations(t, m, appmetrics.RegistrationOK))
 }
 
-// TestRegisterCountsEveryRegistrationSeparately keeps a reconnect storm
-// countable: the rate over this counter is enrollments per second, so a repeat
-// registration is its own event rather than an idempotent no-op.
 func TestRegisterCountsEveryRegistrationSeparately(t *testing.T) {
 	store := servertestutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
@@ -61,9 +50,6 @@ func TestRegisterCountsEveryRegistrationSeparately(t *testing.T) {
 	assert.InDelta(t, 3, testutil.ToFloat64(m.AgentRegistrationsTotal.WithLabelValues(appmetrics.RegistrationOK)), 0)
 }
 
-// TestRegisterRecordsFailureOutcome — a registration the server could not
-// complete is the event a storm-shaped failure shows up as, so it must be
-// counted rather than swallowed with the error.
 func TestRegisterRecordsFailureOutcome(t *testing.T) {
 	store := servertestutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
@@ -72,8 +58,6 @@ func TestRegisterRecordsFailureOutcome(t *testing.T) {
 
 	m := appmetrics.NewMetrics(prometheus.NewRegistry())
 	ac := newRegisterMetricsConn(t, store, uuid.New(), site.ID, m)
-	// Refuse the device write, which is how a registration fails in production:
-	// the connection is up and the frame decoded, and the row does not land.
 	ac.devices = refusingDevices{Repository: ac.devices}
 
 	require.Error(t, ac.handleRegister(ctx, registerMsg()))
@@ -83,8 +67,6 @@ func TestRegisterRecordsFailureOutcome(t *testing.T) {
 	assert.Equal(t, 1, countRegistrationObservations(t, m, appmetrics.RegistrationError))
 }
 
-// TestRegisterWithoutMetricsDoesNotPanic keeps every connection wired without
-// instrumentation — the older test constructions — working unchanged.
 func TestRegisterWithoutMetricsDoesNotPanic(t *testing.T) {
 	store := servertestutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
@@ -97,8 +79,6 @@ func TestRegisterWithoutMetricsDoesNotPanic(t *testing.T) {
 	})
 }
 
-// refusingDevices is a device repository whose write path refuses, so a
-// registration fails after the frame has been accepted.
 type refusingDevices struct {
 	device.Repository
 }
@@ -107,8 +87,6 @@ func (refusingDevices) Upsert(context.Context, *device.Device) error {
 	return errors.New("device store unavailable")
 }
 
-// countRegistrationObservations returns how many samples the duration histogram
-// holds for one outcome.
 func countRegistrationObservations(t *testing.T, m *appmetrics.Metrics, result string) int {
 	t.Helper()
 	observer, err := m.AgentRegistrationDuration.GetMetricWithLabelValues(result)

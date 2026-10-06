@@ -1,9 +1,4 @@
 version: 2
-# All ecosystems target `dev` directly. Dependabot opens PRs against `dev`;
-# `.github/workflows/dependabot-auto-merge.yml` auto-merges patch + minor
-# updates once CI is green; the existing `merge-to-main` job in
-# `.github/workflows/ci.yml` then forwards `dev` → `main`. Major updates
-# stay open for human review.
 updates:
   - package-ecosystem: gomod
     directory: /server
@@ -34,8 +29,7 @@ updates:
     groups:
       npm-deps:
         patterns: ["*"]
-    # Hold typescript: typescript-eslint does not support TypeScript 7, so a
-    # bump breaks `eslint .` (Web Lint) and the web build (E2E).
+    # typescript is held because typescript-eslint does not support TypeScript 7.
     ignore:
       - dependency-name: "typescript"
 

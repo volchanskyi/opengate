@@ -1,16 +1,5 @@
-//! On-disk record framing for the append-only substrate.
-//!
-//! A segment file is a flat sequence of length-prefixed, CRC-guarded records:
-//!
-//! ```text
-//! [u8 kind][u32 BE payload_len][u32 BE crc32(payload)][payload ...]
-//! ```
-//!
-//! Two record kinds exist: a *data* record (`payload = [u32 BE series][gorilla
-//! block]`) and a *commit* marker written by a durable commit. Recovery scans
-//! records in order; a torn trailing record is truncated away (bounded loss), a
-//! full-but-CRC-failing record is quarantined and skipped (never panics), and
-//! the last valid commit marker delimits the guaranteed-durable prefix.
+//! Record framing of the append-only substrate: `[u8 kind][u32 BE len][u32 BE crc32][payload]`.
+//! A data payload is `[u32 BE series][gorilla block]`; a commit record marks the durable prefix.
 
 use crate::crc::crc32;
 use crate::error::Result;
@@ -20,7 +9,7 @@ const KIND_DATA: u8 = 1;
 const KIND_COMMIT: u8 = 2;
 const HEADER_LEN: usize = 9;
 
-/// Append a data record (a compressed Gorilla block for one series) to `buf`.
+/// Appends a data record holding one series' Gorilla block to `buf`.
 pub fn write_data_record(buf: &mut Vec<u8>, series: SeriesId, block: &[u8]) {
     let mut payload = Vec::with_capacity(4 + block.len());
     payload.extend_from_slice(&series.to_be_bytes());
@@ -28,7 +17,7 @@ pub fn write_data_record(buf: &mut Vec<u8>, series: SeriesId, block: &[u8]) {
     write_record(buf, KIND_DATA, &payload);
 }
 
-/// Append a durable-commit marker to `buf`.
+/// Appends a durable-commit marker to `buf`.
 pub fn write_commit_record(buf: &mut Vec<u8>) {
     write_record(buf, KIND_COMMIT, &[]);
 }
@@ -56,8 +45,7 @@ pub struct ScanResult {
     pub chunks: Vec<Chunk>,
     /// How many of `chunks` are covered by the last valid commit marker.
     pub durable_chunks: usize,
-    /// If `Some(len)`, a torn trailing record was found and the file should be
-    /// truncated to `len` bytes to repair it.
+    /// `Some(len)` when a torn trailing record was found; truncating the file to `len` repairs it.
     pub repair_offset: Option<u64>,
     /// Number of full records dropped for a failed CRC (bit-rot quarantine).
     pub quarantined: usize,
@@ -65,8 +53,7 @@ pub struct ScanResult {
     pub has_commit: bool,
 }
 
-/// Scan a segment's bytes into recoverable chunks, never panicking on
-/// truncation or corruption.
+/// Scans a segment's bytes into chunks, stopping at a torn tail and skipping CRC failures.
 #[must_use]
 pub fn scan(bytes: &[u8]) -> ScanResult {
     let mut out = ScanResult::default();
@@ -74,7 +61,7 @@ pub fn scan(bytes: &[u8]) -> ScanResult {
 
     while pos < bytes.len() {
         if bytes.len() - pos < HEADER_LEN {
-            // Partial header at the tail: torn write.
+            // A partial header at the tail is a torn write.
             out.repair_offset = Some(pos as u64);
             break;
         }
@@ -83,7 +70,7 @@ pub fn scan(bytes: &[u8]) -> ScanResult {
         let crc = u32::from_be_bytes(bytes[pos + 5..pos + 9].try_into().unwrap());
         let body_start = pos + HEADER_LEN;
         if body_start + len > bytes.len() {
-            // Payload doesn't fully fit: torn write.
+            // A payload that overruns the buffer is a torn write.
             out.repair_offset = Some(pos as u64);
             break;
         }
@@ -91,7 +78,7 @@ pub fn scan(bytes: &[u8]) -> ScanResult {
         let next = body_start + len;
 
         if crc32(payload) != crc {
-            // Full record present but corrupt: quarantine and resync.
+            // A complete record with a bad CRC is quarantined and scanning resumes after it.
             out.quarantined += 1;
             pos = next;
             continue;
@@ -117,9 +104,7 @@ pub fn scan(bytes: &[u8]) -> ScanResult {
     out
 }
 
-/// Locate the payload byte range (Gorilla bits, past the series prefix) of the
-/// middle data record, for deterministic bit-rot fault injection. Returns
-/// `None` if there is no eligible data record.
+/// The Gorilla payload range, past the series prefix, of the middle data record; `None` if none.
 #[must_use]
 pub fn middle_data_payload_range(bytes: &[u8]) -> Option<std::ops::Range<usize>> {
     let mut ranges = Vec::new();
@@ -131,7 +116,7 @@ pub fn middle_data_payload_range(bytes: &[u8]) -> Option<std::ops::Range<usize>>
         if body_start + len > bytes.len() {
             break;
         }
-        // Skip the 4-byte series prefix so the flip lands in Gorilla bits.
+        // The range starts after the 4-byte series prefix, inside the Gorilla bits.
         if kind == KIND_DATA && len > 4 {
             ranges.push(body_start + 4..body_start + len);
         }
@@ -203,7 +188,7 @@ mod tests {
         write_commit_record(&mut buf);
         let durable_len = buf.len();
         write_data_record(&mut buf, 1, &block(10));
-        buf.truncate(buf.len() - 3); // shear the last record
+        buf.truncate(buf.len() - 3);
         let r = scan(&buf);
         assert_eq!(r.chunks.len(), 1);
         assert_eq!(r.durable_chunks, 1);
@@ -215,11 +200,10 @@ mod tests {
         let mut buf = Vec::new();
         write_data_record(&mut buf, 1, &block(10));
         write_data_record(&mut buf, 1, &block(10));
-        // Corrupt a byte inside the first payload (past its 9-byte header + series).
         buf[15] ^= 0xFF;
         let r = scan(&buf);
         assert_eq!(r.quarantined, 1);
-        assert_eq!(r.chunks.len(), 1); // second chunk still recovered
+        assert_eq!(r.chunks.len(), 1);
     }
 
     #[test]
@@ -229,9 +213,7 @@ mod tests {
         write_commit_record(&mut buf);
         let committed_len = buf.len();
 
-        // A valid CRC with a too-short data payload is an invalid full record.
         super::write_record(&mut buf, super::KIND_DATA, &[1, 2, 3]);
-        // An unknown record kind is also quarantined, then scanning continues.
         super::write_record(&mut buf, 99, &[4, 5, 6, 7]);
         write_data_record(&mut buf, 4, &block(1));
         buf.extend_from_slice(&[super::KIND_DATA, 0, 0]);

@@ -22,14 +22,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// What the server admits from an untrusted endpoint, and what it counts when it
-// refuses. An alert is the only carrier of the detail behind a signal, so every
-// refusal here is an incident nobody will ever be able to reconstruct — which is
-// why each one is counted under a reason rather than dropped quietly.
-
-// alertFixture is a connection wired the way production wires one — a customer
-// the machine belongs to, the compiled-in catalogue, a store — plus the pieces a
-// case needs to read back what happened.
+// alertFixture is a connection wired as production wires one, plus what a case reads back.
 type alertFixture struct {
 	conn    *AgentConn
 	store   *recordingAlertStore
@@ -68,17 +61,14 @@ func alertConn(t *testing.T) alertFixture {
 	}
 }
 
-// ingest drives one alert through the read-loop handler. It never fails: a
-// refused alert is a fact about that message, not a reason to tear down a
-// control channel that also carries this device's remote-management paths.
+// ingest drives one alert through the read-loop handler, which never fails.
 func (f alertFixture) ingest(t *testing.T, msg *protocol.ControlMessage) {
 	t.Helper()
 	require.NoError(t, f.conn.handleAgentAlert(f.ctx, msg, defaultAlertPayloadLen))
 }
 
-// dropped waits for exactly one alert to be counted under reason. The wait is
-// needed because a store outcome lands on the persist-slot goroutine rather than
-// the read loop.
+// dropped waits for exactly one alert to be counted under reason; store outcomes land on the
+// persist-slot goroutine.
 func (f alertFixture) dropped(t *testing.T, reason string) {
 	t.Helper()
 	require.Eventuallyf(t, func() bool {
@@ -99,12 +89,10 @@ func (f alertFixture) reachedStore(t *testing.T, n int) []alerts.Alert {
 	return got
 }
 
-// defaultAlertPayloadLen is a frame comfortably inside the alert path's bound,
-// so a case that is not about the bound never trips it.
+// defaultAlertPayloadLen is a frame comfortably inside the alert path's bound.
 const defaultAlertPayloadLen = 2048
 
-// catalogueRule names a rule this build actually ships, so a case meaning to
-// exercise something else is not quietly refused for inventing a rule.
+// catalogueRule names a rule this build ships.
 func catalogueRule(t *testing.T) (string, uint32) {
 	t.Helper()
 	catalogue, err := rules.Embedded()
@@ -114,8 +102,7 @@ func catalogueRule(t *testing.T) (string, uint32) {
 	return all[0].ID, uint32(all[0].Version)
 }
 
-// deflated compresses a payload the way the agent's evidence codec does, so a
-// case carrying evidence carries something that actually reads back.
+// deflated compresses a payload the way the agent's evidence codec does.
 func deflated(t *testing.T, raw []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -127,8 +114,7 @@ func deflated(t *testing.T, raw []byte) []byte {
 	return buf.Bytes()
 }
 
-// wellFormed is the alert every case below starts from and then breaks in one
-// place, so a case's name is the only thing that differs from a stored alert.
+// wellFormed is the alert every case starts from and then breaks in one place.
 func wellFormed(t *testing.T) *protocol.ControlMessage {
 	t.Helper()
 	ruleID, version := catalogueRule(t)
@@ -153,8 +139,7 @@ func wellFormed(t *testing.T) *protocol.ControlMessage {
 	}
 }
 
-// broken returns the well-formed alert with exactly one thing changed, so each
-// case below differs from an accepted alert in precisely the way its name says.
+// broken returns the well-formed alert with exactly one thing changed.
 func broken(t *testing.T, change func(*protocol.ControlMessage)) *protocol.ControlMessage {
 	t.Helper()
 	msg := wellFormed(t)
@@ -162,25 +147,19 @@ func broken(t *testing.T, change func(*protocol.ControlMessage)) *protocol.Contr
 	return msg
 }
 
-// severity is a small helper because the field is a pointer: a stated Info has
-// to be distinguishable from an absent severity, which is the whole reason it is
-// a pointer on the wire.
+// severity sets the pointer field, keeping a stated Info distinct from an absent one.
 func severity(s protocol.AlertSeverity) func(*protocol.ControlMessage) {
 	return func(msg *protocol.ControlMessage) { msg.Severity = &s }
 }
 
-// stamped moves every timestamp on the alert to one instant, which is how the
-// clock-window cases move an alert outside the range its kind is allowed.
+// stamped moves every timestamp on the alert to one instant.
 func stamped(at time.Time) func(*protocol.ControlMessage) {
 	return func(msg *protocol.ControlMessage) {
 		msg.WindowStartTS, msg.WindowEndTS, msg.ObservedTS = at.Unix(), at.Unix(), at.Unix()
 	}
 }
 
-// backfilledAt is the same, for a finding a machine produced by re-running a
-// rule over history it already held. It is legitimately old — that is the whole
-// point of it — so it says which kind it is and is measured against the wider
-// bound that kind is allowed.
+// backfilledAt is stamped for a retroactive finding, which has the wider bound.
 func backfilledAt(at time.Time) func(*protocol.ControlMessage) {
 	return func(msg *protocol.ControlMessage) {
 		stamped(at)(msg)
@@ -194,16 +173,11 @@ func TestHandleAgentAlertAdmission(t *testing.T) {
 	now := time.Now().UTC()
 
 	cases := []struct {
-		name string
-		// change breaks the well-formed alert in exactly one place. Nil leaves
-		// it whole, which is what an admitted case is.
+		name       string
 		change     func(*protocol.ControlMessage)
 		payloadLen int
-		// wantReason is empty for an alert that is admitted and reaches the
-		// store, and otherwise names the single reason it was refused under.
 		wantReason string
-		// preIngest marks a bound applied before the ingest counter fires, so
-		// the message was never counted as ingested at all.
+		// preIngest marks a bound applied before the ingest counter fires.
 		preIngest bool
 	}{
 		{
@@ -211,10 +185,6 @@ func TestHandleAgentAlertAdmission(t *testing.T) {
 			payloadLen: 1024,
 		},
 		{
-			// The evidence cap and the envelope are separate budgets. An alert
-			// carrying the largest evidence the contract allows is exactly the
-			// alert that matters most, so the bound has to leave room for the
-			// envelope around it.
 			name:       "an alert at the evidence cap plus its envelope is admitted",
 			payloadLen: protocol.MaxEvidenceBytes + alertEnvelopeHeadroomBytes,
 		},
@@ -225,111 +195,73 @@ func TestHandleAgentAlertAdmission(t *testing.T) {
 			preIngest:  true,
 		},
 		{
-			name:       "info is a severity",
-			change:     severity(protocol.AlertSeverityInfo),
-			payloadLen: 512,
+			name:   "info is a severity",
+			change: severity(protocol.AlertSeverityInfo),
 		},
 		{
-			name:       "warning is a severity",
-			change:     severity(protocol.AlertSeverityWarning),
-			payloadLen: 512,
+			name:   "warning is a severity",
+			change: severity(protocol.AlertSeverityWarning),
 		},
 		{
-			// The set is closed. A severity nothing downstream can render would
-			// be stored as an incident nobody knows how to present.
 			name:       "a severity outside the set is refused and counted",
 			change:     severity(protocol.AlertSeverity("Catastrophic")),
-			payloadLen: 512,
 			wantReason: alertDropSeverityUnknown,
 		},
 		{
 			name:       "an absent severity is refused rather than assumed",
 			change:     func(m *protocol.ControlMessage) { m.Severity = nil },
-			payloadLen: 512,
 			wantReason: alertDropSeverityUnknown,
 		},
 		{
-			// (device, rule, version, window start) is what lets a reconnect
-			// replay resolve to the row it already wrote. An alert missing any
-			// part of it cannot be deduplicated, so it is refused rather than
-			// stored under a null that would duplicate on the next reconnect.
 			name:       "an alert with no rule id is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.RuleID = "" },
-			payloadLen: 512,
 			wantReason: alertDropIdentityIncomplete,
 		},
 		{
 			name:       "an alert with no rule version is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.RuleVersion = 0 },
-			payloadLen: 512,
 			wantReason: alertDropIdentityIncomplete,
 		},
 		{
 			name:       "an alert with no window start is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.WindowStartTS = 0 },
-			payloadLen: 512,
 			wantReason: alertDropIdentityIncomplete,
 		},
 		{
 			name:       "an alert whose window runs backwards is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.WindowEndTS = m.WindowStartTS - 1 },
-			payloadLen: 512,
 			wantReason: alertDropIdentityIncomplete,
 		},
 		{
-			// A rule this build has no definition for cannot be rendered,
-			// grouped or retuned. Stored, it would be a row a technician can see
-			// and nobody can act on.
 			name:       "a rule this build does not ship is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.RuleID = "invented-by-the-endpoint" },
-			payloadLen: 512,
 			wantReason: alertDropRuleUnknown,
 		},
 		{
 			name:       "an observation with no timestamp is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.ObservedTS = 0 },
-			payloadLen: 512,
 			wantReason: alertDropTimestampOutOfRange,
 		},
 		{
-			// Refused rather than clamped: the window start is the alert's
-			// identity, so pulling it to a bound would make the same alert
-			// resolve to a different row on every reconnect and duplicate
-			// itself instead of deduplicating.
 			name:       "a live alert from a month ago is refused and counted",
 			change:     stamped(now.Add(-30 * 24 * time.Hour)),
-			payloadLen: 512,
 			wantReason: alertDropTimestampOutOfRange,
 		},
 		{
 			name:       "an alert stamped hours ahead of the server is refused and counted",
 			change:     stamped(now.Add(7 * time.Hour)),
-			payloadLen: 512,
 			wantReason: alertDropTimestampOutOfRange,
 		},
 		{
-			// A machine re-running a new rule over its own history answers
-			// "has this happened before?", and the local store reaches back
-			// months. The answer is worth having: a row is kept for a year
-			// from the day it arrives, so a finding from five months ago is
-			// one a technician can still open and act on.
-			name:       "a finding five months out of history is admitted",
-			change:     backfilledAt(now.Add(-150 * 24 * time.Hour)),
-			payloadLen: 512,
+			name:   "a finding five months out of history is admitted",
+			change: backfilledAt(now.Add(-150 * 24 * time.Hour)),
 		},
 		{
-			// And a finding older than the row would be kept for is refused:
-			// admitting it would file something the retention sweep removes
-			// before anybody reads it.
 			name:       "a finding older than an alert is kept for is refused and counted",
 			change:     backfilledAt(now.Add(-400 * 24 * time.Hour)),
-			payloadLen: 512,
 			wantReason: alertDropTimestampOutOfRange,
 		},
 		{
-			// Evidence is optional: a device that had nothing to attach still
-			// says the machine is in trouble, and that is the part nothing else
-			// can reconstruct.
 			name: "an alert with no evidence is admitted",
 			change: func(m *protocol.ControlMessage) {
 				m.Evidence = nil
@@ -338,26 +270,18 @@ func TestHandleAgentAlertAdmission(t *testing.T) {
 			payloadLen: 256,
 		},
 		{
-			// A codec the server cannot read means the blob is unreadable, and
-			// storing an unreadable blob beside an alert is worse than storing
-			// none: it reads as evidence that exists.
 			name:       "evidence under an unreadable codec is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.EvidenceCodec = "brotli-9" },
-			payloadLen: 512,
 			wantReason: alertDropEvidenceCodecUnknown,
 		},
 		{
 			name:       "evidence with no codec named is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.EvidenceCodec = "" },
-			payloadLen: 512,
 			wantReason: alertDropEvidenceCodecUnknown,
 		},
 		{
-			// The codec named is one the server reads and the blob still is not
-			// one, which the codec check alone cannot tell.
 			name:       "evidence that does not decode is refused and counted",
 			change:     func(m *protocol.ControlMessage) { m.Evidence = []byte("not deflate at all") },
-			payloadLen: 512,
 			wantReason: alertDropEvidenceUndecodable,
 		},
 		{
@@ -365,7 +289,6 @@ func TestHandleAgentAlertAdmission(t *testing.T) {
 			change: func(m *protocol.ControlMessage) {
 				m.Evidence = deflated(t, make([]byte, maxEvidenceInflatedBytes+1))
 			},
-			payloadLen: 512,
 			wantReason: alertDropEvidenceUndecodable,
 		},
 	}
@@ -378,7 +301,11 @@ func TestHandleAgentAlertAdmission(t *testing.T) {
 			if tc.change != nil {
 				tc.change(msg)
 			}
-			require.NoError(t, f.conn.handleAgentAlert(f.ctx, msg, tc.payloadLen))
+			payloadLen := tc.payloadLen
+			if payloadLen == 0 {
+				payloadLen = 512
+			}
+			require.NoError(t, f.conn.handleAgentAlert(f.ctx, msg, payloadLen))
 
 			if tc.wantReason == "" {
 				f.reachedStore(t, 1)
@@ -402,10 +329,6 @@ func TestHandleAgentAlertAdmission(t *testing.T) {
 
 func TestAlertPayloadBoundIsItsOwn(t *testing.T) {
 	t.Parallel()
-	// The telemetry bound and the alert bound are different budgets on different
-	// paths. Sizing the alert path from the telemetry one would put the largest
-	// legal evidence plus its envelope over the line, and E11's "truncate, never
-	// reject" would be defeated by a bound nobody had looked at.
 	assert.Greater(t, maxAlertPayloadBytes, maxTelemetryPayloadBytes,
 		"an alert carries evidence a telemetry message does not")
 	assert.Equal(t, protocol.MaxEvidenceBytes+alertEnvelopeHeadroomBytes, maxAlertPayloadBytes,
@@ -414,8 +337,6 @@ func TestAlertPayloadBoundIsItsOwn(t *testing.T) {
 
 func TestAgentAlertIsAWritePath(t *testing.T) {
 	t.Parallel()
-	// A purged device must not go on raising alerts: an alert becomes a stored
-	// incident, which is tenant data the purge just removed.
 	assert.True(t, isWritePathMessage(protocol.MsgAgentAlert))
 
 	tombstoned := &AgentConn{DeviceID: uuid.New(), logger: testLogger(), isTombstoned: func() bool { return true }}
@@ -425,8 +346,6 @@ func TestAgentAlertIsAWritePath(t *testing.T) {
 
 func TestAlertDropReasonsAreDistinct(t *testing.T) {
 	t.Parallel()
-	// Each refusal names its own cause. One shared reason would make a fleet-wide
-	// rollout bug and a single misbehaving device look like the same number.
 	reasons := []string{
 		alertDropPayloadTooLarge,
 		alertDropSeverityUnknown,
@@ -450,9 +369,6 @@ func TestAlertDropReasonsAreDistinct(t *testing.T) {
 
 func TestStoredSeverityKeepsTheWiresClosedSet(t *testing.T) {
 	t.Parallel()
-	// One closed set, two spellings. The wire mirrors the Rust enum and the
-	// database keeps the lower-cased form, so the mapping is a spelling rule
-	// rather than a second vocabulary that could drift out of step.
 	cases := map[protocol.AlertSeverity]alerts.Severity{
 		protocol.AlertSeverityInfo:     alerts.SeverityInfo,
 		protocol.AlertSeverityWarning:  alerts.SeverityWarning,
@@ -471,16 +387,10 @@ func TestStoredSeverityKeepsTheWiresClosedSet(t *testing.T) {
 	assert.False(t, ok, "an absent severity is not a severity")
 }
 
-// A rule about the machine's own words cannot be stopped by withholding it: the
-// machine's log reader carries it and goes on matching. So the customer's
-// decision is applied where the alert arrives, and an alert for a rule they
-// stopped is refused under its own reason rather than filed into a queue they
-// chose to stop watching.
 func TestAnAlertForARuleTheCustomerStoppedIsRefusedAndCounted(t *testing.T) {
 	t.Parallel()
 
 	f := alertConn(t)
-	// Everything this customer still wants — and the rule below is not in it.
 	f.conn.wantedEventRules = map[string]struct{}{"linux-hung-task": {}}
 
 	stopped := broken(t, func(m *protocol.ControlMessage) { m.RuleID = "linux-oom-kill" })
@@ -489,9 +399,6 @@ func TestAnAlertForARuleTheCustomerStoppedIsRefusedAndCounted(t *testing.T) {
 	f.dropped(t, alertDropRuleStopped)
 }
 
-// The same machine's other rules are unaffected, and so is every rule about a
-// reading — those are stopped by never reaching the machine, so an alert naming
-// one is an alert the customer still wants.
 func TestStoppingOneRuleDoesNotSilenceTheRest(t *testing.T) {
 	t.Parallel()
 
@@ -503,9 +410,6 @@ func TestStoppingOneRuleDoesNotSilenceTheRest(t *testing.T) {
 		"a rule about a reading is stopped by never being sent, so its alerts still arrive")
 }
 
-// A connection that has not been told which rules a customer wants admits them
-// all. Refusing every alert on a wiring detail would silence a fleet, which is
-// a far larger harm than filing an alert for a rule somebody stopped.
 func TestAConnectionToldNothingAdmitsEveryRule(t *testing.T) {
 	t.Parallel()
 

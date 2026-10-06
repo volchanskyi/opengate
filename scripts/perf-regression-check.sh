@@ -1,34 +1,14 @@
 #!/usr/bin/env bash
-# Hold the performance stack's and the endurance run's legs to the nights before
-# them, beside the fixed limits their profiles declare.
-#
-# Each leg is compared with the median of the latest reading of each of the
-# fourteen dates before tonight's, needing three, read through
-# scripts/lib/vm-query.sh — the comparison the load test makes. The fixed limits
-# are read in the leg's own job (scripts/perf-bundle-limits.sh) and are not
-# repeated here.
-#
-# Calibrated offline from the legs' bundles of 2026-09-13 to 2026-09-29, the
-# nights of the Docker proxy fault on 2026-09-25 to 09-27 set aside:
-#
-#   * A leg that holds its load moved at most 1.73 times its median from one
-#     night to the next (volume-500's registration tail), so it fails past three
-#     times. That would have caught the proxy fault's peak leg at 90 times.
-#   * A leg driven to or past what the venue holds — a quarter or half of a
-#     processor, eight thousand machines, the spike and the breakpoint — swung by
-#     up to 1400 times on unchanged code, because a night either saturates the
-#     venue or it does not. No band separates a regression from that, so the
-#     comparison is reported and decides nothing; the leg's fixed limits still
-#     do.
-#
-# A leg whose bundle says it did not measure the system is compared with
-# nothing.
+# Compares each leg with the median of its previous fourteen dates (three needed), read through
+# scripts/lib/vm-query.sh; a leg that holds its load fails past three times that median.
 #
 # Environment:
 #   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
 #
-# Exits: 0 nothing past its window, 1 a held leg past its window, 2 the question
-# could not be asked.
+# Exit codes:
+#   0  nothing past its window
+#   1  a held leg past its window
+#   2  the question could not be asked
 #
 # Usage: perf-regression-check.sh <bundle.json>...   (a leg is named by the bundle's directory)
 set -euo pipefail
@@ -42,7 +22,7 @@ MIN_WINDOW_DATES=3
 LATENCY_REL_TOL=2.0
 ERROR_RATE_REL_TOL=1.0
 
-# held_leg LEG — whether the leg holds its load, so its window decides.
+# held_leg reports whether a leg holds its load, so its window decides.
 held_leg() {
   case "$1" in
     scaling-1 | scaling-2 | volume-500 | volume-2000 | peak | soak) return 0 ;;
@@ -57,7 +37,7 @@ ROWS_FILE=""
 cleanup() { [ -z "$ROWS_FILE" ] || rm -f "$ROWS_FILE"; }
 trap cleanup EXIT
 
-# window MEASUREMENT — "leg/phase/workload<TAB>median<TAB>count" per series.
+# window prints "leg/phase/workload<TAB>median<TAB>count" per series.
 window() {
   vm_nightly_window "perf_$1" 'env="ci"' "$WINDOW_DATES" | awk -F'\t' '
     {

@@ -50,9 +50,6 @@ func TestAgentConn_SendRequestDeviceLogsRequiresCapability(t *testing.T) {
 	assert.Zero(t, buf.Len(), "old agents must not receive unsupported server-to-agent variants")
 }
 
-// TestAgentConn_HandleDeviceLogsResponse_NoWaiterDrops proves the read loop
-// never blocks on an unsolicited raw-log response: with no broker pull in
-// flight the response is dropped, not persisted anywhere.
 func TestAgentConn_HandleDeviceLogsResponse_NoWaiterDrops(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	codec := &protocol.Codec{}

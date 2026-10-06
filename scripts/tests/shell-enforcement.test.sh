@@ -48,10 +48,6 @@ assert_file_contains \
   "gauntlet runs the canonical shell check" \
   "$GAUNTLET" \
   'run_check "shell-check" -- make shell-check'
-# CI provisions through the composite action so every job that needs a pinned
-# tool asks for it the same way. Both halves are asserted: the workflow reaches
-# the action, and the action reaches the installer — checking only one of them
-# passes on a chain that has come apart in the middle.
 assert_file_contains \
   "CI provisions pinned shell tools" \
   "$CI_WORKFLOW" \
@@ -97,9 +93,7 @@ printf '%s\n' changed
 EOF
 start_ns="$(date +%s%N)"
 if SHELL_QUALITY_ROOT="$repo" "$RUNNER" changed HEAD >/dev/null; then
-  # Timing is reported, not gated: wall-clock duration is runner-load-sensitive,
-  # so a hard threshold false-fails on a busy CI runner. The correctness check is
-  # that changed-file validation succeeds.
+  # Timing is reported, not gated, because wall-clock duration depends on runner load.
   duration_ms="$(elapsed_ms "$start_ns" "$(date +%s%N)")"
   pass "clean changed-file validation completes (${duration_ms}ms)"
 else
@@ -135,9 +129,6 @@ fi
 
 start_ns="$(date +%s%N)"
 if "$RUNNER" check >/dev/null; then
-  # Timing is reported, not gated (see above): full-repo validation is ~4s
-  # locally but runs slower on a loaded CI runner, so a hard wall-clock threshold
-  # false-fails. The correctness check is that full validation succeeds.
   duration_ms="$(elapsed_ms "$start_ns" "$(date +%s%N)")"
   pass "full shell validation completes (${duration_ms}ms)"
 else

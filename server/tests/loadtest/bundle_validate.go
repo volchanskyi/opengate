@@ -6,17 +6,8 @@ import (
 	"strings"
 )
 
-// Whether a bundle can be read as a run at all.
-//
-// Every rule below refuses one way of producing a document that looks like
-// evidence and is not: a section nobody filled in, a number that describes an
-// intention rather than a reading, an absence that was never looked for. A
-// bundle that fails any of them never reaches disk, because writing one is how
-// it enters the trend — and a partial night absorbed as data lowers the window
-// median, so the next genuinely slow night compares favourably against it and
-// passes. One partial night quietly costs two.
-
-// Validate reports every reason this bundle could not be read as a run.
+// Validate reports every reason this bundle could not be read as a run. A bundle that fails
+// never reaches disk, because a partial night absorbed as data lowers the trend's window median.
 func (b *Bundle) Validate() error {
 	var problems []error
 
@@ -40,58 +31,6 @@ func (b *Bundle) Validate() error {
 	}
 
 	return errors.Join(problems...)
-}
-
-// validateBreakingPoint refuses an answer that could not have been reached.
-//
-// "Nothing gave out" is an absence, and an absence is satisfied by the absence
-// of the whole conversation: a ladder whose phases never arrived reports it just
-// as readily as one that held all the way up. So an answer states how many rungs
-// it read, and an answer that read none is not one.
-func (b *Bundle) validateBreakingPoint() []error {
-	if b.BreakingPoint == nil {
-		return nil
-	}
-	var problems []error
-	if b.BreakingPoint.RungsRead <= 0 {
-		problems = append(problems, errors.New(
-			"breaking_point read no rung — a ladder that looked at nothing did not find that nothing gave out"))
-	}
-	if b.BreakingPoint.GaveAt != "" && b.BreakingPoint.Reason == "" {
-		problems = append(problems, fmt.Errorf(
-			"breaking_point says %q gave out and does not say which reading decided it",
-			b.BreakingPoint.GaveAt))
-	}
-	return problems
-}
-
-// validateLeakTrail refuses a trail that cannot have found anything.
-//
-// It is the rule the breaking point already carries, one field over: "nothing
-// grew" is an absence, and an absence is satisfied by the absence of the whole
-// conversation. A single reading has no difference in it, an interval of nought
-// describes a watch that never ticked, and a trail naming nowhere to find its
-// readings cannot be checked by anybody — each of the three reports a clean bill
-// a leaking server would have produced just as readily.
-func (b *Bundle) validateLeakTrail() []error {
-	if b.Leak == nil {
-		return nil
-	}
-	var problems []error
-	if b.Leak.Snapshots < 2 {
-		problems = append(problems, fmt.Errorf(
-			"leak_trail carries %d reading(s) — a difference needs two, so this one found nothing because it looked once",
-			b.Leak.Snapshots))
-	}
-	if b.Leak.IntervalSeconds <= 0 {
-		problems = append(problems, errors.New(
-			"leak_trail declares no interval, so its readings describe no stretch of the run"))
-	}
-	if b.Leak.Directory == "" {
-		problems = append(problems, errors.New(
-			"leak_trail names nowhere its profiles were kept, so nothing it reports can be checked"))
-	}
-	return problems
 }
 
 func (b *Bundle) validateRun() []error {
@@ -119,15 +58,7 @@ func (b *Bundle) validateRun() []error {
 	return problems
 }
 
-// minPlausibleMemoryBytes is the floor below which a memory figure is a
-// placeholder rather than a reading.
-//
-// It is a mebibyte, which no machine or container this repository runs anything
-// on could be limited to and which every real reading clears by three orders of
-// magnitude. The number it exists to refuse is one byte: both fingerprints were
-// written as one processor and one byte of memory on every run, so four bundles
-// from a sweep whose only subject was the processor count reported identical
-// hardware and every latency figure beside them was uninterpretable.
+// minPlausibleMemoryBytes is one mebibyte, the floor below which a memory figure is a placeholder.
 const minPlausibleMemoryBytes = 1 << 20
 
 func validateFingerprint(field string, f Fingerprint) []error {
@@ -161,10 +92,8 @@ func (b *Bundle) validatePhases() []error {
 		return []error{errors.New("phases is empty — a run with no phase results measured nothing")}
 	}
 
-	// Whether this run could read the target at all. The two questions are
-	// answered by the same page, so a run that read what the target was holding
-	// could have read how hard it was working, and a phase that did not is a
-	// reading somebody dropped rather than a venue that publishes none.
+	// A run that read the target's census could also read its busy-ness, since one page
+	// answers both.
 	readTheTarget := b.readTheTarget()
 
 	var problems []error
@@ -192,12 +121,8 @@ func (b *Bundle) validatePhases() []error {
 	return problems
 }
 
-// readTheTarget reports whether this run read the target's own account of
-// itself, which is what the target series among the observations are.
-//
-// It is the document's own statement of the venue rather than a flag beside it:
-// a bundle carrying those series was pointed at a page that answered, and the
-// processor counter is on that same page.
+// readTheTarget reports whether the observations include series read off the target's own
+// exposition.
 func (b *Bundle) readTheTarget() bool {
 	for _, observation := range b.Observations {
 		if strings.HasPrefix(observation.Series, targetSeriesPrefix) {
@@ -207,22 +132,5 @@ func (b *Bundle) readTheTarget() bool {
 	return false
 }
 
-// targetSeriesPrefix names the observations that come off the target's own
-// exposition.
+// targetSeriesPrefix names the observations that come off the target's own exposition.
 const targetSeriesPrefix = "target_"
-
-// validateCleanup refuses a cleanup nobody counted without saying why, and a
-// count that found something left behind.
-func (b *Bundle) validateCleanup() []error {
-	if !b.Cleanup.Verified {
-		if b.Cleanup.NotCounted != "" {
-			return nil
-		}
-		return []error{errors.New("cleanup was never verified and the bundle does not say why — residue accumulates one unchecked run at a time")}
-	}
-	if !b.Cleanup.Clean() {
-		return []error{fmt.Errorf("run left residue: %d users, %d devices, %d customers, %d sites",
-			b.Cleanup.OrphanUsers, b.Cleanup.OrphanDevices, b.Cleanup.OrphanOrganizations, b.Cleanup.OrphanSites)}
-	}
-	return nil
-}

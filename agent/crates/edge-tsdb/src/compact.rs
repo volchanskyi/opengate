@@ -1,24 +1,5 @@
-//! Compact block codec — the Path-1 synthesis of Netdata dbengine + tsink ideas
-//! that are *encoding*, not *substrate*, so they compose on top of any store.
-//!
-//! Three density levers, borrowed and measured:
-//!
-//! - **float32 values** (Netdata's custom 32-bit float): host telemetry —
-//!   percentages, rates — does not need f64. Halves the value width. This is
-//!   **lossy** for fractional gauges (bounded by f32 precision) and the codec
-//!   makes that explicit.
-//! - **implicit fixed-step timestamps** (Netdata's fixed-step design): a regular
-//!   cadence stores only `first_ts` + `step`; per-point timestamps cost nothing.
-//!   Out-of-cadence points (NTP steps, gaps) are kept as sparse exceptions, so
-//!   the codec is still lossless in time.
-//! - **adaptive per-block value codec** (tsink's adaptive selection): a
-//!   monotonic integral series (a counter) is encoded **losslessly** with the
-//!   shared integer delta-of-delta; a fractional series uses **XOR32 Gorilla**.
-//!   The selector keeps whichever is smaller and tags the block.
-//!
-//! Plus an **inline anomaly bit** per sample (Netdata's storage-number anomaly
-//! flag) — WS-14b's "anomaly scores stored inline" requirement — RLE-packed so a
-//! sparse anomaly stream is nearly free.
+//! Compact block codec: float32 values (lossy for fractional gauges), implicit fixed-step
+//! timestamps with sparse exceptions, and RLE-packed anomaly bits.
 
 use crate::bitio::{BitReader, BitWriter};
 use crate::error::{Result, TsdbError};
@@ -30,25 +11,14 @@ const CODEC_FIXED_DOD: u8 = 1;
 const CODEC_INT_DOD: u8 = 2;
 const INT_SAFE: f64 = 9_007_199_254_740_992.0; // 2^53
 
-/// Encode a block with the adaptive float32 / lossless-integer value path (no
-/// fixed-point quantization). Timestamps are implicit against `step` with sparse
-/// exceptions, and one anomaly bit per sample. `anomaly` must be the same length
-/// as `samples`.
+/// Encodes a block on the adaptive float32 / lossless-integer path; `anomaly` matches `samples`.
 #[must_use]
 pub fn encode_compact(samples: &[Sample], anomaly: &[bool], step: i64) -> Vec<u8> {
     encode_compact_scaled(samples, anomaly, step, None)
 }
 
-/// Encode a block, optionally quantizing values to fixed-point at `scale`.
-///
-/// When `scale` is `Some(s)`, a fixed-point candidate is measured: each value is
-/// stored as `round(value × s)` delta-of-delta encoded — **lossless to 1/s
-/// precision** and typically ~7 % denser than float32-XOR for centi-precision
-/// gauges. The adaptive selector keeps the **smallest** of {fixed-point,
-/// float32-XOR, lossless int-DoD (integral only)} per block and tags it, so a
-/// series that packs better as float32 is never made worse by a fixed-point
-/// policy. `scale` must be positive; the chosen scale is stored in the block so
-/// decode needs no external policy.
+/// Encodes a block, optionally as `round(value × scale)` fixed-point; the smallest codec wins and
+/// a fixed-point block stores its `scale` inline.
 #[must_use]
 pub fn encode_compact_scaled(
     samples: &[Sample],
@@ -68,7 +38,6 @@ pub fn encode_compact_scaled(
     let (codec, value_bytes) = select_value_codec(samples, scale);
     out.push(codec);
 
-    // --- timestamp exceptions (points off the fixed cadence) ---
     let mut exc: Vec<(usize, i64)> = Vec::new();
     for (i, s) in samples.iter().enumerate() {
         let expected = first_ts.wrapping_add((i as i64).wrapping_mul(step));
@@ -84,11 +53,9 @@ pub fn encode_compact_scaled(
         prev_idx = idx;
     }
 
-    // --- values ---
     put_uvarint(&mut out, value_bytes.len() as u64);
     out.extend_from_slice(&value_bytes);
 
-    // --- anomaly bits, run-length encoded (runs alternate from `false`) ---
     put_anomaly_rle(&mut out, anomaly, samples.len());
 
     out
@@ -103,8 +70,7 @@ pub fn block_count(bytes: &[u8]) -> u32 {
     u32::from_le_bytes(bytes[0..4].try_into().unwrap())
 }
 
-/// Decode a block into its samples (timestamps exact, values f64-widened from
-/// their stored form) and the per-sample anomaly bits.
+/// Decodes a block into its samples (timestamps exact, values widened to f64) and anomaly bits.
 pub fn decode_compact(bytes: &[u8]) -> Result<(Vec<Sample>, Vec<bool>)> {
     let err = || TsdbError::CorruptBlock("compact");
     if bytes.len() < 4 {
@@ -122,7 +88,6 @@ pub fn decode_compact(bytes: &[u8]) -> Result<(Vec<Sample>, Vec<bool>)> {
     let codec = bytes[20];
     let mut pos = 21usize;
 
-    // timestamp exceptions
     let n_exc = get_uvarint(bytes, &mut pos).ok_or_else(err)? as usize;
     let mut exceptions: Vec<(usize, i64)> = Vec::with_capacity(n_exc);
     let mut prev_idx = 0usize;
@@ -133,7 +98,6 @@ pub fn decode_compact(bytes: &[u8]) -> Result<(Vec<Sample>, Vec<bool>)> {
         prev_idx = idx;
     }
 
-    // values
     let vlen = get_uvarint(bytes, &mut pos).ok_or_else(err)? as usize;
     let vbytes = bytes.get(pos..pos + vlen).ok_or_else(err)?;
     pos += vlen;
@@ -144,7 +108,6 @@ pub fn decode_compact(bytes: &[u8]) -> Result<(Vec<Sample>, Vec<bool>)> {
         _ => return Err(TsdbError::CorruptBlock("unknown value codec")),
     };
 
-    // anomaly bits
     let anomaly = get_anomaly_rle(bytes, &mut pos, count).ok_or_else(err)?;
 
     let mut out = Vec::with_capacity(count);
@@ -160,10 +123,7 @@ pub fn decode_compact(bytes: &[u8]) -> Result<(Vec<Sample>, Vec<bool>)> {
     Ok((out, anomaly))
 }
 
-/// Pick the densest value codec for a block. Preserves the original behaviour
-/// when `scale` is `None` (float32-XOR, or lossless int-DoD for an integral
-/// series when it is no larger), and adds fixed-point at `scale` as a candidate
-/// that wins only when strictly smaller.
+/// Picks the densest value codec; a fixed-point candidate at `scale` must be strictly smaller.
 fn select_value_codec(samples: &[Sample], scale: Option<i64>) -> (u8, Vec<u8>) {
     let integral = samples
         .iter()
@@ -189,10 +149,7 @@ fn select_value_codec(samples: &[Sample], scale: Option<i64>) -> (u8, Vec<u8>) {
     (codec, best)
 }
 
-// --- Fixed-point delta-of-delta (per-metric quantized gauges) ---------------
-
-/// Encode values as `round(value × scale)` integers, delta-of-delta coded. The
-/// scale is stored inline so decode is self-describing. Lossless to 1/scale.
+/// Encodes `round(value × scale)` delta-of-delta with the scale inline; lossless to 1/scale.
 fn encode_fixed_dod(samples: &[Sample], scale: i64) -> Vec<u8> {
     let mut out = Vec::with_capacity(8 + samples.len());
     out.extend_from_slice(&scale.to_le_bytes());
@@ -239,8 +196,6 @@ fn decode_fixed_dod(bytes: &[u8], count: usize) -> Result<Vec<f64>> {
     }
     Ok(out)
 }
-
-// --- XOR32 Gorilla over float32 values -------------------------------------
 
 fn encode_xor32(samples: &[Sample]) -> Vec<u8> {
     let mut w = BitWriter::new();
@@ -316,8 +271,6 @@ fn decode_xor32(bytes: &[u8], count: usize) -> Result<Vec<f64>> {
     Ok(out)
 }
 
-// --- Lossless integer delta-of-delta (counters) ----------------------------
-
 fn encode_int_dod(samples: &[Sample]) -> Vec<u8> {
     let mut w = BitWriter::new();
     let first = samples[0].value as i64;
@@ -353,11 +306,8 @@ fn decode_int_dod(bytes: &[u8], count: usize) -> Result<Vec<f64>> {
     Ok(out)
 }
 
-// --- Anomaly bit RLE --------------------------------------------------------
-
 fn put_anomaly_rle(out: &mut Vec<u8>, anomaly: &[bool], count: usize) {
-    // Runs alternate starting from `false`; a leading `true` yields a 0-length
-    // first run. Total run lengths always sum to `count`.
+    // Runs alternate starting from `false`, so a leading `true` yields a 0-length first run.
     let mut runs: Vec<u64> = Vec::new();
     let mut current = false;
     let mut len = 0u64;
@@ -393,8 +343,6 @@ fn get_anomaly_rle(bytes: &[u8], pos: &mut usize, count: usize) -> Option<Vec<bo
     }
     Some(out)
 }
-
-// --- Varints ----------------------------------------------------------------
 
 fn put_uvarint(out: &mut Vec<u8>, mut v: u64) {
     loop {
@@ -461,8 +409,6 @@ mod tests {
 
     #[test]
     fn fixed_point_is_lossless_to_scale() {
-        // Centi-precision gauge: fixed-point at ×100 recovers each value exactly
-        // to 0.01, which float32 cannot guarantee bit-for-bit.
         let g: Vec<Sample> = (0..400)
             .map(|i| Sample::new(1_000 + i, 37.50 + (i % 13) as f64 * 0.01))
             .collect();
@@ -477,8 +423,6 @@ mod tests {
 
     #[test]
     fn fixed_point_is_selected_and_denser_for_centi_gauges() {
-        // A slowly-moving centi gauge should pack smaller as fixed-point int-DoD
-        // than as float32-XOR — the measured density lever.
         let g: Vec<Sample> = (0..1_000)
             .map(|i| Sample::new(1_000 + i, 40.0 + ((i / 5) % 20) as f64 * 0.01))
             .collect();
@@ -495,8 +439,6 @@ mod tests {
 
     #[test]
     fn scale_never_regresses_below_adaptive() {
-        // A series that packs better as float32 must not be made larger by
-        // offering a fixed-point scale — the selector keeps the smallest.
         let noisy: Vec<Sample> = (0..500)
             .map(|i| Sample::new(1_000 + i, (i as f64 * 1.2345).sin() * 50.0))
             .collect();
@@ -518,7 +460,6 @@ mod tests {
             .map(|i| Sample::new(100 + i, 40.0 + (i % 4) as f64 * 0.25))
             .collect();
         let bytes = encode_compact(&g, &vec![false; g.len()], 1);
-        // No timestamps stored per point ⇒ well under 2 B/sample.
         assert!((bytes.len() as f64 / g.len() as f64) < 2.0);
         let (d, _) = decode_compact(&bytes).unwrap();
         for (x, o) in d.iter().zip(&g) {
@@ -566,7 +507,6 @@ mod tests {
     fn truncated_bytes_error_not_panic() {
         let s: Vec<Sample> = (0..50).map(|i| Sample::new(i, i as f64)).collect();
         let bytes = encode_compact(&s, &[false; 50], 1);
-        // Chop the tail: decode must return Err, never panic.
         assert!(decode_compact(&bytes[..bytes.len() / 2]).is_err());
     }
 }

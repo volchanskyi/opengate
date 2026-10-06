@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# How much of its own caps the database used through a run's measured phase:
-# processor as a share of its processor cap, and the program's own memory as a
-# share of its memory limit. Printed as
-#   {"cpu_percent", "cpu_cap", "memory_percent", "memory_cap"}
-# for scripts/run-summary.sh, with null for a reading that could not be taken —
-# which a summary prints as "not read", never as 0.
-#
-# On the runner's compose stack the reading is the container's own accounting:
-# its cgroup, sampled while the run is on. On staging it is the cluster's
-# container readings over the phase's window, asked of the metrics store.
+# Prints the database's processor and memory use as shares of their caps for run-summary.sh.
+# An unreadable value is null; compose reads the cgroup, staging asks the metrics store.
 #
 # Usage:
 #   database-levels.sh cgroup-of <container>          the container's cgroup directory

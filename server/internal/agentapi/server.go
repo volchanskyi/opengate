@@ -55,9 +55,7 @@ type AgentServer struct {
 	addrOnce       sync.Once
 }
 
-// AgentServerConfig gathers the AgentServer constructor's dependencies. A
-// struct rather than a long parameter list keeps the call sites readable now
-// that persistence ports are split across their consuming modules.
+// AgentServerConfig gathers the AgentServer constructor's dependencies.
 type AgentServerConfig struct {
 	Cert          *cert.Manager
 	Devices       device.Repository
@@ -71,33 +69,25 @@ type AgentServerConfig struct {
 	Metrics       *appmetrics.Metrics
 	QuicHost      string
 	Logger        *slog.Logger
-	// AlertRules provides each connecting agent's threshold-alert ruleset,
-	// resolved against the machine's place in the tenancy ladder. Optional: nil
-	// falls back to DefaultAlertRules for every tenant.
+	// AlertRules provides each agent's threshold-alert ruleset for its place in the
+	// tenancy ladder. Optional; nil falls back to DefaultAlertRules for every tenant.
 	AlertRules AlertRuleProvider
-	// RuleCoverage persists the one coverage state that is durable: which
-	// machines cannot evaluate a rule at all. Optional; nil keeps coverage
-	// entirely in memory.
+	// RuleCoverage persists which machines cannot evaluate a rule at all.
+	// Optional; nil keeps coverage in memory.
 	RuleCoverage UnsupportedCoverageStore
-	// FleetCoverage counts the whole install for the aggregate coverage gauge:
-	// the fleet size, and per rule how many machines cannot evaluate it.
-	// Optional; nil leaves the platform's fleet-wide coverage view unreported.
+	// FleetCoverage counts the fleet size and, per rule, the machines that cannot evaluate it.
+	// Optional; nil leaves fleet-wide coverage unreported.
 	FleetCoverage InstallCounter
-	// Settings reads a machine's place in the tenancy ladder, so alerts and
-	// vitals arriving on an agent connection carry the right customer. Optional:
-	// nil leaves each connection with the rungs it already knows for itself.
+	// Settings reads a machine's place in the tenancy ladder so alerts and vitals carry
+	// the right customer. Optional; nil leaves each connection with the rungs it knows.
 	Settings settings.Reader
-	// Tombstones is the persisted deny-list used to warm the in-memory cache at
-	// startup so a purged device stays rejected across restarts. Optional: nil
-	// disables warming (live purges still update the in-memory cache).
+	// Tombstones is the persisted deny-list that warms the in-memory cache at startup.
+	// Optional; nil disables warming, and live purges still update the cache.
 	Tombstones tombstoneLoader
-	// AlertStore files the alerts arriving from connected agents. Optional; nil
-	// counts every alert as a typed drop rather than pretending it landed —
-	// there is no path for asking the endpoint again, so an unstored alert must
-	// never read as a stored one.
+	// AlertStore files alerts from connected agents. Optional; nil counts every alert
+	// as a typed drop, so an unstored alert never reads as a stored one.
 	AlertStore AlertRecorder
-	// RuleCatalogue says which rules this build ships, so an alert naming one it
-	// does not is refused rather than stored as a row nobody can act on.
+	// RuleCatalogue lists the rules this build ships; an alert naming another is refused.
 	// Optional; nil accepts any rule id.
 	RuleCatalogue *rules.Catalogue
 }
@@ -154,18 +144,12 @@ func (s *AgentServer) ListConnectedAgents() []*AgentConn {
 	return agents
 }
 
-// addrWait bounds how long Addr will wait for the listener to bind. Binding a
-// UDP port on loopback takes milliseconds; the budget is wide enough that a
-// machine busy enough to be slow still gets its answer, and short enough that a
-// listener which is never coming up says so instead of stopping the caller for
-// good.
+// addrWait bounds how long Addr waits for the listener to bind: wide enough for a slow
+// machine, short enough that a listener that never comes up is reported.
 const addrWait = 30 * time.Second
 
-// Addr waits for the server to start listening and returns the actual address,
-// or the empty string when it never did. Every dial against an empty address
-// fails immediately and names the server that did not come up, which is what a
-// caller can act on; waiting on the send with no deadline gives a caller that
-// can do nothing at all, on a channel nobody is going to write.
+// Addr waits for the listener and returns its address, or the empty string when it never
+// bound, so a dial fails immediately and never waits on a channel nobody writes.
 func (s *AgentServer) Addr() string {
 	addr, listening := waitForAddr(s.addrCh, addrWait)
 	if !listening {
@@ -229,7 +213,6 @@ func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
 
 	s.logger.Info("agent QUIC server listening", "addr", actualAddr)
 
-	// Accept connections until context is cancelled
 	for {
 		conn, err := listener.Accept(ctx)
 		if err != nil {

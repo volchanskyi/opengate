@@ -13,17 +13,12 @@ import { fireAndForget } from '../../lib/fire-and-forget';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
 import { useOrganizationStore } from '../organizations';
 
-/** How often the grid refreshes device status while the tab is visible. */
 const DEVICE_LIST_POLL_MS = 15_000;
 
-// Estimated rendered height of one DeviceCard row including the grid gap. Exact
-// precision is not required — the virtualizer only uses it to place rows; cards
-// have a stable size so a fixed estimate avoids per-row DOM measurement.
+// Estimated height in pixels of one card row with its grid gap; cards have a stable size.
 const DEVICE_ROW_HEIGHT = 132;
 
-// Card columns per row, mirroring the responsive Tailwind grid this replaced
-// (grid-cols-1 / md:grid-cols-2 / lg:grid-cols-3). Virtualization needs the
-// column count in JS to map a flat device list onto virtual rows.
+// Card columns per row by width; the virtualizer maps the flat device list onto rows of this size.
 const COLUMN_BREAKPOINTS = [
   { minWidth: 1024, columns: 3 },
   { minWidth: 768, columns: 2 },
@@ -53,8 +48,6 @@ export function DeviceList() {
   const isLoading = useDeviceStore((s) => s.isLoading);
   const fetchSites = useDeviceStore((s) => s.fetchSites);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
-  // The picked customer is a narrowing of this list, so a change to it re-reads
-  // exactly like a change to the site filter does.
   const selectedOrganizationId = useOrganizationStore((s) => s.selectedOrganizationId);
   const upgradeAgent = useDeviceStore((s) => s.upgradeAgent);
   const manifests = useUpdateStore((s) => s.manifests);
@@ -81,8 +74,6 @@ export function DeviceList() {
     fireAndForget(fetchManifests());
   }, [fetchSites, fetchDevices, fetchManifests, selectedOrganizationId]);
 
-  // Poll device status so online/offline stays current. A hidden tab issues
-  // nothing and catches up the moment it is shown again.
   useVisibleInterval(() => {
     fireAndForget(fetchDevices(selectedSiteId ?? undefined));
   }, DEVICE_LIST_POLL_MS);
@@ -103,7 +94,6 @@ export function DeviceList() {
     );
   }, [devices, searchQuery, deviceFilter]);
 
-  // Devices that have an available upgrade (version behind latest manifest for their OS).
   const outdatedDevices = useMemo(() => {
     return devices.filter((d) => {
       const latest = manifests
@@ -148,10 +138,7 @@ export function DeviceList() {
     overscan: 4,
   });
 
-  // Lazily load the discovered-footprint hint for the devices actually mounted.
-  // Virtualization bounds this to the visible window; the store is cache-first so
-  // re-mounts during scroll are cheap no-ops. Keyed on the id set (UUIDs, so a
-  // comma join is unambiguous) to fire only when the visible devices change.
+  // Loads the footprint hint only for mounted devices, keyed on the visible id set.
   const fetchInventory = useInventoryStore((s) => s.fetchInventory);
   const virtualRows = rowVirtualizer.getVirtualItems();
   const visibleIds = useMemo(() => {
@@ -246,9 +233,6 @@ export function DeviceList() {
             </div>
           )}
 
-          {/* Virtualized device grid: only rows in (or near) the viewport are
-              mounted, so the page stays responsive regardless of device count.
-              filteredDevices is mapped onto virtual rows of `columns` cards. */}
           {!isLoading && filteredDevices.length > 0 && (
             <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {

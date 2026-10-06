@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# Guards against a Go-version skew between the local precommit gauntlet and CI
-# for govulncheck.
-#
-# The gauntlet's govulncheck honors server/go.mod's `toolchain` directive
-# (GOTOOLCHAIN=auto), so it analyzes against whatever stdlib that pins. CI's
-# "Security Audit" job pins an exact go-version for setup-go so govulncheck
-# analyzes a specific patched stdlib (the '1.26' minor manifest entry can lag a
-# fresh patch release). If those two diverge, a stdlib CVE fixed by bumping
-# go.mod's toolchain passes the gauntlet while CI still scans the vulnerable
-# patch — a false-green gauntlet. That is exactly how a go1.26.4 -> 1.26.5 bump
-# once landed green locally and red in CI.
-#
-# Fix by construction: server/go.mod is the single source of truth. Every exact
-# (three-part) go-version pinned in any workflow must equal it, and the Security
-# Audit job must carry such an exact pin (never a floating minor that can lag
-# go.mod and silently miss a fix).
-#
-# Run: ./scripts/tests/ci-govulncheck-go-version.test.sh
+# Holds govulncheck to one Go version locally and in CI, with server/go.mod as the source.
+# Every exact go-version in a workflow equals go.mod's toolchain, and Security Audit has one.
 
 set -euo pipefail
 
@@ -60,7 +44,7 @@ else
   exit 1
 fi
 
-# (A) Every exact three-part go-version pinned in any workflow must equal it.
+# Every exact three-part go-version in any workflow equals it.
 drift=0
 found=0
 while IFS= read -r pin; do
@@ -77,9 +61,7 @@ elif [ "$drift" -eq 0 ]; then
   pass "all exact workflow go-version pins == go.mod toolchain ($MOD_VER)"
 fi
 
-# (B) The CI "Security Audit" job must carry an exact pin == go.mod toolchain,
-# so govulncheck deterministically scans the patched stdlib and never silently
-# falls back to a floating minor that lags go.mod.
+# The CI "Security Audit" job carries an exact pin equal to go.mod's toolchain.
 audit_block="$(awk '
   /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { if (buf ~ /name: Security Audit/) print buf; buf = "" }
   { buf = buf $0 "\n" }

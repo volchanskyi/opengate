@@ -7,12 +7,6 @@ import (
 	"testing"
 )
 
-// TestCheckExcludesPlansFromScanScope pins the root-cause fix: files under
-// .claude/plans/ (active plans and archive/) are ephemeral and deletion-bound,
-// so their internal links rot by design. The checker must not scan them as link
-// SOURCES — a broken link inside a plan is ignored, while an identical broken
-// link in a durable doc under docs/ is still reported. (Links TO plan files from
-// durable sources remain governed by the plan-link policy; see checker_test.go.)
 func TestCheckExcludesPlansFromScanScope(t *testing.T) {
 	root := t.TempDir()
 	mustWrite := func(rel, content string) {
@@ -26,9 +20,7 @@ func TestCheckExcludesPlansFromScanScope(t *testing.T) {
 		}
 	}
 
-	// Broken links inside plan files (active and archived) resolving to a
-	// missing, non-plan target — a plain "target does not exist" that today is
-	// reported and must stop being reported once plans leave the scan scope.
+	// Plan files hold broken links to a missing non-plan target.
 	mustWrite(".claude/plans/active.md", "# Active plan\n\n[gone](../nonexistent-target.md)\n")
 	mustWrite(".claude/plans/archive/old.md", "# Archived plan\n\n[gone](../../nonexistent-target.md)\n")
 	// A broken link in a durable doc must still be reported.

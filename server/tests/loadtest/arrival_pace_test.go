@@ -8,16 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A phase declares a level and a length, and the two together are an offer: a
-// step going from eight thousand machines to sixteen thousand over five minutes
-// is offering fifty-three arrivals a second. The fleet is what makes that true.
-//
-// It did not. Every machine a step added was dialled the instant the step was
-// asked for, so the offer a profile declared arrived as ten bursts — and the
-// server, which refuses enrolments past a hundred a second on purpose, turned
-// most of each burst away. The volume family's eight-thousand leg reached 34% of
-// its declared arrival rate and the breakpoint ladder's top step reached 21%,
-// both on a target that was never asked to carry the load at all.
 func TestTheClimbIsSpreadOverTheWindowItIsGiven(t *testing.T) {
 	t.Run("a window spreads the dialling across it", func(t *testing.T) {
 		starter := &startCounter{}
@@ -27,22 +17,14 @@ func TestTheClimbIsSpreadOverTheWindowItIsGiven(t *testing.T) {
 		began := time.Now()
 		require.NoError(t, fleet.HoldConnected(400*time.Millisecond, 20))
 
-		// The dialling is spread. A burst would have every machine away before
-		// this line runs.
 		assert.Less(t, starter.startedCount(), 20)
 
-		// The level, unlike the dialling, is true at once — so the step after
-		// this one asks for the level it was going to ask for. Asking again for
-		// the level already asked for while the climb is still in flight adds
-		// nothing: a level that were only true once the machines had landed
-		// would dial twenty more here and end at forty.
+		// Asking again for the level already asked for adds no machines while the climb runs.
 		require.NoError(t, fleet.HoldConnected(0, 20))
 
 		require.Eventually(t, func() bool { return starter.startedCount() == 20 },
 			5*time.Second, 5*time.Millisecond)
 		assert.Equal(t, 20, starter.startedCount(), "twenty asked for, twenty dialled")
-		// And it took about the window it was given rather than no time at all,
-		// which is the whole of the difference between an offer and a burst.
 		assert.GreaterOrEqual(t, time.Since(began), 300*time.Millisecond)
 	})
 
@@ -53,8 +35,6 @@ func TestTheClimbIsSpreadOverTheWindowItIsGiven(t *testing.T) {
 
 		require.NoError(t, fleet.HoldConnected(0, 5))
 
-		// A wind-down and a fleet with no time to spread over both land here,
-		// and neither should be made to wait for a window nobody declared.
 		require.Eventually(t, func() bool { return starter.startedCount() == 5 },
 			5*time.Second, 5*time.Millisecond)
 	})
@@ -63,13 +43,9 @@ func TestTheClimbIsSpreadOverTheWindowItIsGiven(t *testing.T) {
 		starter := &startCounter{}
 		fleet := NewQUICFleet(starter.start)
 
-		// A long window against a level the run immediately abandons: every
-		// machine is still waiting its turn when the fleet is wound down.
 		require.NoError(t, fleet.HoldConnected(time.Hour, 50))
 		fleet.Stop()
 
-		// Counting these as machines that failed to arrive would report an
-		// error rate for a phase that never offered them.
 		assert.Zero(t, starter.startedCount(), "none of them ever dialled")
 		outcomes := fleet.Outcomes()
 		assert.Zero(t, outcomes.Arrived)
@@ -88,17 +64,12 @@ func TestTheClimbIsSpreadOverTheWindowItIsGiven(t *testing.T) {
 
 		began := time.Now()
 		require.NoError(t, fleet.HoldConnected(time.Minute, 2))
-		// A machine leaving is not an arrival, so nothing about it is paced:
-		// the window is a minute and the wind-down does not wait for it.
 		assert.Less(t, time.Since(began), 10*time.Second)
 		require.Eventually(t, func() bool { return fleet.Connected() == 2 },
 			5*time.Second, 5*time.Millisecond)
 	})
 }
 
-// The sequencer is what hands the fleet its window, and the window is the gap
-// until the next step of the climb. A phase that handed the fleet nothing would
-// leave every step a burst however carefully the fleet paced.
 func TestThePhaseHandsTheFleetTheGapUntilItsNextStep(t *testing.T) {
 	profile := &Profile{
 		Name:   "paced",

@@ -3,15 +3,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { usePushStore } from '../profile';
 import { NotificationCenter } from './NotificationCenter';
 
-// Every promise the component hands to fireAndForget, so a test can assert the
-// handler settled cleanly rather than throwing into a swallowed rejection.
 const { forwarded } = vi.hoisted(() => ({ forwarded: [] as Promise<unknown>[] }));
 
 vi.mock('../../lib/fire-and-forget', () => ({
   fireAndForget: (p: Promise<unknown>) => { forwarded.push(p); p.catch(() => {}); },
 }));
 
-/** A push subscription as the browser hands it back. */
 function createSubscription(endpoint: string, keys?: { p256dh: string; auth: string }) {
   return {
     endpoint,
@@ -20,7 +17,6 @@ function createSubscription(endpoint: string, keys?: { p256dh: string; auth: str
   };
 }
 
-/** Install a service-worker registration whose push manager the test controls. */
 function installServiceWorker(pushManager: {
   subscribe?: ReturnType<typeof vi.fn>;
   getSubscription?: ReturnType<typeof vi.fn>;
@@ -48,7 +44,6 @@ describe('NotificationCenter', () => {
       unsubscribe: vi.fn(),
     });
 
-    // Mock PushManager as available
     Object.defineProperty(globalThis, 'PushManager', { value: class {}, configurable: true });
   });
 
@@ -68,7 +63,6 @@ describe('NotificationCenter', () => {
     const button = screen.getByRole('button', { name: /enable notifications/i });
     expect(button).toBeInTheDocument();
     expect(button).toHaveAttribute('title', 'Enable notifications');
-    // Bell with a slash: notifications are off.
     expect(button).toHaveTextContent('\u{1F515}');
   });
 
@@ -87,7 +81,6 @@ describe('NotificationCenter', () => {
     delete globalThis.PushManager;
     const { container } = render(<NotificationCenter />);
     expect(container.innerHTML).toBe('');
-    // Restore for other tests
     Object.defineProperty(globalThis, 'PushManager', { value: saved, configurable: true });
   });
 
@@ -163,8 +156,6 @@ describe('NotificationCenter', () => {
     usePushStore.setState({ vapidKey: null });
     const pushSubscribe = vi.fn();
     const ready = vi.fn();
-    // A recording `ready` getter shows the handler reached the registration and
-    // then stopped, rather than never having run at all.
     Object.defineProperty(navigator, 'serviceWorker', {
       value: { get ready() { ready(); return Promise.resolve({ pushManager: { subscribe: pushSubscribe } }); } },
       configurable: true,
@@ -187,9 +178,6 @@ describe('NotificationCenter', () => {
     render(<NotificationCenter />);
     forwarded.length = 0;
     screen.getByRole('button').click();
-
-    // The guard has to return before touching navigator.serviceWorker —
-    // reaching it would reject with a TypeError instead of settling.
     const toggle = forwarded.at(-1);
     expect(toggle).toBeDefined();
     await expect(toggle).resolves.toBeUndefined();

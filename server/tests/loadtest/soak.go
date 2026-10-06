@@ -13,11 +13,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// loadOptions carries the Edge-Sentinel soak toggles: emitting the default
-// telemetry shape (health summary + host metric window + process report — the
-// WS-4 ingest path), emitting extra host-metric windows, answering on-demand
-// raw-log pulls (the broker round-trip), and driving a reconnect-storm backfill
-// drain (the WS-15 scheduler + tiered import path).
+// loadOptions carries the soak toggles: default telemetry, extra host-metric windows,
+// raw-log pull answers and the reconnect-storm backfill drain.
 type loadOptions struct {
 	defaultTelemetry        bool
 	telemetryCycles         int
@@ -26,51 +23,28 @@ type loadOptions struct {
 	backfillBatches         int
 	backfillSamplesPerBatch int
 
-	// holdFor keeps each agent connected after its traffic. A machine that
-	// connects and leaves exercises the accept path and nothing that happens
-	// afterwards, and a generator on the other side needs machines that are
-	// still there to open sessions against.
+	// holdFor keeps each agent connected after its traffic, so sessions can open against it.
 	holdFor time.Duration
 
-	// relaySessions answers a SessionRequest by joining the machine side of the
-	// relay and echoing. The browser side then times its own frame coming back,
-	// which is what makes a relay latency figure a measurement of the relay.
+	// relaySessions answers a SessionRequest by joining the machine side of the relay and
+	// echoing, so the browser side times its own frame coming back.
 	relaySessions bool
 
-	// sessionsJoined counts the machine sides this run answered, across every
-	// agent. It is the denominator the target's conservation is expressed
-	// against: a session has exactly one machine side, so a count of the sides
-	// answered is a count of the sessions completed. Nil counts nothing, which
-	// is what a unit test driving one agent wants.
+	// sessionsJoined counts the machine sides this run answered across every agent, one per
+	// completed session. Nil counts nothing.
 	sessionsJoined *atomic.Int64
 
-	// reconnect keeps a machine in the run after its connection breaks, so a
-	// fleet standing behind a link that goes dark is still there when the link
-	// returns. Off by default: a run measuring what a server carries wants a
-	// severance reported rather than repaired.
+	// reconnect keeps a machine in the run after its connection breaks. Off by default so a
+	// severance is reported.
 	reconnect bool
 
-	// retryDeferred makes a machine ask again when the server tells it to wait
-	// for a catch-up slot, which is what a shipped agent does — the scheduler
-	// admits four per customer and shortens a deferred machine's wait the
-	// longer it waits. Off by default: a load run sheds the load instead, so
-	// the deferral path is measured rather than queued through.
+	// retryDeferred makes a machine ask again when the server defers its catch-up slot.
+	// Off by default so a load run sheds the load and measures the deferral path.
 	retryDeferred bool
 }
 
-// defaultMetricDimNames is every host metric dimension a machine writes, in the
-// order a window carries them: each gauge's average, then its window maximum
-// where a within-minute spike is the signal, then the stall vitals and the
-// disk-performance vitals.
-//
-// It is the whole stored vocabulary rather than a sample of it, because the
-// cost a load run is measuring is per-series: a window carrying part of the set
-// writes fewer series, occupies less of the per-device budget and finishes
-// sooner than the one production actually receives, so the run would report a
-// server absorbing a load nobody sends.
-//
-// telemetry_shape_test.go holds this equal to the cross-language golden the
-// agent and the server already agree through.
+// defaultMetricDimNames is every host metric dimension a machine writes, in window order.
+// The full stored set is written because load cost is per-series.
 var defaultMetricDimNames = []string{
 	"cpu.total", "cpu.total.max",
 	"mem.used_percent", "mem.used_percent.max",
@@ -82,9 +56,8 @@ var defaultMetricDimNames = []string{
 	"disk.await_ms", "disk.await_ms.max", "disk.queue_depth",
 }
 
-// defaultFamilies are the per-family anomaly-rate buckets a health summary
-// reports beside the node-level rate. These are the names the server accounts
-// for, so a summary carrying them lands in the series a dashboard reads.
+// defaultFamilies are the per-family anomaly-rate buckets a health summary reports beside the
+// node-level rate, named as the server accounts for them.
 var defaultFamilies = []string{"cpu", "mem", "disk", "net", "proc"}
 
 // maxSoakLogLines bounds a soak DeviceLogsResponse so the agent side never
@@ -101,10 +74,8 @@ type soakStream interface {
 	SetReadDeadline(t time.Time) error
 }
 
-// buildExtraMetricWindow builds an AgentMetricWindow over the host-metric dims
-// with an empty tenant (the server assigns the authoritative tenant from the
-// connection). It drives extra WS-4 avg-series ingest load under multi-tenant
-// stress, on top of the default telemetry shape.
+// buildExtraMetricWindow builds an AgentMetricWindow over the host-metric dims with an empty
+// tenant, which the server assigns from the connection.
 func buildExtraMetricWindow(ts int64) *protocol.ControlMessage {
 	dims := make([]protocol.MetricDim, len(defaultMetricDimNames))
 	for i, name := range defaultMetricDimNames {
@@ -162,11 +133,8 @@ func readControlFrame(codec *protocol.Codec, r io.Reader) (*protocol.ControlMess
 	return codec.DecodeControl(payload)
 }
 
-// runSoakTraffic drives the Edge-Sentinel soak load for one agent: it emits the
-// default telemetry shape and extra host-metric windows (ingest), runs a
-// reconnect-storm backfill drain, optionally answers one on-demand raw-log pull
-// (the agent side of the broker round-trip), and then holds the connection open
-// for as long as the run asked, answering whatever the server sends.
+// runSoakTraffic drives the soak load for one agent: telemetry, backfill drain, metric windows,
+// an optional raw-log pull answer, then holds the connection open.
 func runSoakTraffic(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) error {
 	if err := emitDefaultTelemetry(codec, stream, opts); err != nil {
 		return err
@@ -181,8 +149,7 @@ func runSoakTraffic(ctx context.Context, codec *protocol.Codec, stream soakStrea
 		if err := stream.SetReadDeadline(time.Now().Add(answerPullDeadline)); err != nil {
 			return fmt.Errorf("set read deadline: %w", err)
 		}
-		// A missing pull within the deadline is expected in a bare run, so a
-		// read timeout is not an error; only a mid-frame failure is.
+		// A bare run sees no pull within the deadline, so only a mid-frame failure is an error.
 		if _, err := answerLogPull(codec, stream, stream); err != nil && !isTimeout(err) {
 			return fmt.Errorf("answer log pull: %w", err)
 		}
@@ -204,9 +171,8 @@ func emitMetricWindows(codec *protocol.Codec, w io.Writer, n int) error {
 	return nil
 }
 
-// answerLogPull reads one control frame; if it is a RequestDeviceLogs it writes
-// a bounded DeviceLogsResponse and reports that it handled a pull. Any other
-// frame is reported unhandled without a reply so the caller can dispatch it.
+// answerLogPull reads one control frame and answers a RequestDeviceLogs with a bounded
+// DeviceLogsResponse; any other frame is reported unhandled without a reply.
 func answerLogPull(codec *protocol.Codec, r io.Reader, w io.Writer) (bool, error) {
 	frameType, payload, err := codec.ReadFrame(r)
 	if err != nil {
@@ -232,8 +198,7 @@ func answerLogPull(codec *protocol.Codec, r io.Reader, w io.Writer) (bool, error
 	return true, nil
 }
 
-// isTimeout reports whether err is an i/o timeout, which the soak treats as "no
-// pull arrived" rather than a failure.
+// isTimeout reports whether err is an i/o timeout, which the soak reads as no pull arriving.
 func isTimeout(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &netErr) && netErr.Timeout()

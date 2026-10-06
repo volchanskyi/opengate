@@ -1,6 +1,5 @@
-// Command meshserver reads the world — flags, environment, listeners, signals
-// — and hands the resolved values to the composition root in internal/app,
-// which assembles the product. Nothing is wired here.
+// Command meshserver reads flags, environment, listeners and signals and hands the resolved
+// values to the composition root in internal/app, which assembles the server.
 package main
 
 import (
@@ -50,7 +49,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// PostgreSQL is required — read from flag or DATABASE_URL env.
 	pgURL := firstNonEmpty(*databaseURL, os.Getenv("DATABASE_URL"))
 	if pgURL == "" {
 		logger.Error("database URL is required: set --database-url or DATABASE_URL")
@@ -67,7 +65,6 @@ func main() {
 	defer store.Close()
 	logger.Info("database opened", "backend", "postgres")
 
-	// Use a cancellable context for graceful shutdown of all servers.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -136,10 +133,8 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownBudget)
 	defer shutdownCancel()
 
-	// Wait for those sessions before Shutdown rather than after. Shutdown cannot
-	// see them — websocket.Accept hijacked each one, which untracks it — so it
-	// would return immediately and the process would exit out from under
-	// connections it was in a position to close.
+	// Relay sessions drain before Shutdown, which cannot see them: websocket.Accept hijacked each
+	// connection, so Shutdown alone returns while those sessions are still open.
 	if err := assembly.Relay.WaitForDrain(shutdownCtx); err != nil {
 		logger.Warn("relay sessions still live at the shutdown deadline",
 			"sessions", assembly.Relay.ActiveSessionCount(), "error", err)
@@ -156,9 +151,8 @@ func main() {
 	logger.Info("server stopped")
 }
 
-// firstNonEmpty returns the first of its arguments that carries a value. Every
-// setting this process reads comes from a flag or an environment variable, in
-// that order, so the choice is made once here rather than at each site.
+// firstNonEmpty returns the first non-empty argument; each caller passes the flag before its
+// environment variable, so the flag takes precedence.
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if v != "" {
@@ -168,8 +162,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// serveBackground starts srv.ListenAndServe in a goroutine, logging startup and
-// treating any non-graceful failure as fatal (matching the public HTTP listener).
+// serveBackground runs srv.ListenAndServe in a goroutine and exits the process on any error
+// other than http.ErrServerClosed.
 func serveBackground(name string, srv *http.Server, logger *slog.Logger) {
 	go func() {
 		logger.Info(name+" starting", "addr", srv.Addr)
@@ -180,56 +174,31 @@ func serveBackground(name string, srv *http.Server, logger *slog.Logger) {
 	}()
 }
 
-// productionSchedule is how often each periodic worker runs in the running
-// server. The product knows how to start its workers; how often they should run
-// is this binary's choice, so the cadence is stated here and passed in.
+// productionSchedule sets how often each periodic worker runs in the running server.
 var productionSchedule = app.BackgroundSchedule{
-	// The runtime gauges — sessions, connected agents, connected AMT devices,
-	// signaling, connection-pool occupancy — are read often because a load run
-	// is short. The lag an observer adds is its own refresh plus the scrape
-	// behind it, and a burst that starts and finishes inside that window leaves
-	// every gauge reading the number it held before the burst began, so a run
-	// that connected a thousand agents can be recorded as a server that saw
-	// none. These are in-memory counts, so reading them this often costs
-	// nothing worth saving.
+	// Gauges refresh faster than a short load run, so a burst inside the window is still seen.
 	Gauges: app.ProductionGaugeInterval,
 
-	// The database's on-disk size moves slowly and the query is not free, so it
-	// is read far less often than it is scraped.
+	// The database size moves slowly and its query is costly, so it refreshes below scrape rate.
 	DBSize: 60 * time.Second,
 
-	// The platform's own view of the investigation tables is deliberately
-	// slower than the scrape: these are aggregates over tables that only grow,
-	// and a triage queue moves at the speed of people rather than of requests,
-	// so a minute-old count answers every question the gauges are asked.
+	// Investigation aggregates scan tables that only grow, so a minute-old count is enough.
 	Investigations: time.Minute,
 
-	// The orphan-series sweep is defense in depth behind a purge that already
-	// ran, so it runs on the hour rather than on the minute.
+	// The orphan-series sweep backs up a purge that already ran, so it runs hourly.
 	Reconcile: time.Hour,
 
-	// A session row survives without the relay holding its token for long
-	// enough to outlast the gap between issuing a token and connecting with it
-	// — a live session is spared by the keep-list however old it gets — so the
-	// grace period doubles as the worst-case lag before a session orphaned by a
-	// process restart disappears from the device page.
+	// The grace period outlasts the gap between issuing a token and connecting with it.
+	// It is also the worst-case lag before a session orphaned by a restart leaves the device page.
 	SessionSweep: time.Minute,
 	SessionGrace: 5 * time.Minute,
 
-	// How promptly a room that has gone quiet leaves the triage queue, and not
-	// whether it does: the hold itself is the rule's own grouping window, and an
-	// alert arriving after that window closes the lapsed room on its way past.
+	// The sweep interval bounds how long a quiet room stays in the triage queue.
 	IncidentSweep: 5 * time.Minute,
 
-	// A year is how long an alert, its evidence and the room it folded into are
-	// kept. Erasure already runs off a machine or a customer the moment either
-	// is purged; this is the other axis, and it is what makes the declared
-	// period the one the tables actually observe.
+	// Alerts, their evidence and their rooms are kept for one year.
 	RetentionHorizon: 365 * 24 * time.Hour,
 
-	// Against a horizon of a year, the cadence decides only two things: how far
-	// past the horizon a row can sit before it goes, and how much one pass has
-	// to remove. Four passes a day keeps both small, and a caught-up pass is an
-	// indexed range scan that finds nothing.
+	// Four passes a day keep rows close to the horizon and each pass small.
 	RetentionSweep: 6 * time.Hour,
 }

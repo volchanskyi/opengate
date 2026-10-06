@@ -10,12 +10,10 @@ import {
   FRAME_PONG,
 } from '../protocol/types';
 
-/** Get a proper ArrayBuffer from a Uint8Array (handles shared buffer offsets). */
 function toArrayBuffer(arr: Uint8Array): ArrayBuffer {
   return arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength) as ArrayBuffer;
 }
 
-// Mock WebSocket
 class MockWebSocket {
   static readonly OPEN = 1;
   static readonly CLOSED = 3;
@@ -64,7 +62,6 @@ vi.stubGlobal('WebSocket', class extends MockWebSocket {
     captureMockWs(this);
   }
 
-  // WebSocket static constants
   static override readonly OPEN = 1;
   static override readonly CLOSED = 3;
 });
@@ -238,8 +235,6 @@ describe('WSTransport', () => {
       expect(transport.state).toBe('disconnected');
     });
 
-    // A second connect replaces the socket; the first must not stay open
-    // beside it, relaying a session nobody is reading.
     it('connecting again closes the socket it replaces', () => {
       transport.connect('ws://host/relay', 'jwt');
       mockWsInstance.simulateOpen();

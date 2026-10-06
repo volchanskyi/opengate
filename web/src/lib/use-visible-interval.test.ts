@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useVisibleInterval } from './use-visible-interval';
 
-/** Drives document.visibilityState and fires the matching visibilitychange event. */
 function setVisibility(state: DocumentVisibilityState) {
   Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
   document.dispatchEvent(new Event('visibilitychange'));
@@ -52,8 +51,6 @@ describe('useVisibleInterval', () => {
     expect(cb).toHaveBeenCalledTimes(2);
   });
 
-  // A browser can report "visible" again without a hidden in between; each
-  // report must replace the running interval rather than add a second one.
   it('a repeated visible report keeps one interval running, not two', () => {
     const cb = vi.fn();
     renderHook(() => { useVisibleInterval(cb, 1000); });
@@ -67,7 +64,6 @@ describe('useVisibleInterval', () => {
   it('does not fire a catch-up on the first visible mount', () => {
     const cb = vi.fn();
     renderHook(() => { useVisibleInterval(cb, 1000); });
-    // Mount-time fetches are the caller's job; the hook governs the repeat only.
     expect(cb).not.toHaveBeenCalled();
   });
 
@@ -92,7 +88,6 @@ describe('useVisibleInterval', () => {
     act(() => { vi.advanceTimersByTime(900); });
     rerender();
     rerender();
-    // A restarting interval would have reset the 900 ms already elapsed.
     act(() => { vi.advanceTimersByTime(100); });
     expect(inner).toHaveBeenCalledTimes(1);
   });

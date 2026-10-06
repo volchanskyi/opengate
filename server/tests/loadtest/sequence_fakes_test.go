@@ -5,9 +5,6 @@ import (
 	"time"
 )
 
-// recordingFleet stands in for a fleet of machines. It records what it was asked
-// to do and when, so a sequencer can be stepped through a whole profile without
-// a network, a server, or a wait.
 type recordingFleet struct {
 	connected int
 	steps     []fleetStep
@@ -15,14 +12,11 @@ type recordingFleet struct {
 	latency   time.Duration
 	outcomes  FleetOutcomes
 
-	// probeCost is wall clock a round trip spends, charged to the phase that
-	// took it. A real round trip is a whole connect, handshake and register, so
-	// a phase pays for every one of them on top of the time it declares.
+	// probeCost is wall clock a round trip spends, charged to the phase that took it.
 	probeCost time.Duration
 	clock     *testClock
 
-	// arriveNumerator over arriveDenominator is the share of the machines asked
-	// for that turn up. Both zero is a fleet that delivers everything.
+	// arriveNumerator over arriveDenominator is the share of machines asked for that turn up.
 	arriveNumerator   int64
 	arriveDenominator int64
 }
@@ -38,9 +32,6 @@ func (f *recordingFleet) HoldConnected(within time.Duration, target int) error {
 		return errors.New("the fleet stopped answering")
 	}
 	f.steps = append(f.steps, fleetStep{within: within, target: target})
-	// Whatever the level climbed by is what turned up, so a fleet that is asked
-	// for more machines reports more arrivals and one that winds down reports
-	// none.
 	if target > f.connected {
 		f.outcomes.Arrived += f.arrivalsFor(int64(target - f.connected))
 	}
@@ -48,7 +39,6 @@ func (f *recordingFleet) HoldConnected(within time.Duration, target int) error {
 	return nil
 }
 
-// arrivalsFor is how many of the machines asked for actually turn up.
 func (f *recordingFleet) arrivalsFor(asked int64) int64 {
 	if f.arriveDenominator <= 0 {
 		return asked
@@ -70,23 +60,13 @@ func (f *recordingFleet) ProbeLatency() time.Duration {
 
 func (f *recordingFleet) Outcomes() FleetOutcomes { return f.outcomes }
 
-// alwaysRoomToRun is a machine with plenty left, so these cases exercise the
-// walk rather than the guard beside it.
-// unreadTarget is a run with no target to read. Every phase then reports an
-// absent busy-ness and no count of its own, which is what these cases are about
-// — they are about the walk, not about the target.
 var unreadTarget = PhaseReadings{}
 
 func alwaysRoomToRun() NodeReading {
 	return NodeReading{Measured: true, CPUPercent: 5, MemoryPercent: 10}
 }
 
-// testClock advances only when the sequencer asks it to, so a six-minute profile
-// is walked in microseconds and the boundaries it records are exact.
-//
-// tickOnNow is time passing while nothing sleeps, which is what a real clock
-// does between two readings of it. It is how a case tells a duration somebody
-// spent apart from one that is the cost of asking what time it is.
+// testClock advances only when asked, and tickOnNow adds time that passes between readings.
 type testClock struct {
 	now       time.Time
 	tickOnNow time.Duration

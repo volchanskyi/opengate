@@ -17,19 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// What the alert store has to guarantee, driven against a real database rather
-// than argued from the code.
-//
-// An alert is the only carrier of the detail behind a signal, so three things
-// matter more than the columns. It is written whole or not at all — an alert
-// stored beside evidence that failed to write would read as a complete record of
-// something nobody can reconstruct. A reconnect replaying a queued alert lands on
-// the row it already wrote rather than a second one. And a customer's hourly
-// ceiling is a brake on a storm, not a silence: what it refuses is counted and
-// folded into one room that says how much was lost.
-
-// The reads every assertion below makes, as static literals so no value is ever
-// interpolated into SQL.
+// The reads every assertion below makes, as static literals with no interpolated value.
 const (
 	qCustomerAlerts = `SELECT COUNT(*) FROM alerts WHERE organization_id = $1`
 	qDeviceAlerts   = `SELECT COUNT(*) FROM alerts WHERE device_id = $1`
@@ -39,7 +27,6 @@ const (
 	qRoomEvent      = `SELECT kind, body FROM incident_events WHERE incident_id = $1`
 )
 
-// estate is one customer's seeded rows plus the store under test.
 type estate struct {
 	store  *db.PostgresStore
 	alerts *Store
@@ -50,8 +37,7 @@ type estate struct {
 	now    time.Time
 }
 
-// newEstate seeds a customer with one machine and returns a store whose clock is
-// stopped, so a rolling window can be reasoned about exactly.
+// newEstate seeds a customer with one machine and a store whose clock is stopped.
 func newEstate(t *testing.T) estate {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -74,7 +60,6 @@ func newEstate(t *testing.T) estate {
 	}
 }
 
-// exec runs one scoped statement, which is how the fixtures below are seeded.
 func (e estate) exec(t *testing.T, query string, args ...any) {
 	t.Helper()
 	require.NoError(t, dbtx.Scoped(e.ctx, e.store.DB(), func(tx *sql.Tx) error {
@@ -83,9 +68,7 @@ func (e estate) exec(t *testing.T, query string, args ...any) {
 	}))
 }
 
-// readOne runs one scoped single-row read, which is how every assertion below
-// looks at what the store actually wrote — through the same wall production
-// reads pass.
+// readOne runs one single-row read through the same tenant scope production reads use.
 func (e estate) readOne(t *testing.T, query string, args []any, dest ...any) {
 	t.Helper()
 	require.NoError(t, dbtx.Scoped(e.ctx, e.store.DB(), func(tx *sql.Tx) error {
@@ -100,8 +83,7 @@ func (e estate) count(t *testing.T, query string, args ...any) int {
 	return n
 }
 
-// alert is the well-formed alert every case starts from and then changes in one
-// place, so a case's name is the only thing that differs from a stored one.
+// alert is the well-formed alert every case starts from and changes in one place.
 func (e estate) alert() Alert {
 	value := 98.2
 	return Alert{
@@ -121,8 +103,7 @@ func (e estate) alert() Alert {
 	}
 }
 
-// variant is the well-formed alert with one thing changed and an id of its own,
-// which is how a case says "another alert" without restating the whole of one.
+// variant is the well-formed alert with one thing changed and an id of its own.
 func (e estate) variant(change func(*Alert)) Alert {
 	a := e.alert()
 	a.ID = uuid.New()
@@ -132,8 +113,7 @@ func (e estate) variant(change func(*Alert)) Alert {
 	return a
 }
 
-// shifted moves an alert's window, which is what makes it a different alert
-// rather than a replay of the one before it.
+// shifted moves an alert's window, which makes it a different alert from the one before.
 func shifted(by time.Duration) func(*Alert) {
 	return func(a *Alert) {
 		a.WindowStart = a.WindowStart.Add(by)
@@ -141,25 +121,19 @@ func shifted(by time.Duration) func(*Alert) {
 	}
 }
 
-// perMachine is how the fixture's rule folds unless a case says otherwise: one
-// room per machine, held open a quarter of an hour, which is the shape the
-// shipped disk rule declares.
+// perMachine folds one room per machine, held open a quarter of an hour.
 var perMachine = Grouping{Scope: ScopeDevice, Window: 15 * time.Minute}
 
-// perCustomer is the estate-wide shape: one room for the whole customer, held
-// open half an hour, which is what a fleet event declares.
+// perCustomer folds one room for the whole customer, held open half an hour.
 var perCustomer = Grouping{Scope: ScopeOrganization, Window: 30 * time.Minute}
 
-// record files one alert and asserts the outcome, which is the single move
-// almost every case below is made of.
 func (e estate) record(t *testing.T, a Alert, want Outcome) {
 	t.Helper()
 	e.recordUnder(t, a, perMachine, want)
 }
 
-// seedHourOfAlerts writes n alerts stamped as received at receivedAt, which is
-// what the hourly ceiling counts. Written directly because the point of the case
-// is the ceiling, not the path that filled it.
+// seedHourOfAlerts writes n alerts stamped as received at receivedAt, which the hourly
+// ceiling counts.
 func (e estate) seedHourOfAlerts(t *testing.T, n int, receivedAt time.Time) {
 	t.Helper()
 	e.exec(t,
@@ -174,16 +148,14 @@ func (e estate) seedHourOfAlerts(t *testing.T, n int, receivedAt time.Time) {
 		e.tenant, e.org, e.device, receivedAt, n)
 }
 
-// room reads an incident's application state — the half no foreign key can keep
-// true.
+// room reads an incident's application state, which no foreign key keeps true.
 func (e estate) room(t *testing.T, id uuid.UUID) (status string, occurrences, deviceCount int) {
 	t.Helper()
 	e.readOne(t, qRoomState, []any{id}, &status, &occurrences, &deviceCount)
 	return status, occurrences, deviceCount
 }
 
-// openRoom resolves a grouping key to the room holding it, failing when there is
-// none — every caller here has already established that there should be.
+// openRoom resolves a grouping key to the room holding it and fails when there is none.
 func (e estate) openRoom(t *testing.T, ruleID string) Incident {
 	t.Helper()
 	incident, found, err := e.alerts.OpenIncident(e.ctx, e.org, ruleID, ScopeOrganization, e.org)
@@ -192,11 +164,6 @@ func (e estate) openRoom(t *testing.T, ruleID string) Incident {
 	return incident
 }
 
-// TestAlertAndEvidenceAreWrittenWholeOrNotAtAll drives C1's first half with a
-// forced failure rather than by reading the code: evidence past the cap the
-// database enforces fails the write, and the alert must not survive it. An alert
-// row without the evidence it was raised with would read as a complete record of
-// an incident nobody can reconstruct.
 func TestAlertAndEvidenceAreWrittenWholeOrNotAtAll(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -213,9 +180,6 @@ func TestAlertAndEvidenceAreWrittenWholeOrNotAtAll(t *testing.T) {
 		"evidence at the cap is exactly what has to fit")
 }
 
-// TestReplayedAlertIsANoOp drives C1's second half and E7. A reconnect replays
-// whatever the agent still holds, so the identity — not the id the device chose
-// — has to be what a replay resolves against.
 func TestReplayedAlertIsANoOp(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -223,20 +187,14 @@ func TestReplayedAlertIsANoOp(t *testing.T) {
 	first := e.alert()
 	e.record(t, first, Stored)
 
-	// The same alert, re-sent under a new id and a different severity, as an
-	// agent that lost its local queue's identity would send it.
+	// The same alert re-sent under a new id and a different severity.
 	e.record(t, e.variant(func(a *Alert) { a.Severity = SeverityWarning }), Duplicate)
 	assert.Equal(t, 1, e.count(t, qCustomerAlerts, e.org), "a replay must not write a second row")
 
-	// The next window is a different alert, not a replay of this one.
 	e.record(t, e.variant(shifted(5*time.Minute)), Stored)
 	assert.Equal(t, 2, e.count(t, qCustomerAlerts, e.org))
 }
 
-// TestCrossTenantReadIsDeniedByACraftedKey drives C7. A grouping key is
-// guessable — a rule id is compiled into every build and a customer id travels
-// in URLs — so the interesting attack is not a stolen row id but a caller asking
-// for a room that exists, in someone else's tenant, by naming it exactly.
 func TestCrossTenantReadIsDeniedByACraftedKey(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -255,24 +213,21 @@ func TestCrossTenantReadIsDeniedByACraftedKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, found, "a crafted grouping key must resolve to not found, never to a row")
 
-	// The same read inside tenant A finds it, so the case above failed for
-	// isolation rather than for a key that never matched anything.
+	// The same read inside tenant A finds it, so the denial above is isolation.
 	assert.Equal(t, incidentA, e.openRoom(t, "disk-critical").ID)
 
-	// The alert identity is the other guessable key: it is composed entirely of
-	// values the endpoint itself chose and could be replayed by anything.
+	// The alert identity is composed entirely of values the endpoint chose, so it is guessable.
 	_, found, err = e.alerts.AlertByIdentity(ctxB, e.device, "disk-critical", 3, e.alert().WindowStart)
 	require.NoError(t, err)
 	assert.False(t, found, "a crafted alert identity must not read across the wall")
 
-	// A caller with no scope at all fails closed rather than reading as empty.
+	// A caller with no scope at all fails closed.
 	_, _, err = e.alerts.OpenIncident(context.Background(), e.org, "disk-critical", ScopeOrganization, e.org)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 	_, err = e.alerts.Record(context.Background(), e.alert(), perMachine)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 
-	// Tenant B's own machine keeps working, so the wall is not simply a store
-	// that refuses everything.
+	// Tenant B's own machine keeps working, so the denial is isolation, not a refusing store.
 	own := e.variant(func(a *Alert) {
 		a.OrganizationID = siteB.OrganizationID
 		a.DeviceID = deviceB.ID
@@ -282,25 +237,18 @@ func TestCrossTenantReadIsDeniedByACraftedKey(t *testing.T) {
 	assert.Equal(t, Stored, got)
 }
 
-// TestOrganizationCeilingSuppressesAndFolds drives E9. The ceiling is the
-// customer's, never the tenant's: at the tenant one customer's bad night would
-// consume the budget of every other customer the MSP looks after, and silencing
-// detection across an estate is a worse failure than the storm.
 func TestOrganizationCeilingSuppressesAndFolds(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
 
-	// A full hour's budget, received 59 minutes ago — still inside a rolling
-	// hour, and outside the calendar one an off-by-a-clock implementation would
-	// use.
+	// A full hour's budget received 59 minutes ago is still inside the rolling hour.
 	e.seedHourOfAlerts(t, DefaultOrganizationHourlyCeiling, e.now.Add(-59*time.Minute))
 
 	e.record(t, e.alert(), CeilingSuppressed)
 	assert.Equal(t, DefaultOrganizationHourlyCeiling, e.count(t, qCustomerAlerts, e.org),
 		"a suppressed alert writes no row")
 
-	// Suppression is never silent: it folds into one room that says how much was
-	// lost, and a second suppression joins that room rather than opening another.
+	// Suppression folds into one room that counts what was lost; a second joins that room.
 	storm := e.openRoom(t, StormRuleID)
 	assert.Equal(t, 1, storm.Occurrences)
 	assert.Equal(t, e.org, storm.OrganizationID)
@@ -321,9 +269,6 @@ func TestOrganizationCeilingSuppressesAndFolds(t *testing.T) {
 		"a storm is one room, however long it lasts")
 }
 
-// TestCeilingWindowRollsRatherThanResetting pins the window shape. A calendar
-// hour would hand a customer a fresh 500 on the stroke of the hour, so a storm
-// that started at 02:58 would be un-suppressed two minutes later.
 func TestCeilingWindowRollsRatherThanResetting(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -331,17 +276,13 @@ func TestCeilingWindowRollsRatherThanResetting(t *testing.T) {
 
 	e.record(t, e.alert(), CeilingSuppressed)
 
-	// Two minutes later the seeded hour has aged past the window, and nothing
-	// about the calendar changed to do it.
+	// Two minutes later the seeded hour has aged past the rolling window.
 	later := e.now.Add(2 * time.Minute)
 	e.alerts.now = func() time.Time { return later }
 
 	e.record(t, e.variant(shifted(7*time.Minute)), Stored)
 }
 
-// TestCeilingIsPerCustomerNotPerTenant proves the choice D28 turns on. Two
-// customers of one MSP share a tenant and a database; one spending its budget
-// must leave the other's untouched.
 func TestCeilingIsPerCustomerNotPerTenant(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -359,17 +300,11 @@ func TestCeilingIsPerCustomerNotPerTenant(t *testing.T) {
 	}), Stored)
 }
 
-// TestErasingAMachineRepairsTheRoomItLeaves drives C8 and E13. The foreign key
-// takes the alerts and their evidence; it cannot touch the counts on the
-// incident, which are application state — so a passing cascade test proves
-// nothing about the number a technician actually reads.
 func TestErasingAMachineRepairsTheRoomItLeaves(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
 
-	// Contoso's rollout: forty machines, one room, folded by the engine rather
-	// than seeded, so the numbers under test are the ones a fold produced.
-	// DAL-WS-012 is the one being erased; it contributed two of the alerts.
+	// Forty machines fold into one room through the engine; the erased machine adds two alerts.
 	site := testutil.SeedSiteIn(t, e.ctx, e.store, e.org)
 	for i := range 39 {
 		other := testutil.SeedDevice(t, e.ctx, e.store, site.ID)
@@ -395,17 +330,13 @@ func TestErasingAMachineRepairsTheRoomItLeaves(t *testing.T) {
 	assert.Equal(t, 39, occurrences, "the erased machine's alerts stop being counted")
 	assert.Equal(t, "new", status, "a room that still holds alerts stays open")
 
-	// A second run of the same erasure changes nothing, so a resumed purge is
-	// safe to re-run.
+	// A second run of the same erasure changes nothing.
 	require.NoError(t, e.alerts.EraseDeviceAlerts(e.ctx, e.tenant, e.device))
 	_, occurrences, deviceCount = e.room(t, incident)
 	assert.Equal(t, 39, deviceCount)
 	assert.Equal(t, 39, occurrences)
 }
 
-// TestErasingTheLastMachineClosesTheRoom is the other half of E13. A room whose
-// every alert has been erased describes nothing, and left open it sits in a
-// customer's triage queue forever with no way to close it.
 func TestErasingTheLastMachineClosesTheRoom(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -426,15 +357,12 @@ func TestErasingTheLastMachineClosesTheRoom(t *testing.T) {
 	assert.Equal(t, "resolution", kind, "why a room closed is part of its history")
 	assert.Contains(t, string(body), "erased")
 
-	// Closing is not resolving by hand, so no cause code is invented for it.
+	// A room closed by erasure carries no cause code.
 	var cause sql.NullString
 	e.readOne(t, qRoomCause, []any{incident}, &cause)
 	assert.False(t, cause.Valid, "a cause code is a person's answer, not the system's")
 }
 
-// TestErasingATenantLeavesNoInvestigation drives E14's tenant half. A tenant
-// purge keeps the tenant row as the anchor for the retained audit trail, so
-// nothing cascades from it — the investigations have to be erased outright.
 func TestErasingATenantLeavesNoInvestigation(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -455,10 +383,6 @@ func TestErasingATenantLeavesNoInvestigation(t *testing.T) {
 		"and none of their history either")
 }
 
-// TestUnreachableStoreNeverReportsAnAlertStored drives E19. The edge retries on
-// the next reconnect, and that retry is only safe because the server never
-// claims to hold something it does not: a store that answered "stored" while
-// Postgres was down would lose the alert permanently.
 func TestUnreachableStoreNeverReportsAnAlertStored(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -471,24 +395,12 @@ func TestUnreachableStoreNeverReportsAnAlertStored(t *testing.T) {
 	assert.NotEqual(t, Stored, outcome)
 }
 
-// TestEvidenceCapMatchesTheWire pins the two ends of one number. The agent sizes
-// its truncation against the wire's cap; the database refuses anything past this
-// one. If they drift, a device would truncate to a size the store then rejects,
-// and the alert would be lost carrying exactly the evidence it was told to send.
 func TestEvidenceCapMatchesTheWire(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, protocol.MaxEvidenceBytes, MaxEvidenceBytes,
 		"the stored cap and the wire cap are the same cap")
 }
 
-// TestEveryStatementNamesItsTenant is what the shared predicate constant used to
-// be. Row-level security is the wall; naming the tenant in the statement too is
-// the second lock on the same door, and it is the one that still holds when a
-// purge runs admin-scoped in order to act on a tenant it is not.
-//
-// The statements are written out as whole literals so each can be read start to
-// finish rather than assembled from pieces, which is exactly why they need a
-// test rather than a constant to keep them honest.
 func TestEveryStatementNamesItsTenant(t *testing.T) {
 	t.Parallel()
 	scoped := map[string]string{
@@ -506,8 +418,7 @@ func TestEveryStatementNamesItsTenant(t *testing.T) {
 			"%s must name the tenant, either from the caller's scope or as an explicit argument", name)
 	}
 
-	// The storm room is written under the tenant the alert arrived on, which the
-	// policy checks on write; it carries no read predicate of its own.
+	// The storm room is written under the tenant the alert arrived on, which the policy checks.
 	assert.Contains(t, foldIntoStormSQL, "tenant_id",
 		"a storm room still belongs to exactly one tenant")
 }

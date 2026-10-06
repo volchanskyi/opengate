@@ -8,24 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A profile-driven run holds its machines connected on purpose, so the moment
-// it reads what happened decides whether it saw a fleet or an empty room.
-//
-// A machine reports once, when its own life ends. Reading the fleet's results
-// while every machine is still holding its level therefore reports nothing at
-// all — no successes and no failures — which is indistinguishable from a fleet
-// that never arrived, and is exactly the shape the volume family published for
-// a night it ran perfectly well.
-
-// holdingProfile is one phase that leaves its machines connected. The drain
-// phase is deliberately absent: what is being exercised is a run ending with its
-// fleet still up.
-//
-// The phase declares no length, because these cases walk on a test clock while
-// the fleet dials on the real one. A fleet spreads a climb across the window the
-// phase hands it, and a walk that takes microseconds hands out windows nothing
-// can be dialled inside — so the phase hands out none, which is a fleet with no
-// time to spread over and therefore every machine at once.
+// holdingProfile is one phase with no drain and no length, since the walk uses a test clock
+// while the fleet dials on the real one, so every machine arrives at once.
 func holdingProfile(agents int) *Profile {
 	return &Profile{
 		SchemaVersion: profileSchemaVersion,
@@ -48,8 +32,6 @@ func TestAProfileRunReportsTheMachinesItWasStillHolding(t *testing.T) {
 	results, phases, err := runProfile(holdingProfile(4), fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
-	// Every machine that held the level is in the results. Winding the fleet
-	// down is what makes them report, so it has to happen before the reading.
 	require.Len(t, results, 4,
 		"a machine still connected when the profile ended is one the run measured")
 	for _, result := range results {
@@ -62,7 +44,7 @@ func TestAProfileRunReportsTheMachinesItWasStillHolding(t *testing.T) {
 }
 
 func TestAProfileRunReportsTheMachinesThatNeverArrived(t *testing.T) {
-	// Two arrive, the rest are refused at the dial.
+	// Two machines arrive and the rest are refused at the dial.
 	starter := &startCounter{failFrom: 2}
 	fleet := NewQUICFleet(starter.start)
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
@@ -80,8 +62,6 @@ func TestAProfileRunReportsTheMachinesThatNeverArrived(t *testing.T) {
 	assert.Equal(t, 3, failed, "the gap between what was asked for and what arrived is the finding")
 }
 
-// A run the node stopped still says what it managed before it stopped, rather
-// than discarding the machines it had already driven.
 func TestAProfileRunStoppedByTheNodeStillReportsWhatItDrove(t *testing.T) {
 	starter := &startCounter{}
 	fleet := NewQUICFleet(starter.start)

@@ -11,9 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tenantFixture holds one tenant's seeded row identifiers. Every tenant table
-// gets exactly one row per tenant, so a scoped count is an exact number rather
-// than a lower bound.
+// tenantFixture holds one tenant's seeded row identifiers, one row per tenant table.
 type tenantFixture struct {
 	tenantID     uuid.UUID
 	userID       uuid.UUID
@@ -42,14 +40,6 @@ func newTenantFixture(label string) tenantFixture {
 	}
 }
 
-// TestTenantIsolationCoversEveryTenantTable is the behaviour contract the
-// tenancy rename must preserve: for every table carrying tenant scope, a caller
-// in one tenant sees its own row and none of the other tenant's, and an
-// unscoped connection fails closed rather than returning rows.
-//
-// It is table-driven over the whole tenant-table list so a table added later
-// without a policy — or one whose policy is dropped by a migration — fails here
-// rather than leaking silently.
 func TestTenantIsolationCoversEveryTenantTable(t *testing.T) {
 	s := newPostgresTestStore(t)
 	ctx := context.Background()
@@ -78,17 +68,10 @@ func TestTenantIsolationCoversEveryTenantTable(t *testing.T) {
 	}
 }
 
-// tenantTablesOutsideTheContract are the tenant-scoped tables deliberately left
-// unprobed. Both are erasure bookkeeping — the deny-list and the progress log —
-// which must outlive the rows they describe, so they carry the scope column
-// without a policy that would hide them from the process doing the erasing.
+// tenantTablesOutsideTheContract are the erasure deny-list and progress log, which carry the
+// scope column without a policy so the erasing process can see them.
 var tenantTablesOutsideTheContract = []string{"deleted_ids", "purge_jobs"}
 
-// TestEveryTenantTableIsProbed keeps the contract above honest. The probe list
-// is written by hand, one static query per table, so this reads the live schema
-// and insists the two agree: a table added later with a tenant_id column and no
-// probe fails here rather than going unproven, and a probe left behind by a
-// dropped table fails too.
 func TestEveryTenantTableIsProbed(t *testing.T) {
 	s := newPostgresTestStore(t)
 	ctx := context.Background()
@@ -106,8 +89,6 @@ func TestEveryTenantTableIsProbed(t *testing.T) {
 			"or be named in tenantTablesOutsideTheContract with a reason")
 }
 
-// tenantScopedTableNames lists the tables in the live schema that carry a
-// tenant_id column.
 func tenantScopedTableNames(t *testing.T, ctx context.Context, db *sql.DB) []string {
 	t.Helper()
 	rows, err := db.QueryContext(ctx, `
@@ -131,9 +112,7 @@ func tenantScopedTableNames(t *testing.T, ctx context.Context, db *sql.DB) []str
 	return names
 }
 
-// tenantIsolationProbe reads one tenant table two ways: everything the caller's
-// scope admits, and everything belonging to a named other tenant. Both queries
-// are static literals so no table name is ever interpolated into SQL.
+// tenantIsolationProbe reads one table two ways, through static queries with no interpolated name.
 type tenantIsolationProbe struct {
 	table      string
 	countAll   string
@@ -220,14 +199,12 @@ func tenantIsolationProbes() []tenantIsolationProbe {
 	}
 }
 
-// assertUnscopedFailsClosed proves the policies have no missing_ok fallback: a
-// connection that never set a tenant errors instead of returning an empty set,
-// so a forgotten scope can never read as "this tenant has nothing".
+// The policies have no missing_ok fallback, so an unscoped connection errors.
 func assertUnscopedFailsClosed(t *testing.T, ctx context.Context, db *sql.DB, probe tenantIsolationProbe) {
 	t.Helper()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
-	defer tx.Rollback() //nolint:errcheck // read-only probe
+	defer tx.Rollback()
 	_, err = tx.ExecContext(ctx, `SET LOCAL ROLE opengate_rls_test`)
 	require.NoError(t, err)
 
@@ -236,12 +213,10 @@ func assertUnscopedFailsClosed(t *testing.T, ctx context.Context, db *sql.DB, pr
 	require.Error(t, err, "%s must fail closed without tenant scope", probe.table)
 }
 
-// assertScopedSeesOwnRowOnly proves the read boundary in both directions: the
-// caller's own seeded row is visible and the other tenant's is not.
 func assertScopedSeesOwnRowOnly(t *testing.T, ctx context.Context, db *sql.DB, probe tenantIsolationProbe, own, other tenantFixture) {
 	t.Helper()
 	tx := beginTenantTx(t, ctx, db, own.tenantID, false)
-	defer tx.Rollback() //nolint:errcheck // read-only probe
+	defer tx.Rollback()
 
 	var visible int
 	require.NoError(t, tx.QueryRowContext(ctx, probe.countAll).Scan(&visible))
@@ -252,13 +227,10 @@ func assertScopedSeesOwnRowOnly(t *testing.T, ctx context.Context, db *sql.DB, p
 	assert.Zero(t, leaked, "%s: tenant %s must not read tenant %s", probe.table, own.label, other.label)
 }
 
-// assertAdminSeesBoth proves the deliberate cross-tenant path still works, so a
-// tightened policy that broke server-side purge or reconciliation is caught here
-// rather than in production.
 func assertAdminSeesBoth(t *testing.T, ctx context.Context, db *sql.DB, probe tenantIsolationProbe, a, b tenantFixture) {
 	t.Helper()
 	tx := beginTenantTx(t, ctx, db, a.tenantID, true)
-	defer tx.Rollback() //nolint:errcheck // read-only probe
+	defer tx.Rollback()
 
 	var fromA, fromB int
 	require.NoError(t, tx.QueryRowContext(ctx, probe.countOther, a.tenantID).Scan(&fromA))
@@ -267,14 +239,14 @@ func assertAdminSeesBoth(t *testing.T, ctx context.Context, db *sql.DB, probe te
 	assert.Equal(t, 1, fromB, "%s: admin scope must read tenant b", probe.table)
 }
 
-// seedTenantRows writes exactly one row per tenant table for f, inside f's own
-// tenant scope — so the WITH CHECK half of every policy is exercised too.
+// seedTenantRows writes one row per tenant table inside the tenant's own scope, which exercises
+// every WITH CHECK clause.
 func seedTenantRows(t *testing.T, ctx context.Context, db *sql.DB, f tenantFixture) {
 	t.Helper()
 	now := time.Now().UTC()
 
 	tx := beginTenantTx(t, ctx, db, f.tenantID, false)
-	defer tx.Rollback() //nolint:errcheck // harmless after Commit
+	defer tx.Rollback()
 
 	exec := func(query string, args ...any) {
 		t.Helper()

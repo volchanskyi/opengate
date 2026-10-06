@@ -7,20 +7,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// This file holds the CIRA/APF handshake sequence. The server core and
-// connection lifecycle live in mps.go; post-handshake message dispatch in
-// mps_handlers.go; the Conn/Channel types in mps_conn.go.
-
-// handshake performs the CIRA APF handshake sequence:
-// 1. ProtocolVersion exchange → 2. Auth service → 3. UserAuth →
-// 4. PFwd service → 5. GlobalRequest (tcpip-forward)
+// handshake runs protocol version exchange, auth service, user auth, then the pfwd service
+// and its tcpip-forward global request.
 func (s *Server) handshake(mc *Conn) (uuid.UUID, error) {
 	if err := mc.netConn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		return uuid.Nil, err
 	}
-	// Reset deadline on exit. SetDeadline only fails on a closed conn, in which
-	// case the handshake error path has already taken over and the result here
-	// is irrelevant — safe to ignore.
+	// SetDeadline fails only on a closed conn, where the handshake error path has taken over.
 	defer func() { _ = mc.netConn.SetDeadline(time.Time{}) }()
 
 	amtUUID, err := s.hsExchangeVersion(mc)
@@ -62,7 +55,6 @@ func (s *Server) hsAuthService(mc *Conn) error {
 	if err := expectServiceRequest(mc, ServiceAuth); err != nil {
 		return err
 	}
-	// User auth.
 	msgType, payload, err := ReadMessage(mc.netConn)
 	if err != nil {
 		return fmt.Errorf("read user auth: %w", err)
@@ -83,7 +75,6 @@ func (s *Server) hsPfwdService(mc *Conn) error {
 	if err := expectServiceRequest(mc, ServicePFwd); err != nil {
 		return err
 	}
-	// Global request (tcpip-forward).
 	msgType, payload, err := ReadMessage(mc.netConn)
 	if err != nil {
 		return fmt.Errorf("read global request: %w", err)

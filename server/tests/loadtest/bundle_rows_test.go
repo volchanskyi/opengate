@@ -11,13 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The limits a profile declares are read by one evaluator, and that evaluator
-// reads canonical rows. On the venues that run no browser-side generator there
-// are no canonical rows at all — what the night produces is this bundle — so
-// something has to turn one into the other, and it has to be exercised against
-// a bundle the harness actually wrote rather than against a hand-written copy
-// of what one looks like.
-
 // canonicalRow is as much of a row as the evaluator reads.
 type canonicalRow struct {
 	Source       string   `json:"source"`
@@ -27,9 +20,6 @@ type canonicalRow struct {
 	LatencyP95Ms *float64 `json:"latency_p95_ms"`
 }
 
-// rowsFromRealBundle builds a run's evidence the way a night does, writes it
-// through the validator — an incomplete bundle never reaches disk — and runs
-// the script the workflows run against the file that lands.
 func rowsFromRealBundle(t *testing.T) []canonicalRow {
 	t.Helper()
 
@@ -51,8 +41,6 @@ func rowsFromRealBundle(t *testing.T) []canonicalRow {
 	return rows
 }
 
-// exitOutput is whatever a failed script said on its error stream, so a broken
-// case reads as the refusal the script printed rather than as an exit status.
 func exitOutput(err error) string {
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
@@ -71,8 +59,6 @@ func TestABundleBecomesTheRowsTheEvaluatorReads(t *testing.T) {
 		byPhase[row.Phase] = row
 	}
 
-	// The three series the machine-side limits name, and nothing else: a row
-	// the evaluator never reads is the decoration this exists to remove.
 	assert.ElementsMatch(t, []string{"aggregate", "connect", "register"}, keysOf(byPhase))
 
 	require.NotNil(t, byPhase["aggregate"].ErrorRate)
@@ -83,7 +69,6 @@ func TestABundleBecomesTheRowsTheEvaluatorReads(t *testing.T) {
 	assert.Positive(t, *byPhase["register"].LatencyP95Ms)
 }
 
-// keysOf is the set of phases the rows name.
 func keysOf(rows map[string]canonicalRow) []string {
 	names := make([]string, 0, len(rows))
 	for name := range rows {

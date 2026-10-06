@@ -1,34 +1,5 @@
 //! The curated system-event rule pack and the rolling per-service error count.
-//!
-//! # Why a cursor, and not just a matcher
-//!
-//! The host log reader is a **bounded on-demand read, not a stream**: each poll
-//! shells out for the records written since some point and returns at most a
-//! fixed number of them. Successive polls therefore overlap, and the same record
-//! arrives again and again. Matching alone would fire an alert per look.
-//!
-//! So the pack carries a cursor. A record is evaluated once — the first time it
-//! is seen — and never again:
-//!
-//! - a record **newer** than the cursor is new, and fires;
-//! - a record **at** the cursor's instant fires only if its key has not been
-//!   seen at that instant, which is what keeps several records sharing one
-//!   microsecond from swallowing each other;
-//! - a record **older** than the cursor never fires, seen before or not. That
-//!   is the deliberate trade: a record that turns up late is lost rather than
-//!   duplicated, because an alert delivered twice costs an operator more trust
-//!   than one delivered never.
-//!
-//! The cursor starts at the moment the watch begins, so an agent that started a
-//! minute ago does not page anyone for yesterday's records simply because the
-//! reader's window reaches back past its own start.
-//!
-//! # What is counted rather than guessed
-//!
-//! A poll that comes back at the reader's line cap saw only the newest end of
-//! its window. **How many records fell off the old end is unknowable**, so a
-//! saturated poll is counted as an event in itself rather than being turned into
-//! an invented number of lost records.
+//! A cursor evaluates each record once: newer fires, same instant fires if unseen, older never.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -39,30 +10,22 @@ use mesh_protocol::{RuleCoverage, RuleCoverageState};
 use crate::alerts::evidence::{pack_evidence, EvidenceSource};
 use crate::alerts::sink::{AlertOrigin, AlertSeverity, EdgeAlert};
 
-/// Microseconds in a second: records are stamped in one and evidence windows
-/// are stated in the other.
+/// Microseconds in a second; records are stamped in microseconds and windows in seconds.
 const MICROS_PER_SEC: i64 = 1_000_000;
 
-/// Distinct record keys retained at the cursor's own instant. Reaching this
-/// would need more records than a microsecond-resolution clock can distinguish,
-/// so the cap bounds memory without bounding behavior.
+/// Distinct record keys retained at the cursor's own instant, bounding cursor memory.
 const MAX_KEYS_AT_CURSOR: usize = 512;
 
-/// One host log record, normalized away from whatever tool read it. A platform
-/// reader converts its own records into these, so the pack stays a list of
-/// (matcher, meaning) rows that knows nothing about journald, the Event Log, or
-/// anything that comes later.
+/// One host log record, normalized from whatever platform reader produced it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostEvent<'a> {
     /// When the record was written, in microseconds since the Unix epoch.
     pub ts_micros: i64,
     /// Normalized severity label: `ERROR`, `WARN`, `INFO` or `DEBUG`.
     pub level: &'a str,
-    /// The service or subsystem that emitted it, empty when the reader could
-    /// not attribute it to one.
+    /// The service or subsystem that emitted it, empty when unattributed.
     pub unit: &'a str,
-    /// The record's text, unredacted — redaction happens where an alert is
-    /// built, so a rule can still match on text that will not be published.
+    /// The record's text, unredacted; redaction happens when an alert is built.
     pub message: &'a str,
 }
 
@@ -70,9 +33,7 @@ pub struct HostEvent<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum EventLevel {
-    /// Diagnostic detail, and the answer for any label this agent does not
-    /// recognize: an unreadable level must not clear a floor it was never
-    /// measured against.
+    /// Diagnostic detail, and the level of any unrecognized label.
     Debug,
     /// Ordinary operation.
     Info,
@@ -83,10 +44,7 @@ pub enum EventLevel {
 }
 
 impl EventLevel {
-    /// Reads a normalized level label. Anything unrecognized is [`Debug`], the
-    /// floor, so an unparseable record can never satisfy a rule by accident.
-    ///
-    /// [`Debug`]: EventLevel::Debug
+    /// Reads a normalized level label; anything unrecognized is the lowest level.
     #[must_use]
     pub fn from_label(label: &str) -> Self {
         match label.trim().to_ascii_uppercase().as_str() {
@@ -98,18 +56,11 @@ impl EventLevel {
     }
 }
 
-/// What a rule looks for in one record.
-///
-/// The exclusions are what separate a rule from a substring search. Every
-/// subsystem that reports a failure also reports its recovery, usually naming
-/// the same component in nearly the same words — a disk that resets its link
-/// announces the link coming back up, a throttled core announces its
-/// temperature returning to normal. A matcher without `none_of` looks perfectly
-/// correct until it pages someone at 03:00 for a machine that just got better.
+/// What a rule looks for in one record; `none_of` excludes recovery messages that name the same
+/// component as the failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventMatcher {
-    /// Any one of these substrings, matched without regard to case, marks the
-    /// record.
+    /// Any one of these substrings, matched case-insensitively, marks the record.
     pub any_of: Vec<String>,
     /// None of these may appear, whatever else matched.
     pub none_of: Vec<String>,
@@ -136,10 +87,7 @@ impl EventMatcher {
 pub struct EventRule {
     /// How the catalogue identifies this rule.
     pub rule_id: String,
-    /// Which revision of this rule the machine is running. It travels with
-    /// every alert the rule raises, because the far end identifies an alert by
-    /// the rule *and* its revision: a rule whose meaning changes is a new
-    /// revision, so an alert raised last week still means what it meant then.
+    /// The rule revision this machine runs, carried onto every alert it raises.
     pub version: u32,
     /// How bad it is when it fires.
     pub severity: AlertSeverity,
@@ -150,14 +98,8 @@ pub struct EventRule {
 }
 
 impl EventRule {
-    /// The four curated rules a Linux host's journal can answer for.
-    ///
-    /// Each one names a failure the machine reports about itself and that no
-    /// gauge shows: a task stuck for minutes, memory reclaimed by killing
-    /// something, a disk that stopped answering, a processor slowing itself down
-    /// to survive its own heat. Another platform adds its own rows over its own
-    /// reader; the shape of a row is what makes that an addition rather than a
-    /// change.
+    /// The four curated rules a Linux host's journal can answer for: a stuck task, an
+    /// out-of-memory kill, a disk that stopped answering and thermal throttling.
     #[must_use]
     pub fn linux_pack() -> Vec<Self> {
         vec![
@@ -218,19 +160,12 @@ impl EventRule {
     }
 }
 
-/// The second signal class: one service failing over and over.
-///
-/// A single error from a service is ordinary. The same service producing them
-/// steadily for a day is a service nobody has noticed is broken, and no
-/// individual record says so.
+/// The second signal class: one service producing errors repeatedly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceErrorRule {
     /// How the catalogue identifies this rule.
     pub rule_id: String,
-    /// Which revision of this rule the machine is running. It travels with
-    /// every alert the rule raises, because the far end identifies an alert by
-    /// the rule *and* its revision: a rule whose meaning changes is a new
-    /// revision, so an alert raised last week still means what it meant then.
+    /// The rule revision this machine runs, carried onto every alert it raises.
     pub version: u32,
     /// How bad it is when it fires.
     pub severity: AlertSeverity,
@@ -238,9 +173,7 @@ pub struct ServiceErrorRule {
     pub threshold: u32,
     /// How far back the count reaches, in seconds.
     pub window_secs: i64,
-    /// How many services may be tracked at once. A host that produces errors
-    /// from an unbounded number of distinct services would otherwise grow this
-    /// map without limit; the services turned away are counted.
+    /// How many services may be tracked at once; services turned away are counted.
     pub max_services: usize,
 }
 
@@ -276,9 +209,8 @@ impl Cursor {
     }
 }
 
-/// Identifies a record within one instant. A hash rather than the text itself,
-/// so a burst of long records at one instant cannot grow the cursor's memory
-/// with their contents.
+/// Hashes a record to a key identifying it within one instant, so cursor memory is independent of
+/// record length.
 fn record_key(event: &HostEvent<'_>) -> u64 {
     let mut hasher = DefaultHasher::new();
     event.unit.hash(&mut hasher);
@@ -291,12 +223,9 @@ fn record_key(event: &HostEvent<'_>) -> u64 {
 #[derive(Debug)]
 struct ServiceErrors {
     rule: ServiceErrorRule,
-    /// The most recent error timestamps per service, oldest first, never more
-    /// than the threshold: knowing whether the threshold's worth of errors all
-    /// sit inside the window needs no more history than that.
+    /// The most recent error timestamps per service, oldest first, at most the threshold.
     recent: HashMap<String, VecDeque<i64>>,
-    /// Services currently over the threshold, so the crossing fires once rather
-    /// than once per error thereafter.
+    /// Services currently over the threshold, so a crossing fires once.
     over: HashSet<String>,
     untracked: u64,
 }
@@ -335,8 +264,7 @@ impl ServiceErrors {
         Self::forget_stale(seen, ts, window);
 
         if seen.len() >= threshold {
-            // `insert` answers false when the service was already over, which is
-            // exactly the "fires once per crossing" rule.
+            // `insert` answers false when the service was already over.
             self.over.insert(unit.to_string())
         } else {
             self.over.remove(unit);
@@ -355,10 +283,7 @@ impl ServiceErrors {
         }
     }
 
-    /// Forgets services whose errors have all aged out, so a host that produces
-    /// a burst from many services once does not hold them for the rest of the
-    /// run. This is what keeps `max_services` a backstop rather than a limit
-    /// reached in ordinary operation.
+    /// Forgets services whose errors have all aged out.
     fn forget_idle(&mut self, now: i64, window: i64) {
         self.recent.retain(|unit, seen| {
             Self::forget_stale(seen, now, window);
@@ -371,8 +296,7 @@ impl ServiceErrors {
     }
 }
 
-/// The system-event rule pack: curated per-record rules, plus the rolling
-/// per-service error count, evaluated over the records of one bounded poll.
+/// The system-event rule pack: curated per-record rules plus the rolling per-service error count.
 #[derive(Debug)]
 pub struct EventPack {
     rules: Vec<EventRule>,
@@ -382,16 +306,8 @@ pub struct EventPack {
 }
 
 impl EventPack {
-    /// What this pack is doing on this machine, one entry per rule.
-    ///
-    /// Every rule reports, including on a machine that cannot answer any of
-    /// them: a rule missing from the count is indistinguishable from a rule
-    /// nobody pushed, and a machine with no host log reader — a container, or a
-    /// platform this build reads no log on — is a standing hole in the estate's
-    /// monitoring rather than a machine that happens to be quiet.
-    ///
-    /// Taken from the pack's own rows rather than from anything running, so a
-    /// machine that returned before starting its watch still reports.
+    /// What this pack is doing on this machine, one entry per rule, read from the pack's own rows
+    /// so a machine that never started its watch still reports.
     #[must_use]
     pub fn coverage(
         rules: &[EventRule],
@@ -411,9 +327,7 @@ impl EventPack {
             .collect()
     }
 
-    /// A pack watching from `start_micros` onward. Rule instances are supplied
-    /// rather than assumed, so the catalogue decides what a device watches for
-    /// and this type only decides what watching means.
+    /// A pack watching from `start_micros` onward over the supplied rule instances.
     #[must_use]
     pub fn new(rules: Vec<EventRule>, services: ServiceErrorRule, start_micros: i64) -> Self {
         Self {
@@ -427,11 +341,7 @@ impl EventPack {
         }
     }
 
-    /// Evaluates one poll's records and returns the alerts they raise.
-    ///
-    /// `saturated` says the reader returned as many records as it is willing to
-    /// return, which means the window held at least that many and the oldest of
-    /// them were never seen.
+    /// Evaluates one poll's records; `saturated` marks a poll that returned the reader's full cap.
     pub fn poll(&mut self, events: &[HostEvent<'_>], saturated: bool) -> Vec<EdgeAlert> {
         if saturated {
             self.saturated_polls += 1;
@@ -469,15 +379,8 @@ impl EventPack {
         alerts
     }
 
-    /// Moves the watch to `ts_micros` without evaluating anything, so records
-    /// written before it never fire.
-    ///
-    /// This is what maintenance mode does with its window. The disruptive work
-    /// an admin performs under maintenance produces exactly the records this
-    /// pack matches — a host being rebooted stops answering its disks and kills
-    /// processes — so holding those records until maintenance ends would page
-    /// someone for the maintenance itself. Suppressing the window is the point,
-    /// not a side effect of skipping the read.
+    /// Moves the watch to `ts_micros` without evaluating anything, so records written before it
+    /// never fire; maintenance mode uses it to suppress its window.
     pub fn skip_to(&mut self, ts_micros: i64) {
         if ts_micros > self.cursor.at {
             self.cursor.at = ts_micros;
@@ -485,16 +388,11 @@ impl EventPack {
         }
     }
 
-    /// The least severe record any rule in this pack could act on.
-    ///
-    /// A reader uses it to bound what it fetches. Deriving it from the rules is
-    /// the point: a floor hardcoded at the call site would keep working right
-    /// up until someone adds a rule that watches warnings, which would then
-    /// match nothing and say nothing about matching nothing.
+    /// The least severe record any rule in this pack could act on, derived from the rules to bound
+    /// what a reader fetches.
     #[must_use]
     pub fn min_level(&self) -> EventLevel {
-        // The per-service count is fed by errors, so errors are needed whatever
-        // the per-record rules ask for.
+        // The per-service count is fed by errors, so errors are always needed.
         self.rules
             .iter()
             .map(|rule| rule.matcher.min_level)
@@ -503,9 +401,7 @@ impl EventPack {
             .min(EventLevel::Error)
     }
 
-    /// Polls that came back at the reader's cap, each one a window whose oldest
-    /// records were never seen. The number of records lost is not knowable, so
-    /// it is not reported as one.
+    /// Polls that came back at the reader's cap, each a window whose oldest records went unseen.
     #[must_use]
     pub fn saturated_polls(&self) -> u64 {
         self.saturated_polls
@@ -518,12 +414,7 @@ impl EventPack {
         self.services.untracked
     }
 
-    /// Evaluates one previously unseen record.
-    ///
-    /// A record that a curated rule explains does **not** also feed the
-    /// per-service count. The pack has already said what it was; counting it
-    /// again toward "this service keeps failing" would report one event twice
-    /// under two names, and the second name would be the vaguer of the two.
+    /// Evaluates one unseen record; a record a curated rule explains skips the per-service count.
     fn evaluate(&mut self, event: &HostEvent<'_>) -> Vec<EdgeAlert> {
         let matched: Vec<EdgeAlert> = self
             .rules
@@ -544,10 +435,7 @@ impl EventPack {
             return matched;
         }
 
-        // Only a failure attributable to a named service can say that *that*
-        // service keeps failing. Records the reader could not attribute would
-        // otherwise pile into one unnamed bucket and fire as though a single
-        // service were broken.
+        // Only errors attributed to a named service count toward that service.
         if EventLevel::from_label(event.level) < EventLevel::Error || event.unit.is_empty() {
             return Vec::new();
         }
@@ -572,16 +460,8 @@ impl EventPack {
     }
 }
 
-/// One record's alert, as every rule in the pack raises it.
-///
-/// A record is a moment rather than a stretch, so the window it fired for is
-/// that instant at both ends — the far end needs a window that runs forwards,
-/// and inventing a span around a single line would claim the rule looked at
-/// something it did not.
-///
-/// The record itself is the evidence, redacted by the composer on its way in.
-/// A rule watching the machine's own words watches no reading, so the alert
-/// names no dimension and carries no value that crossed a line.
+/// One record's alert: the window is the record's instant at both ends, the redacted record is the
+/// evidence, and the alert names no dimension and carries no value.
 fn alert_for(
     rule_id: &str,
     version: u32,

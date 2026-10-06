@@ -1,5 +1,3 @@
-// The forwarder over real sockets: what reaches the server, what comes back,
-// and which machine each reply belongs to.
 package main
 
 import (
@@ -10,9 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The instrument must not change what it measures. A shaper told to pass
-// carries a datagram both ways unaltered, or every number the drill produces
-// describes the shaper.
 func TestShaperForwardsBothWaysUntouched(t *testing.T) {
 	t.Parallel()
 	_, addr, _ := startShaper(t, 1)
@@ -23,9 +18,6 @@ func TestShaperForwardsBothWaysUntouched(t *testing.T) {
 	assert.Equal(t, "echo:hello", got, "the shaper altered what it forwarded")
 }
 
-// One server-facing socket per machine, so the server sees a distinct source
-// per machine and each reply routes back to the machine that asked. Sharing one
-// socket would deliver every reply to whichever machine spoke last.
 func TestShaperHoldsOneServerSocketPerMachine(t *testing.T) {
 	t.Parallel()
 	shaper, addr, server := startShaper(t, 1)
@@ -41,9 +33,6 @@ func TestShaperHoldsOneServerSocketPerMachine(t *testing.T) {
 	assert.Equal(t, 3, shaper.Machines(), "the shaper did not hold one mapping per machine")
 }
 
-// A machine that keeps talking keeps its mapping. Minting a fresh one per
-// datagram would give the server a new source address per packet, which is a
-// re-addressing scenario nobody asked for.
 func TestShaperReusesAMachinesMapping(t *testing.T) {
 	t.Parallel()
 	shaper, addr, server := startShaper(t, 1)
@@ -57,9 +46,6 @@ func TestShaperReusesAMachinesMapping(t *testing.T) {
 	assert.Equal(t, 1, server.sources(), "one machine's traffic reached the server from several addresses")
 }
 
-// Go's ReadFromUDP truncates silently. A truncated path-probing packet would
-// read as corruption the drill never asked for, and the run would report a
-// finding about the product that belongs to the instrument.
 func TestATruncatedReadIsFatalRatherThanQuiet(t *testing.T) {
 	t.Parallel()
 	assert.NoError(t, checkRead(readBufferBytes-1, readBufferBytes))
@@ -67,22 +53,17 @@ func TestATruncatedReadIsFatalRatherThanQuiet(t *testing.T) {
 		"a read that filled the buffer exactly was accepted as a whole datagram")
 }
 
-// 64 KiB is the largest a datagram can be, so a read that fills it is the only
-// reading that cannot be told apart from a truncation.
 func TestReadBufferHoldsTheLargestDatagramThereIs(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, 64*1024, readBufferBytes)
 }
 
-// A blackholed shaper is dark, not slow. The scenario asks for the connection
-// to die at the idle timeout, which needs nothing to arrive at all.
 func TestBlackholeStopsTrafficBothWays(t *testing.T) {
 	t.Parallel()
 	shaper, addr, _ := startShaper(t, 1)
 	conn := machine(t, addr)
 
-	// The mapping is established while the link is clear, so the outage
-	// interrupts a live path rather than preventing one from forming.
+	// The mapping forms while the link is clear, so the outage interrupts a live path.
 	_, err := exchange(t, conn, "before")
 	require.NoError(t, err)
 
@@ -99,9 +80,6 @@ func TestBlackholeStopsTrafficBothWays(t *testing.T) {
 	assert.Equal(t, "echo:after", got)
 }
 
-// A delayed datagram still arrives. The satellite scenario is the one where a
-// forwarder that quietly dropped what it was told to hold would look exactly
-// like a working link with a very patient agent on the end of it.
 func TestDelayedDatagramsStillArrive(t *testing.T) {
 	t.Parallel()
 	shaper, addr, _ := startShaper(t, 1)
@@ -112,10 +90,7 @@ func TestDelayedDatagramsStillArrive(t *testing.T) {
 	got, err := exchange(t, conn, "slow")
 	require.NoError(t, err, "a delayed datagram never arrived")
 	assert.Equal(t, "echo:slow", got)
-	// Both ways are delayed, so the round trip carries two of them.
 	assert.GreaterOrEqual(t, time.Since(sent), 100*time.Millisecond,
 		"the round trip was quicker than the delay applied to each half of it")
-	// A datagram held by the delay is still a datagram the shaper forwarded, so
-	// it lands in the forwarded count like any other.
 	awaitForwarded(t, shaper, 1, 1)
 }

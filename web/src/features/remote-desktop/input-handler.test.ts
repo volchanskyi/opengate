@@ -6,7 +6,6 @@ function createMockCanvas(): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = 1920;
   canvas.height = 1080;
-  // Mock getBoundingClientRect for coordinate normalization
   canvas.getBoundingClientRect = () => ({
     x: 0,
     y: 0,
@@ -21,7 +20,6 @@ function createMockCanvas(): HTMLCanvasElement {
   return canvas;
 }
 
-/** Point the canvas at a rect with the given origin, keeping the 960x540 size. */
 function placeCanvasAt(canvas: HTMLCanvasElement, left: number, top: number): void {
   canvas.getBoundingClientRect = () => ({
     x: left,
@@ -36,7 +34,6 @@ function placeCanvasAt(canvas: HTMLCanvasElement, left: number, top: number): vo
   });
 }
 
-/** The coordinates of the single MouseMove the handler emitted. */
 function movedTo(onMessage: ReturnType<typeof vi.fn>): { x: number; y: number } {
   const call = onMessage.mock.calls[0]?.[0] as ControlMessage | undefined;
   if (call?.type !== 'MouseMove') throw new Error(`expected a MouseMove, got ${String(call?.type)}`);
@@ -49,7 +46,7 @@ describe('InputHandler', () => {
     const canvas = createMockCanvas();
     const handler = new InputHandler(canvas, onMessage);
 
-    // Simulate mouse at (480, 270) on a 960x540 client rect → (960, 540) in 1920x1080 remote
+    // A 960x540 client rect maps onto the 1920x1080 remote screen.
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 480, clientY: 270 }));
 
     expect(onMessage).toHaveBeenCalledWith({
@@ -170,8 +167,7 @@ describe('InputHandler', () => {
     placeCanvasAt(canvas, 100, 50);
     const handler = new InputHandler(canvas, onMessage);
 
-    // 100px right and 50px below the canvas origin → (200, 100) after the 2x
-    // scale. Adding the origin instead of subtracting it would land elsewhere.
+    // The canvas origin is subtracted before the 2x scale.
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 100 }));
 
     expect(movedTo(onMessage)).toEqual({ x: 200, y: 100 });
@@ -184,12 +180,9 @@ describe('InputHandler', () => {
     const canvas = createMockCanvas();
     const handler = new InputHandler(canvas, onMessage);
 
-    // Prime the cache against the original rect.
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 480, clientY: 270 }));
     expect(movedTo(onMessage)).toEqual({ x: 960, y: 540 });
 
-    // The canvas moves; without invalidation the stale rect keeps producing the
-    // old coordinates.
     onMessage.mockClear();
     placeCanvasAt(canvas, 480, 270);
     globalThis.dispatchEvent(new Event('resize'));
@@ -210,7 +203,6 @@ describe('InputHandler', () => {
 
     onMessage.mockClear();
     placeCanvasAt(canvas, 240, 135);
-    // Scroll is captured, so it is observed even from a nested target.
     document.body.dispatchEvent(new Event('scroll', { bubbles: false }));
 
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 480, clientY: 270 }));
@@ -226,15 +218,13 @@ describe('InputHandler', () => {
     const removeSpy = vi.spyOn(globalThis, 'removeEventListener');
 
     const handler = new InputHandler(canvas, onMessage);
-    // Only the window registrations matter here; the canvas keeps its own.
     const registered = addSpy.mock.calls.map(([event, fn, capture]) => [event, fn, capture ?? false]);
     expect(registered.map(([event]) => event)).toEqual(['resize', 'scroll']);
 
     handler.destroy();
 
     const released = removeSpy.mock.calls.map(([event, fn, capture]) => [event, fn, capture ?? false]);
-    // A listener is only released when the event, the function and the capture
-    // flag all match what it was registered with.
+    // Release matches on event, function and capture flag.
     expect(released).toEqual(registered);
 
     addSpy.mockRestore();
@@ -246,7 +236,6 @@ describe('InputHandler', () => {
     const canvas = createMockCanvas();
     const handler = new InputHandler(canvas, onMessage);
 
-    // Move beyond canvas bounds
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 2000, clientY: 2000 }));
 
     const call = onMessage.mock.calls[0]![0];

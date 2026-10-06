@@ -3,29 +3,14 @@ import { test, expect } from "./fixtures";
 import type { Route, WebSocketRoute } from "@playwright/test";
 import { decode, encode } from "@msgpack/msgpack";
 
-// Chat (MessengerView) end-to-end send→echo.
-//
-// MessengerView sends a ChatMessage control frame over the relay WebSocket and
-// renders incoming ChatMessage frames. Like file-manager.spec.ts, this mocks
-// the relay at the wire level: routeWebSocket decodes the browser's outbound
-// ChatMessage frame and echoes a reply frame back, so the full encode → relay →
-// decode → store → render path runs against real msgpack bytes. The component's
-// rendering details are unit-tested in MessengerView.test.tsx; this covers the
-// route-level integration the unit test cannot reach.
-//
-// This is the one device page the stack's own machines cannot stand in for.
-// The Chat tab is shown only for a machine reporting RemoteDesktop, and a Linux
-// agent does not: desktop capture there is the null implementation, in
-// production as much as in a container. So the machine is described here rather
-// than enrolled — the alternative is a Windows or macOS machine in the browser
-// stack, which is a much larger thing than this spec is worth.
+// The Chat tab needs RemoteDesktop, which a Linux agent lacks, so the device and relay are stubbed.
 
 const DEVICE_ID = "11111111-1111-4111-8111-dddddddddddd";
 const GROUP_ID = "33333333-3333-4333-8333-333333333333";
 const SESSION_TOKEN = "e2e-chat-token-00000000000000000000000000000000";
 const RELAY_URL = "wss://relay.invalid/relay";
 
-// Mirrors web/src/lib/protocol/types.ts
+// Control frame type byte, as in web/src/lib/protocol/types.ts.
 const FRAME_CONTROL = 0x01;
 
 function encodeControlFrame(message: object): Buffer {
@@ -83,8 +68,6 @@ async function stubCommonRoutes(page: AuthedPage) {
   });
 }
 
-// mockRelayEcho replies to each outbound browser ChatMessage with an
-// agent-sent ChatMessage echoing the text, and records what the browser sent.
 async function mockRelayEcho(page: AuthedPage): Promise<{ sent: string[] }> {
   const sent: string[] = [];
   await page.routeWebSocket(
@@ -121,13 +104,10 @@ test.describe("Chat flow", () => {
     await box.fill("hello agent");
     await authedPage.getByRole("button", { name: "Send" }).click();
 
-    // Optimistic local render of the sent message (exact: the echo bubble
-    // below also contains this substring).
+    // exact: the echo bubble also contains this substring.
     await expect(authedPage.getByText("hello agent", { exact: true })).toBeVisible();
-    // Echo travelled the full wire path back and rendered.
     await expect(authedPage.getByText("echo: hello agent")).toBeVisible();
     expect(relay.sent).toContain("hello agent");
-    // Input clears after send.
     await expect(box).toHaveValue("");
   });
 

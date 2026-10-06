@@ -65,16 +65,13 @@ if [ -x "$SETUP" ]; then
     fail "configure-oci writes protected OCI files"
   fi
 
-  # Oracle's client asks for a label line at the end of the key file, and warns
-  # on every single call until it finds one. The warning lands on standard
-  # error, where it stands in front of the real reason whenever a call fails.
+  # Oracle's client warns on standard error on every call until the key file ends with a label line.
   if [ "$(tail -n 1 "$home_dir/.oci/key.pem")" = "OCI_API_KEY" ]; then
     pass "the key file ends with the label Oracle's client asks for"
   else
     fail "the key file ends with the label Oracle's client asks for (last line=[$(tail -n 1 "$home_dir/.oci/key.pem")])"
   fi
 
-  # A key that already carries the label is not given a second one.
   labelled_home="$TMP_DIR/labelled"
   mkdir -p "$labelled_home"
   HOME="$labelled_home" OCI_TENANCY=t OCI_USER=u OCI_FINGERPRINT=f OCI_REGION=r \
@@ -138,9 +135,6 @@ EOF
     fail "fetch-kubeconfig forwards OCI inputs and protects output"
   fi
 
-  # The Oracle CLI is installed at the manifest's version, read from the
-  # manifest rather than repeated here, so a release nobody chose never lands
-  # between two nights.
   # shellcheck source=../lib/tool-versions.sh
   . "$REPO_ROOT/scripts/lib/tool-versions.sh"
   pip_trace="$TMP_DIR/pip-trace"

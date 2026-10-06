@@ -35,8 +35,6 @@ func (r *relayCleanupRepo) DeleteRelaySession(_ context.Context, token string) e
 	return r.err
 }
 
-// TestCleanupRelaySessionUsesBackgroundDelete covers the callback the relay
-// fires when a session ends: the row must go by the same token the relay held.
 func TestCleanupRelaySessionUsesBackgroundDelete(t *testing.T) {
 	t.Parallel()
 	token := protocol.GenerateSessionToken()
@@ -54,11 +52,6 @@ func TestCleanupRelaySessionUsesBackgroundDelete(t *testing.T) {
 	})
 }
 
-// TestRuleIDsAreTheWholeShippedCatalogue keeps the vocabulary the investigation
-// series are bounded by equal to the rules this build actually ships. A rule
-// missing from it would still fire, still be stored, and be counted under the
-// catch-all — visible as a metric nobody can attribute rather than as a rollout
-// nobody can read.
 func TestRuleIDsAreTheWholeShippedCatalogue(t *testing.T) {
 	t.Parallel()
 	catalogue, err := rules.Embedded()
@@ -74,9 +67,6 @@ func TestRuleIDsAreTheWholeShippedCatalogue(t *testing.T) {
 	}
 }
 
-// TestBudgetsAreBounded pins that the boot-time database work and the
-// per-session cleanup both carry a deadline. An unbounded startup query turns a
-// slow database into a server that never finishes booting and never says why.
 func TestBudgetsAreBounded(t *testing.T) {
 	t.Parallel()
 	assert.Positive(t, startupWorkBudget)
@@ -85,10 +75,6 @@ func TestBudgetsAreBounded(t *testing.T) {
 	assert.GreaterOrEqual(t, jwtTokenLifetime, time.Hour)
 }
 
-// TestTelemetryPortsAreAllOrNothing states the invariant the erasure path
-// depends on: either every face of the metrics store is wired, or none is. A
-// half-wired set would give the device page a reader while leaving a deleted
-// machine's series behind for ever.
 func TestTelemetryPortsAreAllOrNothing(t *testing.T) {
 	t.Parallel()
 
@@ -105,8 +91,6 @@ func TestTelemetryPortsAreAllOrNothing(t *testing.T) {
 	assert.NotNil(t, on.inventory)
 }
 
-// The assembled server stamps what it writes with the environment it runs in,
-// so a dashboard asked about production is not also reading staging.
 func TestTheTelemetryWriterStampsTheServersEnvironment(t *testing.T) {
 	ports := newTelemetryPorts(Config{VictoriaMetricsURL: testvm.BaseURL(t), Namespace: "opengate-staging"}, quietTestLogger())
 	client, ok := ports.writer.(*telemetry.VMClient)
@@ -130,9 +114,6 @@ func TestTheTelemetryWriterStampsTheServersEnvironment(t *testing.T) {
 // stubOperator stands in for management hardware the test host cannot reach.
 type stubOperator struct{ amt.Operator }
 
-// TestAMTOperatorPrefersTheSuppliedStandIn pins the one edge a harness may
-// replace. Without a stand-in the assembled service is what the API talks to,
-// which is what the shipped binary does.
 func TestAMTOperatorPrefersTheSuppliedStandIn(t *testing.T) {
 	t.Parallel()
 

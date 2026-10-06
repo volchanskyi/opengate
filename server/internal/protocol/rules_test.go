@@ -7,12 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The rule vocabulary is the one place both sides agree on what a rule may
-// watch. It is mirrored by the Rust `RULE_METRICS` / `canonical_rule_metric` in
-// mesh-protocol, and the reverse golden go_control_push_alert_rules.bin — which
-// this package generates from RuleMetrics and RuleMetricAliases, and the Rust
-// harness decodes — is what keeps the two from drifting apart.
-
 func TestCanonicalRuleMetric(t *testing.T) {
 	t.Parallel()
 
@@ -23,15 +17,13 @@ func TestCanonicalRuleMetric(t *testing.T) {
 		ok   bool
 	}
 	cases := []resolution{
-		// Rules already pushed to the fleet name the pre-rename dimensions. They
-		// must keep watching the same reading, under one name from here on.
+		// Pre-rename names resolve to the canonical reading.
 		{"legacy memory name", "mem.used", "mem.used_percent", true},
 		{"legacy disk name", "disk.used", "disk.used_percent", true},
 		{"unknown name", "not.a.metric", "", false},
 		{"empty name", "", "", false},
 		{"traversal attempt", "../../etc/passwd", "", false},
-		// A per-window maximum is a reduction central telemetry publishes, not a
-		// reading the evaluator ever holds.
+		// A per-window maximum is a central reduction the evaluator never holds.
 		{"window maximum", "cpu.total.max", "", false},
 	}
 	for _, name := range RuleMetrics {
@@ -74,8 +66,7 @@ func TestControlMessageRuleFieldsRoundTrip(t *testing.T) {
 				Type: MsgPushAlertRules,
 				AlertRules: []ThresholdRule{{
 					ID: "disk-wearing-out",
-					// Deliberately not 1: an encoder that dropped the revision
-					// would otherwise round-trip through the default and pass.
+					// A non-default revision makes a dropped field fail the round trip.
 					Version:     4,
 					Metric:      "disk.await_ms",
 					Comparator:  AlertComparatorGte,
@@ -107,9 +98,7 @@ func TestControlMessageRuleFieldsRoundTrip(t *testing.T) {
 			},
 		},
 		{
-			// An agent that predates coverage sends no such key. That is
-			// "reported nothing", which the server counts as unknown — never a
-			// decode failure.
+			// An agent that predates coverage sends no such key, which counts as unknown.
 			name: "a summary carrying no coverage at all",
 			msg:  &ControlMessage{Type: MsgAgentHealthSummary, TS: 1_700_000_100},
 		},

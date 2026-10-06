@@ -11,9 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/organization"
 )
 
-// TestArchiveHidesFromTheWorkingSetWithoutDeleting covers retiring a customer:
-// the row and everything under it stay, but the default listing no longer offers
-// it.
 func TestArchiveHidesFromTheWorkingSetWithoutDeleting(t *testing.T) {
 	t.Parallel()
 	repo, _, ctx := newFixture(t)
@@ -40,8 +37,6 @@ func TestArchiveHidesFromTheWorkingSetWithoutDeleting(t *testing.T) {
 	assert.Contains(t, ids(restored), retired.ID)
 }
 
-// TestRenameAndMissingRowErrors covers the ordinary edits plus the not-found
-// half of each mutation.
 func TestRenameAndMissingRowErrors(t *testing.T) {
 	t.Parallel()
 	repo, _, ctx := newFixture(t)
@@ -62,8 +57,6 @@ func TestRenameAndMissingRowErrors(t *testing.T) {
 	assert.ErrorIs(t, err, organization.ErrNotFound)
 }
 
-// TestRepositoryRequiresTenantScope proves every operation fails closed when the
-// caller carries no tenant, rather than reading or writing across the wall.
 func TestRepositoryRequiresTenantScope(t *testing.T) {
 	t.Parallel()
 	repo, _, _ := newFixture(t)

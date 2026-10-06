@@ -1,15 +1,5 @@
-# Where a firing alert goes.
-#
-# The chat id reaches this file as a quoted literal, substituted in by
-# deploy/scripts/monitoring-config-apply.sh. Grafana's own environment-variable
-# substitution cannot fill it: the value is read back as a JSON number and the
-# server refuses to start. The bot token has no such problem — a token is not a
-# number — so it stays a variable and stays in the Secret.
-#
-# Provisioned from a file rather than through the API or the UI because a file is
-# re-read on every pod start. Grafana's database lives on a volume that does not
-# outlive the pod, so anything written through the other two routes is a
-# destination that lasts until the next reschedule.
+# monitoring-config-apply.sh substitutes the chat id as a quoted literal, since an
+# environment variable would be read as a JSON number.
 apiVersion: 1
 
 contactPoints:
@@ -22,8 +12,6 @@ contactPoints:
           bottoken: $TELEGRAM_BOT_TOKEN
           chatid: "__TELEGRAM_CHAT_ID__"
           disable_web_page_preview: true
-          # The reading, the place and the first check, from
-          # message-templates.yml. Sent as written: summaries carry '>' and
-          # '&', which Telegram refuses when it parses the text as HTML.
+          # Sent as plain text because summaries carry '>' and '&', which break HTML parsing.
           message: '{{ template "opengate.telegram" . }}'
           parse_mode: None

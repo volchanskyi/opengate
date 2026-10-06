@@ -8,11 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Loading a pack: what the catalogue refuses, and why each refusal is at load
-// time rather than at the moment a rule would have fired.
-
-// LoadCatalogue parses and validates a pack. A nil lock skips the immutability
-// check, which is what a fixture wants; the shipped pack always carries one.
+// LoadCatalogue parses and validates a pack; a nil lock skips the immutability check.
 func LoadCatalogue(data []byte, lock Lock) (*Catalogue, error) {
 	defs, err := parseDefinitions(data)
 	if err != nil {
@@ -60,8 +56,7 @@ func LoadCatalogue(data []byte, lock Lock) (*Catalogue, error) {
 	return cat, nil
 }
 
-// parseDefinitions decodes the pack with unknown fields refused, so a typo is a
-// load failure rather than a rule that silently does something else.
+// Unknown fields are refused, so a typo fails the load.
 func parseDefinitions(data []byte) ([]Definition, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -76,9 +71,7 @@ func parseDefinitions(data []byte) ([]Definition, error) {
 	return file.Rules, nil
 }
 
-// checkLock refuses a definition whose meaning changed without its version
-// changing. A key the lock does not carry is a new rule or a new version, which
-// is exactly how a definition is allowed to change.
+// A key absent from the lock is a new rule or version, so only a changed digest is refused.
 func checkLock(def Definition, lock Lock) error {
 	if lock == nil {
 		return nil

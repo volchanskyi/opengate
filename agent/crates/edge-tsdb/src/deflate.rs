@@ -1,13 +1,5 @@
-//! Optional cold-tier DEFLATE — pure-Rust `flate2`/`miniz_oxide` (no CGO, no new
-//! crates: already in the agent lock).
-//!
-//! DEFLATE is applied **only** to sealed T1/T2 rollup blocks
-//! ([`LocalTsdb::compact_cold_tiers`](crate::store::LocalTsdb::compact_cold_tiers)),
-//! never to hot T0 raw — it buys density on the cold tiers at the cost of
-//! decompress CPU on read, which is why it is opt-in and gated on the agent's
-//! <1 % CPU budget. `zstd` is deliberately not used: the WS-14a measurement
-//! showed a C `zstd` dependency buys no more than pure-Rust DEFLATE over the
-//! bit-packed codec, so it is unjustified.
+//! Cold-tier DEFLATE through pure-Rust `flate2`, applied to sealed T1/T2 rollup blocks only
+//! ([`LocalTsdb::compact_cold_tiers`](crate::store::LocalTsdb::compact_cold_tiers)).
 
 use std::io::{Read, Write};
 
@@ -17,16 +9,15 @@ use flate2::Compression;
 
 use crate::error::{Result, TsdbError};
 
-/// DEFLATE-compress a block. Writing to a `Vec` cannot fail in practice; any
-/// error is surfaced as [`TsdbError::Io`] rather than panicking.
+/// DEFLATE-compresses a block, surfacing any write error as [`TsdbError::Io`].
 pub fn deflate(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
     enc.write_all(bytes)?;
     Ok(enc.finish()?)
 }
 
-/// Inflate a block produced by [`deflate`]. A truncated or corrupt stream is a
-/// [`TsdbError::CorruptBlock`], never a panic.
+/// Inflates a block produced by [`deflate`]; a truncated or corrupt stream is a
+/// [`TsdbError::CorruptBlock`].
 pub fn inflate(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     DeflateDecoder::new(bytes)
@@ -41,8 +32,6 @@ mod tests {
 
     #[test]
     fn round_trips_and_shrinks_repetitive_data() {
-        // A struct-of-arrays tier block is highly repetitive — DEFLATE must
-        // round-trip it and materially shrink it.
         let raw: Vec<u8> = (0..4000u32).flat_map(|i| (i / 40).to_le_bytes()).collect();
         let z = deflate(&raw).unwrap();
         assert!(

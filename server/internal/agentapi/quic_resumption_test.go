@@ -14,22 +14,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 )
 
-// QUIC reconnect behaviour, measured against the repo's own mutual-TLS
-// certificate configuration on a loopback listener.
-//
-//   - A cold connection completes a full mutual-TLS handshake and the server
-//     holds the client's verified certificate.
-//   - A reconnect resumes the TLS session and still carries that identity —
-//     DidResume is true on both sides and the certificate keeps its common
-//     name — so skipping the asymmetric handshake costs no identity.
-//
-// What each reconnect saves is measured by BenchmarkQUICHandshake_{Cold,Resumed}.
-
 const resumeTestALPN = "opengate"
 
-// signalingCache wraps an LRU client-session cache and signals every Put so a
-// warm-up dial can deterministically wait for the session ticket to be cached
-// before the resuming dial runs (TLS 1.3 tickets arrive after the handshake).
+// signalingCache signals every Put so a warm-up dial can wait for the session ticket,
+// which TLS 1.3 sends after the handshake.
 type signalingCache struct {
 	inner tls.ClientSessionCache
 	put   chan struct{}
@@ -54,9 +42,6 @@ func (c *signalingCache) Put(key string, cs *tls.ClientSessionState) {
 	}
 }
 
-// resumeTestServer is a minimal QUIC echo server used by the resumption spike.
-// It records the TLS connection state of the most recent accepted connection so
-// the test can assert DidResume / PeerCertificates from the server's view.
 type resumeTestServer struct {
 	addr string
 
@@ -70,8 +55,6 @@ func (s *resumeTestServer) snapshot() tls.ConnectionState {
 	return s.lastState
 }
 
-// startResumeTestServer brings up a localhost QUIC listener with the repo's mTLS
-// server config.
 func startResumeTestServer(tb testing.TB, mgr *cert.Manager) *resumeTestServer {
 	tb.Helper()
 
@@ -116,9 +99,6 @@ func (s *resumeTestServer) acceptLoop(ctx context.Context, ln *quic.Listener) {
 	}
 }
 
-// serve accepts one bidirectional stream, echoes a single byte, and records the
-// connection's TLS state. The byte round-trip drives the handshake (and the
-// post-handshake session ticket) to completion.
 func (s *resumeTestServer) serve(ctx context.Context, conn *quic.Conn) {
 	s.mu.Lock()
 	s.lastState = conn.ConnectionState().TLS
@@ -143,8 +123,6 @@ func (s *resumeTestServer) serve(ctx context.Context, conn *quic.Conn) {
 	_ = conn.CloseWithError(0, "bye")
 }
 
-// agentResumeTLSConfig builds an agent (client) mTLS config wired with the given
-// session cache — the cache is what production quinn would need to persist.
 func agentResumeTLSConfig(tb testing.TB, mgr *cert.Manager, cache tls.ClientSessionCache) *tls.Config {
 	tb.Helper()
 	agentCert, err := mgr.SignAgent(uuid.NewString(), "resume-test-host")
@@ -158,9 +136,7 @@ func agentResumeTLSConfig(tb testing.TB, mgr *cert.Manager, cache tls.ClientSess
 	return cfg
 }
 
-// streamPing opens a bidi stream, sends one byte, and reads the echo. A QUIC
-// Read can return the final byte together with io.EOF (peer FIN in the same
-// flight); that is success, not failure.
+// streamPing treats a read that returns the final byte together with io.EOF as success.
 func streamPing(tb testing.TB, ctx context.Context, conn *quic.Conn) {
 	tb.Helper()
 	stream, err := conn.OpenStreamSync(ctx)
@@ -177,8 +153,6 @@ func streamPing(tb testing.TB, ctx context.Context, conn *quic.Conn) {
 	_ = stream.Close()
 }
 
-// waitForTicket blocks until the server has issued a TLS session ticket into the
-// cache, so a following dial can deterministically resume.
 func waitForTicket(tb testing.TB, cache *signalingCache) {
 	tb.Helper()
 	select {
@@ -188,8 +162,6 @@ func waitForTicket(tb testing.TB, cache *signalingCache) {
 	}
 }
 
-// dialRoundTrip performs a full QUIC dial + stream ping and returns the client's
-// TLS state.
 func dialRoundTrip(tb testing.TB, addr string, tlsCfg *tls.Config) tls.ConnectionState {
 	tb.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -213,7 +185,6 @@ func TestQUICColdHandshake_FullMTLS(t *testing.T) {
 	}
 	srv := startResumeTestServer(t, mgr)
 
-	// No session cache -> every dial is a full mTLS handshake.
 	if clientState := dialRoundTrip(t, srv.addr, agentResumeTLSConfig(t, mgr, nil)); clientState.DidResume {
 		t.Fatalf("cold handshake unexpectedly resumed")
 	}
@@ -238,8 +209,6 @@ func TestQUICSessionResumption_PreservesMTLSIdentity(t *testing.T) {
 	cache := newSignalingCache()
 	clientCfg := agentResumeTLSConfig(t, mgr, cache)
 
-	// Warm-up dial primes the ticket; the resuming dial must then resume AND
-	// still present the verified client identity.
 	if warm := dialRoundTrip(t, srv.addr, clientCfg); warm.DidResume {
 		t.Fatalf("warm-up dial unexpectedly resumed")
 	}

@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/test-go.sh — the shared-container provisioner behind
-# `make test-go`.
-#
-# testpg/testvm memoize per test BINARY, and `go test ./...` builds one binary
-# per package, so unset URLs make every Postgres-touching package start its own
-# container. The provisioner starts one of each and exports the URLs; these
-# tests pin that contract with a mocked `docker`/`curl` on PATH — no real
-# container is ever started.
+# Tests for scripts/test-go.sh, which starts one shared container of each kind and exports its URLs.
+# A mocked docker and curl on PATH stand in for the container runtime.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,9 +37,6 @@ assert_contains() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# --- mocked container runtime -------------------------------------------------
-# `docker` records its argv and succeeds; `curl` always reports the VM healthy so
-# the readiness poll returns on the first attempt.
 BIN_DIR="$WORK/bin"
 mkdir -p "$BIN_DIR"
 cat >"$BIN_DIR/docker" <<'EOF'
@@ -60,7 +51,6 @@ exit 0
 EOF
 chmod +x "$BIN_DIR/docker" "$BIN_DIR/curl"
 
-# The stand-in for `go test`: records the two URLs it was handed.
 cat >"$WORK/fake-go-test.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'PG=%s\nVM=%s\n' "${POSTGRES_TEST_URL:-unset}" "${VICTORIAMETRICS_TEST_URL:-unset}" >"$SEEN_ENV"
@@ -101,15 +91,12 @@ assert_contains "exports VICTORIAMETRICS_TEST_URL to the suite" "$SEEN" "VM=http
 
 echo
 echo "stale-container clear:"
-# A crashed previous run can leave a container holding the port, so each start
-# clears its name first.
 assert_eq "clears a stale Postgres container before starting" "rm -f opengate-pg-test" \
   "$(head -n 1 "$WORK/docker.args")"
 
 echo
 echo "teardown:"
-# Both containers must be gone on the way out, and the removals must be the LAST
-# thing the run does — a mid-run count would also be satisfied by the stale clear.
+# The last two docker calls are the removals; the stale clear would satisfy a mid-run count.
 TAIL2="$(tail -n 2 "$WORK/docker.args")"
 assert_contains "removes the Postgres container on exit" "$TAIL2" "rm -f opengate-pg-test"
 assert_contains "removes the VictoriaMetrics container on exit" "$TAIL2" "rm -f opengate-vm-test"
@@ -127,8 +114,6 @@ assert_contains "removes VictoriaMetrics even when the suite fails" "$TAIL2" "rm
 
 echo
 echo "external URLs win:"
-# A caller that already has a stack (CI, or a long-lived local one) must pay no
-# container cost and keep its own URLs.
 : >"$WORK/docker.args"
 : >"$WORK/seen-env.txt"
 rc=0
@@ -146,8 +131,6 @@ assert_contains "passes the external VictoriaMetrics URL through" "$SEEN" "VM=ht
 
 echo
 echo "image pins match the Go harness:"
-# The provisioner and the in-process fallback must agree, or a developer running
-# `make test-go` and one running a bare `go test` exercise different versions.
 GO_PG_IMAGE="$(grep -oE 'PostgresImage = "[^"]+"' "$ROOT/server/internal/testpg/testpg.go" | cut -d'"' -f2)"
 SH_PG_IMAGE="$(grep -oE '^PG_IMAGE="[^"]+"' "$PROVISION" | cut -d'"' -f2)"
 assert_eq "Postgres image pin matches testpg.PostgresImage" "$GO_PG_IMAGE" "$SH_PG_IMAGE"

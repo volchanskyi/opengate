@@ -9,9 +9,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// InvestigationPurger erases a subject's alerts and repairs what no foreign key
-// can: the counts on the incidents those alerts folded into, and an incident
-// left holding nothing at all.
+// InvestigationPurger erases a subject's alerts and repairs the incident counts they fed.
 type InvestigationPurger interface {
 	// EraseDeviceAlerts removes one machine's alerts and evidence, restates the
 	// counts on every incident it was in, and closes the ones it emptied.
@@ -21,9 +19,7 @@ type InvestigationPurger interface {
 	EraseTenantInvestigations(ctx context.Context, tenantID uuid.UUID) error
 }
 
-// PGPurger removes a purge subject's Postgres rows. Deleting a device row
-// cascades to device_processes, device_inventory, rule_coverage_unsupported and
-// alerts via ON DELETE CASCADE.
+// PGPurger removes a purge subject's Postgres rows; a device row cascades to its dependent tables.
 type PGPurger interface {
 	// DeleteDevice removes one device row (cascading its telemetry) in a tenant.
 	DeleteDevice(ctx context.Context, tenantID, deviceID uuid.UUID) error
@@ -37,15 +33,10 @@ type PGPurger interface {
 	ListAllDeviceIDs(ctx context.Context) ([]uuid.UUID, error)
 }
 
-// PostgresPurger is the Postgres-backed PGPurger. It runs under an admin-scoped
-// tenant transaction so a server-side purge can act on any tenant's rows while
-// still passing through RLS.
+// PostgresPurger is the Postgres-backed PGPurger, run under an admin-scoped tenant transaction.
 type PostgresPurger struct {
 	db *sql.DB
-	// investigations repairs the incident bookkeeping the cascade cannot.
-	// Optional: nil leaves the cascade to erase the alerts on its own, which
-	// still removes the data but leaves the counts describing machines that are
-	// gone.
+	// investigations is optional; nil leaves incident counts describing erased machines.
 	investigations InvestigationPurger
 }
 
@@ -56,10 +47,7 @@ func NewPostgresPurger(db *sql.DB, investigations InvestigationPurger) *Postgres
 
 // DeleteDevice implements PGPurger.
 func (p *PostgresPurger) DeleteDevice(ctx context.Context, tenantID, deviceID uuid.UUID) error {
-	// Before the device row goes, not after: once the cascade has taken the
-	// alerts there is nothing left to say which incidents the machine was in, so
-	// the counts on them could never be restated. Failing here leaves the device
-	// row standing and the resumed job simply runs both again.
+	// The cascade deletes the alerts that name the affected incidents, so they are erased first.
 	if p.investigations != nil {
 		if err := p.investigations.EraseDeviceAlerts(ctx, tenantID, deviceID); err != nil {
 			return fmt.Errorf("erase device investigations: %w", err)
@@ -67,9 +55,7 @@ func (p *PostgresPurger) DeleteDevice(ctx context.Context, tenantID, deviceID uu
 	}
 	ctx = dbtx.WithTenant(ctx, tenantID, true)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		// Idempotent: a resumed purge whose device row is already gone deletes zero
-		// rows and succeeds. The cascade removes the machine's telemetry,
-		// inventory and rule-coverage rows with it.
+		// A device row already gone deletes zero rows, so a resumed purge succeeds.
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM devices WHERE tenant_id = $1 AND id = $2`, tenantID, deviceID); err != nil {
 			return fmt.Errorf("delete device row: %w", err)
@@ -80,9 +66,7 @@ func (p *PostgresPurger) DeleteDevice(ctx context.Context, tenantID, deviceID uu
 
 // DeleteTenantDevices implements PGPurger.
 func (p *PostgresPurger) DeleteTenantDevices(ctx context.Context, tenantID uuid.UUID) (int, error) {
-	// The tenant row is retained as the anchor for the retained audit trail, so
-	// nothing cascades from it: a tenant's incidents outlive every machine
-	// beneath them unless they are erased by name.
+	// The tenant row stays as the audit-trail anchor, so incidents are erased explicitly.
 	if p.investigations != nil {
 		if err := p.investigations.EraseTenantInvestigations(ctx, tenantID); err != nil {
 			return 0, fmt.Errorf("erase tenant investigations: %w", err)

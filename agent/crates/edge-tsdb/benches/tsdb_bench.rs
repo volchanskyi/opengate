@@ -1,12 +1,5 @@
-//! Measurement runner for the edge-tsdb store (`cargo bench -p edge-tsdb`).
-//!
-//! The production section (always compiled) records the WS-14b store's footprint
-//! (bytes/sample, before and after cold-tier DEFLATE), ingest/commit cost,
-//! range-query latency, and crash-recovery open time — the numbers ADR-052 and
-//! the WS-14b build spec track. The WS-14a bake-off comparison (append-only vs
-//! redb substrates, the codec bake-off, the redb scale sweep) is retained behind
-//! the `bakeoff` feature. It is a plain `main` (harness = false), so gate
-//! thresholds are asserted in `tests/` (always run), not here.
+//! Measurement runner for the edge-tsdb store (`cargo bench -p edge-tsdb`): footprint, ingest,
+//! range-query latency and recovery open time; the substrate comparison sits behind `bakeoff`.
 
 use std::time::Instant;
 
@@ -37,7 +30,7 @@ fn measure_local_tsdb(corpus: &Corpus) {
     let dir = tempfile::tempdir().unwrap();
     let mut db = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
     for sid in 0..corpus.series().len() {
-        db.set_scale(sid as u32, 100); // centi fixed-point; adaptive keeps counters int-DoD
+        db.set_scale(sid as u32, 100);
     }
 
     let t0 = Instant::now();
@@ -99,7 +92,7 @@ fn measure_local_tsdb(corpus: &Corpus) {
     );
 }
 
-/// The WS-14a substrate bake-off, retained as the measured off-ramp reference.
+/// The substrate comparison between the append-only and redb stores.
 #[cfg(feature = "bakeoff")]
 mod bakeoff {
     use super::Instant;

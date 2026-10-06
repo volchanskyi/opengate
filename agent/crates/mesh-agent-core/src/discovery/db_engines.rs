@@ -1,27 +1,17 @@
-//! Database-engine discovery (WS-16).
-//!
-//! A pure, non-intrusive heuristic over the already-discovered listening ports:
-//! an engine is inferred when a listening socket's owning process matches a
-//! known engine binary, or when it listens on the engine's well-known port and
-//! nothing contradicts that. No connection is ever opened and no query is run,
-//! so the version is left empty — reporting it would require an intrusive probe
-//! that could leak credentials. Engine family + port only.
+//! Database-engine inference from listening ports, with no connection opened and no version probed.
 
 use std::collections::HashSet;
 
 use mesh_protocol::{DiscoveredDbEngine, DiscoveredPort};
 
-/// A well-known database engine, its default TCP port, and the process
-/// basenames that identify it.
+/// A well-known database engine, its default TCP port and its process basenames.
 struct KnownEngine {
     engine: &'static str,
     port: u16,
     procs: &'static [&'static str],
 }
 
-/// The engine catalogue. Process-name matches are authoritative (they catch
-/// non-standard ports); the well-known port is a fallback only when the owning
-/// process is unknown or already matches.
+/// Process names catch non-standard ports; a default port needs an unknown or matching process.
 const KNOWN_ENGINES: &[KnownEngine] = &[
     KnownEngine {
         engine: "postgres",
@@ -70,9 +60,7 @@ const KNOWN_ENGINES: &[KnownEngine] = &[
     },
 ];
 
-/// Infers the database engines running on the host from its listening ports.
-/// Each engine is reported at most once, at the first port it was inferred from.
-/// The version is always empty (determining it non-intrusively is not possible).
+/// Infers database engines from listening ports, each once at its first port, with no version.
 pub fn infer_db_engines(ports: &[DiscoveredPort]) -> Vec<DiscoveredDbEngine> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -106,8 +94,6 @@ mod tests {
         }
     }
 
-    /// A known engine process on a non-standard port is inferred by process
-    /// name (the port heuristic alone would miss it).
     #[test]
     fn infers_by_process_on_nonstandard_port() {
         let ports = vec![port("tcp", 6544, "postgres")];
@@ -118,7 +104,6 @@ mod tests {
         assert!(engines[0].version.is_empty(), "version is never probed");
     }
 
-    /// A well-known port with an unresolved process is inferred by port.
     #[test]
     fn infers_by_wellknown_port_when_process_unknown() {
         let ports = vec![port("tcp", 3306, "")];
@@ -127,8 +112,6 @@ mod tests {
         assert_eq!(engines[0].engine, "mysql");
     }
 
-    /// A well-known port owned by an unrelated process is NOT inferred — the
-    /// contradicting process name suppresses the port fallback.
     #[test]
     fn does_not_infer_when_process_contradicts_port() {
         let ports = vec![port("tcp", 5432, "haproxy")];
@@ -138,7 +121,6 @@ mod tests {
         );
     }
 
-    /// Each engine is reported once even when it listens on several ports.
     #[test]
     fn dedups_engine_across_ports() {
         let ports = vec![port("tcp", 5432, "postgres"), port("tcp", 5433, "postgres")];
@@ -147,14 +129,12 @@ mod tests {
         assert_eq!(engines[0].port, 5432, "first matching port wins");
     }
 
-    /// A UDP port on a DB's well-known number is ignored (engines are TCP).
     #[test]
     fn ignores_udp_ports() {
         let ports = vec![port("udp", 5432, "")];
         assert!(infer_db_engines(&ports).is_empty());
     }
 
-    /// Multiple distinct engines are all inferred.
     #[test]
     fn infers_multiple_engines() {
         let ports = vec![

@@ -17,8 +17,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// packageASTFiles parses this package's non-test sources so the guard below can
-// read the dispatch switch and the ingest call sites out of the tree itself.
 func packageASTFiles(t *testing.T) []*ast.File {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -42,7 +40,6 @@ func packageASTFiles(t *testing.T) []*ast.File {
 	return files
 }
 
-// protocolIdent returns the Msg… identifier of a protocol.MsgX selector.
 func protocolIdent(e ast.Expr) string {
 	sel, ok := e.(*ast.SelectorExpr)
 	if !ok {
@@ -55,8 +52,6 @@ func protocolIdent(e ast.Expr) string {
 	return sel.Sel.Name
 }
 
-// collectCaseIdents adds every protocol.Msg… identifier a switch's case clauses
-// name to into.
 func collectCaseIdents(sw *ast.SwitchStmt, into map[string]bool) {
 	for _, stmt := range sw.Body.List {
 		clause, ok := stmt.(*ast.CaseClause)
@@ -71,7 +66,6 @@ func collectCaseIdents(sw *ast.SwitchStmt, into map[string]bool) {
 	}
 }
 
-// funcDecls returns every top-level function declaration with the given name.
 func funcDecls(files []*ast.File, name string) []*ast.FuncDecl {
 	var found []*ast.FuncDecl
 	for _, f := range files {
@@ -84,7 +78,6 @@ func funcDecls(files []*ast.File, name string) []*ast.FuncDecl {
 	return found
 }
 
-// dispatchedIdents collects every control type handleControl's switch names.
 func dispatchedIdents(t *testing.T, files []*ast.File) map[string]bool {
 	t.Helper()
 	found := map[string]bool{}
@@ -100,7 +93,6 @@ func dispatchedIdents(t *testing.T, files []*ast.File) map[string]bool {
 	return found
 }
 
-// ingestCallIdents collects every control type passed to the ingest counter.
 func ingestCallIdents(t *testing.T, files []*ast.File) map[string]bool {
 	t.Helper()
 	found := map[string]bool{}
@@ -124,10 +116,6 @@ func ingestCallIdents(t *testing.T, files []*ast.File) map[string]bool {
 	return found
 }
 
-// TestCountedIngestTypesMatchDispatch keeps TestTelemetryAccountingInvariant from
-// rotting: a control type added to the dispatch switch, or a handler newly wired
-// to the ingest counter, fails here until it is classified and given a row in
-// the accounting table.
 func TestCountedIngestTypesMatchDispatch(t *testing.T) {
 	t.Parallel()
 	files := packageASTFiles(t)

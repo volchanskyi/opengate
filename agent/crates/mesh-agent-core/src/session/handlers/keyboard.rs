@@ -1,7 +1,4 @@
 //! Keyboard input control-message handler.
-//!
-//! Owns `ControlMessage::KeyPress` dispatch so keyboard policy remains isolated
-//! from the [`super::super::handler::SessionHandler`] multiplexer.
 
 use mesh_protocol::{KeyCode, KeyEvent, Permissions};
 use tracing::warn;
@@ -10,19 +7,13 @@ use super::super::terminal_handle::TerminalHandle;
 use super::ControlMessageHandler;
 use crate::platform::InputInjector;
 
-/// Handles keyboard input messages.
-///
-/// Unit struct with associated functions — no per-session state. The
-/// injection path runs only when `permissions.input` is true; the
-/// terminal echo path runs only when a terminal session is active AND
-/// the key event is `pressed = true` (release events don't go to PTY
-/// stdin in the existing protocol).
+/// Handles keyboard input messages; only pressed events reach the terminal stdin.
 pub struct KeyboardHandler;
 
 impl ControlMessageHandler for KeyboardHandler {}
 
 impl KeyboardHandler {
-    /// Process a `KeyPress` control message.
+    /// Injects the key when `permissions.input` is set and echoes it to an active terminal.
     pub fn handle_key_press(
         permissions: &Permissions,
         injector: &dyn InputInjector,

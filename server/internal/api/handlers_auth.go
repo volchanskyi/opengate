@@ -10,10 +10,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// validateRegistration checks the registration payload and returns the accepted
-// display name, or the 400 response describing the first problem found. Nothing
-// validates the OpenAPI schema's constraints at runtime, so this is where a
-// registration request is actually bounded.
+// validateRegistration returns the accepted display name, or the 400 response for the first
+// problem found. The OpenAPI constraints are not enforced at runtime, so it bounds the request.
 func validateRegistration(body *RegisterJSONRequestBody) (string, RegisterResponseObject) {
 	email := string(body.Email)
 	if email == "" || body.Password == "" {
@@ -108,9 +106,8 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		return Login400JSONResponse{Error: "email and password are required"}, nil
 	}
 
-	// Per-email lockout, independent of source IP. Checked before lookup and
-	// applied identically to unknown and known emails so it adds no account
-	// enumeration signal.
+	// The per-email lockout is checked before lookup and treats unknown and known emails alike,
+	// which leaks no account enumeration signal.
 	if !s.loginLimiter.allowed(email) {
 		return Login429JSONResponse{Error: "too many failed login attempts; try again later"}, nil
 	}

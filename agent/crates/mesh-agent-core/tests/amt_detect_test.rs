@@ -1,14 +1,11 @@
-//! Intel AMT presence detection from the Management Engine Interface.
-//!
-//! Every case builds its own fixture tree under a temp dir, so the tests assert
-//! the same behavior on a vPro workstation, a CI container, and a Mac.
+//! Intel AMT presence detection from the Management Engine Interface, over fixture trees in a
+//! temp dir.
 
 use mesh_agent_core::amt_detect::{detect, detect_at, AmtPresence};
 use std::fs;
 use tempfile::TempDir;
 
-/// Builds a fake MEI tree: an `mei0` device node and a `fw_ver` file holding
-/// `contents` (skipped when `None`). Returns the temp dir plus both paths.
+/// Builds a fake MEI tree: an `mei0` node and a `fw_ver` file holding `contents`, if any.
 fn mei_fixture(contents: Option<&str>) -> (TempDir, std::path::PathBuf, std::path::PathBuf) {
     let dir = tempfile::tempdir().expect("temp dir");
     let device = dir.path().join("mei0");
@@ -53,7 +50,6 @@ fn reports_unavailable_when_mei_device_absent() {
     let version = dir.path().join("fw_ver");
     fs::write(&version, "0:16.1.30.2260\n").expect("write fw_ver");
 
-    // No device node: the version file alone must not claim AMT support.
     assert_eq!(
         detect_at(&device, &version),
         AmtPresence {
@@ -99,9 +95,6 @@ fn caps_an_absurdly_long_version_line() {
 
 #[test]
 fn detect_reads_the_host_and_never_panics() {
-    // The host may or may not expose an MEI device; both answers are valid. The
-    // contract under test is that the platform paths resolve and a version is
-    // only ever reported alongside availability.
     let got = detect();
     if !got.available {
         assert_eq!(got.version, "");

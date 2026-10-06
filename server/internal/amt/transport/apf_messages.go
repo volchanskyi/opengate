@@ -7,10 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// This file holds the typed APF message structs and their parsers, plus the
-// GUID/forward-data helpers. The wire framing and body readers live in apf.go;
-// the message writers in apf_write.go.
-
 // ServiceRequest represents an APF service request.
 type ServiceRequest struct {
 	ServiceName string
@@ -183,9 +179,8 @@ func ParseKeepaliveOptions(data []byte) (KeepaliveOptions, error) {
 	}, nil
 }
 
-// ReorderIntelGUID applies Intel's mixed-endian byte reordering to a raw
-// 16-byte GUID from the ProtocolVersion message and returns a standard UUID.
-// Intel format: first 3 sites little-endian, last 2 sites big-endian.
+// ReorderIntelGUID converts the ProtocolVersion GUID, whose first three fields are
+// little-endian and last two big-endian, to a standard UUID.
 func ReorderIntelGUID(raw [16]byte) uuid.UUID {
 	var u uuid.UUID
 	// Site 1 (4 bytes): LE → BE

@@ -1,79 +1,46 @@
 #!/usr/bin/env bash
-# Record which scenarios produced rows, and classify the night.
-#
-# A run has three outcomes, not two. Valid and failed are both measurements: one
-# of a system that held, one of a system that did not. Invalid is the third and
-# it is the one that was missing — the run did not measure the system, because a
-# scenario produced nothing at all.
-#
-# Keeping invalid separate is the whole point. A night where one half ran and
-# the other produced nothing, absorbed as data, pulls the window median down;
-# the next genuinely slow night is then compared against that lowered median and
-# passes. One partial night costs two.
-#
-# Reads the canonical rows the summarizer produced and the scenarios the run was
-# supposed to produce, and writes a completeness record naming both halves — so
-# a reader sees what ran rather than inferring it from which rows arrived.
+# Classifies the night as valid, failed or invalid and records which scenarios produced rows.
+# Invalid keeps a partial night out of the trend, whose window median it would otherwise lower.
 #
 # Environment:
 #   LOADTEST_EXPECTED_SCENARIOS  space-separated scenario names the run owed
-#                                (default: the four the nightly runs)
-#   LOADTEST_K6_SUMMARY_DIR      where the k6 exports and any threshold breach
-#                                records were written
-#   LOADTEST_BUNDLE              the QUIC harness's evidence bundle, which
-#                                carries what the target was holding either side
-#                                of the run (default: the path the workflow
-#                                collects it to)
-#   LOADTEST_GATE_BREACHES       the limits and marks the profile declared and
-#                                this night crossed, each saying whether it is
-#                                enforced, written by loadtest-gate-check.sh
+#   LOADTEST_K6_SUMMARY_DIR      where the k6 exports and threshold breach records were written
+#   LOADTEST_BUNDLE              the QUIC harness's evidence bundle
+#   LOADTEST_GATE_BREACHES       the profile limits and marks the night crossed
 #
-# Exits: 0 the night held, 2 it could not be asked, 3 it did not measure the
-# system, 4 it measured the system and the system crossed a limit. Both 3 and 4
-# are red; only 3 keeps the night's rows out of the trend.
+# Exit codes:
+#   0  the night held
+#   2  the night could not be asked
+#   3  the night did not measure the system; its rows stay out of the trend
+#   4  the system crossed a limit; the night is red and its rows enter the trend
 #
 # Usage: loadtest-run-completeness.sh <loadtest-summary.json> [completeness.json]
 set -euo pipefail
 
 DEFAULT_EXPECTED="api-baseline concurrent-agents relay-throughput quic-agents"
 
-# maxErrorRate is the ceiling past which a scenario's numbers describe the error
-# path rather than the system. It is the figure the harness classifies its own
-# runs against (server/tests/loadtest/validity.go), held equal here because a run
-# has one verdict however many places compute it.
+# The error-rate ceiling past which a scenario's numbers describe the error path; it equals the
+# harness's own figure in server/tests/loadtest/validity.go.
 MAX_ERROR_RATE="${LOADTEST_MAX_ERROR_RATE:-0.25}"
 
-# Where the harness's evidence bundle is collected to. It carries the run's own
-# verdict about the target it ran against — whether the process was replaced
-# underneath it, and whether it gave back what it took — read from the target's
-# process families rather than from any count the target maintains about itself.
+# The bundle carries the harness's verdict on whether the target process was replaced and whether
+# it gave back what it took.
 BUNDLE="${LOADTEST_BUNDLE:-loadtest-bundle/quic-agents.json}"
 
-# Where the profile's own limits were read against tonight's rows. Those limits
-# had never been read by anything: the schema checked each was well-formed and
-# then no code consumed one, so every number in all seven profiles was
-# decoration — including the ones marked as failing the run. A breach is a
-# finding about the system, so it fails the night and the rows still enter the
-# trend, which is the same treatment a leaking target gets.
+# The profile limits read against tonight's rows; a breach fails the night while its rows still
+# enter the trend.
 GATE_BREACHES="${LOADTEST_GATE_BREACHES:-loadtest-gate-breaches.json}"
 
 usage() {
   echo "usage: $0 <loadtest-summary.json> [completeness.json]" >&2
 }
 
-# produced_scenarios lists every scenario the canonical rows carry.
 produced_scenarios() {
   jq -r '[.[].scenario] | unique | .[]' "$1"
 }
 
-# unmeasured_scenarios lists the scenarios that emitted rows without measuring
-# anything.
-#
-# A row is not a measurement. A scenario whose every request failed produced
-# exactly as many rows as one that worked, and those rows carry zeroes — which
-# absorbed as data pull the window median down and let the next genuinely slow
-# night compare favourably. A scenario that mostly worked is a different thing
-# and stays: a degrading night is what the trend is for.
+# unmeasured_scenarios lists scenarios whose error rate passes the ceiling; their rows carry
+# zeroes that would pull the window median down.
 unmeasured_scenarios() {
   jq -r --argjson ceiling "$MAX_ERROR_RATE" '
     [ .[] | select(.error_rate != null and .error_rate > $ceiling) | .scenario ]
@@ -81,9 +48,8 @@ unmeasured_scenarios() {
   ' "$1"
 }
 
-# breached_thresholds lists the scenarios whose marks were breached. The runner
-# writes one file per breach beside the export, because whether a mark is
-# blocking is the profile's decision and an exit code cannot carry it this far.
+# breached_thresholds lists scenarios with a breach file, which the runner writes because an exit
+# code cannot carry whether a mark is blocking.
 breached_thresholds() {
   local dir="${LOADTEST_K6_SUMMARY_DIR:-loadtest-k6}"
   [ -d "$dir" ] || return 0
@@ -92,38 +58,26 @@ breached_thresholds() {
     | sort
 }
 
-# target_verdict is the harness's own result about its target, or the empty
-# string when no bundle was written.
-#
-# A bundle nobody wrote is silence rather than a pass: the harness may not have
-# run at all, and a gate that answers yes when it could not ask is the false
-# green this repository already rules against. The scenario checks above have
-# their own reasons to fail a night, and they still apply.
+# target_verdict is the harness's result about its target; a missing bundle yields the empty
+# string, never a pass.
 target_verdict() {
   [ -s "$BUNDLE" ] || return 0
   jq -r '.verdict.result // empty' "$BUNDLE" 2>/dev/null || true
 }
 
-# gate_breaches is every limit the profile declared and this night crossed.
-#
-# A file nobody wrote is silence rather than a pass, for the same cause the
-# bundle reader beside this one gives: the check may not have run at all, and a
-# gate that answers yes when it could not ask is the false green this repository
-# rules against. The step that runs it fails loudly on its own account.
+# gate_breaches lists the enforced limits the night crossed; a missing file yields nothing.
 gate_breaches() {
   [ -s "$GATE_BREACHES" ] || return 0
   jq -r '.[]? | select(.enforced == true) | .message' "$GATE_BREACHES" 2>/dev/null || true
 }
 
-# reported_marks are the marks the profile watches without enforcing. They are
-# printed as notices and never decide the night.
+# reported_marks are the marks the profile watches without enforcing; they print as notices only.
 reported_marks() {
   [ -s "$GATE_BREACHES" ] || return 0
   jq -r '.[]? | select(.enforced == false) | .message' "$GATE_BREACHES" 2>/dev/null || true
 }
 
-# target_findings is why, in the harness's own words, so the reason travels with
-# the night rather than living only in a workflow log.
+# target_findings lists the reasons for the verdict in the harness's own words.
 target_findings() {
   [ -s "$BUNDLE" ] || return 0
   jq -r '.verdict.reasons // [] | .[]' "$BUNDLE" 2>/dev/null || true
@@ -157,11 +111,8 @@ main() {
   gates="$(gate_breaches)"
   reported="$(reported_marks)"
 
-  # The target's own two outcomes fold in on the same doctrine the rest of this
-  # file follows: a process that was replaced means the numbers describe two
-  # systems, so the night is invalid; a target that kept what it took is a
-  # finding about the system, so the night is failed and its rows still enter
-  # the trend.
+  # A replaced target process makes the numbers describe two systems, so the night is invalid; a
+  # target that kept what it took is a finding about the system, so the night is failed.
   result="valid"
   if [ -n "$missing" ] || [ -n "$unexpected" ] || [ -n "$unmeasured" ] || [ "$target_result" = "invalid" ]; then
     result="invalid"
@@ -214,14 +165,8 @@ main() {
     return 3
   fi
 
-  # A night that crossed a limit measured the system and the system was slow, so
-  # its rows still enter the trend — and the night goes red, which is what a
-  # finding about the system is for.
-  #
-  # It did not. The verdict was worked out, written into the record and then
-  # returned as nought: five nights recorded themselves as failed and reported
-  # success, and one of them was carrying four registration limits held against a
-  # measurement that came back empty on every run ever taken.
+  # A night that crossed a limit measured the system, so its rows enter the trend and the night
+  # goes red.
   if [ "$result" = "failed" ]; then
     while IFS= read -r finding; do
       [ -z "$finding" ] || echo "::error::${finding}" >&2

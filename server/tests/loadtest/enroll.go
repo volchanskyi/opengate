@@ -18,52 +18,32 @@ import (
 	"time"
 )
 
-// The certificate authority's private key never leaves the cluster.
-//
-// Signing agent certificates in the harness means copying that key onto a
-// shared CI runner, where it is one misconfigured artifact upload away from
-// being the credential that mints a trusted machine for the whole fleet — and
-// it is a credential no rotation story covers, because every enrolled machine
-// is signed by it.
-//
-// The product already has the right mechanism: a machine generates its own key,
-// sends a signing request, and the server returns a certificate. The harness
-// uses the same endpoint an installer does, so what travels is a public key and
-// what comes back is a certificate.
-
 // EnrollOptions is one enrollment.
 type EnrollOptions struct {
 	BaseURL string
-	// EnrollmentToken is minted through the admin API before the run and spent
-	// during it. It is short-lived and scoped, unlike the authority key.
+	// EnrollmentToken is minted through the admin API before the run and spent during it.
 	EnrollmentToken string
 	DeviceID        string
-	// Hostname is the name this machine presents. Empty falls back to the
-	// device id, which is always present.
+	// Hostname is the name this machine presents; empty falls back to the device id.
 	Hostname string
-	// PresentedAddress is the address this machine arrives from. The server
-	// counts requests per address, so a fleet that presents one between all of
-	// it measures that allowance rather than the server. Empty presents
-	// nothing, which is the right answer against a deployment that has not
-	// named this generator as a proxy. See presented.go.
+	// PresentedAddress is the address this machine arrives from, counted per address by the
+	// server. Empty presents nothing.
 	PresentedAddress string
 }
 
-// IssuedCertificate is what a machine ends up holding: the certificate the
-// server signed, the private key that never left, and the authority to verify
-// the server with.
+// IssuedCertificate is what an enrolled machine holds: its signed certificate and private key,
+// plus the authority to verify the server with.
 type IssuedCertificate struct {
 	Certificate tls.Certificate
 	CAPEM       string
 	ServerAddr  string
 }
 
-// enrollTimeout bounds one enrollment. A fleet enrolls in parallel, so a
-// machine that cannot get an answer must give up rather than hold a slot.
+// enrollTimeout bounds one enrollment, so a machine without an answer gives up its slot.
 const enrollTimeout = 30 * time.Second
 
-// EnrollAgent obtains a certificate for one machine through the public
-// enrollment endpoint.
+// EnrollAgent obtains a certificate for one machine through the public enrollment endpoint,
+// sending only a signing request so the authority's key stays in the cluster.
 func EnrollAgent(ctx context.Context, opts EnrollOptions) (*IssuedCertificate, error) {
 	if err := CheckTarget(opts.BaseURL); err != nil {
 		return nil, err
@@ -129,34 +109,16 @@ func signingRequest(opts EnrollOptions) (*ecdsa.PrivateKey, []byte, error) {
 	return key, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}), nil
 }
 
-// ErrEnrollmentRefused is the server declining to issue a certificate: a spent
-// credential, an expired one, a rate past a ceiling it enforces on purpose.
-//
-// It is named so a run can tell a limit working from a limit broken. A fleet
-// refused at a declared ceiling and a fleet that could not reach the server look
-// identical in a failure count, and only one of them is a finding about the
-// system.
+// ErrEnrollmentRefused is the server declining on purpose: a spent or invalid credential, or a
+// rate past a ceiling it enforces.
 var ErrEnrollmentRefused = errors.New("enrollment refused")
 
-// ErrEnrollmentFailed is the other answer: the server broke, or the harness
-// asked it something wrong. It is a machine that did not get in, and it belongs
-// in the error rate.
-//
-// The two are separated here rather than at the tally, because the tally cannot
-// see a status code. Everything that is not one of the refusals below is one of
-// these — including the 503 a red night actually read, which had been labelled
-// "the server declining on purpose" alongside a spent credential.
+// ErrEnrollmentFailed is a machine that did not get in because the server broke or the harness
+// asked wrongly; it belongs in the error rate.
 var ErrEnrollmentFailed = errors.New("enrollment failed")
 
-// deliberateRefusals are the answers this endpoint chooses to give. Read off the
-// handler and the rate limiter rather than assumed: it is unauthenticated, so it
-// never answers 401 or 403, and it is exactly these three that the comment on
-// ErrEnrollmentRefused describes — a credential that was never valid, a spent or
-// expired one, and a rate past a ceiling the server enforces on purpose.
-//
-// A bad signing request is the harness sending something wrong and a 5xx is the
-// server broken. Neither is a limit working, and counting them as one is how a
-// server that had stopped answering would report a perfect run.
+// deliberateRefusals are the statuses the endpoint chooses to answer with: an invalid token, a
+// spent one and a rate past its ceiling. Any other status is a failure.
 var deliberateRefusals = map[int]bool{
 	http.StatusNotFound:        true,
 	http.StatusGone:            true,
@@ -202,9 +164,8 @@ func postEnrollment(ctx context.Context, opts EnrollOptions, csrPEM []byte) (*en
 	return &decoded, nil
 }
 
-// encodeKey writes the private key in the form a TLS key pair reads. It is
-// written to memory and handed straight to the TLS stack; it is never given a
-// path on disk, because a file is what gets uploaded with an artifact.
+// encodeKey writes the private key in memory for the TLS stack; it is never given a path on
+// disk, where an artifact upload could collect it.
 func encodeKey(key *ecdsa.PrivateKey) []byte {
 	der, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
@@ -213,9 +174,8 @@ func encodeKey(key *ecdsa.PrivateKey) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 }
 
-// AgentTLSConfig is how an enrolled machine dials: it presents the certificate
-// the server signed and verifies the server against the authority the same
-// enrollment handed back.
+// AgentTLSConfig presents the signed certificate and verifies the server against the authority
+// the same enrollment returned.
 func (c *IssuedCertificate) AgentTLSConfig() (*tls.Config, error) {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM([]byte(c.CAPEM)) {

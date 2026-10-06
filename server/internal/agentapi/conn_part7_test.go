@@ -20,7 +20,6 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 	site := testutil.SeedSite(t, ctx, store)
 	d := testutil.SeedDevice(t, ctx, store, site.ID)
 
-	// Create a pending update record
 	require.NoError(t, deviceUpdates.Create(ctx, &updater.DeviceUpdate{
 		DeviceID: d.ID,
 		Version:  "0.5.0",
@@ -29,7 +28,6 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 
 	codec := &protocol.Codec{}
 
-	// findUpdate returns the latest DeviceUpdate record for (device, version).
 	findUpdate := func(t *testing.T) *updater.DeviceUpdate {
 		t.Helper()
 		ups, err := deviceUpdates.ListByVersion(ctx, "0.5.0")
@@ -68,9 +66,6 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 		}
 		require.NoError(t, ac.handleControl(ctx))
 
-		// Pin the success path: status must be Success. Without this assertion
-		// CONDITIONALS_NEGATION on `msg.Success != nil` survives because
-		// handleControl returns nil regardless of the persisted outcome.
 		got := findUpdate(t)
 		assert.Equal(t, updater.StatusSuccess, got.Status,
 			"success=true ack must persist updater.StatusSuccess")

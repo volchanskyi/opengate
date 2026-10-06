@@ -15,10 +15,17 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestPostgres_DeleteStale covers the garbage collection behind the device
-// page's "Active Sessions" list. A session row outlives its relay whenever the
-// pair never formed or the process that owned it died, so the sweep drops every
-// row past the cutoff except the tokens the relay still holds open.
+func sweeperOver(repo session.Repository, live ...string) *session.Sweeper {
+	return session.NewSweeper(repo, func() []string { return live }, time.Minute, slog.Default())
+}
+
+func deleteStaleAfterNow(t *testing.T, repo session.Repository, keep []string) int {
+	t.Helper()
+	deleted, err := repo.DeleteStale(context.Background(), time.Now().Add(time.Hour), keep)
+	require.NoError(t, err)
+	return deleted
+}
+
 func TestPostgres_DeleteStale(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
@@ -35,16 +42,11 @@ func TestPostgres_DeleteStale(t *testing.T) {
 	}
 	orphan, live, alsoOrphan := create("orphan-"), create("live-"), create("orphan2-")
 
-	// A cutoff in the past spares everything: the rows are all newer than it.
 	deleted, err := repo.DeleteStale(context.Background(), time.Now().Add(-time.Hour), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, deleted)
 
-	// A cutoff ahead of every row makes them all stale — except the one whose
-	// relay is still piping.
-	deleted, err = repo.DeleteStale(context.Background(), time.Now().Add(time.Hour), []string{live})
-	require.NoError(t, err)
-	assert.Equal(t, 2, deleted)
+	assert.Equal(t, 2, deleteStaleAfterNow(t, repo, []string{live}))
 
 	got, err := repo.Get(ctx, live)
 	require.NoError(t, err)
@@ -54,14 +56,9 @@ func TestPostgres_DeleteStale(t *testing.T) {
 		assert.ErrorIs(t, err, session.ErrSessionNotFound)
 	}
 
-	// Idempotent: a second sweep over the same state deletes nothing.
-	deleted, err = repo.DeleteStale(context.Background(), time.Now().Add(time.Hour), []string{live})
-	require.NoError(t, err)
-	assert.Equal(t, 0, deleted)
+	assert.Equal(t, 0, deleteStaleAfterNow(t, repo, []string{live}))
 }
 
-// TestPostgres_DeleteStale_CrossTenant pins the sweep as fleet-wide: it runs
-// without a request tenant, so it must reach every tenant's rows.
 func TestPostgres_DeleteStale_CrossTenant(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
@@ -75,11 +72,9 @@ func TestPostgres_DeleteStale_CrossTenant(t *testing.T) {
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	sessionB := testutil.SeedAgentSession(t, ctxB, store, deviceB.ID, userB.ID)
 
-	deleted, err := repo.DeleteStale(context.Background(), time.Now().Add(time.Hour), nil)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, deleted, 1)
+	assert.GreaterOrEqual(t, deleteStaleAfterNow(t, repo, nil), 1)
 
-	_, err = repo.Get(ctxB, sessionB.Token)
+	_, err := repo.Get(ctxB, sessionB.Token)
 	assert.ErrorIs(t, err, session.ErrSessionNotFound)
 }
 
@@ -97,13 +92,10 @@ func TestInstrumented_ObservesDeleteStale(t *testing.T) {
 	assert.True(t, obs.calls[0].ok)
 }
 
-// TestSweeper_SparesLiveTokensPastTheGrace pins the two inputs the sweep
-// derives: the cutoff is now minus the grace period, and the keep-list is
-// whatever the relay currently holds open.
 func TestSweeper_SparesLiveTokensPastTheGrace(t *testing.T) {
 	t.Parallel()
 	repo := &memRepo{staleDeleted: 2}
-	sweeper := session.NewSweeper(repo, func() []string { return []string{"live-1", "live-2"} }, time.Minute, slog.Default())
+	sweeper := sweeperOver(repo, "live-1", "live-2")
 
 	before := time.Now()
 	deleted, err := sweeper.Sweep(context.Background())
@@ -117,12 +109,10 @@ func TestSweeper_SparesLiveTokensPastTheGrace(t *testing.T) {
 	assert.True(t, call.cutoff.Before(before), "cutoff must trail now by the grace period")
 }
 
-// TestSweeper_NoLiveSessionsSweepsEverythingPastTheGrace is the restart case:
-// the relay owns nothing, so every aged row goes.
 func TestSweeper_NoLiveSessionsSweepsEverythingPastTheGrace(t *testing.T) {
 	t.Parallel()
 	repo := &memRepo{staleDeleted: 7}
-	sweeper := session.NewSweeper(repo, func() []string { return nil }, time.Minute, slog.Default())
+	sweeper := sweeperOver(repo)
 
 	deleted, err := sweeper.Sweep(context.Background())
 	require.NoError(t, err)
@@ -131,12 +121,10 @@ func TestSweeper_NoLiveSessionsSweepsEverythingPastTheGrace(t *testing.T) {
 	assert.Empty(t, repo.staleCalls[0].keep)
 }
 
-// TestSweeper_PropagatesRepositoryFailure keeps a broken sweep loud rather than
-// silently reporting a clean run.
 func TestSweeper_PropagatesRepositoryFailure(t *testing.T) {
 	t.Parallel()
 	repo := &memRepo{staleErr: sql.ErrConnDone}
-	sweeper := session.NewSweeper(repo, func() []string { return nil }, time.Minute, slog.Default())
+	sweeper := sweeperOver(repo)
 
 	deleted, err := sweeper.Sweep(context.Background())
 	require.ErrorIs(t, err, sql.ErrConnDone)

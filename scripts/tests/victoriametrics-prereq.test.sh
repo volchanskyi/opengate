@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/lib/victoriametrics-prereq.sh. Plain bash; no bats dependency.
-# Run: ./scripts/tests/victoriametrics-prereq.test.sh
-#
-# testvm memoizes its container per test BINARY, and `go test ./tests/...` builds
-# one binary per package, so an unset VICTORIAMETRICS_TEST_URL makes every
-# VictoriaMetrics-touching package start its own. The gauntlet closes that the
-# same way it closes the Postgres one — start a single instance and export its
-# URL — and these tests pin the library behind it without starting a container.
+# Tests for scripts/lib/victoriametrics-prereq.sh, which exports one shared instance's URL.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -19,7 +19,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestHandlerStoreFailures verifies that every handler returns 500 when the store is unavailable.
 func TestHandlerStoreFailures(t *testing.T) {
 	t.Parallel()
 	store, err := db.NewPostgresStore(t.Context(), testpg.BaseURL(t))
@@ -32,7 +31,6 @@ func TestHandlerStoreFailures(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
-	// Seed a user for auth before closing the store.
 	email := "err-" + uuid.New().String()[:8] + "@example.com"
 	hash, err := auth.HashPassword("password123")
 	require.NoError(t, err)

@@ -104,7 +104,7 @@ func (c *checker) collectMarkdownPath(
 	}
 	relSlash := filepath.ToSlash(relativePath)
 	if entry.IsDir() {
-		if relSlash == ".claude/plans" {
+		if relSlash == ".claude/plans" || isNestedCheckout(path) {
 			return fs.SkipDir
 		}
 		return nil
@@ -114,6 +114,12 @@ func (c *checker) collectMarkdownPath(
 	}
 	fileSet[relSlash] = struct{}{}
 	return nil
+}
+
+// isNestedCheckout reports a directory holding its own .git, such as an agent's worktree.
+func isNestedCheckout(directory string) bool {
+	_, err := os.Lstat(filepath.Join(directory, ".git"))
+	return err == nil
 }
 
 func addOverlayFiles(fileSet map[string]struct{}, overlays map[string][]byte) {
@@ -133,13 +139,7 @@ func sortedPaths(fileSet map[string]struct{}) []string {
 	return files
 }
 
-// inScope reports whether a repository-relative Markdown path is a link SOURCE
-// the checker validates. The durable roots are docs/ and .claude/, minus the
-// ephemeral plan working-area (.claude/plans/, active and archive/): those files
-// are deletion-bound and their internal relative links rot by design, so
-// scanning them as sources is pure noise. Plan files remain valid link TARGETS —
-// the plan-link policy (see checker.go) still governs links TO them from durable
-// sources. Both the directory walk and the hook overlay route through this.
+// inScope reports whether a Markdown path under docs/ or .claude/ outside plans/ is a link source.
 func inScope(relativePath string) bool {
 	if !strings.EqualFold(filepath.Ext(relativePath), ".md") {
 		return false

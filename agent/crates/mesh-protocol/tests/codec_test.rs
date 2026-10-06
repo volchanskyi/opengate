@@ -190,12 +190,10 @@ fn test_file_frame_roundtrip() {
 
 #[test]
 fn test_frame_type_byte_prefix() {
-    // Control frames must have type prefix 0x01
     let control = Frame::Control(ControlMessage::RelayReady);
     let encoded = control.encode().unwrap();
     assert_eq!(encoded[0], 0x01);
 
-    // Desktop frames must have type prefix 0x02
     let desktop = Frame::Desktop(DesktopFrame {
         sequence: 0,
         x: 0,
@@ -208,12 +206,10 @@ fn test_frame_type_byte_prefix() {
     let encoded = desktop.encode().unwrap();
     assert_eq!(encoded[0], 0x02);
 
-    // Terminal frames must have type prefix 0x03
     let terminal = Frame::Terminal(TerminalFrame { data: vec![b'A'] });
     let encoded = terminal.encode().unwrap();
     assert_eq!(encoded[0], 0x03);
 
-    // File frames must have type prefix 0x04
     let file = Frame::FileTransfer(FileFrame {
         offset: 0,
         total_size: 1,
@@ -222,12 +218,10 @@ fn test_frame_type_byte_prefix() {
     let encoded = file.encode().unwrap();
     assert_eq!(encoded[0], 0x04);
 
-    // Ping must be exactly [0x05]
     let ping = Frame::Ping;
     let encoded = ping.encode().unwrap();
     assert_eq!(encoded, vec![0x05]);
 
-    // Pong must be exactly [0x06]
     let pong = Frame::Pong;
     let encoded = pong.encode().unwrap();
     assert_eq!(encoded, vec![0x06]);
@@ -246,7 +240,6 @@ fn test_handshake_binary_encoding() {
     assert_eq!(&encoded[1..33], &nonce);
     assert_eq!(&encoded[33..81], &cert_hash);
 
-    // AgentHello: same structure, different type byte
     let msg = HandshakeMessage::AgentHello {
         nonce,
         agent_cert_hash: cert_hash,
@@ -283,7 +276,7 @@ fn test_handshake_binary_roundtrip() {
 #[test]
 fn test_session_token_is_32_byte_hex() {
     let token = SessionToken::generate();
-    assert_eq!(token.as_str().len(), 64); // 32 bytes = 64 hex chars
+    assert_eq!(token.as_str().len(), 64);
     assert!(token.as_str().chars().all(|c| c.is_ascii_hexdigit()));
 }
 
@@ -297,13 +290,11 @@ fn test_session_token_uniqueness() {
 #[test]
 fn test_session_token_entropy() {
     use std::collections::HashSet;
-    // Generate 100 tokens; all must be unique.
     let tokens: HashSet<String> = (0..100)
         .map(|_| SessionToken::generate().as_str().to_string())
         .collect();
     assert_eq!(tokens.len(), 100, "all 100 tokens must be unique");
 
-    // Verify byte diversity: 32 random bytes should not all be the same value.
     let token = SessionToken::generate();
     let hex = token.as_str();
     let bytes: Vec<u8> = (0..32)
@@ -323,7 +314,6 @@ fn test_device_id_stable_across_serialization() {
     let deserialized: DeviceId = rmp_serde::from_slice(&serialized).unwrap();
     assert_eq!(id, deserialized);
 
-    // Also test JSON roundtrip for good measure
     let json = serde_json::to_string(&id).unwrap();
     let from_json: DeviceId = serde_json::from_str(&json).unwrap();
     assert_eq!(id, from_json);
@@ -331,15 +321,12 @@ fn test_device_id_stable_across_serialization() {
 
 #[test]
 fn test_frame_decode_incomplete() {
-    // Empty data
     let result = Frame::decode(&[]);
     assert!(matches!(result, Err(ProtocolError::IncompleteFrame { .. })));
 
-    // Just a type byte, no length
     let result = Frame::decode(&[0x01]);
     assert!(matches!(result, Err(ProtocolError::IncompleteFrame { .. })));
 
-    // Type byte + partial length
     let result = Frame::decode(&[0x01, 0x00, 0x00]);
     assert!(matches!(result, Err(ProtocolError::IncompleteFrame { .. })));
 }
@@ -352,14 +339,12 @@ fn test_frame_decode_unknown_type() {
 
 #[test]
 fn test_max_frame_size_is_16mib() {
-    // Pins the constant; replace * with + would yield 16+1024+1024 = 2064.
     assert_eq!(MAX_FRAME_SIZE, 16 * 1024 * 1024);
     assert_eq!(MAX_FRAME_SIZE, 16_777_216);
 }
 
 #[test]
 fn test_decode_single_byte_ping_returns_ping() {
-    // Pins FRAME_PING match arm in Frame::decode.
     let (frame, consumed) = Frame::decode(&[0x05]).expect("decode ping");
     assert_eq!(frame, Frame::Ping);
     assert_eq!(consumed, 1);
@@ -367,7 +352,6 @@ fn test_decode_single_byte_ping_returns_ping() {
 
 #[test]
 fn test_decode_single_byte_pong_returns_pong() {
-    // Pins FRAME_PONG match arm in Frame::decode.
     let (frame, consumed) = Frame::decode(&[0x06]).expect("decode pong");
     assert_eq!(frame, Frame::Pong);
     assert_eq!(consumed, 1);
@@ -375,8 +359,6 @@ fn test_decode_single_byte_pong_returns_pong() {
 
 #[test]
 fn test_decode_minimum_header_length_succeeds_with_empty_payload() {
-    // A 5-byte header (type + length=0) is the boundary for the `data.len() < 5`
-    // check. Replacing `<` with `<=` would reject this valid frame.
     let frame = Frame::Control(ControlMessage::RelayReady);
     let encoded = frame.encode().unwrap();
     assert!(encoded.len() >= 5);
@@ -386,8 +368,6 @@ fn test_decode_minimum_header_length_succeeds_with_empty_payload() {
 
 #[test]
 fn test_decode_partial_header_reports_correct_needed_bytes() {
-    // Tests `needed: 5 - data.len()`. Mutating `-` to `+` would report
-    // 5 + data.len() (e.g. 5+3=8 instead of 5-3=2).
     if let Err(ProtocolError::IncompleteFrame { needed }) = Frame::decode(&[0x01, 0x00, 0x00]) {
         assert_eq!(needed, 2, "needed must be 5 - 3 = 2");
     } else {
@@ -397,10 +377,8 @@ fn test_decode_partial_header_reports_correct_needed_bytes() {
 
 #[test]
 fn test_decode_partial_payload_reports_correct_needed_bytes() {
-    // Type=Control, length=10, but payload only 3 bytes.
-    // total = 5 + 10 = 15; data.len() = 5 + 3 = 8; needed = 15 - 8 = 7.
-    let mut data = vec![0x01, 0x00, 0x00, 0x00, 0x0A]; // header: control, length=10
-    data.extend_from_slice(&[0x01, 0x02, 0x03]); // 3 bytes of payload
+    let mut data = vec![0x01, 0x00, 0x00, 0x00, 0x0A];
+    data.extend_from_slice(&[0x01, 0x02, 0x03]);
     if let Err(ProtocolError::IncompleteFrame { needed }) = Frame::decode(&data) {
         assert_eq!(needed, 7, "needed must be (5+10) - (5+3) = 7");
     } else {
@@ -410,8 +388,6 @@ fn test_decode_partial_payload_reports_correct_needed_bytes() {
 
 #[test]
 fn test_decode_rejects_length_above_max_frame_size() {
-    // length = MAX_FRAME_SIZE + 1 must error; mutating `>` to `>=` would
-    // accept exactly MAX_FRAME_SIZE; mutating to `==` would accept anything else.
     let too_big = (MAX_FRAME_SIZE + 1) as u32;
     let mut data = vec![0x01];
     data.extend_from_slice(&too_big.to_be_bytes());
@@ -426,14 +402,9 @@ fn test_decode_rejects_length_above_max_frame_size() {
 
 #[test]
 fn test_decode_accepts_length_equal_to_max_frame_size_header() {
-    // length = MAX_FRAME_SIZE must NOT error from the >MAX check.
-    // We don't have to provide the full payload; we just verify the
-    // size check itself doesn't reject this boundary value.
     let exact = MAX_FRAME_SIZE as u32;
     let mut data = vec![0x01];
     data.extend_from_slice(&exact.to_be_bytes());
-    // Will fail with IncompleteFrame (because we didn't supply payload),
-    // but must NOT fail with FrameTooLarge.
     match Frame::decode(&data) {
         Err(ProtocolError::IncompleteFrame { .. }) => {}
         other => panic!("expected IncompleteFrame, got {:?}", other),
@@ -442,9 +413,6 @@ fn test_decode_accepts_length_equal_to_max_frame_size_header() {
 
 #[test]
 fn test_encode_frame_rejects_payload_above_max_frame_size() {
-    // Build an oversized payload via Frame::Terminal (raw bytes). Mutating
-    // the `>` in encode_frame to `>=` would reject exactly MAX_FRAME_SIZE.
-    // Use a payload large enough to exceed MAX after MessagePack overhead.
     let frame = Frame::Terminal(TerminalFrame {
         data: vec![0u8; MAX_FRAME_SIZE + 1],
     });
@@ -466,7 +434,6 @@ fn test_retired_handshake_proof_types_rejected() {
 
 #[test]
 fn test_codec_never_panics_on_arbitrary_bytes() {
-    // Quick manual fuzz with known problematic patterns
     let test_cases: Vec<Vec<u8>> = vec![
         vec![],
         vec![0x00],
@@ -475,19 +442,17 @@ fn test_codec_never_panics_on_arbitrary_bytes() {
         vec![0x02, 0x00, 0x00, 0x00, 0x01, 0x00],
         vec![0x05, 0x06],
         vec![0xFF; 100],
-        vec![0x01, 0x00, 0x00, 0x00, 0x00], // Control with 0-byte payload
+        vec![0x01, 0x00, 0x00, 0x00, 0x00],
     ];
 
     for data in test_cases {
         Frame::decode(&data).ok();
-        // Just verify no panic
     }
 }
 
 #[test]
 fn test_request_device_logs_missing_fields() {
-    // Simulate what Go sends when fields are empty (omitempty drops them).
-    // Only "type" is present; all other fields are missing.
+    // Go's omitempty drops empty fields, so only "type" is present.
     use std::collections::BTreeMap;
     let mut map = BTreeMap::new();
     map.insert("type", "RequestDeviceLogs");
@@ -510,8 +475,7 @@ fn test_request_device_logs_missing_fields() {
 
 #[test]
 fn test_request_health_window_missing_fields() {
-    // Simulate what Go sends when fields are empty (omitempty drops them).
-    // Only "type" is present; all other fields are missing.
+    // Go's omitempty drops empty fields, so only "type" is present.
     use std::collections::BTreeMap;
     let mut map = BTreeMap::new();
     map.insert("type", "RequestHealthWindow");
@@ -528,8 +492,7 @@ fn test_request_health_window_missing_fields() {
 
 #[test]
 fn test_edge_sentinel_agent_reports_tolerate_go_omitempty_zero_fields() {
-    // Simulate Go encoding a flat ControlMessage where omitempty drops zero-valued
-    // Edge-Sentinel fields.
+    // Go's omitempty drops zero-valued fields from the flat ControlMessage.
     use std::collections::BTreeMap;
 
     let decode_type_only = |msg_type: &str| {

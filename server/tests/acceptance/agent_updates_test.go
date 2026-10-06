@@ -12,10 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// TestAnAdministratorPublishesABuildAndTheMachineAcknowledgesIt is the
-// sentence Agent Updates promises: a build is published, signed by this
-// installation, pushed to the machines that can take it, and the machine's
-// answer is what the update page shows.
 func TestAnAdministratorPublishesABuildAndTheMachineAcknowledgesIt(t *testing.T) {
 	t.Parallel()
 
@@ -64,9 +60,6 @@ func TestAnAdministratorPublishesABuildAndTheMachineAcknowledgesIt(t *testing.T)
 	}, eventually, poll, "what the machine answered is what the update page shows")
 }
 
-// TestABuildIsNotPushedToAMachineOfAnotherShape pins the bound on a push: a
-// build for one operating system and processor must not be offered to a
-// machine that cannot run it.
 func TestABuildIsNotPushedToAMachineOfAnotherShape(t *testing.T) {
 	t.Parallel()
 
@@ -92,14 +85,11 @@ func TestABuildIsNotPushedToAMachineOfAnotherShape(t *testing.T) {
 		"a Linux machine is never offered a Windows build")
 }
 
-// agentManifest is a published build as the update page lists it.
 type agentManifest struct {
 	Version   string `json:"version"`
 	Signature string `json:"signature"`
 }
 
-// publishBuild is an administrator publishing a signed build. The shape
-// defaults to the one the machines in these tests report.
 func (a *Technician) publishBuild(version string, shape ...string) agentManifest {
 	a.t.Helper()
 

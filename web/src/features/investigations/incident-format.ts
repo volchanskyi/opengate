@@ -58,11 +58,7 @@ export function countLabel(n: number, singular: string, plural: string): string 
   return `${String(n)} ${n === 1 ? singular : plural}`;
 }
 
-/**
- * What an alert read, when it read anything. A rule that fires on an event
- * rather than a threshold carries no metric, and saying so beats printing a
- * blank where a number belongs.
- */
+/** What an alert read; an event-driven rule carries no metric and yields a dash. */
 export function alertReadingLabel(metric: string | undefined, value: number | null | undefined): string {
   if (!metric) return DASH;
   if (value === null || value === undefined) return metric;
@@ -82,8 +78,7 @@ function bodyReader(body: Record<string, unknown>) {
 }
 
 function statusMove(from: string, to: string): string {
-  // The body carries wire values; an unknown one falls through the label maps
-  // and renders as itself rather than disappearing.
+  // An unknown wire value falls through the label maps and renders as itself.
   return `${statusLabel(from as Status)} → ${statusLabel(to as Status)}`;
 }
 
@@ -108,11 +103,7 @@ function assignmentTitle(read: ReturnType<typeof bodyReader>): string {
   return `Assigned to ${shortId(read.text('assignee_id'))}`;
 }
 
-/**
- * Render one line of a room's history. The incident's own fields say where it
- * stands; these say how it got there, which is what a handover between two
- * technicians reads.
- */
+/** Renders one line of a room's history. */
 export function eventLine(event: IncidentEvent): TimelineLine {
   const read = bodyReader(event.body);
   switch (event.kind) {

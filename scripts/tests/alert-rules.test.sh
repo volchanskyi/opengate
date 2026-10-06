@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 # Offline regression tests for the Grafana alert-rule provisioning file.
-#
-# The rules that page a human are the last line between a slow degradation and
-# an incident nobody watched. This gate pins the ones whose absence has already
-# cost a night: a target that was replaced mid-run, and a container walking up
-# to its own memory limit.
 
 set -euo pipefail
 
@@ -126,10 +121,7 @@ else
   fail "incomplete alert rules: $incomplete"
 fi
 
-# The rule reads the start time itself. The store counts a new series' first
-# reading as a change, so `changes()` fired whenever a series' labels changed:
-# adding the environment label to every server series raised a restart alert
-# for a process that was two days old.
+# The restart rule reads the process start time, as `changes()` counts a new series' first reading.
 restart_query="$(rule_query server-process-restarted)"
 if grep -q 'time() - max(process_start_time_seconds{' <<<"$restart_query" \
   && ! grep -q 'changes(' <<<"$restart_query" \
@@ -162,10 +154,7 @@ else
   fail "server-process-restarted must carry severity: warning"
 fi
 
-# The two container alerts below stand on a scrape that reaches each kubelet
-# directly, authorised against one RBAC subresource. Get that wrong and the
-# series never arrive, both alerts stay quiet, and the silence reads exactly
-# like a healthy fleet. So the scrape itself is watched.
+# The container alerts depend on a scrape reaching each kubelet through one RBAC subresource.
 scrape_query="$(rule_query cadvisor-scrape-unreachable)"
 if grep -q 'up{job="kubernetes-cadvisor"}' <<<"$scrape_query"; then
   pass "a cAdvisor scrape that is not answering raises an alert"
@@ -173,22 +162,14 @@ else
   fail "cadvisor-scrape-unreachable must alert on up{job=\"kubernetes-cadvisor\"}"
 fi
 
-# An absent series and a refused scrape are the same outcome here, so no data
-# has to alert rather than resolve.
+# An absent series and a refused scrape are the same outcome, so no data alerts.
 if [ "$(rule_field cadvisor-scrape-unreachable noDataState)" = "Alerting" ]; then
   pass "no data on the container scrape alerts rather than reading as healthy"
 else
   fail "cadvisor-scrape-unreachable must set noDataState: Alerting — an absent series is the failure"
 fi
 
-# A pod sat at 90% of its own memory limit for three hours and nothing fired.
-# The rule that was supposed to cover it read node-wide available memory, which
-# says nothing about one container against one cgroup ceiling.
-# The reading is what the program itself holds. A working set counts the
-# kernel's reclaimable file cache as well: Loki sat at 475 of its 512 MiB with
-# 275 MiB of that cache it could give back on demand, and the rule fired on a
-# program holding 150 MiB. Resident memory is the one per-program reading this
-# node offers — its pressure and kernel-usage readings are zero.
+# The memory rule reads resident memory, which excludes the file cache a working set counts.
 limit_query="$(rule_query container-memory-against-limit)"
 if grep -q 'container_memory_rss' <<<"$limit_query" \
   && grep -q 'container_spec_memory_limit_bytes' <<<"$limit_query" \
@@ -203,7 +184,6 @@ else
   pass "the container alert does not count reclaimable cache as held memory"
 fi
 
-# Node-wide memory is not a substitute: it was true and quiet throughout.
 if grep -q 'node_memory_MemAvailable_bytes' <<<"$limit_query"; then
   fail "container-memory-against-limit reads node-wide memory, which is the reading that stayed quiet"
 else
@@ -216,20 +196,14 @@ else
   fail "container-memory-against-limit must carry for: 10m"
 fi
 
-# A container with no memory limit reports a limit of nought, and a comparison
-# written after the division filters the quotient rather than the divisor: the
-# ratio comes out +Inf, passes `> 0`, and six unlimited system containers fired
-# in every message all night. The filter belongs on the limit, inside the
-# division.
+# A container with no memory limit reports a limit of zero, so the filter sits on the divisor.
 if grep -qF '/ (container_spec_memory_limit_bytes{container!="",container!="POD"} > 0)' <<<"$limit_query"; then
   pass "a container with no memory limit is left out of the ratio rather than read as +Inf"
 else
   fail "container-memory-against-limit must divide by (container_spec_memory_limit_bytes{...} > 0), the filter on the limit"
 fi
 
-# A working set that hovers at the line fires and resolves on every evaluation:
-# Loki crossed 80% twenty times in one night. The alert clears only once the
-# container is back under 70%, so one crossing is one message.
+# The alert clears only once the container is back under 70%, so one crossing is one message.
 thresholds="$(
   python3 - "$RULES_FILE" <<'PY'
 import sys, yaml
@@ -256,8 +230,7 @@ else
   fail "container-memory-against-limit must fire gt 0.8 and clear with unloadEvaluator lt 0.7 (got=[$thresholds])"
 fi
 
-# And when the kill happens anyway, the alert names the container it took —
-# which is the answer this incident cost six hours to reconstruct by hand.
+# The kill alert reads the increase of the container out-of-memory event counter.
 oom_query="$(rule_query container-oom-killed)"
 if grep -q 'container_oom_events_total' <<<"$oom_query" \
   && grep -q 'increase(' <<<"$oom_query"; then
@@ -272,19 +245,8 @@ else
   fail "container-oom-killed must carry severity: critical"
 fi
 
-# --- what each rule watches ---------------------------------------------------
-#
-# One scrape job reads the production and the staging server alike, so a rule
-# over the server's series summed staging into production: seventeen alerts the
-# staging server raised during a network drill read as a production rule pack
-# running at five times its ceiling. Every rule says what it watches. A
-# production rule reads production's namespace on every server selector it
-# holds, and the shared rules — the node and the containers on it — are the ones
-# a test holding the staging claim may quiet.
-#
-# unscoped_selectors <rules-file> prints each server selector a rule holds
-# without production's namespace, each rule whose `watches` is missing or not
-# one of the two, and a closing count of the server selectors it read.
+# One scrape job reads both servers, so a production rule names its namespace on every selector.
+# unscoped_selectors <rules-file> prints each selector lacking it and each bad `watches`.
 unscoped_selectors() {
   python3 - "$1" <<'PY'
 import re, sys, yaml
@@ -292,9 +254,7 @@ import re, sys, yaml
 with open(sys.argv[1], encoding="utf-8") as fh:
     doc = yaml.safe_load(fh)
 
-# A metric name with the matcher block that follows it, if any. Function names
-# and keywords never reach the checks below: only a name the server publishes,
-# or a matcher block naming the server's scrape job, is a server selector.
+# A server selector is a published metric name or a matcher block naming the server's scrape job.
 selector = re.compile(r'([A-Za-z_:][A-Za-z0-9_:]*)\s*(\{[^}]*\})?')
 read = 0
 for group in doc.get("groups", []):
@@ -318,8 +278,6 @@ print(f"read={read}")
 PY
 }
 
-# The defect first: a rule reading the server with no namespace, which is the
-# shape every server rule had.
 unscoped_demo="$(mktemp)"
 cat >"$unscoped_demo" <<'DEMO'
 groups:
@@ -348,8 +306,6 @@ else
   fail "rules reading staging as production: $scope_problems"
 fi
 
-# The rules a quiet period holds back are the shared ones, and the node and its
-# containers are what those watch.
 for uid in disk-usage-critical disk-usage-warning memory-usage-high \
   cadvisor-scrape-unreachable container-memory-against-limit container-oom-killed; do
   if [ "$(rule_field "$uid" labels.watches)" = "shared" ]; then
@@ -359,13 +315,7 @@ for uid in disk-usage-critical disk-usage-warning memory-usage-high \
   fi
 done
 
-# --- what a message carries ---------------------------------------------------
-#
-# A message read on a phone is the whole of what the person reading it has. The
-# default one printed "Value: [no value]", every internal label Grafana adds and
-# a paragraph of rationale — and not the reading, the line it crossed, where, or
-# what to look at first. So every rule says, in its own units, what it saw, and
-# names the first thing to check.
+# Every rule states in its own units what it saw and names the first thing to check.
 unexplained="$(
   python3 - "$RULES_FILE" <<'PY'
 import sys, yaml
@@ -377,8 +327,7 @@ for group in doc.get("groups", []):
     for rule in group.get("rules", []):
         ann = rule.get("annotations", {})
         observed = ann.get("observed", "")
-        # The reading is the reduced value. Guarded, because a rule firing on
-        # no data has no values and an unguarded field renders as an error.
+        # The reading is guarded because a rule firing on no data has no values.
         if "with $values.B" not in observed:
             print(f"{rule['uid']}: observed must render $values.B inside a with")
         if not ann.get("check", "").strip():
@@ -404,7 +353,6 @@ body = "\n".join(t.get("template", "") for t in templates)
 if '{{ define "opengate.telegram" }}' not in body:
     print("no template defines opengate.telegram")
 
-# What the template must print, and the internal labels it must not.
 for needle in (".Annotations.summary", ".Annotations.observed", ".Annotations.check",
                ".StartsAt", '"NoData"', '"Error"'):
     if needle not in body:
@@ -413,12 +361,8 @@ for internal in ("ref_id", "datasource_uid", "grafana_state_reason", "grafana_fo
     if f'"{internal}"' not in body:
         print(f"the template does not leave out {internal}")
 
-# A rule that reads no data, or whose query fails, arrives as an alert Grafana
-# names DatasourceNoData or DatasourceError, with the rule's own title in
-# `rulename`. The headline printed the first, so every rule's no-data alert
-# read the same, and grouping by that name merged them into one message.
-# A line that opens with a trim marker continues the line before it in the
-# message, so the headline is the FIRING line and every such line after it.
+# A no-data or failed-query alert is named DatasourceNoData or DatasourceError, with the rule title in `rulename`.
+# A line opening with a trim marker continues the line before it, so the headline spans those lines.
 lines = body.splitlines()
 start = next((i for i, line in enumerate(lines) if "FIRING" in line), None)
 headline = ""
@@ -448,7 +392,7 @@ for r in receivers:
     s = r.get("settings", {})
     if 'template "opengate.telegram"' not in s.get("message", ""):
         print(f"{r.get('uid')}: the message does not use opengate.telegram")
-    # Summaries carry '>' and '&'; parsed as HTML they are refused by Telegram.
+    # Summaries carry '>' and '&', which Telegram refuses when parsed as HTML.
     if s.get("parse_mode") != "None":
         print(f"{r.get('uid')}: parse_mode must be None so the text is sent as written")
 if not receivers:

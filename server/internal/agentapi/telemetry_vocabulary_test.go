@@ -15,16 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
-// The drop reasons and ingested message types are spelled where the connection
-// records them, and published at zero from start-up by the metrics package. A
-// reason added at a call site without a zero there is invisible to a rate until
-// its second occurrence after every start, and the production drop-ratio rule
-// reads nothing until something is dropped. So this reads every call site from
-// the package's own source, the way a reviewer would, and holds the two lists
-// equal.
-
-// constStrings maps each string constant a directory's source declares to its
-// value.
 func constStrings(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	values := map[string]string{}
@@ -49,7 +39,6 @@ func constStrings(t *testing.T, dir string) map[string]string {
 	return values
 }
 
-// parseDir parses a directory's shipped source, its tests left out.
 func parseDir(t *testing.T, dir string) []*ast.File {
 	t.Helper()
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
@@ -68,9 +57,6 @@ func parseDir(t *testing.T, dir string) []*ast.File {
 	return files
 }
 
-// recordedValues returns, for each named method, the value every call outside
-// the method itself passes at the given argument position. A value the source
-// does not spell as a constant is a refusal: nothing could say what it is.
 func recordedValues(t *testing.T, methods map[string]int) map[string][]string {
 	t.Helper()
 	local := constStrings(t, ".")
@@ -96,7 +82,6 @@ func recordedValues(t *testing.T, methods map[string]int) map[string][]string {
 				if !ok || len(call.Args) <= position {
 					return true
 				}
-				// The funnels pass their own parameter on to the counter.
 				if _, isFunnel := methods[fn.Name.Name]; isFunnel {
 					return true
 				}

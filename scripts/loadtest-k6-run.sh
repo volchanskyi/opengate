@@ -1,48 +1,9 @@
 #!/usr/bin/env bash
-# Run one k6 scenario and keep its summary export only when the run measured
-# something.
+# Runs one k6 scenario and keeps its summary export only when the run measured something.
+# Exit 0 and 99 (thresholds failed) keep the export; any other exit aborts the run and drops it.
 #
-# k6 writes --summary-export whatever happens, including when the script throws
-# in setup() and the workload never starts. That export holds the handful of
-# requests setup managed, and scripts/loadtest-summarize.sh turns any export it
-# finds into a canonical trend row, which scripts/loadtest-vm-push.sh then
-# stores. A crashed scenario therefore lands a row of two-request latency and a
-# 50% error rate in the same series the regression check compares against, so
-# the crash goes on distorting the window median long after it is fixed.
-#
-# A failed threshold is the opposite case: the workload ran and the fleet was
-# slow, which is exactly what the trend exists to record. So the exit code
-# decides whether an export is kept — 0 and 99 (thresholds failed) produced a
-# measurement, anything else aborted the run.
-#
-# A breached threshold does not fail the scenario. Whether a mark is blocking is
-# a property of the profile that declared it, evaluated against the stored rows
-# once the run is complete, and a mark deliberately set tighter than the
-# measurement's current spread — so that a real regression becomes visible once
-# the generator and the target stop sharing processors — would otherwise fail
-# every night from the day it was tightened. The breach is announced and written
-# beside the export as `<scenario>.thresholds`, so the gate reads it rather than
-# inferring it from an exit code that has already been consumed.
-#
-# Every identity the scenario creates is named after the run id, and k6 is handed
-# that id explicitly. k6 runs in a pod on the cluster, which inherits nothing
-# from the machine that started it, so an id left to be inherited never arrives:
-# the generator falls back to a fixed word, every night asks the server for the
-# same addresses, and the second night is refused as a duplicate.
-#
-# The load itself is the profile's. `operator_arrivals_per_second` and
-# `sessions` are technician-side numbers the machine-side harness cannot offer,
-# and until they were projected here every scenario carried a shape of its own —
-# so a profile could declare fifteen journeys a second while the run offered a
-# fixed twenty virtual users sleeping a second and a half between journeys, and
-# no number anywhere said the two disagreed. The walk is read from the profile
-# and handed over, so the profile is the only home for the load as well as for
-# the limits the night is judged against.
-#
-# A run with no profile is refused rather than defaulted: a default is exactly
-# the undeclared shape this closes, wearing a different name.
-#
-# Usage: loadtest-k6-run.sh <scenario-name> <script-path>
+# Usage:
+#   loadtest-k6-run.sh <scenario-name> <script-path>
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,14 +26,12 @@ main() {
   local status=0
   local phases
 
-  # How far the walk has already gone, so this generator joins it where it is
-  # rather than starting the shape again from its beginning.
+  # The walk's elapsed seconds let this generator join the shape where it is.
   phases="$(profile_phases \
     "${LOADTEST_PROFILE:?LOADTEST_PROFILE must name the profile whose load this offers}" \
     "${LOADTEST_WALK_ELAPSED_SECONDS:-0}")" || return 2
 
-  # A breach record left by an earlier attempt would otherwise be read as this
-  # run's.
+  # A breach record from an earlier attempt would read as this run's.
   rm -f "$breach_path"
 
   "$K6_BIN" run \
@@ -95,9 +54,7 @@ main() {
     return 2
   fi
 
-  # A notice rather than a warning: the saturated legs cross k6's own marks
-  # every night by design, and the profile's gates are what judge the run. The
-  # run's summary carries it in a line of its own.
+  # A threshold breach is a notice, since the saturated legs cross k6's marks by design.
   if [ "$status" -eq "$K6_THRESHOLDS_FAILED" ]; then
     printf '%s\n' "$scenario" >"$breach_path"
     echo "::notice::k6 scenario $scenario crossed one of k6's own thresholds; the measurement is kept and the profile's gates decide whether it fails the run." >&2

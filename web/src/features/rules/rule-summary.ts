@@ -8,21 +8,10 @@ type Coverage = Rule['coverage'];
 type Stage = Rollout['stage'];
 
 /**
- * A rule described in words, never as a form.
- *
- * What a rule watches is compiled into the server and validated before it can
- * reach a machine, so this file renders it as prose. A form control wrapped
- * around a predicate would be the authoring surface the product does not have,
- * and the moment one exists somebody asks why the field is disabled.
+ * Lookups use a Map because indexing an object with a value from the wire reaches the
+ * prototype chain.
  */
 
-/**
- * Every lookup here is a Map rather than an object read by a variable key. A
- * value arriving from the wire is untrusted input, and indexing an object with
- * it reaches the prototype chain; a Map's keys are only the ones put in it.
- */
-
-/** How a comparison reads to a person rather than as an operator symbol. */
 const COMPARATOR_WORDING = new Map<Rule['comparator'], string>([
   ['gt', 'above'],
   ['gte', 'at or above'],
@@ -30,7 +19,6 @@ const COMPARATOR_WORDING = new Map<Rule['comparator'], string>([
   ['lte', 'at or below'],
 ]);
 
-/** How far the rule has reached, in words. */
 const STAGE_WORDING = new Map<Stage, string>([
   ['off', 'Reaching nobody'],
   ['canary', 'First machines'],
@@ -38,7 +26,6 @@ const STAGE_WORDING = new Map<Stage, string>([
   ['full', 'Everywhere'],
 ]);
 
-/** The colour each badge takes. Relative to the rule's own rate, never absolute. */
 const NOISE_TONE = new Map<NoiseLevel, string>([
   ['unknown', 'bg-gray-700 text-gray-300'],
   ['quiet', 'bg-gray-700 text-gray-300'],
@@ -47,7 +34,6 @@ const NOISE_TONE = new Map<NoiseLevel, string>([
   ['high', 'bg-red-900 text-red-200'],
 ]);
 
-/** How much a rule's state pulls it up the list. Higher sorts first. */
 const ATTENTION = new Map<NoiseLevel, number>([
   ['unknown', 0],
   ['quiet', 0],
@@ -56,24 +42,13 @@ const ATTENTION = new Map<NoiseLevel, number>([
   ['high', 3],
 ]);
 
-/**
- * What the rule watches, and what counts as bad. Description, not a control.
- *
- * A rule reading the machine's own log records compares no number, so it has no
- * reading, no comparison and no line to show — what it watches is what it says
- * it watches. Rendering the absence as a comparison would read as a rule
- * somebody left half-written, and rendering a zero would read as a setting.
- */
+// An event rule compares no number, so its summary stands alone.
 export function watchWording(rule: Rule): string {
   if (rule.kind === 'event') return rule.summary;
   return `${rule.metric} ${COMPARATOR_WORDING.get(rule.comparator) ?? rule.comparator} ${rule.threshold}`;
 }
 
-/**
- * How far a rule has reached. A stop outranks everything, because it is an
- * intervention rather than a customer's ordinary choice and reading the two as
- * one would hide which happened.
- */
+// A stop outranks every other state so it reads apart from an ordinary switch-off.
 export function rolloutWording(rollout: Rollout): string {
   if (rollout.kill) return 'Stopped';
   if (!rollout.enabled) return 'Off';
@@ -82,12 +57,10 @@ export function rolloutWording(rollout: Rollout): string {
   return `${stage} — ${rollout.rollout_percent}% of the estate`;
 }
 
-/** How many machines are actually evaluating the rule. */
 export function coveredMachines(coverage: Coverage): number {
   return coverage.active;
 }
 
-/** How noisy the rule has been, always beside what it is being judged against. */
 export function noiseWording(noise: Noise): string {
   if (noise.level === 'unknown') {
     return `${noise.recent} in the last hour — nothing to compare against yet`;
@@ -100,12 +73,10 @@ export function noiseWording(noise: Noise): string {
   return `${noise.recent} in the last hour — about ${usual}`;
 }
 
-/** The badge's colour. */
 export function noiseTone(level: NoiseLevel): string {
   return NOISE_TONE.get(level) ?? 'bg-gray-700 text-gray-300';
 }
 
-/** A waiting period read back in the units somebody would have set it in. */
 export function holdLabel(seconds: number): string {
   const units: readonly (readonly [number, string])[] = [
     [86400, 'day'],
@@ -121,7 +92,6 @@ export function holdLabel(seconds: number): string {
   return `${seconds} seconds`;
 }
 
-/** Which machines a tuned value is aimed at, in words. */
 export function selectorWording(selector: Record<string, string>): string {
   const pairs = Object.entries(selector)
     .map(([key, value]) => `${key}=${value}`)
@@ -130,22 +100,14 @@ export function selectorWording(selector: Record<string, string>): string {
   return `machines labelled ${pairs.join(', ')}`;
 }
 
-/**
- * How far up the list a rule belongs. A stopped rule is the highest, because
- * somebody reached for the switch and the estate is not being watched for it;
- * then a rule raising far more than it usually does; then one with a standing
- * blind spot, which is monitoring nobody has noticed is missing.
- */
+// A stopped rule ranks highest, then a noisy one, then one with a blind spot.
 export function ruleAttention(rule: Rule): number {
   if (rule.rollout.kill) return 10;
   const blindSpot = rule.coverage.unsupported > 0 ? 1 : 0;
   return (ATTENTION.get(rule.noise.level) ?? 0) + blindSpot;
 }
 
-/**
- * The list order: anything wanting attention at the top, then by name so the
- * rest of the pack sits somewhere a reader can find it again.
- */
+// Rules sort by attention descending, then by id.
 export function attentionFirst(rules: readonly Rule[]): Rule[] {
   return [...rules].sort((a, b) => {
     const byAttention = ruleAttention(b) - ruleAttention(a);

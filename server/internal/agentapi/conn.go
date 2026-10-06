@@ -24,32 +24,21 @@ import (
 
 // AgentConn represents an authenticated, connected agent.
 type AgentConn struct {
-	// DeviceID is the agent's unique device identifier.
 	DeviceID protocol.DeviceID
-	// SiteID is the site this agent belongs to (set during registration).
-	SiteID uuid.UUID
+	SiteID   uuid.UUID
 	// TenantID is the authoritative tenant resolved by the server.
 	TenantID uuid.UUID
 
-	// metaMu guards the four registration-reported fields below. handleRegister
-	// writes them on the read-loop goroutine while Meta()/requireCapability read
-	// them on HTTP goroutines; the guard closes that data race. Route every
-	// production read through Meta()/requireCapability and every write through
-	// setMeta so the lock is always held.
-	metaMu sync.RWMutex
-	// OS reported by the agent during registration.
-	OS string
-	// Arch reported by the agent during registration.
-	Arch string
-	// AgentVersion reported by the agent during registration.
+	// metaMu guards the four registration fields below: the read loop writes them through setMeta,
+	// and HTTP goroutines read them through Meta and requireCapability.
+	metaMu       sync.RWMutex
+	OS           string
+	Arch         string
 	AgentVersion string
-	// Capabilities reported by the agent during registration.
 	Capabilities []protocol.AgentCapability
 
-	// isTombstoned reports whether this device has been purged, so every
-	// write-path message is rejected even in the race between a purge tombstoning
-	// the device and the connection closing. Nil for connections wired without a
-	// deny-list (older tests); nil is treated as not tombstoned.
+	// isTombstoned reports whether this device has been purged, which drops its write-path messages
+	// until the connection closes. A nil func means no deny-list is wired and reads as not purged.
 	isTombstoned func() bool
 
 	stream        io.ReadWriter
@@ -64,12 +53,11 @@ type AgentConn struct {
 	alertRules    AlertRuleProvider
 	alertStore    AlertRecorder
 	ruleCatalog   *rules.Catalogue
-	// wantedEventRules is which rules about the machine's own words this
-	// customer still receives alerts from, read beside the ruleset this
-	// connection was given. Nil means nobody has said, which admits them all.
+	// wantedEventRules holds the event rules this customer still receives alerts from, read with the
+	// connection's ruleset. A nil map admits every event rule.
 	wantedEventRules map[string]struct{}
-	// organizationID is the customer this machine belongs to, learned when its
-	// ruleset was resolved. Guarded by metaMu with the rest of the snapshot.
+	// organizationID is the customer this machine belongs to, learned when its ruleset is resolved;
+	// metaMu guards it with the rest of the snapshot.
 	organizationID uuid.UUID
 	coverage       *RuleCoverageStore
 	ruleCoverage   UnsupportedCoverageStore
@@ -80,86 +68,56 @@ type AgentConn struct {
 	telemetrySlots chan struct{}
 	telemetryDrops atomic.Uint64
 
-	// telemetryBuf coalesces every telemetry sample a heartbeat's burst produces
-	// (host-metric windows, the tail-ordered anomaly summary, process numerics)
-	// into one WriteSamples via a single persist slot, so the low-rate anomaly
-	// summary never loses the slot race to the host-window firehose. Touched only
-	// on the single read-loop goroutine, so it needs no lock. Flushed on the next
-	// heartbeat, a size cap, and connection teardown.
+	// telemetryBuf coalesces a heartbeat burst's samples into one WriteSamples on one persist slot, so
+	// the anomaly summary never loses the slot to host windows. Only the read loop touches it.
 	telemetryBuf []telemetry.Sample
 
-	// telemetryBufMsgs counts the ingested messages whose samples sit in
-	// telemetryBuf, so a batch that fails to persist reports one drop per message
-	// and the ingest ledger (ingested = persisted + drops) stays balanced.
+	// telemetryBufMsgs counts the messages buffered in telemetryBuf, so a failed batch records one
+	// drop per message and ingested = persisted + drops holds.
 	telemetryBufMsgs int
 
-	// maintenanceApplied records the last maintenance state the agent reported
-	// applying (via MaintenanceApplied). The server's desired state lives in
-	// Postgres; this is the confirmation signal that the agent reconciled, read
-	// for observability. Written on the read-loop goroutine, read anywhere.
+	// maintenanceApplied is the last maintenance state the agent reported applying; Postgres holds
+	// the desired state. The read loop writes it and any goroutine reads it.
 	maintenanceApplied atomic.Bool
 
-	// logMu guards logWaiter, the single in-flight raw-log broker channel.
-	// Raw log retrieval is transient (request→response) and never persisted,
-	// so isolation is the connection scope; logWaiter is nil unless a pull is
-	// blocked awaiting the agent's DeviceLogsResponse.
+	// logMu guards logWaiter, the one in-flight raw-log pull, which is nil unless a pull awaits the
+	// agent's DeviceLogsResponse. Raw logs are never persisted, so the connection scopes them.
 	logMu     sync.Mutex
 	logWaiter chan logsResult
 
-	// historyMu guards historyWaiter, the single in-flight deep-history broker
-	// channel. On-demand deep-history pulls are single-flight per connection
-	// (responses carry no correlation id); historyWaiter is nil unless a pull is
-	// blocked awaiting the agent's LocalHistoryResponse.
+	// historyMu guards historyWaiter, the one in-flight deep-history pull, since responses carry no
+	// correlation id. historyWaiter is nil unless a pull awaits the agent's LocalHistoryResponse.
 	historyMu     sync.Mutex
 	historyWaiter chan historyResult
 
-	// writeMu serializes writes to stream. protocol.Codec.WriteFrame issues
-	// a 5-byte envelope write followed by an N-byte payload write; without
-	// this mutex two concurrent outbound sendControl calls could
-	// interleave their (header, payload) pairs on the same QUIC stream and
-	// corrupt the frame seen by the agent.
+	// writeMu serializes writes to stream: WriteFrame writes a 5-byte envelope and then the payload,
+	// and two unserialized senders would interleave them on one QUIC stream.
 	writeMu sync.Mutex
 
-	// released reports that the server has let this connection go. A handler
-	// resolves the connection it is about to push a request down and the
-	// machine can drop off before the write, and the transport cannot answer
-	// for that: a QUIC write is taken by the local send buffer whether or not
-	// anybody is still reading the other end, so it succeeds and the
-	// technician's screen says a request reached a machine that is gone. This
-	// is the one fact the server holds about that window, so it is what the
-	// refusal is made from.
+	// released marks a connection the server has let go. A QUIC write lands in the local send buffer
+	// with nobody reading the far end, so this flag is what refuses a send to a departed machine.
 	released atomic.Bool
 }
 
-// markReleased records that the server has let this connection go, so nothing
-// writes down it afterwards. It is set before the connection is torn down,
-// because the window it closes opens the moment the server stops treating this
-// connection as the machine's.
+// markReleased records that the server has let this connection go, so sendControl refuses from
+// then on. Teardown calls it first, before the database writes that precede the close.
 func (a *AgentConn) markReleased() { a.released.Store(true) }
 
-// AgentMeta is a point-in-time snapshot of an agent's registration metadata. It
-// carries exactly the fields the update-eligibility filter reads, so the API
-// layer can consume agent metadata through a value type without depending on the
-// concrete *AgentConn.
+// AgentMeta is a point-in-time snapshot of an agent's registration metadata, so the API layer reads
+// the fields the update-eligibility filter needs without depending on *AgentConn.
 type AgentMeta struct {
 	DeviceID     protocol.DeviceID
 	OS           string
 	Arch         string
 	AgentVersion string
-	// OrganizationID and TenantID are where this machine sits in the tenancy
-	// ladder, learned when its ruleset was resolved. They are here so a change
-	// an administrator makes can find that customer's connected machines
-	// without asking the database whose each one is.
-	//
-	// Zero until the machine has been given a ruleset, which is a machine no
-	// change has anything to refresh on.
+	// OrganizationID and TenantID place this machine in the tenancy ladder, so an administrator's
+	// change finds that customer's connected machines. OrganizationID is zero until a ruleset resolves.
 	OrganizationID uuid.UUID
 	TenantID       uuid.UUID
 }
 
-// Meta returns a consistent snapshot of the agent's registration metadata under
-// the metadata guard, so a concurrent handleRegister on the read-loop goroutine
-// cannot tear the read.
+// Meta returns a snapshot of the agent's registration metadata, read under metaMu so a concurrent
+// handleRegister cannot tear it.
 func (a *AgentConn) Meta() AgentMeta {
 	a.metaMu.RLock()
 	defer a.metaMu.RUnlock()
@@ -184,9 +142,7 @@ func (a *AgentConn) setMeta(osName, arch, version string, caps []protocol.AgentC
 	a.Capabilities = caps
 }
 
-// AgentConnConfig bundles the dependencies an AgentConn needs. Promoted
-// from a positional argument list when the latter exceeded Sonar's
-// parameter cap while the shared Store dependency was split into narrow ports.
+// AgentConnConfig bundles the dependencies an AgentConn needs.
 type AgentConnConfig struct {
 	DeviceID      protocol.DeviceID
 	TenantID      uuid.UUID
@@ -253,8 +209,8 @@ func (a *AgentConn) sendControl(msg *protocol.ControlMessage) error {
 }
 
 func (a *AgentConn) requireCapability(required protocol.AgentCapability) error {
-	// setMeta replaces the slice wholesale rather than mutating it in place, so
-	// copying the header under the read lock and iterating outside is race-safe.
+	// setMeta replaces the slice wholesale, so copying the header under the read lock and
+	// iterating outside is race-safe.
 	a.metaMu.RLock()
 	caps := a.Capabilities
 	a.metaMu.RUnlock()
@@ -266,19 +222,16 @@ func (a *AgentConn) requireCapability(required protocol.AgentCapability) error {
 	return fmt.Errorf("%w: %s", ErrCapabilityNotAdvertised, required)
 }
 
-// writeFrame writes a single framed message to the agent stream while
-// holding writeMu so concurrent writers (API-handler-initiated sendControl
-// plus the read-loop's FramePong response) cannot interleave envelope and
-// payload bytes.
+// writeFrame writes one framed message under writeMu, so concurrent senders cannot interleave
+// envelope and payload bytes.
 func (a *AgentConn) writeFrame(frameType byte, payload []byte) error {
 	a.writeMu.Lock()
 	defer a.writeMu.Unlock()
 	return a.codec.WriteFrame(a.stream, frameType, payload)
 }
 
-// SendSessionRequest sends a SessionRequest control message to the agent. An
-// empty token or relay URL is refused: a session the agent cannot join is not
-// worth a frame, and the agent requires both at decode.
+// SendSessionRequest sends a SessionRequest to the agent; the agent requires a token and relay
+// URL at decode, so an empty one is refused.
 func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions) error {
 	if err := requireNonEmptyFields(protocol.MsgSessionRequest,
 		controlField{"token", string(token)},
@@ -294,10 +247,8 @@ func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.Sessi
 	})
 }
 
-// SendAgentUpdate sends an AgentUpdate control message to the agent. An
-// unversioned, unreachable or unsigned update is refused; sha256 is exempt
-// because the updater verifies it against the downloaded artifact, so an absent
-// value fails closed at install time.
+// SendAgentUpdate sends an AgentUpdate to the agent; version, url and signature are required,
+// and the updater checks sha256 against the downloaded artifact.
 func (a *AgentConn) SendAgentUpdate(ctx context.Context, version, url, sha256, signature string) error {
 	if err := requireNonEmptyFields(protocol.MsgAgentUpdate,
 		controlField{"version", version},
@@ -353,11 +304,8 @@ func (a *AgentConn) SendRequestHealthWindow(ctx context.Context, sinceTS int64, 
 	})
 }
 
-// SendPushAlertRules pushes a threshold-alert ruleset to the agent (WS-19),
-// with the customer's per-machine alert allowance. The allowance travels with
-// the rules because it is enforced where alerts are raised; a ceiling of zero
-// leaves the machine on the allowance it already has. Gated by the
-// ThresholdAlerts capability.
+// SendPushAlertRules pushes a ruleset and the per-machine alert ceiling to the agent; a zero
+// ceiling leaves the agent's allowance unchanged. Requires the ThresholdAlerts capability.
 func (a *AgentConn) SendPushAlertRules(ctx context.Context, ruleset RuleSet) error {
 	if err := a.requireCapability(protocol.CapThresholdAlerts); err != nil {
 		return err
@@ -448,9 +396,8 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return fmt.Errorf("decode control: %w", err)
 	}
 
-	// Resurrection guard: a purged device is rejected on every write path, closing
-	// the race between the purge tombstoning it and this connection being torn
-	// down. Read-side responses fall through so an in-flight teardown stays clean.
+	// A purged device is rejected on every write path, which closes the race between the purge
+	// and this connection's teardown.
 	if a.rejectTombstonedWrite(msg) {
 		return nil
 	}
@@ -474,7 +421,6 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 			a.logger.Warn("agent update failed", "device_id", a.DeviceID, "version", msg.Version, "error", msg.AckError)
 		}
 
-		// Persist update outcome.
 		status := updater.StatusSuccess
 		if !success {
 			status = updater.StatusFailed
@@ -528,9 +474,8 @@ func (a *AgentConn) rejectTombstonedWrite(msg *protocol.ControlMessage) bool {
 	return true
 }
 
-// isWritePathMessage reports whether a control message would create or persist
-// tenant data — registration, heartbeat, telemetry, discovery, or backfill — and
-// so must be denied for a tombstoned device.
+// isWritePathMessage reports whether a control message creates or persists tenant data and so is
+// denied for a tombstoned device.
 func isWritePathMessage(t protocol.ControlMessageType) bool {
 	switch t {
 	case protocol.MsgAgentRegister,
@@ -561,9 +506,8 @@ func IsCapabilityError(err error) bool {
 }
 
 func (a *AgentConn) handleHeartbeat(ctx context.Context, msg *protocol.ControlMessage) error {
-	// The agent sends the heartbeat first, then drains its telemetry burst, so a
-	// heartbeat marks the boundary of the previous cycle's burst: flush the
-	// coalescing buffer here to persist that burst as one write.
+	// The agent sends the heartbeat before its telemetry burst, so the heartbeat flushes the
+	// previous burst as one write.
 	a.flushTelemetry(ctx)
 
 	if err := a.devices.SetStatus(ctx, a.DeviceID, device.StatusOnline); err != nil {

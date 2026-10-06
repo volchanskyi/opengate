@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/assert-cache-written.sh — a cache save that was refused
-# still reports success, so the only honest evidence a write landed is the key
-# coming back out of the cache API.
-#
-# The gh stand-in answers from a file the test writes, so a run that should have
-# found nothing is visible as a failing exit rather than as a stub that answered
-# the same way regardless.
+# Tests for scripts/assert-cache-written.sh against a gh stand-in that answers from FAKE_KEYS.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,7 +47,6 @@ run_guard() {
   "$GUARD" "$@" >"$WORK/out" 2>&1
 }
 
-# --- the key is there -------------------------------------------------------
 FAKE_KEYS="$(printf 'node-cache-Linux-x64-npm-abc\nv0-rust-aarch64-unknown-linux-musl-build-agent-Linux-x64-1-2\n')"
 export FAKE_KEYS
 if run_guard "v0-rust-aarch64-unknown-linux-musl-build-agent"; then
@@ -62,7 +55,6 @@ else
   fail "a key that is present was reported missing: $(cat "$WORK/out")"
 fi
 
-# --- the key is not ---------------------------------------------------------
 if run_guard "v0-rust-x86_64-unknown-linux-musl-build-agent"; then
   fail "a key that is absent passed, so a refused write stays invisible"
 else
@@ -75,7 +67,6 @@ else
   fail "the absent key is reported without a workflow annotation"
 fi
 
-# --- an empty cache is not a pass -------------------------------------------
 FAKE_KEYS=""
 export FAKE_KEYS
 if run_guard "anything"; then
@@ -84,10 +75,6 @@ else
   pass "an empty cache list fails"
 fi
 
-# --- an unreachable API is not a pass either --------------------------------
-#
-# A guard that treats "could not ask" as "yes" is the same false green it was
-# written to close.
 FAKE_KEYS="$(printf 'v0-rust-something\n')"
 export FAKE_KEYS
 export FAKE_GH_FAILS=1
@@ -98,7 +85,6 @@ else
 fi
 unset FAKE_GH_FAILS
 
-# --- usage ------------------------------------------------------------------
 if run_guard; then
   fail "the guard passed with no key named"
 else

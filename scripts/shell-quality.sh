@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Canonical syntax, static-analysis, formatting, and test runner for Shell.
+# Runs the shell syntax, static-analysis, formatting and test checks.
 
 set -euo pipefail
 
@@ -12,8 +12,7 @@ die() {
   exit 1
 }
 
-# require_tools — ShellCheck and shfmt at their pinned versions, asked the way
-# every pinned tool is (scripts/require-tool.sh names the install on a refusal).
+# require_tools checks ShellCheck and shfmt against their pins through require-tool.sh.
 require_tools() {
   local tool
   for tool in shellcheck shfmt; do
@@ -74,18 +73,10 @@ format_files() {
   (cd "$ROOT" && shfmt -w "${FILES[@]}")
 }
 
-# The files a CI step hands every command it runs. A test that writes to one
-# writes into the job running it.
+# The files a CI step hands every command it runs; a test writing to one writes into the job.
 STEP_FILES=(GITHUB_STEP_SUMMARY GITHUB_OUTPUT GITHUB_ENV GITHUB_PATH)
 
-# run_tests — every shell test, each handed step files of its own.
-#
-# A load-test fixture once wrote "k6 scenario api-baseline crossed one of its
-# own thresholds" into the Config Lint job's summary, as if a load test had run
-# there. So no test sees the job's files: each gets fresh empty ones, and a test
-# that leaves anything in one fails, naming it. Every test runs whatever an
-# earlier one did, so all failures surface in one pass; untracked tests run
-# too, as they do at commit time.
+# run_tests runs every shell test, untracked ones included, each with fresh empty step files.
 run_tests() {
   local test_file rel var step_dir
   local tests=() failed=()
@@ -101,9 +92,7 @@ run_tests() {
   step_dir="$(mktemp -d)"
   for test_file in "${tests[@]}"; do
     rel="${test_file#"$ROOT/"}"
-    # Executed, not handed to `bash`: a file without its executable bit is a
-    # test the gate cannot run, and running it through an interpreter here
-    # would hide that.
+    # A test runs as an executable, so a file missing its executable bit fails here.
     if [ ! -x "$test_file" ]; then
       printf 'shell-quality: not executable: %s — chmod +x it\n' "$rel" >&2
       failed+=("$rel")

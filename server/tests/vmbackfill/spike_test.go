@@ -1,19 +1,5 @@
-// Package vmbackfill is a feasibility measurement proving how historical
-// backfill must reach VictoriaMetrics. Reconnecting agents replay pre-rolled
-// rollups for past intervals; those must land at their ORIGINAL timestamps.
-//
-// The import API preserves caller-supplied timestamps (proven here), so it is
-// the correct backfill path. Stream aggregation, by contrast, buckets samples
-// by ARRIVAL time — replaying a day-old rollup through it would stamp the point
-// "now" and silently misplace it on every chart. Hence backfill writes
-// pre-rolled rollups via the import API and never through stream aggregation;
-// stream aggregation is only for live telemetry, where arrival ≈ event time.
-//
-// Every sample written here carries a fresh run_id, so what is read back is
-// exactly what this run wrote. The store is shared across the suite and outlives
-// a single run, and these assertions are on the exact set of stored timestamps —
-// an earlier run's samples for the same metric name would otherwise appear in the
-// answer and fail a test that is measuring something else entirely.
+// Package vmbackfill shows that the import API keeps caller-supplied timestamps and does not
+// bucket samples by arrival time.
 package vmbackfill
 
 import (
@@ -40,16 +26,11 @@ type exportedSeries struct {
 	Timestamps []int64           `json:"timestamps"`
 }
 
-// TestImportPreservesOriginalTimestamps writes rollup points backdated by
-// hours, days, and a week, then asserts VM returns them at exactly those
-// instants and values, in order — the property that makes the import API the
-// correct backfill path.
 func TestImportPreservesOriginalTimestamps(t *testing.T) {
 	base := testvm.BaseURL(t)
 	runID := newRunID()
 	now := time.Now()
 
-	// Distinct historical instants a reconnecting agent might replay.
 	wantTS := []int64{
 		now.Add(-7 * 24 * time.Hour).UnixMilli(),
 		now.Add(-48 * time.Hour).UnixMilli(),
@@ -68,9 +49,6 @@ func TestImportPreservesOriginalTimestamps(t *testing.T) {
 	require.Equal(t, wantVal, got.Values, "values must stay aligned to their original timestamps")
 }
 
-// TestBackfillNotArrivalBucketed asserts no backfilled sample lands near ingest
-// time — the failure mode stream aggregation would exhibit. Every stored
-// timestamp must remain in the historical past it was written for.
 func TestBackfillNotArrivalBucketed(t *testing.T) {
 	base := testvm.BaseURL(t)
 	runID := newRunID()
@@ -91,8 +69,7 @@ func TestBackfillNotArrivalBucketed(t *testing.T) {
 	}
 }
 
-// importAndFlush posts Prometheus exposition text via the import API and forces
-// a flush so the samples are immediately queryable (deterministic, no polling).
+// importAndFlush posts exposition text via the import API and forces a flush so it is queryable.
 func importAndFlush(t *testing.T, base, body string) {
 	t.Helper()
 	post(t, base+"/api/v1/import/prometheus", strings.NewReader(body), http.StatusNoContent)
@@ -109,12 +86,10 @@ func post(t *testing.T, target string, body io.Reader, wantStatus int) {
 	require.Equal(t, wantStatus, resp.StatusCode, target)
 }
 
-// newRunID returns a label value unique to one test, so a read sees only the
-// samples that test wrote.
+// newRunID returns a label value unique to one test, scoping its reads to its own samples.
 func newRunID() string { return "vmbf-" + uuid.NewString() }
 
-// exportSeries reads this run's series for metricName over [start,end] via the
-// export API, returning its raw stored values and timestamps.
+// exportSeries returns this run's raw stored values and timestamps for metricName over [start,end].
 func exportSeries(t *testing.T, base, metricName, runID string, start, end time.Time) exportedSeries {
 	t.Helper()
 	q := url.Values{}

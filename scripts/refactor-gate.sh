@@ -1,21 +1,14 @@
 #!/usr/bin/env bash
-# refactor-gate.sh — the two ends of /refactor, each holding the order a commit
-# needs: every check passes, then the tidy-up, then the commit (which runs every
-# check again).
+# The two ends of /refactor; finish with nothing tracked uncommitted also marks HEAD for push.
 #
-#   start   refuses unless the gauntlet passed on the content on disk now, and
-#           records that /refactor began there.
-#   finish  refuses unless a start is recorded, spends it, and records the
-#           content /refactor left as the content the next commit may carry.
-#           When nothing tracked is left uncommitted that content is HEAD's,
-#           and HEAD is marked for the push guard as well — the path for a
-#           commit that was rebased, or made, with no tidy-up behind it.
+# Usage:
+#   refactor-gate.sh start   refuses unless the gauntlet passed on the content on disk
+#   refactor-gate.sh finish  spends a recorded start and records the content left
 #
-# Works on the repository it is run in. Exit 0 = recorded, 1 = refused (the
-# message names the missing step), 2 = usage.
-#
-# The markers it writes live in .claude/.markers/, which the write guards refuse
-# to let anything else write; see .claude/hooks/lib/tidy-up.sh.
+# Exit codes:
+#   0  recorded
+#   1  refused, the message naming the missing step
+#   2  usage
 set -euo pipefail
 
 # shellcheck source=../.claude/hooks/lib/tidy-up.sh

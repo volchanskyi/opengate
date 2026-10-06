@@ -15,9 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// An estate of twelve machines and an estate of five thousand do not want the
-// same first stage, so the populations are the customer's to set — and the next
-// evaluation reads them rather than the numbers the code was written with.
 func TestARetunedPopulationSizesTheNextStage(t *testing.T) {
 	t.Parallel()
 
@@ -28,9 +25,6 @@ func TestARetunedPopulationSizesTheNextStage(t *testing.T) {
 	assert.Equal(t, 25, r.PercentForStage(StageStaged))
 	assert.Equal(t, 100, r.PercentForStage(StageFull))
 
-	// The stage a stored reach puts the rule in is read against those same
-	// numbers. Classifying 25 as a canary because the code ships a tenth would
-	// hold a rule at a stage it has already left.
 	r.RolloutPercent = 5
 	assert.Equal(t, StageCanary, r.Stage())
 	r.RolloutPercent = 25
@@ -38,14 +32,11 @@ func TestARetunedPopulationSizesTheNextStage(t *testing.T) {
 	r.RolloutPercent = 100
 	assert.Equal(t, StageFull, r.Stage())
 
-	// A rule mid-rollout still needs the estate counted to size its stage.
 	assert.True(t, NeedsFleetSize(map[string]Rollout{"disk-critical": {
 		Enabled: true, RolloutPercent: 25, CanaryPercent: 5, StagedPercent: 25,
 	}}))
 }
 
-// The waiting period is the customer's too: an hour is the wrong hold for a rule
-// whose symptom takes a working day to appear.
 func TestARetunedWaitingPeriodHoldsTheStage(t *testing.T) {
 	t.Parallel()
 
@@ -65,9 +56,6 @@ func TestARetunedWaitingPeriodHoldsTheStage(t *testing.T) {
 	assert.Equal(t, r.PercentForStage(StageStaged), advanced.Percent)
 }
 
-// The automatic pull-back is the mitigation for the one thing here that can
-// degrade an estate at once, so it is not configuration. This asserts the
-// absence: whatever a customer sets, a tripped gate still moves the rule back.
 func TestTheAutomaticPullBackCannotBeSwitchedOff(t *testing.T) {
 	t.Parallel()
 
@@ -91,8 +79,6 @@ func TestTheAutomaticPullBackCannotBeSwitchedOff(t *testing.T) {
 	}
 }
 
-// everyRolloutPace is the settings an operator could reach, spread across their
-// whole allowed range — the point being that none of them changes the answer.
 func everyRolloutPace(t *testing.T) []Rollout {
 	t.Helper()
 	var out []Rollout
@@ -110,7 +96,6 @@ func everyRolloutPace(t *testing.T) []Rollout {
 	return out
 }
 
-// assertPullsBack states what a tripped gate must do, whatever it was tuned to.
 func assertPullsBack(t *testing.T, r Rollout, stage Stage, report GateReport, now time.Time) {
 	t.Helper()
 	got := DecideStage(r, report, now)
@@ -127,8 +112,6 @@ func assertPullsBack(t *testing.T, r Rollout, stage Stage, report GateReport, no
 		"a revert reaches fewer machines than the stage it left")
 }
 
-// The same absence, stated against the state itself: there is no field an
-// operator could set to opt out of the pull-back, so no API can expose one.
 func TestNoRolloutFieldCanOptOutOfThePullBack(t *testing.T) {
 	t.Parallel()
 
@@ -139,8 +122,6 @@ func TestNoRolloutFieldCanOptOutOfThePullBack(t *testing.T) {
 	}
 }
 
-// And against the storage, where a column added later would be the route a
-// struct field never was.
 func TestNoRolloutColumnCanOptOutOfThePullBack(t *testing.T) {
 	t.Parallel()
 
@@ -164,8 +145,6 @@ func TestNoRolloutColumnCanOptOutOfThePullBack(t *testing.T) {
 	assert.Contains(t, columns, "canary_percent", "the settings that are configurable are still there")
 }
 
-// Populations and waiting periods are bounded on write, so a stage that reaches
-// nobody or is held for a decade cannot be stored.
 func TestRolloutSettingsAreBounded(t *testing.T) {
 	t.Parallel()
 
@@ -193,8 +172,6 @@ func TestRolloutSettingsAreBounded(t *testing.T) {
 	require.NoError(t, ValidateRollout(base()))
 }
 
-// Settings round-trip, and a customer who has set none is on the shipped pace
-// rather than on zeros.
 func TestRolloutSettingsRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -219,8 +196,6 @@ func TestRolloutSettingsRoundTrip(t *testing.T) {
 	assert.Equal(t, defaultStagedHold, unconfigured.StagedHold)
 }
 
-// A stop reaches one customer and no other, and the tenant-wide one reaches
-// every customer in the tenant and nobody outside it.
 func TestStoppingARulePerCustomerAndTenantWide(t *testing.T) {
 	t.Parallel()
 
@@ -239,13 +214,9 @@ func TestStoppingARulePerCustomerAndTenantWide(t *testing.T) {
 		assert.False(t, stopped.Delivers())
 	}
 
-	// Nobody outside the tenant is touched, and nobody outside it can reach in.
 	assert.Empty(t, mustListRollouts(t, s, foreignTenant(t, e), e.org))
 }
 
-// Resuming is the same action in reverse, and it is deliberately separate from
-// the on/off toggle: a rule somebody stopped stays stopped until somebody says
-// otherwise.
 func TestResumingARuleClearsTheStopAndNothingElse(t *testing.T) {
 	t.Parallel()
 
@@ -262,15 +233,11 @@ func TestResumingARuleClearsTheStopAndNothingElse(t *testing.T) {
 	assert.False(t, resumed.Enabled, "the customer's own choice is not overwritten by lifting a stop")
 }
 
-// seedSecondCustomer adds another customer inside the same tenant, which is what
-// anything keyed on the customer has to be proven against.
 func seedSecondCustomer(t *testing.T, e estate) uuid.UUID {
 	t.Helper()
 	return testutil.SeedOrganization(t, e.ctx, e.store, "fabrikam")
 }
 
-// foreignTenant returns a context acting as a different tenant over the same
-// database.
 func foreignTenant(t *testing.T, e estate) context.Context {
 	t.Helper()
 	tenantID := uuid.New()
@@ -278,11 +245,6 @@ func foreignTenant(t *testing.T, e estate) context.Context {
 	return dbtx.WithTenant(context.Background(), tenantID, false)
 }
 
-// Lifting a tenant-wide stop reaches exactly the customers the stop reached.
-// The lift and the stop are one statement apart — the flag it writes is the
-// only difference — so a lift that wrote the stop's flag would read as a rule
-// that can never be resumed, and the estate would stay dark until somebody
-// went looking in the table.
 func TestResumingARuleTenantWideLiftsTheStopForEveryCustomer(t *testing.T) {
 	t.Parallel()
 
@@ -301,12 +263,9 @@ func TestResumingARuleTenantWideLiftsTheStopForEveryCustomer(t *testing.T) {
 		assert.True(t, resumed.Delivers(), "a rule with no stop on it delivers again")
 	}
 
-	// A lift is scoped the same way the stop was: nobody outside the tenant.
 	assert.Empty(t, mustListRollouts(t, s, foreignTenant(t, e), e.org))
 }
 
-// A tenant-wide lift needs a rule id, and it needs a caller the tenant can be
-// read from. Neither reaches the database without one.
 func TestResumingARuleTenantWideRefusesAnEmptyRuleID(t *testing.T) {
 	t.Parallel()
 

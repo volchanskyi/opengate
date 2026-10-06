@@ -7,13 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// WS-15 offline-backfill wire contract. These forward goldens are Rust-encoded
-// and verified here for byte-level struct fidelity. The reconnect-backfill
-// scheduler (RequestBackfillSlot/GrantBackfill/DeferBackfill), the tiered
-// replay (MetricBackfillBatch/MetricBackfillAck), and the on-demand deep-history
-// pull (RequestLocalHistory/LocalHistoryResponse) are all additive and gated by
-// the Backfill capability.
-
 func TestGoldenControlRequestBackfillSlot(t *testing.T) {
 	msg := decodeControlFrame(t, "control_request_backfill_slot.bin")
 	assert.Equal(t, MsgRequestBackfillSlot, msg.Type)

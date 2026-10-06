@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/tdd-check.sh. Plain bash; no bats dependency.
-# Run: ./scripts/tests/tdd-check.test.sh
+# Tests for scripts/tdd-check.sh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,21 +24,18 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Run "$@" and assert exit 0.
 assert_ok() {
   local name="$1"
   shift
   if "$@" >/dev/null 2>&1; then pass "$name"; else fail "$name (expected exit 0, got $?)"; fi
 }
-# Run "$@" and assert non-zero exit.
 assert_fail() {
   local name="$1"
   shift
   if "$@" >/dev/null 2>&1; then fail "$name (expected non-zero exit, got 0)"; else pass "$name"; fi
 }
 
-# Build a temp git repo seeded with one initial commit on "dev".
-# Sets REPO to the path; cd's into it. Caller must trap-cleanup REPO.
+# Creates a temp git repo with one commit on dev, sets REPO to it and enters it.
 make_repo() {
   REPO="$(mktemp -d)"
   cd "$REPO"
@@ -49,7 +45,6 @@ make_repo() {
   echo "base" >base.txt
   git add base.txt
   git commit --quiet -m "init"
-  # Create a feature branch (so HEAD..origin/dev would be empty by merge-base fallback).
   git checkout --quiet -b feat/test
 }
 
@@ -101,19 +96,16 @@ assert_fail "*.yml is not code" "$TDD_CHECK" is-code .github/workflows/ci.yml
 echo
 echo "has-test-change (branch state):"
 
-# 1. Clean fresh branch off dev — no test change.
 make_repo
 assert_fail "fresh branch with no changes has no test change" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 2. Untracked test file → has test change.
 make_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/foo_test.go
 assert_ok "untracked _test.go counts as test change" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 3. Staged test file → has test change.
 make_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/bar_test.go
@@ -121,7 +113,6 @@ git add server/internal/api/bar_test.go
 assert_ok "staged _test.go counts as test change" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 4. Committed test file on branch → has test change.
 make_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/baz_test.go
@@ -130,7 +121,6 @@ git commit --quiet -m "add test"
 assert_ok "committed _test.go on branch counts" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 5. Unstaged change to an existing tracked test file → has test change.
 make_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/qux_test.go
@@ -143,7 +133,6 @@ echo "// edit" >>server/internal/api/qux_test.go
 assert_ok "unstaged change to tracked _test.go counts" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 6. Only source committed on branch — no test change.
 make_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/source.go
@@ -152,35 +141,25 @@ git commit --quiet -m "src only"
 assert_fail "source-only branch has no test change" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 7. web/e2e/ path counts as test.
 make_repo
 mkdir -p web/e2e
 echo "test" >web/e2e/login.spec.ts
 assert_ok "web/e2e/ path counts as test" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 8. tests/ directory counts.
 make_repo
 mkdir -p server/tests/integration
 echo "package x" >server/tests/integration/x.go
 assert_ok "tests/ directory file counts" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# The branch-vs-base distinction matters for the four cases below: they are
-# about a file that already exists on dev and gains something on the branch, so
-# the file is seeded on the base and the branch carries only the change under
-# test. A file created on the branch has its whole content in the diff, which
-# includes its production code, and is a source change however it ends.
+# Commits a file on dev and branches off, so the branch diff holds only the later change.
 seed_on_base() {
   git add "$1"
   git commit --quiet -m "seed $1"
   git checkout --quiet -b feat/inline
 }
 
-# 9. A Rust file whose whole branch change is inside its inline
-#    `#[cfg(test)] mod tests` is a test change, even though its path is a source
-#    path. Rust keeps a module's unit tests in the file they cover, so a branch
-#    that adds nothing but tests to one has no test-shaped path anywhere in it.
 make_repo
 git checkout --quiet dev
 mkdir -p agent/src
@@ -215,8 +194,6 @@ PYEOF
 assert_ok "a branch change inside a Rust inline test module counts" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 10. The same file changed above its test module as well is a source change.
-#     The exemption is for a change that is test code and nothing else.
 make_repo
 git checkout --quiet dev
 mkdir -p agent/src
@@ -250,7 +227,6 @@ PYEOF
 assert_fail "a Rust file changed above its test module does not count" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 11. A Rust file with no inline test module in it is a source change.
 make_repo
 git checkout --quiet dev
 mkdir -p agent/src
@@ -260,8 +236,6 @@ printf '\npub fn two() -> u32 {\n    2\n}\n' >>agent/src/plain.rs
 assert_fail "a Rust file with no inline test module does not count" "$TDD_CHECK" has-test-change
 cleanup_repo
 
-# 12. The exemption is Rust's alone. Go keeps its tests in a file of their own,
-#     so a Go source file has no inline block to be judged by.
 make_repo
 git checkout --quiet dev
 mkdir -p server/internal/api

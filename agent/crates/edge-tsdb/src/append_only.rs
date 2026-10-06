@@ -1,14 +1,5 @@
-//! Substrate A — bespoke append-only segment files over the shared Gorilla
-//! layer.
-//!
-//! This is the "we own all the crash code" candidate. Chunks seal at a fixed
-//! sample count and are framed (length + CRC) into rotating segment files. A
-//! durable commit writes a commit marker and fsyncs. Recovery on open scans
-//! every segment: a torn trailing record is truncated away, a CRC-failing
-//! record is quarantined, and the last commit marker delimits the durable
-//! prefix. A byte cap evicts whole oldest segments (coarsest-first lifecycle)
-//! and, when nothing can be freed, refuses the write rather than filling the
-//! host disk.
+//! Substrate A: Gorilla chunks framed with length and CRC into rotating segment files.
+//! Open recovers by truncating a torn tail and quarantining CRC-failing records.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -25,7 +16,7 @@ const CHUNK_SAMPLES: usize = 120;
 /// Rotate to a fresh segment once the active one passes this size.
 const SEGMENT_TARGET: u64 = 16 * 1024;
 
-/// A recovered/active segment file and the chunks it holds.
+/// A segment file and the chunks it holds.
 struct Segment {
     index: u64,
     path: PathBuf,
@@ -34,7 +25,7 @@ struct Segment {
     has_commit: bool,
 }
 
-/// Report produced by the recovery scan at [`AppendOnlyStore::open`].
+/// Counts from the recovery scan at [`AppendOnlyStore::open`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct IntegrityReport {
     /// Records dropped for a failed CRC (bit-rot).
@@ -58,14 +49,13 @@ pub struct AppendOnlyStore {
 }
 
 impl AppendOnlyStore {
-    /// Cap the on-disk footprint. Sealing evicts oldest segments to stay under
-    /// it; if only the active segment remains and it is already over, the
-    /// offending append fails with [`TsdbError::CapacityExceeded`].
+    /// Caps the on-disk footprint; sealing evicts oldest segments, and a write that
+    /// still exceeds it fails with [`TsdbError::CapacityExceeded`].
     pub fn set_byte_cap(&mut self, cap: u64) {
         self.byte_cap = cap;
     }
 
-    /// The recovery report from the last open.
+    /// The recovery counts from the last open.
     pub fn integrity_report(&self) -> Result<IntegrityReport> {
         Ok(self.report)
     }
@@ -129,14 +119,14 @@ impl AppendOnlyStore {
         Ok(())
     }
 
-    /// Evict oldest segments until `extra` more bytes fit under the cap.
+    /// Evicts oldest segments until `extra` more bytes fit under the cap.
     fn enforce_cap(&mut self, extra: u64) -> Result<()> {
         loop {
             let total: u64 = self.segments.iter().map(|s| s.size).sum();
             if total + extra <= self.byte_cap {
                 return Ok(());
             }
-            // Never evict the segment we are about to write into.
+            // The segment being written into is never evicted.
             if self.segments.len() <= 1 {
                 return Err(TsdbError::CapacityExceeded {
                     have: total,
@@ -205,7 +195,6 @@ impl Substrate for AppendOnlyStore {
             });
         }
 
-        // Fold per-chunk sample counts into the durable/recoverable totals.
         let counts: Vec<usize> = segments
             .iter()
             .flat_map(|s| s.chunks.iter())
@@ -248,8 +237,7 @@ impl Substrate for AppendOnlyStore {
             if let Some(f) = self.active.as_ref() {
                 f.sync_all()?;
             }
-            // Best-effort directory fsync so the new file size is durable too;
-            // failure just narrows the guarantee on platforms without it.
+            // The directory fsync is best-effort: a platform without it keeps a narrower guarantee.
             if let Ok(dir) = File::open(&self.dir) {
                 drop(dir.sync_all());
             }
@@ -260,7 +248,6 @@ impl Substrate for AppendOnlyStore {
     fn range(&self, series: SeriesId, start: i64, end: i64) -> Result<Vec<Sample>> {
         let chunks: Vec<Chunk> = self.all_chunks().cloned().collect();
         let mut out = frame::collect_series(&chunks, series, start, end)?;
-        // Include still-buffered (un-sealed) samples so reads are consistent.
         if let Some(buf) = self.open_chunks.get(&series) {
             for s in buf {
                 if s.ts >= start && s.ts < end {
@@ -320,7 +307,7 @@ mod tests {
     fn buffered_samples_are_readable_before_commit() {
         let dir = tempfile::tempdir().unwrap();
         let mut s = AppendOnlyStore::open(dir.path()).unwrap();
-        feed(&mut s, 2, 30); // fewer than a chunk: stays buffered
+        feed(&mut s, 2, 30);
         assert_eq!(s.range(2, 0, 10_000).unwrap().len(), 30);
         assert_eq!(s.size_on_disk().unwrap(), 0);
     }

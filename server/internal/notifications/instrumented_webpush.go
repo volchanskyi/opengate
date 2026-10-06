@@ -8,15 +8,11 @@ import (
 )
 
 // Observer records the duration and success of a single repository call.
-// The metrics package supplies a Prometheus-backed implementation; tests
-// supply an in-memory recorder.
 type Observer interface {
 	Observe(operation string, duration time.Duration, ok bool)
 }
 
 // InstrumentedWebPush decorates a WebPushRepository with per-call observation.
-// It preserves the operational visibility previously emitted by
-// metrics.InstrumentedStore when these methods lived in db.Store.
 type InstrumentedWebPush struct {
 	inner    WebPushRepository
 	observer Observer

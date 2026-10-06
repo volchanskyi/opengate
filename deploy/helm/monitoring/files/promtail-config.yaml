@@ -1,7 +1,3 @@
-# Kubernetes promtail config with pod-log discovery. Scrapes
-# /var/log/pods/* and enriches each stream with namespace/pod/container labels
-# via the kubernetes_sd_configs pod role.
-
 server:
   http_listen_port: 9080
   grpc_listen_port: 0

@@ -35,11 +35,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/k6"
 
-# The primary fixtures carry the shape the *pinned* k6 writes: v1.x
-# --summary-export puts each metric's statistics flat on the metric object,
-# rate metrics expose the ratio as "value", and there is no "values" nesting.
-# Extraction is exercised against the schema CI actually feeds it; the v0.x
-# shape is kept as a second case below so the summarizer stays tolerant of both.
+# The primary fixtures use the pinned k6 shape: v1.x puts statistics flat on the metric object.
 cat >"$WORK/k6/api-baseline.json" <<'JSON'
 {
   "metrics": {
@@ -102,9 +98,6 @@ assert_num_eq "k6 p95 parsed" "123.4" "$(jq -r '.[] | select(.source=="k6" and .
 assert_num_eq "k6 rps parsed" "42.5" "$(jq -r '.[] | select(.source=="k6" and .scenario=="api-baseline" and .phase=="http") | .rps' <<<"$OUT")"
 assert_num_eq "k6 error rate parsed" "0.005" "$(jq -r '.[] | select(.source=="k6" and .scenario=="api-baseline" and .phase=="http") | .error_rate' <<<"$OUT")"
 
-# The relay row is the one the gate has three ceilings on. Under the pinned k6
-# it must appear from a flat metric object, with every statistic the ceilings
-# read — not only when a v0.x "values" nesting happens to be present.
 RELAY_ROW="$(jq -r '.[] | select(.source=="k6" and .scenario=="relay-throughput" and .phase=="relay")' <<<"$OUT")"
 assert_eq "relay row present under pinned k6 shape" "relay" "$(jq -r '.phase // "MISSING"' <<<"$RELAY_ROW")"
 assert_num_eq "relay p50 parsed" "44.4" "$(jq -r '.latency_p50_ms' <<<"$RELAY_ROW")"
@@ -117,23 +110,10 @@ assert_num_eq "QUIC rps computed" "20" "$(jq -r '.[] | select(.source=="quic" an
 assert_num_eq "QUIC error rate computed" "0.02" "$(jq -r '.[] | select(.source=="quic" and .phase=="aggregate") | .error_rate' <<<"$OUT")"
 assert_eq "commit tagged" "deadbeef" "$(jq -r '.[0].commit' <<<"$OUT")"
 
-# A k6 row that carries no metrics at all is indistinguishable from a scenario
-# that never ran, and silently empties the gate. Every metric key must survive.
 assert_eq "k6 row carries every metric key" \
   "error_rate latency_p50_ms latency_p95_ms latency_p99_ms rps" \
   "$(jq -r '.[] | select(.scenario=="api-baseline") | keys - ["source","scenario","phase","workload","commit","env","timestamp"] | join(" ")' <<<"$OUT")"
 
-# Every row says which workload produced it.
-#
-# A trend series compares a number against the numbers before it, and that is
-# only sound while the scenario keeps measuring the same thing. A relay scenario
-# that had been timing an unauthenticated health check was rewritten to open a
-# real session and time its own frame coming back; it kept its name, and the
-# first night of the new work was reported as a collapse against the old work's
-# figures. Nothing in the stored data could say the two were different.
-#
-# The name of the workload travels with the sample, so a rewrite is a new series
-# and the gate compares it against itself.
 for scenario in api-baseline relay-throughput; do
   workload="$(jq -r --arg s "$scenario" '.[] | select(.scenario==$s) | .workload' <<<"$OUT" | sort -u)"
   if [ -n "$workload" ] && [ "$workload" != "null" ] && [ "$(wc -l <<<"$workload")" = "1" ]; then
@@ -153,9 +133,6 @@ fi
 DISTINCT="$(jq -r '[.[].workload] | unique | length' <<<"$OUT")"
 assert_eq "each scenario names its own workload" "3" "$DISTINCT"
 
-# A scenario nothing has declared cannot enter the trend: an unnamed workload is
-# the ambiguity this label exists to remove, and a row carrying one would be
-# compared against whatever else happened to be unnamed.
 mkdir -p "$WORK/k6-undeclared"
 cp "$WORK/k6/api-baseline.json" "$WORK/k6-undeclared/brand-new-scenario.json"
 rc=0
@@ -167,10 +144,8 @@ else
   fail "expected exit 2 for an undeclared scenario, got $rc"
 fi
 
-# Registration is published only when the server measured it. The harness's own
-# clock around the register frame stops at a local send buffer, so a run the
-# server did not answer has nothing to say about registration — and a row of
-# zeroes under registration's name is what two gate ceilings sat on for months.
+# The harness's clock around the register frame stops at a local send buffer, so registration is
+# published only when the server measured it.
 cat >"$WORK/no-register-quic.txt" <<'TXT'
 Starting QUIC load test: 100 agents across 1 tenant(s) → 10.0.0.42:9090
 
@@ -195,8 +170,6 @@ assert_eq "no register row when the server did not answer" "" \
 assert_eq "connect and handshake still published" "connect handshake" \
   "$(jq -r '[.[] | select(.phase=="connect" or .phase=="handshake") | .phase] | sort | join(" ")' <<<"$NOREG")"
 
-# Connect and handshake are the generator's own side of the wire, so their
-# absence is a malformed block rather than an optional field.
 cat >"$WORK/no-connect-quic.txt" <<'TXT'
 Starting QUIC load test: 100 agents across 1 tenant(s) → 10.0.0.42:9090
 
@@ -217,11 +190,8 @@ else
   fail "expected exit 2 for a results block missing connect, got $rc"
 fi
 
-# The QUIC aggregate rate is machines divided by a duration, and the run's own
-# wall clock is the wrong one. A run holds its fleet connected for the relay
-# generator beside it, so the clock is eight minutes of holding after a second
-# of arriving; dividing by it reports the hold. The harness prints the window
-# the fleet arrived in, and that is the denominator.
+# The QUIC aggregate rate divides machines by the arrival window, since the run's wall clock
+# includes the hold.
 cat >"$WORK/held-quic.txt" <<'TXT'
 Starting QUIC load test: 100 agents across 1 tenant(s) → 10.0.0.42:9090
 
@@ -243,17 +213,12 @@ HELD="$(
 HELD_RPS="$(jq -r '.[] | select(.source=="quic" and .phase=="aggregate") | .rps' <<<"$HELD")"
 assert_num_eq "held fleet rate divides by the arrival window" "200" "$HELD_RPS"
 
-# The failure this guards is silent: a rate computed from the run's length is a
-# number, just not a rate, and it reads as a collapsed fleet forever.
 if awk -v g="$HELD_RPS" 'BEGIN { exit !(g < 1) }'; then
   fail "held fleet rate still divides by the run's wall clock (got $HELD_RPS)"
 else
   pass "held fleet rate is not the run's wall clock"
 fi
 
-# A results block that reports arrivals but no window leaves the rate with no
-# denominator it can trust. Falling back to the run's clock is how the defect
-# above would return without anything saying so, so the extraction refuses.
 cat >"$WORK/windowless-quic.txt" <<'TXT'
 Starting QUIC load test: 100 agents across 1 tenant(s) → 10.0.0.42:9090
 
@@ -276,9 +241,7 @@ else
   fail "expected exit 2 for a results block with no arrival window, got $rc"
 fi
 
-# k6 v0.x nested each metric's statistics under a "values" key and exposed a
-# rate metric's ratio as "rate". The summarizer accepts that shape too, so the
-# extraction does not depend on the exporter generation.
+# k6 v0.x nests statistics under a "values" key and exposes a rate metric's ratio as "rate".
 mkdir -p "$WORK/k6v0"
 cat >"$WORK/k6v0/relay-throughput.json" <<'JSON'
 {
@@ -325,19 +288,26 @@ assert_num_eq "k6 v0 p50 falls back to med" "63" "$(jq -r '.[] | select(.phase==
 source "$SUMMARIZE"
 assert_num_eq "sourceable duration converter" "62000" "$(duration_to_ms "1m2s")"
 
-# The declaration has to cover every scenario the workflow runs, or the run that
-# adds one is refused at extraction rather than pushing an unnamed series.
+workflow_scenarios="$(
+  sed -nE 's/^[[:space:]]*for scenario in ([a-z0-9 -]+); do[[:space:]]*$/\1/p' "$REPO_ROOT/.github/workflows/load-test.yml" \
+    | tr ' ' '\n' | grep -v '^$' | sort -u || true
+)"
+if [ -n "$workflow_scenarios" ]; then
+  pass "read $(wc -l <<<"$workflow_scenarios") scenarios from the load-test workflow"
+else
+  fail "read no scenarios from the load-test workflow's for scenario in list"
+fi
+declared=0
 while IFS= read -r scenario; do
   [ -n "$scenario" ] || continue
+  declared=$((declared + 1))
   if workload_name "$scenario" >/dev/null 2>&1; then
     pass "workload declared for $scenario"
   else
     fail "no workload declared for $scenario — it cannot enter the trend"
   fi
-done < <(
-  grep -oE 'loadtest-k6-run\.sh [a-z-]+' "$REPO_ROOT/.github/workflows/load-test.yml" | awk '{print $2}' | sort -u
-  echo quic-agents
-)
+done <<<"$workflow_scenarios"$'\n'quic-agents
+assert_eq "every scenario's workload is checked" "$(($(wc -l <<<"$workflow_scenarios") + 1))" "$declared"
 
 PARTIAL="$(
   K6_SUMMARY_DIR="$WORK/k6" QUIC_OUTPUT_FILE="$WORK/missing-quic.txt" GITHUB_SHA="deadbeef" \
@@ -349,12 +319,7 @@ rc=0
 K6_SUMMARY_DIR="$WORK/missing-k6" QUIC_OUTPUT_FILE="$WORK/missing-quic.txt" "$SUMMARIZE" >/dev/null 2>&1 || rc=$?
 if [ "$rc" -eq 2 ]; then pass "missing all inputs exits 2"; else fail "missing all inputs expected exit 2, got $rc"; fi
 
-# --- A machine the run stood down is not an error the system made -------------
-#
-# A walk cancels every start still reaching for the server when its level comes
-# down, and those machines never registered — so the succeeded count is short by
-# them while nothing failed. Reading the shortfall as errors publishes an error
-# rate about the harness's own wind-down, against a limit held at nought.
+# Stood-down machines never registered, so the succeeded count is short by them without failures.
 cat >"$WORK/quic-stood-down.txt" <<'TXT'
 === Results ===
 Total time:  5m0s
@@ -377,18 +342,7 @@ assert_eq "the stood-down machines leave the error rate" "0.002193" "$stood_erro
 stood_rps="$(jq -r '.[] | select(.phase == "aggregate") | .rps' <<<"$STOOD")"
 assert_eq "the rate is still the machines that arrived over the window" "3.791667" "$stood_rps"
 
-# --- A run that replaced its machines has no denominator here -----------------
-#
-# The declared fleet is the denominator only while every machine lives once. An
-# endurance run replaces a machine when it leaves, so it arrives more machines
-# than it declared — 2,750 against 500 on 2026-09-13 — and dividing by the
-# declaration puts more arrivals over the line than the line allows for. The
-# share of a fleet that did not get in then comes out below nought, which every
-# ceiling in every profile passes, because a ceiling is a maximum.
-#
-# The count of machine-lives is not in this block, so this cannot compute the
-# share at all. It says so rather than publishing the negative: such a run's
-# evidence bundle states the share itself, over the results it holds.
+# A run that replaces machines arrives more than the declared fleet, so no share is computed.
 cat >"$WORK/quic-churned.txt" <<'TXT'
 === Results ===
 Total time:  4h44m0.996s

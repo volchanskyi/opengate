@@ -10,8 +10,7 @@ import (
 
 const msgSiteNotFound = "site not found"
 
-// CreateSite implements StrictServerInterface. Adding a site reshapes how the
-// fleet is filed, so it sits behind the admin gate.
+// CreateSite implements StrictServerInterface; creating a site requires an administrator.
 func (s *Server) CreateSite(ctx context.Context, request CreateSiteRequestObject) (CreateSiteResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, CreateSite403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
@@ -24,8 +23,6 @@ func (s *Server) CreateSite(ctx context.Context, request CreateSiteRequestObject
 		return CreateSite400JSONResponse{Error: msg}, nil
 	}
 
-	// A create that names no customer takes the tenant's own, so a technician who
-	// has not picked one still gets a site somewhere valid rather than an error.
 	site := &device.Site{ID: uuid.New(), Name: request.Body.Name}
 	if request.Body.OrganizationId != nil {
 		site.OrganizationID = *request.Body.OrganizationId
@@ -44,9 +41,7 @@ func (s *Server) CreateSite(ctx context.Context, request CreateSiteRequestObject
 	return CreateSite201JSONResponse(siteToAPI(site)), nil
 }
 
-// ListSites implements StrictServerInterface. Sites are a fleet read: every
-// member of the tenant sees every site in it, narrowed to one customer when the
-// caller names one.
+// ListSites implements StrictServerInterface; any tenant member may list, optionally by customer.
 func (s *Server) ListSites(ctx context.Context, request ListSitesRequestObject) (ListSitesResponseObject, error) {
 	var organizationID device.OrganizationID
 	if request.Params.OrganizationId != nil {
@@ -74,8 +69,7 @@ func (s *Server) GetSite(ctx context.Context, request GetSiteRequestObject) (Get
 	return GetSite200JSONResponse(siteToAPI(site)), nil
 }
 
-// DeleteSite implements StrictServerInterface. Removing a site reshapes how
-// the fleet is filed, so it sits behind the admin gate.
+// DeleteSite implements StrictServerInterface; deleting a site requires an administrator.
 func (s *Server) DeleteSite(ctx context.Context, request DeleteSiteRequestObject) (DeleteSiteResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, DeleteSite403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil

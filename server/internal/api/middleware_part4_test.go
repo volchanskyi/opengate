@@ -12,9 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// TestDenyIfNotAdmin covers the mutation boundary helper every configuration
-// handler shares: admins pass through, everyone else gets the caller's
-// forbidden response.
 func TestDenyIfNotAdmin(t *testing.T) {
 	t.Parallel()
 

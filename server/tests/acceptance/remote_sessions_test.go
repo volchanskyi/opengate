@@ -13,26 +13,37 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// TestATechnicianOpensATerminalAndTheMachineIsToldToStartIt is the sentence
-// Remote Sessions promises. A technician asks for a terminal on a machine that
-// is online, and the machine hears about it on its own control stream — which
-// is the whole point of the seam: the session the API mints and the session the
-// machine is asked to start are the same session.
+func contosoOnlineMachine(t *testing.T, product *Product, hostname string) (*Technician, *Machine) {
+	t.Helper()
+	contoso := product.arrangeCustomer("Contoso")
+	admin := product.Administrator(contoso)
+	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, hostname)
+	machine.AwaitOnline()
+	return admin, machine
+}
+
+func (a *Technician) openSession(deviceID uuid.UUID) Reply {
+	a.t.Helper()
+	return a.Post("/api/v1/sessions", map[string]any{"device_id": deviceID.String()})
+}
+
+func requireSessionsRefused(t *testing.T, admin *Technician, deviceID uuid.UUID, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return admin.openSession(deviceID).Status == http.StatusConflict
+	}, eventually, poll, msg)
+}
+
 func TestATechnicianOpensATerminalAndTheMachineIsToldToStartIt(t *testing.T) {
 	t.Parallel()
 
-	product := newProduct(t)
-	contoso := product.arrangeCustomer("Contoso")
-	admin := product.Administrator(contoso)
-
-	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-desk-01")
-	machine.AwaitOnline()
+	admin, machine := contosoOnlineMachine(t, newProduct(t), "contoso-desk-01")
 
 	var session struct {
 		Token    string `json:"token"`
 		RelayURL string `json:"relay_url"`
 	}
-	reply := admin.Post("/api/v1/sessions", map[string]any{"device_id": machine.DeviceID.String()})
+	reply := admin.openSession(machine.DeviceID)
 	require.Equalf(t, http.StatusCreated, reply.Status, "opening a terminal failed: %s", reply.Text())
 	reply.Into(&session)
 	require.NotEmpty(t, session.Token)
@@ -43,78 +54,42 @@ func TestATechnicianOpensATerminalAndTheMachineIsToldToStartIt(t *testing.T) {
 		"the machine is asked to start the very session the technician was given")
 }
 
-// TestASessionForAMachineThatIsOfflineIsRefusedWithAReason covers the case a
-// technician meets every day: the machine is not there. The refusal has to say
-// so, because a technician who is told nothing will keep clicking.
 func TestASessionForAMachineThatIsOfflineIsRefusedWithAReason(t *testing.T) {
 	t.Parallel()
 
-	product := newProduct(t)
-	contoso := product.arrangeCustomer("Contoso")
-	admin := product.Administrator(contoso)
-
-	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-desk-02")
-	machine.AwaitOnline()
+	admin, machine := contosoOnlineMachine(t, newProduct(t), "contoso-desk-02")
 	machine.Disconnect()
 
-	require.Eventually(t, func() bool {
-		return admin.Post("/api/v1/sessions",
-			map[string]any{"device_id": machine.DeviceID.String()}).Status == http.StatusConflict
-	}, eventually, poll, "a terminal on a machine that is not there is refused")
+	requireSessionsRefused(t, admin, machine.DeviceID, "a terminal on a machine that is not there is refused")
 
-	// Which refusal arrives depends on how far the request got before the
-	// machine's departure was noticed — the connection is gone, or the write to
-	// it failed — and both are true. What must hold either way is that the
-	// answer names the machine rather than blaming the technician.
-	reply := admin.Post("/api/v1/sessions", map[string]any{"device_id": machine.DeviceID.String()})
+	// Either refusal wording is valid, depending on whether the departure was noticed first.
+	reply := admin.openSession(machine.DeviceID)
 	assert.Equal(t, http.StatusConflict, reply.Status)
 	assert.Containsf(t, reply.Text(), "agent",
 		"the refusal names the reason a technician can act on, got %s", reply.Text())
 }
 
-// TestASessionOnAMachineThatDisappearsStopsBeingUsable is the technician
-// mid-repair when the endpoint drops off the network. The session cannot
-// survive the machine: nothing further is asked of it, a fresh terminal is
-// refused with a reason, and the technician can clear the dead session from
-// the page themselves rather than being left looking at it.
 func TestASessionOnAMachineThatDisappearsStopsBeingUsable(t *testing.T) {
 	t.Parallel()
 
-	product := newProduct(t)
-	contoso := product.arrangeCustomer("Contoso")
-	admin := product.Administrator(contoso)
-
-	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-desk-03")
-	machine.AwaitOnline()
+	admin, machine := contosoOnlineMachine(t, newProduct(t), "contoso-desk-03")
 
 	var session struct {
 		Token string `json:"token"`
 	}
-	reply := admin.Post("/api/v1/sessions", map[string]any{"device_id": machine.DeviceID.String()})
+	reply := admin.openSession(machine.DeviceID)
 	require.Equal(t, http.StatusCreated, reply.Status)
 	reply.Into(&session)
 	machine.Await(protocol.MsgSessionRequest)
 
 	machine.Disconnect()
 
-	require.Eventually(t, func() bool {
-		return admin.Post("/api/v1/sessions",
-			map[string]any{"device_id": machine.DeviceID.String()}).Status == http.StatusConflict
-	}, eventually, poll, "a machine that has gone can carry no further work")
+	requireSessionsRefused(t, admin, machine.DeviceID, "a machine that has gone can carry no further work")
 
 	assert.Equal(t, http.StatusNoContent, admin.Delete("/api/v1/sessions/"+session.Token).Status,
 		"the technician can clear a session whose machine is gone")
 }
 
-// TestASessionLeftByAMachineThatWentAwayIsReclaimed is the other half of the
-// same story, and the half a technician never presses a button for. A session
-// whose machine dropped off and whose technician closed the tab is nobody's
-// job to clear, so the product clears it: once the row has outlived its grace
-// period the sweep takes it, and it stops appearing on the machine's page.
-//
-// The sweep runs on a cadence measured in minutes in the running server, so
-// this states its own — the point is that the product reclaims the row, not how
-// long it waits first.
 func TestASessionLeftByAMachineThatWentAwayIsReclaimed(t *testing.T) {
 	t.Parallel()
 
@@ -126,23 +101,16 @@ func TestASessionLeftByAMachineThatWentAwayIsReclaimed(t *testing.T) {
 		SessionSweep:   50 * time.Millisecond,
 		SessionGrace:   time.Nanosecond,
 		IncidentSweep:  time.Hour,
-		// This case is about the session sweep. The retention horizon is set
-		// far beyond anything the run creates so the age sweep has no candidate
-		// to take, and its cadence out of the way for the same reason.
+		// The retention horizon exceeds anything this run creates, leaving the age sweep idle.
 		RetentionSweep:   time.Hour,
 		RetentionHorizon: 365 * 24 * time.Hour,
 	}))
-	contoso := product.arrangeCustomer("Contoso")
-	admin := product.Administrator(contoso)
+	admin, machine := contosoOnlineMachine(t, product, "contoso-desk-05")
 
-	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-desk-05")
-	machine.AwaitOnline()
-
-	reply := admin.Post("/api/v1/sessions", map[string]any{"device_id": machine.DeviceID.String()})
+	reply := admin.openSession(machine.DeviceID)
 	require.Equal(t, http.StatusCreated, reply.Status)
 	machine.Await(protocol.MsgSessionRequest)
 
-	// Nobody connects to it, and the machine goes away.
 	machine.Disconnect()
 
 	require.Eventually(t, func() bool {
@@ -150,7 +118,7 @@ func TestASessionLeftByAMachineThatWentAwayIsReclaimed(t *testing.T) {
 	}, eventually, poll, "a session nobody is holding stops being one the machine has")
 }
 
-// sessionsOn is the session list a technician sees on a machine's page.
+// sessionsOn lists the sessions of one machine.
 func (a *Technician) sessionsOn(deviceID uuid.UUID) []sessionSummary {
 	a.t.Helper()
 	var listed []sessionSummary
@@ -160,32 +128,22 @@ func (a *Technician) sessionsOn(deviceID uuid.UUID) []sessionSummary {
 	return listed
 }
 
-// sessionSummary is a session as the machine's page shows it.
+// sessionSummary is a session as the session list shows it.
 type sessionSummary struct {
 	Token string `json:"token"`
 }
 
-// TestACustomerFilterNarrowsAndDoesNotPermit states the shape of the
-// customer boundary out loud, because it is easy to mistake for a permission.
-// Both customers sit inside one tenant, so a technician looking at Fabrikam is
-// shown Fabrikam's estate — but nothing about naming Contoso's machine is
-// refused. That is a filter, not a gate, and a test that assumed otherwise
-// would be pinning a protection the product does not offer.
 func TestACustomerFilterNarrowsAndDoesNotPermit(t *testing.T) {
 	t.Parallel()
 
 	product := newProduct(t)
-	contoso := product.arrangeCustomer("Contoso")
+	_, machine := contosoOnlineMachine(t, product, "contoso-desk-04")
 	fabrikam := product.arrangeCustomer("Fabrikam")
-	admin := product.Administrator(contoso)
-
-	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-desk-04")
-	machine.AwaitOnline()
 
 	looking := product.Administrator(fabrikam)
 	assert.Empty(t, looking.devices(), "Contoso's machine is not on Fabrikam's page")
 
-	reply := looking.Post("/api/v1/sessions", map[string]any{"device_id": machine.DeviceID.String()})
+	reply := looking.openSession(machine.DeviceID)
 	assert.Equal(t, http.StatusCreated, reply.Status,
 		"the customer filter narrows what is shown; the tenant is what permits")
 }

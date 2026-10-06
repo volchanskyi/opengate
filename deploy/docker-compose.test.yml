@@ -23,13 +23,9 @@ services:
     environment:
       - JWT_SECRET=e2e-test-secret-minimum-32-bytes!
       - DATABASE_URL=postgres://opengate:e2e-test-password@postgres:5432/opengate?sslmode=disable
-      # The name the machines reach this container by. It becomes a subject
-      # name on the machine-facing certificate and the address an enrolling
-      # machine is told to dial, so both halves agree on one hostname.
+      # The name machines dial; it is the machine certificate's subject name and enrolment address.
       - OPENGATE_QUIC_HOST=server
-    # The machine-facing listener is published as well as the browser-facing
-    # one: the specs open pages against real enrolled machines, and a machine
-    # reaches the server over QUIC.
+    # The QUIC listener is published because enrolled machines connect over QUIC.
     command:
       - "-listen"
       - ":8080"
@@ -57,14 +53,7 @@ services:
       postgres:
         condition: service_healthy
 
-  # Two machines, so a spec may take one off the network without breaking every
-  # other spec. agent-b is the expendable one; agent-a is what the device pages
-  # are read against.
-  #
-  # The hostname is pinned because it is the name a technician sees in the
-  # device list, and a spec that has to guess a container id cannot assert on
-  # it. The enrolment token comes from the bring-up script, which mints it
-  # through the same public endpoint an installer uses.
+  # agent-b is the expendable machine; the pinned hostnames are the names the device list shows.
   agent-a:
     build:
       context: ..
@@ -72,12 +61,8 @@ services:
     container_name: opengate-test-agent-a
     hostname: agent-a
     env_file:
-      # The token is minted per bring-up and is a credential, so it is in no
-      # checkout. Declaring it optional keeps `docker compose config` — which
-      # the config lint and `make lint-deploy` both run — a check of the
-      # stack's shape rather than of what the last bring-up left on disk. The
-      # bring-up writes it before it starts the machines, and waits for both
-      # to come online, so a stack that really is missing it still fails loudly.
+      # The enrolment token is a per-bring-up credential, optional so `docker compose config`
+      # validates without it.
       - path: .e2e-agent.env
         required: false
     environment:

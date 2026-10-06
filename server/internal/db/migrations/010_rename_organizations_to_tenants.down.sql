@@ -1,8 +1,4 @@
--- Reverse of the tenancy rename: names only.
---
--- The columns move first. Renaming a column carries every policy built on
--- it, so the policy statements below only have the scope setting left to
--- change and the expression they are given already resolves.
+-- Names only: renamed columns carry their policies, leaving only the scope setting to change.
 
 ALTER TABLE device_processes RENAME CONSTRAINT device_processes_tenant_id_device_id_ts_rank_key
     TO device_processes_org_id_device_id_ts_rank_key;

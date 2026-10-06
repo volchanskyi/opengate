@@ -2,11 +2,8 @@ package api
 
 import "context"
 
-// GetHealth implements StrictServerInterface — the readiness probe. It reports
-// 503 (draining the pod) when a backing dependency is unreachable: Postgres, or
-// the distributed session registry (Redis) when one is wired. The registry check
-// drains a pod that has lost Redis; liveness
-// (/healthz) stays dependency-free so the pod is not restarted.
+// GetHealth implements StrictServerInterface as the readiness probe: it reports 503 when
+// Postgres or the wired session registry is unreachable, while /healthz stays dependency-free.
 func (s *Server) GetHealth(ctx context.Context, _ GetHealthRequestObject) (GetHealthResponseObject, error) {
 	if s.store.Ping(ctx) != nil {
 		return GetHealth503JSONResponse{Error: "database unreachable"}, nil

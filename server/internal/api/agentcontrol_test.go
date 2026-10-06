@@ -19,14 +19,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// The concrete agent connection must satisfy the consumer-defined port, so the
-// composition root can hand real *agentapi.AgentConn values to handlers that
-// depend only on AgentControl.
+// The concrete agent connection satisfies the AgentControl port.
 var _ AgentControl = (*agentapi.AgentConn)(nil)
 
-// fakeAgentControl is a hand-written AgentControl double: it records the last
-// control-write and returns caller-configured results, so a handler test needs
-// no real QUIC connection or agent read loop.
+// fakeAgentControl records the last control-write and returns caller-configured results.
 type fakeAgentControl struct {
 	meta agentapi.AgentMeta
 
@@ -84,8 +80,7 @@ func (f *fakeAgentControl) RequestLocalHistorySync(_ context.Context, _ string, 
 
 func (f *fakeAgentControl) Meta() agentapi.AgentMeta { return f.meta }
 
-// controlTestEnv wires a server whose AgentGetter returns a fake AgentControl,
-// proving the handlers depend only on the port, not the concrete conn.
+// controlTestEnv wires a server whose AgentGetter returns a fake AgentControl.
 type controlTestEnv struct {
 	srv        *Server
 	deviceID   protocol.DeviceID
@@ -114,9 +109,6 @@ func setupControlTest(t *testing.T, fake *fakeAgentControl) *controlTestEnv {
 	return &controlTestEnv{srv: srv, deviceID: dev.ID, fake: fake, ownerToken: ownerToken, adminToken: adminToken}
 }
 
-// TestAgentControl_RestartSendPath drives a control-write (Send*) through the
-// handler backed only by a fake AgentControl, covering the positive (send
-// succeeds → 200) and negative (send errors → 500) branches.
 func TestAgentControl_RestartSendPath(t *testing.T) {
 	t.Parallel()
 
@@ -140,10 +132,6 @@ func TestAgentControl_RestartSendPath(t *testing.T) {
 	})
 }
 
-// TestAgentControl_LogsRequestSyncPath drives a synchronous request/response read
-// (Request*Sync) through the handler backed only by a fake AgentControl, covering
-// the positive (entries returned → 200) and negative (capability error → 404)
-// branches — proving the read surface is decoupled from the concrete conn too.
 func TestAgentControl_LogsRequestSyncPath(t *testing.T) {
 	t.Parallel()
 
@@ -167,9 +155,6 @@ func TestAgentControl_LogsRequestSyncPath(t *testing.T) {
 	})
 }
 
-// TestAgentControl_EligibleAgentsMetadataFilter pins that eligibleAgents reads
-// os/arch/version through the AgentControl.Meta() port and applies the same
-// filter as before: matching os+arch, excluding the already-current version.
 func TestAgentControl_EligibleAgentsMetadataFilter(t *testing.T) {
 	t.Parallel()
 

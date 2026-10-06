@@ -14,10 +14,8 @@ pub enum LinuxRuntime {
     BareMetalOther,
 }
 
-/// Detect the current Linux runtime environment.
-///
-/// Checks for container indicators first (`/.dockerenv`, `/run/.containerenv`),
-/// then for systemd (`NOTIFY_SOCKET` env var), falling back to `BareMetalOther`.
+/// Checks container indicators (`/.dockerenv`, `/run/.containerenv`), then `NOTIFY_SOCKET`,
+/// else yields `BareMetalOther`.
 pub fn detect_runtime() -> LinuxRuntime {
     decide_runtime(
         Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists(),
@@ -25,12 +23,8 @@ pub fn detect_runtime() -> LinuxRuntime {
     )
 }
 
-/// Pure decision behind [`detect_runtime`], separated from the environment/path
-/// probes so it can be unit-tested deterministically (see `tests/runtime_test.rs`).
-/// Mutating `NOTIFY_SOCKET` from tests to drive the old inline cases raced every
-/// other thread reading the environment — `std::env::set_var` is unsound under
-/// concurrency — making those tests flaky; passing the booleans explicitly removes
-/// the global state entirely.
+/// Pure decision behind [`detect_runtime`]; takes the probe results as booleans so it reads
+/// no process-global state.
 pub fn decide_runtime(in_container: bool, has_notify_socket: bool) -> LinuxRuntime {
     if in_container {
         LinuxRuntime::Container
@@ -41,10 +35,7 @@ pub fn decide_runtime(in_container: bool, has_notify_socket: bool) -> LinuxRunti
     }
 }
 
-/// Get the filesystem root for file operations.
-///
-/// In containers with a host mount at `/host`, returns `/host`.
-/// Otherwise returns `/`.
+/// Returns `/host` when a host mount exists there (containers), else `/`.
 pub fn get_filesystem_root() -> PathBuf {
     let host_mount = Path::new("/host");
     if host_mount.is_dir() {
@@ -53,7 +44,3 @@ pub fn get_filesystem_root() -> PathBuf {
         PathBuf::from("/")
     }
 }
-
-// Tests live in `tests/runtime_test.rs` — `decide_runtime` is exercised purely,
-// without mutating the process-global environment (which previously raced and
-// flaked).

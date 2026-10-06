@@ -2,13 +2,7 @@ import { test, expect } from "./fixtures";
 import AxeBuilder from "@axe-core/playwright";
 import type { Route } from "@playwright/test";
 
-// The triage workspace, end to end: the queue, the room a queue row opens, the
-// evidence one alert carries, and the resolution that closes it.
-//
-// Store mapping and the lifecycle vocabulary are covered by the unit suite.
-// What only a browser can show is asserted here: the routes resolve and render,
-// repeated filters travel in the comma-joined form the API binds, and the room
-// asks nothing of the machine that raised the alert.
+// Repeated filters travel comma-joined, and the room reads only investigation endpoints.
 
 const INCIDENT_ID = "6f2b9c31-1111-4111-8111-444455556666";
 const ALERT_ID = "aaaa1111-2222-4333-8444-555566667777";
@@ -86,12 +80,7 @@ const evidence = {
 
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 
-/**
- * Stub the queue, the room and its evidence, recording every investigation URL
- * requested. Matched by pathname rather than by glob: the room read carries a
- * query string only when a customer is selected, so a pattern that assumes one
- * would let the real request through and answer a 404 instead of the fixture.
- */
+// Matched by pathname because the room read carries a query string only with a customer selected.
 async function stubInvestigations(page: AuthedPage, seen: string[]) {
   await page.route(
     (url: URL) => url.pathname.startsWith("/api/v1/investigations"),
@@ -116,8 +105,7 @@ test.describe("Investigations", () => {
     await expect(authedPage.getByText("312 alerts")).toBeVisible();
     await expect(authedPage.getByText("40 machines")).toBeVisible();
 
-    // The open statuses travel as one comma-joined value: the server's binder
-    // reads only the first value of a repeated parameter.
+    // The server binder reads only the first value of a repeated parameter.
     expect(seen[0]).toContain("status=new,acknowledged,investigating");
 
     await authedPage.getByRole("button", { name: "Critical" }).click();
@@ -139,11 +127,9 @@ test.describe("Investigations", () => {
     await expect(authedPage.getByRole("list", { name: "Ranked dimensions" })).toBeVisible();
     await expect(authedPage.getByRole("img", { name: /cpu\.busy_pct over the window/ })).toBeVisible();
     await expect(authedPage.getByRole("table", { name: "Processes" })).toContainText("chrome");
-    // A truncated blob says so, and a host log line renders as its characters.
     await expect(authedPage.getByText(/size cap/)).toBeVisible();
     await expect(authedPage.getByText("<b>kernel</b>: task nginx:1234 blocked for more than 120 seconds")).toBeVisible();
 
-    // Everything the room fetched was an investigation read.
     expect(seen.length).toBeGreaterThan(0);
     for (const url of seen) {
       expect(new URL(url).pathname.startsWith("/api/v1/investigations")).toBe(true);
@@ -161,7 +147,6 @@ test.describe("Investigations", () => {
     await authedPage.goto(`/investigations/${INCIDENT_ID}`);
     await authedPage.getByRole("button", { name: "Resolve" }).click();
 
-    // Nothing is sent until an answer is chosen.
     await expect(authedPage.getByRole("button", { name: "Confirm resolution" })).toBeDisabled();
     await authedPage.getByLabel("Why it ended").selectOption("false_positive");
     await authedPage.getByRole("button", { name: "Confirm resolution" }).click();

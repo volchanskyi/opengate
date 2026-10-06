@@ -24,9 +24,8 @@ type ghAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
-// SyncFromGitHub fetches the latest GitHub release for the given repo and
-// publishes manifests for each agent binary asset found.
-// apiBase overrides the GitHub API base URL (for testing); pass "" for default.
+// SyncFromGitHub publishes a manifest for each agent binary in repo's latest release.
+// apiBase overrides the GitHub API base URL; "" selects the default.
 func SyncFromGitHub(ctx context.Context, repo, apiBase string, signing *SigningKeys, store *ManifestStore) ([]*Manifest, error) {
 	if repo == "" {
 		return nil, fmt.Errorf("github repo is required")
@@ -59,13 +58,11 @@ func SyncFromGitHub(ctx context.Context, repo, apiBase string, signing *SigningK
 
 	version := strings.TrimPrefix(release.TagName, "v")
 
-	// Index assets by name for fast lookup.
 	assetByName := make(map[string]ghAsset, len(release.Assets))
 	for _, a := range release.Assets {
 		assetByName[a.Name] = a
 	}
 
-	// Known platforms to look for.
 	type platform struct{ os, arch string }
 	platforms := []platform{
 		{"linux", "amd64"},
@@ -129,7 +126,6 @@ func StartPeriodicSync(ctx context.Context, repo string, interval time.Duration,
 		}
 	}
 
-	// Initial sync immediately.
 	sync()
 
 	ticker := time.NewTicker(interval)
@@ -170,7 +166,6 @@ func fetchSHA256(ctx context.Context, url string) (string, error) {
 	}
 
 	hexStr := fields[0]
-	// Validate it's a proper 64-char hex string.
 	if len(hexStr) != 64 {
 		return "", fmt.Errorf("invalid sha256 length: got %d chars", len(hexStr))
 	}

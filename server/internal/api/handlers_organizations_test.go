@@ -12,8 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
-// organizationEnv is a server with an admin and a plain member, the two callers
-// every organization route distinguishes between.
 type organizationEnv struct {
 	srv         *Server
 	adminToken  string
@@ -28,7 +26,6 @@ func newOrganizationEnv(t *testing.T) organizationEnv {
 	return organizationEnv{srv: srv, adminToken: adminToken, memberToken: memberToken}
 }
 
-// createOrganization posts a new customer as the admin and returns its id.
 func createOrganization(t *testing.T, env organizationEnv, name string) uuid.UUID {
 	t.Helper()
 	w := doRequest(env.srv, http.MethodPost, "/api/v1/organizations", env.adminToken,
@@ -39,9 +36,6 @@ func createOrganization(t *testing.T, env organizationEnv, name string) uuid.UUI
 	return created.Id
 }
 
-// TestOrganizationListIsAFleetReadAndNeverEmpty covers the picker's source: any
-// member of the tenant may read it, and a tenant that has never been given a
-// customer is handed one rather than an empty list.
 func TestOrganizationListIsAFleetReadAndNeverEmpty(t *testing.T) {
 	t.Parallel()
 	env := newOrganizationEnv(t)
@@ -54,8 +48,6 @@ func TestOrganizationListIsAFleetReadAndNeverEmpty(t *testing.T) {
 	assert.NotEmpty(t, listed, "the picker must never have nothing to offer")
 }
 
-// TestOrganizationMutationsAreAdminGated covers the mutation boundary: taking on
-// a customer, renaming one and deleting one all reshape who the fleet is for.
 func TestOrganizationMutationsAreAdminGated(t *testing.T) {
 	t.Parallel()
 	env := newOrganizationEnv(t)
@@ -79,9 +71,6 @@ func TestOrganizationMutationsAreAdminGated(t *testing.T) {
 	}
 }
 
-// TestOrganizationCreateRenameArchiveAndDelete walks the management lifecycle,
-// including the duplicate-name refusal and the archived customer dropping out of
-// the working set.
 func TestOrganizationCreateRenameArchiveAndDelete(t *testing.T) {
 	t.Parallel()
 	env := newOrganizationEnv(t)
@@ -137,8 +126,6 @@ func TestOrganizationCreateRenameArchiveAndDelete(t *testing.T) {
 	})
 }
 
-// TestDeletingTheLastOrganizationIsRefused is the no-orphan floor at the API: a
-// tenant must keep somewhere to put a device.
 func TestDeletingTheLastOrganizationIsRefused(t *testing.T) {
 	t.Parallel()
 	env := newOrganizationEnv(t)
@@ -151,9 +138,6 @@ func TestDeletingTheLastOrganizationIsRefused(t *testing.T) {
 	assert.Len(t, listedOrganizationIDs(t, env, "?include_archived=true"), 1)
 }
 
-// TestFleetReadsNarrowToTheSelectedCustomer is the behavioural half of the
-// filter contract: the device list and the dashboard rollup both answer for the
-// selected customer, and for the whole tenant when none is selected.
 func TestFleetReadsNarrowToTheSelectedCustomer(t *testing.T) {
 	t.Parallel()
 	env := newOrganizationEnv(t)
@@ -178,8 +162,6 @@ func TestFleetReadsNarrowToTheSelectedCustomer(t *testing.T) {
 	})
 }
 
-// TestMoveDeviceOrganization covers reassigning a device: admin-gated, refused
-// for a customer outside the tenant, and complete when it succeeds.
 func TestMoveDeviceOrganization(t *testing.T) {
 	t.Parallel()
 	env := newOrganizationEnv(t)
@@ -223,7 +205,6 @@ func TestMoveDeviceOrganization(t *testing.T) {
 	})
 }
 
-// seedDeviceInOrganization inserts a device and puts it in the named customer.
 func seedDeviceInOrganization(t *testing.T, env organizationEnv, ctx context.Context, organizationID uuid.UUID) uuid.UUID {
 	t.Helper()
 	d := &device.Device{ID: uuid.New(), Hostname: "host-" + uuid.New().String()[:8], Status: device.StatusOffline}

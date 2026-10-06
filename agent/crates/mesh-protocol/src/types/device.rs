@@ -48,22 +48,15 @@ pub enum AgentCapability {
     HardwareInventory,
     DeviceLogs,
     HealthWindow,
-    /// Reconnect backfill + on-demand deep-history pull (WS-15). Gates the
-    /// server → agent GrantBackfill/DeferBackfill/MetricBackfillAck/
-    /// RequestLocalHistory control messages.
+    /// Gates the server → agent backfill grant, defer and ack control messages and
+    /// `RequestLocalHistory`.
     Backfill,
-    /// Non-intrusive auto-discovery profiling (WS-16). Advertised when the
-    /// periodic discovery task is enabled; the agent ships tenant-scoped
-    /// `DiscoveryReport`s (ports/services/DB engines/containers/packages).
+    /// Gates the agent → server `DiscoveryReport`, the read-only host discovery profile.
     Discovery,
-    /// Declarative edge threshold alerts (WS-19). Advertised when the sampler is
-    /// enabled; gates the server → agent `PushAlertRules` control message that
-    /// delivers the connecting agent's tenant-scoped ruleset.
+    /// Gates the server → agent `PushAlertRules` message carrying the agent's tenant-scoped
+    /// ruleset.
     ThresholdAlerts,
-    /// Self-contained alerts with their evidence attached. Advertised when the
-    /// agent can compose evidence at fire time; tells the server this device's
-    /// alerts arrive on the `AgentAlert` transport with everything behind them,
-    /// so nothing will be asked of the device afterwards.
+    /// Gates the agent → server `AgentAlert` transport, which carries the evidence.
     Alerts,
 }
 

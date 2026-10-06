@@ -1,19 +1,5 @@
 #!/usr/bin/env bash
-# Offline regression test for the VictoriaMetrics retention window.
-#
-# The chart is the only input to the rendered retention argument: the
-# statefulset passes -retentionPeriod={{ .Values.victoriametrics.retention }}
-# and nothing else sets it. So a values.yaml that disagrees with what the
-# cluster runs is not a deployment drift to reconcile at rollout — it is simply
-# a wrong chart, and the next `helm upgrade` would change retention under the
-# fleet without anyone asking for it.
-#
-# Both halves are asserted here, with no helm on $PATH and no conditional skip:
-# values.yaml declares the window, and the template passes exactly that value
-# through with no second literal anywhere in the chart. A grep that matches
-# nothing fails; it never passes vacuously.
-#
-# Run: ./scripts/tests/monitoring-retention.test.sh
+# Offline test that the chart's values.yaml and template agree on the VictoriaMetrics retention.
 
 set -euo pipefail
 
@@ -23,8 +9,6 @@ CHART_DIR="$REPO_ROOT/deploy/helm/monitoring"
 VALUES_FILE="$CHART_DIR/values.yaml"
 STATEFULSET_FILE="$CHART_DIR/templates/victoriametrics.yaml"
 
-# The retention the cluster runs. Changing it is a deliberate capacity decision:
-# update this expectation and values.yaml together.
 EXPECTED_RETENTION="30d"
 
 PASS=0
@@ -49,7 +33,6 @@ for f in "$VALUES_FILE" "$STATEFULSET_FILE"; do
   fi
 done
 
-# (A) values.yaml declares the retention the cluster runs.
 declared="$(awk '
   /^victoriametrics:/ { in_block = 1; next }
   in_block && /^[^[:space:]]/ { exit }
@@ -64,15 +47,12 @@ else
   fail "values.yaml declares retention $declared, but the cluster runs $EXPECTED_RETENTION"
 fi
 
-# (B) The statefulset passes that value straight through, templated.
 if grep -qF -- '-retentionPeriod={{ .Values.victoriametrics.retention }}' "$STATEFULSET_FILE"; then
   pass "statefulset renders -retentionPeriod from .Values.victoriametrics.retention"
 else
   fail "statefulset must pass -retentionPeriod={{ .Values.victoriametrics.retention }} verbatim"
 fi
 
-# (C) No second retention literal anywhere in the chart can win over the value.
-# A hard-coded window in an overlay or a sibling template would make (A) a lie.
 hardcoded="$(grep -rn -- '-retentionPeriod=[0-9]' "$CHART_DIR" || true)"
 if [ -z "$hardcoded" ]; then
   pass "no hard-coded -retentionPeriod literal in the chart"

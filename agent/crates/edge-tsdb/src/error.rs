@@ -1,8 +1,8 @@
-//! Error type shared across the spike substrates.
+//! Error type shared by the store and the substrates.
 
 use thiserror::Error;
 
-/// Errors returned by the local-TSDB spike layer.
+/// Errors returned by the local time-series store.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum TsdbError {
@@ -10,9 +10,7 @@ pub enum TsdbError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 
-    /// The configured byte cap would be breached and nothing could be evicted
-    /// to make room. Returned instead of growing the store past its footprint
-    /// bound — the store never fills the host disk.
+    /// The byte cap would be breached and eviction freed no room, so the write is refused.
     #[error("capacity exceeded: {have} + {want} bytes over cap {cap}")]
     CapacityExceeded {
         /// Bytes already resident on disk.
@@ -27,9 +25,7 @@ pub enum TsdbError {
     #[error("corrupt block: {0}")]
     CorruptBlock(&'static str),
 
-    /// The store on disk was written by a newer agent whose format this build
-    /// does not understand. Returned rather than risking a mis-read; the caller
-    /// recreates the store fresh (losing the local backlog, never crashing).
+    /// The store on disk was written by a newer agent in a format this build cannot read.
     #[error("unsupported store format {found} (this build understands up to {supported})")]
     UnsupportedFormat {
         /// The format version found on disk.

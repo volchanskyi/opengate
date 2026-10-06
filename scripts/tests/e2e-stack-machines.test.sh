@@ -1,23 +1,6 @@
 #!/usr/bin/env bash
 # Keeps every stack that runs the browser suite carrying real machines.
-#
-# The stack ran a server and a database and no agent, so nine of twenty-one
-# specs reached for page.route and six of them fabricated a whole machine —
-# its device row, its hardware, its inventory, its sessions. Sixteen tests
-# asserted that the browser renders a tab against a server that was not there.
-#
-# Three things have to hold together for that to stay fixed, and each is easy
-# to undo alone: the server has to listen for machines, the machines have to be
-# in the stack, and no spec may go back to inventing one.
-#
-# The suite runs against two stacks, not one. The staging config derives from
-# the local config and deletes only the webServer block — which is also the
-# thing that installed the machines — so fourteen specs asked a fleet of
-# nothing for a machine by name and every deploy since went red. The machines
-# a spec may name are pinned in one file, and both stacks are checked against
-# that file rather than against a list written here.
-#
-# Run: ./scripts/tests/e2e-stack-machines.test.sh
+# The machines a spec may name are pinned in one file, and both stacks are checked against it.
 
 set -euo pipefail
 
@@ -55,7 +38,6 @@ for f in "$COMPOSE" "$BRINGUP" "$PLAYWRIGHT_CONFIG" "$HELPER" "$CD" "$SERVER_DEP
   fi
 done
 
-# The server has to listen for machines, and be reachable at the name they dial.
 if grep -q '\-quic-listen' "$COMPOSE"; then
   pass "the server listens for machines"
 else
@@ -74,14 +56,10 @@ else
   fail "OPENGATE_QUIC_HOST is unset, so the certificate names localhost and every handshake fails"
 fi
 
-# Two machines, so a spec may disturb one without breaking the rest. The names
-# come from the file the specs read them from, so a third machine added there
-# is checked here without this list being edited.
+# Machine names come from the file the specs read, so a new machine there is checked unedited.
 mapfile -t PINNED < <(sed -n 's/^export const MACHINE_[A-Z0-9]* = "\([^"]*\)";$/\1/p' "$HELPER")
 
-# The bodies of the two staging steps that own the machines' lifetime. Reading
-# them rather than the whole file keeps "brought up" from being satisfied by a
-# passing mention in a comment.
+# Reading only the two staging step bodies keeps a comment's mention from satisfying a check.
 cd_step_body() {
   awk -v want="      - name: $1" '
     $0 == want { in_step = 1; next }
@@ -105,9 +83,7 @@ for machine in "${PINNED[@]}"; do
     fail "$machine is missing from the local stack, or its hostname is not pinned — a spec cannot name a container id"
   fi
 
-  # A pod's hostname is its name, so the deploy has to create it under exactly
-  # the name the spec asks for — and take it away again afterwards, or the next
-  # run inherits its device row.
+  # A pod's hostname is its name, so the deploy creates and removes it under the spec's name.
   if grep -qE "(^|[[:space:]])$machine([[:space:]]|$)" <<<"$CD_ENROL"; then
     pass "$machine is brought up by the staging deploy"
   else
@@ -121,10 +97,7 @@ for machine in "${PINNED[@]}"; do
   fi
 done
 
-# Every entry point into the suite brings up the same stack. There are four of
-# them and they are easy to add to, so they are named here rather than assumed:
-# a stack stood up any other way stages no agent binary and mints no enrolment
-# token, and its machines never arrive.
+# A stack stood up outside these entry points stages no agent binary and mints no token.
 ENTRY_POINTS=(
   "$ROOT/Makefile"
   "$PLAYWRIGHT_CONFIG"
@@ -147,10 +120,7 @@ else
   fail "these entry points stand up a different stack:$missing_bringup"
 fi
 
-# ...and neither they nor the page that tells a reader how to run the suite by
-# hand stands the stack up on its own. A bare `compose up` skips the mint
-# between the two halves of the bring-up, so the machines start with no token
-# to install with and the server never sees them.
+# A bare `compose up` skips the token mint between the two halves of the bring-up.
 own_bringup=""
 for entry in "${ENTRY_POINTS[@]}" "$ROOT/docs/infrastructure/Testing.md"; do
   [ -f "$entry" ] || continue
@@ -165,16 +135,12 @@ else
   fail "these entry points run their own compose up, so no token is minted:$own_bringup"
 fi
 
-# The stack's shape validates on a clean checkout. The token the machines
-# install with is minted per bring-up and is a credential, so it is in no
-# checkout — and `docker compose config`, which CI's config lint and
-# `make lint-deploy` both run, reads every env_file it is pointed at.
+# The enrolment token is minted per bring-up and is in no checkout, while
+# `docker compose config` reads every env_file it is pointed at.
 if ! command -v docker >/dev/null 2>&1; then
   fail "docker is not on PATH, so the stack's shape cannot be validated"
 else
-  # An empty project directory stands in for a clean checkout, so a token an
-  # earlier bring-up left in deploy/ cannot make this pass locally and fail in
-  # CI — which is exactly how it got through the first time.
+  # An empty project directory stands in for a clean checkout, so a leftover token cannot mask CI.
   clean_dir="$(mktemp -d)"
   cp "$COMPOSE" "$clean_dir/docker-compose.test.yml"
   if docker compose -f "$clean_dir/docker-compose.test.yml" config --quiet >/dev/null 2>&1; then
@@ -185,8 +151,7 @@ else
   rm -rf "$clean_dir"
 fi
 
-# The machines install through the public enrolment endpoint, with a token
-# minted at bring-up. No key is copied and no test-only bypass exists.
+# The machines install through the public enrolment endpoint with a token minted at bring-up.
 if grep -q '/api/v1/enrollment-tokens' "$BRINGUP" && grep -q 'OPENGATE_ENROLL_TOKEN' "$BRINGUP"; then
   pass "the machines install with a token minted through the public endpoint"
 else
@@ -199,17 +164,8 @@ else
   pass "the stack carries no variable the server does not read"
 fi
 
-# No spec may invent a machine again. A fabricated device is a device_id
-# constant fulfilled by a page.route on the device endpoint; the real thing is
-# looked up by hostname through the enrolled-machine helper.
-#
-# chat.spec.ts is the stated exception: its tab is shown only for a machine
-# reporting RemoteDesktop, and a Linux agent reports the null implementation
-# there in production as much as in a container. The spec says so in its own
-# header, which is what this checks.
-# The pattern is built rather than written inline: a literal carrying ${…}
-# reads to ShellCheck as an expansion nobody meant, and quoting it the other way
-# would expand it for real.
+# chat.spec.ts alone may mock a device: its tab shows only for RemoteDesktop machines.
+# The pattern is built, not inline, since ShellCheck reads a literal ${…} as a stray expansion.
 dollar='$'
 fabricated_device="page.route(\`**/api/v1/devices/${dollar}{DEVICE_ID}\`"
 
@@ -232,11 +188,8 @@ else
   fail "chat.spec.ts fabricates a machine without saying why"
 fi
 
-# The staging machines dial the server by name, and the agent takes its TLS
-# name from the host half of that address with no way to be told another. So
-# the name a machine is given has to be the name the chart puts on the
-# certificate, or every handshake is refused for a name the certificate does
-# not carry. Both halves are read here, from the two files that decide them.
+# The agent takes its TLS name from the host half of the server address, so a machine's
+# dial name must be the name the chart puts on the certificate.
 POD_MANIFEST="$(
   MACHINE=agent-a \
     RELEASE=rel \
@@ -257,21 +210,15 @@ else
     fail "a staging machine dials something other than the server's in-cluster name — the certificate names no such host"
   fi
 
-  # ...and the packets go to the server pod, because the Service carries the
-  # HTTP port only and there is nothing listening on UDP behind its address.
+  # The Service carries the HTTP port only, so the QUIC packets go to the server pod.
   if grep -qF '203.0.113.1' <<<"$POD_MANIFEST" && grep -qF -- '- rel-server' <<<"$POD_MANIFEST"; then
     pass "the name resolves to the server pod the QUIC listener is in"
   else
     fail "the name is not pointed at the server pod, so the QUIC packets reach nothing"
   fi
 
-  # Enrolment and QUIC are two addresses, aimed independently. The QUIC address
-  # is the name on the certificate and stays the short one; the enrolment URL is
-  # plain HTTP to the Service and defaults to the same short name here, which is
-  # what the staging browser suite uses. Naming it separately is what lets the
-  # network drill send enrolment to the fully-qualified Service name while the
-  # certificate's name is pointed at its link shaper — an /etc/hosts entry for
-  # the short name does not intercept the qualified form.
+  # The QUIC address is the certificate's name; the enrolment URL is aimed separately so the
+  # network drill can send enrolment to the qualified Service name.
   enroll_url="$(grep -A1 'name: OPENGATE_ENROLL_URL' <<<"$POD_MANIFEST" | sed -n 's/^ *value: //p')"
   if [ "$enroll_url" = "http://rel-server:8080" ]; then
     pass "a machine enrols through the server's in-cluster name by default"
@@ -301,17 +248,13 @@ else
     fail "aiming enrolment elsewhere moved the QUIC address off the name the certificate carries"
   fi
 
-  # The pod's name is its hostname, which is what the specs look a machine up by.
   if grep -qE '^  name: agent-a$' <<<"$POD_MANIFEST"; then
     pass "a staging machine's pod is named for the machine the specs ask for"
   else
     fail "the pod is not named for the machine, so its hostname reaches the API as something else"
   fi
 
-  # The image is stock Alpine and the container is not root, so every directory
-  # the agent writes has to be one that user can create. The log directory
-  # defaults to a path under /var/log, which it cannot: both machines started,
-  # died on their first line, and the fleet the suite waits for stayed empty.
+  # The non-root container user can create directories only under /tmp; the log default is /var/log.
   for dir_var in OPENGATE_DATA_DIR OPENGATE_LOG_DIR; do
     dir_value="$(grep -A1 "name: $dir_var" <<<"$POD_MANIFEST" | sed -n 's/^ *value: //p')"
     case "$dir_value" in
@@ -327,8 +270,7 @@ else
     esac
   done
 
-  # The token is a credential minted per run; it reaches the machine through a
-  # Secret rather than sitting in a manifest anyone can read back.
+  # The token is a credential, so it reaches the machine through a Secret, not the manifest.
   token_env="$(grep -A3 'name: OPENGATE_ENROLL_TOKEN' <<<"$POD_MANIFEST")"
   if grep -qF 'secretKeyRef' <<<"$token_env" && ! grep -qF 'value:' <<<"$token_env"; then
     pass "the enrolment token reaches the machine through a Secret"
@@ -343,10 +285,7 @@ else
   fail "the chart puts the in-cluster server name on the certificate nowhere, so an in-cluster machine cannot verify it"
 fi
 
-# The helper polls until a deadline and then throws a message naming the fleet
-# it actually saw. Given the same deadline as the per-test timeout it never
-# reaches the throw: the test dies first, and fourteen runs reported a bare
-# timeout instead of "the fleet holds: an empty fleet".
+# The helper's deadline stays below the per-test timeout so its error naming the fleet is reached.
 helper_deadline="$(sed -n 's/.*Date\.now() + \([0-9_]*\).*/\1/p' "$HELPER" | tr -d '_' | head -n 1)"
 test_timeout="$(sed -n 's/^[[:space:]]*timeout: \([0-9_]*\),.*/\1/p' "$PLAYWRIGHT_CONFIG" | tr -d '_' | head -n 1)"
 

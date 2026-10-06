@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/lib/toolchain-parity.sh. Plain bash; no bats dependency.
-# Run: ./scripts/tests/toolchain-parity.test.sh
-#
-# The library's job is to catch a local toolchain that is older than the one
-# CI resolves. Every parser here is fed a fixture string, so the suite is
-# hermetic: it never queries a release feed and never depends on what happens
-# to be installed on the machine running it.
+# Tests for scripts/lib/toolchain-parity.sh against fixture strings, with no release feed queried.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,16 +64,9 @@ rustup - up to date : 1.29.0'
 
 expect_rc "current stable passes" 0 toolchain_rust_channel_current stable "$UP_TO_DATE"
 expect_rc "current nightly passes" 0 toolchain_rust_channel_current nightly "$UP_TO_DATE"
-# The failure this whole gate exists for: CI resolves the channel fresh on
-# every run, so a stale local stable is a lint CI sees and the gauntlet cannot.
 expect_rc "stale stable fails" 1 toolchain_rust_channel_current stable "$STALE_STABLE"
 expect_rc "stale nightly fails" 1 toolchain_rust_channel_current nightly "$STALE_NIGHTLY"
-# A channel rustup never mentioned is not installed at all — that is drift too,
-# not a pass by omission.
 expect_rc "missing channel fails" 1 toolchain_rust_channel_current beta "$UP_TO_DATE"
-# `rustup` itself appears in the same output as "rustup - up to date : 1.29.0".
-# Matching on it instead of a toolchain line would report a green stable that
-# was never checked.
 expect_rc "rustup's own line is not a toolchain" 1 toolchain_rust_channel_current rustup "$STALE_STABLE"
 
 check "stale stable reports the version CI would resolve" \
@@ -109,8 +96,6 @@ module github.com/volchanskyi/opengate/server
 go 1.26.4
 GOMOD
 
-# Without a toolchain directive the `go` line is what the module builds with,
-# so it is the version a local install has to match.
 check "go directive is the pin when no toolchain directive exists" \
   "go1.26.4" "$(toolchain_gomod_pin "$GOMOD_FIXTURE")"
 
@@ -122,12 +107,7 @@ check "effective toolchain is read from go version output" \
 check "a go version banner with no version yields nothing" \
   "" "$(toolchain_go_effective 'go: downloading go1.26.6')"
 
-# What to do about the drift depends on which way it goes, and the gate used to
-# name only one of the two. GOTOOLCHAIN=auto upgrades into the module's pin and
-# never steps down into it, so a `go` on PATH that is newer than the pin runs
-# instead of it — and the advice to unset a variable that was already unset sent
-# a reader looking at the wrong thing. A workstation's snap rolled to 1.27.1
-# while the project pinned 1.26.7, and that is the case it could not describe.
+# GOTOOLCHAIN=auto only upgrades to the pin, so a local Go newer than the pin must be named.
 check "a local Go behind the pin is told to let auto fetch it" \
   "unset GOTOOLCHAIN" "$(toolchain_go_advice 'go1.26.4' 'go1.26.7')"
 check "a missing local Go is told the same" \
@@ -146,7 +126,6 @@ check "a major with no releases yields nothing" \
   "" "$(toolchain_node_latest_for_major 23 "$DIST_JSON")"
 
 expect_rc "matching node passes" 0 toolchain_versions_match "v24.19.0" "v24.19.0"
-# Five patch releases behind is exactly how a CI-only failure hides.
 expect_rc "older node fails" 1 toolchain_versions_match "v24.14.0" "v24.19.0"
 expect_rc "newer node fails" 1 toolchain_versions_match "v24.20.0" "v24.19.0"
 
@@ -175,9 +154,6 @@ WF
 check "the node major is read from the workflows" \
   "24" "$(toolchain_ci_node_major "$WF_DIR")"
 
-# Two workflows disagreeing means there is no single answer to compare
-# against, and picking either one would green a machine that is wrong for the
-# other job.
 cat >"$WF_DIR/cd.yml" <<'WF'
 jobs:
   build:
@@ -191,9 +167,6 @@ expect_rc "disagreeing workflow pins fail" 1 toolchain_ci_node_major "$WF_DIR"
 echo
 echo "nvm activation:"
 
-# With no nvm to load there is nothing to select, and the parity check that
-# follows it is what reports the truth — so the helper must leave the shell
-# exactly as it found it rather than erroring out on a machine without nvm.
 PATH_BEFORE="$PATH"
 NVM_DIR="$(mktemp -d)" toolchain_use_nvm_default
 expect_rc "no-op without nvm installed" 0 env NVM_DIR="$(mktemp -d)" bash -c ". $LIB; toolchain_use_nvm_default"
@@ -202,10 +175,7 @@ check "PATH is untouched when nvm is absent" "$PATH_BEFORE" "$PATH"
 echo
 echo "pinned tools on this machine:"
 
-# Every tool the gauntlet runs is asked what it is, through stand-ins answering
-# the way each real tool words its version — a Go-built tool through the build
-# record `go version -m` reads, since several of them print `dev`. A drifted one
-# fails the check and names the command that installs the pin.
+# Stand-ins answer in each tool's own wording; Go-built tools answer through `go version -m`.
 PIN_ROOT="$(mktemp -d)"
 mkdir -p "$PIN_ROOT/scripts/lib" "$PIN_ROOT/bin"
 cp "$SCRIPT_DIR/../lib/tool-versions.sh" "$PIN_ROOT/scripts/lib/tool-versions.sh"
@@ -216,7 +186,6 @@ stand_in() { # name, version line
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" %q\n' "$2" >"$PIN_ROOT/bin/$1"
   chmod +x "$PIN_ROOT/bin/$1"
 }
-# A Go-built tool, and the build record a stand-in `go version -m` reads for it.
 go_stand_in() { # name, module, version
   stand_in "$1" "dev"
   printf '%s\t%s\n' "$2" "$3" >"$PIN_ROOT/bin/$1.mod"
@@ -273,9 +242,6 @@ rc=$?
 check "every pinned tool at its pin passes" "0" "$rc"
 [ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
 
-# The scanner that crashed CI under a newer Go, and that the workstation had
-# quietly moved past by hand: it is held to the pin like everything else, and
-# the refusal names the install that fixes it.
 go_stand_in govulncheck golang.org/x/vuln v1.1.4
 out="$(pinned_check 2>&1)"
 rc=$?
@@ -286,8 +252,6 @@ else
   fail "and names the pinned install that fixes it (got=[$out])"
 fi
 
-# Each tool the gauntlet runs, drifted on its own. The rest stay at their pins,
-# so the refusal is about that tool and nothing else.
 drift_case() { # tool, how it reports the drifted version
   pinned_stand_ins
   "$@"
@@ -340,8 +304,6 @@ else
   pass "a missing age fails the check"
 fi
 
-# require-tool.sh, which the Makefile targets call before they run a tool, holds
-# the same line: present at another version is refused, not just absent.
 pinned_stand_ins
 stand_in tflint "TFLint version 0.61.0"
 out="$(PATH="$PIN_ROOT/bin:$PATH" "$PIN_ROOT/scripts/require-tool.sh" tflint 2>&1)"
@@ -355,8 +317,6 @@ fi
 expect_rc "require-tool.sh accepts the pinned version" 0 \
   env PATH="$PIN_ROOT/bin:$PATH" "$PIN_ROOT/scripts/require-tool.sh" trivy
 
-# A copy that answers without a version is neither missing nor pinned, and the
-# refusal says which — rather than ending without a word.
 pinned_stand_ins
 stand_in hadolint "no version in this answer"
 out="$(PATH="$PIN_ROOT/bin:$PATH" "$PIN_ROOT/scripts/require-tool.sh" hadolint 2>&1)"

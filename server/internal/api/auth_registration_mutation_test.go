@@ -9,7 +9,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 )
 
-// TestRegisterPromotesOnlyTheFirstUser pins the bootstrap-admin boundary.
 func TestRegisterPromotesOnlyTheFirstUser(t *testing.T) {
 	srv, _ := newTestServer(t)
 	ctx := testTenantContext(t)

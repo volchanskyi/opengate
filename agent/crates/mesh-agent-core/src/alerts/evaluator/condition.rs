@@ -1,11 +1,5 @@
-//! One condition: the window of readings it keeps, the statistic it derives
-//! from them, and what asking that question costs the machine.
-//!
-//! A rule is a primary condition plus its extra terms, and each condition is
-//! this: a bounded ring of `(timestamp, value)` for the span the rule asks
-//! about, a derivation over that ring, and the hysteresis that decides when a
-//! breach starts and when it has recovered. A window a stored rollup cannot
-//! express is refused here rather than answered at the wrong resolution.
+//! One rule condition: a bounded ring of `(timestamp, value)` readings, the statistic derived from
+//! it, and the hysteresis that decides when a breach starts and recovers.
 
 use std::collections::VecDeque;
 
@@ -18,9 +12,7 @@ use crate::ml::store_sink::DimReadings;
 
 use super::compare;
 
-/// Per-rule evaluation state. A rule advances Clear → Pending → Firing → Clear as
-/// the watched metric breaches, sustains, and finally recovers past the
-/// hysteresis boundary.
+/// Per-rule evaluation state, advancing Clear → Pending → Firing → Clear.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum RuleState {
     /// The metric is on the safe side of the threshold (or of the hysteresis
@@ -41,9 +33,7 @@ pub(super) enum Reading {
     Value(f64),
     /// This host cannot answer the condition at all.
     Unsupported,
-    /// It can, but not enough seconds have passed to span the window. Not an
-    /// answer — a rule that fired here would page someone for every agent
-    /// restart.
+    /// The host can answer, but too few seconds have passed to span the window.
     NotEnoughData,
 }
 
@@ -63,10 +53,8 @@ pub(super) struct Condition {
 }
 
 impl Condition {
-    /// Build a condition from a declared shape, or `None` when the grammar
-    /// cannot express it — an unknown metric, a window past the bound, a
-    /// windowed predicate with no window, or an instant one carrying a window it
-    /// would silently ignore.
+    /// Builds a condition from a declared shape, or `None` for an unknown metric or an invalid
+    /// predicate and window pair.
     pub(super) fn new(
         metric: &str,
         comparator: AlertComparator,
@@ -114,11 +102,8 @@ impl Condition {
         )
     }
 
-    /// Take this instant's reading and derive the number the comparators see,
-    /// alongside the readings that cost — one for looking this second's value up,
-    /// plus whatever the predicate had to run over to answer. That second figure
-    /// is what the per-rule allowance is spent against, so what a rule costs is
-    /// measured rather than assumed from its declared shape.
+    /// Derives the number the comparators see, plus the readings touched, which are charged
+    /// against the per-rule allowance.
     pub(super) fn step(&mut self, readings: &DimReadings, ts: i64) -> (Reading, u64) {
         let Some(value) = readings.of_metric(self.metric) else {
             return (Reading::Unsupported, 1);
@@ -136,9 +121,7 @@ impl Condition {
         }
     }
 
-    /// Append this second's reading and drop everything older than the window.
-    /// The capacity bound is the same number [`predicate_cost`] charges, so what
-    /// the rule costs to evaluate is what it costs to hold.
+    /// Appends this second's reading and drops everything older than the window.
     pub(super) fn retain(&mut self, ts: i64, value: f64) {
         self.history.push_back((ts, value));
         let oldest_kept = ts.saturating_sub(i64::from(self.window_secs));
@@ -168,9 +151,7 @@ impl Condition {
         compare(self.comparator, value, self.threshold)
     }
 
-    /// Whether `value` has recovered past this condition's clear boundary. With a
-    /// clear boundary equal to the threshold this collapses to plain threshold
-    /// crossing (no hysteresis band).
+    /// Whether `value` has recovered past this condition's clear boundary.
     pub(super) fn cleared(&self, value: f64) -> bool {
         !compare(self.comparator, value, self.clear)
     }
@@ -182,13 +163,8 @@ impl Condition {
     }
 }
 
-/// Whether a predicate and window pair is a shape the grammar states. One shape,
-/// one meaning: a window on an instant reading would be a field the evaluator
-/// ignores and a rule nobody can predict from its own text.
-///
-/// Shared with the retroactive planner, so a shape refused live is refused over
-/// history too — two copies of this rule would let a scan evaluate something the
-/// live evaluator will not.
+/// Whether a predicate and window pair is valid, shared by the live evaluator and the
+/// retroactive planner.
 pub(crate) fn window_is_expressible(predicate: RulePredicate, window_secs: u32) -> bool {
     match predicate {
         RulePredicate::Instant => window_secs == 0,
@@ -196,9 +172,7 @@ pub(crate) fn window_is_expressible(predicate: RulePredicate, window_secs: u32) 
     }
 }
 
-/// Reduce a spanned window to the one number the predicate compares. The window
-/// is non-empty and spans at least one second, which is what makes the rate's
-/// divisor safe.
+/// Reduces a non-empty window spanning at least one second to the number the predicate compares.
 pub(super) fn derive(predicate: RulePredicate, window: &VecDeque<(i64, f64)>) -> f64 {
     match predicate {
         RulePredicate::WindowMax => window.iter().map(|&(_, v)| v).fold(f64::MIN, f64::max),
@@ -214,8 +188,7 @@ pub(super) fn derive(predicate: RulePredicate, window: &VecDeque<(i64, f64)>) ->
             }
             (newest - oldest) / elapsed as f64
         }
-        // An instant reading never reaches here; a predicate an older agent does
-        // not understand derives nothing rather than guessing.
+        // Instant predicates never reach here; an unrecognised predicate derives 0.0.
         _ => 0.0,
     }
 }
@@ -229,10 +202,7 @@ pub(super) fn derive_cost(predicate: RulePredicate, window_len: usize) -> u64 {
     }
 }
 
-/// The readings one predicate retains and may touch — the bound the CI cost
-/// analysis compares against its budget. Monotone in the window, and computable
-/// from a rule's declared fields alone, which is what makes a predicate whose
-/// cost cannot be computed statically impossible to express.
+/// The readings one predicate retains and may touch, computed from the declared fields alone.
 #[must_use]
 pub(super) fn predicate_cost(predicate: RulePredicate, window_secs: u32) -> u64 {
     match predicate {

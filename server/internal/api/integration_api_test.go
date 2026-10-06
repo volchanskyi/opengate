@@ -25,21 +25,15 @@ import (
 	"time"
 )
 
-// noAgentsConnected is the machine-facing port with nothing on the other side
-// of it. It is wired deliberately rather than left out: an absent port makes a
-// route answer 500 through chi's recoverer, and a test written against that
-// pins a crash instead of a refusal.
+// noAgentsConnected is wired explicitly because an absent port makes a route answer 500.
 type noAgentsConnected struct{}
 
 func (noAgentsConnected) GetAgent(uuid.UUID) api.AgentControl     { return nil }
 func (noAgentsConnected) ListConnectedAgents() []api.AgentControl { return nil }
 
-// A change an administrator makes with nobody on the wire reaches nobody, which
-// is not a failure: every machine is given it as it arrives.
 func (noAgentsConnected) RefreshAlertRules(context.Context, uuid.UUID) int          { return 0 }
 func (noAgentsConnected) RefreshAlertRulesForTenant(context.Context, uuid.UUID) int { return 0 }
 
-// stubAMT is a test double for amt.Operator that always returns "not connected".
 type stubAMT struct{}
 
 func (s *stubAMT) PowerAction(_ context.Context, _ uuid.UUID, _ int) error {
@@ -63,7 +57,6 @@ func defaultTenantContext() context.Context {
 	return dbtx.WithDefaultTenant(context.Background(), false)
 }
 
-// testEnv holds a running test server and its dependencies.
 type testEnv struct {
 	server        *httptest.Server
 	store         *db.PostgresStore

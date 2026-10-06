@@ -1,23 +1,6 @@
 #!/usr/bin/env bash
-# The live dashboards answer for one environment at a time, and say what empty
-# means.
-#
-# Production and staging write into one store and feed one set of dashboards.
-# A query that names no environment adds the two together: a load run on
-# staging reads as production traffic, and a production panel that should be
-# empty — no failed database queries — shows staging's instead. So each live
-# dashboard carries an Environment selector, Production by default, and every
-# selector names the environment it reads, or the monitoring namespace for the
-# monitoring stack's own readings.
-#
-# A Go program's own readings (goroutines, heap) are published by every Go
-# program in a namespace, the database's exporter beside the server included,
-# so those name the server's job as well.
-#
-# Panels for signals the product does not produce are gone, and a panel whose
-# query can legitimately come back empty says in words what that means.
-#
-# Run: ./scripts/tests/grafana-live-dashboards.test.sh
+# Live dashboards read one environment at a time, as production and staging share one store.
+# Go runtime selectors also name the server's job, as every Go program in a namespace publishes.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

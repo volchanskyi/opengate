@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router';
 import { useAuthStore } from '../../state/auth-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { AuthForm } from './AuthForm';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -23,54 +24,40 @@ export function LoginPage() {
     return <Navigate to="/devices" replace />;
   }
 
-  const handleSubmit = async (e: React.SyntheticEvent) => {
-    e.preventDefault();
-    await login(email, password);
-  };
-
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-      <div className="w-full max-w-sm p-6">
-        <h1 className="text-2xl font-bold mb-6 text-center">Login</h1>
-        <form onSubmit={(e) => { fireAndForget(handleSubmit(e)); }} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="block text-sm mb-1">Email</label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="block text-sm mb-1">Password</label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
-              required
-            />
-          </div>
-          {error && <p className="text-red-400 text-sm">{error}</p>}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium disabled:opacity-50"
-          >
-            {isLoading ? 'Logging in...' : 'Login'}
-          </button>
-        </form>
-        <p className="mt-4 text-center text-sm text-gray-400">
+    <AuthForm
+      title="Login"
+      fields={[
+        {
+          id: 'email',
+          label: 'Email',
+          type: 'email',
+          autoComplete: 'username',
+          value: email,
+          onChange: setEmail,
+          required: true,
+        },
+        {
+          id: 'password',
+          label: 'Password',
+          type: 'password',
+          autoComplete: 'current-password',
+          value: password,
+          onChange: setPassword,
+          required: true,
+        },
+      ]}
+      error={error}
+      isLoading={isLoading}
+      submitLabel="Login"
+      loadingLabel="Logging in..."
+      onSubmit={() => login(email, password)}
+      footer={
+        <>
           Don&apos;t have an account?{' '}
           <Link to="/register" className="text-blue-400 hover:underline">Register</Link>
-        </p>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }

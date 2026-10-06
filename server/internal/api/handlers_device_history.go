@@ -19,12 +19,8 @@ const (
 	maxHistoryMaxPoints     = 20000
 )
 
-// GetDeviceHistory brokers an on-demand, full-resolution local-history pull for a
-// single dimension from the connected agent's local store — the deep history that
-// central VictoriaMetrics (avg-only) does not keep. It is single-host and
-// server-mediated (no browser-to-agent access, no fan-out), bounded by the window
-// and the max_points cap. Access is tenant-scoped: the device lookup runs
-// in the caller's tenant scope, so a history pull can never cross tenants.
+// GetDeviceHistory brokers a full-resolution history pull of one dimension from the connected
+// agent, bounded by the window and max_points. The device lookup is tenant-scoped.
 func (s *Server) GetDeviceHistory(ctx context.Context, request GetDeviceHistoryRequestObject) (GetDeviceHistoryResponseObject, error) {
 	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
@@ -80,9 +76,8 @@ func historyPointsToAPI(points []protocol.HistoryPoint) []HistoryPoint {
 	return out
 }
 
-// historyBrokerErrorResponse maps broker failures to bounded HTTP responses:
-// unsupported agents and busy/timeout conditions are client-visible, everything
-// else is a 500.
+// historyBrokerErrorResponse maps broker failures to HTTP responses; unsupported, busy and
+// timeout conditions are client-visible and the rest are 500.
 func historyBrokerErrorResponse(err error) (GetDeviceHistoryResponseObject, error) {
 	switch {
 	case agentapi.IsCapabilityError(err):

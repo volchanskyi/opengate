@@ -10,11 +10,7 @@ interface Props {
   readonly total: number;
 }
 
-/**
- * How a room got to where it stands — what a handover between two technicians
- * reads. Every line's free text is rendered as text: a comment carries whatever
- * somebody typed, and the only safe treatment of that is characters on a screen.
- */
+/** A room's history; every line's free text, typed by a person, is rendered as plain text. */
 export function IncidentTimeline({ events, total }: Props) {
   if (events.length === 0) {
     return <p className="text-sm text-gray-500">Nothing has happened in this room yet.</p>;

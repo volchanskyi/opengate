@@ -1,13 +1,3 @@
-//! What a reader can learn about the history the store holds, and what a range
-//! read costs.
-//!
-//! A retroactive scan walks months of 60 s rollups in bounded chunks, so it asks
-//! the store two questions the live paths never did: *how far back does this
-//! series go*, and *give me only these buckets*. Both have to answer without
-//! reading everything — a chunk that decodes the whole history to return an hour
-//! of it makes a work budget meaningless, and a span that has to scan every block
-//! costs more than the scan it is sizing.
-
 use edge_tsdb::store::{LocalTsdb, Tier};
 use edge_tsdb::{Durability, Sample, TsdbConfig};
 
@@ -33,8 +23,6 @@ fn store_with_minutes(dir: &std::path::Path, minutes: i64) -> LocalTsdb {
     db
 }
 
-/// The span is the oldest and newest bucket actually stored — the two ends a
-/// scan needs to know where to start and when it is finished.
 #[test]
 fn tier_span_reports_the_oldest_and_newest_bucket() {
     let dir = tempfile::tempdir().unwrap();
@@ -46,9 +34,6 @@ fn tier_span_reports_the_oldest_and_newest_bucket() {
     );
 }
 
-/// A device enrolled this morning has no history, and the span says so rather
-/// than reporting a zero-width one at the epoch. "Nothing here" and "one bucket
-/// at time zero" are different answers, and only one of them is honest.
 #[test]
 fn tier_span_is_absent_for_a_series_the_store_never_held() {
     let dir = tempfile::tempdir().unwrap();
@@ -61,8 +46,6 @@ fn tier_span_is_absent_for_a_series_the_store_never_held() {
     assert_eq!(fresh.tier_span(0, Tier::T1).unwrap(), None);
 }
 
-/// The span survives the block boundary: with more than one block stored it is
-/// still the first and last bucket, not the first and last of one block.
 #[test]
 fn tier_span_crosses_stored_block_boundaries() {
     let dir = tempfile::tempdir().unwrap();
@@ -75,8 +58,6 @@ fn tier_span_crosses_stored_block_boundaries() {
     );
 }
 
-/// A range read returns exactly the buckets asked for, including when the range
-/// sits inside one stored block and when it straddles two.
 #[test]
 fn range_tier_returns_only_the_buckets_asked_for() {
     let dir = tempfile::tempdir().unwrap();
@@ -110,8 +91,6 @@ fn range_tier_returns_only_the_buckets_asked_for() {
     );
 }
 
-/// A snapshot answers both questions as of the instant it was opened, so a scan
-/// walking history is never confused by the sampler writing underneath it.
 #[test]
 fn a_snapshot_answers_span_and_range_as_of_its_instant() {
     let dir = tempfile::tempdir().unwrap();
@@ -142,10 +121,6 @@ fn a_snapshot_answers_span_and_range_as_of_its_instant() {
     );
 }
 
-/// The store's footprint policy, stated as one function of free host space: the
-/// configured cap until the host gets tight, then the fraction of what is left.
-/// Everything that has to stand down *before* the store changes what it evicts
-/// reads its threshold from here, so the two can never drift apart.
 #[test]
 fn the_effective_cap_backs_off_only_once_free_space_bites() {
     let config = TsdbConfig {
@@ -154,20 +129,17 @@ fn the_effective_cap_backs_off_only_once_free_space_bites() {
         default_scale: None,
     };
 
-    // Nothing known about the host disk, or plenty of it: the configured cap.
     assert_eq!(config.effective_cap(None), config.cap_bytes);
     assert_eq!(
         config.effective_cap(Some(1_000 * 1024 * 1024 * 1024)),
         config.cap_bytes
     );
 
-    // The engagement point: free × fraction == cap. Below it the store starts
-    // shrinking what it will hold.
+    // The backoff engages where free × fraction equals the cap.
     let engage = (config.cap_bytes as f64 / config.host_free_fraction) as u64;
     assert_eq!(config.effective_cap(Some(engage)), config.cap_bytes);
     assert!(config.effective_cap(Some(engage / 2)) < config.cap_bytes);
 
-    // A zero fraction turns the backoff off entirely.
     let fixed = TsdbConfig {
         host_free_fraction: 0.0,
         ..config

@@ -8,27 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// BackfillScheduler admits reconnect-backfill drains across all connected
-// agents. It is the server-coordinated admission control from the WS-15 plan:
-//
-//   - a global concurrency cap so backfill never stampedes the single node;
-//   - a per-tenant concurrency cap that is the weighted max-min fair-share lever
-//     — no tenant can grab more than its share of the global slots and starve
-//     another tenant;
-//   - a load-adaptive ingest budget (base samples/sec scaled by live headroom)
-//     spread as an equal rate slice per admitted slot, so the sum of granted
-//     rates never oversubscribes the budget and every rate shrinks as the node
-//     comes under live pressure;
-//   - grant/defer with aging: a deferred agent's backoff shortens the longer it
-//     has waited, so a busy node cannot starve any agent indefinitely.
-//
-// Backfill always yields to live telemetry and control: those are handled on
-// their own paths and never pass through the scheduler, so admitting or
-// deferring a backfill drain cannot delay them. The scheduler is in-memory and
-// single-replica today; a multi-replica rollout would gate on a shared VM
-// ingest-rate signal instead of these per-replica counters.
-//
-// All methods are safe for concurrent use.
+// BackfillScheduler admits reconnect-backfill drains under global and per-tenant caps, a
+// load-adaptive rate budget and backoff aging; all methods are safe for concurrent use.
 type BackfillScheduler struct {
 	mu          sync.Mutex
 	cfg         BackfillSchedulerConfig
@@ -36,8 +17,7 @@ type BackfillScheduler struct {
 	headroom    func() float64
 	grants      map[uuid.UUID]backfillGrant
 	tenantCount map[uuid.UUID]int
-	// firstReq records when a currently-deferred agent first asked, so aging can
-	// shorten its backoff. Cleared when the agent is granted or released.
+	// firstReq records when each deferred agent first asked, which drives backoff aging.
 	firstReq map[uuid.UUID]time.Time
 }
 
@@ -52,11 +32,10 @@ type BackfillSchedulerConfig struct {
 	// MinGrantRate / MaxGrantRate bound a single grant's samples/sec.
 	MinGrantRate uint32
 	MaxGrantRate uint32
-	// GrantTTL is how long a grant is valid before it must be re-requested; an
-	// agent that drops without releasing frees its slot when its grant expires.
+	// GrantTTL is how long a grant stays valid; an expired grant frees its slot.
 	GrantTTL time.Duration
-	// DeferBackoff is the base retry interval handed to a deferred agent (which
-	// adds its own jitter); aging reduces it toward MinRetry.
+	// DeferBackoff is the base retry interval for a deferred agent;
+	// aging shortens it toward minRetryAfter.
 	DeferBackoff time.Duration
 }
 
@@ -65,9 +44,7 @@ type backfillGrant struct {
 	deadline time.Time
 }
 
-// SlotRequest carries the agent's backlog hints from RequestBackfillSlot. They
-// let a future scheduler bias priority by backlog size/age; admission today is
-// by caps, budget, and aging.
+// SlotRequest carries the agent's backlog hints from RequestBackfillSlot.
 type SlotRequest struct {
 	PendingSamples uint64
 	OldestTS       int64
@@ -85,12 +62,8 @@ type BackfillDecision struct {
 // minRetryAfter is the floor a deferred agent is ever asked to wait.
 const minRetryAfter = time.Second
 
-// DefaultBackfillSchedulerConfig returns the single-node production defaults:
-// a bounded number of concurrent drains, a per-tenant cap well below the global
-// cap so one tenant cannot monopolize the node, and a conservative ingest budget.
-// Backfill has no urgency (local data is durable), so the scheduler can be
-// stingy. The live-headroom signal that shrinks the budget under load is wired
-// separately; until then it runs at full headroom.
+// DefaultBackfillSchedulerConfig returns the single-node defaults: a per-tenant cap below the
+// global cap and a conservative ingest budget.
 func DefaultBackfillSchedulerConfig() BackfillSchedulerConfig {
 	return BackfillSchedulerConfig{
 		MaxConcurrent:           8,
@@ -103,9 +76,8 @@ func DefaultBackfillSchedulerConfig() BackfillSchedulerConfig {
 	}
 }
 
-// NewBackfillScheduler builds a scheduler with an injectable clock and live-
-// headroom signal (0..1). Passing nil for either uses safe defaults
-// (wall-clock / full headroom).
+// NewBackfillScheduler builds a scheduler with an injectable clock and headroom signal in 0..1;
+// nil selects the wall clock and full headroom.
 func NewBackfillScheduler(cfg BackfillSchedulerConfig, now func() time.Time, headroom func() float64) *BackfillScheduler {
 	if now == nil {
 		now = time.Now
@@ -123,8 +95,7 @@ func NewBackfillScheduler(cfg BackfillSchedulerConfig, now func() time.Time, hea
 	}
 }
 
-// RequestSlot admits or defers a backfill drain for agentID in tenant. A re-request
-// from an agent that already holds a live grant renews it in place.
+// RequestSlot admits or defers a backfill drain for agentID in tenant, renewing a live grant.
 func (s *BackfillScheduler) RequestSlot(agentID, tenant uuid.UUID, _ SlotRequest) BackfillDecision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -132,7 +103,6 @@ func (s *BackfillScheduler) RequestSlot(agentID, tenant uuid.UUID, _ SlotRequest
 	now := s.now()
 	s.reap(now)
 
-	// Idempotent renew: an agent re-requesting within its TTL keeps its slot.
 	if g, ok := s.grants[agentID]; ok {
 		g.deadline = now.Add(s.cfg.GrantTTL)
 		s.grants[agentID] = g
@@ -150,8 +120,7 @@ func (s *BackfillScheduler) RequestSlot(agentID, tenant uuid.UUID, _ SlotRequest
 	return s.grant(now)
 }
 
-// Release frees agentID's slot (drain complete or connection closed). Unknown
-// agents — and a nil scheduler (a connection wired without one) — are a no-op.
+// Release frees agentID's slot; an unknown agent or a nil scheduler is a no-op.
 func (s *BackfillScheduler) Release(agentID uuid.UUID) {
 	if s == nil {
 		return
@@ -179,8 +148,7 @@ func (s *BackfillScheduler) grant(now time.Time) BackfillDecision {
 	}
 }
 
-// deferSlot builds a deferral decision, recording the agent's first-wait time
-// and shortening the backoff by how long it has already waited (aging).
+// deferSlot builds a deferral whose backoff shrinks with how long the agent has waited.
 func (s *BackfillScheduler) deferSlot(agentID uuid.UUID, now time.Time) BackfillDecision {
 	first, ok := s.firstReq[agentID]
 	if !ok {
@@ -192,9 +160,8 @@ func (s *BackfillScheduler) deferSlot(agentID uuid.UUID, now time.Time) Backfill
 	return BackfillDecision{RetryAfter: uint32(math.Ceil(retry.Seconds()))}
 }
 
-// rate is the equal per-slot share of the load-adaptive budget, clamped to the
-// configured bounds. Dividing by the global cap guarantees the sum of all live
-// grant rates never oversubscribes the budget.
+// rate is the equal per-slot share of the load-adaptive budget, clamped to the configured
+// bounds; dividing by the global cap keeps the summed grants within the budget.
 func (s *BackfillScheduler) rate() uint32 {
 	h := min(1, max(0, s.headroom()))
 	slots := max(1, s.cfg.MaxConcurrent)

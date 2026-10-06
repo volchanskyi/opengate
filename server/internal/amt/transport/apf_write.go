@@ -6,12 +6,7 @@ import (
 	"io"
 )
 
-// This file holds the APF message writers. The wire framing and body readers
-// live in apf.go; the typed message structs and parsers in apf_messages.go.
-
-// writeUint32Msg writes an APF message consisting of a single type byte
-// followed by the given big-endian uint32 fields. It backs every fixed-layout
-// APF writer (channel/keepalive/disconnect) below.
+// writeUint32Msg writes a type byte followed by big-endian uint32 fields.
 func writeUint32Msg(w io.Writer, msgType uint8, fields ...uint32) error {
 	buf := make([]byte, 1+4*len(fields))
 	buf[0] = msgType

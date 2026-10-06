@@ -14,8 +14,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// TestTelemetryIngestIsCounted verifies an accepted metric window increments the
-// per-type ingest counter that feeds the WS-15b soak dashboard.
 func TestTelemetryIngestIsCounted(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
@@ -36,8 +34,6 @@ func TestTelemetryIngestIsCounted(t *testing.T) {
 		testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues(string(protocol.MsgAgentMetricWindow))), 0)
 }
 
-// TestTelemetryDropIsCounted verifies an oversized payload increments the
-// per-reason drop counter (and never touches the writer).
 func TestTelemetryDropIsCounted(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
@@ -57,8 +53,6 @@ func TestTelemetryDropIsCounted(t *testing.T) {
 		testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("payload_too_large")), 0)
 }
 
-// TestBackfillDecisionIsObserved verifies a granted slot request records the
-// grant decision, the granted rate, and the live active-slot count.
 func TestBackfillDecisionIsObserved(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
@@ -76,8 +70,6 @@ func TestBackfillDecisionIsObserved(t *testing.T) {
 	assert.GreaterOrEqual(t, testutil.ToFloat64(m.EdgeBackfillGrantRate), float64(schedCfg().MinGrantRate))
 }
 
-// TestNilMetricsIsSafe verifies the telemetry and backfill paths never panic
-// when no metrics sink is wired (the default for programmatic AgentConns).
 func TestNilMetricsIsSafe(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}

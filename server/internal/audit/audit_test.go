@@ -14,9 +14,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// newTestRepo returns a Postgres-backed audit.Repository against the per-test
-// isolated schema created by testutil.NewTestStore. Tests using this MAY call
-// t.Parallel(); each gets its own schema.
+// newTestRepo returns a Postgres-backed audit.Repository on a per-test isolated schema.
 func newTestRepo(t *testing.T) audit.Repository {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -108,7 +106,7 @@ func TestPostgresAudit_TenantDeny(t *testing.T) {
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
-// fakeObserver records every Observe call for the Instrumented decorator test.
+// fakeObserver records every Observe call.
 type fakeObserver struct {
 	calls []observerCall
 }
@@ -123,8 +121,7 @@ func (f *fakeObserver) Observe(op string, d time.Duration, ok bool) {
 	f.calls = append(f.calls, observerCall{op: op, duration: d, ok: ok})
 }
 
-// memRepo is an in-memory Repository for testing the Instrumented decorator
-// without needing Postgres.
+// memRepo is an in-memory Repository.
 type memRepo struct {
 	writeErr error
 	queryErr error

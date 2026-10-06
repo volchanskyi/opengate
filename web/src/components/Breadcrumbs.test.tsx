@@ -26,7 +26,6 @@ describe('Breadcrumbs', () => {
   it('renders devices breadcrumb at /devices (last segment, no link)', () => {
     renderAt('/devices');
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    // The Devices crumb is last → rendered as a span (no link).
     const devicesText = screen.getByText('Devices');
     expect(devicesText.tagName).toBe('SPAN');
   });
@@ -72,7 +71,6 @@ describe('Breadcrumbs', () => {
     expect(node.tagName).toBe('SPAN');
   });
 
-  // Two-segment paths exercise the !isLast branch and pin the link href.
   it('renders /audit/foo with Audit Log linked to /audit', () => {
     renderAt('/audit/foo');
     const link = screen.getByText('Audit Log');
@@ -95,18 +93,14 @@ describe('Breadcrumbs', () => {
   });
 
   it('renders /sessions/abc as Session label (params.token branch)', () => {
-    // The Sessions list page is not a real route; this hits both the 'sessions'
-    // segment with a `next` (non-last) and the params.token segment.
     const router = createMemoryRouter(
       [{ path: 'sessions/:token', element: <Breadcrumbs /> }],
       { initialEntries: ['/sessions/abc'] },
     );
     render(<RouterProvider router={router} />);
-    // 'sessions' (not last) → Sessions linked
     const sessionsLink = screen.getByText('Sessions');
     expect(sessionsLink.tagName).toBe('A');
     expect(sessionsLink.getAttribute('href')).toBe('/sessions');
-    // 'abc' === params.token → Session label
     expect(screen.getByText('Session')).toBeInTheDocument();
   });
 
@@ -122,15 +116,11 @@ describe('Breadcrumbs', () => {
 
   it('skips security segment and shows next-level label', () => {
     renderAt('/security/sites');
-    // 'security' is intentionally skipped — only the next segment renders.
-    // 'sites' is not in the recognized list, so nothing else shows.
-    // Just confirm no 'security' label leaked in.
     expect(screen.queryByText('security')).toBeNull();
   });
 
   it('renders empty when no recognized segments', () => {
     const { container } = renderAt('/totally-unknown');
-    // No recognized segments → null (kills the empty-crumbs return-null path).
     expect(container.querySelector('nav')).toBeNull();
   });
 
@@ -143,11 +133,9 @@ describe('Breadcrumbs', () => {
       { initialEntries: ['/devices/d1'] },
     );
     render(<RouterProvider router={router} />);
-    // Devices segment is non-last → link to /devices.
     const devicesLink = screen.getByText('Devices');
     expect(devicesLink.tagName).toBe('A');
     expect(devicesLink.getAttribute('href')).toBe('/devices');
-    // Device id segment shows hostname.
     expect(screen.getByText('web-01')).toBeInTheDocument();
   });
 
@@ -170,7 +158,6 @@ describe('Breadcrumbs', () => {
 
   it('uses ">" character as the separator between crumbs', () => {
     renderAt('/audit/foo');
-    // Two separators: "Dashboard > Audit Log > foo-but-foo-is-unrecognized" → really one for Dashboard→Audit.
     const nav = document.querySelector('nav')!;
     expect(nav.textContent).toMatch(/Dashboard\s*>\s*Audit Log/);
   });
@@ -179,8 +166,6 @@ describe('Breadcrumbs', () => {
     renderAt('/settings/security');
     const settings = screen.getByText('Settings');
     expect(settings.tagName).toBe('A');
-    // The Settings crumb pins its href to '/settings' explicitly — kills the StringLiteral mutant
-    // that swapped the href to "".
     expect(settings.getAttribute('href')).toBe('/settings');
   });
 
@@ -199,14 +184,11 @@ describe('Breadcrumbs', () => {
     useDeviceStore.setState({
       selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
     });
-    // The guard `crumbs.some((c) => c.label === 'Devices')` ensures the hostname swap only
-    // applies under /devices/*. Here params.id matches but the path is /audit/d1 — no Devices crumb yet.
     const router = createMemoryRouter(
       [{ path: 'audit/:id', element: <Breadcrumbs /> }],
       { initialEntries: ['/audit/d1'] },
     );
     render(<RouterProvider router={router} />);
-    // 'd1' segment must NOT render as 'web-01' (kills the guard mutant).
     expect(screen.queryByText('web-01')).toBeNull();
   });
 });

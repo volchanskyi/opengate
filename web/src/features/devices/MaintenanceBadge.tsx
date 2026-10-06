@@ -12,11 +12,7 @@ interface MaintenanceBadgeProps {
   readonly className?: string;
 }
 
-/**
- * Distinct "in maintenance" pill. The fill colour escalates with the age of the
- * window (sky → amber → red) so a device left in maintenance too long stands out
- * in the list — the visible stand-in for the deliberate absence of auto-expiry.
- */
+/** MaintenanceBadge is an in-maintenance pill whose fill escalates with the window's age. */
 export function MaintenanceBadge({ since, className = '' }: MaintenanceBadgeProps) {
   const days = daysInMaintenance(since);
   const meta = MAINTENANCE_META[maintenanceSeverity(days)];

@@ -7,15 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// targetPage is an exposition carrying the four process families a run brackets
-// itself with and the server's own count of the fleet, mixed in with families it
-// does not read — which is the shape of the real page.
+// targetPage is an exposition carrying the four process families, the fleet count and extras.
 func targetPage(goroutines, resident, fds, start string) string {
 	return targetPageHolding(goroutines, resident, fds, start, "500")
 }
 
-// targetPageHolding is the same page with the fleet count set, so a case can say
-// what the server thinks it is holding.
+// targetPageHolding is the same page with the fleet count set.
 func targetPageHolding(goroutines, resident, fds, start, agents string) string {
 	page := targetPageWithoutFleetCount(goroutines, resident, fds, start)
 	if agents != "" {
@@ -24,9 +21,7 @@ func targetPageHolding(goroutines, resident, fds, start, agents string) string {
 	return page
 }
 
-// targetPageWithoutFleetCount is a target that publishes no count of the fleet
-// it holds. Every other family is there, so a case reaching for the count gets
-// an absence rather than an unread page.
+// targetPageWithoutFleetCount is a page carrying every family except the fleet count.
 func targetPageWithoutFleetCount(goroutines, resident, fds, start string) string {
 	return "# HELP go_goroutines Number of goroutines that currently exist.\n" +
 		"# TYPE go_goroutines gauge\n" +
@@ -50,9 +45,6 @@ func TestParseTargetHealthReadsTheFourProcessFamilies(t *testing.T) {
 	assert.Equal(t, 1.7566e+09, health.StartTimeSeconds)
 }
 
-// A page that carries none of them is not a reading of zero. Zero goroutines is
-// the healthiest number a process could report, so a page the harness could not
-// understand must not be recorded as the best possible target.
 func TestParseTargetHealthDoesNotReadAnAbsentPageAsZero(t *testing.T) {
 	t.Parallel()
 
@@ -75,8 +67,6 @@ func TestTargetConservationBracketing(t *testing.T) {
 	assert.True(t, TargetConservation{Start: read, End: read, Operations: 10}.Bracketed())
 }
 
-// The restart is the reading that invalidates rather than fails: the numbers
-// either side of it were measured against two different processes.
 func TestTargetConservationSeesTheProcessBeingReplaced(t *testing.T) {
 	t.Parallel()
 
@@ -95,7 +85,6 @@ func TestTargetConservationSeesTheProcessBeingReplaced(t *testing.T) {
 func TestTargetConservationRetentionIsPerCompletedOperation(t *testing.T) {
 	t.Parallel()
 
-	// The defect this gate exists for: two goroutines per completed session.
 	leaking := TargetConservation{
 		Start:      TargetHealth{Read: true, Goroutines: 29, ResidentBytes: 30 << 20, StartTimeSeconds: 1},
 		End:        TargetHealth{Read: true, Goroutines: 2429, ResidentBytes: 130 << 20, StartTimeSeconds: 1},
@@ -104,8 +93,6 @@ func TestTargetConservationRetentionIsPerCompletedOperation(t *testing.T) {
 	assert.InDelta(t, 2.0, leaking.RetainedGoroutinesPerOperation(), 0.001)
 	assert.InDelta(t, float64(100<<20)/1200, leaking.RetainedBytesPerOperation(), 1)
 
-	// A target that gave everything back reads as nothing retained, and one
-	// that ended lighter than it started does not read as a credit.
 	settled := leaking
 	settled.End.Goroutines = 27
 	settled.End.ResidentBytes = 29 << 20
@@ -113,9 +100,6 @@ func TestTargetConservationRetentionIsPerCompletedOperation(t *testing.T) {
 	assert.Equal(t, 0.0, settled.RetainedBytesPerOperation())
 }
 
-// The server's own count of the population the harness is also counting. It is
-// the second of two counts kept independently by the two ends, and the whole
-// point of reading it is that it can disagree with the first.
 func TestParseTargetHealthReadsTheServersOwnFleetCount(t *testing.T) {
 	t.Parallel()
 
@@ -125,9 +109,6 @@ func TestParseTargetHealthReadsTheServersOwnFleetCount(t *testing.T) {
 	assert.Equal(t, 500.0, *health.AgentsConnected)
 }
 
-// A target that publishes no such count is an absence, not a fleet of nought. A
-// nought here would say the target holds nobody, which is the reading the rule
-// beside it exists to act on.
 func TestParseTargetHealthLeavesAnAbsentFleetCountAbsent(t *testing.T) {
 	t.Parallel()
 

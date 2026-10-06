@@ -12,24 +12,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// A performance run is configured by exactly one file. Everything the run does
-// — which fixture it builds on, which phases it walks, what it refuses to push
-// past, and which numbers decide the verdict — is declared here rather than
-// spread across a workflow, a script and a scenario, so two runs are comparable
-// when their profiles are and not otherwise.
-//
-// The schema is versioned because a bundle records which version produced it. A
-// trend that silently spans two meanings of the same field is worse than one
-// with a gap in it.
-
-// profileSchemaVersion is the schema this build understands. A profile written
-// for another version is refused rather than half-read: the fields a reader
-// does not know are the ones that changed what the run did.
+// profileSchemaVersion is the schema version this build reads;
+// a profile of another version is refused.
 const profileSchemaVersion = 1
 
-// Duration is a YAML duration that insists on a unit. A bare number reads as
-// seconds to one person and milliseconds to another, and a phase whose length
-// depends on who wrote it is a run nobody can reproduce.
+// Duration is a YAML duration that requires a unit, since a bare number is ambiguous.
 type Duration struct {
 	time.Duration
 }
@@ -55,39 +42,25 @@ func (d Duration) MarshalYAML() (any, error) { return d.String(), nil }
 type Phase struct {
 	Name     string   `yaml:"name"`
 	Duration Duration `yaml:"duration"`
-	// OperatorArrivalsPerSecond is offered load, not achieved load. A run that
-	// could not reach it records both, which is how a saturated generator is
-	// told apart from a slow system.
+	// OperatorArrivalsPerSecond is the offered load; the run records the achieved load separately.
 	OperatorArrivalsPerSecond float64 `yaml:"operator_arrivals_per_second"`
-	// ConnectedAgents is how many machines are held connected through the
-	// phase, which is a level rather than a rate.
-	ConnectedAgents int `yaml:"connected_agents"`
-	// Sessions is how many live remote sessions run concurrently. Like the
-	// arrival rate above it is a technician-side number: opening a session is
-	// the browser's side of the wire, so the machine-side harness carries this
-	// into the run's evidence as an offer and never as an achievement.
+	ConnectedAgents           int     `yaml:"connected_agents"`
+	// Sessions is a technician-side offer: opening a session is the browser's side of the wire,
+	// so the machine-side harness records it as offered, never as achieved.
 	Sessions int `yaml:"sessions"`
-	// Measured marks the phase the night's browser-side percentiles are taken
-	// over. A percentile spanning the climb to the load and the wind-down away
-	// from it is a mixture of three systems — one warming up, one under the
-	// declared load, one draining — and the mixture moves whenever the climb's
-	// share of the run moves, which is a change nobody made to the product. At
-	// most one phase carries it; a profile that marks none is measured whole.
+	// Measured marks the phase the browser-side percentiles are taken over; at most one phase
+	// carries it, and a profile that marks none is measured whole.
 	Measured bool `yaml:"measured"`
 }
 
-// Safety is what makes a run stop itself. Nothing here is about the verdict.
+// Safety is what makes a run stop itself.
 type Safety struct {
-	// MaxNodeCPUPercent is the promise made to whatever else sits on the node.
-	// Staging shares one with production and declares it; a disposable stack
-	// shares its node with nothing and leaves it out.
+	// MaxNodeCPUPercent protects other workloads on the node; a disposable stack omits it.
 	MaxNodeCPUPercent float64 `yaml:"max_node_cpu_percent"`
-	// MaxNodeMemoryPercent is the room the run can still exhaust. Past it the
-	// node has nowhere to put what the run produces, so it is declared wherever
-	// the run is.
+	// MaxNodeMemoryPercent is the node memory use past which the run stops;
+	// every environment declares it.
 	MaxNodeMemoryPercent float64 `yaml:"max_node_memory_percent"`
-	// MaxErrorRate stops a run that has stopped measuring anything: past this,
-	// the numbers describe the error path.
+	// MaxErrorRate is the error rate past which the run stops.
 	MaxErrorRate float64 `yaml:"max_error_rate"`
 }
 
@@ -101,17 +74,11 @@ type Profile struct {
 	Phases        []Phase     `yaml:"phases"`
 	Safety        Safety      `yaml:"safety"`
 	Gates         []Gate      `yaml:"gates"`
-	// Ungated names the measurements this profile has deliberately left without
-	// a limit. A measurement that appears in neither list is one nobody has
-	// ruled on, which is the state this pair exists to make visible.
-	Ungated []Ungated `yaml:"ungated"`
-	// GaveOut is what counts as the system giving out, for a profile that goes
-	// looking for the point where it does. See breaking_point.go.
-	GaveOut *GaveOut `yaml:"gave_out"`
+	Ungated       []Ungated   `yaml:"ungated"`
+	GaveOut       *GaveOut    `yaml:"gave_out"`
 }
 
-// MeasuredPhase is the phase this profile's browser-side numbers are taken
-// over, or nil when it names none and the whole run is the window.
+// MeasuredPhase is the phase the browser-side numbers are taken over, or nil for the whole run.
 func (p *Profile) MeasuredPhase() *Phase {
 	for i := range p.Phases {
 		if p.Phases[i].Measured {
@@ -181,9 +148,8 @@ func profileDir() string {
 	return filepath.Join(filepath.Dir(filename), "..", "..", "..", "load", "profiles")
 }
 
-// Validate reports every reason this profile could not produce a comparable
-// run. Errors are joined rather than returned one at a time, so editing a
-// profile is one pass rather than a sequence of them.
+// Validate reports every reason this profile could not produce a comparable run,
+// joined into one error.
 func (p *Profile) Validate() error {
 	var problems []error
 
@@ -204,11 +170,7 @@ func (p *Profile) Validate() error {
 	return errors.Join(problems...)
 }
 
-// validateGaveOut holds a profile to stating what it went looking for.
-//
-// The breakpoint family's whole subject is where the system gives out, so a
-// ladder that has not written down what giving out means answers with whatever
-// it happened to survive — which is not a measurement of anything.
+// validateGaveOut requires a breakpoint profile to define what giving out means.
 func (p *Profile) validateGaveOut() []error {
 	if p.GaveOut == nil {
 		if p.Family == FamilyBreakpoint {
@@ -288,11 +250,8 @@ func (p *Profile) validateSafety() []error {
 	return problems
 }
 
-// validateProcessorCeiling holds each environment to the ceiling that means
-// something there. The processor ceiling is a promise made to whatever shares
-// the node, so staging declares one and a disposable stack — created by the job
-// and thrown away with it — may not: a ceiling nothing consults reads, to the
-// next person, as protection that is not there.
+// validateProcessorCeiling requires a shared environment to declare a processor ceiling and a
+// disposable stack to omit it, since nothing else shares its node.
 func (p *Profile) validateProcessorCeiling() []error {
 	if p.Environment == EnvRunner {
 		if p.Safety.MaxNodeCPUPercent != 0 {

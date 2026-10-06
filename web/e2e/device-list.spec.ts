@@ -3,10 +3,7 @@ import type { APIRequestContext } from "@playwright/test";
 import { createSite } from "./helpers/api-helper";
 import { stubEmptyFleet } from "./helpers/fleet-stub";
 
-// Sites are visible to every member of the organization, so a site left
-// behind here would show up in another spec's "empty device list" assertion —
-// and in its screenshot baseline. Each test registers what it created and the
-// hook removes it, pass or fail.
+// Sites are visible to the whole organization, so each test removes the sites it creates.
 const createdGroupIds: string[] = [];
 
 async function seedGroup(
@@ -28,9 +25,6 @@ test.describe("Device list", () => {
   });
 
   test("empty state shows no sites message", async ({ authedPage }) => {
-    // Emptiness is the precondition under test, so this test supplies it rather
-    // than inheriting whatever the suite has already seeded into the shared
-    // organization.
     await stubEmptyFleet(authedPage);
     await authedPage.goto("/devices");
 
@@ -38,8 +32,6 @@ test.describe("Device list", () => {
     await expect(authedPage.getByText("Welcome to OpenGate")).toBeVisible();
   });
 
-  // Creating a site is admin-only; seeing it is not. Both tests seed with the
-  // admin token and then assert against an ordinary member's page.
   test("created site appears in sidebar", async ({
     authedPage,
     adminUser,
@@ -65,10 +57,8 @@ test.describe("Device list", () => {
     await authedPage.goto("/devices");
     await authedPage.reload();
 
-    // Click the site in sidebar
     await authedPage.getByText(groupName).click();
 
-    // Should show empty device list for that site
     await expect(authedPage.getByText(/no devices/i)).toBeVisible();
   });
 });

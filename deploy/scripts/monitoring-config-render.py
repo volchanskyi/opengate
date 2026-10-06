@@ -44,8 +44,7 @@ for carried in ("labels", "annotations"):
     kept = {
         key: value
         for key, value in (live_metadata.get(carried) or {}).items()
-        # The applied configuration the cluster records for us. Carrying our own
-        # last apply forward into the next one nests it inside itself.
+        # Carrying the recorded last apply forward would nest it inside the next one.
         if key != "kubectl.kubernetes.io/last-applied-configuration"
     }
     if kept:

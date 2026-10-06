@@ -36,9 +36,6 @@ describe('toast-store', () => {
     useToastStore.getState().removeToast(target.id);
 
     const remaining = useToastStore.getState().toasts;
-    // Pin: target gone, siblings preserved — kills the
-    // `filter((t) => t.id !== id)` → `filter(() => false)` mutant (which would
-    // drop ALL) and the `() => undefined` mutant (which keeps all).
     expect(remaining.find((t) => t.message === 'drop-me')).toBeUndefined();
     expect(remaining.find((t) => t.message === 'keep-1')).toBeDefined();
     expect(remaining.find((t) => t.message === 'keep-2')).toBeDefined();
@@ -59,9 +56,6 @@ describe('toast-store', () => {
       useToastStore.getState().addToast(`Toast ${i}`, 'info');
     }
     const toasts = useToastStore.getState().toasts;
-    // Pin: ring buffer holds last 5 → cumulative slice(-4) + new = 5.
-    // Kills UnaryOperator `slice(-4)` → `slice(+4)` mutant (which would
-    // produce a wrongly-ordered or empty list).
     expect(toasts).toHaveLength(5);
     expect(toasts.map((t) => t.message)).toEqual([
       'Toast 2',

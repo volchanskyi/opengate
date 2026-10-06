@@ -1,6 +1,4 @@
-//! Integration test: QUIC mTLS connect + handshake + AgentRegister roundtrip.
-//!
-//! Exercises the full transport stack: CA → certs → QUIC → handshake → control messages.
+//! QUIC mTLS connect, handshake and AgentRegister roundtrip over the full transport stack.
 
 mod test_helpers;
 
@@ -17,7 +15,6 @@ async fn test_quic_agent_register_roundtrip() {
     let ca_cert_der = certs.ca_cert_der.clone();
     let agent_cert_der = certs.agent_cert_der.clone();
 
-    // Spawn mock server
     let server_handle = tokio::spawn(async move {
         let incoming = server_endpoint
             .accept()
@@ -56,7 +53,6 @@ async fn test_quic_agent_register_roundtrip() {
         }
     });
 
-    // Client (agent) connects
     let client_endpoint =
         quinn::Endpoint::client("0.0.0.0:0".parse().expect("parse client bind address"))
             .expect("create client endpoint");
@@ -100,7 +96,6 @@ async fn test_quic_session_request_response() {
     let ca_cert_der = certs.ca_cert_der.clone();
     let agent_cert_der = certs.agent_cert_der.clone();
 
-    // Spawn mock server: handshake → read register → send SessionRequest → read SessionAccept
     let server_handle = tokio::spawn(async move {
         let incoming = server_endpoint
             .accept()
@@ -119,7 +114,6 @@ async fn test_quic_session_request_response() {
             .await
             .expect("receive AgentRegister");
 
-        // Send SessionRequest
         let token = mesh_protocol::SessionToken::generate();
         agent_conn
             .send_control(ControlMessage::SessionRequest {
@@ -136,7 +130,6 @@ async fn test_quic_session_request_response() {
             .await
             .expect("send SessionRequest");
 
-        // Read SessionAccept
         let response = agent_conn
             .receive_control()
             .await
@@ -153,7 +146,6 @@ async fn test_quic_session_request_response() {
         }
     });
 
-    // Client connects
     let client_endpoint =
         quinn::Endpoint::client("0.0.0.0:0".parse().expect("parse client bind address"))
             .expect("create client endpoint");
@@ -179,7 +171,6 @@ async fn test_quic_session_request_response() {
     .await
     .expect("send AgentRegister");
 
-    // Receive SessionRequest
     let msg = conn
         .receive_control()
         .await
@@ -194,7 +185,6 @@ async fn test_quic_session_request_response() {
             assert!(permissions.desktop);
             assert!(permissions.terminal);
 
-            // Send SessionAccept back
             conn.send_control(ControlMessage::SessionAccept {
                 token: token.clone(),
                 relay_url: relay_url.clone(),
@@ -217,7 +207,6 @@ async fn test_quic_disconnect_detection() {
     let ca_cert_der = certs.ca_cert_der.clone();
     let agent_cert_der = certs.agent_cert_der.clone();
 
-    // Server: handshake → read register → close connection
     let server_handle = tokio::spawn(async move {
         let incoming = server_endpoint
             .accept()
@@ -235,12 +224,10 @@ async fn test_quic_disconnect_detection() {
             .await
             .expect("receive AgentRegister");
 
-        // Drop everything to simulate disconnect
         drop(agent_conn);
         conn.close(0u32.into(), b"test done");
     });
 
-    // Client connects
     let client_endpoint =
         quinn::Endpoint::client("0.0.0.0:0".parse().expect("parse client bind address"))
             .expect("create client endpoint");
@@ -271,16 +258,10 @@ async fn test_quic_disconnect_detection() {
 
     server_handle.await.expect("server task completed");
 
-    // After server drops, the next receive should return an error
     let result = conn.receive_control().await;
     assert!(result.is_err(), "expected error after server disconnect");
 }
 
-/// Storm control: a registered connection the server accepts then immediately
-/// drops must never let the reconnect loop spin at the dial rate. Drive
-/// `ReconnectGovernor` (the public seam the agent's outer loop uses) over a run
-/// of sub-window sessions and assert every one yields a backoff, each within
-/// the cap, and that a single stable session clears the penalty.
 #[test]
 fn reconnect_governor_rate_limits_accept_then_drop_loop() {
     use mesh_agent_core::ReconnectGovernor;
@@ -290,7 +271,6 @@ fn reconnect_governor_rate_limits_accept_then_drop_loop() {
     let mut governor = ReconnectGovernor::new();
     let mut rng = StdRng::seed_from_u64(0xACCE_55ED);
 
-    // 20 accept-then-immediate-drop cycles (5ms sessions, far under the window).
     let drop_fast = Duration::from_millis(5);
     for cycle in 1..=20u32 {
         let delay = governor
@@ -307,8 +287,6 @@ fn reconnect_governor_rate_limits_accept_then_drop_loop() {
         );
     }
 
-    // Recovery: one session that outlives the stability window resets the
-    // governor so a healthy agent reconnects without a lingering penalty.
     let stable = ReconnectGovernor::DEFAULT_STABILITY_WINDOW + Duration::from_secs(1);
     assert!(
         governor.record_disconnect(stable, &mut rng).is_none(),

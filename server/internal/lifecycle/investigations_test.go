@@ -15,19 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// What a purge has to do to an investigation, and the half of it no foreign key
-// can do.
-//
-// Erasing a machine takes its alerts and their evidence with it — that much the
-// cascade handles. It cannot touch the counts on the incident those alerts folded
-// into, because those are application state: a technician reading "40 machines"
-// on a room whose fortieth machine was decommissioned last week is reading a
-// number about a machine that no longer exists. Nor can it close a room that ends
-// up holding nothing, which would otherwise sit in a customer's triage queue
-// forever with no way to shut it.
-
-// seedInvestigation folds one alert per machine into a single room and returns
-// the room's id. The devices are the estate the room is about.
 func seedInvestigation(
 	t *testing.T, f *orchestratorFixture, tenantID, organizationID uuid.UUID, devices []uuid.UUID,
 ) uuid.UUID {
@@ -36,8 +23,6 @@ func seedInvestigation(
 	store := alerts.NewStore(f.store.DB())
 	at := time.Now().UTC().Truncate(time.Second)
 
-	// One estate-wide room, folded by the engine rather than seeded, so what the
-	// purge then has to repair is the state a real rollout leaves behind.
 	grouping := alerts.Grouping{Scope: alerts.ScopeOrganization, Window: 30 * time.Minute}
 	for i, device := range devices {
 		_, err := store.Record(ctx, alerts.Alert{
@@ -62,7 +47,6 @@ func seedInvestigation(
 	return incident.ID
 }
 
-// incidentCounts reads a room's application state.
 func incidentCounts(t *testing.T, f *orchestratorFixture, tenantID, incidentID uuid.UUID) (string, int, int) {
 	t.Helper()
 	ctx := dbtx.WithTenant(context.Background(), tenantID, true)
@@ -78,10 +62,6 @@ func incidentCounts(t *testing.T, f *orchestratorFixture, tenantID, incidentID u
 	return status, occurrences, deviceCount
 }
 
-// TestPurgingADeviceLeavesTheRoomStandingMinusIt drives C8 and E13 end to end,
-// through the orchestrator rather than the store: the purge is what a technician
-// actually triggers, and the ordering it runs the stages in is the thing that
-// could quietly get this wrong.
 func TestPurgingADeviceLeavesTheRoomStandingMinusIt(t *testing.T) {
 	t.Parallel()
 	f := newOrchestratorFixture(t)
@@ -112,9 +92,6 @@ func TestPurgingADeviceLeavesTheRoomStandingMinusIt(t *testing.T) {
 	assert.Equal(t, "new", status, "a room that still holds alerts stays open")
 }
 
-// TestPurgingTheLastDeviceClosesTheRoom is the other half of E13. Left open, an
-// emptied room is a line in a triage queue that describes nothing and cannot be
-// resolved by anyone, because there is no longer anything to resolve.
 func TestPurgingTheLastDeviceClosesTheRoom(t *testing.T) {
 	t.Parallel()
 	f := newOrchestratorFixture(t)
@@ -135,10 +112,6 @@ func TestPurgingTheLastDeviceClosesTheRoom(t *testing.T) {
 	assert.Zero(t, deviceCount)
 }
 
-// TestPurgingATenantLeavesNoInvestigation drives E14's tenant half. A tenant
-// purge keeps the tenant row as the anchor for the retained audit trail, so
-// nothing cascades from it — the rooms have to be erased by name, or a customer's
-// incidents would outlive every machine and every technician they belonged to.
 func TestPurgingATenantLeavesNoInvestigation(t *testing.T) {
 	t.Parallel()
 	f := newOrchestratorFixture(t)
@@ -163,7 +136,6 @@ func TestPurgingATenantLeavesNoInvestigation(t *testing.T) {
 	}
 }
 
-// deviceOrganization reads the customer a seeded machine belongs to.
 func deviceOrganization(t *testing.T, f *orchestratorFixture, ctx context.Context, device uuid.UUID) uuid.UUID {
 	t.Helper()
 	var organizationID uuid.UUID

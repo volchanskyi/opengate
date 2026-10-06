@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Tests for .github/scripts/notify_failure.py — the issue a failed CD run leaves
-# behind is the only thing that outlives the run's log retention, so it has to
-# carry the log, and it has to say so when it could not get one.
-#
-# The `gh` stand-in is a real script on PATH, so what the notifier does with a
-# refusal is observed rather than mocked out: a call that fails writes to stderr
-# and returns non-zero exactly as the CLI does.
+# Tests for .github/scripts/notify_failure.py, with a `gh` stand-in script on PATH.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,8 +26,6 @@ fail() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# The stand-in records every invocation and answers from files the test writes,
-# so a body the notifier built is read back out of what it passed to `gh`.
 mkdir -p "$WORK/bin"
 cat >"$WORK/bin/gh" <<'FAKE_GH'
 #!/usr/bin/env bash
@@ -113,8 +105,6 @@ cat >"$FAKE_GH_JOBS" <<'JOBS'
 {"id":99037677475,"name":"Deploy staging","conclusion":"failure","html_url":"https://github.com/o/r/actions/runs/1/job/99037677475","steps":["Run E2E against staging"]}
 JOBS
 
-# run_notify drives the notifier with the stand-in on PATH and returns its exit
-# code, leaving the filed body in $FAKE_GH_BODY.
 run_notify() {
   : >"$FAKE_GH_CALLS"
   : >"$FAKE_GH_BODY"
@@ -127,7 +117,6 @@ run_notify() {
 
 echo "notify-failure:"
 
-# --- the excerpt is the point of the issue ------------------------------------
 {
   echo "line one"
   echo "the step that failed said this"
@@ -146,14 +135,6 @@ else
   fail "the issue body carries the job's log (body=[$(cat "$FAKE_GH_BODY")])"
 fi
 
-# --- a log carrying terminal colour is still read ----------------------------
-#
-# Every job that runs cargo or go sets a colour terminal, so nearly every log
-# this ever fetches carries escape sequences. gh refuses to hand such a body
-# over unless it is asked to, and the second route — `gh run view --log` —
-# cannot help: this runs while the run around it is still in progress, which is
-# the one condition that route refuses. So a coloured log meant no log at all,
-# and the notify job failed on top of the job it was reporting.
 FAKE_GH_LOG_NEEDS_ESCAPE_FLAG=1 run_notify && coloured_rc=0 || coloured_rc=$?
 if [ "$coloured_rc" -eq 0 ]; then
   pass "a log carrying terminal colour is fetched rather than refused"
@@ -166,12 +147,6 @@ else
   fail "the coloured log's content must reach the issue"
 fi
 
-# --- a refused log is reported, never filed as an empty excerpt ---------------
-#
-# This is the whole reason the file exists. Every issue filed to date recorded
-# "No log output available." and nothing else, so the one artifact that outlives
-# the run's log retention held nothing about why the run failed — and the step
-# that wrote it was green.
 FAKE_GH_LOG_REFUSED=1 run_notify && refused_rc=0 || refused_rc=$?
 
 if [ "$refused_rc" -ne 0 ]; then
@@ -192,11 +167,6 @@ else
   fail "and never files a bare 'no log output' with no reason"
 fi
 
-# --- an empty answer is a refusal too ----------------------------------------
-#
-# The archive endpoint answers a job whose log it cannot serve with a zero exit
-# and nothing on stdout, which is indistinguishable from a job that logged
-# nothing — and a job that failed always logged something.
 FAKE_GH_LOG_EMPTY=1 run_notify && empty_rc=0 || empty_rc=$?
 if [ "$empty_rc" -ne 0 ]; then
   pass "an empty answer from the log endpoint fails the step"
@@ -204,11 +174,6 @@ else
   fail "an empty answer from the log endpoint fails the step (rc=0)"
 fi
 
-# --- a storage error document is not a log --------------------------------
-#
-# Observed on a real shard whose runner died mid-step: the endpoint answers with
-# an Azure error document on stdout and exits zero, so a caller that checks only
-# the exit code files that XML as the job's log.
 FAKE_GH_LOG_BLOB_GONE=1 run_notify && blob_rc=0 || blob_rc=$?
 if [ "$blob_rc" -ne 0 ]; then
   pass "a storage error document is treated as a refusal"
@@ -221,10 +186,6 @@ else
   fail "and the reason it names is the storage error, not a log (body=[$(cat "$FAKE_GH_BODY")])"
 fi
 
-# --- the second door ----------------------------------------------------------
-#
-# `gh run view --log` reaches the same log by a different route, so a refusal on
-# the archive endpoint is not the end of it.
 export FAKE_GH_RUNVIEW_LOG="$WORK/runview.log"
 echo "what the second door returned" >"$FAKE_GH_RUNVIEW_LOG"
 FAKE_GH_LOG_REFUSED=1 run_notify && second_rc=0 || second_rc=$?
@@ -240,7 +201,6 @@ else
 fi
 unset FAKE_GH_RUNVIEW_LOG
 
-# --- nothing failed, nothing filed -------------------------------------------
 : >"$FAKE_GH_JOBS"
 if run_notify; then
   pass "a run with no failed job files nothing and succeeds"

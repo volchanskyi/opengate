@@ -1,20 +1,12 @@
-//! Gorilla-style compression: delta-of-delta timestamps + XOR float values.
-//!
-//! This is the *shared* compression layer of the bake-off — substrate A
-//! (append-only) and substrate B (redb) both persist blocks produced here, so
-//! bytes/sample differences between them are storage overhead, not codec
-//! differences. Regular 1 Hz data collapses to ~1 bit for the timestamp (DoD 0)
-//! and ~1 bit for an unchanged value, which is what puts the append-only
-//! substrate in the sub-1 B/sample class.
+//! Gorilla-style compression: delta-of-delta timestamps and XOR float values.
+//! Regular 1 Hz data costs about 1 bit per timestamp and 1 bit per unchanged value.
 
 use crate::bitio::{BitReader, BitWriter};
 use crate::error::{Result, TsdbError};
 #[cfg(feature = "bakeoff")]
 use crate::sample::Sample;
 
-/// Encode a block of samples into a self-delimiting compressed payload.
-///
-/// The first 32 bits are the sample count so the decoder is framing-independent.
+/// Encodes samples into a self-delimiting payload whose first 32 bits hold the sample count.
 #[cfg(feature = "bakeoff")]
 #[must_use]
 pub fn encode_block(samples: &[Sample]) -> Vec<u8> {
@@ -30,7 +22,7 @@ pub fn encode_block(samples: &[Sample]) -> Vec<u8> {
     let mut prev_ts = first.ts;
     let mut prev_delta: i64 = 0;
     let mut prev_bits = first.value.to_bits();
-    // Sentinel: no previous meaningful window yet.
+    // `u32::MAX` marks that no XOR window has been set yet.
     let mut prev_lead = u32::MAX;
     let mut prev_trail = 0u32;
 
@@ -72,8 +64,7 @@ pub fn encode_block(samples: &[Sample]) -> Vec<u8> {
     w.finish()
 }
 
-/// Number of samples a block encodes, read from its 32-bit count header without
-/// decoding the body. Used by recovery/stats to count fast.
+/// Number of samples a block encodes, read from its 32-bit count header alone.
 #[cfg(feature = "bakeoff")]
 #[must_use]
 pub fn block_count(payload: &[u8]) -> u32 {
@@ -81,7 +72,7 @@ pub fn block_count(payload: &[u8]) -> u32 {
     r.get_bits(32).unwrap_or(0) as u32
 }
 
-/// Decode a block previously produced by [`encode_block`].
+/// Decodes a block produced by [`encode_block`].
 #[cfg(feature = "bakeoff")]
 pub fn decode_block(payload: &[u8]) -> Result<Vec<Sample>> {
     let mut r = BitReader::new(payload);
@@ -142,9 +133,8 @@ pub fn decode_block(payload: &[u8]) -> Result<Vec<Sample>> {
     Ok(out)
 }
 
-/// Write a delta-of-delta with a variable-width prefix code. The final 64-bit
-/// escape keeps arbitrary NTP-step timestamp jumps lossless. Shared with the
-/// compact codec, which reuses it for lossless integral-value streams.
+/// Writes a delta-of-delta with a variable-width prefix code and a 64-bit escape for NTP jumps.
+/// The compact codec reuses it for lossless integral values.
 pub(crate) fn encode_dod(w: &mut BitWriter, dod: i64) {
     if dod == 0 {
         w.put_bit(0);
@@ -168,10 +158,7 @@ pub(crate) fn encode_dod(w: &mut BitWriter, dod: i64) {
 
 pub(crate) fn decode_dod(r: &mut BitReader) -> Result<i64> {
     let err = || TsdbError::CorruptBlock("dod");
-    // A leading 0 is dod == 0. Otherwise walk the width ladder that mirrors
-    // encode_dod's 0b10/0b110/0b1110/0b11110 prefixes: at each level a 0 bit
-    // selects that field width, a 1 bit descends. Falling through is the 64-bit
-    // escape that keeps arbitrary NTP-step jumps lossless.
+    // A 0 bit at each prefix level selects that field width; falling through reads the 64-bit escape.
     if r.get_bit().ok_or_else(err)? == 0 {
         return Ok(0);
     }
@@ -183,7 +170,7 @@ pub(crate) fn decode_dod(r: &mut BitReader) -> Result<i64> {
     Ok(r.get_bits(64).ok_or_else(err)? as i64)
 }
 
-/// Does `v` fit in an `n`-bit two's-complement field?
+/// Whether `v` fits in an `n`-bit two's-complement field.
 fn fits(v: i64, n: u32) -> bool {
     let min = -(1i64 << (n - 1));
     let max = (1i64 << (n - 1)) - 1;
@@ -211,26 +198,23 @@ mod tests {
 
     #[test]
     fn regular_1hz_is_dense() {
-        // 120 samples of a slowly-changing value at a fixed 1 s cadence.
         let samples: Vec<Sample> = (0..120)
             .map(|i| Sample::new(1_000_000 + i, 42.0 + (i % 3) as f64))
             .collect();
         let bytes = encode_block(&samples);
         assert_eq!(decode_block(&bytes).unwrap(), samples);
-        // Header (12 B) dominates; steady state is well under 1 B/sample.
         let per_sample = (bytes.len() - 12) as f64 / samples.len() as f64;
         assert!(per_sample < 1.0, "steady-state {per_sample:.3} B/sample");
     }
 
     #[test]
     fn backward_and_forward_time_steps_round_trip() {
-        // NTP corrections: timestamps step back then jump far forward.
         let samples = vec![
             Sample::new(1000, 1.0),
             Sample::new(1001, 1.5),
-            Sample::new(995, 2.0), // step back 6 s
+            Sample::new(995, 2.0),
             Sample::new(996, 2.0),
-            Sample::new(500_000, 9.0), // large forward jump
+            Sample::new(500_000, 9.0),
             Sample::new(500_001, 9.0),
         ];
         let bytes = encode_block(&samples);
@@ -251,7 +235,7 @@ mod tests {
             prop_assert_eq!(decoded.len(), samples.len());
             for (a, b) in decoded.iter().zip(&samples) {
                 prop_assert_eq!(a.ts, b.ts);
-                // NaN payloads compare by bit pattern (XOR codec is bit-exact).
+                // NaN payloads compare by bit pattern because the codec is bit-exact.
                 prop_assert_eq!(a.value.to_bits(), b.value.to_bits());
             }
         }

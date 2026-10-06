@@ -10,15 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// canceledContext returns an already-canceled context.
 func canceledContext() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	return ctx
 }
 
-// TestSpecApply covers the non-blocking, non-panicking actions in one table:
-// each either delegates to the real call or returns a specific typed error.
 func TestSpecApply(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("custom boundary error")
@@ -79,9 +76,6 @@ func TestSpecPanic(t *testing.T) {
 	})
 }
 
-// TestSpecBlockedDoesNotReturnUntilCancel proves the blocked action holds until
-// its context is canceled, then exits — a hung dependency freed only by
-// cancellation.
 func TestSpecBlockedDoesNotReturnUntilCancel(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -108,7 +102,6 @@ func TestFaultSetArmClearIsMethodScoped(t *testing.T) {
 	t.Parallel()
 	fs := newFaultSet()
 
-	// Unarmed method delegates.
 	delegate, err := fs.apply(context.Background(), "Get")
 	require.True(t, delegate)
 	require.NoError(t, err)
@@ -118,12 +111,10 @@ func TestFaultSetArmClearIsMethodScoped(t *testing.T) {
 	assert.False(t, delegate)
 	assert.ErrorIs(t, err, ErrInjected)
 
-	// A non-Once fault persists — a second apply still fires.
 	delegate, err = fs.apply(context.Background(), "Get")
 	assert.False(t, delegate)
 	assert.ErrorIs(t, err, ErrInjected)
 
-	// A different method is unaffected — proving method-scoped isolation.
 	delegate, _ = fs.apply(context.Background(), "List")
 	assert.True(t, delegate)
 
@@ -142,7 +133,6 @@ func TestFaultSetOnceAutoClears(t *testing.T) {
 	assert.False(t, delegate)
 	assert.ErrorIs(t, err, ErrInjected)
 
-	// The second call sees the fault already cleared.
 	delegate, err = fs.apply(context.Background(), "Get")
 	assert.True(t, delegate)
 	assert.NoError(t, err)

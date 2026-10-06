@@ -15,15 +15,7 @@ function connectionLabel(status: DeviceAMT['status']): string {
   return 'not connected';
 }
 
-/**
- * "Intel AMT" pill shown beside a device's status.
- *
- * It keys off `available` — the agent's Management Engine reading — so it stays
- * put whether or not an AMT connection happens to be up; only the tooltip tracks
- * connection state. A device that has a linked connection also qualifies, so the
- * badge does not blink out while a fresh agent's first hardware report is still
- * in flight.
- */
+/** "Intel AMT" pill shown when the agent reports AMT available or a connection is linked. */
 export function AmtBadge({ amt, className = '' }: AmtBadgeProps) {
   if (!amt || (!amt.available && !amt.uuid)) return null;
 

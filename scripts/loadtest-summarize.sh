@@ -63,28 +63,15 @@ emit_k6_rows() {
     --arg scenario "$scenario" \
     --arg workload "$workload" \
     '
-      # k6 v1.x writes a metric statistics flat on the metric object; v0.x
-      # nested them under "values". Accept both so the extraction does not
-      # depend on the exporter generation.
-      #
-      # The phase-tagged copy wins where there is one. A percentile over the
-      # whole run spans the climb to the load, the load itself and the wind-down
-      # away from it, so it describes a mixture of three systems, and that
-      # mixture moves whenever the climb takes a different share of the run —
-      # which is a change nobody made to the product. A scenario tags every
-      # request with the phase it belongs to and names the measured phase in a
-      # threshold, which is what puts that phase into the export; only one phase
-      # is ever marked, so at most one such key exists.
+      # values accepts k6 v1.x flat and v0.x nested statistics and prefers the phase-tagged copy,
+      # since a whole-run percentile mixes the climb, the load and the wind-down.
       def windowed($name):
         (.metrics | to_entries
           | map(select(.key | startswith($name + "{phase:")))
           | first | .value) // null;
       def values($name): (windowed($name) // .metrics[$name] // {}) | (.values // .);
-      # Deliberately not windowed. k6 divides a sub-metric count by the whole
-      # run rather than by the phase, so a windowed rate reads a phase as slower
-      # than it was, in proportion to how much of the run it did not cover.
-      # Measured against a floor that asks whether the generator offered work at
-      # all, the whole run is the honest denominator anyway.
+      # wholeRun reads the whole run: k6 divides a sub-metric count by the run, so a windowed rate
+      # reads a phase as slower than it was.
       def wholeRun($name): (.metrics[$name] // {}) | (.values // .);
       def compact: with_entries(select(.value != null));
       def base($phase): {
@@ -104,18 +91,11 @@ emit_k6_rows() {
         rps: (wholeRun("http_reqs").rate // null),
         # Rate metrics carry the ratio as "value"; "rate" is the counter shape.
         error_rate: (values("http_req_failed").value // values("http_req_failed").rate // null),
-        # The generator saying it could not keep the rate the profile declared.
-        # An arrival-rate run with nothing reading this degrades quietly back
-        # into the closed loop it replaced: offered load falls with the server,
-        # latency stays flat, and the night reports a healthy system nobody
-        # finished asking. It is taken over the whole run rather than over one
-        # phase, because a generator that fell behind anywhere fell behind.
+        # dropped_iterations counts arrivals the generator could not offer, over the whole run, since
+        # falling behind anywhere counts.
         dropped_iterations: (wholeRun("dropped_iterations").count // null)
       } | compact),
-      # Present the relay row whenever the scenario recorded the metric at all.
-      # Keying this on the v0.x "values" nesting made the row unreachable under
-      # the pinned exporter while three ceilings still named it, so the guard
-      # reads the same shape-tolerant helper the statistics below do.
+      # The relay row appears whenever the scenario recorded the metric, in either exporter shape.
       (if ((values("relay_msg_latency_ms") | length) > 0) then
         (base("relay") + {
           latency_p50_ms: (values("relay_msg_latency_ms")["p(50)"] // values("relay_msg_latency_ms").med // null),
@@ -124,10 +104,8 @@ emit_k6_rows() {
           rps: (wholeRun("relay_msg_count").rate // null)
         } | compact)
       else empty end),
-      # One row per operator journey, present only where the scenario timed it.
-      # A single interface-wide figure could not say whether a slow night was a
-      # slow fleet list or a slow machine page, and those are different pieces of
-      # work with different marks.
+      # One row per operator journey the scenario timed, so a slow fleet list and a slow machine
+      # page read apart.
       (["device_list", "device_detail", "command_accept"][] as $journey
         | ("journey_" + $journey + "_ms") as $metric
         | if ((values($metric) | length) > 0) then
@@ -140,51 +118,8 @@ emit_k6_rows() {
     ' "$file"
 }
 
-# workload_name is what a scenario measures, named.
-#
-# A trend compares a number against the numbers before it, and that is sound only
-# while the scenario keeps measuring the same thing. The relay scenario had been
-# timing an unauthenticated health check; it was rewritten to open a real session
-# and time its own frame coming back, kept its name, and the first night of the
-# new work was reported as a collapse against the old work's figures — a window
-# median of 1ms judging an 8ms session create, and a throughput floor built from
-# a request that did no relaying. Nothing in the stored data could say the two
-# were different work.
-#
-# So the name travels with every sample. The gate keys its window by it, which
-# makes a rewritten scenario a new series: it compares against itself, or, until
-# three nights of it exist, against the absolute ceilings alone — which are
-# recalibrated in the same commit that does the rewriting.
-#
-# Changing what a scenario measures means changing the name here. A scenario
-# with no name cannot enter the trend: an unnamed workload is exactly the
-# ambiguity this removes.
-#
-# Resizing the system the work is offered to counts as changing it, for the same
-# reason and with the same consequence, and so does changing the fleet the work
-# runs against. Three of those landed together: staging now reserves and is
-# capped at what production is, a quarter of a processor where it used to burst
-# to half; the nightly walks the everyday profile rather than offering its whole
-# fleet at once; and the fleet it holds is five hundred machines rather than a
-# hundred. Every figure from here is a reading of a different pair, and a window
-# median spanning both would be a comparison nobody could interpret.
-#
-# The browser-side names are at /3, and the change that moved them is the
-# largest of the three so far: the load each offers is the profile's now rather
-# than a shape the scenario carried, it is offered as an arrival rate rather
-# than as a fixed count of virtual users waiting on their own replies, each
-# technician presents an address of its own so the work is not held behind one
-# request allowance, and the percentile is taken over the phase the profile
-# marks rather than over the climb and the wind-down as well. Every one of those
-# changes what the number is a reading of, so a window median spanning both
-# sides of it would be a comparison nobody could interpret.
-#
-# The machine-side name moves for a change of its own: the succeeded count it is
-# built from was the machines still standing at the wind-down, and is now the
-# machines that arrived. A machine that got in and was severed under the load
-# used to be counted as one that never arrived, so the aggregate error rate was
-# part arrival failure and part severance, with the severance already published
-# beside it under its own name.
+# workload_name names what a scenario measures; the gate keys its window by it, so a changed
+# workload, system size or fleet size takes a new name and starts a new series.
 workload_name() {
   case "$1" in
     api-baseline) printf '%s\n' "member-journeys/3" ;;
@@ -240,11 +175,8 @@ emit_quic_rows() {
     return 2
   fi
 
-  # The arrival window, not the run's own clock. A run holds its fleet connected
-  # so the k6 relay scenario has machines to open sessions against, and the hold
-  # is nearly all of the wall clock — so a rate taken from it reports the hold
-  # rather than the arrival, and a fleet that entirely arrived reads as one that
-  # collapsed. The harness prints the window it measured; this divides by that.
+  # The rate divides by the harness's arrival window; the fleet hold dominates the run's own clock
+  # and would make a fleet that fully arrived read as collapsed.
   window_duration="$(awk '/^Arrival window:/ { sub(/^Arrival window:[[:space:]]*/, ""); print; exit }' "$file")"
   agents_line="$(awk '/^Agents:/ { print; exit }' "$file")"
 
@@ -255,29 +187,19 @@ emit_quic_rows() {
   successes="${BASH_REMATCH[1]}"
   total_agents="${BASH_REMATCH[2]}"
 
-  # Machines the run itself cancelled when a level came down. They never
-  # registered, so the succeeded count is short by them while nothing failed —
-  # and reading that shortfall as errors publishes an error rate about the
-  # harness's own wind-down against a limit held at nought. The line is absent
-  # on a run that stood nobody down.
+  # Machines cancelled when a level came down never registered, so counting them as errors would
+  # publish the harness's own wind-down; the line is absent when none were stood down.
   stood_down="$(awk '/^Stood down:/ { print $3; exit }' "$file")"
   [ -n "$stood_down" ] || stood_down=0
 
-  # The declared fleet is the denominator only while every machine lives once.
-  # A run that replaces a machine when it leaves arrives more machines than it
-  # declared, and dividing by the declaration puts more arrivals over the line
-  # than the line allows for — the share comes out below nought, which every
-  # ceiling in every profile passes. The count of machine-lives is not in this
-  # block, so the share cannot be computed here at all; such a run's evidence
-  # bundle states it over the results it holds.
+  # The declared fleet is the denominator only while every machine lives once; a run that replaces
+  # machines arrives more than it declared, and its evidence bundle states the share instead.
   if [ "$successes" -gt "$((total_agents - stood_down))" ]; then
     echo "$file arrived more machines ($successes) than the $total_agents it declared less the $stood_down it stood down, so the declared fleet is not the denominator of its error rate" >&2
     return 2
   fi
 
-  # A block reporting arrivals with no window has no denominator this may use.
-  # Falling back to the run's clock is the defect above, arrived at quietly, so
-  # the extraction refuses rather than publishing a number it cannot stand behind.
+  # Arrivals with no window have no denominator, and the run's clock cannot stand in for it.
   if [ -z "$window_duration" ] && [ "$successes" -gt 0 ]; then
     echo "missing QUIC arrival window line in $file" >&2
     return 2
@@ -288,8 +210,7 @@ emit_quic_rows() {
     window_ms="$(duration_to_ms "$window_duration")" || return 2
   fi
   rps="$(awk -v successes="$successes" -v window_ms="$window_ms" 'BEGIN { if (window_ms <= 0) print 0; else printf "%.6f", successes / (window_ms / 1000) }')"
-  # Over the machines that actually asked the server for something, which is
-  # every machine the run offered less the ones it stood down itself.
+  # Asked machines are every machine offered less the ones the run stood down.
   error_rate="$(awk -v successes="$successes" -v total_agents="$total_agents" -v stood="$stood_down" '
     BEGIN {
       asked = total_agents - stood
@@ -323,13 +244,8 @@ emit_quic_rows() {
       if [ "$successes" -eq 0 ]; then
         continue
       fi
-      # Registration is the server's figure, taken where the device row lands,
-      # and a run the server did not answer has none. Publishing the harness's
-      # own clock instead is what two ceilings sat on: it stops at a local send
-      # buffer and reports microseconds whatever the write behind it costs. So
-      # the row is absent rather than wrong. Connect and handshake are the
-      # generator's own side of the wire and it is the only side that can see
-      # them, so their absence is a malformed block.
+      # Registration is the server's figure, so a run the server did not answer has none; connect and
+      # handshake come from the generator alone, so their absence is a malformed block.
       if [ "$label" = "Register" ]; then
         continue
       fi

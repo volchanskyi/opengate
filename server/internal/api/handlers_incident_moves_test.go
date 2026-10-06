@@ -12,17 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/alerts"
 )
 
-// The moves a technician makes on an incident, driven through HTTP.
-//
-// Each refusal below is its own answer because each is a different mistake with
-// a different fix: a move the lifecycle does not allow, a resolution with no
-// answer for why, a code outside the closed set, a person who is not in the
-// tenant. Collapsing them into one rejection would leave whoever made the
-// mistake guessing which one it was.
-
-// TestStatusMovesAreTypedRefusals. Each of these is a different mistake with a
-// different fix, so each is refused on its own terms rather than as one
-// undifferentiated rejection — and every accepted move leaves a line behind.
 func TestStatusMovesAreTypedRefusals(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -56,8 +45,7 @@ func TestStatusMovesAreTypedRefusals(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &moved))
 	assert.Equal(t, Acknowledged, moved.Status)
 
-	// Standing still is not a transition: recording one would put a line in a
-	// handover that says nothing happened.
+	// A repeated status is refused because it records no transition.
 	w = doRequest(e.srv, http.MethodPost, path, e.token,
 		SetIncidentStatusRequest{Status: Acknowledged})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -75,9 +63,6 @@ func TestStatusMovesAreTypedRefusals(t *testing.T) {
 	assert.Len(t, detail.Events, 2, "every accepted move leaves a line in the room's history")
 }
 
-// TestAssignmentNamesSomebodyInTheTenant. The assignee is a person the caller
-// can hand work to, so it is resolved through the tenant-scoped user read: a
-// name from outside answers the same as one that does not exist.
 func TestAssignmentNamesSomebodyInTheTenant(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -97,8 +82,6 @@ func TestAssignmentNamesSomebodyInTheTenant(t *testing.T) {
 	require.NotNil(t, taken.AssigneeId)
 	assert.Equal(t, e.user.ID, *taken.AssigneeId)
 
-	// Handing it back is a move a technician going off shift has to be able to
-	// make, so it is stated rather than left as an absent field.
 	w = doRequest(e.srv, http.MethodPost, path, e.token, SetIncidentAssigneeRequest{})
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var released Incident
@@ -106,7 +89,6 @@ func TestAssignmentNamesSomebodyInTheTenant(t *testing.T) {
 	assert.Nil(t, released.AssigneeId)
 }
 
-// TestCommentsBecomeLinesAndAreBounded.
 func TestCommentsBecomeLinesAndAreBounded(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})

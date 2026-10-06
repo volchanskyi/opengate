@@ -1,9 +1,6 @@
 {{- $name := printf "%s-exporter" (include "opengate.postgres.fullname" .) -}}
-# Measures this environment's database from a pod of its own. Scraped as an
-# annotated pod, so every reading carries the namespace — the environment — it
-# runs in. A pod of its own because a pod is ready only while every program in
-# it is: an exporter beside the database in one pod would take the database out
-# of its Service whenever the exporter crashed, hung or was killed for memory.
+# A pod apart from the database: an exporter beside it would pull the database out of its
+# Service whenever the exporter crashed, hung or was killed.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -39,8 +36,6 @@ spec:
           args:
             - --collector.postmaster
           env:
-            # Reads the database as its owner, with the password the database
-            # itself is given.
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -52,8 +47,7 @@ spec:
             - name: metrics
               containerPort: 9187
               protocol: TCP
-          # The landing page answers while the program runs, whether or not the
-          # database does; a database that cannot be read is pg_up 0, a reading.
+          # The landing page answers while the exporter runs; an unreadable database reports pg_up 0.
           livenessProbe:
             httpGet:
               path: /

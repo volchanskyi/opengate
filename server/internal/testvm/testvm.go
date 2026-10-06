@@ -1,13 +1,5 @@
-// Package testvm supplies a shared VictoriaMetrics base URL to the test suite.
-// When VICTORIAMETRICS_TEST_URL is set (CI, or an external VM) it is used
-// as-is; otherwise a throwaway victoriametrics/victoria-metrics container is
-// started so telemetry integration tests always run deterministically and
-// never silently skip.
-//
-// The image tag is pinned to the same version the monitoring stack deploys
-// (deploy/helm/monitoring/values.yaml) so the test harness mirrors production.
-// Like testpg, this package imports only the leaf internal/testreaper, so any
-// test package can depend on it without risking an import cycle.
+// Package testvm supplies a VictoriaMetrics base URL to tests, from VICTORIAMETRICS_TEST_URL
+// or a throwaway container. It imports only internal/testreaper, so any test package can use it.
 package testvm
 
 import (
@@ -25,10 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testreaper"
 )
 
-// init settles the reaper settings before anything can create one. It cannot
-// wait for startContainer: when VICTORIAMETRICS_TEST_URL is set this package
-// provisions nothing, and the first container of the process is then started by
-// somebody else, which would take the defaults.
+// init settles the reaper at load, because another package may start the process's first container.
 func init() {
 	testreaper.Settle()
 }
@@ -37,8 +26,7 @@ func init() {
 // VictoriaMetrics base URL and bypasses container auto-provisioning.
 const URLEnv = "VICTORIAMETRICS_TEST_URL"
 
-// image pins the VictoriaMetrics tag deployed by the monitoring stack so the
-// test harness matches production. Keep in sync with the deploy manifests.
+// image pins the VictoriaMetrics tag the monitoring stack deploys.
 const image = "victoriametrics/victoria-metrics:v1.114.0"
 
 // httpPort is VictoriaMetrics' default single-node HTTP listen port.
@@ -50,18 +38,14 @@ var (
 	setupErr error
 )
 
-// URL returns the base VictoriaMetrics URL (e.g. http://127.0.0.1:32769),
-// provisioning a throwaway container on first use when URLEnv is unset. It is
-// memoized, so a single VM backs the whole test binary. Intended for TestMain,
-// which has no testing.TB; tests should prefer BaseURL.
+// URL returns the base VictoriaMetrics URL, memoized so one instance backs the test binary.
+// It provisions a throwaway container on first use when URLEnv is unset and suits TestMain.
 func URL() (string, error) {
 	once.Do(func() { baseURL, setupErr = resolveBaseURL(os.Getenv, startContainer) })
 	return baseURL, setupErr
 }
 
-// BaseURL returns the base VictoriaMetrics URL (see URL). It never skips: a
-// provisioning failure fails the test via t.Fatalf so a missing VM is loud,
-// not a silent green.
+// BaseURL returns the base VictoriaMetrics URL from URL and fails the test on a provisioning error.
 func BaseURL(t testing.TB) string {
 	t.Helper()
 	url, err := URL()
@@ -71,17 +55,8 @@ func BaseURL(t testing.TB) string {
 	return url
 }
 
-// Dedicated provisions a VictoriaMetrics reserved for the calling test and
-// removes it when the test ends. extraArgs are appended to the process's command
-// line.
-//
-// URLEnv is deliberately ignored. A measurement that reads VictoriaMetrics' own
-// resident memory, series count or on-disk size is measuring the whole process,
-// so any series another test wrote lands in the answer — and the suite runs
-// against one shared instance by default. Tests that only need somewhere to put
-// samples should use BaseURL and pay nothing.
-//
-// Like BaseURL it never skips: a provisioning failure fails the test.
+// Dedicated provisions a VictoriaMetrics reserved for the calling test and removes it at cleanup.
+// URLEnv is ignored so process-level measurements never include another test's series.
 func Dedicated(t testing.TB, extraArgs ...string) string {
 	t.Helper()
 	url, terminate, err := startDedicated(extraArgs)
@@ -92,10 +67,7 @@ func Dedicated(t testing.TB, extraArgs ...string) string {
 	return url
 }
 
-// startDedicated launches a VictoriaMetrics container and returns its base URL
-// alongside the function that removes it. Unlike the shared container this one
-// is torn down eagerly rather than left to the reaper, because a measurement may
-// start several and each holds the memory it was asked to measure.
+// startDedicated launches a VictoriaMetrics container and returns its base URL and terminator.
 func startDedicated(extraArgs []string) (string, func(), error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -128,9 +100,7 @@ func startDedicated(extraArgs []string) (string, func(), error) {
 	return endpoint, terminate, nil
 }
 
-// resolveBaseURL uses an external URL from the environment when URLEnv is set,
-// otherwise provisions one via start. It is split out from URL so both branches
-// are unit-testable without the sync.Once memoization and without Docker.
+// resolveBaseURL returns the external URL when URLEnv is set, otherwise the URL start provisions.
 func resolveBaseURL(getenv func(string) string, start func() (string, error)) (string, error) {
 	if url := getenv(URLEnv); url != "" {
 		return url, nil
@@ -144,9 +114,7 @@ func startContainer() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// The container is not retained: it keeps running independently of this Go
-	// handle and is reaped by the testcontainers Ryuk reaper when the test
-	// process exits, so no explicit Terminate is needed (matches testpg).
+	// The Ryuk reaper removes the container when the test process exits.
 	c, err := testcontainers.Run(ctx, image,
 		testcontainers.WithExposedPorts(httpPort),
 		testcontainers.WithWaitStrategy(

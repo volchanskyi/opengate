@@ -8,107 +8,8 @@ import (
 	"time"
 )
 
-// The evidence bundle is what a run is. The metrics store keeps thirty days, so
-// any comparison older than that has to read something that still exists —
-// which makes the bundle authoritative and the dashboard a view of it.
-//
-// A bundle therefore carries enough to interpret its own numbers without the
-// system that produced them: what produced them, on what, against how much
-// data, what load was asked for, what load actually arrived, what the system
-// did, and what state it was left in. A section missing from that list does not
-// make the bundle smaller — it makes the run unreadable, so it fails the run.
-
-// bundleSchemaVersion is the shape of the document below. It travels inside the
-// document because a trend that silently spans two meanings of a field is worse
-// than one with a gap in it.
-//
-// Version 2 separates the two sides of the arrival rate. A phase used to carry
-// one pair of arrival fields whose offered half was technician load and whose
-// achieved half was the same figure copied across, which made the pair
-// unreadable in both directions: the units belonged to a generator this process
-// does not drive, and the ratio between them was one by construction.
-//
-// Version 3 makes three of the numbers above readings. A phase's achieved
-// arrivals are counted where a machine arrives rather than where its life ends,
-// so a fleet held to the end of the walk no longer reports none; a phase's
-// boundaries are the clock rather than its own declaration; and the generator's
-// room is bracketed around the load and says whose room it is — its own
-// allowance, or a box it shares with the system under test.
-//
-// Version 4 adds how hard the target worked. A phase carried the wait times it
-// saw and nothing about what the target did with the allowance it was given, so
-// a server out of processor and a server idle but slow read identically — and
-// every statement about which of the two a night showed was an inference.
-//
-// Version 5 adds what the run filed. Every list a technician opens is narrowed
-// to a customer or to a building, and a fleet filed under neither is reachable
-// only through the tenant-wide read — so a night could report a device-list
-// figure measured against a fleet the product itself could not find, and nothing
-// in the bundle said which.
-//
-// Version 6 adds where the ladder broke. A family whose whole subject is the
-// point at which the system gives out reported only the phases it walked, so its
-// answer was whatever the run happened to survive — one ladder reached four
-// thousand machines with no errors and established nothing except that the
-// answer is higher. The profile now declares what giving out means and the run
-// reports the rung that held, the rung that did not, and the reading that
-// decided it.
-//
-// Version 7 adds what grew and where. A run said whether a completed operation
-// gave back what it took and nothing about which line kept it, so an endurance
-// run that found a leak handed back an instruction to reproduce five hours of
-// load. A soak now keeps a goroutine and a heap profile on an interval and
-// reports the difference between them, which for a stuck goroutine is the whole
-// answer: the count and the line, in one row.
-// Version 8 lets a phase account for a busy-ness it could not take. An absent
-// reading voided the whole bundle, which is right for a reading somebody
-// dropped and wrong for the one case a capacity ladder exists to reach: a
-// target loaded until it stops answering its own exposition. One nightly
-// climbed to sixteen thousand machines, found that load, and threw away the
-// evidence for the rung it had just climbed. A phase now says which of the two
-// it was, and an absence with nothing beside it is refused exactly as before.
-//
-// Version 9 adds the two numbers a night is judged by that a bundle did not
-// carry. A phase said what the harness believed it held and nothing about what
-// the target held, and that belief is bookkeeping the wind-down maintains — so
-// a recovery phase describing a target still carrying the full fleet was
-// published on every night two families ran, and no gate disagreed. The phase
-// now carries the target's own count and the goroutines behind it, taken where
-// it takes its own. Beside them the run states its aggregate error rate, which
-// is the one series the profiles hold their machine-side limits to and the one
-// the bundle did not have — so on the venues that produce no browser-side rows,
-// every limit named a measurement that could not be read.
-//
-// Version 10 brackets that count in time. The target's answer and the run's own
-// were compared as though both described the same instant, and neither did: the
-// run was counting machines it had queued to dial, and the target was copying
-// its count in every five seconds. The shortfall between them was the arrival
-// rate times those two delays, which is a quantity with nothing to do with fleet
-// size — so the share of the fleet standing in for it refused every phase of
-// every family on the first night it ran, a five-hour endurance run included. A
-// phase now says what the run was holding before it asked and what left before
-// the answer came back, and those two are the whole of what the counts are
-// allowed to differ by.
-//
-// Version 11 carries how long the target took to account for that fleet. The
-// bracket above closed the two delays the run and the target each kept, and a
-// third was left underneath both: a machine has handshaken and asked to
-// register before the target has put it in the map it counts, and the target
-// reads that machine's customer and its name out of the database in between. On
-// 2026-09-16 that refused a phase holding 7,946 machines for a target holding
-// 7,883 and one holding 1,947 for a target holding 1,891, with nothing failing,
-// nothing severed and nothing leaving. The run holds still for it rather than
-// allowing for it, and a phase now says how long it held — which is a reading of
-// how far behind its own arrivals the target was.
-//
-// Version 12 reads what ran out, per phase, and names it where the ladder gave.
-// The generator's room was one reading across the whole walk, so a ladder whose
-// top rung collapsed reported the room its quiet bottom rungs had; each phase
-// now carries the generator's own processor room and both ends' dropped
-// datagrams, and the breaking point sets the last rung that held beside the
-// first that gave for every one of them that moved. The cleanup section is the
-// cleanup step's own count, folded in after the run, and says why where there
-// is none.
+// bundleSchemaVersion is the shape of the bundle document; it travels inside the document so a
+// trend never silently spans two meanings of a field.
 const bundleSchemaVersion = 12
 
 // bundleFileName is what a bundle directory holds.
@@ -118,8 +19,8 @@ const bundleFileName = "bundle.json"
 type RunIdentity struct {
 	ID     string `json:"id"`
 	Commit string `json:"commit"`
-	// ProfileName and ProfileVersion together say what was asked for. Both
-	// travel because a profile is edited in place.
+	// ProfileName and ProfileVersion together say what was asked for, because a profile is
+	// edited in place.
 	ProfileName    string      `json:"profile_name"`
 	ProfileVersion int         `json:"profile_version"`
 	Family         Family      `json:"family"`
@@ -128,54 +29,38 @@ type RunIdentity struct {
 	FinishedAt     time.Time   `json:"finished_at"`
 }
 
-// Fingerprint describes one side of the measurement. Both sides are recorded
-// because a latency figure is a property of the pair, not of the target: the
-// same server measured from a starved generator is a different number.
+// Fingerprint describes one side of the measurement; a latency figure is a property of the
+// generator and target pair.
 type Fingerprint struct {
 	Kind        string `json:"kind"`
 	Description string `json:"description"`
-	// CPUs is fractional because a container's share of a machine is. The
-	// scaling sweep's whole subject is this number, and half a processor is one
-	// of its rungs.
+	// CPUs is fractional because a container's share of a machine is.
 	CPUs        float64 `json:"cpus"`
 	MemoryBytes int64   `json:"memory_bytes"`
-	// DiskBytes is the room this side has, which for a machine that builds a
-	// stack and a fixture on it is what is free rather than how big the
-	// partition is. Zero means it was not measured.
+	// DiskBytes is the free room on this side; zero means it was not measured.
 	DiskBytes int64  `json:"disk_bytes,omitempty"`
 	Arch      string `json:"arch,omitempty"`
 }
 
-// FixtureCounts is how much data was already there. It is a count rather than a
-// size claim, plus the measured on-disk weight where the run took one.
+// FixtureCounts is how much data was already there, plus the measured on-disk weight where the
+// run took one.
 type FixtureCounts struct {
 	Size      FixtureSize `json:"size"`
 	Tenants   int         `json:"tenants"`
 	Customers int         `json:"customers"`
 	Sites     int         `json:"sites"`
 	Users     int         `json:"users"`
-	// Devices is the fleet that exists: the machines that enrolled. PlannedDevices
-	// is what the plan asked for, and the two are different numbers — a bundle
-	// reported two thousand machines while the database, weighed in the same
-	// job, held five hundred.
+	// Devices is the machines that enrolled; PlannedDevices is what the plan asked for.
 	Devices        int `json:"devices"`
 	PlannedDevices int `json:"planned_devices,omitempty"`
-	// DatabaseBytes and TelemetrySeries are filled by a run that weighed the
-	// fixture. Zero means it was not measured, which is different from empty.
+	// DatabaseBytes and TelemetrySeries are filled by a run that weighed the fixture; zero means
+	// it was not measured.
 	DatabaseBytes   int64 `json:"database_bytes,omitempty"`
 	TelemetrySeries int64 `json:"telemetry_series,omitempty"`
-	// FiledDevices is how many machines the run filed under a customer and into
-	// one of that customer's buildings, which is what every list a technician
-	// opens is narrowed by. A fleet under nobody is reachable only through the
-	// tenant-wide read, and no measurement taken against it describes a page
-	// anyone in the field opens.
-	//
-	// It is a pointer because a run with no fixture had nobody to file for, and
-	// that is not the same as a run that filed nought machines — nought is the
-	// finding this field exists to report.
+	// FiledDevices is how many machines the run filed under a customer and one of its sites.
+	// It is a pointer because a run with no fixture filed for nobody, which differs from nought.
 	FiledDevices *int `json:"filed_devices,omitempty"`
-	// FilingRefusals is how many the server would not file. A run reporting a
-	// filed estate it could not file is the shape the count is here to refuse.
+	// FilingRefusals is how many filings the server refused.
 	FilingRefusals *int `json:"filing_refusals,omitempty"`
 }
 
@@ -185,99 +70,46 @@ type PhaseResult struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
 
-	// The machine side of the arrival rate: what the phase's own climb asked
-	// for, and what the fleet delivered. Both are the harness's to state,
-	// because it is the process that dials machines.
-	//
-	// They are separate fields because collapsing them hides the one case the
-	// validity rule exists for — a generator that could not produce the load
-	// reads exactly like a system that could not absorb it. Restating the
-	// offered figure as the achieved one is that collapse wearing both names.
+	// The harness dials the machines, so it states both the offered and the achieved rate.
 	OfferedAgentArrivalsPerSecond  float64 `json:"offered_agent_arrivals_per_second"`
 	AchievedAgentArrivalsPerSecond float64 `json:"achieved_agent_arrivals_per_second"`
 
-	// The technician side. The profile declares it and a browser-side generator
-	// offers it, so this process carries what was asked for and leaves the
-	// achieved half absent rather than inventing it — an absent figure is
-	// readable, and a copied one is not.
+	// The achieved technician rate stays absent unless a browser-side generator measured it.
 	OfferedOperatorArrivalsPerSecond  float64  `json:"offered_operator_arrivals_per_second"`
 	AchievedOperatorArrivalsPerSecond *float64 `json:"achieved_operator_arrivals_per_second,omitempty"`
 
 	OfferedConnectedAgents  int `json:"offered_connected_agents"`
 	AchievedConnectedAgents int `json:"achieved_connected_agents"`
 
-	// Concurrent remote sessions, which are the technician's side of the wire
-	// for the same reason the arrival rate above is. A profile declared five of
-	// them and ran zero, and nothing said so; what was asked for now travels,
-	// and the achieved half stays absent until a browser-side generator opens
-	// them.
+	// The achieved session count stays absent until a browser-side generator opens sessions.
 	OfferedSessions  int  `json:"offered_sessions"`
 	AchievedSessions *int `json:"achieved_sessions,omitempty"`
 
-	// TargetBusyPercent is what share of its declared processor allowance the
-	// target used over this phase: its own processor counter, bracketed around
-	// the phase and divided by the phase's clock and by what it was capped at.
-	//
-	// It is a pointer because a reading that could not be taken is absent. A
-	// nought here would be a target that did no work at all — the healthiest
-	// figure a server could report — so a run that never asked must not read as
-	// the best run ever measured.
+	// TargetBusyPercent is the share of its processor allowance the target used over this phase;
+	// a pointer because an unread value is absent, where nought would mean no work.
 	TargetBusyPercent *float64 `json:"target_busy_percent,omitempty"`
 
-	// TargetBusyAbsent is why the reading above is not there, where the run can
-	// say. An absence a reader cannot account for is a reading somebody
-	// dropped and voids the bundle; an absence the run explains is a fact about
-	// the run — chiefly a target loaded until it stopped answering, which is
-	// the answer a capacity ladder goes looking for.
+	// TargetBusyAbsent is why the reading above is absent, where the run can say; it is empty
+	// while the reading is present.
 	TargetBusyAbsent string `json:"target_busy_absent,omitempty"`
 
-	// TargetConnectedAgents is the fleet the target says it was holding when
-	// this phase closed, and TargetGoroutines is the count that bounds it
-	// below. AchievedConnectedAgents above is the harness's own answer to the
-	// same question, taken at the same instant, and the pair is only useful
-	// because the two are kept independently: one is bookkeeping the wind-down
-	// maintains, and only the other is a reading.
-	//
-	// Both are pointers for the reason the busy-ness above is. A nought here
-	// would be a target holding nobody, which is exactly the finding the rule
-	// over these acts on, so a question nobody asked must not arrive as the
-	// answer it exists to catch.
+	// TargetConnectedAgents is the fleet the target held when the phase closed, read beside
+	// TargetGoroutines; both are pointers because nought would mean the target held nobody.
 	TargetConnectedAgents *int     `json:"target_connected_agents,omitempty"`
 	TargetGoroutines      *float64 `json:"target_goroutines,omitempty"`
 
-	// TargetResidentBytes is what the target held in memory at the same
-	// reading, absent where the census could not be taken.
+	// TargetResidentBytes is the target's memory at the same reading.
 	TargetResidentBytes *float64 `json:"target_resident_bytes,omitempty"`
 
-	// TargetCensusAbsent is why the pair above is not there, where the run can
-	// say — a target loaded until it stopped answering, or one that keeps no
-	// count of its fleet.
+	// TargetCensusAbsent is why the census reading is absent, where the run can say.
 	TargetCensusAbsent string `json:"target_census_absent,omitempty"`
 
-	// TargetCensusWaitedMs is how long the run held still while the target
-	// admitted machines it had already accepted.
-	//
-	// A machine has dialled, handshaken and asked to register before the target
-	// has put it in the map it counts, so the run's count leads the target's by
-	// the database reads that admission takes. The run waits that out rather than
-	// allowing for it, and the wait is worth recording on its own: it is a
-	// reading of how far behind its own fleet the target was, which nothing else
-	// here produces.
-	// Nought is the healthy answer and the one every leg with room gives.
+	// TargetCensusWaitedMs is how long the run held still while the target admitted machines it
+	// had already accepted; nought is the healthy answer.
 	TargetCensusWaitedMs float64 `json:"target_census_waited_ms,omitempty"`
 
-	// The two terms that say how far apart the counts are allowed to be.
-	//
-	// The run counts its own machines, asks the target, and counts again, so
-	// the target's answer describes an instant between the two. The population
-	// can only shrink by machines leaving, so the fewest it can have been is
-	// the count before the question less what left before the answer — and a
-	// shortfall past that is a fleet the target was not holding rather than a
-	// question that took time.
-	//
-	// Stating both rather than the difference is deliberate: a phase whose
-	// counts disagree has to say which term accounts for it, and a soak that
-	// replaces every machine it loses reports a departure figure all night.
+	// The two terms bound how far the run's count and the target's count may differ: the
+	// target's answer describes an instant between the counts before and after the question.
 	ConnectedAgentsBeforeCensus int   `json:"connected_agents_before_census,omitempty"`
 	DeparturesDuringCensus      int64 `json:"departures_during_census,omitempty"`
 
@@ -286,53 +118,29 @@ type PhaseResult struct {
 	LatencyP99Ms float64 `json:"latency_p99_ms,omitempty"`
 	ErrorRate    float64 `json:"error_rate"`
 
-	// GeneratorCPUHeadroomPercent and GeneratorCPURefusedPercent are the
-	// generator's own room over this phase: the share of its processor
-	// allowance it left unused, and the share of the phase it spent runnable
-	// and refused the processor. Absent where the generator has no allowance of
-	// its own to be measured against.
+	// GeneratorCPUHeadroomPercent is the unused share of the generator's processor allowance and
+	// GeneratorCPURefusedPercent the share of the phase it spent runnable but refused the processor.
 	GeneratorCPUHeadroomPercent *float64 `json:"generator_cpu_headroom_percent,omitempty"`
 	GeneratorCPURefusedPercent  *float64 `json:"generator_cpu_refused_percent,omitempty"`
 
-	// GeneratorUDPReceiveErrors and TargetUDPReceiveErrors are the datagrams
-	// each end's kernel dropped over this phase because a socket's receive
-	// buffer was full — a machine's packets lost before either process saw
-	// them. Absent for an end whose counters the run cannot read.
+	// GeneratorUDPReceiveErrors and TargetUDPReceiveErrors are the datagrams each end's kernel
+	// dropped over this phase on a full receive buffer; absent where the counters are unreadable.
 	GeneratorUDPReceiveErrors *int64 `json:"generator_udp_receive_errors,omitempty"`
 	TargetUDPReceiveErrors    *int64 `json:"target_udp_receive_errors,omitempty"`
 
-	// ExpectedRejections is the system working: a refused write past a declared
-	// limit, a duplicate connection closed, an admission deferred. Counting
-	// those as faults makes a correctly enforced limit look like a defect and
-	// buries the real ones, so they are held apart.
+	// ExpectedRejections is the system enforcing a declared limit, held apart from Faults.
 	ExpectedRejections int64 `json:"expected_rejections"`
 	Faults             int64 `json:"faults"`
 }
 
-// OfferedAgentArrivals reports whether this phase reached for machines of its
-// own, which is what makes ErrorRate a reading of the phase rather than of the
-// one before it.
-//
-// A phase that winds down asks for fewer machines than the one before it, so it
-// reaches for nobody: it stands machines down and offers no arrival. Every
-// outcome recorded inside its window therefore belongs to a machine an earlier
-// phase reached for — a machine's outcome is known when its life ends, and a
-// dial that began under the level before this one can end under this one.
-//
-// The technician figure is not consulted. It travels with the profile whether
-// anything offers it or not, and ErrorRate is the fleet's own share of machines
-// that did not arrive, so a browser-side load says nothing about whether this
-// phase asked for a machine.
+// OfferedAgentArrivals reports whether this phase reached for machines of its own; a winding-down
+// phase offers none, and its outcomes belong to machines an earlier phase reached for.
 func (p PhaseResult) OfferedAgentArrivals() bool {
 	return p.OfferedAgentArrivalsPerSecond > 0
 }
 
-// AchievedFraction is how much of the offered arrival rate actually arrived.
-//
-// It reads the technician side when something measured it and the machine side
-// otherwise, because those are the two ways a run offers arrivals and a phase
-// carries whichever of them it drove. A phase that offered nothing counts as
-// fully achieved: there was nothing to fall short of.
+// AchievedFraction is the share of the offered arrival rate that arrived, read from the technician
+// side when measured and the machine side otherwise; a phase that offered nothing achieved all.
 func (p PhaseResult) AchievedFraction() float64 {
 	if p.AchievedOperatorArrivalsPerSecond != nil && p.OfferedOperatorArrivalsPerSecond > 0 {
 		return *p.AchievedOperatorArrivalsPerSecond / p.OfferedOperatorArrivalsPerSecond
@@ -343,28 +151,21 @@ func (p PhaseResult) AchievedFraction() float64 {
 	return p.AchievedAgentArrivalsPerSecond / p.OfferedAgentArrivalsPerSecond
 }
 
-// JourneyResult is one operator journey's account of itself, so a slow run can
-// name which screen was slow rather than only that the API was.
+// JourneyResult is one operator journey's account of itself, so a slow run can name the slow
+// screen.
 type JourneyResult struct {
 	Name      string  `json:"name"`
 	Requests  int64   `json:"requests"`
 	ErrorRate float64 `json:"error_rate"`
-	// TargetBusyPercent is what share of its declared processor allowance the
-	// target used over this phase: its own processor counter, bracketed around
-	// the phase and divided by the phase's clock and by what it was capped at.
-	//
-	// It is a pointer because a reading that could not be taken is absent. A
-	// nought here would be a target that did no work at all — the healthiest
-	// figure a server could report — so a run that never asked must not read as
-	// the best run ever measured.
+	// TargetBusyPercent is a pointer because an unread value is absent, where nought would mean
+	// the target did no work.
 	TargetBusyPercent *float64 `json:"target_busy_percent,omitempty"`
 
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`
 }
 
-// Observation is one timestamped sample of something the run watched rather
-// than drove: server, database, telemetry and node series alike.
+// Observation is one timestamped sample of something the run watched.
 type Observation struct {
 	At     time.Time         `json:"at"`
 	Series string            `json:"series"`
@@ -372,45 +173,28 @@ type Observation struct {
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
-// Headroom is what the generator had left. A run measured from a saturated
-// generator is measuring the generator.
+// Headroom is what the generator had left.
 type Headroom struct {
-	// Measured says the figures below came from somewhere. False is a run that
-	// never looked, and a reading nobody took is not a reading of plenty: the
-	// field was written as 100% free and 0% used on every run ever recorded,
-	// which is what kept the saturation rule from ever firing.
+	// Measured is false for a run that never looked, whose figures carry no information.
 	Measured bool `json:"measured"`
 
-	// Scope is whose room this is: the generator's own allowance, or the box it
-	// shares with the system under test. They are different statements, and the
-	// rule that invalidates a run for a starved generator falls only on the
-	// first — a busy box is what the throwaway venue is for.
+	// Scope is whose room this is: the generator's own allowance, or the box it shares with the
+	// system under test. Only the first invalidates a run for a starved generator.
 	Scope string `json:"scope,omitempty"`
 
 	CPUHeadroomPercent float64 `json:"cpu_headroom_percent"`
 	MemoryUsedPercent  float64 `json:"memory_used_percent"`
 
-	// CPURefusedPercent is the share of the run the generator spent runnable
-	// and denied the processor, where the kernel keeps that account. A
-	// generator kept waiting measured its own wait into every latency it
-	// reported, whatever room it had left. Absent means the kernel counts no
-	// refusals, which is not the same as none having happened.
+	// CPURefusedPercent is the share of the run the generator spent runnable and denied the
+	// processor. Absent where the kernel counts no refusals.
 	CPURefusedPercent *float64 `json:"cpu_refused_percent,omitempty"`
 }
 
-// CleanupProof is the account of what the run left behind. It travels with the
-// run rather than being checked once and assumed thereafter, because residue
-// accumulates silently: an environment whose every user is load-test residue
-// got there one uncleaned run at a time.
-//
-// The count is the cleanup step's, folded in by scripts/loadtest-bundle-merge.sh
-// in the four kinds scripts/loadtest-cleanup.sh removes. Until it arrives, and
-// on a venue where nothing outlives the run, the section is uncounted and says
-// why.
+// CleanupProof is the account of what the run left behind, folded in by
+// scripts/loadtest-bundle-merge.sh from the four kinds scripts/loadtest-cleanup.sh removes.
 type CleanupProof struct {
 	Verified bool `json:"verified"`
-	// NotCounted is why no count is here, where the run can say. An uncounted
-	// section with nothing beside it is a proof somebody dropped.
+	// NotCounted is why no count is here, where the run can say.
 	NotCounted          string `json:"not_counted,omitempty"`
 	OrphanUsers         int64  `json:"orphan_users"`
 	OrphanDevices       int64  `json:"orphan_devices"`
@@ -423,17 +207,8 @@ func (c CleanupProof) Clean() bool {
 	return c.OrphanUsers == 0 && c.OrphanDevices == 0 && c.OrphanOrganizations == 0 && c.OrphanSites == 0
 }
 
-// RefusalCount is what the run's browser-side generators asked for and how much
-// of it the server turned away at the door.
-//
-// The server counts requests per address, and a run whose presented addresses
-// are not believed spends one allowance between every virtual user: it fills
-// with refusals, reds the error-rate gate, and produces a night shaped exactly
-// like one against a slow server. One of those is a broken test setup and the
-// other is a finding about the product, and the count is what tells them apart.
-//
-// Both numbers, because one is a share of the other and a refusal count without
-// the requests it is out of says nothing about a run's size.
+// RefusalCount is what the run's browser-side generators asked for and how much of it the server
+// turned away at the door.
 type RefusalCount struct {
 	Requests int64 `json:"requests"`
 	Refused  int64 `json:"refused"`
@@ -452,24 +227,18 @@ type Bundle struct {
 	GeneratorHeadroom Headroom        `json:"generator_headroom"`
 	Cleanup           CleanupProof    `json:"cleanup"`
 	Verdict           Verdict         `json:"verdict"`
-	// BreakingPoint is where the ladder broke, for a profile that declared what
-	// breaking means. Absent for every profile that asked no such question.
+	// BreakingPoint is where the ladder broke, for a profile that declared what breaking means.
 	BreakingPoint *BreakingPoint `json:"breaking_point,omitempty"`
-	// Leak is what grew inside the target across the run, and where the
-	// readings it was found in are kept. Absent for every run that was not
-	// asked to watch — which is not the same as a run that watched and found
-	// nothing, and the two must never arrive as the same document.
+	// Leak is what grew inside the target across the run. Absent for a run not asked to watch,
+	// which differs from a run that watched and found nothing.
 	Leak *LeakTrail `json:"leak_trail,omitempty"`
-	// Refusals is how much of what the run asked for the server turned away.
-	// It is folded in beside the journeys by the same step, so it is absent on
-	// a venue that runs no browser-side generator — and absent rather than
-	// nought, because nought refusals out of nought requests is the cleanest
-	// night that could ever be reported and no run produced it.
+	// Refusals is how much of what the run asked for the server turned away. Absent where no
+	// browser-side generator ran, because nought of nought would read as the cleanest night.
 	Refusals *RefusalCount `json:"refusals,omitempty"`
 }
 
-// WriteTo validates the bundle and writes it into dir, returning the path. An
-// incomplete bundle never reaches disk: writing one is how it enters the trend.
+// WriteTo validates the bundle and writes it into dir, returning the path. An incomplete bundle
+// never reaches disk.
 func (b *Bundle) WriteTo(dir string) (string, error) {
 	if err := b.Validate(); err != nil {
 		return "", fmt.Errorf("bundle is incomplete, so the run has no evidence: %w", err)
@@ -489,8 +258,8 @@ func (b *Bundle) WriteTo(dir string) (string, error) {
 	return path, nil
 }
 
-// LoadBundle reads a bundle from disk without validating it, so a run that
-// produced an unreadable bundle can still be inspected.
+// LoadBundle reads a bundle from disk without validating it, so an unreadable bundle can still
+// be inspected.
 func LoadBundle(path string) (*Bundle, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {

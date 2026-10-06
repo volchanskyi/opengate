@@ -1,11 +1,5 @@
-// Package testpg supplies a shared Postgres connection string to the test
-// suite. When POSTGRES_TEST_URL is set (CI, or `make postgres-test-up`) it is
-// used as-is; otherwise a throwaway postgres:17-alpine container is started so
-// integration tests always run deterministically and never silently skip.
-//
-// This package imports only the leaf internal/testreaper, so any test package
-// (including internal `package foo` tests that cannot import testutil without
-// an import cycle) can depend on it.
+// Package testpg supplies a shared Postgres connection string to the test suite: the
+// POSTGRES_TEST_URL value when set, otherwise a throwaway postgres:17-alpine container.
 package testpg
 
 import (
@@ -38,18 +32,15 @@ var (
 	setupErr error
 )
 
-// URL returns the base test-database connection string, provisioning a
-// throwaway container on first use when URLEnv is unset. It is memoized, so a
-// single database backs the whole test binary. Intended for TestMain, which has
-// no testing.TB; tests should prefer BaseURL.
+// URL returns the memoized base test-database connection string, provisioning a container
+// when URLEnv is unset. TestMain uses it because it has no testing.TB.
 func URL() (string, error) {
 	once.Do(initBaseURL)
 	return baseURL, setupErr
 }
 
-// BaseURL returns the base test-database connection string (see URL). It never
-// skips: a provisioning failure fails the test via t.Fatalf so a missing
-// database is loud, not a silent green.
+// BaseURL returns the base test-database connection string (see URL) and fails the test
+// with t.Fatalf when provisioning fails.
 func BaseURL(t testing.TB) string {
 	t.Helper()
 	url, err := URL()
@@ -85,29 +76,19 @@ func initBaseURL() {
 	}
 }
 
-// init settles the reaper settings before anything can create one. It cannot
-// wait for startContainer: when POSTGRES_TEST_URL is set this package provisions
-// nothing, and the first container of the process is then started by somebody
-// else — the migration rehearsal in internal/db, which needs a database of its
-// own — which would take the defaults.
+// init settles the reaper settings before any container exists, including ones started by
+// other packages when POSTGRES_TEST_URL is set.
 func init() {
 	testreaper.Settle()
 }
 
-// startContainer launches a throwaway postgres:17-alpine container and returns
-// its connection string. max_connections matches the Makefile postgres-test-up
-// target so the test suite's concurrency budget holds, and the per-transaction
-// lock ceiling rises with it: the lock table is sized once at startup as
-// max_locks_per_transaction × max_connections, and a migration builds an entire
-// schema in one transaction, so enough of them at once exhaust the default 64
-// and fail with "out of shared memory" rather than anything about the schema.
+// startContainer launches a throwaway postgres:17-alpine container and returns its
+// connection string. The raised lock ceiling keeps concurrent migrations within the lock table.
 func startContainer() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// The container object is not retained: the Docker container keeps running
-	// independently of this Go handle and is reaped by the testcontainers Ryuk
-	// reaper when the test process exits, so no explicit Terminate is needed.
+	// The Ryuk reaper removes the container when the test process exits.
 	c, err := postgres.Run(ctx, PostgresImage,
 		postgres.WithDatabase("opengate_test"),
 		postgres.WithUsername("opengate"),

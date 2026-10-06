@@ -1,18 +1,8 @@
 #!/usr/bin/env bash
-# Emit the psql input that seeds the load-test administrator.
-#
-# The statements themselves live in the chart, at
-# deploy/helm/opengate/files/loadtest-account.sql, and the chart's post-upgrade
-# hook reads the same file. One copy: a column the schema added broke a chart
-# hook from a distance once already, and a second copy of those statements would
-# have been broken with nothing in its own diff to say so.
-#
-# The address and the password are delivered as `\set` meta-commands on stdin
-# rather than as `psql --set=…` flags: a command line is readable by any process
-# sharing the Postgres pod's PID namespace, and `kubectl exec` carries the
-# command verbatim in the API server's audit record. stdin crosses neither
-# boundary.
-#
+
+# Emits the psql input that seeds the load-test administrator from the chart's SQL file.
+# Address and password travel as `\set` commands on stdin, out of process lists and audit records.
+
 # Usage:
 #   ACCOUNT_EMAIL=… ACCOUNT_PASSWORD=… deploy/scripts/loadtest-account-sql.sh \
 #     | kubectl -n NS exec -i statefulset/REL-postgres -- \
@@ -31,9 +21,7 @@ if [ ! -f "$SQL_FILE" ]; then
   exit 1
 fi
 
-# psql's meta-command lexer processes backslash escapes inside a single-quoted
-# argument, so a backslash must be doubled before a quote is escaped — the
-# reverse order would re-escape the backslashes this step introduces.
+# psql reads escapes inside quotes: backslashes are doubled first, then quotes are escaped.
 psql_quote() {
   local escaped="${1//\\/\\\\}"
   printf "'%s'" "${escaped//\'/\\\'}"

@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Which allowance a request spends, once the trust decision has been made.
-// proxytrust_test.go is about which peer is believed; this is about what
-// follows from believing it.
-
 func TestExtractIPAgainstTheNamedEdge(t *testing.T) {
 	t.Parallel()
 
@@ -75,15 +71,10 @@ func TestRateLimiterBucketsPerPresentedAddress(t *testing.T) {
 		return rec.Code
 	}
 
-	// The load run's own subject: two technicians presented from the edge spend
-	// two allowances, which is what lets a generator offer more than one
-	// address' worth of work.
 	assert.Equal(t, http.StatusOK, send(edge+":41000", "198.51.100.1"))
 	assert.Equal(t, http.StatusTooManyRequests, send(edge+":41000", "198.51.100.1"))
 	assert.Equal(t, http.StatusOK, send(edge+":41000", "198.51.100.2"))
 
-	// And the reason the rule is narrow: a pod that is not the edge cannot do
-	// the same thing.
 	assert.Equal(t, http.StatusOK, send("10.244.0.99:41000", "198.51.100.3"))
 	assert.Equal(t, http.StatusTooManyRequests, send("10.244.0.99:41000", "198.51.100.4"))
 }

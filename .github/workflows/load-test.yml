@@ -30,43 +30,25 @@ concurrency:
 
 env:
   K6_VERSION: v1.6.1
-  # count is one of them because the bundle records how many times each
-  # screen was opened, and a trend statistic that was not asked for is not
-  # in the export — so the evidence carried nought openings of every screen.
+  # The bundle records screen-open counts, which the export carries only when count is requested.
   K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max,count
   LOADTEST_K6_SUMMARY_DIR: /tmp/loadtest-k6
   LOADTEST_QUIC_OUTPUT: /tmp/loadtest-quic.txt
-  # How long the QUIC fleet stays connected. The profile's walk is what decides
-  # when each machine leaves, so this is the floor under it rather than the
-  # figure: it has to cover the whole walk, because a machine whose hold has run
-  # out leaves the next time it reconnects and the level drops by it.
+  # The hold is the floor under the profile's walk and covers all of it, since a machine whose hold
+  # ran out leaves on its next reconnect.
   LOADTEST_HOLD: 12m
   NAMESPACE: opengate-staging
   RELEASE: opengate-staging
-  # Every identity a run creates is built from this. Left unset it falls back to
-  # a fixed word, every night asks for the same three addresses, and the second
-  # night is refused as a duplicate — which is what happened.
+  # Every identity a run creates derives from this id, so each night's addresses are unique.
   LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-  # Named once: the release step matches on this identity, and a claim released
-  # under a different one is left to time out instead.
+  # The release step matches on this identity, so it is named once.
   STAGING_LEASE_HOLDER: load-test-${{ github.run_id }}-${{ github.run_attempt }}
-  # The administrator the enrollment token is minted against. The deployment
-  # seeds it and no cleanup removes it, so it is still there on the night after
-  # a cleanup that finally worked.
+  # The deployment seeds this administrator, which the enrollment token is minted against.
   LOADTEST_SERVICE_ACCOUNT: opengate-service@service.invalid
-  # The profile this night runs and is judged against. It declares the shape of
-  # the load and every number the night's rows are read against, and it is the
-  # only place either lives.
-  #
-  # The run used to offer its whole fleet at once and wait, which is a real event
-  # — a site whose link came back — but not the everyday one, and it meant the
-  # profile's phases were read by nothing while its limits were read by the gate.
+  # The profile declares the load shape and every number the night's rows are judged against.
   LOADTEST_PROFILE: load/profiles/normal.yaml
-  # The label the generator pods carry, and the only thing that puts them behind
-  # the service the staging server has been told is a proxy. Without it every
-  # presented address a run offers is disbelieved and the whole night spends the
-  # one allowance a single pod is entitled to. Held equal to the chart's own
-  # selector by scripts/tests/loadtest-rate-budget.test.sh.
+  # This label puts generator pods behind the service the staging server treats as a proxy.
+  # The chart's selector is held equal to it by scripts/tests/loadtest-rate-budget.test.sh.
   LOADTEST_GENERATOR_LABEL: opengate.io/loadtest-generator
 
 permissions:
@@ -76,22 +58,15 @@ jobs:
   load-test:
     name: Load Tests (k6 + QUIC)
     runs-on: ubuntu-24.04
-    # Two terms, and the job has to hold both. The run itself is bounded by the
-    # wait for the harness's verdict, which is derived from the hold this file
-    # declares; the wait on the namespace claim in front of it is twenty-five
-    # minutes. A timeout covering only the second is a run cut off inside its
-    # own steady phase, which reads as a staging pod that never went Ready.
+    # The budget covers the verdict wait derived from the hold plus the 25 minute namespace claim wait.
     # scripts/tests/loadtest-run-budget.test.sh holds the sum against this.
     timeout-minutes: 60
-    # Deliberately avoid `environment: staging`: its required reviewers would
-    # block the scheduled run. This read-only workload uses repository-level OCI
-    # credentials and creates only short-lived test pods.
+    # `environment: staging` would put its required reviewers in front of the scheduled run.
+    # The job uses repository-level OCI credentials and creates short-lived test pods.
     outputs:
       started_at: ${{ steps.started.outputs.at }}
     steps:
-      # The night's date. Every sample the night writes carries this time, so a
-      # run is one point on one date however long it takes, and a re-run of its
-      # failed jobs writes the same point.
+      # Every sample of the night carries this time, so a re-run of failed jobs writes the same point.
       - name: Record when the run started
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
@@ -113,34 +88,18 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      # The staging deploy drives this same release — it rolls the server this
-      # run reads, truncates the account this run mints against, and puts its
-      # own machines on the one node. The two are scheduled independently and
-      # sit in different concurrency groups, so each takes the namespace before
-      # touching it and gives it back after.
-      #
-      # The wait is sized against what a holder in front can legitimately hold,
-      # not against the gap between two crons: every scheduled run starts four
-      # and a half to six and a half hours after the hour it names, and the
-      # spacing compresses as it slips, so two runs arriving together is the
-      # ordinary case rather than the unlucky one. The claim is renewed for as
-      # long as its holder works, so waiting it out is the only way past it —
-      # there is no longer a stale claim to take over. Twenty-five minutes
-      # covers the deploy and the drill, and leaves this job the rest of its own
-      # hour for the run it then makes.
+      # The staging deploy rolls the server, truncates the account and loads the node, so each side
+      # takes the namespace first; the wait covers a deploy and a drill.
       - name: Take the staging namespace
         env:
           STAGING_LEASE_WAIT_SECONDS: "1500"
         run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
 
-      # Both phases run their generator inside the cluster, so both need the
-      # server pod and the architecture its node runs.
+      # Both phases run their generator in the cluster, so both need the server pod and its arch.
       - name: Resolve staging target
         run: |
           set -euo pipefail
-          # As patient as the deploy's own wait. Given half of it, a run that
-          # started while a staging upgrade was still rolling gave up first and
-          # reported the deploy's rollout as a load-test failure.
+          # The rollout wait matches the deploy's own wait.
           kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
           SERVER_POD="$(kubectl -n "$NAMESPACE" get pods \
             -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=server" \
@@ -151,13 +110,7 @@ jobs:
             -o jsonpath='{.spec.nodeName}')"
           LOADTEST_GOARCH="$(kubectl get node "$SERVER_NODE" \
             -o jsonpath='{.status.nodeInfo.architecture}')"
-          # The two sides of the measurement are both recorded, because a
-          # latency figure is a property of the pair. The target's own limits
-          # are known to the cluster and to nothing inside the harness, which
-          # sees a network address — so they are read off the running container
-          # here and handed in. A run that recorded one processor and one byte
-          # of memory recorded a placeholder, and every number beside it was
-          # uninterpretable.
+          # The target's limits are known to the cluster alone, so they are read off the running container.
           LOADTEST_TARGET_CPUS="$(kubectl -n "$NAMESPACE" get pod "$SERVER_POD" \
             -o jsonpath='{.spec.containers[?(@.name=="server")].resources.limits.cpu}')"
           LOADTEST_TARGET_MEMORY="$(kubectl -n "$NAMESPACE" get pod "$SERVER_POD" \
@@ -173,36 +126,15 @@ jobs:
             echo "SERVER_POD=$SERVER_POD"
             echo "SERVER_POD_IP=$SERVER_POD_IP"
             echo "LOADTEST_GOARCH=$LOADTEST_GOARCH"
-            # k6 addresses the server over the cluster network, where the
-            # listener is plaintext: TLS terminates at the ingress, in front of
-            # this service, so naming the service by its in-cluster DNS is the
-            # same hop every other pod in the namespace makes.
+            # The in-cluster listener is plaintext because TLS terminates at the ingress.
             echo "LOADTEST_BASE_URL=http://${RELEASE}-server:8080"
-            # The exposition is on the server's second listener, which the
-            # Service publishes on its own port. A run that read it off the API
-            # port would find the SPA fallback instead, and record a target it
-            # never measured.
+            # The exposition is on the server's second listener, published on its own Service port.
             echo "LOADTEST_METRICS_URL=http://${RELEASE}-server:8081"
-            # In the units the harness records: a processor share as a fraction,
-            # memory as bytes. The cluster states both in its own notation, and
-            # a bundle carrying "250m" in a number field carries nothing.
+            # The harness records a processor share as a fraction and memory as bytes.
             echo "LOADTEST_TARGET_CPUS=$(scripts/k8s-quantity.sh cpu "$LOADTEST_TARGET_CPUS")"
             echo "LOADTEST_TARGET_MEMORY_BYTES=$(scripts/k8s-quantity.sh memory "$LOADTEST_TARGET_MEMORY")"
             echo "LOADTEST_TARGET_DESCRIPTION=${RELEASE}-server, ${LOADTEST_TARGET_CPUS} / ${LOADTEST_TARGET_MEMORY} on ${LOADTEST_GOARCH}"
           } >>"$GITHUB_ENV"
-
-      # --- Both generators run beside the server -----------------------------
-      #
-      # k6 and the QUIC harness both run inside the cluster, addressing the
-      # staging service by its in-cluster name, so the load reaches the system
-      # under test over one network hop and the trend records the server's
-      # latency rather than the generator's path to it.
-      #
-      # They also overlap. The relay scenario opens the operator's side of a
-      # real session, which needs a machine on the other side of it, so the QUIC
-      # harness holds a fleet connected while k6 runs rather than running after
-      # it. A relay figure measured with no machine connected is a figure about
-      # something else.
 
       - name: Install k6
         run: |
@@ -215,37 +147,20 @@ jobs:
       - name: Prepare load-test summaries
         run: install -d -m 0755 "$LOADTEST_K6_SUMMARY_DIR"
 
-      # The pods holding the two generators live as long as the run does. They
-      # were created with a fixed half-hour sleep, which was a ceiling on every
-      # staging run that nothing in this file declared — and a pod taken away
-      # underneath a run reports a harness that reached no verdict, which is
-      # what a broken cluster says too.
+      # The generator pods live as long as the hold this file declares.
       - name: Size the run from the hold it declares
         run: scripts/loadtest-run-budget.sh >>"$GITHUB_ENV"
 
       - name: Stage k6 harness in cluster
         run: |
           set -euo pipefail
-          # A dropped connection to the cluster is what has been costing
-          # nights here; see the helper for which calls may be repeated.
+          # The helper names which cluster calls may be repeated after a dropped connection.
           . scripts/lib/kubectl-retry.sh
           LOADTEST_K6_POD="k6-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "LOADTEST_K6_POD=$LOADTEST_K6_POD" >>"$GITHUB_ENV"
 
-          # The generator holds its own processor and memory, distinct from the
-          # server's. Sharing them is why the API mark had to be set wider than
-          # any regression worth finding: the measurement's own spread was
-          # larger than the thing being measured.
-          #
-          # What it reserves is small and what it may burst to is not. The node
-          # has 150 millicores left to reserve now that the staging server
-          # reserves what production does, and reservation is what governs
-          # admission — the machine itself is three-quarters idle, and its
-          # processor limits are already oversubscribed several times over.
-          #
-          # The memory cap covers three generators rather than one: the
-          # browser-side scenarios walk the profile at the same time now, so
-          # three k6 runtimes and the virtual users of all three share this pod.
+          # The generator reserves little and may burst high, because reservation governs admission.
+          # The memory cap covers three k6 runtimes and their virtual users sharing this pod.
           kubectl -n "$NAMESPACE" run "$LOADTEST_K6_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
@@ -253,34 +168,19 @@ jobs:
             --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"600m","memory":"768Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_K6_POD" 120
-          # The pod is created and ready by here, so what is left to fail is the
-          # connection — and it has, on a night that died one second after
-          # launch. All five are short, idempotent and repeatable, which is what
-          # makes them safe to ask for twice.
+          # These calls are short and idempotent, so repeating them is safe.
           kubectl_retry -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
           kubectl_retry -n "$NAMESPACE" cp /tmp/k6 "$LOADTEST_K6_POD:/tmp/k6"
           kubectl_retry -n "$NAMESPACE" cp load/. "$LOADTEST_K6_POD:/tmp/load"
           kubectl_retry -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- chmod 0755 /tmp/k6
           kubectl_retry -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- /tmp/k6 version
 
-      # The QUIC harness is staged and started before k6, and it holds its fleet
-      # connected for the whole k6 window. The relay scenario opens the
-      # operator's side of a real session, and a session needs a machine on the
-      # other end of it.
       - name: Build QUIC load test harness
         working-directory: server
         run: CGO_ENABLED=0 GOOS=linux GOARCH="$LOADTEST_GOARCH" go build -trimpath -o /tmp/loadtest ./tests/loadtest/
 
-      # The harness enrols the way an installer does: it keeps its own private
-      # keys and sends signing requests, and what comes back is a certificate.
-      # Nothing here copies the certificate authority's key out of the cluster —
-      # that key mints a trusted machine for the whole fleet, no rotation story
-      # covers it, and a shared CI runner is the last place it should exist.
-      #
-      # The credential the fleet spends is minted by the harness itself, through
-      # the same interface a technician uses, as the account the deployment
-      # seeds. It expires within the hour and this run is the only thing that
-      # spends it.
+      # The harness enrols as an installer does, with its own private keys and signing requests.
+      # The certificate authority's key stays in the cluster, since it would mint a trusted machine.
       - name: Read the load-test service account's password, and seed the account
         run: |
           set -euo pipefail
@@ -289,19 +189,8 @@ jobs:
           test -n "$PASSWORD"
           echo "::add-mask::$PASSWORD"
           echo "LOADTEST_SERVICE_PASSWORD=$PASSWORD" >>"$GITHUB_ENV"
-          # The chart seeds this account and the staging deploy's database reset
-          # truncates it away again, so whether it is there when a run starts
-          # depends on what a deploy did hours earlier. The run seeds it itself,
-          # from the file the chart hook and the deploy job both read, and the
-          # statements are idempotent — an account already present is left
-          # holding the password this run is about to spend. Over standard input
-          # for the reason the deploy uses it: a psql argv is readable by every
-          # process in the Postgres pod and is recorded verbatim in the API
-          # server's exec audit entry.
-          #
-          # Not retried: a connection dropped part-way through cannot say whether
-          # the statements landed, so a second attempt is either a no-op or a
-          # duplicate and nothing here can tell which.
+          # Standard input keeps the password out of the psql argv and the API server's exec audit entry.
+          # Not retried: a dropped connection cannot say whether the statements landed.
           ACCOUNT_EMAIL="$LOADTEST_SERVICE_ACCOUNT" ACCOUNT_PASSWORD="$PASSWORD" \
             deploy/scripts/loadtest-account-sql.sh \
             | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
@@ -311,21 +200,13 @@ jobs:
       - name: Stage QUIC harness in cluster
         run: |
           set -euo pipefail
-          # A dropped connection to the cluster is what has been costing
-          # nights here; see the helper for which calls may be repeated.
+          # The helper names which cluster calls may be repeated after a dropped connection.
           . scripts/lib/kubectl-retry.sh
           LOADTEST_POD="quic-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "LOADTEST_POD=$LOADTEST_POD" >>"$GITHUB_ENV"
 
-          # The QUIC generator holds its own allocation too, so the two
-          # generators cannot take each other's processor either.
-          #
-          # The Service carries the HTTP port only, so the name the certificate
-          # names is pointed at the server pod here — the arrangement the staging
-          # browser suite's own machines use (deploy/scripts/e2e-machine-pod.sh).
-          # An agent takes its TLS name from the host half of the address it is
-          # given, and a pod IP is in no certificate, so the name it dials and
-          # the name it verifies have to be this one and the same.
+          # The Service carries the HTTP port only, so the certificate's name is pointed at the pod IP.
+          # An agent takes its TLS name from the host half of its address, so dial and verify names match.
           kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
             --image=docker.io/library/alpine:3.21.3 \
             --restart=Never \
@@ -333,19 +214,12 @@ jobs:
             --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_POD" 120
-          # Same shape: short, idempotent staging into a pod already up.
+          # Staging into a pod that is already up is short and idempotent.
           kubectl_retry -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
           kubectl_retry -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
 
-          # The profile travels with the harness, because the harness reads it
-          # from inside the pod and the pod holds no checkout. A path that
-          # resolves on this runner and nowhere else is the whole of what the
-          # harness would be given otherwise, and it fails at its first line —
-          # as "the harness exited before it offered a fleet", which is also
-          # what a broken image says.
-          #
-          # The in-pod path is exported rather than rebuilt at the call site, so
-          # the copy and the flag cannot name two different files.
+          # The profile travels with the harness because the pod holds no checkout.
+          # The in-pod path is exported so the copy and the flag name the same file.
           kubectl_retry -n "$NAMESPACE" cp "$LOADTEST_PROFILE" \
             "$LOADTEST_POD:/tmp/$(basename "$LOADTEST_PROFILE")"
           echo "LOADTEST_POD_PROFILE=/tmp/$(basename "$LOADTEST_PROFILE")" >>"$GITHUB_ENV"
@@ -354,9 +228,7 @@ jobs:
         run: |
           set -euo pipefail
           AGENTS="${{ inputs.agents || '500' }}"
-          # The harness is launched detached inside the pod, so the fleet is
-          # held by the pod rather than by a stream this runner owns, and the
-          # step returns only once the harness says it is offering its fleet.
+          # The harness runs detached in the pod and the step returns once it offers its fleet.
           scripts/loadtest-quic-incluster.sh start -- \
             /tmp/loadtest \
               -agents="$AGENTS" \
@@ -376,44 +248,20 @@ jobs:
               -target-description="$LOADTEST_TARGET_DESCRIPTION" \
               -bundle=/tmp/loadtest-bundle
 
-      # Every device read the scenarios make is narrowed to a building, and each
-      # scenario chooses which building in its own setup — once, before its first
-      # iteration. A machine can only be filed into a building after it has
-      # registered, so the filing follows the arrivals; a scenario started before
-      # it reads an empty building for the whole of its run and publishes that as
-      # the night's number.
-      #
-      # So the ordering is asked for rather than assumed. The harness says when
-      # the estate it declared is filed, and this waits for it.
+      # Scenarios pick a building once at setup, and a machine is filed into a building only after
+      # it registers, so this wait lets the filing finish first.
       - name: Wait for the estate to be filed
         run: scripts/loadtest-quic-incluster.sh await-filed
 
-      # The machine-side harness has been walking since its fleet started
-      # arriving, and the step above waited for the estate to be filed. The
-      # browser-side generators join that walk where it is rather than starting
-      # the shape again: a generator a phase behind holds its steady window open
-      # past the drain, and publishes a percentile taken partly against a fleet
-      # that had already left.
+      # The browser-side generators join the machine-side walk where it is, so every phase lines up.
       - name: Say how far the walk has already gone
         run: |
           set -euo pipefail
           started="$(scripts/loadtest-quic-incluster.sh walk-started-at)"
           echo "LOADTEST_WALK_ELAPSED_SECONDS=$(( $(date +%s) - started ))" >>"$GITHUB_ENV"
 
-      # The three browser-side scenarios walk the same profile the machine-side
-      # harness is walking, at the same time, because that is what the profile
-      # describes: one night, one shape, technicians working through it while
-      # machines arrive underneath them. Run one after another they would each
-      # walk the whole shape in turn, which is three nights end to end and none
-      # of them the night the profile declares.
-      #
-      # Each presents addresses from a block of its own, so two of them cannot
-      # spend one technician's allowance between them.
-      #
-      # A scenario that fails is waited for rather than abandoned: `wait` on a
-      # named job returns that job's status, and every one of the three is
-      # checked, so a night short of a generator says which one and still keeps
-      # what the other two measured.
+      # The three scenarios walk one profile concurrently, each presenting addresses from its own block.
+      # Waiting on each named job checks all three statuses and keeps what the others measured.
       - name: Run the browser-side scenarios against the walk
         run: |
           set -uo pipefail
@@ -440,23 +288,13 @@ jobs:
             kubectl -n "$NAMESPACE" delete pod "$LOADTEST_K6_POD" --ignore-not-found --wait=false
           fi
 
-      # The harness holds its fleet in the pod, so its output and its exit code
-      # are read back from there and handed to the keep-or-discard rule, which
-      # stays the one place that decides whether the night measured anything.
-      #
-      # On every path, because the path where a scenario failed is the one where
-      # the fleet's log is the answer. A relay scenario finds no machine to open
-      # a session against precisely when the fleet did not come up, and skipping
-      # this step there threw away the only account of why.
+      # The fleet's output and exit code are read back from the pod on every path, since a failed
+      # scenario is where the fleet's log holds the answer.
       - name: Wait for the QUIC fleet to finish
         if: always()
         run: |
           set -euo pipefail
-          # 1 is a fleet that half arrived, which is a measurement: the gate job
-          # reads the profile's limits against it and the completeness step
-          # reads the run's own verdict. Failing here on the count instead is a
-          # second verdict nobody wrote down, and it refuses a night over one
-          # machine the server would not take.
+          # Exit 1 is a partly arrived fleet, a measurement the gate and completeness steps judge.
           set +e
           scripts/loadtest-quic-run.sh "$LOADTEST_QUIC_OUTPUT" -- \
             scripts/loadtest-quic-incluster.sh collect
@@ -471,29 +309,21 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          # A dropped connection to the cluster is what has been costing
-          # nights here; see the helper for which calls may be repeated.
+          # The helper names which cluster calls may be repeated after a dropped connection.
           . scripts/lib/kubectl-retry.sh
           mkdir -p loadtest-bundle
-          # The night's own evidence, pulled back out of the pod. A dropped
-          # connection here discards a run that has already finished.
           kubectl_retry -n "$NAMESPACE" cp "$LOADTEST_POD:/tmp/loadtest-bundle/bundle.json" \
             loadtest-bundle/quic-agents.json 2>/dev/null \
             || echo "::warning::the QUIC harness wrote no evidence bundle"
 
-          # The screens this night timed are measured by the browser-side
-          # generator, in a different pod, so they reach the evidence here or
-          # nowhere. The bundle is the artifact that outlives the metrics
-          # store's thirty days, and it carried a null under a field naming the
-          # three journeys that were being published into the trend all along.
+          # The browser-side generator runs in another pod, so its screen timings join the bundle here.
           if [ -s loadtest-bundle/quic-agents.json ] \
             && [ -s "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json" ]; then
             scripts/loadtest-bundle-merge.sh loadtest-bundle/quic-agents.json \
               --journeys "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json"
           fi
 
-      # A run leaves nothing behind: the pod, the local build, and the token it
-      # was given all go, whatever the run's verdict was.
+      # The pod, the local build and the spent token go whatever the run's verdict was.
       - name: Cleanup QUIC load test pod and spent credential
         if: always()
         run: |
@@ -504,14 +334,8 @@ jobs:
             -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
             -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
           if [[ -n "$POSTGRES_POD" ]]; then
-            # Over standard input, not -c: psql expands a -v variable in a file
-            # and on standard input and never inside -c, so written the other way
-            # the server receives the colon literally, answers with a syntax
-            # error, and the spent credential outlives the run.
-            #
-            # Not retried: a connection dropped part-way through cannot say
-            # whether the delete landed, and it is already tolerant of its own
-            # failure — the next deploy's reset is the backstop.
+            # Standard input expands the -v variable, which -c never does.
+            # Not retried: the delete tolerates its own failure and the next deploy's reset covers it.
             kubectl -n "$NAMESPACE" exec -i "$POSTGRES_POD" -- \
               psql -U opengate -d opengate -q \
                 -v marker="opengate-loadtest" <<'SQL' || true
@@ -520,11 +344,7 @@ jobs:
           fi
           rm -rf /tmp/loadtest /tmp/k6 /tmp/k6-"${K6_VERSION}"-linux-amd64
 
-      # A run leaves nothing behind, and says so. Every account in this database
-      # was once load-test residue — eighty-one of them — because no run had
-      # ever removed what it made and nothing counted. The proof this writes is
-      # what the evidence bundle carries: a run that claims it left nothing has
-      # to have looked.
+      # The cleanup proof is what the evidence bundle carries.
       - name: Remove what the run created, and prove it
         if: always()
         run: |
@@ -533,14 +353,11 @@ jobs:
             -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=postgres" \
             -o jsonpath='{.items[0].metadata.name}')"
           test -n "$POSTGRES_POD"
-          # Not retried: this is the handle a non-idempotent write is made
-          # through, and a transport drop cannot say whether the statement landed.
+          # Not retried: this handle makes a non-idempotent write, so a drop cannot say whether it landed.
           LOADTEST_PSQL="kubectl -n $NAMESPACE exec -i $POSTGRES_POD -- psql -U opengate -d opengate" \
             scripts/loadtest-cleanup.sh loadtest-cleanup.json
 
-      # The harness writes its bundle before anything is removed, so the bundle
-      # says its cleanup is uncounted until the proof above is folded in —
-      # residue and all.
+      # The harness writes its bundle before cleanup, so the proof is folded in afterwards.
       - name: Fold the cleanup proof into the evidence
         if: always()
         run: |
@@ -557,28 +374,13 @@ jobs:
           K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
             QUIC_OUTPUT_FILE="$LOADTEST_QUIC_OUTPUT" \
             scripts/loadtest-summarize.sh > loadtest-summary.json
-          # Stage the raw exports inside the workspace so the artifact keeps a
-          # workspace-relative layout and the publish job's download path holds.
+          # The raw exports stage inside the workspace so the artifact layout is workspace-relative.
           mkdir -p loadtest-k6-raw
           cp "$LOADTEST_K6_SUMMARY_DIR"/*.json loadtest-k6-raw/ 2>/dev/null || true
           cp "$LOADTEST_K6_SUMMARY_DIR"/*.thresholds loadtest-k6-raw/ 2>/dev/null || true
 
-      # The profile's own limits, read against the rows the step above produced.
-      #
-      # They had been read by nothing: the schema checked each was well-formed
-      # and no code consumed one, so every number in all seven profiles was
-      # decoration — including the ones marked as failing the run. They could
-      # not be read inside the harness either, which holds phases and machines
-      # and no browser-side row at all, and twelve of the sixteen name a
-      # browser-side measurement. Here both halves of the night are in one file,
-      # which is the first place both exist.
-      #
-      # The breach file is what the completeness step folds into the night's
-      # verdict; a breach is a finding about the system, so the night fails and
-      # its rows still enter the trend. This step's own exit is not the gate —
-      # that would fail the collection job for a finding about the target — but
-      # it must fail loudly when it could not read the limits at all, which is
-      # what exit 2 means.
+      # The profile's limits are read against the summary rows, where both halves of the night meet.
+      # The breach file feeds the completeness verdict; exit 2 means the limits could not be read.
       - name: Read the profile's limits against tonight's rows
         if: always()
         run: |
@@ -605,18 +407,11 @@ jobs:
             scripts/loadtest-run-completeness.sh loadtest-summary.json loadtest-completeness.json
           COMPLETENESS_STATUS=$?
           set -e
-          # A run that measured nothing is invalid, and an invalid run does not
-          # enter the trend: absorbed as data it pulls the window median down,
-          # and the next genuinely slow night then compares favourably and
-          # passes. Exit 3 is that verdict. Exit 4 is a night that did measure
-          # the system and found it past a limit, whose rows do enter the trend.
-          # The job goes red on either.
+          # Exit 3 is a run that measured nothing and stays out of the trend, where it would drag the
+          # window median down. Exit 4 is a run past a limit whose rows enter the trend. Both redden the job.
           exit "$COMPLETENESS_STATUS"
 
-      # The raw k6 exports ship alongside the canonical summary. Without them a
-      # summary row that silently lost its metrics is indistinguishable from a
-      # scenario that never ran, and the extraction has no observable input to
-      # check it against.
+      # The raw k6 exports separate a summary row that lost its metrics from a scenario never run.
       - name: Upload canonical load-test summary
         if: always()
         uses: actions/upload-artifact@v7
@@ -646,10 +441,8 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # This job's result is the observability environment's deployment status, so
-    # it reports only whether the trend was collected and published. The
-    # regression verdict is a separate job below: a regression is a finding about
-    # the system under test, not a failure to publish.
+    # This job's result is the observability deployment status, so it reports only whether the trend
+    # was collected and published; the regression verdict is the gate job's.
     environment: observability
     permissions:
       contents: read
@@ -678,15 +471,7 @@ jobs:
           name: loadtest-summary
           path: artifacts/loadtest
 
-      # The run already classified itself, into a file that reached this job and
-      # was read by nothing. Every night since the fleet stopped connecting
-      # pushed rps 0 and error_rate 1 for a scenario that never ran, and the
-      # fourteen-day median fell from 113 to 57 — which raises the bar a genuine
-      # collapse has to clear before the gate notices it. One partial night
-      # quietly costs two, and that is the whole reason the verdict exists.
-      #
-      # An absent verdict fails here as loudly as an invalid one: a guard that
-      # answers yes when it cannot ask protects nothing.
+      # A run that measured nothing stays out of the trend, and an absent verdict fails as loudly.
       - name: Read the run's own verdict before publishing anything
         run: |
           set -euo pipefail
@@ -754,16 +539,9 @@ jobs:
           retention-days: 90
 
       - name: Push to VictoriaMetrics
-        # The consecutive-night counts ride along, because the check that reads
-        # them next night has no other memory: each bad night enters the window
-        # the next is judged against, so an advisory left to itself raises its
-        # own comparison point until it goes quiet.
+        # The consecutive-night counts ride along, since the next night's check has no other memory.
         run: ./scripts/loadtest-vm-push.sh loadtest-rows.json loadtest-p99-streaks.json
 
-      # Every measurement beside the limit the profile holds it to, the error
-      # rate, and how much of its own ceiling the server and the database used
-      # through the measured phase — the database's read from the cluster's own
-      # container readings over that phase's window.
       - name: Write GITHUB_STEP_SUMMARY
         run: |
           set -euo pipefail
@@ -790,14 +568,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Send Telegram alert
-        # Runs whatever happened above it, and the message names which of the
-        # three it was. The shape this replaces was gated on a flag an earlier
-        # step in this job produced, so a night that died before that step said
-        # nothing at all: the louder the failure, the more certain the silence.
-        #
-        # And the send below reports a refused delivery rather than swallowing
-        # it. It can afford to — the verdict this run carries is read by a job of
-        # its own, so a Telegram outage reddens this job and hides nothing.
+        # Runs whatever happened above it, and the message names which of the three it was.
+        # A refused send reddens this job and hides nothing, since a separate job reads the verdict.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}

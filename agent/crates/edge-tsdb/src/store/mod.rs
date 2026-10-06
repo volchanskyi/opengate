@@ -1,25 +1,5 @@
-//! `LocalTsdb` — the production agent-local multi-tier persistent store.
-//!
-//! Built by *graduating* the WS-14a spike: the [`compact`](crate::compact) block
-//! codec (fixed-point-per-metric + implicit timestamps + inline anomaly bit),
-//! the [`tier`](crate::tier) rollups, and the big-block-in-`redb` technique
-//! measured in [`redb_compact`](crate::redb_compact). Because central
-//! VictoriaMetrics keeps `avg` only, this store is the **sole** home for
-//! min/max/last + 1 s raw, so it is load-bearing and its robustness (crash
-//! safety, corruption recovery, disk-cap) is inherited from `redb`, not owned.
-//!
-//! ## Tiers, one atomic transaction
-//!
-//! - **T0** — 1 s raw samples + inline anomaly bits, packed into big compact
-//!   blocks so `redb`'s per-key B-tree overhead amortises.
-//! - **T1 / T2** — 60 s / 3600 s rollups (min/max/avg/last/count), keyed by
-//!   **sample** timestamp so an NTP step never misbuckets, merged incrementally
-//!   so a bucket split across commits still folds exactly.
-//!
-//! Each commit writes T0 + its T1/T2 rollups in **one** `redb` transaction, so a
-//! chunk and its rollups land or roll back together. `Durability::Full` maps to
-//! `redb`'s `Immediate` (fsync) commit; `None` is the buffered fast path. The
-//! block-I/O and transaction glue lives in [`blocks`].
+//! `LocalTsdb` is the agent-local multi-tier store: T0 raw blocks plus 60 s and 3600 s rollups,
+//! committed in one `redb` transaction so a chunk and its rollups land or roll back together.
 
 mod blocks;
 
@@ -73,9 +53,8 @@ pub struct LocalTsdb {
 }
 
 impl LocalTsdb {
-    /// Open (creating if absent) a store under `path`, migrating an older format
-    /// forward. Returns an error — never a panic — on a store written by a newer
-    /// agent than this one understands.
+    /// Opens (creating if absent) a store under `path`, migrating older formats forward and
+    /// returning an error on a store written by a newer agent.
     pub fn open(path: &Path, config: TsdbConfig) -> Result<Self> {
         std::fs::create_dir_all(path)?;
         let file = path.join("localtsdb.redb");
@@ -105,16 +84,14 @@ impl LocalTsdb {
         })
     }
 
-    /// Set the fixed-point quantization scale for a series (e.g. `100` for
-    /// centi-precision percentages). Applied at encode time; blocks self-describe
-    /// their scale, so a policy change never breaks already-written blocks.
+    /// Sets the fixed-point quantization scale for a series (e.g. `100` for centi-precision
+    /// percentages); blocks self-describe their scale, so old blocks stay readable.
     pub fn set_scale(&mut self, series: SeriesId, scale: i64) {
         self.scales.insert(series, scale);
     }
 
-    /// Report currently-free host-disk bytes so the store can back off its cap
-    /// under host pressure (`cap = min(cap_bytes, free × host_free_fraction)`).
-    /// The store never queries the OS itself, keeping it dependency-free.
+    /// Reports free host-disk bytes; the cap becomes `min(cap_bytes, free × host_free_fraction)`.
+    /// The store never queries the OS itself.
     pub fn set_host_free_bytes(&mut self, free: Option<u64>) {
         self.host_free = free;
     }
@@ -136,9 +113,7 @@ impl LocalTsdb {
         self.format_version
     }
 
-    /// Append one raw sample with its anomaly bit. Buffered until [`commit`].
-    ///
-    /// [`commit`]: LocalTsdb::commit
+    /// Appends one raw sample with its anomaly bit, buffered until [`LocalTsdb::commit`].
     pub fn append(&mut self, series: SeriesId, sample: Sample, anomaly: bool) -> Result<()> {
         let os = self.open.entry(series).or_default();
         if os.tail.is_empty() {
@@ -175,9 +150,8 @@ impl LocalTsdb {
         self.enforce_cap()
     }
 
-    /// Range-query committed T0 raw samples with their anomaly bits, ascending by
-    /// timestamp. Uncommitted (in-flight) samples are intentionally excluded — a
-    /// read is a consistent view of durable state.
+    /// Range-queries committed T0 raw samples with anomaly bits, ascending by timestamp;
+    /// uncommitted samples are excluded.
     pub fn range_raw(&self, series: SeriesId, start: i64, end: i64) -> Result<Vec<(Sample, bool)>> {
         let rt = self.db.begin_read().map_err(blocks::re)?;
         read_raw(&rt, series, start, end)
@@ -195,16 +169,13 @@ impl LocalTsdb {
         read_tier(&rt, tier, series, start, end)
     }
 
-    /// The oldest and newest bucket a rollup tier holds for `series`, or `None`
-    /// when it holds nothing for it — a device enrolled this morning, or a
-    /// vital this host cannot measure.
+    /// The oldest and newest bucket a rollup tier holds for `series`, or `None` when empty.
     pub fn tier_span(&self, series: SeriesId, tier: Tier) -> Result<Option<(i64, i64)>> {
         let rt = self.db.begin_read().map_err(blocks::re)?;
         read_tier_span(&rt, tier, series)
     }
 
-    /// The durable backfill cursor for `series` (the last timestamp WS-15 shipped
-    /// centrally), or `None` if never set.
+    /// The durable backfill cursor for `series`, the last timestamp shipped centrally, or `None`.
     pub fn cursor(&self, series: SeriesId) -> Result<Option<i64>> {
         let rt = self.db.begin_read().map_err(blocks::re)?;
         match rt.open_table(CURSOR) {
@@ -227,18 +198,15 @@ impl LocalTsdb {
         Ok(())
     }
 
-    /// Open a consistent MVCC read snapshot. Reads on the snapshot see the store
-    /// as of this call and are unaffected by concurrent writes — the WS-15 /
-    /// detection read-while-the-sampler-writes path is free.
+    /// Opens a consistent MVCC read snapshot that concurrent writes do not affect.
     pub fn snapshot(&self) -> Result<TsdbSnapshot> {
         Ok(TsdbSnapshot {
             rt: self.db.begin_read().map_err(blocks::re)?,
         })
     }
 
-    /// DEFLATE every sealed (non-tail) T1/T2 block to reclaim cold-tier space.
-    /// Never touches T0 raw. Opt-in and idempotent; the caller gates it on the
-    /// agent's <1 % CPU budget. A no-op when the `cold-deflate` feature is off.
+    /// Compresses every sealed (non-tail) T1/T2 block with DEFLATE, leaving T0 raw alone.
+    /// Idempotent; a no-op when the `cold-deflate` feature is off.
     #[cfg(feature = "cold-deflate")]
     pub fn compact_cold_tiers(&mut self) -> Result<()> {
         let mut logical = self.logical_bytes;
@@ -262,8 +230,7 @@ impl LocalTsdb {
         Ok(())
     }
 
-    /// Purge the entire local store — every tier, rollup, and cursor — on
-    /// deprovision (WS-20). In-memory buffers are dropped too.
+    /// Purges every tier, rollup, cursor and in-memory buffer on deprovision.
     pub fn purge(&mut self) -> Result<()> {
         let mut wt = self.db.begin_write().map_err(blocks::re)?;
         wt.set_durability(redb::Durability::Immediate)
@@ -390,15 +357,10 @@ mod tests {
         stamp_version(dir.path(), CURRENT_FORMAT - 1);
         let db = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
         assert_eq!(db.format_version(), CURRENT_FORMAT);
-        // The WS-15 backlog is never orphaned by a migration.
+        // Raw samples survive a migration.
         assert_eq!(db.range_raw(0, i64::MIN, i64::MAX).unwrap().len(), 100);
     }
 
-    /// Opening a store leaves the format it now holds written on it — a fresh
-    /// store and one an earlier agent stamped alike. That number is the whole
-    /// mechanism: an agent that predates this format reads it and declines the
-    /// store rather than reading a technician's history through the wrong
-    /// layout.
     #[test]
     fn an_opened_store_is_left_stamped_with_the_format_it_holds() {
         let fresh = tempfile::tempdir().unwrap();
@@ -419,10 +381,6 @@ mod tests {
         );
     }
 
-    /// A series whose samples have all been written keeps nothing back. The
-    /// buffers are per-series and an estate machine reports dozens of vitals;
-    /// holding an entry for every series that has ever reported is how a
-    /// long-running agent's memory grows without anything counting it.
     #[test]
     fn a_series_that_hands_over_everything_it_buffered_keeps_nothing() {
         let dir = tempfile::tempdir().unwrap();

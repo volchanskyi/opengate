@@ -20,11 +20,7 @@ type UserID = uuid.UUID
 // SiteID uniquely identifies a device site.
 type SiteID = uuid.UUID
 
-// DeviceStatus is aliased to the canonical device-aggregate type so existing
-// db.StatusOnline / db.StatusOffline / db.StatusConnecting references in
-// not-yet-extracted modules (AMT, integration tests) keep compiling while the
-// type itself now lives in [device]. Removed once those callers migrate to
-// device.StatusX directly.
+// DeviceStatus aliases the device aggregate's status type for callers using the db prefix.
 type DeviceStatus = device.DeviceStatus
 
 const (
@@ -33,10 +29,7 @@ const (
 	StatusConnecting = device.StatusConnecting
 )
 
-// Compat aliases for the not-yet-extracted callers that still spell these
-// types with a `db.` prefix. Test files, bench files, AMT code, etc. — every
-// alias here is a direct rename to its canonical home in [device]. Removed
-// once the matching modules own all remaining aliases.
+// These aliases name the device package's types for callers using the db prefix.
 type (
 	Device               = device.Device
 	Site                 = device.Site
@@ -46,21 +39,13 @@ type (
 	NetworkInterfaceInfo = device.NetworkInterfaceInfo
 )
 
-// User is aliased to the canonical type in [auth] for the migration window
-// while not-yet-updated callers still spell this with a `db.` prefix.
-// Removed once those callers migrate to auth.User directly.
+// User aliases auth.User for callers using the db prefix.
 type User = auth.User
 
-// AgentSession is aliased to the canonical type in [session] for the
-// migration window while not-yet-updated callers still spell this with a
-// `db.` prefix. Removed once those callers migrate to session.Session
-// directly.
+// AgentSession aliases session.Session for callers using the db prefix.
 type AgentSession = session.Session
 
-// WebPushSubscription is aliased to the canonical type in [notifications] for
-// the migration window while the not-yet-updated callers still spell this
-// with a `db.` prefix. Removed once those callers migrate to the
-// notifications.WebPushSubscription identifier directly.
+// WebPushSubscription aliases notifications.WebPushSubscription for callers using the db prefix.
 type WebPushSubscription = notifications.WebPushSubscription
 
 // AMTDevice represents an Intel AMT device connected via CIRA.
@@ -68,9 +53,8 @@ type AMTDevice struct {
 	// UUID is the AMT firmware's CIRA identity, which on vPro hardware equals the
 	// host's SMBIOS system UUID.
 	UUID uuid.UUID `json:"uuid"`
-	// DeviceID is the managed device this AMT connection belongs to, resolved
-	// from the system UUID. AMT is a property of a managed device, so a
-	// connection with no device is held in memory and never persisted.
+	// DeviceID is the managed device resolved from the system UUID; a connection without one is
+	// held in memory only.
 	DeviceID uuid.UUID    `json:"device_id"`
 	Status   DeviceStatus `json:"status"`
 	LastSeen time.Time    `json:"last_seen"`

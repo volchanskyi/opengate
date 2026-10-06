@@ -14,9 +14,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// stubMaintDevices is a device.Repository whose Get returns a fixed device (or
-// error). Only Get is exercised by pushMaintenanceState; the embedded interface
-// satisfies the rest.
 type stubMaintDevices struct {
 	device.Repository
 	dev *device.Device
@@ -36,8 +33,7 @@ func TestAgentConn_SendSetMaintenanceMode(t *testing.T) {
 		require.NoError(t, ac.SendSetMaintenanceMode(context.Background(), enabled))
 		msg := readReply(t, ac, &buf)
 		assert.Equal(t, protocol.MsgSetMaintenanceMode, msg.Type)
-		// The pointer must survive even for false, so the agent can be told to
-		// resume — a dropped field would read as "no change".
+		// The pointer survives for false, so a dropped field cannot read as no change.
 		require.NotNil(t, msg.Enabled)
 		assert.Equal(t, enabled, *msg.Enabled)
 	}

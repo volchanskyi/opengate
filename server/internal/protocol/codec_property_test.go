@@ -8,16 +8,22 @@ import (
 	"pgregory.net/rapid"
 )
 
-// Property-based coverage for the wire envelope and handshake codecs. The
-// existing FuzzReadFrame target covers decode robustness; these properties add
-// the complementary *round-trip* guarantee (encode then decode recovers the
-// input) plus handshake encode/decode and decode-robustness. rapid.Check always
-// runs under `go test` and explores a bounded number of cases deterministically,
-// per tests-determinism.md.
+func drawBytes(t *rapid.T, label string, minLen, maxLen int) []byte {
+	return rapid.SliceOfN(rapid.Byte(), minLen, maxLen).Draw(t, label)
+}
 
-// TestProperty_Frame_RoundTrip asserts a length-prefixed frame survives
-// WriteFrame → ReadFrame with type and payload intact, for every payload-bearing
-// frame type and arbitrary payloads bounded under MaxFrameSize.
+func drawNonceAndHash(t *rapid.T) (nonce [32]byte, hash [48]byte) {
+	copy(nonce[:], drawBytes(t, "nonce", 32, 32))
+	copy(hash[:], drawBytes(t, "hash", 48, 48))
+	return nonce, hash
+}
+
+func requireHandshakeType(t *rapid.T, want byte, enc []byte) {
+	got, err := DecodeHandshakeType(enc)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
 func TestProperty_Frame_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := &Codec{}
@@ -25,7 +31,7 @@ func TestProperty_Frame_RoundTrip(t *testing.T) {
 		ft := rapid.SampledFrom([]byte{
 			FrameControl, FrameDesktop, FrameTerminal, FrameFile,
 		}).Draw(t, "frameType")
-		payload := rapid.SliceOfN(rapid.Byte(), 0, 16384).Draw(t, "payload")
+		payload := drawBytes(t, "payload", 0, 16384)
 
 		var buf bytes.Buffer
 		require.NoError(t, c.WriteFrame(&buf, ft, payload))
@@ -37,15 +43,12 @@ func TestProperty_Frame_RoundTrip(t *testing.T) {
 	})
 }
 
-// TestProperty_PingPong_RoundTrip asserts ping/pong are written as a bare type
-// byte (no length/payload) and read back as that type with a nil payload — any
-// supplied payload is intentionally dropped.
 func TestProperty_PingPong_RoundTrip(t *testing.T) {
 	t.Parallel()
 	c := &Codec{}
 	rapid.Check(t, func(t *rapid.T) {
 		ft := rapid.SampledFrom([]byte{FramePing, FramePong}).Draw(t, "frameType")
-		payload := rapid.SliceOfN(rapid.Byte(), 0, 32).Draw(t, "ignoredPayload")
+		payload := drawBytes(t, "ignoredPayload", 0, 32)
 
 		var buf bytes.Buffer
 		require.NoError(t, c.WriteFrame(&buf, ft, payload))
@@ -58,22 +61,13 @@ func TestProperty_PingPong_RoundTrip(t *testing.T) {
 	})
 }
 
-// TestProperty_ServerHello_RoundTrip asserts the nonce and cert hash survive
-// EncodeServerHello → DecodeServerHello, and that the encoded blob's type byte
-// decodes to MsgServerHello.
 func TestProperty_ServerHello_RoundTrip(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
-		var nonce [32]byte
-		var certHash [48]byte
-		copy(nonce[:], rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(t, "nonce"))
-		copy(certHash[:], rapid.SliceOfN(rapid.Byte(), 48, 48).Draw(t, "certHash"))
+		nonce, certHash := drawNonceAndHash(t)
 
 		enc := EncodeServerHello(nonce, certHash)
-
-		mt, err := DecodeHandshakeType(enc)
-		require.NoError(t, err)
-		require.Equal(t, byte(MsgServerHello), mt)
+		requireHandshakeType(t, byte(MsgServerHello), enc)
 
 		gotNonce, gotHash, err := DecodeServerHello(enc)
 		require.NoError(t, err)
@@ -82,42 +76,25 @@ func TestProperty_ServerHello_RoundTrip(t *testing.T) {
 	})
 }
 
-// TestProperty_HandshakeType_RoundTrip asserts EncodeHandshake tags a blob with
-// a type byte that DecodeHandshakeType recovers, and that the dedicated
-// AgentHello/SkipAuth encoders carry their own type bytes.
 func TestProperty_HandshakeType_RoundTrip(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		msgType := rapid.SampledFrom([]byte{
 			MsgServerHello, MsgAgentHello, MsgSkipAuth, MsgExpectHash,
 		}).Draw(t, "msgType")
-		payload := rapid.SliceOfN(rapid.Byte(), 0, 128).Draw(t, "payload")
+		payload := drawBytes(t, "payload", 0, 128)
+		requireHandshakeType(t, msgType, EncodeHandshake(msgType, payload))
 
-		mt, err := DecodeHandshakeType(EncodeHandshake(msgType, payload))
-		require.NoError(t, err)
-		require.Equal(t, msgType, mt)
-
-		var nonce [32]byte
-		var hash [48]byte
-		copy(nonce[:], rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(t, "nonce"))
-		copy(hash[:], rapid.SliceOfN(rapid.Byte(), 48, 48).Draw(t, "hash"))
-
-		agentType, err := DecodeHandshakeType(EncodeAgentHello(nonce, hash))
-		require.NoError(t, err)
-		require.Equal(t, byte(MsgAgentHello), agentType)
-
-		skipType, err := DecodeHandshakeType(EncodeSkipAuth(hash))
-		require.NoError(t, err)
-		require.Equal(t, byte(MsgSkipAuth), skipType)
+		nonce, hash := drawNonceAndHash(t)
+		requireHandshakeType(t, byte(MsgAgentHello), EncodeAgentHello(nonce, hash))
+		requireHandshakeType(t, byte(MsgSkipAuth), EncodeSkipAuth(hash))
 	})
 }
 
-// TestProperty_HandshakeDecode_NeverPanic feeds arbitrary bytes to the handshake
-// decoders; a typed error is fine, a panic is not.
 func TestProperty_HandshakeDecode_NeverPanic(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
-		data := rapid.SliceOfN(rapid.Byte(), 0, 256).Draw(t, "data")
+		data := drawBytes(t, "data", 0, 256)
 
 		_, _ = DecodeHandshakeType(data)
 		_, _, _ = DecodeServerHello(data)

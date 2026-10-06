@@ -1,11 +1,4 @@
 #![cfg(feature = "bakeoff")]
-//! WS-14a Path-1 measurement: does a Netdata/tsink-grade compact block codec
-//! (float32 + implicit fixed-step timestamps + adaptive per-block codec + inline
-//! anomaly bit), packed into big blocks inside redb, close redb's write-amp gap
-//! and approach the sub-1 B/sample class — and at what precision cost?
-//!
-//! These always-run tests pin the answer as regression guards; the full numeric
-//! table is reproduced by `cargo bench -p edge-tsdb`.
 
 use edge_tsdb::compact::{decode_compact, encode_compact};
 use edge_tsdb::corpus::{Corpus, CorpusConfig};
@@ -24,12 +17,8 @@ fn corpus() -> Corpus {
     })
 }
 
-/// A fractional (gauge) series is float32-lossy but must stay within f32
-/// precision; an integral (counter) series must round-trip bit-exact via the
-/// lossless integer-DoD codec the adaptive selector picks for it.
 #[test]
 fn compact_round_trip_respects_precision_contract() {
-    // Fractional gauge at a fixed 1 s cadence.
     let gauge: Vec<Sample> = (0..500)
         .map(|i| Sample::new(1_000 + i, 12.34 + (i % 5) as f64 * 0.01))
         .collect();
@@ -42,7 +31,6 @@ fn compact_round_trip_respects_precision_contract() {
         assert!(rel < 1e-5, "float32 error {rel:e} exceeds contract");
     }
 
-    // Monotonic integral counter must be bit-exact.
     let counter: Vec<Sample> = (0..500)
         .map(|i| Sample::new(1_000 + i, (i * 1000) as f64))
         .collect();
@@ -57,7 +45,6 @@ fn compact_round_trip_respects_precision_contract() {
     }
 }
 
-/// The inline anomaly bit round-trips and, when sparse, costs almost nothing.
 #[test]
 fn compact_anomaly_bits_round_trip() {
     let samples: Vec<Sample> = (0..600)
@@ -72,15 +59,13 @@ fn compact_anomaly_bits_round_trip() {
     assert_eq!(bits, anomaly);
 }
 
-/// Out-of-cadence timestamps (NTP steps) are stored as sparse exceptions and
-/// reconstructed exactly.
 #[test]
 fn compact_handles_timestamp_exceptions() {
     let mut samples: Vec<Sample> = (0..300)
         .map(|i| Sample::new(5_000 + i, (i % 7) as f64))
         .collect();
-    samples[150] = Sample::new(4_990, 3.0); // step back
-    samples[151] = Sample::new(99_999, 4.0); // jump forward
+    samples[150] = Sample::new(4_990, 3.0);
+    samples[151] = Sample::new(99_999, 4.0);
     let (decoded, _) =
         decode_compact(&encode_compact(&samples, &vec![false; samples.len()], 1)).unwrap();
     for (d, o) in decoded.iter().zip(&samples) {
@@ -88,9 +73,6 @@ fn compact_handles_timestamp_exceptions() {
     }
 }
 
-/// Density gate: on the shared corpus the compact codec must be materially
-/// denser than lossless f64 Gorilla — the Path-1 thesis. Measured baseline is
-/// roughly a 2× reduction; asserted with headroom.
 #[test]
 fn compact_encoding_is_materially_denser_than_f64_gorilla() {
     let c = corpus();
@@ -110,9 +92,7 @@ fn compact_encoding_is_materially_denser_than_f64_gorilla() {
     );
 }
 
-/// A steady-state corpus (6 h × 40 series), sized so redb's ~1 MB fixed file
-/// floor is amortised and bytes/sample reflects real per-sample cost rather
-/// than the minimum allocation.
+// Sized so redb's fixed file floor is amortised across the corpus.
 fn steady_state_corpus() -> Corpus {
     Corpus::generate(CorpusConfig {
         seed: 0x5CA1E,
@@ -122,12 +102,6 @@ fn steady_state_corpus() -> Corpus {
     })
 }
 
-/// In-substrate gate: at steady state, big-block compact packing must roughly
-/// **halve** redb's persisted bytes/sample versus the small-block f64 store —
-/// the measured effect of the two Path-1 levers combined. (It does not erase
-/// redb's residual ~1.9× page overhead over the raw encoding — reaching the
-/// ~1 B class needs an append-structured store, which is the sharpened
-/// off-ramp, not this gate.)
 #[test]
 fn redb_big_block_compact_halves_footprint_at_steady_state() {
     let c = steady_state_corpus();
@@ -144,8 +118,6 @@ fn redb_big_block_compact_halves_footprint_at_steady_state() {
     b.commit(Durability::Full).unwrap();
     let bps_b = b.size_on_disk().unwrap() as f64 / c.sample_count() as f64;
 
-    // Big-block compact lands in the low single digits (~2.4) and is decisively
-    // denser than the small-block f64 store (~4.9) — the gap closes.
     assert!(
         bps_bp < 3.0,
         "redb big-block compact regressed: {bps_bp:.3}"
@@ -155,7 +127,6 @@ fn redb_big_block_compact_halves_footprint_at_steady_state() {
         "big-block compact did not halve redb footprint: B+={bps_bp:.3} B={bps_b:.3}"
     );
 
-    // And it must still read back within the float32 precision contract.
     let got = bp.range(0, i64::MIN, i64::MAX).unwrap();
     let want = &c.series()[0];
     assert_eq!(got.len(), want.len());

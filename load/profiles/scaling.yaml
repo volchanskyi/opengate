@@ -1,22 +1,13 @@
-# Hold the load and the data constant and vary the resources, so the answer is a
-# shape rather than a single point: whether the second processor bought as much
-# as the first, and where the curve stops rising.
-#
-# The cluster offers two processors and this needs four or five points, so it
-# runs on a disposable runner stack. A runner is a different architecture from
-# production, which is exactly why this family compares processor counts against
-# each other and never states an absolute capacity.
+# The load and data stay constant while the resources vary, so the result is a processor curve.
+# It runs on a disposable runner stack, since the sweep needs more points than the cluster offers.
 schema_version: 1
 name: scaling
 family: scaling
 environment: runner
 fixture: small
 
-# The fleet sits where the rungs can differ. Measured on the ladder this stack
-# ran at one processor, the wait times are flat to two thousand machines and
-# bend past it — 19, 20, 26 and 62 ms at 500, 1,000, 2,000 and 4,000 — so a
-# sweep held at 500 was comparing four processor counts against the cheapest
-# thing the server does, and every rung answered the same.
+# The fleet sits at 2,000 machines, where waits start to bend and processor counts can differ.
+# Waits stay flat below it, so a smaller fleet would give every rung the same answer.
 phases:
   - name: ramp
     duration: 30s
@@ -30,49 +21,20 @@ phases:
     sessions: 5
     measured: true
 
-# No processor ceiling. This stack is created by the job and thrown away with
-# it, so there is no neighbour to protect, and driving the processor is the
-# experiment rather than a hazard. What is declared is the room the run can
-# still exhaust: past it the node has nowhere to put what the run produces.
+# No processor ceiling, since driving the processor is the experiment on a throwaway stack.
+# The declared limits keep the room the node needs to store what the run produces.
 safety:
   max_node_memory_percent: 90
   max_error_rate: 0.01
 
 gates:
-  # What judges a leg here is the evidence bundle, and a bundle states the
-  # machine side: a limit naming a browser-side measurement would be held
-  # against a row the reader does not produce. The technician load that runs
-  # beside the fleet is folded into the bundle all the same, and read by the
-  # curve that puts the rungs side by side.
-  #
-  # There is deliberately no latency limit that varies with the rung. The whole
-  # subject of this family is how the curve moves with the processor count, and a
-  # per-rung number would be the answer written down in advance. What every rung
-  # owes equally is that its machines arrived at all: a leg where they did not
-  # measured nothing, and an unmeasured leg silently flattens the curve it is
-  # part of.
-  #
-  # Ten machines in two thousand, which is half of what `safety.max_error_rate`
-  # above writes a run off at. Stating it as a share of that figure rather than
-  # independently is what keeps the two from disagreeing: the same figure decides
-  # whether a phase measured its target at all, so a verdict stricter than it can
-  # fail a leg the run has already certified as a valid measurement.
-  #
-  # Held at nought it did exactly that, twice. The bottom rung runs the server on
-  # a quarter of a processor at 95.6 per cent busy — the only place here
-  # deliberately driven past saturation while still judged on arrivals — and 1989
-  # of 2000 machines arrived on one night and 1985 on the next, one enrolment
-  # timing out and one refused with a request timeout. The rung's own curve says
-  # why: 6.5 seconds to list the fleet at a quarter of a processor against 17
-  # milliseconds at a half. A machine that gave up there is the measurement. Both
-  # nights were discarded, which is the outcome the note above warns about.
+  # No latency limit varies with the rung, since the curve over processor counts is the result.
+  # The error limit is half of safety.max_error_rate, so a leg certified as measured never fails.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0.005
     blocking: true
-  # Loose enough that the bottom rung clears it — half a processor connected a
-  # fleet at 55 ms — so this fires on a leg that has stopped working rather than
-  # on the slow end of the shape being measured.
+  # Loose enough that the slowest rung clears it, so it fires only on a leg that stopped working.
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
     max: 2000

@@ -12,22 +12,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// The mutable half of a rule: what a customer retuned, how far a rule has been
-// rolled out, and which machines cannot evaluate it at all.
-//
-// Every read and write goes through a tenant-scoped transaction, so row-level
-// security is what separates customers rather than a WHERE clause somebody has
-// to remember. Each statement also names the tenant itself: the policy is the
-// wall, and the predicate is a second lock on the same door.
+// Statements run in a tenant-scoped transaction and name the tenant, except the platform-wide
+// fleet coverage read; the organization predicate separates customers inside one tenant.
 
-// scopedToTenant is the predicate every statement here carries. It is a
-// constant, so the queries built from it stay compile-time strings rather than
-// anything assembled at run time.
+// scopedToTenant is the tenant predicate the reading, updating and deleting statements carry.
 const scopedToTenant = `tenant_id = current_setting('app.current_tenant')::uuid`
 
-// levelNames maps a rung of the tenancy ladder to the value stored in the level
-// column. The ladder itself lives in internal/settings; this is only its
-// spelling in the database.
+// levelNames maps a tenancy ladder level to the value stored in the level column.
 var levelNames = map[settings.Level]string{
 	settings.LevelDevice:       "device",
 	settings.LevelSite:         "site",
@@ -35,7 +26,7 @@ var levelNames = map[settings.Level]string{
 	settings.LevelTenant:       "tenant",
 }
 
-// levelByName is levelNames read the other way, for rows coming back.
+// levelByName inverts levelNames for rows read back.
 var levelByName = func() map[string]settings.Level {
 	out := make(map[string]settings.Level, len(levelNames))
 	for level, name := range levelNames {
@@ -74,11 +65,8 @@ func (s *Store) exec(ctx context.Context, what, query string, args ...any) error
 	})
 }
 
-// affected runs one statement inside a tenant-scoped transaction and reports how
-// many rows it touched. Zero is an answer rather than a failure at every call
-// site here: it is how a statement whose own predicate refused the write — a
-// label and a machine belonging to different customers, a duplicate the list
-// already offers — says so, without a check the caller could forget to run.
+// affected runs one statement in a tenant-scoped transaction and reports the rows it touched.
+// Zero rows is how a statement whose own predicate refused the write reports it.
 func (s *Store) affected(ctx context.Context, what, query string, args ...any) (int64, error) {
 	var rows int64
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
@@ -103,7 +91,7 @@ func (s *Store) eachRow(ctx context.Context, what, query string, args []any, sca
 		if err != nil {
 			return fmt.Errorf("%s: %w", what, err)
 		}
-		defer rows.Close() //nolint:errcheck // read-only; rows.Err below is the check
+		defer rows.Close()
 
 		for rows.Next() {
 			if err := scan(rows); err != nil {
@@ -114,9 +102,7 @@ func (s *Store) eachRow(ctx context.Context, what, query string, args []any, sca
 	})
 }
 
-// queryRow runs one single-row query inside a tenant-scoped transaction. The
-// second return is false when no row matched, which is an answer rather than a
-// failure at every call site here.
+// queryRow runs one single-row query in a tenant-scoped transaction; found is false on no match.
 func (s *Store) queryRow(ctx context.Context, what, query string, args []any, dest ...any) (bool, error) {
 	found := false
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {

@@ -1,29 +1,15 @@
-//! Intel AMT presence detection over the Management Engine Interface (MEI).
-//!
-//! The agent reports *presence* — whether the host exposes a Management Engine
-//! at all, and which ME/AMT firmware it runs. That is a property of the machine
-//! the agent already manages, so it travels with the hardware inventory. The
-//! richer per-machine detail (model, AMT firmware build) arrives separately over
-//! the server's CIRA/WSMAN connection.
-//!
-//! Detection is deliberately file-based: the MEI device node on Linux, and the
-//! equivalent file a future platform exposes. That keeps one code path, adds no
-//! platform crates, and lets the whole thing be exercised against a fixture
-//! tree.
+//! Intel AMT presence detection from the Management Engine Interface (MEI) device node and sysfs.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Longest ME/AMT version string kept. Real values are ~15 bytes
-/// (`16.1.30.2260`); anything longer is a malformed sysfs read.
+/// Longest ME/AMT version string kept; a longer value is a malformed sysfs read.
 const MAX_VERSION_LEN: usize = 64;
 
 /// Local Intel AMT/ME presence as read from the host's MEI interface.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AmtPresence {
-    /// True when the host exposes a Management Engine interface. This means the
-    /// hardware supports AMT; it does not mean AMT is provisioned. A linked AMT
-    /// connection record is the proof of actual activation.
+    /// True when the host exposes a Management Engine interface, which says nothing about provisioning.
     pub available: bool,
     /// ME/AMT firmware version, empty when the host exposes no version file.
     pub version: String,
@@ -34,11 +20,7 @@ pub fn detect() -> AmtPresence {
     detect_at(mei_device_path(), mei_version_path())
 }
 
-/// Reads AMT presence from an explicit device node and version file.
-///
-/// `device` decides availability; `version` is best-effort and only consulted
-/// when the device node exists, so a stale version file can never claim AMT
-/// support on a machine that has no Management Engine.
+/// Reads AMT presence from an explicit device node; `version` is read only when the device exists.
 pub fn detect_at(device: impl AsRef<Path>, version: impl AsRef<Path>) -> AmtPresence {
     if !device.as_ref().exists() {
         return AmtPresence::default();
@@ -49,11 +31,7 @@ pub fn detect_at(device: impl AsRef<Path>, version: impl AsRef<Path>) -> AmtPres
     }
 }
 
-/// Extracts the firmware version from an MEI `fw_ver` file.
-///
-/// The file holds one line per ME client, each optionally prefixed with the
-/// client index (`0:16.1.30.2260`). Every line reports the same firmware, so the
-/// first usable one wins.
+/// Extracts the firmware version from the first `fw_ver` line, dropping a `0:` client prefix.
 fn read_version(path: &Path) -> String {
     let Ok(raw) = fs::read_to_string(path) else {
         return String::new();
@@ -66,17 +44,14 @@ fn read_version(path: &Path) -> String {
     value.to_string()
 }
 
-/// The MEI device node whose presence proves a Management Engine exists.
 fn mei_device_path() -> PathBuf {
     if cfg!(target_os = "linux") {
         PathBuf::from("/dev/mei0")
     } else {
-        // No Management Engine interface to speak of on other platforms.
         PathBuf::new()
     }
 }
 
-/// The file carrying the ME/AMT firmware version, where the platform exposes one.
 fn mei_version_path() -> PathBuf {
     if cfg!(target_os = "linux") {
         PathBuf::from("/sys/class/mei/mei0/fw_ver")
@@ -89,11 +64,6 @@ fn mei_version_path() -> PathBuf {
 mod tests {
     use super::*;
 
-    /// The MEI paths are the ones this platform actually exposes: on Linux the
-    /// `mei0` character device the driver creates, and its sysfs `fw_ver`
-    /// sibling. Anywhere else there is no Management Engine interface to read,
-    /// and both paths are empty so [`detect_at`] reports "no AMT" instead of
-    /// probing an arbitrary file that happens to exist.
     #[test]
     fn mei_paths_match_the_build_target() {
         let device = mei_device_path();
@@ -107,8 +77,6 @@ mod tests {
         }
     }
 
-    /// An empty path never exists, so a platform with no MEI interface reports
-    /// "no AMT" rather than claiming presence off a stray file.
     #[test]
     fn an_empty_device_path_reports_no_management_engine() {
         assert_eq!(
@@ -117,12 +85,6 @@ mod tests {
         );
     }
 
-    /// The version cap is a boundary, not an approximation. A line at exactly
-    /// the cap is still a readable version and must be kept; one byte more is a
-    /// malformed sysfs read and must be dropped. Rejecting at the cap would
-    /// blank the firmware version on a machine reporting an unusually long but
-    /// valid one — and a blank version reads as "no version file", which is a
-    /// different fact about the hardware.
     #[test]
     fn the_version_cap_keeps_the_longest_readable_line() {
         let dir = tempfile::tempdir().expect("temp dir");

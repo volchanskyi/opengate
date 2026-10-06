@@ -13,25 +13,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 )
 
-// Where a simulated machine's certificate comes from.
-//
-// There are two honest answers and they belong to different places. A local
-// stack owns its own certificate authority, so the harness can sign against it
-// directly. A shared environment does not: signing there means copying the
-// authority's private key out of the cluster and onto a CI runner, and that key
-// mints a trusted machine for the whole fleet. So against anything shared, the
-// harness enrols the way an installer does — it keeps its private keys and
-// sends only signing requests.
-//
-// Which one is in use is decided once, here, rather than at each call site.
-
 // agentCredentials issues the TLS material one simulated machine dials with.
 type agentCredentials interface {
 	forAgent(ctx context.Context, plan tenantAgent) (*tls.Config, error)
 }
 
-// newAgentCredentials picks the source. An enrollment URL means the server
-// signs; otherwise the harness signs against a local authority in dataDir.
+// newAgentCredentials picks the source: the server signs when an enrollment URL is given, and
+// the harness signs against a local authority in dataDir otherwise.
 func newAgentCredentials(dataDir, enrollURL, enrollToken string) (agentCredentials, error) {
 	if enrollURL != "" {
 		if enrollToken == "" {
@@ -53,8 +41,8 @@ func newAgentCredentials(dataDir, enrollURL, enrollToken string) (agentCredentia
 	return localCredentials{manager: manager}, nil
 }
 
-// enrolledCredentials asks the server for a certificate, which is what keeps
-// the authority's private key inside the cluster.
+// enrolledCredentials asks the server for a certificate, keeping private keys on the harness
+// and sending only signing requests.
 type enrolledCredentials struct {
 	baseURL string
 	token   string
@@ -66,9 +54,7 @@ func (c enrolledCredentials) forAgent(ctx context.Context, plan tenantAgent) (*t
 		EnrollmentToken: c.token,
 		DeviceID:        uuid.New().String(),
 		Hostname:        plan.hostname,
-		// The same address this machine is filed under afterwards, so its
-		// arrival and its filing are charged to one allowance rather than to
-		// the fleet's shared one.
+		// The machine's arrival and its later filing share one per-address allowance.
 		PresentedAddress: presentedAddress(plan.agentIndex),
 	})
 	if err != nil {
@@ -77,9 +63,8 @@ func (c enrolledCredentials) forAgent(ctx context.Context, plan tenantAgent) (*t
 	return issued.AgentTLSConfig()
 }
 
-// localCredentials signs against an authority this process owns. It is for a
-// stack the run brought up itself, where the authority is as disposable as the
-// stack around it.
+// localCredentials signs against an authority this process owns, for a stack the run brought
+// up itself.
 type localCredentials struct {
 	manager *cert.Manager
 }
@@ -93,18 +78,8 @@ func (c localCredentials) forAgent(_ context.Context, plan tenantAgent) (*tls.Co
 	return c.manager.AgentTLSConfig(issued), nil
 }
 
-// deviceIDFrom reads a machine's identifier out of the credential it dials with.
-//
-// The server knows a machine by its certificate and takes its identifier from
-// that certificate's common name, which the harness chose when it enrolled. So
-// the run already holds every identifier it needs in order to file the estate,
-// and listing the fleet back to match it up by name would be a second source of
-// truth for something nobody has to ask about.
-//
-// A credential carrying no certificate has no identifier, which is not the same
-// as a machine whose identifier is empty: filing under an identifier the server
-// never issued is refused, and the refusal would name the machine rather than
-// the credential.
+// deviceIDFrom reads a machine's identifier from the common name of the certificate it dials
+// with, which is where the server takes it from.
 func deviceIDFrom(config *tls.Config) (string, bool) {
 	if config == nil || len(config.Certificates) == 0 || len(config.Certificates[0].Certificate) == 0 {
 		return "", false
@@ -116,18 +91,8 @@ func deviceIDFrom(config *tls.Config) (string, bool) {
 	return leaf.Subject.CommonName, true
 }
 
-// enrolOnce wraps a credential source so a machine's identity is minted once
-// and every later connection is made with it.
-//
-// A real machine enrols when it is installed and comes back afterwards with the
-// certificate it already holds — the server knows it by that certificate, and
-// re-enrolling would put a second machine in the customer's list every time a
-// link flapped. A harness that re-enrolled on every start turned a burst of
-// reconnections into a burst of enrolments against a ceiling the server
-// enforces on purpose, and grew the fleet for as long as the run lasted.
-//
-// The machine's name is the key, and agentRoster is what makes that safe: no
-// two live connections are ever the same machine.
+// enrolOnce wraps a credential source so a machine's identity is minted once, keyed by its name,
+// and reused on every reconnect.
 func enrolOnce(source agentCredentials) agentCredentials {
 	return &heldCredentials{source: source, held: map[string]*heldCredential{}}
 }
@@ -159,9 +124,7 @@ func (c *heldCredentials) forAgent(ctx context.Context, plan tenantAgent) (*tls.
 	entry.once.Do(func() { entry.config, entry.err = c.source.forAgent(ctx, plan) })
 
 	if entry.err != nil {
-		// A refusal is not an identity. Remembering it would hand every later
-		// start the same answer and leave the run no way back, so the machine
-		// is forgotten and the next start asks again.
+		// A refusal is forgotten so the next start asks again.
 		c.forget(plan.hostname, entry)
 		return nil, entry.err
 	}

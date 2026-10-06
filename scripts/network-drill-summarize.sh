@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Build the canonical network-drill trend rows from the runner's measurements.
-#
-# The runner appends one JSON object per measurement as it goes; this collects
-# them into the single array the push, the regression check and the evidence
-# bundle all read. Nothing is invented here: a scenario that emitted no row for
-# a metric has no row for it, and this refuses to fill one in.
+# Collects the runner's one-object-per-measurement lines into the network-drill row array.
 set -euo pipefail
 
 MEASUREMENTS_FILE="${1:-${MEASUREMENTS_FILE:-netdrill-measurements.jsonl}}"
@@ -16,9 +11,8 @@ if [[ ! -f "$MEASUREMENTS_FILE" ]]; then
   exit 2
 fi
 
-# A run whose scenarios were all inconclusive has an empty file. That is a real
-# outcome and it is reported as one — exit 2, no rows — rather than as an array
-# of nothing, which downstream would push as a night that measured zero.
+# An empty file means every scenario was inconclusive; exit 2 with no rows keeps downstream
+# from pushing a night that measured zero.
 if [[ ! -s "$MEASUREMENTS_FILE" ]]; then
   echo "no measurements in $MEASUREMENTS_FILE — every scenario was inconclusive" >&2
   exit 2

@@ -11,8 +11,7 @@ import (
 // UserID uniquely identifies a user.
 type UserID = uuid.UUID
 
-// ErrUserNotFound is returned when a Get / GetByEmail / Delete targets a
-// user that does not exist.
+// ErrUserNotFound is returned when an operation targets a missing user.
 var ErrUserNotFound = errors.New("user not found")
 
 // User represents an authenticated user of the system.
@@ -27,13 +26,7 @@ type User struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// UserRepository is the outbound persistence port for users. The interface
-// lives with the consuming module (auth); the Postgres
-// adapter lives alongside in this package. The users table is co-owned by
-// the SecurityGroup repository (it JOINs to list group members and the
-// AddMember/RemoveMember path mirrors AdminGroupID membership into
-// users.is_admin via syncIsAdmin) — keeping User in the same module
-// preserves that locality.
+// UserRepository is the persistence port for users.
 type UserRepository interface {
 	Upsert(ctx context.Context, u *User) error
 	Get(ctx context.Context, id UserID) (*User, error)

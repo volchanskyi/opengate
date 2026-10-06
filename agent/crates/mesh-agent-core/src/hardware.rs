@@ -1,9 +1,4 @@
-//! Host hardware identity that travels with the agent's inventory report.
-//!
-//! The SMBIOS system UUID is the join key between a managed device and its Intel
-//! AMT connection: on vPro hardware the UUID the AMT firmware presents over CIRA
-//! is the same value the operating system reads out of DMI. The server stores it
-//! purely to resolve that link and never returns it over the API.
+//! The SMBIOS system UUID joins a managed device to its Intel AMT connection.
 
 use std::fs;
 use std::path::Path;
@@ -31,12 +26,7 @@ pub fn system_uuid_from(path: impl AsRef<Path>) -> String {
     }
 }
 
-/// Normalizes a raw DMI reading into a lowercase hyphenated UUID.
-///
-/// Returns an empty string for anything unusable — malformed text, or the
-/// all-zero / all-ones sentinels hypervisors and unconfigured firmware hand out.
-/// Those sentinels are shared by every affected host, so treating one as an
-/// identity would link unrelated machines to the same AMT connection.
+/// Normalizes a DMI reading to a lowercase hyphenated UUID; malformed and shared sentinels give "".
 pub fn parse_system_uuid(raw: &str) -> String {
     raw.lines()
         .map(str::trim)
@@ -51,11 +41,6 @@ pub fn parse_system_uuid(raw: &str) -> String {
 mod tests {
     use super::*;
 
-    /// On Linux the identity comes from the DMI sysfs file and from nowhere
-    /// else, so [`system_uuid`] and [`system_uuid_from`] over that path are the
-    /// same reading. Anywhere else the platform exposes no SMBIOS UUID and the
-    /// answer is empty — an unrelated host must never be handed an identity
-    /// that would link it to another machine's AMT connection.
     #[test]
     fn system_uuid_reads_the_platform_source() {
         if cfg!(target_os = "linux") {

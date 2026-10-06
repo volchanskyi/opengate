@@ -8,9 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEmailLimiter covers the per-email failed-login throttle: it trips after
-// the configured number of failures regardless of source IP, normalizes the
-// key, resets on success, and releases after the window expires.
 func TestEmailLimiter(t *testing.T) {
 	t.Parallel()
 

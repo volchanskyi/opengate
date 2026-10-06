@@ -47,9 +47,6 @@ func TestServerRegistrationCountsEveryOutcomeSeparately(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, int64(100), reading.Accepted)
-	// A refused registration is the server working — a tombstoned machine, a
-	// spent token — so it is counted apart from the accepted ones rather than
-	// folded into a single rate that hides both.
 	assert.Equal(t, int64(3), reading.Rejected)
 }
 
@@ -57,9 +54,6 @@ func TestServerRegistrationReportsTheTailNotJustTheAverage(t *testing.T) {
 	reading, err := ParseServerRegistration(sampleMetricsPage)
 	require.NoError(t, err)
 
-	// Ninety of the hundred landed at or below 25ms and ninety-eight at or below
-	// 50ms, so the ninety-fifth sits inside that last stretch. The average is
-	// 14ms and says nothing at all about those ten.
 	assert.InDelta(t, 14.0, reading.MeanMs(), 0.5)
 	p95 := reading.QuantileMs(0.95)
 	assert.Greater(t, p95, 25.0)
@@ -72,8 +66,6 @@ func TestServerRegistrationQuantileHandlesTheEnds(t *testing.T) {
 
 	assert.GreaterOrEqual(t, reading.QuantileMs(0.5), 5.0)
 	assert.LessOrEqual(t, reading.QuantileMs(0.5), 10.0)
-	// Everything is inside the last finite bucket, so the top of the range is
-	// reported rather than an infinity nothing can be compared against.
 	assert.LessOrEqual(t, reading.QuantileMs(0.999), 50.0)
 }
 
@@ -82,8 +74,6 @@ func TestServerRegistrationOnAnEmptyPageIsNotAMeasurement(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Zero(t, reading.Accepted)
-	// A run that measured nothing must not read as a run that measured zero
-	// milliseconds, which would be the fastest night ever recorded.
 	assert.False(t, reading.Measured())
 }
 
@@ -91,8 +81,6 @@ func TestServerRegistrationReadsThePoolBesideIt(t *testing.T) {
 	reading, err := ParseServerRegistration(sampleMetricsPage)
 	require.NoError(t, err)
 
-	// A registration queued behind a connection and one executing slowly are
-	// the same latency until the pool says otherwise.
 	assert.Equal(t, 7.0, reading.PoolOpen)
 	assert.Equal(t, 2.0, reading.PoolInUse)
 	assert.Equal(t, 25.0, reading.PoolMaxOpen)
@@ -127,18 +115,6 @@ func TestFetchServerRegistrationReportsARefusal(t *testing.T) {
 	assert.Contains(t, err.Error(), "403")
 }
 
-// The page the parser reads is the page the server writes.
-//
-// Every case above this one reads a page written by hand to match the parser,
-// and the parser was looking for an outcome label the server has never
-// published. So the reading came back with nothing accepted on every run that
-// ever took it, the registration line was absent from every results block, and
-// the three limits held against it were limits on a measurement nothing
-// produced. It is the same defect the reading was built to close, one layer
-// further out: a number taken from the wrong place cannot move.
-//
-// So the page below is rendered from the server's own instrument rather than
-// written out here, and a label renamed on either side fails this.
 func TestRegistrationIsReadOffThePageTheServerActuallyWrites(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	instrument := appmetrics.NewMetrics(registry)

@@ -3,13 +3,8 @@ import { useOrganizationStore } from './state/organization-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 /**
- * Chooses which customer the fleet views describe. A technician sees every
- * customer in the tenant, so without this a thirty-customer device list is one
- * undifferentiated pile.
- *
- * It publishes the choice and nothing more: the device list and the dashboard
- * re-read when it changes, so the tiles and the fleet below them never describe
- * different sets, and the picker stays unaware of either.
+ * Publishes the chosen customer; the device list and the dashboard re-read when it changes,
+ * so the tiles and the fleet below them describe the same set.
  */
 export function OrganizationPicker() {
   const organizations = useOrganizationStore((s) => s.organizations);

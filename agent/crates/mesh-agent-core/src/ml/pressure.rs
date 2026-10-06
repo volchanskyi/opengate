@@ -1,50 +1,19 @@
-//! Kernel pressure-stall information (PSI) — the five stall vitals.
-//!
-//! Each vital is "percent of time tasks were stalled" in `[0, 100]`, read from
-//! the `avg60` field the kernel publishes in `/proc/pressure/{cpu,memory,io}`.
-//! The kernel has already performed the reduction, so a stall vital costs one
-//! file read and zero cardinality, and its averaging window is exactly the 60 s
-//! the vitals contract publishes on.
-//!
-//! Five vitals ship: `stall.cpu.some`, `stall.mem.some`, `stall.mem.full`,
-//! `stall.io.some` and `stall.io.full`. CPU `full` is omitted because the kernel
-//! defines it as always zero, and a constant is not worth a central series.
-//!
-//! **An absent reading is absent, never zero.** A host whose kernel publishes no
-//! pressure information reports [`PressureSupport::Unsupported`] and no vitals
-//! at all: a zero would read as "never stalled", which is a claim about a
-//! measurement the host cannot make. No analogue is synthesized from counters
-//! that measure something else — publishing those under a `stall.*` name would
-//! put two meanings behind one name.
-//!
-//! **A containerized agent measures itself.** When `/proc/self/cgroup` shows a
-//! non-root unified cgroup, the three `*.pressure` files of that cgroup are the
-//! source, so the agent reports its own pressure rather than the host's — which
-//! includes every neighbouring container's. If that cgroup publishes no pressure
-//! files there is no fallback to `/proc/pressure`: the answer is `Unsupported`.
-//!
-//! The reader resolves every path under an injectable root, so a host without
-//! PSI is an ordinary fixture directory rather than a platform nobody can test
-//! on. Production passes `/`.
+//! Kernel pressure-stall information: five `avg60` stall vitals in `[0, 100]`, with a host that
+//! publishes none reporting `Unsupported` and no vitals. A container reads its own cgroup only.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::cgroup::own_cgroup;
 
-/// The line prefix carrying the share of time *some* tasks were stalled while
-/// others still ran.
+/// The line prefix for the share of time some tasks were stalled.
 const SOME: &str = "some";
-/// The line prefix carrying the share of time *every* runnable task was stalled.
+/// The line prefix for the share of time every runnable task was stalled.
 const FULL: &str = "full";
-/// The kernel field holding the 60 s average — the vitals cadence exactly.
+/// The kernel field holding the 60 s average.
 const AVG60: &str = "avg60=";
 
 /// Whether this host publishes pressure stall information.
-///
-/// The state is reported rather than implied: coverage accounting distinguishes
-/// a rule that is inactive from one the host cannot support, so a gap in the
-/// fleet's stall coverage is visible instead of reading as calm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PressureSupport {
@@ -65,9 +34,7 @@ pub struct PressurePaths {
     pub io: PathBuf,
 }
 
-/// One read of the five stall vitals, each the `avg60` of its own line. A `None`
-/// is a vital this host did not publish this second — never a zero standing in
-/// for one.
+/// One read of the five stall vitals; `None` marks an unpublished vital, never a zero.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct PressureReading {
     /// Percent of the last 60 s some task was stalled on CPU.
@@ -82,21 +49,14 @@ pub struct PressureReading {
     pub io_full: Option<f32>,
 }
 
-/// Reads the stall vitals from whichever pressure source belongs to this agent.
-///
-/// The source is resolved once, at construction; each [`read`](Self::read) then
-/// costs three file reads.
+/// Reads the stall vitals from the pressure source resolved once at construction.
 #[derive(Debug, Clone)]
 pub struct PressureReader {
-    /// The resolved source, or `None` on a host that publishes no pressure.
     paths: Option<PressurePaths>,
 }
 
 impl PressureReader {
-    /// Resolve this agent's pressure source under `root` — its own cgroup when
-    /// containerized, the host's files otherwise. Production passes `/`; tests
-    /// pass a fixture directory, which is how a host without PSI is exercised on
-    /// a host that has it.
+    /// Resolves the pressure source under `root`: the agent's own cgroup in a container, else the host.
     #[must_use]
     pub fn for_root(root: &Path) -> Self {
         Self {
@@ -113,18 +73,13 @@ impl PressureReader {
         }
     }
 
-    /// The resolved source files, or `None` when nothing resolved. Which files
-    /// were chosen is the whole answer to "whose pressure is this" — a
-    /// containerized agent reading `/proc/pressure` would report its
-    /// neighbours' stalls as its own.
+    /// The resolved source files, or `None` when nothing resolved.
     #[must_use]
     pub fn paths(&self) -> Option<&PressurePaths> {
         self.paths.as_ref()
     }
 
-    /// Read the five vitals now. A file that disappears, or whose contents do
-    /// not have the shape the kernel documents, costs only the vitals it carries
-    /// — the rest of the read still lands.
+    /// Reads the five vitals; a missing or malformed file loses only the vitals it carries.
     #[must_use]
     pub fn read(&self) -> PressureReading {
         let Some(paths) = &self.paths else {
@@ -143,18 +98,13 @@ impl PressureReader {
     }
 }
 
-/// A pressure file's contents, or an empty string when it cannot be read. An
-/// unreadable file carries no vitals, which the parser reports as absent.
+/// A pressure file's contents, or an empty string that parses as absent when unreadable.
 fn read_text(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_default()
 }
 
-/// The pressure source for an agent rooted at `root`, or `None` when this host
-/// publishes none.
-///
-/// A non-root unified cgroup means the agent is containerized, and then that
-/// cgroup is the only honest source: there is deliberately no fallback to the
-/// host's files, because host-wide pressure is not this container's pressure.
+/// The pressure source under `root`, or `None` when none is published.
+/// A containerized agent reads its cgroup only, because host pressure includes other containers.
 fn resolve(root: &Path) -> Option<PressurePaths> {
     let paths = match own_cgroup(root) {
         Some(dir) => PressurePaths {
@@ -168,21 +118,13 @@ fn resolve(root: &Path) -> Option<PressurePaths> {
             io: root.join("proc/pressure/io"),
         },
     };
-    // Any one of the three present means the kernel publishes pressure; a
-    // resource whose file is missing simply carries no vitals.
+    // Any one file present means the kernel publishes pressure.
     let present = paths.cpu.exists() || paths.memory.exists() || paths.io.exists();
     present.then_some(paths)
 }
 
-/// The `avg60` value of the `some` or `full` line of a pressure file.
-///
-/// `None` for every shape that is not a percentage the kernel measured: a
-/// missing line, a missing or empty field, a non-numeric value, and anything
-/// outside `[0, 100]` — NaN and both infinities fail that range test too. A
-/// stall vital is a share of time, so a value that is not one is no reading at
-/// all; clamping it into range would publish a number the kernel never
-/// measured, and 0 is exactly the "never stalled" answer this reader must never
-/// invent.
+/// The `avg60` value of a `some` or `full` line; `None` for a missing, non-numeric or
+/// out-of-`[0, 100]` value, which is never clamped.
 fn parse_avg60(text: &str, kind: &str) -> Option<f32> {
     let line = text
         .lines()
@@ -208,8 +150,6 @@ mod tests {
         assert_eq!(parse_avg60(text, FULL), Some(4.56));
     }
 
-    /// The line is matched on its first whitespace-separated word, so a field
-    /// whose value happens to contain the word is never mistaken for the line.
     #[test]
     fn only_the_leading_word_selects_a_line() {
         let text = "some avg10=0.00 avg60=1.23 full=nonsense total=99\n";
@@ -218,8 +158,6 @@ mod tests {
         assert_eq!(parse_avg60(text, FULL), None);
     }
 
-    /// `avg10` and `avg300` are different windows. Matching a prefix loosely
-    /// would publish a 10 s or 300 s average under a name that promises 60 s.
     #[test]
     fn no_other_averaging_window_is_mistaken_for_avg60() {
         let text = "some avg10=7.00 avg300=9.00 total=99\n";

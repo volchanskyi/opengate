@@ -1,11 +1,6 @@
 {{- if .Values.postgres.backup.enabled -}}
-# Off-cluster backups (ADR-035): the dump is streamed to OCI Object Storage via a
-# write-only pre-authenticated request (PAR) URL, NOT a PVC. This removes a 50 GB
-# block volume (free-tier cap) AND means the backups survive total cluster loss.
-# Two stages share an emptyDir: an init container runs pg_dump (the postgres image
-# has no curl), then the main container PUTs the gzip to the bucket (curl image
-# has no pg_dump). Retention is an OCI Object Storage lifecycle policy on the
-# bucket (delete objects older than keepDays), created out-of-band — see NOTES.txt.
+# Streams the dump off-cluster to object storage through a write-only pre-authenticated URL.
+# An init container dumps and the main container uploads, sharing an emptyDir.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -37,8 +32,7 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           initContainers:
-            # Stage 1: dump → gzip into the shared emptyDir. postgres:17-alpine
-            # carries pg_dump but no curl, so the upload happens in stage 2.
+            # Dumps and gzips into the shared emptyDir; the postgres image has no curl.
             - name: dump
               image: {{ .Values.postgres.image }}
               env:
@@ -66,9 +60,7 @@ spec:
                 - name: work
                   mountPath: /work
           containers:
-            # Stage 2: PUT the gzip to the bucket. curlimages/curl carries curl but
-            # no pg_dump. The PAR URL is write-only (no listing/read), so a leaked
-            # token cannot exfiltrate existing backups. --upload-file implies PUT.
+            # The upload URL is write-only, so a leaked token cannot read existing backups.
             - name: upload
               image: {{ .Values.postgres.backup.uploadImage }}
               env:

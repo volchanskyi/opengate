@@ -8,10 +8,7 @@ import (
 	"time"
 )
 
-// Direction is which way a datagram is travelling. Every impairment states one,
-// because a customer's connection degrades asymmetrically — the upload is the
-// half that fails — and a symmetric fault hides which side the recovery
-// machinery is coping with.
+// Direction is which way a datagram is travelling, so impairments can differ per direction.
 type Direction int
 
 const (
@@ -29,40 +26,23 @@ func (d Direction) String() string {
 	return "to_machine"
 }
 
-// Profile is the impairment in force. The zero value forwards everything
-// untouched, which is what the drill's baseline and recovery phases ask for.
-//
-// One struct rather than a command per impairment, because a scenario is a
-// combination: the thin-uplink recovery is a rate limit with nothing else on
-// it, and the satellite link is a delay with nothing else on it, but neither is
-// a mode the shaper enters — they are the same forwarder with different numbers.
+// Profile is the impairment in force; the zero value forwards everything untouched.
 type Profile struct {
-	// Blackhole drops everything both ways. It outranks every other field: a
-	// scenario that asks for darkness gets darkness, and nothing queues behind
-	// it to be released the moment it lifts.
+	// Blackhole drops everything both ways and outranks every other field.
 	Blackhole bool
-	// LossToServer and LossToMachine are the fraction of datagrams discarded in
-	// each direction, drawn from a seeded generator.
+	// LossToServer and LossToMachine are the fraction of datagrams discarded per direction.
 	LossToServer  float64
 	LossToMachine float64
-	// DelayEachWay holds every datagram for this long before forwarding it, in
-	// both directions — a satellite hop, which is symmetric.
+	// DelayEachWay holds every datagram for this long before forwarding it, in both directions.
 	DelayEachWay time.Duration
-	// RateBitsPerSec is the site's shared uplink: one link toward the server
-	// carrying every machine's traffic. Zero leaves the rate alone.
+	// RateBitsPerSec is the shared uplink toward the server carrying every machine's traffic;
+	// zero leaves the rate unshaped.
 	RateBitsPerSec int64
-	// MaxQueue is how much the link will hold before it starts dropping. A real
-	// router has a finite buffer and tail-drops past the end of it; without a
-	// bound the shaper would accumulate an unbounded backlog and report a
-	// latency no customer's connection would ever produce. Required whenever a
-	// rate is set, because a rate without one is not a link.
+	// MaxQueue is how long a backlog the link holds before tail-dropping; required with a rate.
 	MaxQueue time.Duration
 }
 
-// profileWire is how a Profile crosses the control endpoint and lands in the
-// evidence bundle. Durations travel as milliseconds: a scenario is written by a
-// shell script, and Go's duration encoding is nanoseconds, which is a decimal
-// point a runner would eventually get wrong.
+// profileWire is the JSON form of a Profile, with durations in milliseconds.
 type profileWire struct {
 	Blackhole      bool    `json:"blackhole"`
 	LossToServer   float64 `json:"loss_to_server"`
@@ -84,8 +64,7 @@ func (p Profile) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// UnmarshalJSON reads one back. It does not validate: a caller decides what to
-// do with an impossible profile, and Validate is where that decision is made.
+// UnmarshalJSON reads a profile back without validating it; Validate rejects impossible ones.
 func (p *Profile) UnmarshalJSON(raw []byte) error {
 	var wire profileWire
 	if err := json.Unmarshal(raw, &wire); err != nil {
@@ -102,12 +81,8 @@ func (p *Profile) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// Validate reports why this profile is not an impairment the shaper can run.
-//
-// The refusal is here rather than in the forwarder because a scenario that
-// mistyped its instruction must fail where it was typed. A shaper that quietly
-// reduced an impossible number to one it could run would produce a measurement
-// of some impairment nobody named.
+// Validate reports why this profile cannot run as an impairment, so a mistyped scenario fails
+// where it was typed.
 func (p Profile) Validate() error {
 	var problems []error
 	if p.LossToServer < 0 || p.LossToServer > 1 {
@@ -133,35 +108,23 @@ func (p Profile) Validate() error {
 
 // Verdict is what the shaper does with one datagram.
 type Verdict struct {
-	// Drop discards it. The link lost it, so nothing is sent and nothing is
-	// retried — that is the transport's business, which is what the drill is
-	// there to watch.
+	// Drop discards the datagram without sending or retrying it.
 	Drop bool
 	// Delay holds it for this long first. Zero forwards it immediately.
 	Delay time.Duration
 }
 
-// Impairer decides each datagram's fate under the profile currently in force.
-//
-// It takes the time as an argument rather than reading a clock, and draws from
-// a generator seeded at startup rather than from the global one. Both are what
-// make the impairments testable in process with no cluster and no sleeping, and
-// the seed is what makes two nights comparable: the same seed, given the same
-// datagrams, drops the same ones.
+// Impairer decides each datagram's fate under the profile in force, taking the time as an
+// argument and drawing from a seeded generator so the same seed drops the same datagrams.
 type Impairer struct {
 	mu      sync.Mutex
 	profile Profile
 	seed    uint64
 
-	// One generator per direction, so a datagram arriving one way cannot change
-	// which datagram is dropped the other way. Sharing one would make every
-	// measurement depend on the interleaving of two independent arrival
-	// streams, which is the one thing a drill cannot reproduce.
+	// One generator per direction keeps each direction's drops independent of the other's arrivals.
 	random map[Direction]*stream
 
-	// linkFree is when the shared uplink finishes carrying everything already
-	// queued on it. A datagram arriving before then waits for the link, which
-	// is what one link shared by a site's machines does.
+	// linkFree is when the shared uplink finishes carrying everything already queued on it.
 	linkFree time.Time
 }
 
@@ -171,9 +134,7 @@ func NewImpairer(seed uint64) *Impairer {
 	return &Impairer{seed: seed, random: newGenerators(seed)}
 }
 
-// The two directions are seeded from the same run seed, separated by a constant
-// of their own, so one seed reproduces the whole night while neither
-// direction's draws depend on the other's.
+// Each direction's generator starts from the run seed xor its own constant.
 const (
 	streamToServer  uint64 = 0x9E3779B97F4A7C15
 	streamToMachine uint64 = 0xBF58476D1CE4E5B9
@@ -186,19 +147,8 @@ func newGenerators(seed uint64) map[Direction]*stream {
 	}
 }
 
-// stream is the bit-source every impairment draws from.
-//
-// It is written out here rather than taken from the standard library because
-// the drill's whole reproducibility claim rests on the sequence being stable:
-// two nights with the same seed have to drop the same datagrams, or a trend
-// compares a run against a differently-unlucky one and calls the difference a
-// regression. A library's output sequence is not a compatibility promise, so a
-// toolchain upgrade could change which datagrams a seed drops with nothing
-// anywhere saying so. Nine lines of arithmetic that cannot change is the
-// cheaper half of that trade.
-//
-// It is not, and must never be used as, a source of secrets. Nothing here
-// guards anything: it decides which datagrams a test link discards.
+// stream is the bit source every impairment draws from; its sequence is fixed so a seed always
+// drops the same datagrams. It decides test-link loss only and must never source secrets.
 type stream struct {
 	state uint64
 }
@@ -212,19 +162,12 @@ func (s *stream) next() uint64 {
 	return z ^ (z >> 31)
 }
 
-// fraction is the next value as a number in [0, 1), which is the form every
-// loss comparison wants. The top 53 bits are the ones a float64 can carry
-// without rounding.
+// fraction is the next value in [0, 1), built from the top 53 bits a float64 carries exactly.
 func (s *stream) fraction() float64 {
 	return float64(s.next()>>11) / (1 << 53)
 }
 
-// Set puts a profile in force, reporting why it will not if it cannot.
-//
-// A new profile is a new link: the generators restart and the uplink is empty.
-// Carrying a queue across a phase boundary would release the previous phase's
-// backlog into the phase that follows it, and the measurement would be of the
-// phase before.
+// Set puts a validated profile in force; it restarts the generators and empties the uplink queue.
 func (i *Impairer) Set(p Profile) error {
 	if err := p.Validate(); err != nil {
 		return err
@@ -257,8 +200,7 @@ func (i *Impairer) Decide(dir Direction, bytes int, now time.Time) Verdict {
 	}
 
 	delay := i.profile.DelayEachWay
-	// The rate is the site's uplink, so it shapes what the machines send and
-	// leaves what they receive alone.
+	// The rate shapes only the uplink toward the server.
 	if dir == ToServer && i.profile.RateBitsPerSec > 0 {
 		wait, ok := i.queueOnLink(bytes, now)
 		if !ok {
@@ -276,13 +218,8 @@ func (i *Impairer) lossFor(dir Direction) float64 {
 	return i.profile.LossToMachine
 }
 
-// queueOnLink puts one datagram on the shared uplink and reports how long it
-// waits, or that the link's buffer is full and it was dropped.
-//
-// The link is modelled as it behaves: it carries one datagram at a time at the
-// rate it runs at, so a datagram arriving while it is busy starts when the ones
-// ahead of it finish. What is already queued is the wait a new arrival is
-// quoted, and past the buffer's depth the router drops rather than queues.
+// queueOnLink puts one datagram on the shared uplink and returns its wait, or false when the
+// queue is deeper than MaxQueue.
 func (i *Impairer) queueOnLink(bytes int, now time.Time) (time.Duration, bool) {
 	start := now
 	if i.linkFree.After(start) {

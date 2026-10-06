@@ -1,7 +1,4 @@
-// Package audit owns the audit-log domain. The Repository
-// outbound port and its types live with the consuming module; the Postgres
-// adapter lives alongside in postgres.go. The instrumented decorator
-// preserves the observability previously provided by metrics.InstrumentedStore.
+// Package audit holds the audit-log repository port, its Postgres adapter and metrics decorator.
 package audit
 
 import (
@@ -11,8 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// UserID is the user identifier referenced by an audit event. Aliased to
-// uuid.UUID so callers can pass a *uuid.UUID directly to Query.UserID.
+// UserID is the user identifier referenced by an audit event, an alias of uuid.UUID.
 type UserID = uuid.UUID
 
 // Event records a security-relevant action.

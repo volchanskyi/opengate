@@ -64,9 +64,7 @@ func computeResponse(ha1, nonce, nc, cnonce, qop, ha2 string) string {
 	return md5Hash(ha1 + ":" + nonce + ":" + nc + ":" + cnonce + ":" + qop + ":" + ha2)
 }
 
-// md5Hash returns the hex-encoded MD5 hash of s.
-// MD5 is mandated by the HTTP Digest Authentication protocol (RFC 2617 / RFC 7616).
-// This is not used for password storage or any other security-sensitive purpose.
+// md5Hash returns the hex-encoded MD5 hash of s, the hash HTTP Digest authentication requires.
 func md5Hash(s string) string {
 	// #nosec G401 -- MD5 required by HTTP Digest Auth spec (RFC 7616); not used for password storage.
 	h := md5.Sum([]byte(s))

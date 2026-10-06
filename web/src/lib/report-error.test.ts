@@ -6,8 +6,7 @@ import {
   sanitizeReportedUrl,
 } from './report-error';
 
-// Mirror of the module-private rate-limit window so the pruning test can drive
-// the fake clock to the exact age at which a timestamp falls out of the window.
+// Mirrors the module-private rate-limit window.
 const RATE_WINDOW_MS = 60_000;
 
 describe('reportClientError', () => {
@@ -51,7 +50,6 @@ describe('reportClientError', () => {
     const [endpoint, body] = beacon.mock.calls[0]!;
     expect(endpoint).toBe('/api/v1/client-errors');
     const blob = body as Blob;
-    // The beacon must be typed application/json so the server parses it as JSON.
     expect(blob.type).toBe('application/json');
     const text = await blob.text();
     const parsed = JSON.parse(text);
@@ -77,10 +75,6 @@ describe('reportClientError', () => {
     expect(parsed.url).toBe(globalThis.location.pathname);
   });
 
-  // The session route carries the relay token as a path segment. This payload
-  // is written to the server log and shipped to Loki, so an un-redacted URL
-  // would put a live bearer credential in the log store — the very thing the
-  // server's request-log redaction exists to prevent.
   it('redacts a credential-bearing path segment', async () => {
     vi.stubEnv('PROD', true);
     const token = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
@@ -140,10 +134,8 @@ describe('reportClientError', () => {
     for (let i = 0; i < 10; i++) {
       expect(reportClientError({ message: `e${i}` })).toBe(true);
     }
-    // An 11th report inside the window is rejected.
     expect(reportClientError({ message: 'overflow' })).toBe(false);
-    // At exactly RATE_WINDOW_MS the earlier entries are age === window, which the
-    // strict `<` filter drops, so a fresh report is admitted again.
+    // Entries aged exactly RATE_WINDOW_MS fall out of the window under the strict < filter.
     vi.setSystemTime(RATE_WINDOW_MS);
     expect(reportClientError({ message: 'after-window' })).toBe(true);
   });
@@ -185,16 +177,12 @@ describe('installGlobalErrorReporting', () => {
   });
 });
 
-// The path reduction is what keeps a bearer credential out of the log store, so
-// its edges are tested directly rather than through a beacon.
 describe('sanitizeReportedUrl', () => {
   it('reports nothing for a url that was never supplied', () => {
     expect(sanitizeReportedUrl(undefined)).toBeUndefined();
     expect(sanitizeReportedUrl('')).toBeUndefined();
   });
 
-  // A short segment is redacted whole. Showing the first eight characters of an
-  // eight-character credential would print the credential.
   it('replaces a credential no longer than the prefix it would show', () => {
     expect(sanitizeReportedUrl('https://app.example/sessions/abcdefgh')).toBe('/sessions/***');
   });
@@ -203,16 +191,11 @@ describe('sanitizeReportedUrl', () => {
     expect(sanitizeReportedUrl('https://app.example/sessions/abcdefghi')).toBe('/sessions/abcdefgh...');
   });
 
-  // The prefix on its own carries no credential to redact, and a deeper path is
-  // a route rather than a token — redacting either would lose the route without
-  // protecting anything.
   it('leaves a credential prefix that carries no credential alone', () => {
     expect(sanitizeReportedUrl('https://app.example/sessions/')).toBe('/sessions/');
     expect(sanitizeReportedUrl('https://app.example/sessions/abcdefghi/frames')).toBe('/sessions/abcdefghi/frames');
   });
 
-  // Every route whose next segment authenticates its holder is covered, not
-  // just the first one in the list.
   it('covers every credential-bearing route', () => {
     expect(sanitizeReportedUrl('https://app.example/ws/relay/abcdefghijkl')).toBe('/ws/relay/abcdefgh...');
     expect(sanitizeReportedUrl('https://app.example/api/v1/enroll/abcdefghijkl')).toBe('/api/v1/enroll/abcdefgh...');
@@ -222,8 +205,6 @@ describe('sanitizeReportedUrl', () => {
     expect(sanitizeReportedUrl('https://app.example/devices/abc')).toBe('/devices/abc');
   });
 
-  // A relative url is still reduced to a path even with no page origin to
-  // resolve it against, so a caller cannot widen what gets reported.
   it('reduces a relative url with no origin to resolve against', () => {
     vi.stubGlobal('location', undefined);
     try {

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// schedCfg is a compact config for deterministic scheduler tests.
+// schedCfg returns a small deterministic scheduler config.
 func schedCfg() BackfillSchedulerConfig {
 	return BackfillSchedulerConfig{
 		MaxConcurrent:           4,
@@ -29,11 +29,34 @@ func fixedClock() (func() time.Time, *time.Time) {
 	return func() time.Time { return *cur }, cur
 }
 
-func TestScheduler_GrantsWithinCapsThenDefersGlobal(t *testing.T) {
-	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+// fullHeadroomScheduler builds a scheduler on the fixed clock with all headroom free.
+func fullHeadroomScheduler() (*BackfillScheduler, func() time.Time, *time.Time) {
+	clock, cur := fixedClock()
+	return NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 }), clock, cur
+}
 
-	// Four distinct tenants each take one slot — up to the global cap of 4.
+// requestFor asks for a slot for a fresh agent of the tenant.
+func requestFor(s *BackfillScheduler, tenant uuid.UUID) BackfillDecision {
+	return s.RequestSlot(uuid.New(), tenant, SlotRequest{})
+}
+
+// grantFor requires a fresh agent of the tenant to be granted a slot.
+func grantFor(t *testing.T, s *BackfillScheduler, tenant uuid.UUID) {
+	t.Helper()
+	require.True(t, requestFor(s, tenant).Grant)
+}
+
+// fillGlobalCap grants one slot to each of four distinct tenants.
+func fillGlobalCap(t *testing.T, s *BackfillScheduler) {
+	t.Helper()
+	for range 4 {
+		grantFor(t, s, uuid.New())
+	}
+}
+
+func TestScheduler_GrantsWithinCapsThenDefersGlobal(t *testing.T) {
+	s, clock, _ := fullHeadroomScheduler()
+
 	for i := range 4 {
 		d := s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{PendingSamples: 100})
 		require.True(t, d.Grant, "slot %d should be granted", i)
@@ -41,7 +64,6 @@ func TestScheduler_GrantsWithinCapsThenDefersGlobal(t *testing.T) {
 		assert.LessOrEqual(t, d.Rate, schedCfg().MaxGrantRate)
 		assert.Equal(t, clock().Add(schedCfg().GrantTTL).Unix(), d.Deadline)
 	}
-	// The fifth agent is deferred: the global concurrency cap is full.
 	d := s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{PendingSamples: 100})
 	assert.False(t, d.Grant, "global cap reached → defer")
 	assert.Positive(t, d.RetryAfter)
@@ -49,72 +71,51 @@ func TestScheduler_GrantsWithinCapsThenDefersGlobal(t *testing.T) {
 }
 
 func TestScheduler_PerTenantCapDefersThirdAgentOfOneTenant(t *testing.T) {
-	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s, _, _ := fullHeadroomScheduler()
 	tenant := uuid.New()
 
-	require.True(t, s.RequestSlot(uuid.New(), tenant, SlotRequest{}).Grant)
-	require.True(t, s.RequestSlot(uuid.New(), tenant, SlotRequest{}).Grant)
-	// Third agent of the same tenant: per-tenant cap (2) reached even though the
-	// global cap (4) has room — one tenant cannot monopolize the node.
-	d := s.RequestSlot(uuid.New(), tenant, SlotRequest{})
+	grantFor(t, s, tenant)
+	grantFor(t, s, tenant)
+	d := requestFor(s, tenant)
 	assert.False(t, d.Grant, "per-tenant cap reached → defer")
 	assert.Positive(t, d.RetryAfter)
 }
 
 func TestScheduler_BudgetShrinksUnderLiveLoad(t *testing.T) {
-	clock, _ := fixedClock()
-	headroom := 1.0
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return headroom })
+	s, clock, _ := fullHeadroomScheduler()
 
-	full := s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{})
+	full := requestFor(s, uuid.New())
 	require.True(t, full.Grant)
 
-	// Under live pressure the adaptive budget shrinks, so a fresh grant to an
-	// equivalent lone agent is throttled to a lower rate.
-	headroom = 0.25
 	s2 := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 0.25 })
-	low := s2.RequestSlot(uuid.New(), uuid.New(), SlotRequest{})
+	low := requestFor(s2, uuid.New())
 	require.True(t, low.Grant)
 	assert.Less(t, low.Rate, full.Rate, "lower headroom yields a lower granted rate")
 }
 
 func TestScheduler_FairShareCapsAnyOneTenant(t *testing.T) {
-	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s, _, _ := fullHeadroomScheduler()
 	tenantA, tenantB := uuid.New(), uuid.New()
 
-	// Weighted max-min fair-share is enforced by the per-tenant concurrency cap:
-	// tenant A holds at most PerTenantMax (2) of the 4 global slots and cannot grab
-	// them all to starve other tenants.
-	require.True(t, s.RequestSlot(uuid.New(), tenantA, SlotRequest{}).Grant)
-	require.True(t, s.RequestSlot(uuid.New(), tenantA, SlotRequest{}).Grant)
-	assert.False(t, s.RequestSlot(uuid.New(), tenantA, SlotRequest{}).Grant, "A is capped at PerTenantMax")
+	grantFor(t, s, tenantA)
+	grantFor(t, s, tenantA)
+	assert.False(t, requestFor(s, tenantA).Grant, "A is capped at PerTenantMax")
 
-	// The two slots A cannot take stay available to tenant B — B is never starved.
-	require.True(t, s.RequestSlot(uuid.New(), tenantB, SlotRequest{}).Grant)
-	require.True(t, s.RequestSlot(uuid.New(), tenantB, SlotRequest{}).Grant)
+	grantFor(t, s, tenantB)
+	grantFor(t, s, tenantB)
 	assert.Equal(t, 4, s.ActiveCount(), "the global cap is shared across tenants, not monopolized")
 
-	// Every granted rate is an equal load-adaptive slice within bounds.
-	d := s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{})
-	assert.False(t, d.Grant, "global cap now full")
+	assert.False(t, requestFor(s, uuid.New()).Grant, "global cap now full")
 }
 
 func TestScheduler_AgingShortensRetryForLongWaiters(t *testing.T) {
-	clock, cur := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s, _, cur := fullHeadroomScheduler()
+	fillGlobalCap(t, s)
 
-	// Saturate the global cap so further requests defer.
-	for range 4 {
-		require.True(t, s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{}).Grant)
-	}
 	waiter := uuid.New()
 	first := s.RequestSlot(waiter, uuid.New(), SlotRequest{})
 	require.False(t, first.Grant)
 
-	// The same agent, still deferred, has now waited a while. Aging shortens its
-	// backoff so it re-contends sooner and cannot be starved indefinitely.
 	*cur = cur.Add(15 * time.Second)
 	later := s.RequestSlot(waiter, uuid.New(), SlotRequest{})
 	require.False(t, later.Grant)
@@ -122,64 +123,47 @@ func TestScheduler_AgingShortensRetryForLongWaiters(t *testing.T) {
 }
 
 func TestScheduler_ExpiredGrantFreesASlot(t *testing.T) {
-	clock, cur := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s, _, cur := fullHeadroomScheduler()
+	fillGlobalCap(t, s)
+	assert.False(t, requestFor(s, uuid.New()).Grant)
 
-	for range 4 {
-		require.True(t, s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{}).Grant)
-	}
-	assert.False(t, s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{}).Grant)
-
-	// After every grant's deadline passes, stale grants are reclaimed and a new
-	// agent is admitted.
 	*cur = cur.Add(schedCfg().GrantTTL + time.Second)
-	assert.True(t, s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{}).Grant)
+	assert.True(t, requestFor(s, uuid.New()).Grant)
 }
 
 func TestScheduler_RenewIsIdempotentWithinTTL(t *testing.T) {
-	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s, _, _ := fullHeadroomScheduler()
 	agent, tenant := uuid.New(), uuid.New()
 
-	first := s.RequestSlot(agent, tenant, SlotRequest{})
-	require.True(t, first.Grant)
-	// Re-requesting the same agent's slot within the TTL renews it in place — it
-	// does not consume a second slot.
-	again := s.RequestSlot(agent, tenant, SlotRequest{})
-	require.True(t, again.Grant)
+	for range 2 {
+		require.True(t, s.RequestSlot(agent, tenant, SlotRequest{}).Grant)
+	}
 	assert.Equal(t, 1, s.ActiveCount(), "renew must not double-book a slot")
 }
 
 func TestScheduler_ReleaseFreesTheSlot(t *testing.T) {
-	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s, _, _ := fullHeadroomScheduler()
 	agent := uuid.New()
 	require.True(t, s.RequestSlot(agent, uuid.New(), SlotRequest{}).Grant)
 	assert.Equal(t, 1, s.ActiveCount())
 	s.Release(agent)
 	assert.Equal(t, 0, s.ActiveCount())
-	// Releasing an unknown agent is a harmless no-op.
 	s.Release(uuid.New())
 	assert.Equal(t, 0, s.ActiveCount())
-	// A nil scheduler (a connection wired without one) releases without panic.
 	var nilSched *BackfillScheduler
 	assert.NotPanics(t, func() { nilSched.Release(uuid.New()) })
 }
 
 func TestScheduler_ReleaseDecrementsSharedTenantCount(t *testing.T) {
-	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s, _, _ := fullHeadroomScheduler()
 	tenant := uuid.New()
 	a1, a2 := uuid.New(), uuid.New()
 	require.True(t, s.RequestSlot(a1, tenant, SlotRequest{}).Grant)
 	require.True(t, s.RequestSlot(a2, tenant, SlotRequest{}).Grant)
 
-	// Releasing one of two same-tenant grants decrements the tenant count without
-	// dropping it, so the tenant still holds a slot and can be released again.
 	s.Release(a1)
 	assert.Equal(t, 1, s.ActiveCount())
-	// A third same-tenant agent is now admissible (tenant count is back below the cap).
-	require.True(t, s.RequestSlot(uuid.New(), tenant, SlotRequest{}).Grant)
+	grantFor(t, s, tenant)
 	assert.Equal(t, 2, s.ActiveCount())
 }
 
@@ -190,8 +174,7 @@ func TestDefaultBackfillSchedulerConfigPinsDurations(t *testing.T) {
 }
 
 func TestScheduler_ReleaseLastGrantRemovesTenantCounter(t *testing.T) {
-	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s, _, _ := fullHeadroomScheduler()
 	tenant := uuid.New()
 	agent := uuid.New()
 	require.True(t, s.RequestSlot(agent, tenant, SlotRequest{}).Grant)

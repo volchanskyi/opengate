@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestInvalidText covers the shared bound applied to every user-supplied
-// free-text field that the server persists, logs, or forwards to an agent.
 func TestInvalidText(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -44,8 +42,6 @@ func TestInvalidText(t *testing.T) {
 	}
 }
 
-// TestSanitizeText covers the sink-side bound used where the API contract has
-// no 400 response available to reject the value with.
 func TestSanitizeText(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -75,9 +71,6 @@ func TestSanitizeText(t *testing.T) {
 	}
 }
 
-// TestInvalidTextBoundsByRuneCount pins that the bound counts characters, so a
-// multi-byte name is not rejected for being under the limit in characters but
-// over it in bytes.
 func TestInvalidTextBoundsByRuneCount(t *testing.T) {
 	t.Parallel()
 	// 40 three-byte runes: 120 bytes, 40 characters.

@@ -9,18 +9,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// The moves a rule upgrade made to a customer's tuning, stored until somebody
-// has seen them.
-
 // ErrClampNotFound means no outstanding move has that id — it was never
 // recorded, or somebody has already acknowledged it.
 var ErrClampNotFound = errors.New("no outstanding clamp with that id")
 
 const (
-	// Keyed on the binding, the parameter and the version that narrowed the
-	// range, so reading the same upgrade twice keeps the first record rather
-	// than making a second. The first record is the one that carries when the
-	// move actually happened.
+	// The conflict key keeps the first record of a move, which carries when it happened.
 	recordClampSQL = `INSERT INTO rule_binding_clamps
 		   (id, tenant_id, organization_id, binding_id, rule_id, rule_version,
 		    param, from_value, to_value, clamped_at)
@@ -38,13 +32,8 @@ const (
 		  WHERE ` + scopedToTenant + ` AND id = $1 AND acknowledged_at IS NULL`
 )
 
-// ReconcileClamps reads one customer's tuning against the pack as it now stands,
-// records every value a rule version no longer allows, and returns what is still
-// outstanding.
-//
-// It is idempotent, which is what lets it run on the read that displays the
-// flag: an upgrade landed six weeks ago records the move it made then, once,
-// however many times somebody opens the screen.
+// ReconcileClamps records each move the current pack makes to a customer's tuning and returns
+// the outstanding ones; repeated calls record each move once.
 func (s *Store) ReconcileClamps(ctx context.Context, cat Pack, organizationID uuid.UUID) ([]Clamp, error) {
 	bindings, err := s.ListBindings(ctx, organizationID)
 	if err != nil {
@@ -84,9 +73,8 @@ func (s *Store) ListClamps(ctx context.Context, organizationID uuid.UUID) ([]Cla
 	return out, nil
 }
 
-// AcknowledgeClamp records that an administrator has seen one move. Only an
-// outstanding one can be acknowledged, so the action says what it did rather
-// than succeeding against a move somebody else already handled.
+// AcknowledgeClamp records that an administrator has seen one move; only an outstanding move
+// can be acknowledged.
 func (s *Store) AcknowledgeClamp(ctx context.Context, id uuid.UUID, acknowledgedBy string) error {
 	acknowledged, err := s.affected(ctx, "acknowledge rule binding clamp",
 		acknowledgeClampSQL, id, acknowledgedBy)

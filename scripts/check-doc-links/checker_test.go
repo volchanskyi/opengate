@@ -5,12 +5,6 @@ import (
 	"testing"
 )
 
-// TestCheckLinkPlanPolicy pins the plan-link doctrine: a plan is a working
-// document and is deleted in the commit that lands its work, so nothing
-// durable may depend on one. No source under docs/ — ADRs included — and no
-// source under .claude/ may link a plan. A plan linking a sibling plan is the
-// working area referring to itself and is left alone.
-// See .claude/rules/plans-and-adrs.md.
 func TestCheckLinkPlanPolicy(t *testing.T) {
 	const planTarget = ".claude/plans/foo.md"
 
@@ -58,8 +52,7 @@ func TestCheckLinkPlanPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatalf("newChecker: %v", err)
 			}
-			// Make the target resolvable so an "allowed" case reaches a clean
-			// result instead of a missing-target error.
+			// The overlay makes the plan target resolvable, so an allowed case reaches a clean result.
 			c.overlays[planTarget] = []byte("# plan\n")
 
 			got := c.checkLink(tc.source, link{Destination: tc.destination})

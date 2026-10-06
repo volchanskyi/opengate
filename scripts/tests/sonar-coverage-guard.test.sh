@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/sonar-coverage-guard.sh. Plain bash; no network — the
-# new_coverage value is injected via NEW_COVERAGE_OVERRIDE or a stubbed CURL_BIN.
-# Run: ./scripts/tests/sonar-coverage-guard.test.sh
+# The new_coverage value is injected through NEW_COVERAGE_OVERRIDE or a stubbed CURL_BIN.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,7 +43,6 @@ assert_rc() {
   if [ "$got" = "$want" ]; then pass "$n"; else fail "$n (want rc=$want got=$got)"; fi
 }
 
-# --- Stub curl: echoes a canned SonarCloud measures response from STUB_JSON. ---
 STUB_DIR="$(mktemp -d)"
 cat >"$STUB_DIR/curl" <<'STUB'
 #!/usr/bin/env bash
@@ -71,7 +68,7 @@ assert_fail "100 is not below 82" scov_below_floor 100 82
 
 echo
 echo "scov_main via NEW_COVERAGE_OVERRIDE:"
-export NEW_COVERAGE_FLOOR=82 # read by scov_main in the sourced guard
+export NEW_COVERAGE_FLOOR=82
 NEW_COVERAGE_OVERRIDE=79.95 assert_fail "79.95 fails the 82 floor" scov_main
 NEW_COVERAGE_OVERRIDE=80.0 assert_fail "80.0 boundary fails the 82 floor" scov_main
 NEW_COVERAGE_OVERRIDE=81.99 assert_fail "81.99 fails the 82 floor" scov_main
@@ -108,12 +105,8 @@ assert_lines() {
 }
 assert_lines "a multi-line hunk reports every line it added" "12 13 14 " \
   "@@ -10,2 +12,3 @@ func x() {"
-# A hunk with no count is one line. Reading the absent count as zero loses it,
-# and a one-line change is the commonest shape there is.
 assert_lines "a single-line hunk with no count reports that line" "7 " \
   "@@ -7 +7 @@"
-# A pure deletion touches no line of the working tree, so it adds nothing that
-# needs covering — counting it would demand coverage of a line that is not there.
 assert_lines "a pure deletion adds nothing to cover" "" \
   "@@ -4,3 +3,0 @@"
 assert_lines "several hunks are all reported" "2 9 10 " \
@@ -140,9 +133,7 @@ export SCOV_CHANGED_OVERRIDE="server/internal/app/background.go"
 export SCOV_SETTLE_RETRIES=0
 export SCOV_SETTLE_SLEEP=0
 
-# The failure this half exists for: a file carved out of another arrives with
-# every line dated to the split, so CI measures all of it as new code. Four of
-# nine changed lines hit is 44%, which is roughly what the gate saw.
+# A file carved out of another arrives with every line dated to the split, so all of it is new code.
 split_lines() {
   local hit="$1" miss="$2" out="" i
   for ((i = 1; i <= hit; i++)); do out+="server/internal/app/background.go:$i:3"$'\n'; done
@@ -164,16 +155,10 @@ SCOV_LINES_OVERRIDE="$(split_lines 9 0)" \
 SCOV_LINES_OVERRIDE="$(split_lines 8 1)" \
   assert_ok "88% clears the 82 floor" scov_check_diff
 
-# A line the coverage report says nothing about — a comment, a blank, a
-# declaration — is a line nothing has to cover, and counting it as uncovered
-# would demand a test for a line no test can reach.
 SCOV_LINES_OVERRIDE="$(split_lines 2 0)" \
   assert_ok "lines with no coverage figure do not count against the ratio" scov_check_diff
 
-# A guard that answers yes when it could not ask is the false green it was
-# written to close. The report root is pointed at nothing as well, because a
-# file the analysis cannot answer for is read from the reports instead — and
-# this case is about neither of them answering.
+# The report root points at nothing so that neither the analysis nor the reports answer.
 SCOV_REPORT_ROOT=/nonexistent \
   SCOV_LINES_OVERRIDE="other/file.go:1:5" \
   assert_rc "no figures for any changed file → rc 2, never a pass" 2 scov_check_diff
@@ -181,22 +166,7 @@ SCOV_REPORT_ROOT=/nonexistent \
 unset SCOV_CHANGED_OVERRIDE SCOV_TOUCHED_OVERRIDE SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
 unset SCOV_LINES_OVERRIDE
 
-# --- the reports the scan just uploaded ---------------------------------------
-#
-# What the analysis holds per file is not a fact about the coverage report; it
-# is a fact about the branch. SonarCloud keeps file-level data for a short-lived
-# branch only where that branch changed the file, and `dev` is short-lived — so
-# a file the previous commit did not touch has no component on it, whatever its
-# coverage. The lines being committed right now are never in that set, which is
-# precisely the blame gap this check exists to close.
-#
-# It surfaced on a commit whose predecessor touched only test-harness files:
-# every guarded source file came back "not found", for a change that had just
-# added a well-covered file. The guard refused, correctly and permanently.
-#
-# So the hit counts are read from the reports the scan uploaded. They describe
-# the working tree, so they carry no blame gap at all, and they are the same
-# numbers SonarCloud was given.
+# SonarCloud holds file data for a short-lived branch only where the branch changed the file.
 
 REPORTS="$(mktemp -d)"
 # Invoked through the EXIT trap.
@@ -206,8 +176,7 @@ trap 'cleanup; cleanup_work; cleanup_reports' EXIT
 
 mkdir -p "$REPORTS/server" "$REPORTS/web/coverage" "$REPORTS/agent"
 
-# A Go cover profile names a block by its start and end line, so every line of a
-# block carries the block's count.
+# A Go cover profile names a block by its start and end line, so each line carries the block count.
 cat >"$REPORTS/server/coverage.out" <<'PROFILE'
 mode: atomic
 github.com/volchanskyi/opengate/server/internal/app/background.go:10.20,12.4 2 7
@@ -244,8 +213,6 @@ assert_eq "a rust lcov path is already repository-relative" \
 assert_eq "a file no report mentions has no figures, rather than zeros" \
   "" "$(scov_local_line_hits server/internal/api/nothing.go)"
 
-# The whole point: the check now answers on a branch that holds no component for
-# the file, because the reports do.
 export SCOV_CHANGED_OVERRIDE="server/internal/app/background.go"
 SCOV_TOUCHED_OVERRIDE="$(printf 'server/internal/app/background.go:10\nserver/internal/app/background.go:11\n')"
 export SCOV_TOUCHED_OVERRIDE
@@ -254,24 +221,14 @@ export SCOV_SETTLE_SLEEP=0
 SCOV_LINES_OVERRIDE="other/file.go:1:5" \
   assert_ok "a file SonarCloud has no component for is read from the report instead" scov_check_diff
 
-# And a branch that answers is still preferred, so the read-back of what was
-# uploaded is not lost.
 SCOV_LINES_OVERRIDE="$(printf 'server/internal/app/background.go:10:0\nserver/internal/app/background.go:11:0\n')" \
   assert_rc "what the analysis says wins where it says anything" 1 scov_check_diff
 
-# With neither source answering, the guard still refuses.
 SCOV_REPORT_ROOT="$REPORTS/empty" \
   SCOV_LINES_OVERRIDE="other/file.go:1:5" \
   assert_rc "no figures anywhere → rc 2, never a pass" 2 scov_check_diff
 
-# --- hits describe the content they were measured on --------------------------
-#
-# The branch holds whichever analysis finished last. A CI scan of the previous
-# push that lands between this run's upload and this read replaces it, and its
-# hit counts describe the previous content: laid over this change's line
-# numbers they read as coverage of lines nobody tested. That is how a change
-# with 116 untested lines passed here and read 63.6% in CI. So what the branch
-# says counts only when the branch holds the file as the working tree does.
+# The branch holds the last analysis, so its hits count only for a file equal to the working tree's.
 WORKTREE="$(mktemp -d)"
 mkdir -p "$WORKTREE/server/internal/app"
 seq 1 15 >"$WORKTREE/server/internal/app/background.go"
@@ -302,13 +259,6 @@ unset STUB_LINES_JSON
 
 unset SCOV_CHANGED_OVERRIDE SCOV_TOUCHED_OVERRIDE SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
 
-# --- A file the gate does not cover is not a file whose coverage went missing --
-#
-# The refusal above exists for a production file the analysis dropped. A file
-# outside the analysed sources, or named by the coverage exclusions, has no
-# figure anywhere by design — the two are the same silence, and only one of them
-# is a defect. A commit confined to the load harness and a documentation tool
-# was refused permanently for touching nothing the gate measures.
 echo
 echo "what the coverage gate actually covers:"
 
@@ -325,15 +275,12 @@ assert_fail "a Go test file is named by the coverage exclusions" \
 assert_fail "generated API code is named by the coverage exclusions" \
   scov_gate_covers server/internal/api/openapi_gen.go
 
-# The narrowing is what the refusal is asked about, so a change that touches
-# nothing the gate covers is nothing to cover rather than a missing measurement.
 export SCOV_SETTLE_RETRIES=0
 export SCOV_SETTLE_SLEEP=0
 SCOV_CHANGED_OVERRIDE="$(printf 'server/tests/loadtest/main.go\nscripts/check-doc-links/checker.go\n')" \
 SCOV_LINES_OVERRIDE="other/file.go:1:5" \
   assert_ok "a change the gate covers no part of is not a refusal" scov_check_diff
 
-# And a production file among them still has to answer.
 SCOV_CHANGED_OVERRIDE="$(printf 'server/tests/loadtest/main.go\nserver/internal/app/background.go\n')" \
 SCOV_REPORT_ROOT="$REPORTS/empty" \
 SCOV_LINES_OVERRIDE="other/file.go:1:5" \
@@ -341,16 +288,7 @@ SCOV_LINES_OVERRIDE="other/file.go:1:5" \
 
 unset SCOV_SETTLE_RETRIES SCOV_SETTLE_SLEEP
 
-# --- A file with nothing to execute is not a file nobody measured -------------
-#
-# A Rust module that is doc comments and `pub mod` lines has no executable line,
-# so llvm-cov writes no record for it and the file is absent from a report that
-# names every other file in its crate. That silence reads exactly like coverage
-# the analysis dropped, and only one of the two is a defect.
-#
-# What separates them is the report itself: one that names sources was read, so
-# a file missing from it has nothing to execute. One that names none is the
-# measurement going missing, which is what this guard was written for.
+# A Rust module of doc comments and `pub mod` lines has no record in its crate's report.
 echo
 echo "a report that was read, and one that went missing:"
 
@@ -363,20 +301,17 @@ SCOV_REPORT_ROOT="$REPORTS/empty" \
 export SCOV_SETTLE_RETRIES=0
 export SCOV_SETTLE_SLEEP=0
 
-# A crate whose report names its siblings and not this file: nothing to cover.
 SCOV_CHANGED_OVERRIDE="agent/crates/edge-tsdb/src/lib.rs" \
   SCOV_TOUCHED_OVERRIDE="agent/crates/edge-tsdb/src/lib.rs:6" \
   SCOV_LINES_OVERRIDE="other/file.rs:1:5" \
   assert_ok "a file with no executable line is not a missing measurement" scov_check_diff
 
-# The same file against a report that names nothing at all still refuses.
 SCOV_CHANGED_OVERRIDE="agent/crates/edge-tsdb/src/lib.rs" \
   SCOV_TOUCHED_OVERRIDE="agent/crates/edge-tsdb/src/lib.rs:6" \
   SCOV_REPORT_ROOT="$REPORTS/empty" \
   SCOV_LINES_OVERRIDE="other/file.rs:1:5" \
   assert_rc "a report that names nothing is still a refusal" 2 scov_check_diff
 
-# And a file the report does carry is still read from it, uncovered lines and all.
 SCOV_CHANGED_OVERRIDE="agent/crates/mesh-agent/src/run.rs" \
   SCOV_TOUCHED_OVERRIDE="agent/crates/mesh-agent/src/run.rs:8" \
   SCOV_LINES_OVERRIDE="other/file.rs:1:5" \

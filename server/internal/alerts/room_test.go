@@ -12,19 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// What one room has to answer when somebody opens it.
-//
-// The room is the whole surface an investigation happens on, so what it carries
-// decides what can be worked out about an event: the alerts that folded in, the
-// timeline of what people did, and — separately, on request — the frozen
-// evidence one of those alerts arrived with. Separately because evidence is tens
-// of kilobytes per alert and a room holds hundreds of them; a room that carried
-// its evidence would move megabytes to render a page nobody has scrolled yet.
-
-// TestRoomCarriesItsAlertsAndItsTimeline is the detail read. Both halves are
-// needed and neither substitutes for the other: the alerts say what the machines
-// reported, and the timeline says what people did about it, which is what a
-// handover between two technicians reads.
 func TestRoomCarriesItsAlertsAndItsTimeline(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -58,17 +45,13 @@ func TestRoomCarriesItsAlertsAndItsTimeline(t *testing.T) {
 	assert.Contains(t, string(room.Events[0].Body), "acknowledged")
 }
 
-// TestRoomTimelineReadsForwards pins the order. A timeline is read the way it
-// happened — a handover starts at what opened the room, not at the last thing
-// anybody typed.
 func TestRoomTimelineReadsForwards(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
 	user := testutil.SeedUser(t, e.ctx, e.store)
 	id := e.openRoomAt(t, StatusNew, e.now)
 
-	// Each move at its own moment, because that is what a timeline is ordered by
-	// and a stopped clock would leave the order to the ids.
+	// Each move lands at its own moment, since a stopped clock would leave the order to the ids.
 	e.clockAt(e.now.Add(time.Minute))
 	require.NoError(t, e.alerts.Transition(e.ctx, id, Change{To: StatusAcknowledged, Actor: user.ID}))
 	e.clockAt(e.now.Add(2 * time.Minute))
@@ -81,10 +64,6 @@ func TestRoomTimelineReadsForwards(t *testing.T) {
 	assert.Equal(t, []string{"status_change", "comment", "resolution"}, kinds(e.opened(t, id)))
 }
 
-// TestRoomNeverCarriesAnEvidenceBlob is the bound that keeps a room readable.
-// Evidence is tens of kilobytes per alert and a fleet event folds hundreds of
-// them, so the room reports what evidence exists and how big it is, and fetching
-// one is a call of its own.
 func TestRoomNeverCarriesAnEvidenceBlob(t *testing.T) {
 	t.Parallel()
 	bytes := reflect.TypeFor[[]byte]()
@@ -94,9 +73,6 @@ func TestRoomNeverCarriesAnEvidenceBlob(t *testing.T) {
 	}
 }
 
-// TestRoomBoundsWhatItReturns keeps Contoso's 02:41 driver rollout — 312 alerts
-// in one room — from being 312 rows in one response. The room says how many
-// there are, so a bounded page is visibly a page rather than the whole of it.
 func TestRoomBoundsWhatItReturns(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -112,9 +88,6 @@ func TestRoomBoundsWhatItReturns(t *testing.T) {
 	}
 }
 
-// TestRoomStopsAtTheTenantWallAndAtTheCustomer covers both boundaries with one
-// crafted id each. They fail the same way on purpose: a caller must not be able
-// to tell a room they may not see from one that does not exist.
 func TestRoomStopsAtTheTenantWallAndAtTheCustomer(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -124,9 +97,6 @@ func TestRoomStopsAtTheTenantWallAndAtTheCustomer(t *testing.T) {
 	theirs := e.openRoomIn(t, next, StatusNew, e.now)
 	ours := e.openRoomAt(t, StatusNew, e.now)
 
-	// Reading a room and resolving one before acting on it are the two doors a
-	// caller-supplied id comes through, and both refuse the same way whichever
-	// boundary is in the way.
 	for _, tc := range []struct {
 		name string
 		id   uuid.UUID
@@ -145,9 +115,6 @@ func TestRoomStopsAtTheTenantWallAndAtTheCustomer(t *testing.T) {
 		})
 	}
 
-	// The moves are refused by the wall itself. They carry no customer of their
-	// own — the caller resolves the room by reading it first, which is what
-	// makes acting on a room outside the customer on screen impossible.
 	for _, tc := range []struct {
 		name string
 		id   uuid.UUID
@@ -165,7 +132,6 @@ func TestRoomStopsAtTheTenantWallAndAtTheCustomer(t *testing.T) {
 	}
 }
 
-// is the first move of almost every case here.
 func (e estate) opened(t *testing.T, id uuid.UUID) Investigation {
 	t.Helper()
 	room, err := e.alerts.Investigation(e.ctx, id, uuid.Nil)
@@ -173,8 +139,6 @@ func (e estate) opened(t *testing.T, id uuid.UUID) Investigation {
 	return room
 }
 
-// kinds renders a room's history as the sorts of line it holds, which is what
-// the order and the presence cases assert on.
 func kinds(room Investigation) []string {
 	out := make([]string, 0, len(room.Events))
 	for _, event := range room.Events {
@@ -183,16 +147,10 @@ func kinds(room Investigation) []string {
 	return out
 }
 
-// clockAt moves the store's clock, which is what stamps a move in a room's
-// history. A timeline is ordered by when things happened, so a case about order
-// has to make its moves at different moments — a stopped clock would leave the
-// order to the ids.
 func (e estate) clockAt(when time.Time) {
 	e.alerts.now = func() time.Time { return when }
 }
 
-// seedFoldedAlerts writes n alerts already filed into a room, which is what a
-// fleet event looks like by the time anybody opens it.
 func (e estate) seedFoldedAlerts(t *testing.T, incidentID uuid.UUID, n int) {
 	t.Helper()
 	e.exec(t,
@@ -208,8 +166,6 @@ func (e estate) seedFoldedAlerts(t *testing.T, incidentID uuid.UUID, n int) {
 		e.tenant, e.org, e.device, e.now, incidentID, n)
 }
 
-// TestRoomEventsAreBounded keeps a long-running room's history from becoming the
-// whole response, the same way its alerts are.
 func TestRoomEventsAreBounded(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -222,7 +178,6 @@ func TestRoomEventsAreBounded(t *testing.T) {
 	assert.Equal(t, maxRoomEvents+7, room.EventsTotal)
 }
 
-// seedRoomEvents writes n comments into a room's history.
 func (e estate) seedRoomEvents(t *testing.T, incidentID uuid.UUID, n int, actor uuid.UUID) {
 	t.Helper()
 	e.exec(t,

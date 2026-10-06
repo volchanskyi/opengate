@@ -1,7 +1,4 @@
 //! WebRTC switch-ack control-message handler.
-//!
-//! Owns `ControlMessage::SwitchAck` dispatch so switch acknowledgements remain
-//! isolated from the [`super::super::handler::SessionHandler`] multiplexer.
 
 use std::sync::Arc;
 
@@ -13,17 +10,13 @@ use super::super::relay::send_frame;
 use super::ControlMessageHandler;
 use crate::webrtc::AgentPeerConnection;
 
-/// Handles the WebRTC switch-ack message that confirms the browser has
-/// accepted a WebRTC upgrade. Silently drops the ack when no peer
-/// connection is active (legitimate transient state during teardown).
+/// Handles the switch-ack that confirms the browser accepted a WebRTC upgrade.
 pub struct SwitchHandler;
 
 impl ControlMessageHandler for SwitchHandler {}
 
 impl SwitchHandler {
-    /// Process a `SwitchAck` control message. Confirms the WebRTC upgrade
-    /// to the browser by echoing back a SwitchAck frame; no-op when no
-    /// peer connection is currently held.
+    /// Echoes a `SwitchAck` frame to the browser while a peer connection is held.
     pub async fn handle_ack(
         webrtc_pc: &Arc<Mutex<Option<Arc<AgentPeerConnection>>>>,
         frame_tx: &mpsc::Sender<Vec<u8>>,

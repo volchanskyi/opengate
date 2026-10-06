@@ -2,17 +2,12 @@ package protocol
 
 import "github.com/vmihailenco/msgpack/v5"
 
-// controlFieldCount is the number of msgpack-encoded fields ControlMessage
-// declares. controlFieldPresence and encodeControlField below are indexed
-// positionally, so both must track the struct;
-// TestEncodeControlMatchesReflectionPerField walks the struct by reflection and
-// fails if any of the three ever drift.
+// controlFieldCount is the number of msgpack-encoded fields ControlMessage declares; the
+// positionally indexed controlFieldPresence and encodeControlField must track the struct.
 const controlFieldCount = 100
 
-// Each put* helper writes one map entry: the key, then the value through the
-// same encoder method the reflection encoder picks for that Go type. The integer
-// helpers are the width-preserving ones — compact ints are off by default — and
-// that is what keeps the emitted bytes byte-identical to the reflection path.
+// Each put* helper writes one map entry through the encoder method the reflection encoder picks
+// for that Go type, keeping the integer widths and so the bytes identical.
 
 func putString(enc *msgpack.Encoder, key, val string) error {
 	if err := enc.EncodeString(key); err != nil {
@@ -70,10 +65,7 @@ func putBytes(enc *msgpack.Encoder, key string, val []byte) error {
 	return enc.EncodeBytes(val)
 }
 
-// putValue covers the composite fields — slices of structs and struct pointers —
-// whose payload the reflection encoder still handles. Those are fields a message
-// actually carries, so that cost tracks real content rather than the union's
-// declared width.
+// putValue writes the slice and struct-pointer fields through the reflection encoder.
 func putValue(enc *msgpack.Encoder, key string, val any) error {
 	if err := enc.EncodeString(key); err != nil {
 		return err
@@ -81,21 +73,8 @@ func putValue(enc *msgpack.Encoder, key string, val any) error {
 	return enc.Encode(val)
 }
 
-// EncodeMsgpack writes the message as a msgpack map holding only the fields it
-// actually carries.
-//
-// ControlMessage is a union: one flat struct covering every message type, so
-// every field but Type is omitempty and all but a handful are zero on any given
-// message. The reflection-based struct encoder decides emptiness by calling
-// reflect.Value.Interface() on each omitempty field, which heap-boxes it — so
-// encoding any message allocated once per declared field, and every field added
-// to the union made every message on the wire more expensive. Testing emptiness
-// with direct typed comparisons keeps the cost proportional to the fields a
-// message actually populates.
-//
-// The emitted bytes match the reflection encoder's exactly: same field order
-// (declaration order), same keys, same omitempty semantics, same integer widths.
-// codec_wire_equivalence_test.go diffs the two encoders field by field.
+// EncodeMsgpack writes only the populated fields as a msgpack map, testing emptiness with typed
+// comparisons so the cost tracks the fields set; the bytes match the reflection encoder's.
 func (m *ControlMessage) EncodeMsgpack(enc *msgpack.Encoder) error {
 	present := m.controlFieldPresence()
 
@@ -122,9 +101,8 @@ func (m *ControlMessage) EncodeMsgpack(enc *msgpack.Encoder) error {
 	return nil
 }
 
-// controlFieldPresence reports, per field position, whether the field carries a
-// value msgpack would emit under omitempty. The result is a value array, so it
-// stays on the stack and this pass allocates nothing.
+// controlFieldPresence reports, per field position, whether msgpack would emit the field under
+// omitempty; the value array stays on the stack.
 func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	var present [controlFieldCount]bool
 	present[0] = true // type: no omitempty, always emitted
@@ -230,9 +208,8 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	return present
 }
 
-// encodeControlField writes the field at position i, handing off to the group
-// that owns it. The groups follow the struct's own declaration order, so a
-// field's position on the wire is still the position it is declared at.
+// encodeControlField writes the field at position i through the group that owns it; the groups
+// follow declaration order, so wire position matches declared position.
 func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 	switch {
 	case i <= 7:
@@ -276,7 +253,7 @@ func (m *ControlMessage) encodeEnvelopeField(enc *msgpack.Encoder, i int) error 
 	return nil
 }
 
-// encodeTelemetryField writes one of fields 8–35: vitals, summaries, breaches and the windows they cover.
+// encodeTelemetryField writes one of fields 8–35: vitals, summaries, breaches and windows.
 func (m *ControlMessage) encodeTelemetryField(enc *msgpack.Encoder, i int) error {
 	switch i {
 	case 8:
@@ -428,7 +405,7 @@ func (m *ControlMessage) encodeHardwareField(enc *msgpack.Encoder, i int) error 
 	return nil
 }
 
-// encodeInventoryField writes one of fields 70–86: logs and the software inventory read off the machine.
+// encodeInventoryField writes one of fields 70–86: logs and the machine's software inventory.
 func (m *ControlMessage) encodeInventoryField(enc *msgpack.Encoder, i int) error {
 	switch i {
 	case 70:

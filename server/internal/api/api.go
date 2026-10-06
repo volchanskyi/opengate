@@ -40,12 +40,8 @@ import (
 
 //go:generate oapi-codegen -config ../../oapi-codegen.yaml ../../api/openapi.yaml
 
-// AgentControl is the api package's port over a connected agent. It is exactly
-// the surface the HTTP handlers use: the four control-writes, the two
-// synchronous request/response reads, and a metadata snapshot. Depending on this
-// consumer-defined interface instead of the concrete *agentapi.AgentConn lets a
-// test harness substitute a fault-decorating implementation for the
-// agent.control-write scenario without compiling fault code into the server.
+// AgentControl is the api package's port over a connected agent: control-writes,
+// synchronous reads and a metadata snapshot. A test harness can wrap it to inject faults.
 type AgentControl interface {
 	// Control-writes (server → agent). The capability-gated sends return a typed
 	// capability error the handlers detect via agentapi.IsCapabilityError.
@@ -69,10 +65,8 @@ type AgentControl interface {
 type AgentGetter interface {
 	GetAgent(deviceID db.DeviceID) AgentControl
 	ListConnectedAgents() []AgentControl
-	// RefreshAlertRules re-resolves and delivers the ruleset to every connected
-	// machine of one customer, answering how many were reached. A rule runs on
-	// the customer's own machines, so a rule that turns out to be wrong has to
-	// be stoppable without waiting for a link to break.
+	// RefreshAlertRules re-resolves and delivers the ruleset to every connected machine
+	// of one customer and returns how many were reached.
 	RefreshAlertRules(ctx context.Context, organizationID uuid.UUID) int
 	// RefreshAlertRulesForTenant does the same for every customer in one
 	// tenant, which is the reach a tenant-wide stop asks for.
@@ -85,25 +79,19 @@ type CertProvider interface {
 	SignAgentCSR(csrDER []byte) ([]byte, error)
 }
 
-// MetricsReader reads tenant-scoped numeric telemetry for chart windows and the
-// fleet health badge. Implemented by *telemetry.VMClient; nil when telemetry is
-// not configured, in which case the metrics endpoint reports 503 and the device
-// list omits anomaly_rate.
+// MetricsReader reads tenant-scoped numeric telemetry for chart windows and the fleet
+// health badge. Nil when telemetry is unconfigured: metrics answer 503, anomaly_rate is omitted.
 type MetricsReader interface {
 	QueryRange(ctx context.Context, tenantID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error)
 	QueryInstant(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]telemetry.InstantValue, error)
 	QueryInstantLookback(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]telemetry.InstantValue, error)
-	// CountAnomalyBands returns how many devices fall in each edge-health band,
-	// counted inside the time-series store so the dashboard rollup stays O(1) in
-	// fleet size.
+	// CountAnomalyBands returns how many devices fall in each edge-health band, counted in the
+	// time-series store so the rollup is O(1) in fleet size.
 	CountAnomalyBands(ctx context.Context, tenantID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (telemetry.BandCounts, error)
 }
 
-// IncidentStore is the api package's port over the investigation store: the
-// triage queue, one room with everything in it, and the moves a person makes on
-// one. Reading a room is also how a route resolves an id somebody typed, which
-// is why the single-room read is part of the port rather than folded into the
-// detail read.
+// IncidentStore is the api package's port over the investigation store: the triage
+// queue, one room with its contents, and the moves a person makes on a room.
 type IncidentStore interface {
 	Queue(ctx context.Context, filter alerts.Filter) (alerts.Page, error)
 	Incident(ctx context.Context, incidentID, organizationID uuid.UUID) (alerts.Incident, error)
@@ -114,13 +102,11 @@ type IncidentStore interface {
 	Evidence(ctx context.Context, incidentID, alertID uuid.UUID) ([]byte, string, error)
 }
 
-// RulePack is the curated catalogue compiled into this build. Definitions are
-// read-only here by construction: they are validated and cost-bounded in CI,
-// which is the whole reason they do not live in the database.
+// RulePack is the curated rule catalogue compiled into this build. Its definitions are
+// read-only and validated and cost-bounded in CI.
 type RulePack interface {
 	All() []rules.Definition
-	// Lookup resolves one rule id to its definition, which is what a rule's own
-	// page and every write naming a rule need.
+	// Lookup resolves one rule id to its definition.
 	Lookup(id string) (rules.Definition, bool)
 }
 
@@ -130,10 +116,8 @@ type RuleRolloutReader interface {
 	ListRollouts(ctx context.Context, organizationID uuid.UUID) (map[string]rules.Rollout, error)
 }
 
-// RuleAdmin is everything an operator may change about a rule, plus the labels
-// a rule can be aimed at. It is one port rather than several because every
-// method on it is reached from the same screen, and splitting it would only
-// spread one decision — "who may change detection" — across several places.
+// RuleAdmin is everything an operator may change about a rule, plus the labels a
+// rule can target.
 type RuleAdmin interface {
 	ListBindings(ctx context.Context, organizationID uuid.UUID) ([]rules.Binding, error)
 	UpsertBinding(ctx context.Context, pack rules.Pack, b rules.Binding) error
@@ -158,19 +142,15 @@ type RuleAdmin interface {
 	ListTagAssignments(ctx context.Context, organizationID uuid.UUID) (map[uuid.UUID]map[string]string, error)
 }
 
-// AlertBudget is a customer's alert ceilings and how noisy each rule has been.
-// Both come from the alert store because both are facts about alerts: the budget
-// is what refuses one, and the noise count is how many got through.
+// AlertBudget is a customer's alert ceilings and how many alerts each rule has let through.
 type AlertBudget interface {
 	Limits(ctx context.Context, organizationID uuid.UUID) (alerts.Limits, error)
 	UpsertLimits(ctx context.Context, l alerts.Limits) error
 	RuleNoise(ctx context.Context, organizationID uuid.UUID) (map[string]alerts.Noise, error)
 }
 
-// RuleCoverageReader reads how much of one customer's estate each rule is
-// actually watching, against a fleet the caller has counted. The fleet size is
-// passed in rather than read here so the split and the total it is a split of
-// come from one moment.
+// RuleCoverageReader reads how much of one customer's estate each rule watches, against a
+// fleet size the caller passes in so the split and its total come from one moment.
 type RuleCoverageReader interface {
 	RuleCoverage(ctx context.Context, organizationID uuid.UUID, fleetSize int) map[string]agentapi.RuleCoverageCounts
 }
@@ -215,30 +195,22 @@ type ServerConfig struct {
 	GitHubRepo            string // GitHub repo for manifest auto-sync (e.g. "owner/repo")
 	BaseURL               string // public base URL for install script (e.g. "https://opengate.example.com")
 	QuicHost              string // override hostname for QUIC address in enrollment (bypasses CDN proxy)
-	// TrustedProxies names the reverse proxies whose X-Forwarded-For decides
-	// which request allowance a caller spends. Nil believes none of them, which
-	// is the right answer for a server reached directly.
+	// TrustedProxies names the reverse proxies whose X-Forwarded-For selects the caller's
+	// rate-limit allowance. Nil trusts none, as for a server reached directly.
 	TrustedProxies *TrustedProxies
 	Logger         *slog.Logger
 	WebDir         string // directory containing SPA static assets (optional)
 	Metrics        *appmetrics.Metrics
-	// RequestTimeout bounds a single API request. Zero selects
-	// defaultRequestTimeout. Tests inject a short budget so timeout-boundary
-	// behavior is provable in milliseconds rather than in wall-clock seconds.
+	// RequestTimeout bounds a single API request. Zero selects defaultRequestTimeout.
 	RequestTimeout time.Duration
 	// RelayPeerTimeout bounds how long one relay side may wait for its peer.
 	// Zero selects defaultRelayPeerTimeout; paired sessions are not time-limited.
 	RelayPeerTimeout time.Duration
-	// RelayPingInterval is how often each relay side asks its peer to prove it
-	// is still consuming, and the budget the answer must arrive inside. Zero
-	// selects defaultRelayPingInterval.
+	// RelayPingInterval is how often a relay side pings its peer, and how long the answer
+	// may take. Zero selects defaultRelayPingInterval.
 	RelayPingInterval time.Duration
-	// Lifetime is closed when the process is shutting down. It is the only
-	// cancellation a relay handler can act on: websocket.Accept hijacks the
-	// connection, which untracks it, so neither the request context nor
-	// Server.Shutdown can reach a handler parked on a live session. A nil
-	// channel is never closed, which parks such a handler until its session
-	// ends.
+	// Lifetime is closed on process shutdown. websocket.Accept hijacks the connection, so only
+	// this channel reaches a parked relay handler; a nil channel waits for the session to end.
 	Lifetime <-chan struct{}
 }
 
@@ -288,11 +260,8 @@ type Server struct {
 	webDir          string
 	metrics         *appmetrics.Metrics
 	loginLimiter    *emailLimiter
-	// auditSlots bounds concurrent audit writes; auditSlotsOnce creates it on
-	// first use. Lazily rather than in NewServer because a nil channel sheds
-	// every write silently, and a Server assembled anywhere else — a test
-	// building one field by field — would then keep no audit trail at all while
-	// reporting nothing wrong. See auditConcurrentWrites.
+	// auditSlots bounds concurrent audit writes; auditSlotsOnce creates it on first use.
+	// A Server built outside NewServer would otherwise hold a nil channel that sheds every write.
 	auditSlots      chan struct{}
 	auditSlotsOnce  sync.Once
 	requestTimeout  time.Duration
@@ -301,12 +270,7 @@ type Server struct {
 	lifetime        <-chan struct{}
 }
 
-// resolveAuditHandlers returns the per-domain Handlers from cfg, or
-// wraps the legacy Audit Repository to satisfy the new transport
-// boundary. The api package consumes audit operations through audit.Handlers;
-// tests that still wire only `Audit:`
-// stay green via this fallback. main.go and new test code should pass
-// AuditHandlers explicitly.
+// resolveAuditHandlers returns cfg.AuditHandlers, or wraps cfg.Audit when only that is set.
 func resolveAuditHandlers(cfg ServerConfig) *audit.Handlers {
 	if cfg.AuditHandlers != nil {
 		return cfg.AuditHandlers
@@ -317,9 +281,7 @@ func resolveAuditHandlers(cfg ServerConfig) *audit.Handlers {
 	return nil
 }
 
-// resolveAMTHandlers — same pattern as resolveAuditHandlers. The amt Handlers
-// struct needs the Operator (PowerAction); fall back via cfg.AMT when
-// AMTHandlers is nil so existing test ServerConfig literals stay green.
+// resolveAMTHandlers returns cfg.AMTHandlers, or builds them from cfg.AMT when unset.
 func resolveAMTHandlers(cfg ServerConfig) *amt.Handlers {
 	if cfg.AMTHandlers != nil {
 		return cfg.AMTHandlers
@@ -330,9 +292,8 @@ func resolveAMTHandlers(cfg ServerConfig) *amt.Handlers {
 	return nil
 }
 
-// resolveNotificationsHandlers — same fallback shape; notifications.Handlers
-// requires BOTH the WebPushRepository (subscribe/unsubscribe) and the
-// Notifier (VAPID public key).
+// resolveNotificationsHandlers returns cfg.NotificationsHandlers, or builds them when both
+// the web-push repository and the notifier are set.
 func resolveNotificationsHandlers(cfg ServerConfig) *notifications.Handlers {
 	if cfg.NotificationsHandlers != nil {
 		return cfg.NotificationsHandlers
@@ -343,12 +304,8 @@ func resolveNotificationsHandlers(cfg ServerConfig) *notifications.Handlers {
 	return nil
 }
 
-// resolveSessionUseCase constructs SessionService when not explicitly
-// provided. Falls back from cfg.Sessions + cfg.Notifier + cfg.Audit
-// when those three dependencies are available, preserving the narrow
-// ServerConfig used by unit tests.
-// Returns nil when prerequisites are missing — handler delegation must
-// check for that before calling.
+// resolveSessionUseCase returns cfg.SessionUseCase, or builds it from the sessions, notifier
+// and audit dependencies; it returns nil when any is missing.
 func resolveSessionUseCase(cfg ServerConfig) *usecase.SessionService {
 	if cfg.SessionUseCase != nil {
 		return cfg.SessionUseCase
@@ -432,18 +389,11 @@ const (
 )
 
 const (
-	// auditConcurrentWrites bounds how many audit rows may be in flight at once.
-	//
-	// The writes run off the response path so a slow store never holds a request
-	// open, and unbounded that makes a burst worse: every audited request in a
-	// spike starts one more goroutine competing for the same connection pool,
-	// which is what was slow to begin with. Four, matching the telemetry
-	// persistence slots this copies — the two paths write to the same pool, and
-	// a bound that is not small enough to be a bound is decoration.
+	// auditConcurrentWrites bounds in-flight audit rows, so a burst adds no unbounded
+	// goroutines competing for the connection pool. It matches the telemetry persistence slots.
 	auditConcurrentWrites = 4
 
-	// auditWriteTimeout bounds one audit row's write. A slot held past it is a
-	// slot no other audited action can have.
+	// auditWriteTimeout bounds one audit row's write so a slot is not held indefinitely.
 	auditWriteTimeout = 5 * time.Second
 )
 
@@ -464,9 +414,8 @@ func (s *Server) routes() {
 	r.Use(MaxBodySize(maxRequestBodySize))
 	r.Use(RequestLogger(s.logger))
 
-	// Liveness probe — reports only that the process is up. Deliberately
-	// dependency-free: a Postgres or Redis blip must NOT restart the pod, which
-	// is readiness' job (/api/v1/health, GetHealth).
+	// Liveness reports only that the process is up, so a Postgres or Redis blip cannot
+	// restart the pod; readiness is /api/v1/health.
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -508,9 +457,8 @@ func (s *Server) routes() {
 	s.registerSPA(r)
 }
 
-// logHTTPIssue logs a request-scoped problem with the path redacted and the
-// request's correlation ID attached, so the entry can be tied to the access-log
-// line for the same request in Loki.
+// logHTTPIssue logs a request-scoped problem with the path redacted and the request's
+// correlation ID attached.
 func (s *Server) logHTTPIssue(level slog.Level, msg string, r *http.Request, err error) {
 	s.logger.Log(r.Context(), level, msg, append([]any{
 		"error", err,
@@ -518,11 +466,8 @@ func (s *Server) logHTTPIssue(level slog.Level, msg string, r *http.Request, err
 	}, correlationAttrs(r)...)...)
 }
 
-// registerSPA installs static file serving with an index.html fallback. It uses
-// os.OpenRoot, which rejects any path that tries to escape s.webDir via "..",
-// absolute paths, or symlinks resolving outside the root — taint-safe per
-// CodeQL's go/path-injection detector. Lifetime of *os.Root matches the
-// server's process.
+// registerSPA installs static file serving with an index.html fallback. os.OpenRoot
+// rejects paths that escape s.webDir through "..", absolute paths or symlinks.
 func (s *Server) registerSPA(r chi.Router) {
 	if s.webDir == "" {
 		return
@@ -550,17 +495,8 @@ func (s *Server) registerSPA(r chi.Router) {
 	})
 }
 
-// serveStaticFile resolves the request path inside webRoot. It reports handled
-// = false when the caller should fall back to the SPA index; when handled is
-// true, served says whether the file was written or the request must be
-// rejected outright.
-//
-// Three outcomes for a path that's not /api/ or /ws/:
-//  1. webRoot.Open succeeds → serve the static file.
-//  2. webRoot.Open returns fs.ErrNotExist → SPA fallback so client-side routing
-//     handles deep links like /devices/123.
-//  3. Any other error (traversal attempt, permission, symlink escape) →
-//     explicit 404, NOT a silent SPA fallback.
+// serveStaticFile serves the request path from webRoot. handled is false when the caller
+// falls back to the SPA index; otherwise served says whether the file was written.
 func serveStaticFile(w http.ResponseWriter, r *http.Request, webRoot *os.Root, fileServer http.Handler) (served, handled bool) {
 	relPath := strings.TrimPrefix(r.URL.Path, "/")
 	if relPath == "" {
@@ -573,17 +509,11 @@ func serveStaticFile(w http.ResponseWriter, r *http.Request, webRoot *os.Root, f
 		fileServer.ServeHTTP(w, r)
 		return true, true
 	case errors.Is(err, fs.ErrNotExist) && !strings.Contains(relPath, ".."):
-		// Legitimate miss inside webDir → SPA fallback.
-		//
-		// os.Root.Open evaluates path components left-to-right and returns
-		// ErrNotExist on the FIRST missing component, before it would detect a
-		// downstream escape. The ".." check covers that case (e.g.
-		// "static/../../../etc/passwd" returns ErrNotExist because "static"
-		// doesn't exist in the root, not because of the escape) so such a path
-		// is rejected visibly instead of silently SPA-falling-back.
+		// os.Root.Open reports ErrNotExist at the first missing component, before it can see an
+		// escape, so the ".." check keeps traversal paths out of the SPA fallback.
 		return false, false
 	default:
-		// Traversal / permission / symlink escape — reject visibly.
+		// Traversal, permission and symlink-escape errors answer 404.
 		return false, true
 	}
 }
@@ -616,11 +546,8 @@ func (s *Server) auditLog(ctx context.Context, userID db.UserID, action, target,
 	select {
 	case slots <- struct{}{}:
 	default:
-		// Every slot is busy, which means the store is slower than the requests
-		// arriving. Shedding here is deliberate and counted: the alternative is
-		// one more goroutine per audited request competing for the very
-		// connection pool that is already the bottleneck, which turns a slow
-		// store into an unbounded one.
+		// With every slot busy the store is slower than the requests, so the write is shed and
+		// counted, which keeps goroutines off the connection pool.
 		s.observeAuditWrite("shed")
 		s.logger.Warn("audit log write shed: every write slot is busy", "action", action)
 		return
@@ -655,10 +582,7 @@ func (s *Server) auditWriteSlots() chan struct{} {
 	return s.auditSlots
 }
 
-// observeAuditWrite records one audited action's outcome. The three outcomes
-// close a ledger: every call to auditLog is written, failed or shed, so a run
-// can be asked whether any audit row went missing rather than only whether the
-// ones that arrived look right.
+// observeAuditWrite records one audited action's outcome: written, failed or shed.
 func (s *Server) observeAuditWrite(result string) {
 	if s.metrics != nil {
 		s.metrics.ObserveAuditWrite(result)

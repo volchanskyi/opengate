@@ -1,25 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-git-commit-secrets-rebalancer.sh — enforce secret/non-secret split at commit time.
-#
-# Convention (enforced here, documented in CLAUDE.md / rules):
-#   - .claude/settings.json       (tracked)    = hooks + safe permissions
-#   - .claude/settings.local.json (gitignored) = credential-bearing permissions only
-#
-# Triggers on PreToolUse Bash. Filters for `git commit` verb. Before the
-# commit-guard runs the gauntlet, this hook:
-#   1. Scans .claude/settings.json for credential-bearing permission entries
-#      (basic-auth headers, bearer tokens, GitHub/GitLab/Stripe/OpenAI token
-#      prefixes, literal password=VALUE, AWS access key ids).
-#   2. Moves any matches to .claude/settings.local.json (deduped).
-#   3. If settings.json was previously staged, re-stages the rebalanced
-#      content so the commit picks up the cleaned file.
-#   4. Logs what moved to stderr.
-#
-# Never blocks the commit. Failures log to stderr and exit 0.
-# Sequencing: wire this BEFORE pretooluse-git-commit-guard.sh in settings.json
-# so the gauntlet sees the cleaned file.
-#
-# NO BYPASS.
+# Moves credential-bearing permission entries from settings.json to settings.local.json on commit.
+# It runs before the commit guard so the gauntlet sees the cleaned file, and it never blocks.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -31,7 +12,6 @@ parse_input_fields tool_name tool_input.command
 cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 [ -n "$cmd" ] || exit 0
 
-# Filter: the command must carry the commit verb, by the one shared pattern.
 if ! grep -qE "$(git_verb_re commit)" <<<"$cmd"; then
   exit 0
 fi
@@ -42,9 +22,7 @@ local_file="$repo/.claude/settings.local.json"
 
 [ -f "$tracked" ] || exit 0
 
-# Was settings.json already staged? (Need to re-stage after rebalance.)
-# Read into a variable rather than piped: `grep -q` stops at its first match,
-# and under pipefail the writer's failed write becomes the pipeline's answer.
+# Read into a variable because grep -q exits at its first match and pipefail would fail the writer.
 staged_settings="$(git -C "$repo" diff --cached --name-only -- .claude/settings.json)"
 was_staged=false
 if [ -n "$staged_settings" ]; then
@@ -111,7 +89,6 @@ print(len(secrets))
 PYEOF
 )
 
-# Re-stage if we touched a previously-staged file.
 if [ "${moved:-0}" != "0" ] && [ "$was_staged" = "true" ]; then
   git -C "$repo" add -- .claude/settings.json
   printf '[settings-secrets-rebalancer] moved %s credential-bearing entries from settings.json to settings.local.json; re-staged settings.json\n' "$moved" >&2

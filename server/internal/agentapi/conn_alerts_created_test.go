@@ -13,30 +13,18 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// The aggregate counter behind the platform's own view of a rollout: how many
-// alerts each shipped rule is actually producing.
-//
-// It is the numerator of the alerts-per-device-per-day figure three separate
-// decisions currently rest on, so it counts stored rows and only stored rows. A
-// replay that changed nothing and a refusal that stored nothing are both not new
-// detection, and counting either would inflate the very rate the customer
-// ceiling and the evidence projection are sized against.
-
-// alertFor is the well-formed alert attributed to another shipped rule, which is
-// how a case says "a different rule fired" without restating the whole message.
 func alertFor(t *testing.T, ruleID string) *protocol.ControlMessage {
 	t.Helper()
 	return broken(t, func(msg *protocol.ControlMessage) { msg.RuleID = ruleID })
 }
 
-// created reads how many alerts a rule has been counted for.
 func (f alertFixture) created(t *testing.T, ruleID string) float64 {
 	t.Helper()
 	return promtestutil.ToFloat64(f.metrics.AlertsCreatedTotal.WithLabelValues(ruleID))
 }
 
-// createdReaches waits for the counter to settle, because a store outcome lands
-// on the persist-slot goroutine rather than the read loop.
+// createdReaches waits for the counter to settle; a store outcome lands on the persist-slot
+// goroutine.
 func (f alertFixture) createdReaches(t *testing.T, ruleID string, want float64) {
 	t.Helper()
 	require.Eventuallyf(t, func() bool {
@@ -44,9 +32,6 @@ func (f alertFixture) createdReaches(t *testing.T, ruleID string, want float64) 
 	}, 2*time.Second, 5*time.Millisecond, "expected %v alerts counted for %s", want, ruleID)
 }
 
-// TestOnlyAStoredAlertIsCountedAsCreated keeps the rate honest. Q12 divides this
-// counter by the fleet, so a replay counted here would report detection that
-// never happened, against ceilings sized from the answer.
 func TestOnlyAStoredAlertIsCountedAsCreated(t *testing.T) {
 	t.Parallel()
 
@@ -73,17 +58,13 @@ func TestOnlyAStoredAlertIsCountedAsCreated(t *testing.T) {
 				f.createdReaches(t, ruleID, tc.want)
 				return
 			}
-			// Wait for the outcome to be accounted for, so the zero below is a
-			// counter that stayed still rather than one nothing has reached yet.
+			// The wait lets the outcome be accounted for before the counter is read.
 			f.dropped(t, tc.reason)
 			assert.InDelta(t, tc.want, f.created(t, ruleID), 0)
 		})
 	}
 }
 
-// TestCreatedAlertsAreCountedPerRule is what makes a bad rollout legible: one
-// rule's rate climbing while the rest hold steady is a rule that was retuned
-// wrong, and a single fleet-wide total would show that as ordinary growth.
 func TestCreatedAlertsAreCountedPerRule(t *testing.T) {
 	t.Parallel()
 
@@ -100,10 +81,6 @@ func TestCreatedAlertsAreCountedPerRule(t *testing.T) {
 		"a rule that has not fired reads zero, not missing")
 }
 
-// TestAnUnshippedRuleMintsNoCounterLabel is the cardinality bound. A rule id
-// arrives from the endpoint, and the alert path already refuses one this build
-// has no definition for — this pins that the refusal happens before the label
-// does, which is what keeps the series count at the size of the rule pack.
 func TestAnUnshippedRuleMintsNoCounterLabel(t *testing.T) {
 	t.Parallel()
 
@@ -118,8 +95,6 @@ func TestAnUnshippedRuleMintsNoCounterLabel(t *testing.T) {
 		"and it is not folded into the catch-all either — it was never stored")
 }
 
-// TestCreatedCounterSurvivesAConnectionWithoutMetrics keeps a wiring detail from
-// being able to take down an ingest path.
 func TestCreatedCounterSurvivesAConnectionWithoutMetrics(t *testing.T) {
 	t.Parallel()
 

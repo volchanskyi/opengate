@@ -27,7 +27,6 @@ function rule(over: Partial<Rule> = {}): Rule {
   };
 }
 
-/** The value rendered against a term, which is the <dd> next to that <dt>. */
 function valueFor(term: string): string {
   return screen.getByText(term).nextElementSibling?.textContent ?? '';
 }
@@ -49,8 +48,6 @@ describe('WhatItDoes', () => {
     expect(screen.getByText(/Version 7\./)).toBeInTheDocument();
   });
 
-  // A rule with no hold fires on the reading itself. Saying "0 seconds" would
-  // read as a duration somebody chose rather than as the absence of one.
   it('says a rule with no hold fires on the reading', () => {
     render(<WhatItDoes rule={rule({ sustain_secs: 0 })} />);
     expect(valueFor('Must persist for')).toBe('no time at all — it fires on the reading');
@@ -73,8 +70,6 @@ describe('WhatItDoes', () => {
     expect(valueFor('A machine must be able to read')).toBe('disk.used_percent, mem.used_percent');
   });
 
-  // An empty list is a fact about the rule, so it is worded rather than left
-  // blank — a blank cell reads as a value that failed to load.
   it('words an empty list instead of leaving the value blank', () => {
     render(<WhatItDoes rule={rule({ group_by: [], evidence: [], coverage_requires: [] })} />);
 
@@ -83,8 +78,6 @@ describe('WhatItDoes', () => {
     expect(valueFor('A machine must be able to read')).toBe('nothing in particular');
   });
 
-  // The rule's logic is compiled into the server, so this is description and
-  // never a form — a control here would invite "who can unlock it?".
   it('offers no control that would suggest the logic is editable', () => {
     render(<WhatItDoes rule={rule()} />);
     expect(screen.queryAllByRole('textbox')).toHaveLength(0);

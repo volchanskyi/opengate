@@ -1,35 +1,11 @@
-# Gremlins mutation-testing config for the Go server.
-#
-# Carve-outs:
-#  - openapi_gen.go: generated code; mutants here are noise.
-#  - cmd/meshserver/ and tests/loadtest/main.go: entry-point wiring — flag
-#    parsing, construction order, and the goroutines that start the periodic
-#    workers. A mutant there changes how the process is assembled rather than
-#    what any behavior does.
-#  - internal/testutil/: shared test helpers; mutating tests' own scaffolding
-#    produces meaningless results.
+# Gremlins mutation-testing config for the Go server; it excludes generated code,
+# entry-point wiring and shared test scaffolding.
 unleash:
   exclude-files:
     - "openapi_gen\\.go"
     - "cmd/meshserver/"
     - "tests/loadtest/main\\.go"
     - "internal/testutil/"
-  # Per-mutant test timeout = coverage-dry-run-elapsed * timeout-coefficient.
-  #
-  # This coefficient is a bound, not a tuning knob. A mutant that removes a
-  # loop's exit condition never terminates, and gremlins hands it this whole
-  # budget before cutting it off — so the product decides whether one such mutant
-  # costs a shard its report. Five of them are in the tree today (listed beside
-  # mutation_go_shard_blocking_mutants in scripts/lib/mutation-shards.sh).
-  #
-  # A nightly's coverage runs measure 185s to 298s across the Go shards, so at 3
-  # the leash is 9 to 15 minutes: inside the headroom the shard budget leaves
-  # (scripts/lib/mutation-shards.sh), and still two to three times the ~290s of
-  # the slowest mutant that does finish. That margin is what keeps a slow
-  # Postgres-backed mutant from being cut off and counted as neither killed nor
-  # survived, which would quietly depress the score.
-  #
-  # The floor the margin needs is held by GOFLAGS=-count=1 in the workflow and in
-  # the Makefile: without it setup-go's restored test cache answers the dry-run in
-  # about half a second and every derived budget collapses with it.
+  # The per-mutant timeout is the coverage dry-run time times this coefficient, which bounds
+  # the budget a never-terminating mutant consumes while leaving slow finishing mutants room.
   timeout-coefficient: 3

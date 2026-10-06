@@ -1,14 +1,5 @@
-// Package acceptance states what the product does, in the words a customer
-// would use, against the product as it is actually assembled.
-//
-// A test here stands the whole thing up — the composition root in
-// internal/app, a real database, an HTTP listener and a QUIC listener — and
-// then speaks through exactly two doors, because a real installation has
-// exactly two: a technician at the HTTP API, and a machine on the control
-// stream. Reaching past them into a repository is not an acceptance test. The
-// single exception is arranging a precondition the product offers no door for,
-// and every helper that does so is named `arrange…` so the exception is
-// visible in the test's own text.
+// Package acceptance drives the assembled product through a technician's HTTP API and a
+// machine's control stream.
 package acceptance
 
 import (
@@ -32,51 +23,40 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
-// eventually is the synchronisation budget every wait in this package uses.
-// Nothing here sleeps: a test waits on an outcome an actor can observe, or it
-// does not wait at all.
+// eventually is the budget of every outcome wait; polling replaces sleeping.
 const (
 	eventually = 10 * time.Second
 	poll       = 25 * time.Millisecond
 )
 
-// productSecret signs this harness's operator tokens. It is a fixed value
-// because the assembly refuses anything shorter than the shipped minimum, and
-// a per-test secret would prove nothing extra.
+// productSecret signs the harness's operator tokens and meets the assembly's minimum length.
 const productSecret = "acceptance-harness-secret-32-byte"
 
-// Product is one whole installation: its own database schema, its own data
-// directory, its own listeners. Products share nothing, so every test in this
-// package runs in parallel.
+// Product is one whole installation with its own schema, data directory and listeners,
+// sharing nothing with other products.
 type Product struct {
 	t        *testing.T
 	assembly *app.Assembly
 
-	// HTTP is the door a technician knocks on.
+	// HTTP is the listener a technician uses.
 	HTTP *httptest.Server
-	// Internal is the door only the cluster knocks on: the platform's reading
-	// of itself, and the profiler. It is a second listener because everything
-	// on the first one is published by the ingress.
+	// Internal is the cluster-only listener serving metrics and the profiler, which the ingress
+	// does not publish.
 	Internal *httptest.Server
-	// QUICAddr is the door a machine dials.
+	// QUICAddr is the address a machine dials.
 	QUICAddr string
 
-	// hardware is the stand-in for Intel management hardware, which answers on
-	// its own network path and cannot be stood up by a test host.
+	// hardware stands in for Intel management hardware, which a test host cannot provide.
 	hardware *managedHardware
 
-	// firstCustomerClaimed records whether the installation's own customer has
-	// been named yet. See arrangeCustomer.
+	// firstCustomerClaimed records whether the installation's own customer has been named.
 	firstCustomerClaimed bool
 
-	// readingStore is the numeric metrics store, when the product was given
-	// one. Held so a test can make a just-written reading queryable instead of
-	// waiting out the store's own flush timer.
+	// readingStore is the numeric store, flushed on demand so written readings are queryable.
 	readingStore *telemetry.VMClient
 }
 
-// productOptions carries the choices a test makes about how much of the
-// product it needs standing.
+// productOptions carries a test's choices about which parts of the product to stand up.
 type productOptions struct {
 	numericTelemetry bool
 	sweeps           *app.BackgroundSchedule
@@ -85,17 +65,13 @@ type productOptions struct {
 // ProductOption narrows or widens what newProduct stands up.
 type ProductOption func(*productOptions)
 
-// WithNumericTelemetry gives the product a real metrics store, which is what
-// the readings round-trip and series erasure need. It costs a container, so it
-// is opt-in rather than the default.
+// WithNumericTelemetry gives the product a real metrics store, which costs a container.
 func WithNumericTelemetry() ProductOption {
 	return func(o *productOptions) { o.numericTelemetry = true }
 }
 
-// WithSweeps runs the product's periodic workers on the given cadence, so a
-// test can watch one reclaim something instead of asserting the sweep's own
-// unit tests and nothing joined. The running server's cadence is measured in
-// minutes, which no test can wait out, so the caller states its own.
+// WithSweeps runs the product's periodic workers on the caller's cadence, which is far
+// shorter than the server's minutes-long default.
 func WithSweeps(sched app.BackgroundSchedule) ProductOption {
 	return func(o *productOptions) { o.sweeps = &sched }
 }
@@ -132,7 +108,6 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 	listening := make(chan struct{})
 	go func() {
 		defer close(listening)
-		// The listener stops when ctx is cancelled, which is the cleanup path.
 		_ = assembly.Agents.ListenAndServe(ctx, "127.0.0.1:0")
 	}()
 	quicAddr := assembly.Agents.Addr()
@@ -167,11 +142,7 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 	}
 }
 
-// publishReadings makes everything already written to the numeric store
-// queryable now, instead of when its own flush timer next fires. Waiting that
-// timer out costs seconds of wall clock per test and buys nothing: the
-// question an outcome asks is whether the product wrote the reading, not how
-// long its store batches for.
+// publishReadings makes everything written to the numeric store queryable immediately.
 func (p *Product) publishReadings() {
 	p.t.Helper()
 	if p.readingStore == nil {
@@ -180,17 +151,13 @@ func (p *Product) publishReadings() {
 	require.NoError(p.t, p.readingStore.Flush(context.Background()))
 }
 
-// arrangeTenantContext is the database context the arrangement helpers use.
-// Nothing an actor does goes through it.
+// arrangeTenantContext is the database context of the arrangement helpers.
 func arrangeTenantContext() context.Context {
 	return dbtx.WithDefaultTenant(context.Background(), false)
 }
 
-// arrangeCustomer names a customer. A fresh installation already has exactly
-// one — it is created with the schema so a machine always has somewhere to
-// belong — and that is the one a registering machine lands in, so the first
-// customer a test names claims it rather than creating a rival beside it.
-// Naming a second customer creates one, the way an operator adds a customer.
+// arrangeCustomer names a customer. The first call renames the default customer that a
+// registering machine lands in; later calls create further customers.
 func (p *Product) arrangeCustomer(name string) uuid.UUID {
 	p.t.Helper()
 	ctx := arrangeTenantContext()
@@ -206,24 +173,18 @@ func (p *Product) arrangeCustomer(name string) uuid.UUID {
 	return existing
 }
 
-// deviceRow reads a machine's row straight from the database. It exists for
-// the two outcomes whose subject is the row itself — a machine appearing, and
-// a machine being erased — and for nothing else.
+// deviceRow reads a machine's row straight from the database.
 func (p *Product) deviceRow(id uuid.UUID) (*db.Device, error) {
 	return p.assembly.Devices.Get(arrangeTenantContext(), id)
 }
 
-// managedHardware stands in for Intel management hardware. The real thing
-// answers over a side-band network path a test host has no way to provide, so
-// this records what it was asked to do and answers the way hardware in that
-// state would.
+// managedHardware stands in for Intel management hardware, recording the actions it receives.
 type managedHardware struct {
 	connected map[uuid.UUID]bool
 	actions   []hardwareAction
 }
 
-// hardwareAction is one power instruction the product sent to a machine's
-// management controller.
+// hardwareAction is one power instruction sent to a machine's management controller.
 type hardwareAction struct {
 	Device uuid.UUID
 	Action int
@@ -233,8 +194,7 @@ func newManagedHardware() *managedHardware {
 	return &managedHardware{connected: map[uuid.UUID]bool{}}
 }
 
-// arrangeReachable marks a machine's management controller as calling in, the
-// state it reaches by dialling the MPS listener from the customer's network.
+// arrangeReachable marks a machine's management controller as connected to the MPS listener.
 func (h *managedHardware) arrangeReachable(id uuid.UUID) { h.connected[id] = true }
 
 func (h *managedHardware) PowerAction(_ context.Context, id uuid.UUID, action int) error {

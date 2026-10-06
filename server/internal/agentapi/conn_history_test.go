@@ -12,9 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// TestRequestLocalHistorySync_DeliversResponse pins the deep-history broker: a
-// synchronous pull blocks until the agent's LocalHistoryResponse is delivered to
-// the in-flight waiter, and the bounded full-res points flow straight through.
 func TestRequestLocalHistorySync_DeliversResponse(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapBackfill}
@@ -45,8 +42,6 @@ func TestRequestLocalHistorySync_DeliversResponse(t *testing.T) {
 	assert.InEpsilon(t, 11.0, got.points[1].Value, 0.0001)
 }
 
-// TestRequestLocalHistorySync_RequiresCapability refuses before writing anything
-// when the agent never advertised the Backfill capability.
 func TestRequestLocalHistorySync_RequiresCapability(t *testing.T) {
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
@@ -55,8 +50,6 @@ func TestRequestLocalHistorySync_RequiresCapability(t *testing.T) {
 	assert.Zero(t, buf.Len())
 }
 
-// TestRequestLocalHistorySync_SingleFlight rejects a second concurrent pull for
-// the same connection (responses carry no correlation id).
 func TestRequestLocalHistorySync_SingleFlight(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapBackfill}
@@ -66,8 +59,6 @@ func TestRequestLocalHistorySync_SingleFlight(t *testing.T) {
 	assert.ErrorIs(t, err, ErrHistoryBusy)
 }
 
-// TestRequestLocalHistorySync_Timeout returns the context error when the agent
-// never responds, and clears the waiter so a later pull is not reported busy.
 func TestRequestLocalHistorySync_Timeout(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapBackfill}
@@ -79,10 +70,6 @@ func TestRequestLocalHistorySync_Timeout(t *testing.T) {
 	assert.Nil(t, ac.historyWaiter)
 }
 
-// TestHandleLocalHistoryResponse_DeliversToWaiter routes an agent response
-// through the read-loop handler to the waiting broker. It retries the handler
-// (whose delivery is mutex-guarded) until the waiter is registered rather than
-// racing on the unexported waiter field.
 func TestHandleLocalHistoryResponse_DeliversToWaiter(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapBackfill}
@@ -114,8 +101,6 @@ func TestHandleLocalHistoryResponse_DeliversToWaiter(t *testing.T) {
 	assert.Equal(t, int64(42), got.points[0].TS)
 }
 
-// TestHandleLocalHistoryResponse_DropsUnsolicited never blocks the read loop when
-// no pull is waiting.
 func TestHandleLocalHistoryResponse_DropsUnsolicited(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	assert.NoError(t, ac.handleLocalHistoryResponse(&protocol.ControlMessage{

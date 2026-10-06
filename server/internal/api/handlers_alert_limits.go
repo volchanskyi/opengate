@@ -8,20 +8,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/alerts"
 )
 
-// A customer's alert budget.
-//
-// It sits on its own page rather than on a rule, because it is not a property of
-// any rule: it is the safety net under all of them, and the thing it protects is
-// the customer's own detection. Both halves were chosen from an estimate of a
-// rate nobody had measured, which is why they move at all — being unable to
-// change a wrong guess without cutting a release turns it into an outage.
-
 // errAlertLimitsUnavailable is a deployment wired without the alert store.
 var errAlertLimitsUnavailable = errors.New("alert budgets are not configured on this server")
 
-// GetAlertLimits implements StrictServerInterface. Every member of the tenant
-// reads it: a technician looking at a storm room needs to know what refused the
-// alerts it counts.
+// GetAlertLimits implements StrictServerInterface; every member of the tenant may read it.
 func (s *Server) GetAlertLimits(ctx context.Context, request GetAlertLimitsRequestObject) (GetAlertLimitsResponseObject, error) {
 	if s.alertBudget == nil {
 		return nil, errAlertLimitsUnavailable
@@ -33,10 +23,8 @@ func (s *Server) GetAlertLimits(ctx context.Context, request GetAlertLimitsReque
 	return GetAlertLimits200JSONResponse(limitsToAPI(limits)), nil
 }
 
-// PutAlertLimits implements StrictServerInterface. Neither half may pass the
-// maximum the code allows — a limit an operator can raise without bound is not a
-// limit — and neither may be set to nothing, which would silence the customer's
-// detection outright.
+// PutAlertLimits implements StrictServerInterface. Each limit stays within the code's maximum
+// and above zero, since zero would silence the customer's detection.
 func (s *Server) PutAlertLimits(ctx context.Context, request PutAlertLimitsRequestObject) (PutAlertLimitsResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, PutAlertLimits403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil

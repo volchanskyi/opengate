@@ -17,9 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// amtConnectionState reads back a row's device link and status directly, since
-// the repository is a write-only port — the device read serves AMT state to
-// callers.
+// amtConnectionState reads a row's device link and status straight from the table.
 func amtConnectionState(t *testing.T, ctx context.Context, store *db.PostgresStore, id uuid.UUID) (uuid.UUID, db.DeviceStatus, bool) {
 	t.Helper()
 	tenant, ok := dbtx.TenantFromContext(ctx)
@@ -37,8 +35,7 @@ func amtConnectionState(t *testing.T, ctx context.Context, store *db.PostgresSto
 	return deviceID, status, true
 }
 
-// seedLinkedDevice creates a managed device in ctx's tenant to hang an AMT
-// connection off, since a connection with no device is never persisted.
+// seedLinkedDevice creates a managed device in ctx's tenant for an AMT connection to link to.
 func seedLinkedDevice(t *testing.T, ctx context.Context, store *db.PostgresStore) *device.Device {
 	t.Helper()
 	site := testutil.SeedSite(t, ctx, store)
@@ -108,7 +105,6 @@ func TestPostgresAMTDevices_TenantDeny(t *testing.T) {
 
 	deviceB := testutil.SeedAMTDevice(t, ctxB, store, seedLinkedDevice(t, ctxB, store).ID)
 
-	// Tenant A cannot see, let alone change, tenant B's AMT connection.
 	_, _, found := amtConnectionState(t, ctxA, store, deviceB.UUID)
 	assert.False(t, found)
 	assert.ErrorIs(t, repo.SetStatus(ctxA, deviceB.UUID, db.StatusOnline), amt.ErrAMTDeviceNotFound)

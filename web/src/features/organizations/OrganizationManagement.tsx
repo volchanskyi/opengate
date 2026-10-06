@@ -3,12 +3,8 @@ import { useOrganizationStore } from './state/organization-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 /**
- * Manages the tenant's customers: take one on, rename it, retire it, or delete
- * it and everything under it.
- *
- * Deleting is destructive in a way renaming and archiving are not — it takes the
- * customer's devices and their history with it — so it asks first, and the
- * server refuses the tenant's last customer regardless.
+ * Deleting a customer takes its devices and history with it, so it asks first;
+ * the server refuses to delete the tenant's last customer.
  */
 export function OrganizationManagement() {
   const organizations = useOrganizationStore((s) => s.organizations);

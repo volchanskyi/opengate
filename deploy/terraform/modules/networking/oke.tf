@@ -1,13 +1,5 @@
-# OKE networking (Phase 13b cutover, ADR-030 / ADR-034). Added alongside the
-# single-VM compose networking above so the cluster can stand up *beside* the VM
-# during the pilot (plan §5) and reclaim its budget only after cutover.
-#
-# Topology: a public API-endpoint subnet, a public worker subnet (workers carry
-# public IPs so the QUIC/MPS hostPorts are reachable and flannel egress works),
-# and a public load-balancer subnet for the ingress-nginx OCI LB (the
-# Always-Free 10 Mbps flexible LB — DNS points at its external IP). CNI is
-# flannel overlay (pods_cidr 10.244.0.0/16 lives outside the VCN), so there is no
-# in-VCN pod subnet. NSG rules follow Oracle's documented flannel matrix.
+# Workers carry public IPs so the QUIC/MPS hostPorts are reachable and flannel egress works.
+# The flannel overlay keeps pods_cidr outside the VCN, so no in-VCN pod subnet exists.
 
 locals {
   oke_api_subnet_cidr  = "10.0.0.0/28"
@@ -17,8 +9,6 @@ locals {
   nodeport_min = 30000
   nodeport_max = 32767
 }
-
-# --- Network security groups ------------------------------------------------
 
 resource "oci_core_network_security_group" "oke_cp" {
   compartment_id = var.compartment_id
@@ -32,9 +22,6 @@ resource "oci_core_network_security_group" "oke_node" {
   display_name   = "opengate-oke-node"
 }
 
-# --- Control-plane (API endpoint) NSG rules ---------------------------------
-
-# Workers → API server (6443) and managed-control-plane comms (12250).
 resource "oci_core_network_security_group_security_rule" "cp_ingress_6443" {
   network_security_group_id = oci_core_network_security_group.oke_cp.id
   direction                 = "INGRESS"
@@ -65,7 +52,7 @@ resource "oci_core_network_security_group_security_rule" "cp_ingress_12250" {
   }
 }
 
-# Workers → control plane path-MTU discovery (ICMP type 3 code 4).
+# ICMP type 3 code 4 carries path-MTU discovery.
 resource "oci_core_network_security_group_security_rule" "cp_ingress_icmp" {
   network_security_group_id = oci_core_network_security_group.oke_cp.id
   direction                 = "INGRESS"
@@ -79,9 +66,8 @@ resource "oci_core_network_security_group_security_rule" "cp_ingress_icmp" {
   }
 }
 
-# kubectl / CD reach the public API endpoint on 6443. The endpoint has its own
-# TLS + RBAC; CD runs from dynamic GitHub-runner IPs, so the source is the
-# internet (mirrors OKE's public-endpoint default; ADR-030).
+# CD runs from dynamic GitHub-runner IPs, so the source is the internet.
+# The endpoint has its own TLS and RBAC.
 resource "oci_core_network_security_group_security_rule" "cp_ingress_public_6443" {
   network_security_group_id = oci_core_network_security_group.oke_cp.id
   direction                 = "INGRESS"
@@ -97,8 +83,6 @@ resource "oci_core_network_security_group_security_rule" "cp_ingress_public_6443
   }
 }
 
-# Control plane → all (workers on 10250/kubelet + OCI/OKE services). Egress-all
-# matches the existing single-VM security posture (security list above).
 resource "oci_core_network_security_group_security_rule" "cp_egress_all" {
   network_security_group_id = oci_core_network_security_group.oke_cp.id
   direction                 = "EGRESS"
@@ -108,9 +92,6 @@ resource "oci_core_network_security_group_security_rule" "cp_egress_all" {
   stateless                 = false
 }
 
-# --- Worker NSG rules -------------------------------------------------------
-
-# Control plane → kubelet (10250).
 resource "oci_core_network_security_group_security_rule" "node_ingress_kubelet" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "INGRESS"
@@ -126,7 +107,7 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_kubelet" 
   }
 }
 
-# Control plane → workers path-MTU discovery.
+# ICMP type 3 code 4 carries path-MTU discovery.
 resource "oci_core_network_security_group_security_rule" "node_ingress_cp_icmp" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "INGRESS"
@@ -140,8 +121,6 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_cp_icmp" 
   }
 }
 
-# Worker ↔ worker (pod-to-pod over flannel, node-to-node) — all protocols within
-# the node NSG.
 resource "oci_core_network_security_group_security_rule" "node_ingress_self" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "INGRESS"
@@ -151,7 +130,7 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_self" {
   stateless                 = false
 }
 
-# Internet → workers path-MTU discovery.
+# ICMP type 3 code 4 carries path-MTU discovery.
 resource "oci_core_network_security_group_security_rule" "node_ingress_icmp" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "INGRESS"
@@ -165,7 +144,7 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_icmp" {
   }
 }
 
-# Internet → QUIC agent transport (9090/udp, hostPort).
+# The QUIC agent transport listens through a hostPort.
 resource "oci_core_network_security_group_security_rule" "node_ingress_quic" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "INGRESS"
@@ -181,7 +160,7 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_quic" {
   }
 }
 
-# Internet → Intel AMT MPS/CIRA (4433/tcp, hostPort).
+# Intel AMT MPS/CIRA listens through a hostPort.
 resource "oci_core_network_security_group_security_rule" "node_ingress_mps" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "INGRESS"
@@ -197,7 +176,7 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_mps" {
   }
 }
 
-# LB subnet → ingress-nginx NodePorts (the OCI LB forwards 80/443 here).
+# The OCI load balancer forwards 80/443 to the ingress-nginx NodePorts.
 resource "oci_core_network_security_group_security_rule" "node_ingress_nodeport" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "INGRESS"
@@ -213,7 +192,7 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_nodeport"
   }
 }
 
-# Operator break-glass SSH to nodes (restricted to ssh_allowed_cidr; ADR-018).
+# Operator break-glass SSH to nodes, restricted to ssh_allowed_cidr.
 resource "oci_core_network_security_group_security_rule" "node_ingress_ssh" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "INGRESS"
@@ -229,8 +208,6 @@ resource "oci_core_network_security_group_security_rule" "node_ingress_ssh" {
   }
 }
 
-# Workers → all (image pulls, control plane 6443/12250, OCI services). Egress-all
-# mirrors the existing single-VM posture.
 resource "oci_core_network_security_group_security_rule" "node_egress_all" {
   network_security_group_id = oci_core_network_security_group.oke_node.id
   direction                 = "EGRESS"
@@ -240,9 +217,6 @@ resource "oci_core_network_security_group_security_rule" "node_egress_all" {
   stateless                 = false
 }
 
-# --- Load-balancer subnet security list -------------------------------------
-# The ingress-nginx OCI LB lives here; it accepts 80/443 from the internet and
-# forwards to the worker NodePorts (allowed by node_ingress_nodeport above).
 resource "oci_core_security_list" "oke_lb" {
   compartment_id = var.compartment_id
   vcn_id         = oci_core_vcn.opengate.id
@@ -274,22 +248,12 @@ resource "oci_core_security_list" "oke_lb" {
     stateless = false
   }
 
-  # The OCI Cloud Controller Manager owns this LB subnet's security-list rules at
-  # runtime: for the ingress-nginx LoadBalancer Service (seclist-management-mode
-  # "All") it replaces the egress set with specific node-subnet NodePort +
-  # 10256 health-check rules. Terraform must not revert them, or it fights the
-  # CCM on every reconcile and the nightly drift job flaps. The static rules
-  # above are only the create-time seed; live rule management is delegated to the
-  # CCM (this security list is dedicated to the LB subnet, so nothing else relies
-  # on Terraform enforcing its rules).
+  # The OCI Cloud Controller Manager rewrites this list's rules at runtime; ignoring them
+  # stops Terraform fighting it and keeps the nightly drift job stable.
   lifecycle {
     ignore_changes = [egress_security_rules, ingress_security_rules]
   }
 }
-
-# --- Subnets ----------------------------------------------------------------
-# All three reuse the public route table (IGW) — public endpoint + public
-# workers + public LB for the single-node pilot.
 
 resource "oci_core_subnet" "oke_api" {
   compartment_id             = var.compartment_id

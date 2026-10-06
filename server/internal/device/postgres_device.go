@@ -21,10 +21,7 @@ func NewPostgresDevices(db *sql.DB) *PostgresDevices {
 	return &PostgresDevices{db: db}
 }
 
-// deviceSelect is the projection every device read shares. The two LEFT JOINs
-// carry the device's Intel AMT property: capability from the hardware row, live
-// connection state from the AMT row when one is linked. Both join by primary key
-// and serve the badge straight from the device payload, with no second request.
+// deviceSelect is the projection every device read shares; its LEFT JOINs supply the AMT property.
 const deviceSelect = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
 	        h.amt_available, a.status, a.uuid
@@ -32,16 +29,11 @@ const deviceSelect = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.o
 	 LEFT JOIN device_hardware h ON h.device_id = d.id
 	 LEFT JOIN amt_devices a ON a.device_id = d.id `
 
-// Every device read is a fixed statement built at compile time from
-// deviceSelect; nothing here is assembled from runtime input.
+// Every device read is a fixed statement built at compile time, with no runtime-assembled SQL.
 const (
 	getDeviceQuery = deviceSelect +
 		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.id = $1`
 
-	// The four list statements are the four shapes of Filter, each a fixed
-	// statement rather than a predicate assembled at call time. A zero field
-	// drops out of the WHERE clause by choosing a different statement, so
-	// nothing here is built from runtime input.
 	listDevicesQuery = deviceSelect +
 		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid
 		 ORDER BY d.hostname`
@@ -98,9 +90,7 @@ func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
 	return &d, nil
 }
 
-// buildAMT assembles the AMT property from the two joined sources, or nil when
-// the device neither supports AMT nor has an AMT connection — the common case,
-// which keeps the field off the wire entirely.
+// buildAMT assembles the AMT property from the joined rows, or nil when the device has neither.
 func buildAMT(available sql.NullBool, status sql.NullString, amtUUID uuid.NullUUID) *AMT {
 	supported := available.Valid && available.Bool
 	if !supported && !amtUUID.Valid {
@@ -129,9 +119,7 @@ func (p *PostgresDevices) Get(ctx context.Context, id DeviceID) (*Device, error)
 	return d, err
 }
 
-// TenantForDevice resolves the owning tenant for a device id in the current
-// tenant scope. Internal agent-ingest code calls this with an admin-scoped
-// tenant so the subsequent control loop can run as the device's actual tenant.
+// TenantForDevice resolves a device's owning tenant, across tenants under an admin scope.
 func (p *PostgresDevices) TenantForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error) {
 	var tenantID uuid.UUID
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
@@ -148,8 +136,7 @@ func (p *PostgresDevices) TenantForDevice(ctx context.Context, id DeviceID) (uui
 	return tenantID, err
 }
 
-// List implements Repository. The tenant is the wall, so it is in every one of
-// the four statements; the filter fields narrow inside it.
+// List implements Repository. Every statement carries the tenant clause; filters narrow within it.
 func (p *PostgresDevices) List(ctx context.Context, filter Filter) ([]*Device, error) {
 	query, args := listStatementFor(filter)
 	var devices []*Device
@@ -161,8 +148,7 @@ func (p *PostgresDevices) List(ctx context.Context, filter Filter) ([]*Device, e
 	return devices, err
 }
 
-// listStatementFor picks the fixed statement matching which filter fields are
-// set, and the arguments that go with it.
+// listStatementFor picks the fixed statement for the set filter fields, with its arguments.
 func listStatementFor(filter Filter) (string, []any) {
 	hasSite := filter.SiteID != uuid.Nil
 	hasOrganization := filter.OrganizationID != uuid.Nil

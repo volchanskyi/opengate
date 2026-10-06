@@ -9,25 +9,12 @@ import (
 	"pgregory.net/rapid"
 )
 
-// Property-based coverage for the APF byte-level parsers, complementing the
-// boundary table tests in apf_boundary_test.go. Two classes of invariant:
-//   - round-trip: a value written by the writer is recovered intact by
-//     ReadMessage + the matching Parse* function;
-//   - robustness: every Parse* / ReadMessage tolerates arbitrary bytes without
-//     panicking (a typed error is the only acceptable failure).
-//
-// rapid.Check always runs under `go test` (no skip/build-tag) and explores a
-// bounded number of cases deterministically, per tests-determinism.md.
-
 // drawBytes draws a byte slice of length in [0, max].
 func drawBytes(t *rapid.T, label string, max int) []byte {
 	return rapid.SliceOfN(rapid.Byte(), 0, max).Draw(t, label)
 }
 
-// roundTripPayload writes one APF message, reads it back through ReadMessage,
-// asserts the framed message type, and returns the payload for the caller's
-// Parse* assertion. It collapses the write→read→type-check skeleton that every
-// round-trip property below would otherwise repeat verbatim.
+// roundTripPayload writes one APF message, reads it back, asserts its type and returns the payload.
 func roundTripPayload(t *rapid.T, write func(io.Writer) error, want uint8) []byte {
 	var buf bytes.Buffer
 	require.NoError(t, write(&buf))
@@ -37,8 +24,6 @@ func roundTripPayload(t *rapid.T, write func(io.Writer) error, want uint8) []byt
 	return payload
 }
 
-// TestProperty_ServiceRequest_RoundTrip asserts a service name survives
-// WriteServiceAccept → ReadMessage → ParseServiceRequest unchanged.
 func TestProperty_ServiceRequest_RoundTrip(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -54,9 +39,6 @@ func TestProperty_ServiceRequest_RoundTrip(t *testing.T) {
 	})
 }
 
-// TestProperty_ChannelData_RoundTrip asserts (channel, data) survives
-// WriteChannelData → ReadMessage → ParseChannelData. Data is bounded well under
-// the 1 MiB read cap.
 func TestProperty_ChannelData_RoundTrip(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -74,9 +56,6 @@ func TestProperty_ChannelData_RoundTrip(t *testing.T) {
 	})
 }
 
-// TestProperty_ProtocolVersion_RoundTrip asserts the version triple survives
-// WriteProtocolVersion → ReadMessage → ParseProtocolVersion. The writer emits a
-// zero UUID, so the parsed UUID must be all-zero.
 func TestProperty_ProtocolVersion_RoundTrip(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -97,8 +76,6 @@ func TestProperty_ProtocolVersion_RoundTrip(t *testing.T) {
 	})
 }
 
-// TestProperty_Keepalive_RoundTrip asserts the cookie and the interval/timeout
-// pair survive their writers + parsers.
 func TestProperty_Keepalive_RoundTrip(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -122,9 +99,6 @@ func TestProperty_Keepalive_RoundTrip(t *testing.T) {
 	})
 }
 
-// TestProperty_Parsers_NeverPanic feeds arbitrary bytes to every APF parser and
-// to ReadMessage (whose first byte selects an arbitrary message type). A typed
-// error is fine; a panic (e.g. an unchecked slice index) fails the test.
 func TestProperty_Parsers_NeverPanic(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -143,9 +117,6 @@ func TestProperty_Parsers_NeverPanic(t *testing.T) {
 	})
 }
 
-// TestProperty_ReorderIntelGUID_IsPermutation asserts the Intel mixed-endian
-// GUID reorder only permutes bytes — the output multiset equals the input
-// multiset — so no byte is dropped, duplicated, or invented.
 func TestProperty_ReorderIntelGUID_IsPermutation(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {

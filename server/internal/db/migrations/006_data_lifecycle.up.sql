@@ -1,15 +1,8 @@
--- Edge Sentinel data lifecycle: right-to-be-forgotten cascading erasure.
---
--- Two system-level tables owned by the server-side purge orchestrator. Neither
--- is tenant-scoped (RLS) and neither carries a foreign key to organizations:
--- both must outlive an organization's own data so the deny-list keeps rejecting
--- a purged subject and the completion record survives as the erasure proof.
+-- System tables outside RLS with no foreign key to organizations, so the deny-list and the
+-- completion record outlive an organization's data.
 
--- deleted_ids is the persisted tombstone / deny-list. Every purge records the
--- deleted device-id (or org-id) here FIRST, before touching any store, so every
--- write path can reject a tombstoned subject: no live stream, in-flight
--- backfill, or misbehaving agent can re-create purged data. Rows are retained
--- indefinitely and carry ids plus purge scope only — never telemetry.
+-- deleted_ids is the tombstone deny-list, written before any store is touched so write paths
+-- reject a purged subject; rows keep ids and scope only, never telemetry.
 CREATE TABLE IF NOT EXISTS deleted_ids (
     id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     org_id     UUID NOT NULL,
@@ -19,17 +12,14 @@ CREATE TABLE IF NOT EXISTS deleted_ids (
     deleted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- One tombstone per device and one per org. A device tombstone and its owning
--- org tombstone may coexist; the org tombstone supersedes at ingest.
+-- One tombstone per device and one per org; the org tombstone supersedes at ingest.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_deleted_ids_device
     ON deleted_ids (org_id, device_id) WHERE device_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_deleted_ids_org
     ON deleted_ids (org_id) WHERE device_id IS NULL;
 
--- purge_jobs persists the orchestrator's progress per subject so a purge is
--- idempotent and resumes after a server crash. Per-store flags record which
--- stores are already erased; verified gates completion (VM delete-series is
--- async and only reports empty once background merges drop the series).
+-- purge_jobs persists per-subject progress so a purge resumes after a crash; verified gates
+-- completion because VM delete-series reports empty only after background merges.
 CREATE TABLE IF NOT EXISTS purge_jobs (
     id             UUID PRIMARY KEY,
     org_id         UUID NOT NULL,

@@ -15,12 +15,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// triageRule is a rule the shipped catalogue carries, so an alert naming it is
-// one the product recognises.
+// triageRule names a rule in the shipped catalogue, which the product recognises.
 const triageRule = "cpu-saturated"
 
-// incident is one room a customer's alerts are investigated in, as the triage
-// queue hands it to a technician.
+// incident is one investigation room as the triage queue lists it.
 type incident struct {
 	ID        uuid.UUID `json:"id"`
 	RuleID    string    `json:"rule_id"`
@@ -29,7 +27,7 @@ type incident struct {
 	CauseCode string    `json:"cause_code"`
 }
 
-// triageQueue is the list of rooms waiting for somebody.
+// triageQueue lists the rooms awaiting a technician.
 func (a *Technician) triageQueue() []incident {
 	a.t.Helper()
 	var page struct {
@@ -41,9 +39,7 @@ func (a *Technician) triageQueue() []incident {
 	return page.Items
 }
 
-// raiseAlert is a machine deciding something is wrong and saying so, with the
-// evidence it gathered attached — packed by the same encoder the agent uses,
-// so the product reads it through its own decoder.
+// raiseAlert sends an alert with msgpack-packed, deflate-compressed evidence attached.
 func (m *Machine) raiseAlert(topProcess string) (windowStart time.Time) {
 	m.t.Helper()
 
@@ -67,8 +63,7 @@ func (m *Machine) raiseAlert(topProcess string) (windowStart time.Time) {
 	severity := protocol.AlertSeverityCritical
 	value := 97.5
 	backfilled := false
-	// A window that has just closed: recent enough for a live machine, and
-	// stamped in whole seconds because that is what the wire carries.
+	// The wire carries whole seconds, so the window end is truncated to one.
 	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 	start := end.Add(-5 * time.Minute)
 
@@ -105,14 +100,6 @@ func (a *Technician) awaitIncident() incident {
 	return room
 }
 
-// TestAnAlertBecomesAnIncidentATechnicianClosesWithACause walks one event from
-// the machine that raised it to the technician who closed it, and every step of
-// the technician's half goes through the API the browser uses.
-//
-// The repository's one deliberately joined test stopped short of that: its
-// technician half called the store directly, because no harness had both a
-// machine-facing listener and a wired API. If the API refused the resolution on
-// an authorisation or tenancy ground, that test would still have passed.
 func TestAnAlertBecomesAnIncidentATechnicianClosesWithACause(t *testing.T) {
 	t.Parallel()
 
@@ -129,8 +116,6 @@ func TestAnAlertBecomesAnIncidentATechnicianClosesWithACause(t *testing.T) {
 	assert.Equal(t, triageRule, room.RuleID)
 	assert.Equal(t, "new", room.Status)
 
-	// The evidence is readable from the room, which is the only place it is
-	// ever read from — nothing goes back to the machine to ask again.
 	var listed struct {
 		Alerts []struct {
 			ID uuid.UUID `json:"id"`
@@ -145,7 +130,6 @@ func TestAnAlertBecomesAnIncidentATechnicianClosesWithACause(t *testing.T) {
 	assert.Contains(t, evidence.Text(), "indexer",
 		"what the technician reads is what the machine attached")
 
-	// A technician takes it and closes it, and has to say why.
 	require.Equal(t, http.StatusOK, admin.Post(
 		admin.InCustomer("/api/v1/investigations/"+room.ID.String()+"/status"),
 		map[string]any{"status": "acknowledged"}).Status)
@@ -165,9 +149,6 @@ func TestAnAlertBecomesAnIncidentATechnicianClosesWithACause(t *testing.T) {
 	assert.Equal(t, "fixed_by_tech", settled.CauseCode)
 }
 
-// TestAnIncidentIdFromAnotherTenantIsIndistinguishableFromAMissingOne is the
-// technician who guesses. A different status code for "exists but is not
-// yours" tells them the room is there, which is the whole of the leak.
 func TestAnIncidentIdFromAnotherTenantIsIndistinguishableFromAMissingOne(t *testing.T) {
 	t.Parallel()
 
@@ -189,7 +170,7 @@ func TestAnIncidentIdFromAnotherTenantIsIndistinguishableFromAMissingOne(t *test
 		"a room that exists and a room that does not must answer the same to somebody who may see neither")
 }
 
-// foldedAlert is one alert as the room it landed in lists it.
+// foldedAlert is one alert as its room lists it.
 type foldedAlert struct {
 	ID         uuid.UUID `json:"id"`
 	RuleID     string    `json:"rule_id"`
@@ -198,13 +179,13 @@ type foldedAlert struct {
 	ObservedAt time.Time `json:"observed_at"`
 }
 
-// investigation is a room opened, with what folded into it.
+// investigation is a room with the alerts folded into it.
 type investigation struct {
 	Incident incident      `json:"incident"`
 	Alerts   []foldedAlert `json:"alerts"`
 }
 
-// openIncident reads one room the way the browser does.
+// openIncident reads one room through the browser's API.
 func (a *Technician) openIncident(id uuid.UUID) investigation {
 	a.t.Helper()
 	var room investigation
@@ -214,13 +195,8 @@ func (a *Technician) openIncident(id uuid.UUID) investigation {
 	return room
 }
 
-// raiseWordAlert is a machine reporting something it found in its own log.
-//
-// A rule reading the machine's own words compares no number, so the alert names
-// no reading and carries no value that crossed a line — the record itself is
-// the evidence, and the machine redacted it before the alert existed. The
-// window is the instant the record was written, at both ends: a log line is a
-// moment rather than a stretch.
+// raiseWordAlert reports a log finding: it names no reading, carries the redacted record as
+// evidence, and uses the record's instant as both ends of the window.
 func (m *Machine) raiseWordAlert(ruleID string) {
 	m.t.Helper()
 
@@ -254,12 +230,8 @@ func (m *Machine) raiseWordAlert(ruleID string) {
 	})
 }
 
-// raiseFinding is a machine reporting what a newly arrived rule would have
-// caught, found by re-running it over the history the machine already held.
-//
-// It is stamped with the minute it happened rather than the minute it was
-// found, which is what keeps a whole scan from reading as a fleet-wide outage
-// happening right now.
+// raiseFinding reports what a new rule caught in history, stamped with the second the event
+// happened.
 func (m *Machine) raiseFinding(ruleID string, happenedAt time.Time) {
 	m.t.Helper()
 

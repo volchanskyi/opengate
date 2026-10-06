@@ -15,7 +15,6 @@ test.describe("Security Permissions", () => {
   }) => {
     await adminPage.goto("/settings");
 
-    // Sidebar should have Security section header and Permissions link
     await expect(adminPage.getByText("Security")).toBeVisible();
     await expect(
       adminPage.getByRole("link", { name: "Permissions" })
@@ -42,7 +41,6 @@ test.describe("Security Permissions", () => {
   }) => {
     await adminPage.goto("/settings/security/permissions");
 
-    // The admin's email should appear in the members table
     await expect(adminPage.getByRole('cell', { name: adminUser.email })).toBeVisible();
   });
 
@@ -50,12 +48,10 @@ test.describe("Security Permissions", () => {
     request,
     adminUser,
   }) => {
-    // Register a second (non-admin) user
     const email = `e2e-perm-add-${Date.now()}@test.local`;
     const regularToken = await register(request, email, "TestPass123!");
     const regularMe = await getMe(request, regularToken);
 
-    // Add to Administrators group
     await addGroupMember(
       request,
       adminUser.token,
@@ -63,7 +59,6 @@ test.describe("Security Permissions", () => {
       regularMe.id
     );
 
-    // Verify membership
     const group = await getSecurityGroup(
       request,
       adminUser.token,
@@ -77,7 +72,6 @@ test.describe("Security Permissions", () => {
     request,
     adminUser,
   }) => {
-    // Register and add a second user
     const email = `e2e-perm-rm-${Date.now()}@test.local`;
     const regularToken = await register(request, email, "TestPass123!");
     const regularMe = await getMe(request, regularToken);
@@ -88,7 +82,6 @@ test.describe("Security Permissions", () => {
       regularMe.id
     );
 
-    // Remove them
     await removeGroupMember(
       request,
       adminUser.token,
@@ -96,7 +89,6 @@ test.describe("Security Permissions", () => {
       regularMe.id
     );
 
-    // Verify removed
     const group = await getSecurityGroup(
       request,
       adminUser.token,
@@ -107,11 +99,7 @@ test.describe("Security Permissions", () => {
   });
 
   test("cannot remove last admin via API", async ({ request, adminUser }) => {
-    // Reaching the "last admin" state means emptying the Administrators group
-    // down to one member, which strips the bootstrap admin that global-setup
-    // and every adminUser fixture depend on. Membership is server-side state
-    // shared by the whole suite, so it has to go back exactly as it was —
-    // otherwise the next run against this database cannot start.
+    // Emptying the group strips the bootstrap admin the suite depends on, so the finally restores it.
     const group = await getSecurityGroup(request, adminUser.token, ADMIN_GROUP_ID);
     const displaced = group.members.filter((m) => m.id !== adminUser.id);
 
@@ -120,7 +108,6 @@ test.describe("Security Permissions", () => {
         await removeGroupMember(request, adminUser.token, ADMIN_GROUP_ID, member.id);
       }
 
-      // Now adminUser is the only admin — removing should fail
       const resp = await request.delete(
         `/api/v1/security-groups/${ADMIN_GROUP_ID}/members/${adminUser.id}`,
         { headers: { Authorization: `Bearer ${adminUser.token}` } }

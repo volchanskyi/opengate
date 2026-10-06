@@ -13,17 +13,13 @@ interface RoomState {
   detail: IncidentDetail | null;
   loading: boolean;
   error: string | null;
-  /** Why the last thing somebody tried was refused. */
   actionError: string | null;
   acting: boolean;
-  /** Evidence per alert id, fetched only when an alert is opened. */
   evidence: Map<string, AlertEvidence>;
   evidenceLoading: Map<string, boolean>;
   evidenceErrors: Map<string, string>;
 
-  /** Read a room from scratch. Anything the previous room held is dropped. */
   open: (id: string) => Promise<void>;
-  /** Re-read the open room, keeping the evidence already fetched. */
   refresh: (id: string) => Promise<void>;
   leave: () => void;
   fetchEvidence: (incidentId: string, alertId: string) => Promise<void>;
@@ -32,7 +28,6 @@ interface RoomState {
   addComment: (id: string, body: string) => Promise<boolean>;
 }
 
-/** The customer being looked at, as every investigation read carries it. */
 function scopeQuery() {
   const organizationId = selectedOrganizationQuery();
   return organizationId ? { organization_id: organizationId } : {};
@@ -60,11 +55,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
       params: { path: { id }, query: scopeQuery() },
     }));
 
-  /**
-   * A move writes a line into the room's history, and only the room read
-   * returns it — so an accepted move is followed by a re-read. A refused one is
-   * not: nothing changed, and re-reading would only cost a request.
-   */
+  // An accepted move writes a history line that only the room read returns, so a re-read follows.
   const applyAccepted = async (id: string, incident: IncidentDetail['incident']) => {
     set((s) => (s.detail ? { detail: { ...s.detail, incident } } : {}));
     await get().refresh(id);
@@ -139,7 +130,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
         actionProgress,
         () => api.POST('/api/v1/investigations/{id}/assignee', {
           params: { path: { id }, query: scopeQuery() },
-          // Handing a room back omits the field; an empty string is not a person.
+          // Handing a room back omits the field.
           body: assigneeId ? { assignee_id: assigneeId } : {},
         }),
         false,

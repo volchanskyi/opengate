@@ -14,16 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// shouldGenerateGolden returns true when GENERATE_GOLDEN=1. Mirrors the Rust
-// helper in agent/crates/mesh-protocol/tests/golden_test.rs.
+// shouldGenerateGolden returns true when GENERATE_GOLDEN=1.
 func shouldGenerateGolden() bool {
 	return os.Getenv("GENERATE_GOLDEN") == "1"
 }
 
-// goldenMeta is the on-disk schema for testdata/golden/*.meta.json sidecars.
-// Each golden binary file gets one sidecar describing its variant and the
-// protocol version it was generated under. Lays groundwork for future protocol
-// version bumps (a v1 golden would coexist with v0 goldens, both verified).
+// goldenMeta is the schema of a testdata/golden/*.meta.json sidecar: a golden file's variant
+// and the protocol version it was generated under.
 type goldenMeta struct {
 	Variant         string `json:"variant"`
 	ProtocolVersion int    `json:"protocol_version"`
@@ -36,10 +33,8 @@ const (
 	goldenCreatedDate     = "2026-05-14"
 )
 
-// goldenWriteDir returns the directory the generators write into. In generate
-// mode (GENERATE_GOLDEN=1) that is the committed testdata/golden tree; otherwise
-// a throwaway temp dir, so the generators ALWAYS run (exercising the encode +
-// write path) without mutating tracked fixtures and without skipping.
+// goldenWriteDir returns the committed testdata/golden tree in generate mode and a temp dir
+// otherwise, so the generators always run without mutating tracked fixtures.
 func goldenWriteDir(t *testing.T) string {
 	t.Helper()
 	if shouldGenerateGolden() {
@@ -48,9 +43,7 @@ func goldenWriteDir(t *testing.T) string {
 	return t.TempDir()
 }
 
-// writeGoldenSidecar writes the .meta.json companion for a golden .bin file into
-// dir. Idempotent on identical input — re-running the generator overwrites with
-// the same content unless the metadata schema changes.
+// writeGoldenSidecar writes the .meta.json companion for a golden .bin file into dir.
 func writeGoldenSidecar(t *testing.T, dir, binName, variant, format string) {
 	t.Helper()
 	meta := goldenMeta{
@@ -68,15 +61,10 @@ func writeGoldenSidecar(t *testing.T, dir, binName, variant, format string) {
 	require.NoError(t, os.WriteFile(metaPath, data, 0o600))
 }
 
-// writeReverseGolden constructs and writes a go_<variant>.bin file (into dir)
-// containing the Go-encoded form of one wire message, then re-reads its frame
-// envelope to assert the Go codec round-trips. The Rust reverse verifier
-// (agent/crates/mesh-protocol/tests/reverse_golden_test.rs) decodes the
-// committed fixtures and asserts field equality.
+// writeReverseGolden writes the Go-encoded form of one wire message as go_<variant>.bin into
+// dir, for the Rust reverse verifier to decode.
 func writeReverseGolden(t *testing.T, dir, variant string, encoded []byte) {
 	t.Helper()
-	// Always assert the encoded frame is structurally valid — this is the
-	// in-process check that keeps the generator a real, deterministic test.
 	require.NotEmpty(t, encoded, "%s: encoded golden must be non-empty", variant)
 
 	name := "go_" + variant + ".bin"
@@ -85,16 +73,8 @@ func writeReverseGolden(t *testing.T, dir, variant string, encoded []byte) {
 	writeGoldenSidecar(t, dir, name, variant, "msgpack")
 }
 
-// writeReverseControlFrame encodes msg via codec, wraps it in a FrameControl
-// envelope, and writes the result as go_<variant>.bin into dir.
-// goldenAlertRules builds the ruleset the push fixture carries: every canonical
-// metric name followed by every legacy alias, in a stable order (aliases sorted,
-// because a map's iteration order would make the fixture different every run).
-// Predicates cycle so all four reach the wire, windows are pinned per predicate,
-// and the first rule carries a conjunction term.
-// goldenDeviceHourlyCeiling is the per-machine alert allowance the push fixture
-// carries. Deliberately not the shipped default, so an agent that ignored the
-// field and kept its own number would fail rather than coincide.
+// goldenDeviceHourlyCeiling is the push fixture's per-machine alert allowance, distinct from
+// the shipped default.
 const goldenDeviceHourlyCeiling uint32 = 37
 
 // goldenSeverities is cycled across the fixture's rules so all three travel.
@@ -128,15 +108,9 @@ func goldenAlertRules() []ThresholdRule {
 		}
 		rules = append(rules, ThresholdRule{
 			ID: fmt.Sprintf("golden-rule-%02d", i),
-			// Revisions climb across the fixture, and none of them is one, so an
-			// agent that dropped the field or defaulted it cannot coincide with
-			// what the server sent. A machine that cannot read this cannot raise
-			// an alert the server accepts.
+			// Revisions start at 2, so a dropped or defaulted field cannot match.
 			Version: uint32(i + 2),
-			// Cycled so every severity reaches the fixture and none of them is
-			// the decoder's own default throughout: an agent that dropped the
-			// field would read every rule as the mildest of the three and file
-			// a broken machine where nobody looks.
+			// Cycled severities keep a dropped field from reading as the decoder's default.
 			Severity:    goldenSeverities[i%len(goldenSeverities)],
 			Metric:      metric,
 			Comparator:  AlertComparatorGte,
@@ -167,18 +141,10 @@ func writeReverseControlFrame(t *testing.T, dir string, codec *Codec, variant st
 	writeReverseGolden(t, dir, variant, buf.Bytes())
 }
 
-// TestGenerateReverseGoldens emits Go-encoded golden files when
-// GENERATE_GOLDEN=1 is set. Otherwise it is a noop — the canonical (Rust-side)
-// goldens are verified by the rest of golden_test.go.
-//
-// Covers a representative subset of wire-protocol variants: ping/pong, the
-// most-used control messages, a nested struct (SessionRequest.Permissions),
-// and a non-control frame (desktop). The pattern is straightforward to extend.
 func TestGenerateReverseGoldens(t *testing.T) {
 	dir := goldenWriteDir(t)
 	codec := &Codec{}
 
-	// Ping / Pong — single-byte frames, no payload.
 	writeReverseGolden(t, dir, "ping", []byte{FramePing})
 	writeReverseGolden(t, dir, "pong", []byte{FramePong})
 
@@ -187,7 +153,6 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Timestamp: 1_700_000_000,
 	})
 
-	// control_agent_register — capabilities + UTF-8-safe ASCII identifiers.
 	writeReverseControlFrame(t, dir, codec, "control_agent_register", &ControlMessage{
 		Type:         MsgAgentRegister,
 		Capabilities: []AgentCapability{CapRemoteDesktop, CapTerminal},
@@ -197,7 +162,6 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Version:      "0.1.0",
 	})
 
-	// control_session_request — exercises a nested struct (Permissions).
 	writeReverseControlFrame(t, dir, codec, "control_session_request", &ControlMessage{
 		Type:     MsgSessionRequest,
 		Token:    SessionToken(goldenSessionToken),
@@ -231,11 +195,7 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Reason: "device deleted",
 	})
 
-	// Minimal shapes: every field but Type is omitempty, so a zero-valued
-	// informational field leaves the wire map holding nothing but the tag. These
-	// goldens pin the smallest frame the server can emit for each variant, and
-	// the Rust verifier proves the agent still decodes it instead of dropping
-	// its control stream.
+	// Every field but Type is omitempty, so these pin the smallest frame per variant.
 	writeReverseControlFrame(t, dir, codec, "control_restart_agent_min", &ControlMessage{
 		Type: MsgRestartAgent,
 	})
@@ -262,8 +222,6 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Type: ControlMessageType("FutureHealthWindow"),
 	})
 
-	// WS-15 server → agent backfill control: the scheduler grant/defer, the
-	// per-batch durability ack, and the on-demand deep-history request.
 	writeReverseControlFrame(t, dir, codec, "control_grant_backfill", &ControlMessage{
 		Type:     MsgGrantBackfill,
 		Rate:     500,
@@ -289,24 +247,14 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		MaxPoints: 1000,
 	})
 
-	// Server → agent threshold-alert ruleset push. The fixture is generated from
-	// the vocabulary itself — one rule per canonical metric, then one per legacy
-	// alias, cycling through every predicate the grammar states and carrying one
-	// conjunction — so the Rust harness that decodes it can assert that what it
-	// resolved is exactly its own vocabulary. That is what keeps the two lists
-	// from drifting apart without a failing test.
-	// The customer's per-machine alert allowance rides the same message, so the
-	// fixture carries one: a machine that received new rules without the budget
-	// they run under would be tuned by half.
+	// The ruleset is generated from the vocabulary, so the Rust decoder can compare it with its own.
 	writeReverseControlFrame(t, dir, codec, "control_push_alert_rules", &ControlMessage{
 		Type:                MsgPushAlertRules,
 		AlertRules:          goldenAlertRules(),
 		DeviceHourlyCeiling: goldenDeviceHourlyCeiling,
 	})
 
-	// Maintenance mode server → agent toggle. Enabled is a *bool so the false
-	// case still emits the key (omitempty drops a bare false, breaking the
-	// byte-for-byte contract with Rust's always-present field).
+	// Enabled is a *bool so false still emits the key that Rust always sends.
 	{
 		enabled := true
 		writeReverseControlFrame(t, dir, codec, "control_set_maintenance_mode", &ControlMessage{
@@ -315,7 +263,6 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		})
 	}
 
-	// desktop_frame — different frame type, exercises the byte-data payload.
 	{
 		f := &DesktopFrame{
 			Sequence: 42,
@@ -334,12 +281,6 @@ func TestGenerateReverseGoldens(t *testing.T) {
 	}
 }
 
-// TestGenerateForwardSidecars writes a .meta.json companion for every existing
-// Rust-side golden binary. Runs only when GENERATE_GOLDEN=1.
-//
-// Sidecars carry the protocol version and format hint so future protocol bumps
-// can coexist with current goldens (e.g. v0_*.bin + v1_*.bin verified side by
-// side). See the C1 plan in .claude/plans/archive/.
 func TestGenerateForwardSidecars(t *testing.T) {
 	dir := goldenWriteDir(t)
 
@@ -351,7 +292,6 @@ func TestGenerateForwardSidecars(t *testing.T) {
 		if entry.IsDir() || !strings.HasSuffix(name, ".bin") {
 			continue
 		}
-		// Reverse goldens write their own sidecar in writeReverseGolden.
 		if strings.HasPrefix(name, "go_") {
 			continue
 		}
@@ -361,7 +301,6 @@ func TestGenerateForwardSidecars(t *testing.T) {
 		if strings.HasPrefix(variant, "handshake_") {
 			format = "binary"
 		}
-		// Pings are a single-byte frame with no payload.
 		if variant == "ping" || variant == "pong" {
 			format = "frame-only"
 		}
@@ -369,8 +308,6 @@ func TestGenerateForwardSidecars(t *testing.T) {
 	}
 }
 
-// TestGoldenSidecarsExist asserts every .bin file in testdata/golden has a
-// .meta.json companion. Runs in verification mode (without GENERATE_GOLDEN).
 func TestGoldenSidecarsExist(t *testing.T) {
 	entries, err := os.ReadDir(goldenDir())
 	require.NoError(t, err)

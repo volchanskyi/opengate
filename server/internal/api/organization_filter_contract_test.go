@@ -10,12 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// organizationFilterParam is the query parameter every fleet-wide read must
-// offer, so a technician looking at one customer sees only that customer's
-// machines and the tiles above them agree.
 const organizationFilterParam = "organization_id"
 
-// specOperation is the slice of an OpenAPI operation this contract needs.
 type specOperation struct {
 	OperationID string `yaml:"operationId"`
 	Parameters  []struct {
@@ -39,14 +35,6 @@ type apiSpec struct {
 	Paths map[string]map[string]specOperation `yaml:"paths"`
 }
 
-// TestFleetReadsOfferTheOrganizationFilter is the rule N3 asks for, expressed
-// against the specification rather than a hand-kept list: any read that answers
-// with a set of devices — or with a rollup over one — must let the caller narrow
-// it to a customer.
-//
-// It is derived from the response shape, so an endpoint added later that returns
-// devices without offering the filter fails here rather than quietly showing a
-// technician every customer's fleet at once.
 func TestFleetReadsOfferTheOrganizationFilter(t *testing.T) {
 	t.Parallel()
 	spec := loadAPISpec(t)
@@ -66,8 +54,6 @@ func TestFleetReadsOfferTheOrganizationFilter(t *testing.T) {
 	require.Positive(t, checked, "the contract found no fleet reads to check — the response-shape rule has drifted")
 }
 
-// answersWithAFleetRead reports whether a 200 response carries a set of devices
-// or a rollup over one.
 func answersWithAFleetRead(op specOperation) bool {
 	ok, found := op.Responses["200"]
 	if !found {

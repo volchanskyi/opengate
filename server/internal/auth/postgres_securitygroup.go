@@ -9,10 +9,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// PostgresSecurityGroups implements [SecurityGroupRepository] against
-// PostgreSQL. The db package owns the security_groups +
-// security_group_members schemas and migrations; this adapter only issues
-// queries.
+// PostgresSecurityGroups implements [SecurityGroupRepository] against PostgreSQL.
 type PostgresSecurityGroups struct {
 	db *sql.DB
 }
@@ -213,12 +210,8 @@ func (p *PostgresSecurityGroups) CountMembers(ctx context.Context, groupID Secur
 	return count, err
 }
 
-// syncIsAdmin keeps the users.is_admin boolean in sync with Administrators
-// group membership. Called from Add/RemoveMember whenever the touched group is
-// AdminGroupID. The coupling between the security_group_members and users
-// tables is intentionally contained inside this adapter — both tables belong
-// to the auth aggregate, so an inline UPDATE is preferred over a use-case-
-// orchestrated transaction.
+// syncIsAdmin sets users.is_admin from the user's Administrators group membership.
+// Add/RemoveMember call it whenever the touched group is AdminGroupID.
 func (p *PostgresSecurityGroups) syncIsAdmin(ctx context.Context, userID uuid.UUID) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,

@@ -40,9 +40,7 @@ trap 'rm -rf "$WORK"' EXIT
 BIN_DIR="$WORK/bin"
 mkdir -p "$BIN_DIR"
 
-# The stand-in store answers the export the nightly reader asks for: every
-# reading of one metric, one JSON object per series, as VictoriaMetrics writes
-# them. Each case writes the series it wants into the fixture directory.
+# The stand-in store answers an export with one JSON object per series, as VictoriaMetrics writes.
 cat >"$BIN_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
 set -uo pipefail
@@ -62,8 +60,7 @@ TONIGHT="$(date -u -d '2026-09-29 10:57' +%s)"
 MIDNIGHT="$(date -u -d '2026-09-29 00:00' +%s)"
 FIXTURES="$WORK/fixtures"
 
-# night_series METRIC SOURCE SCENARIO PHASE VALUE... — one series, one reading a
-# night, the last value being last night's.
+# night_series METRIC SOURCE SCENARIO PHASE VALUE... appends one series, one reading a night.
 night_series() {
   local metric="$1" source="$2" scenario="$3" phase="$4"
   shift 4
@@ -104,8 +101,7 @@ seed_window() {
   steady loadtest_error_rate quic quic-agents aggregate 0.001
   steady loadtest_error_rate k6 api-baseline http 0
   if [ -n "${STREAK_PRIOR:-}" ]; then
-    # Two nights back the count was nought; last night it was STREAK_PRIOR. The
-    # newest is the one carried forward, whatever code wrote either.
+    # Two nights back the count was nought; last night it was STREAK_PRIOR.
     night_series loadtest_p99_advisory_streak quic quic-agents connect 0 "$STREAK_PRIOR"
   fi
 }
@@ -122,9 +118,7 @@ run_check() {
     export VM_SERVICE="private-vm"
     export VM_RUN_STARTED_AT="$TONIGHT"
     export GITHUB_SHA="deadbeef"
-    # The consecutive-night counts land in the work directory rather than
-    # wherever the suite happened to be run from. A test that leaves a file in
-    # the tree is a test that changes what the next one sees.
+    # The consecutive-night counts land in the work directory, leaving the tree untouched.
     export P99_STREAK_FILE="${P99_STREAK_FILE:-$WORK/streaks.json}"
     "$CHECK" "$summary"
   )
@@ -161,11 +155,6 @@ out="$(run_check "$WORK/rps-regression.json" 2>&1)" || rc=$?
 assert_eq "rps drop exits 1" "1" "$rc"
 assert_contains "rps alert is direction-aware" "quic/quic-agents/aggregate rps" "$out"
 
-# The staging cluster is shared and free-tier, so a contended night degrades
-# throughput and latency together while every agent still succeeds. Those nights
-# are environment noise, not product regressions: the tolerance bands are sized
-# from the observed run-to-run spread so a night like this stays green, and
-# error_rate — which stayed at zero throughout — remains the correctness signal.
 write_summary "$WORK/contention-night.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"aggregate","rps":80,"error_rate":0,"workload":"w1","commit":"deadbeef","env":"ci"},
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":390,"latency_p95_ms":900,"workload":"w1","commit":"deadbeef","env":"ci"}
@@ -200,15 +189,6 @@ out="$(VM_PROFILE=empty run_check "$WORK/cold-start-under-ceiling.json" 2>&1)" |
 assert_eq "cold-start under absolute ceiling stays green" "0" "$rc"
 assert_not_contains "cold-start under ceiling has no regression alert" "REGRESSION_ALERT:" "$out"
 
-# A cold window means this file has nothing to compare against, and it says so
-# by saying nothing. The absolute limits that used to live here are the
-# profile's now, read by scripts/loadtest-gate-check.sh, whose own tests cover a
-# collapse against them — and that check reads no window at all, so it is
-# exactly as awake on the first night of a series as on the hundredth.
-#
-# The two must not both hold numbers. They did, for the same measurement, with
-# different values: 200 in this file and 100 in the profile, one enforced and
-# one read by nothing, so an edit to either did not do what it said.
 write_summary "$WORK/cold-start-over-ceiling.json" '[
   {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":250,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
@@ -217,8 +197,6 @@ out="$(VM_PROFILE=empty run_check "$WORK/cold-start-over-ceiling.json" 2>&1)" ||
 assert_eq "a cold window is compared against nothing here" "0" "$rc"
 assert_not_contains "and no alert is invented from a window that does not exist" "REGRESSION_ALERT:" "$out"
 
-# The numbers are gone from this file, in both directions. A copy left behind
-# would be the second home this consolidation exists to close.
 if grep -qE '^[[:space:]]*(latency_abs_ceiling|p99_abs_ceiling|rps_abs_floor|error_rate_ceiling)\(\)' "$CHECK"; then
   fail "this file still holds absolute limits — the profile is their only home"
 else
@@ -241,15 +219,6 @@ out="$(run_check "$WORK/nulls.json" 2>&1)" || rc=$?
 assert_eq "null metrics are skipped per series" "0" "$rc"
 assert_not_contains "null metrics have no regression alert" "REGRESSION_ALERT:" "$out"
 
-# A series is only comparable to itself.
-#
-# When a scenario is rewritten to measure something else it keeps its name, so
-# the stored numbers and the new ones sit in one series under two different
-# pieces of work. That is how a relay scenario that started opening real
-# sessions was reported as a collapse against the health check it replaced. The
-# workload each sample was produced by travels with it, and the window is keyed
-# by that, so a rewritten workload compares against itself or against nothing.
-
 write_summary "$WORK/rewritten-workload.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":900,"workload":"rewritten","commit":"deadbeef","env":"ci"}
 ]'
@@ -258,9 +227,6 @@ out="$(run_check "$WORK/rewritten-workload.json" 2>&1)" || rc=$?
 assert_eq "a rewritten workload is compared against nothing here" "0" "$rc"
 assert_not_contains "the replaced workload's median is not used" "window median" "$out"
 
-# The same, well inside what the profile holds it to. Both nights are silent
-# here for the same reason — there is no window — and it is the profile's limits
-# that tell them apart.
 write_summary "$WORK/rewritten-ok.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":300,"workload":"rewritten","commit":"deadbeef","env":"ci"}
 ]'
@@ -268,8 +234,6 @@ rc=0
 out="$(run_check "$WORK/rewritten-ok.json" 2>&1)" || rc=$?
 assert_eq "a new workload with no history passes" "0" "$rc"
 
-# The same figure under the workload the window was built from is still judged
-# against that window, so the keying narrows nothing it should not.
 write_summary "$WORK/same-workload.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p50_ms":900,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
@@ -278,27 +242,7 @@ out="$(run_check "$WORK/same-workload.json" 2>&1)" || rc=$?
 assert_eq "the established workload is still judged against its window" "1" "$rc"
 assert_contains "and by its window median" "window median" "$out"
 
-# --- a repeated advisory escalates instead of absorbing itself ----------------
-#
-# The slowest one percent of registrations went from 50 ms to 397 ms and three
-# nights in a row printed an advisory and returned success. Nothing counted the
-# consecutive nights, and the check silences itself: each bad night enters the
-# window it is compared against, so the comparison point climbs until a bad night
-# is no longer four times anything.
-#
-# It is not a slow drift. The window is a median over commits, so three nights on
-# one commit collapse to one point, and the whole window at the time held five —
-# 61.1, 68.8, 85.7, 373.0, 396.9. One more bad night on a new commit takes the
-# median from 85.7 to 229.4, the threshold from 343 to 917, and a 390 ms night
-# goes quiet with the slowdown recorded as normal.
-#
-# So the advisory carries how many nights it has been running, read back from the
-# same store the run already writes to, and the third one is a finding rather
-# than a line in a summary.
-# run_streak PRIOR SUMMARY — drives the check with a given prior streak for the
-# series the advisory fires on. The two extra names ride into the same runner the
-# other cases use, so what differs between a case here and a case above is the
-# count that came back and nothing else.
+# run_streak PRIOR SUMMARY runs the check with PRIOR as the previous streak of the advisory series.
 run_streak() {
   local prior="$1" summary="$2"
   STREAK_PRIOR="$prior" P99_STREAK_FILE="$WORK/streaks.json" run_check "$summary"
@@ -315,8 +259,6 @@ write_summary "$WORK/p99-streak.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":220,"latency_p99_ms":5000,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
 
-# The first bad night. A finding needs more than one reading, so it reports and
-# passes — which is what the advisory has always done.
 rm -f "$WORK/streaks.json"
 rc=0
 out="$(run_streak "" "$WORK/p99-streak.json" 2>&1)" || rc=$?
@@ -324,7 +266,6 @@ assert_eq "the first advisory night passes" "0" "$rc"
 assert_contains "and prints the advisory" "P99_ADVISORY:" "$out"
 assert_eq "and records it as the first night" "1" "$(streak_of quic quic-agents connect)"
 
-# The second. Still reporting, still passing.
 rm -f "$WORK/streaks.json"
 rc=0
 out="$(run_streak "1" "$WORK/p99-streak.json" 2>&1)" || rc=$?
@@ -332,8 +273,7 @@ assert_eq "the second advisory night passes" "0" "$rc"
 assert_eq "and counts two" "2" "$(streak_of quic quic-agents connect)"
 assert_not_contains "and raises nothing yet" "REGRESSION_ALERT:" "$out"
 
-# The third is the finding. It fails the run, which is the only signal that
-# reaches a person — the alert path is downstream of the run's own result.
+# The third consecutive night fails the run, the only signal that reaches a person.
 rm -f "$WORK/streaks.json"
 rc=0
 out="$(run_streak "2" "$WORK/p99-streak.json" 2>&1)" || rc=$?
@@ -343,8 +283,6 @@ assert_contains "naming the series" "quic/quic-agents/connect" "$out"
 assert_contains "and how many nights it has run" "3 consecutive nights" "$out"
 assert_eq "and counts three" "3" "$(streak_of quic quic-agents connect)"
 
-# A night that clears resets the count, so three separate bad nights spread over
-# a fortnight are not reported as a run of three.
 write_summary "$WORK/p99-clear.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"connect","latency_p95_ms":220,"latency_p99_ms":400,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
@@ -355,16 +293,8 @@ assert_eq "a night that clears passes" "0" "$rc"
 assert_not_contains "and prints no advisory" "P99_ADVISORY:" "$out"
 assert_eq "and puts the count back to nothing" "0" "$(streak_of quic quic-agents connect)"
 
-# The count is read back from the store rather than kept anywhere in the run, so
-# the query that reads it is part of what the run does.
 assert_contains "the streak is read from the trend store" "loadtest_p99_advisory_streak" "$(cat "$WORK/kubectl.args")"
 
-# --- the window is nights, not commits ----------------------------------------
-#
-# Twelve nights on eight commits: four commits ran two nights each at 10 ms,
-# then four ran one night each at 50–80 ms. Folded to one point per commit the
-# median was 30 and tonight's 60 passed under a threshold of 150. Over the
-# twelve nights the median is 10, and 60 is past the band.
 write_summary "$WORK/twelve-nights.json" '[
   {"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":60,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'
@@ -380,19 +310,11 @@ out="$(VM_PROFILE=custom run_check "$WORK/twelve-nights.json" 2>&1)" || rc=$?
 assert_eq "twelve nights on eight commits are judged against the twelve-night median" "1" "$rc"
 assert_contains "and the median is the nights'" "latency_p95_ms: 10 -> 60" "$out"
 
-# The same nights, every one of them on tonight's commit. A week without a merge
-# is a week of nights, and each is judged against the ones before it rather than
-# against nothing.
 twelve_nights
 rc=0
 out="$(VM_PROFILE=custom run_check "$WORK/twelve-nights.json" 2>&1)" || rc=$?
 assert_eq "nights that ran tonight's code count" "1" "$rc"
 
-# --- the error rate is judged against the window ------------------------------
-#
-# It was compared with the previous night alone, and only when that night had
-# errors: one bad night then excused the next. Five quiet nights and one bad one
-# put the window's median at the quiet nights.
 write_summary "$WORK/error-window.json" '[
   {"source":"quic","scenario":"quic-agents","phase":"aggregate","error_rate":0.02,"workload":"w1","commit":"deadbeef","env":"ci"}
 ]'

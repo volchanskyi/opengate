@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Remove the credentials oci-kube-setup wrote to the runner's home directory.
-#
-# Runs with if: always(), so it must succeed whether or not the setup action got
-# far enough to create the files.
+# Removes the credentials oci-kube-setup wrote to the runner's home directory.
+# Runs under if: always(), so it succeeds whether or not setup created the files.
 
 set -euo pipefail
 

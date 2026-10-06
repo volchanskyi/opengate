@@ -9,8 +9,7 @@ type Rollout = components['schemas']['RuleRollout'];
 const FIELD = 'w-24 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200';
 const LABEL = 'text-xs uppercase text-gray-500 font-semibold';
 
-/** The settings an operator may move. Not every field of a rollout: the reach it
- * has actually got to, and the stop, are not this form's to write. */
+// The form writes only the pace settings, not the reach so far or the stop.
 type PaceField = 'canary_percent' | 'staged_percent' | 'canary_hold_secs' | 'staged_hold_secs';
 
 const SETTINGS: readonly (readonly [PaceField, string, string])[] = [
@@ -20,7 +19,6 @@ const SETTINGS: readonly (readonly [PaceField, string, string])[] = [
   ['staged_hold_secs', 'Second stage is held for', 'seconds'],
 ];
 
-/** Reads one setting off a draft without indexing it by a variable. */
 function paceValue(rollout: Rollout, field: PaceField): number {
   switch (field) {
     case 'canary_percent': return rollout.canary_percent;
@@ -30,15 +28,7 @@ function paceValue(rollout: Rollout, field: PaceField): number {
   }
 }
 
-/**
- * How far a rule has reached, how fast it is allowed to spread, and the switch
- * that stops it.
- *
- * The stop is set apart from the on/off toggle deliberately. Switching a rule
- * off is an ordinary choice about what a customer wants watched; stopping it is
- * an intervention against a rule that is doing harm, and the two have to be
- * tellable apart afterwards — which they cannot be if they are the same control.
- */
+// The stop is a separate control from the on/off toggle so the two stay distinguishable afterwards.
 export function RolloutPanel({
   ruleId,
   rollout,

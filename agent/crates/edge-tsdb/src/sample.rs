@@ -1,8 +1,4 @@
-//! The one sample shape the whole spike operates on.
-//!
-//! WS-2 produces multi-dimensional host snapshots (`MetricSample`). The storage
-//! engine sees each dimension as an independent numeric series of
-//! `(timestamp, value)` points, which is the unit the Gorilla layer compresses.
+//! The `(timestamp, value)` point that every numeric series stores.
 
 /// Identifier for a numeric series (one dimension of one host, e.g. `cpu.total`).
 pub type SeriesId = u32;

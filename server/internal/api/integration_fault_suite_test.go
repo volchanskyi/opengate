@@ -22,10 +22,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// faultEnv is an in-process server whose Devices port is a fault decorator, so a
-// test can arm a fault on a repository method and assert the HTTP outcome. The
-// substitution happens at wiring time — the domain packages and the shipped
-// binary are untouched.
+// faultEnv is an in-process server whose Devices port is a fault decorator set at wiring time.
 type faultEnv struct {
 	server  *httptest.Server
 	devices *faulttest.FaultDevices
@@ -64,15 +61,13 @@ func newFaultEnv(t *testing.T) *faultEnv {
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 
-	// An admin token scoped to the seeded default tenant, so the real repository
-	// returns a clean not-found (404) for an unknown device on the healthy path.
+	// A token in the seeded default tenant lets the real repository answer 404 for an unknown device.
 	token, err := jwtCfg.GenerateToken(uuid.New(), "fault-admin@example.com", true, dbtx.DefaultTenantID)
 	require.NoError(t, err)
 
 	return &faultEnv{server: ts, devices: devices, token: token}
 }
 
-// get issues an authenticated GET and returns the status code.
 func (e *faultEnv) get(t *testing.T, path string) int {
 	t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, e.server.URL+path, nil)
@@ -86,8 +81,6 @@ func (e *faultEnv) get(t *testing.T, path string) int {
 
 const faultDevicePath = "/api/v1/devices/"
 
-// TestFaultSuite_RepositoryError asserts an injected boundary error on a
-// repository read maps to a 500 (acceptance criterion 4).
 func TestFaultSuite_RepositoryError(t *testing.T) {
 	t.Parallel()
 	env := newFaultEnv(t)
@@ -97,9 +90,6 @@ func TestFaultSuite_RepositoryError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, code)
 }
 
-// TestFaultSuite_PanicRecovery asserts a panic in a repository call is recovered
-// as a 500 and the very next request on the same server succeeds normally
-// (acceptance criterion 2).
 func TestFaultSuite_PanicRecovery(t *testing.T) {
 	t.Parallel()
 	env := newFaultEnv(t)
@@ -108,15 +98,11 @@ func TestFaultSuite_PanicRecovery(t *testing.T) {
 	panicked := env.get(t, faultDevicePath+uuid.NewString())
 	assert.Equal(t, http.StatusInternalServerError, panicked, "panic must be recovered as 500")
 
-	// The Once fault auto-cleared; the next request reaches the real repository,
-	// which returns a normal 404 for the unknown device — proving the process
-	// and the server survived the panic.
+	// The Once fault has cleared, so the next request reaches the real repository.
 	survived := env.get(t, faultDevicePath+uuid.NewString())
 	assert.Equal(t, http.StatusNotFound, survived, "the next request after a recovered panic must succeed normally")
 }
 
-// TestFaultSuite_DelayIsBoundedThenDelegates asserts a delay fault waits and then
-// delegates to the real call (acceptance criterion 4).
 func TestFaultSuite_DelayIsBoundedThenDelegates(t *testing.T) {
 	t.Parallel()
 	env := newFaultEnv(t)
@@ -131,9 +117,6 @@ func TestFaultSuite_DelayIsBoundedThenDelegates(t *testing.T) {
 	assert.GreaterOrEqual(t, elapsed, delay, "the response must be delayed by at least the injected delay")
 }
 
-// TestFaultSuite_Isolation asserts a fault armed on one call path does not affect
-// a concurrent request on an unfaulted path within the same in-process server
-// (acceptance criterion 6).
 func TestFaultSuite_Isolation(t *testing.T) {
 	t.Parallel()
 	env := newFaultEnv(t)
@@ -148,7 +131,6 @@ func TestFaultSuite_Isolation(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		// ListAll is unfaulted (only "Get" is armed) → healthy empty list.
 		healthyCode = env.get(t, "/api/v1/devices")
 	}()
 	wg.Wait()

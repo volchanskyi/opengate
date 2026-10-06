@@ -7,11 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestWidenWaitLeavesAnOperatorsChoiceAlone pins both halves of the reaper
-// setting. Without it the reaper shuts down and reaps mid-suite on a machine
-// slow enough to need more than its default minute; with it overriding
-// somebody's deliberate value, a shorter wait they chose would be silently
-// ignored.
 func TestWidenWaitLeavesAnOperatorsChoiceAlone(t *testing.T) {
 	t.Setenv(timeoutEnv, "5s")
 	widenWait()
@@ -23,8 +18,6 @@ func TestWidenWaitLeavesAnOperatorsChoiceAlone(t *testing.T) {
 		"an unset wait takes the widened default, or a busy machine fails on the reaper")
 }
 
-// TestIsolateSessionLeavesAnOperatorsChoiceAlone is the same contract for the
-// session, which decides whose reaper this process waits on.
 func TestIsolateSessionLeavesAnOperatorsChoiceAlone(t *testing.T) {
 	t.Setenv(sessionEnv, "an-operators-own-session")
 	isolateSession()
@@ -37,17 +30,11 @@ func TestIsolateSessionLeavesAnOperatorsChoiceAlone(t *testing.T) {
 		"an unset session takes one of this process's own")
 }
 
-// TestSessionsDoNotCollide is the whole point of the isolation: two processes
-// landing on one session share a reaper container, and every process but the
-// one that created it then waits on it for a fixed minute it cannot extend.
 func TestSessionsDoNotCollide(t *testing.T) {
 	assert.NotEqual(t, newSessionID(), newSessionID(),
 		"two sessions collided, so two processes would wait on one reaper")
 }
 
-// TestSessionIDNamesAContainer holds the shape testcontainers builds the
-// reaper's container name out of: a Docker name accepts letters, digits and a
-// few separators, and nothing else.
 func TestSessionIDNamesAContainer(t *testing.T) {
 	id := newSessionID()
 	assert.Len(t, id, 64, "the reaper's container name is built from this")
@@ -58,9 +45,6 @@ func TestSessionIDNamesAContainer(t *testing.T) {
 	}
 }
 
-// TestSettleAppliesBoth is what every provisioning package calls, and what a
-// package that forgets to call it goes without: a wait it cannot extend and a
-// reaper container somebody else owns.
 func TestSettleAppliesBoth(t *testing.T) {
 	t.Setenv(timeoutEnv, "")
 	t.Setenv(sessionEnv, "")

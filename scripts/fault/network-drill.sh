@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
-# One scenario of the nightly QUIC network drill.
-#
-# The drill asks four questions a support desk asks: when a machine goes dark
-# and comes back, does it reconnect on its own; does the hole its absence left
-# in the customer's charts fill in; does a site catching up over a thin uplink
-# stay watchable while it does; and does a machine that returns on a new address
-# keep its session. Each scenario below is one of those, driven by commanding
-# the link shaper the machines' traffic runs through.
-#
-# Three phases every time — baseline, fault, recovery — and one rule that
-# outranks the measurements: a scenario that could not observe the system emits
-# NOTHING. Rows of zeroes pull a window median down and one bad night quietly
-# costs two, which is the rule scripts/loadtest-quic-run.sh already writes down
-# for its own half of the nightly.
+# One scenario of the nightly QUIC network drill, driven by commanding the link shaper.
+# A scenario that could not observe the system emits no rows, so a window median is never skewed.
 #
 # Environment:
 #   NAMESPACE          must be opengate-staging; anything else is refused
@@ -21,18 +9,11 @@
 #   SHAPER_URL         the shaper's cluster-internal control endpoint
 #   SERVER_URL         the server's in-cluster API base
 #   DEVICE_ID          the real machine this scenario measures
-#   MACHINE_POD        that machine's pod (required) — its own log is where the
-#                      reconnect actually happened, and a five-second poll of a
-#                      status the server writes is not a reading of it
-#   FLEET_PREFIX       the name this run's simulated machines carry (required),
-#                      so a scenario can count its own herd rather than whatever
-#                      else is in the tenant
+#   MACHINE_POD        that machine's pod (required), whose own log records the reconnect
+#   FLEET_PREFIX       the name this run's simulated machines carry (required)
 #   API_TOKEN          bearer token for the reads above
 #   EVIDENCE_DIR       where the per-phase counters and readings are kept
 #   MEASUREMENTS_FILE  one JSON row per measurement, appended
-#
-# Phase durations are the scenario's own parameters and are overridable so a
-# calibration run can shorten them; the nightly leaves them alone.
 #
 # Usage:  NAMESPACE=opengate-staging … scripts/fault/network-drill.sh s1
 set -euo pipefail
@@ -40,40 +21,27 @@ set -euo pipefail
 ALLOWED_NAMESPACE="opengate-staging"
 NAMESPACE="${NAMESPACE:-$ALLOWED_NAMESPACE}"
 
-# What the process returns, and what each code means to the workflow reading it.
-# Two outcomes need two codes: a scenario that measured the product and found it
-# wanting is a measurement the trend keeps, while a scenario that could not
-# observe the product at all has nothing to say about it.
+# A scenario that could not observe the product exits with this code and keeps no measurement.
 EXIT_INCONCLUSIVE=2
 
-# The phase clock. Every one of these is calibrated in the drill's own
-# specification against the 90 s idle timeout and the reconnect backoff.
+# Phase durations, overridable for calibration runs.
 BASELINE_SECONDS="${NETDRILL_BASELINE_SECONDS:-60}"
 FAULT_SECONDS="${NETDRILL_FAULT_SECONDS:-180}"
 RECOVERY_SECONDS="${NETDRILL_RECOVERY_SECONDS:-180}"
 POLL_SECONDS="${NETDRILL_POLL_SECONDS:-5}"
 
-# How much of the chart window has to come back for the gap to count as filled.
+# The share of the chart window that has to come back for the gap to count as filled.
 GAP_FILL_TARGET="${NETDRILL_GAP_FILL_TARGET:-0.95}"
 
-# How far the first scenario's outage moves either side of the declared length,
-# drawn from the run's own seed.
-#
-# A fixed three minutes is two whole idle timeouts, so the machine met the
-# restored link at the same point in its own cycle on every night and the figure
-# that decides read the same number twice — 13 one night, 18 the next, against a
-# floor of 120 it could not reach. Moving the length moves where in that cycle
-# the link returns, which is the only thing that gives the figure a spread.
+# The first scenario's outage moves either side of its declared length by a seed-drawn amount.
+# The shift moves where in the machine's idle cycle the link returns, which spreads the figure.
 FAULT_SPREAD_SECONDS="${NETDRILL_FAULT_SPREAD_SECONDS:-90}"
 SHAPER_SEED="${SHAPER_SEED:-0}"
 
-# How much of the herd has to be behind the link before a catch-up is a site
-# catching up. The server admits four drains per customer, so eight is four
-# draining with four more waiting — the smallest fleet that produces the queue
-# the thin-uplink scenario is about.
+# The server admits four drains per customer, so eight is four draining and four queued.
 FLEET_MINIMUM="${NETDRILL_FLEET_MINIMUM:-8}"
 
-# What the machine writes as it fails to get its link back, and as it gets it.
+# The log lines the machine writes as it fails to get its link back, and as it gets it.
 ATTEMPT_FAILED_MARK="connection attempt failed"
 RECONNECTED_MARK="reconnected successfully"
 
@@ -84,10 +52,7 @@ die() {
   exit "${2:-1}"
 }
 
-# A scenario that could not observe the system says so and leaves the file
-# alone. Nothing partial is kept: a run that emitted two of its four rows before
-# the shaper went quiet would put an incomplete night into the trend under the
-# same labels as a complete one.
+# An inconclusive scenario discards its pending rows, so no partial night reaches the trend.
 inconclusive() {
   echo "network-drill: inconclusive — $1" >&2
   rm -f "$PENDING_ROWS"
@@ -111,42 +76,29 @@ EVIDENCE_DIR="${EVIDENCE_DIR:-/tmp/opengate-fault-state/network-drill}"
 MEASUREMENTS_FILE="${MEASUREMENTS_FILE:-$EVIDENCE_DIR/measurements.jsonl}"
 mkdir -p "$EVIDENCE_DIR" "$(dirname "$MEASUREMENTS_FILE")"
 
-# Rows are held here until the scenario finishes, then appended in one go. That
-# is what makes "emits nothing" true of a scenario that fell over halfway: a
-# file appended to as it went would leave its first half behind.
+# Rows are held here until the scenario finishes, so a scenario that fails midway leaves none.
 PENDING_ROWS="$(mktemp)"
 
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 
-# The link is handed back clear whatever happened, so the scenario after this
-# one — or whatever else takes the namespace next — starts on an unimpaired
-# path rather than inheriting this one's outage.
+# The link is cleared on exit so the next scenario starts on an unimpaired path.
 clear_the_link() {
   probe_curl -X POST --data '{}' "$SHAPER_URL/impair" >/dev/null 2>&1 || true
   rm -f "$PENDING_ROWS"
 }
 trap clear_the_link EXIT
 
-# --- talking to the cluster ---------------------------------------------------
-
 # shellcheck source=../lib/kubectl-retry.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/kubectl-retry.sh"
 
-# Every request goes through one in-cluster client, because both the shaper's
-# control endpoint and the server's API are cluster-internal and an agent speaks
-# QUIC over UDP, which kubectl port-forward does not carry.
-#
-# A request is asked again only when the cluster says it never reached the probe
-# pod. Nothing ran, so there is no reading to lose and no write to repeat. A
-# request that reached its target and failed is that target's answer, and is
-# never asked twice.
+# The shaper control endpoint and the server API are cluster-internal, and QUIC rides UDP that
+# port-forward does not carry. A request is retried only when it never reached the probe pod.
 probe_curl() {
   kubectl_retry --unstarted -n "$NAMESPACE" exec "$PROBE_POD" -- \
     curl -sS --fail-with-body --max-time 20 "$@"
 }
 
-# never_arrived <status> — the probe failed because the cluster dropped the
-# connection to the probe pod on every attempt, so its target never heard it.
+# True when the probe failed because the cluster dropped the connection to the probe pod each time.
 never_arrived() { [ "$1" -eq "$KUBECTL_RETRY_LOST" ]; }
 
 NEVER_ARRIVED="the cluster dropped the connection to the probe pod on every attempt"
@@ -155,10 +107,7 @@ shaper_healthy() {
   probe_curl "$SHAPER_URL/healthz" >/dev/null 2>&1
 }
 
-# impair puts one instruction in force. A refusal is inconclusive rather than a
-# product failure: the shaper declining an impairment says nothing about how a
-# machine copes with one. Neither is an instruction that never reached it, and
-# the two are named apart.
+# A refused impairment is inconclusive, and an instruction that never arrived is named apart.
 impair() {
   local instruction="$1" status=0
   probe_curl -X POST -H 'Content-Type: application/json' --data "$instruction" \
@@ -180,10 +129,7 @@ rebind() {
   inconclusive "the shaper could not move to a new server-facing address"
 }
 
-# counters records what the shaper has done with the datagrams it handled, at
-# one phase boundary, and prints it. The runner reads these to know a scenario
-# ran at all. A boundary it could not read is refused rather than answered, with
-# the probe's own status so the caller can say why.
+# Prints the shaper's counters at one phase boundary; a failed read returns the probe's status.
 counters() {
   local phase="$1" body status=0
   body="$(probe_curl "$SHAPER_URL/counters")" || status=$?
@@ -192,12 +138,7 @@ counters() {
   printf '%s\n' "$body"
 }
 
-# The reading at one phase boundary, left in COUNTERS for the scenario to use.
-#
-# It is assigned here, in the scenario's own shell, rather than inside a command
-# substitution at the point of use. A substitution runs in a subshell, and
-# ending the scenario from inside one ends only that subshell: the run would
-# carry on with an empty reading and decide the phase on it.
+# The reading is assigned in the scenario's shell, since an exit in a substitution ends a subshell.
 COUNTERS=""
 read_counters() {
   local phase="$1" status=0
@@ -209,11 +150,7 @@ read_counters() {
   inconclusive "the shaper stopped answering at the $phase boundary"
 }
 
-# The shaper counts for the life of its process and its control endpoint offers
-# no reset, so every reading it gives is a running total across every scenario
-# that ran before this one. What a scenario has to say about the link is what
-# changed while it held it, so each scenario opens by recording where the totals
-# stood and measures everything it publishes from there.
+# The shaper's totals run for its process life, so each scenario records its opening totals.
 OPENING_DROPPED_TO_SERVER=0
 OPENING_DROPPED_TO_MACHINE=0
 
@@ -238,8 +175,6 @@ api_get() {
   probe_curl -H "Authorization: Bearer ${API_TOKEN:-}" "$SERVER_URL$1"
 }
 
-# --- reading the product ------------------------------------------------------
-
 # The machine's own row, as a technician's device list shows it.
 device_row() {
   local body
@@ -247,17 +182,11 @@ device_row() {
   jq -e --arg id "$DEVICE_ID" '.[] | select(.id == $id)' <<<"$body"
 }
 
-# What a status reading is when the drill could not take one. No machine is
-# ever in this state: it says the drill failed to observe, which is a different
-# thing from the machine having moved, and every caller treats it that way.
+# The status reported when the drill could not take a reading; it is never a machine state.
 UNREADABLE_STATUS="unreadable"
 
-# The machine's status as a technician's device list shows it, or
-# UNREADABLE_STATUS when the drill could not read it. A request that did not
-# land, a machine missing from the list, and a reply with nothing in it are all
-# the drill failing to observe the machine. None of them is a machine that went
-# offline, and every comparison here is against "online", so answering with any
-# of them as though it were a status reports a failed read as a failed product.
+# The machine's status from the device list, or UNREADABLE_STATUS for a failed request,
+# a missing machine or an empty reply.
 device_status() {
   local body status
   body="$(device_row)" || {
@@ -276,10 +205,8 @@ device_last_seen_epoch() {
   date -u -d "$seen" +%s 2>/dev/null
 }
 
-# The share of the chart's buckets the machine has reported for, over the window
-# the outage covered. This is read from the endpoint a technician's chart reads,
-# so what it measures is what a customer would see: every bucket of the window
-# is present and one the machine did not report is null.
+# The share of the window's chart buckets the machine reported for, read from the chart endpoint.
+# Every bucket of the window is present, and an unreported one is null.
 gap_fill_ratio() {
   local from="$1" to="$2" body
   body="$(api_get "/api/v1/devices/$DEVICE_ID/metrics?from=$from&to=$to&max_points=200")" || return 1
@@ -291,10 +218,7 @@ gap_fill_ratio() {
   ' <<<"$body"
 }
 
-# The machine's own clock, so both ends of a reconnect figure are read off one
-# clock. The link is restored by a runner outside the cluster and the machine
-# writes its log inside it, and seconds of skew between the two would land
-# straight in a figure measured in seconds.
+# The machine's own clock puts both ends of a reconnect figure on one clock.
 machine_clock_now() {
   kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- date -u +%s.%N 2>/dev/null
 }
@@ -305,10 +229,7 @@ machine_log_since() {
   kubectl -n "$NAMESPACE" logs "$MACHINE_POD" --timestamps --since-time="$since" 2>/dev/null
 }
 
-# The moment one log line was written, as seconds. It is the stamp kubectl puts
-# in front of the line rather than the one the agent's own formatter writes:
-# both are the node's clock, and the stamped one needs no assumption about a
-# formatter that wraps its timestamp in terminal escapes.
+# The kubectl stamp on a log line as seconds; it needs no assumption about the agent's formatter.
 log_epoch() {
   local stamp
   stamp="${1%% *}"
@@ -320,26 +241,8 @@ at_or_after() {
   awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 >= b + 0) }'
 }
 
-# Two figures about one reconnect, or nothing at all.
-#
-# The first is what a site waits through: the link is back at this moment and
-# the machine is on it that many seconds later. The second is what the machine
-# itself spent: from its last failed attempt to being back.
-#
-# They differ by where in its own cycle the machine met the restored link, and
-# that difference is most of the figure. On the night this was written the site
-# waited 17.7 seconds and the reconnect took 0.315 of one — the machine was
-# sitting inside a ninety-second attempt that could not finish, and the link came
-# back part way through it.
-#
-# Nothing at all, rather than a zero, when the log could not be read or carries
-# no return after the link came back. A log the drill could not read is the
-# drill failing to observe; it is not a machine that failed to come back, and
-# the reading that answers that question is taken from the status poll.
-# What the machine's own log says about coming back: how long the site waited,
-# and — where the machine actually failed an attempt — what that attempt cost.
-# The second is empty for a machine whose first try worked, which is a machine
-# that spent nothing on a failed attempt rather than one that was quick.
+# Prints "waited spent": seconds from the link's return and from the last failed attempt to return.
+# Fails on an unreadable log or no return; spent is empty when the first try worked.
 reconnect_from_machine_log() {
   local since="$1" restored="$2"
   local log line stamp back="" last_fail=""
@@ -375,11 +278,8 @@ reconnect_from_machine_log() {
   printf '%s %s\n' "$waited" "$spent"
 }
 
-# How many of this run's own simulated machines the server currently has online.
-#
-# Read from the product's device list rather than from the shaper, whose
-# machines field is an idle-mapping expiry: it went on reading 21 for ten
-# minutes after the herd had left, and first read 1 twenty minutes after.
+# How many of this run's simulated machines the server has online, read from the device list.
+# The shaper's machines field is an idle-mapping expiry that lags the herd.
 fleet_online() {
   local body
   body="$(api_get "/api/v1/devices")" || return 1
@@ -388,9 +288,7 @@ fleet_online() {
     <<<"$body" 2>/dev/null
 }
 
-# The first scenario's outage length, moved off the machine's own timeouts by
-# the run's seed so the figure it decides is not the same number every night.
-# A collapsed phase clock stays collapsed, so a calibration run is unaffected.
+# The first scenario's outage length, shifted by the run's seed; a collapsed clock stays collapsed.
 outage_seconds() {
   if [ "$FAULT_SECONDS" -le 0 ] || [ "$FAULT_SPREAD_SECONDS" -le 0 ]; then
     printf '%s\n' "$FAULT_SECONDS"
@@ -399,35 +297,18 @@ outage_seconds() {
   printf '%s\n' "$((FAULT_SECONDS - FAULT_SPREAD_SECONDS / 2 + SHAPER_SEED % FAULT_SPREAD_SECONDS))"
 }
 
-# --- an alert raised while the link is down -----------------------------------
-#
-# A machine that finds something wrong while it cannot reach anybody holds the
-# alert and offers it when the link comes back. That is the one thing on this
-# channel that cannot be taken again later — there is no high-resolution history
-# behind a signal and no path for asking the machine afterwards — so an outage
-# that loses it loses the incident outright.
-#
-# The rule is tuned against what this machine's own disk is actually doing
-# rather than against a number written here. What a shared node's disk is doing
-# is not this drill's to decide, and a rule aimed at a line the machine is
-# nowhere near would measure nothing while looking like a pass.
+# A machine holds an alert raised while offline and offers it when the link returns.
+# The rule is tuned against the machine's own disk reading, so the drill never guesses a line.
 
-# The rule the drill arms. It is one the product ships, so the alert it raises
-# is one the product accepts.
+# The armed rule is one the product ships, so the alert it raises is one the product accepts.
 ALERT_DRILL_RULE="disk-critical"
-# The shortest hold the rule allows, so the firing lands inside an outage rather
-# than after it.
+# The shortest hold the rule allows, so the firing lands inside the outage.
 ALERT_DRILL_SUSTAIN=60
-# How far under the machine's own reading the line is set. Far enough that a
-# reading drifting down a point during the outage does not clear it, close
-# enough that it is still the machine's real disk being watched.
+# The line sits this far under the machine's reading so a one-point drift does not clear it.
 ALERT_DRILL_MARGIN=5
-# The lowest line the rule may be tuned to. A machine whose disk is under this
-# cannot be armed at all, which is a drill that could not observe rather than a
-# product that failed.
+# The lowest line the rule may be tuned to; a machine whose disk is below it cannot be armed.
 ALERT_DRILL_FLOOR=50
-# The customer whose rule this run tuned, so the teardown can put it back. It
-# outlives the scenario's own variables because the teardown runs after them.
+# The customer whose rule this run tuned, kept for the teardown that runs after the scenario.
 ARMED_ORG=""
 
 api_post() {
@@ -440,22 +321,19 @@ api_put() {
     -H 'Content-Type: application/json' --data "$2" "$SERVER_URL$1"
 }
 
-# The fullest mount on the machine, as a whole percentage, read from the machine
-# itself. This is the same number its own sampler compares against the rule.
+# The fullest mount on the machine as a whole percentage, as its sampler compares to the rule.
 machine_disk_percent() {
   kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- \
     sh -c "df -P | awk 'NR>1 {gsub(/%/,\"\",\$5); if (\$5+0 > m) m=\$5+0} END {print m+0}'" 2>/dev/null
 }
 
-# The customer the machine belongs to, which is whose rule is being tuned.
+# The customer the machine belongs to, whose rule is tuned.
 machine_organization() {
   device_row | jq -r '.organization_id // empty' 2>/dev/null
 }
 
-# Tune the rule to a line this machine is already past, held for the shortest
-# span it allows. The change reaches the machine on the connection it is already
-# holding, so nothing is restarted to make it take effect — which is what lets
-# it be armed a second before the link goes dark.
+# Tunes the rule to a line the machine is already past, held for the shortest span allowed.
+# The change reaches the machine over its open connection, so nothing restarts.
 arm_the_alert() {
   local org="$1" line="$2"
   ARMED_ORG="$org"
@@ -465,9 +343,7 @@ arm_the_alert() {
     >/dev/null
 }
 
-# Put the rule back the way it ships, whatever the scenario found. A drill that
-# left a customer's estate tuned to fire on every machine would be worse than
-# one that measured nothing.
+# Restores the rule's shipped binding whatever the scenario found.
 disarm_the_alert() {
   local org="$ARMED_ORG"
   [ -n "$org" ] || return 0
@@ -484,8 +360,7 @@ rooms_for_the_armed_rule() {
   jq -r '[.items[]?] | length' <<<"$body"
 }
 
-# Wait for the alert the machine raised in the dark to arrive, bounded by the
-# recovery budget. Answers how long it took, or nothing when it never came.
+# Waits up to the recovery budget for the offline alert to arrive; prints seconds taken, or fails.
 wait_until_the_alert_arrives() {
   local from="$1" budget="$2" deadline rooms
   deadline=$(($(date +%s) + budget))
@@ -500,11 +375,7 @@ wait_until_the_alert_arrives() {
   return 1
 }
 
-# --- what the scenario produces ----------------------------------------------
-
-# One measurement. The labels are the ones the trend is sliced by; the value is
-# a number, and a measurement with no number is not emitted rather than emitted
-# as zero.
+# Appends one measurement row; the trend is sliced by its labels, and an empty value is skipped.
 emit() {
   local metric="$1" victim="$2" value="$3"
   [ -n "$value" ] || return 0
@@ -515,22 +386,15 @@ emit() {
     >>"$PENDING_ROWS"
 }
 
-# The shaper's own account of what this scenario did to the link, carried into
-# the trend so a night whose numbers look odd can be read against it.
+# The shaper's account of what the scenario did to the link, kept beside the trend.
 emit_shaper_counters() {
   local body="$1"
   emit netdrill_shaper_dropped_to_server link "$(dropped_since_opening "$body" to_server)"
   emit netdrill_shaper_dropped_to_machine link "$(dropped_since_opening "$body" to_machine)"
 }
 
-# The two reconnect figures, when the machine's own log has them. A scenario
-# whose log could not be read publishes neither, and still publishes everything
-# else it measured.
-#
-# The attempt figure is published only by a machine that made a failed attempt.
-# A machine whose first try worked spent nothing on one, and timing from the
-# moment it noticed the loss instead times the outage — which is the luck this
-# figure exists to hold apart and which the figure beside it already carries.
+# Publishes the two reconnect figures when the log has them; an unreadable log publishes neither.
+# The attempt figure comes only from a machine that failed an attempt.
 emit_reconnect_figures() {
   local since="$1" restored_epoch="$2" figures waited spent
   figures="$(reconnect_from_machine_log "$since" "$restored_epoch")" || return 0
@@ -540,11 +404,7 @@ emit_reconnect_figures() {
   return 0
 }
 
-# Whether the machine came back at all, which is a different question from how
-# long it took and is answered by a different reading. The status poll answers
-# empty for a machine that never returned inside the budget, and refuses
-# outright when it could not read the status at all — so an empty answer here is
-# the machine, not the drill.
+# Whether the machine came back at all; an empty status poll answer means it never returned.
 emit_reconnected() {
   local online_at="$1"
   if [ -n "$online_at" ]; then
@@ -554,20 +414,14 @@ emit_reconnected() {
   fi
 }
 
-# A scenario whose drop count does not match its instruction did not run. This
-# is the check that separates "the machine coped with an outage" from "the
-# outage never happened and the machine had nothing to cope with", so what it
-# asks about is what this scenario dropped: a total left on the clock by an
-# earlier scenario's outage is not evidence that this one's fault reached the
-# link.
+# A scenario whose drops since opening are zero did not run its fault.
 require_dropped() {
   local body="$1"
   [ "$(dropped_since_opening "$body" to_server)" -gt 0 ] \
     || inconclusive "the shaper dropped nothing toward the server while this scenario held the link, so the fault it was told to apply did not reach it"
 }
 
-# publish is the only writer of the measurements file, and it runs once, at the
-# end, after every reading the scenario needed has been taken.
+# The only writer of the measurements file, run once after every reading is taken.
 publish() {
   [ -s "$PENDING_ROWS" ] || inconclusive "the scenario produced no measurement"
   cat "$PENDING_ROWS" >>"$MEASUREMENTS_FILE"
@@ -581,26 +435,17 @@ hold() {
   return 0
 }
 
-# --- the impairments, as the scenarios name them ------------------------------
-
 PASS_THROUGH='{}'
 BLACKHOLE='{"blackhole":true}'
-# A fifth of what the machine sends, and nothing at all in the direction it
-# receives: a customer's upload is the half that degrades, and a symmetric fault
-# would hide which side the recovery machinery is coping with.
+# A fifth of what the machine sends is lost and nothing in the direction it receives.
 ONE_WAY_LOSS='{"loss_to_server":0.2}'
-# A third of a second each way, which is what a survey office on satellite has
-# all day.
+# A third of a second each way.
 SATELLITE='{"delay_each_way_ms":300}'
-# One 2 Mbit/s link shared by every machine, buffering a second before it drops
-# — which is what a small site's shared uplink is.
+# One 2 Mbit/s link shared by every machine, buffering a second before it drops.
 THIN_UPLINK='{"rate_bits_per_sec":2000000,"max_queue_ms":1000}'
 
-# --- the scenarios ------------------------------------------------------------
-
-# S1 — the site goes dark for three minutes and comes back on a healthy link.
-# Three minutes exceeds the 90 s idle timeout, so the connection genuinely dies
-# rather than stalling: a stalled connection never exercises reconnect at all.
+# S1 is a three-minute outage then a healthy link; it exceeds the 90 s idle timeout, so the
+# connection dies and exercises reconnect.
 run_s1() {
   local dark_from dark_to restored restored_epoch online_at ratio filled_at outage
   local org disk line replayed_in
@@ -609,10 +454,7 @@ run_s1() {
   open_counters
   hold "$BASELINE_SECONDS"
 
-  # Arm the machine to find something wrong while it is dark. The rule is aimed
-  # at this machine's own disk, and the drill says so rather than guessing: a
-  # node under the lowest line the rule allows cannot be armed, which is a
-  # scenario that could not observe rather than a product that failed.
+  # The rule is armed against this machine's own disk; below the floor the scenario is inconclusive.
   org="$(machine_organization)" \
     || inconclusive "the drill could not read which customer its machine belongs to"
   [ -n "$org" ] \
@@ -637,11 +479,9 @@ run_s1() {
 
   impair "$PASS_THROUGH"
   restored="$(date +%s)"
-  # Read before anything else in the recovery, because it is the moment the
-  # figures below are measured from.
+  # The machine's clock is read first because the recovery figures are measured from it.
   restored_epoch="$(machine_clock_now || true)"
-  # The length this night actually ran, published so the figures it decides can
-  # be read against it rather than assumed to share a window.
+  # The outage length this night ran is published so its figures are read against it.
   emit netdrill_outage_seconds link "$outage"
 
   online_at="$(wait_until_online "$restored" "$RECOVERY_SECONDS")" \
@@ -655,10 +495,7 @@ run_s1() {
   ratio="$(gap_fill_ratio "$dark_from" "$dark_to" || echo 0)"
   emit netdrill_gap_fill_ratio real "$ratio"
 
-  # The alert the machine raised while nobody could hear it. It is held on the
-  # machine through the outage and offered when the link returns, so what this
-  # measures is whether the incident survived the dark rather than whether the
-  # machine noticed.
+  # The alert is held through the outage and offered on return, so the measure is its survival.
   if replayed_in="$(wait_until_the_alert_arrives "$restored" "$RECOVERY_SECONDS")"; then
     emit netdrill_alerts_replayed real 1
     emit netdrill_alert_replay_seconds real "$replayed_in"
@@ -671,10 +508,8 @@ run_s1() {
   publish
 }
 
-# S2 — the same outage, recovered over a thin uplink shared by the whole site.
-# The number that bites is the staleness of the live readings: it is the only
-# one that measures a catch-up batch sitting ahead of the next heartbeat on the
-# one ordered stream the machine sends everything over.
+# S2 is the same outage recovered over a thin shared uplink; live staleness measures a catch-up
+# batch sitting ahead of the next heartbeat on the machine's one ordered stream.
 run_s2() {
   local dark_from restored restored_epoch back herd staleness transitions watched
 
@@ -691,24 +526,14 @@ run_s2() {
   restored="$(date +%s)"
   restored_epoch="$(machine_clock_now || true)"
 
-  # The machine has to be back before its staleness means anything. Measured
-  # from the restore, the number would be the outage's own three minutes on
-  # every night, whatever the uplink did afterwards — and the question this
-  # scenario asks is whether live monitoring stays usable *while the site
-  # catches up*.
+  # Staleness is measured once the machine is back, so it reflects the catch-up and not the outage.
   back="$(wait_until_online "$restored" "$RECOVERY_SECONDS")" \
     || inconclusive "the drill never read the machine's status while waiting for it to come back over the thin uplink"
   emit_reconnected "$back"
   emit_reconnect_figures "$dark_from" "$restored_epoch"
   [ -n "$back" ] || inconclusive "the machine never came back over the thin uplink, so there was no catch-up to watch"
 
-  # And the herd has to be back, because a site is what this scenario measures.
-  # One machine catching up over a two-megabit link uses under half of it; four
-  # of them, which is what the server admits per customer, ask for nearly twice
-  # what the link has. Without the herd the figure below is a reading of an
-  # uncontended link — and it becomes the baseline that a night with a real herd
-  # is then measured against, so the night that fixes the fleet reads as the
-  # regression.
+  # The herd must be back too; four machines draining ask for nearly twice the link's capacity.
   herd="$(fleet_online)" \
     || inconclusive "the drill could not read how much of its herd was behind the link"
   emit netdrill_fleet_online fleet "$herd"
@@ -727,9 +552,7 @@ run_s2() {
   publish
 }
 
-# S3 — the connection is up but bad. A machine on saturated rural broadband
-# keeps its connection and loses a fifth of what it sends; the question is
-# whether it holds the connection or churns.
+# S3 keeps the connection up while it loses a fifth of what the machine sends.
 run_s3() {
   local staleness transitions watched
 
@@ -753,14 +576,8 @@ run_s3() {
   publish
 }
 
-# S4 — a slow link, and a machine that returns on a new address. Two impairments
-# in one window because both are cheap and neither needs a fresh outage.
-#
-# The re-addressing has a silent failure mode: if the session does not migrate,
-# the server keeps writing to a port the shaper has closed and the connection
-# dies at the idle timeout looking exactly like an ordinary outage. So survival
-# and reconnection are both recorded, and a failure reads as "the migration did
-# not happen" rather than "the link broke".
+# S4 is a slow link, then a machine returning on a new address; survival and reconnection are both
+# recorded, since a failed migration looks like an ordinary outage after the idle timeout.
 run_s4() {
   local before after survived reconnected transitions watched
 
@@ -772,16 +589,12 @@ run_s4() {
   hold "$FAULT_SECONDS"
   read_counters fault
 
-  # Both verdicts below are decided by comparing these two readings against
-  # "online", so a reading the drill could not take would publish a migration
-  # that failed on the strength of a request that did not arrive.
+  # Both verdicts compare these readings to "online", so an unreadable one is inconclusive.
   before="$(device_status)"
   [ "$before" != "$UNREADABLE_STATUS" ] \
     || inconclusive "the drill could not read the machine's status before the address change"
   rebind
-  # The window is watched rather than waited out. A machine that dropped and
-  # reconnected inside it is online at both ends of a wait, which is exactly
-  # the reading that would report a failed migration as a successful one.
+  # Watching the window catches a drop and reconnect that two endpoint readings would miss.
   watched="$(watch_liveness "$RECOVERY_SECONDS")" \
     || inconclusive "the drill never read the machine's status after the address change"
   read -r _ transitions <<<"$watched"
@@ -789,8 +602,7 @@ run_s4() {
   [ "$after" != "$UNREADABLE_STATUS" ] \
     || inconclusive "the drill could not read the machine's status after the address change"
 
-  # The session survived if the machine never left. It reconnected if it did
-  # leave and came back inside the window.
+  # The session survived if the machine never left; it reconnected if it left and returned.
   survived=0
   { [ "$before" = "online" ] && [ "$after" = "online" ] && [ "$transitions" -eq 0 ]; } && survived=1
   reconnected=0
@@ -805,17 +617,8 @@ run_s4() {
   publish
 }
 
-# --- the polls the scenarios share -------------------------------------------
-
-# How long after the link was restored the machine was back, or nothing at all
-# if it did not come back inside the budget. Nothing, rather than the budget:
-# a machine that never returned did not take exactly as long as the drill was
-# willing to wait.
-#
-# Refuses — rather than answering "not back" — when it never once read the
-# machine's status. A poll that could not see the machine has found nothing out
-# about whether it returned, and answering would report the drill's own blind
-# spot as the machine failing to come back.
+# Prints seconds from the link's restoration to the machine being online; empty at the budget.
+# Fails when no status was ever readable, since a blind poll proves nothing about the return.
 wait_until_online() {
   local from="$1" budget="$2" deadline now status readings=0
   deadline=$((from + budget))
@@ -833,8 +636,7 @@ wait_until_online() {
   [ "$readings" -gt 0 ]
 }
 
-# How long after the link was restored the hole in the machine's charts was
-# filled, or nothing if it was not filled inside the budget.
+# Prints seconds from the link's restoration to the chart gap being filled; empty at the budget.
 wait_until_filled() {
   local from="$1" window_from="$2" window_to="$3" budget="$4" deadline now ratio
   deadline=$((from + budget))
@@ -850,25 +652,15 @@ wait_until_filled() {
   done
 }
 
-# Watches the machine for a window and reports the worst staleness of its live
-# readings and how many times it crossed the offline line, as two numbers.
-#
-# Staleness is measured against the machine's own last_seen rather than against
-# a scrape: it is the age of the newest thing the server has heard from that
-# machine, which is exactly what a technician watching the site is looking at.
-#
-# Refuses, as the poll above does, when it never read the machine's status:
-# a window of readings nobody could take reports no staleness and no crossing
-# of the offline line, which is indistinguishable from a machine that behaved.
+# Prints the worst last_seen age and the count of offline crossings over a window.
+# Fails when no status was ever readable, since an unobserved window looks like good behaviour.
 watch_liveness() {
   local budget="$1" deadline now seen worst=0 transitions=0 previous="online" status age readings=0
   deadline=$(($(date +%s) + budget))
   while :; do
     now="$(date +%s)"
     status="$(device_status)"
-    # A reading the drill could not take places the machine nowhere: it neither
-    # crosses the offline line nor clears it, so it is not a sample and the last
-    # real reading still stands.
+    # An unreadable status adds no sample, so the last real reading stands.
     if [ "$status" != "$UNREADABLE_STATUS" ]; then
       readings=$((readings + 1))
       if [ "$status" != "online" ] && [ "$previous" = "online" ]; then
@@ -888,8 +680,6 @@ watch_liveness() {
   printf '%s %s\n' "$worst" "$transitions"
   [ "$readings" -gt 0 ]
 }
-
-# --- what to run --------------------------------------------------------------
 
 shaper_healthy || inconclusive "the shaper at $SHAPER_URL (pod $SHAPER_POD) is not answering"
 

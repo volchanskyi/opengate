@@ -7,16 +7,8 @@ import (
 	"strings"
 )
 
-// Production is never a target of a load run, and that has to be true of the
-// code rather than of somebody's attention: the way a generator ends up pointed
-// at production is a URL in an environment variable, set at two in the morning
-// while something is on fire.
-//
-// So this is an allowlist. A denylist would admit every hostname nobody has
-// thought about yet, which is exactly the set a mistake comes from.
-
-// allowedHosts are the names a load run may address. Each is a staging service
-// or a local stack; none of them resolves to production.
+// allowedHosts are the names a load run may address: staging services and local stacks only,
+// so a name outside the list is refused.
 var allowedHosts = []string{
 	// The staging release's services, by every form of their in-cluster name.
 	"opengate-staging-server",
@@ -28,10 +20,8 @@ var allowedHosts = []string{
 	"localhost",
 }
 
-// deniedNameFragments are namespaces and names that mean production wherever
-// they appear. They are checked as well as the allowlist because a service is
-// reachable by several forms of its own address, and a new form of a production
-// address must not become allowable by being unfamiliar.
+// deniedNameFragments are namespaces and names that mean production wherever they appear.
+// They are checked beside the allowlist because a service has several forms of its address.
 var deniedNameFragments = []string{
 	".opengate.",
 	".opengate:",
@@ -56,9 +46,8 @@ func CheckTarget(raw string) error {
 	return checkHost(host, raw)
 }
 
-// CheckQUICAddress reports whether a host:port a load run would dial over QUIC
-// is allowed. It reaches the same systems as an HTTP target, so it goes through
-// the same list.
+// CheckQUICAddress reports whether a host:port a load run would dial over QUIC is allowed,
+// by the same list as an HTTP target.
 func CheckQUICAddress(raw string) error {
 	if raw == "" {
 		return fmt.Errorf("no load-test target given")
@@ -86,9 +75,8 @@ func checkHost(host, raw string) error {
 		}
 	}
 
-	// A cluster addresses the staging server by pod IP, so private addresses
-	// are allowed. A public address that happens to be numeric is somebody
-	// else's machine and is not.
+	// A cluster addresses the staging server by pod IP, so only loopback and private
+	// addresses are allowed.
 	if ip := net.ParseIP(lowered); ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() {
 			return nil
@@ -96,8 +84,7 @@ func checkHost(host, raw string) error {
 		return refuse(raw)
 	}
 
-	// A name matches on its first label, so the service's short name and every
-	// qualified form of it are one entry rather than four.
+	// A name matches on its first label, so a service's short and qualified forms share one entry.
 	label, _, _ := strings.Cut(lowered, ".")
 	for _, allowed := range allowedHosts {
 		if label == allowed {

@@ -1,28 +1,18 @@
-//! The blend, the ordering, and the bounds.
+//! Blends the three co-signals into a rank score, orders dimensions and bounds the cost.
 
 use std::cmp::Ordering;
 use std::time::{Duration, Instant};
 
 use super::ks::{anomaly_rate, ks_statistic, shift_magnitude};
 
-/// The fewest readings a window needs before a shift can be judged. One reading
-/// has no distribution and no spread, so a dimension below this is left out of
-/// the ranking rather than scored from nothing.
+/// The fewest readings a window needs before a shift can be judged.
 const MIN_WINDOW_SAMPLES: usize = 2;
 
-/// How the three co-signals combine into the rank score. They sum to 1, so a
-/// score is itself in `[0, 1]` and two dimensions are directly comparable.
-/// These weights are **behaviour**, not tuning knobs: the frozen reference
-/// ranking is scored against them.
+/// Co-signal weights; they sum to 1 and the frozen reference ranking is scored against them.
 const KS_WEIGHT: f64 = 0.4;
 const ANOMALY_WEIGHT: f64 = 0.3;
 const MAGNITUDE_WEIGHT: f64 = 0.3;
 
-/// The default caps. A host writes thirteen dimensions at 1 Hz, so the
-/// defaults leave both the dimension count and a quarter-hour focus window
-/// comfortably inside their bound — the caps exist for the pathological case (a
-/// rule firing repeatedly while the machine is already in trouble), not the
-/// normal one.
 const DEFAULT_TOP_N: usize = 8;
 const DEFAULT_MAX_DIMS: usize = 32;
 const DEFAULT_MAX_POINTS_PER_WINDOW: usize = 3_600;
@@ -80,8 +70,7 @@ pub struct CorrelationLimits {
     pub max_dims: usize,
     /// How many readings each window carries into the scoring.
     pub max_points_per_window: usize,
-    /// The wall-clock the whole ranking may take. Checked between dimensions,
-    /// so the first one is always scored and the run always terminates.
+    /// The wall-clock the whole ranking may take, checked between dimensions.
     pub budget: Duration,
 }
 
@@ -96,11 +85,7 @@ impl Default for CorrelationLimits {
     }
 }
 
-/// Score every dimension and order them by how badly each broke pattern.
-///
-/// Ordering is score descending, then the distribution-shift statistic
-/// descending, then the label ascending — a total order, so two runs over the
-/// same readings produce the same list in the same order.
+/// Scores every dimension, ordering by score and shape change descending, then by label.
 #[must_use]
 pub fn rank_dimensions(dims: &[DimWindows<'_>], limits: &CorrelationLimits) -> Ranking {
     let started = Instant::now();
@@ -128,7 +113,6 @@ pub fn rank_dimensions(dims: &[DimWindows<'_>], limits: &CorrelationLimits) -> R
     out
 }
 
-/// Score one dimension, or `None` when either window is too sparse to judge.
 fn score_dimension(dim: &DimWindows<'_>) -> Option<Ranked> {
     if dim.baseline.len() < MIN_WINDOW_SAMPLES || dim.focus.len() < MIN_WINDOW_SAMPLES {
         return None;
@@ -147,12 +131,7 @@ fn score_dimension(dim: &DimWindows<'_>) -> Option<Ranked> {
     })
 }
 
-/// Order two scored dimensions: worse first, ties broken by shape change and
-/// then by label so the order is reproducible.
-///
-/// Every score is a finite number by construction (each co-signal is defined
-/// for every input and non-finite readings never reach here), which is what
-/// lets a partial comparison stand in for a total one.
+/// Scores are finite by construction, so a partial comparison stands in for a total one.
 fn most_anomalous_first(a: &Ranked, b: &Ranked) -> Ordering {
     b.score
         .partial_cmp(&a.score)
@@ -173,8 +152,6 @@ fn clamp01(v: f64) -> f64 {
 mod tests {
     use super::{most_anomalous_first, rank_dimensions, CorrelationLimits, DimWindows, Ranked};
 
-    /// Dimensions that score identically fall back to the label, so a ranking
-    /// never depends on the order the store happened to return them in.
     #[test]
     fn an_exact_tie_is_broken_by_label() {
         let baseline = [1.0, 1.0, 1.0];
@@ -201,8 +178,6 @@ mod tests {
         assert_eq!(order, vec!["cpu.total", "mem.used_percent", "net.tx_bps"]);
     }
 
-    /// When two dimensions blend to the same score, the one whose distribution
-    /// changed shape more is read first, and only then does the label decide.
     #[test]
     fn a_score_tie_is_broken_by_the_shift_in_shape_before_the_label() {
         let scored = |dim: &str, score: f64, ks: f64| Ranked {
@@ -233,8 +208,6 @@ mod tests {
         );
     }
 
-    /// The blend is the behaviour the frozen reference is scored against: a
-    /// complete separation with a complete move is a score of exactly 1.
     #[test]
     fn a_total_break_scores_one_and_a_flat_dimension_scores_zero() {
         let flat = [4.0, 4.0, 4.0];

@@ -19,15 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The certificate authority's private key must never leave the cluster.
-//
-// Signing agent certificates locally means copying that key onto a shared CI
-// runner, where it is one misconfigured artifact upload away from being the
-// credential that mints a trusted machine for the whole fleet. The public
-// enrollment endpoint already does this job: the harness keeps its own private
-// keys, sends only signing requests, and receives certificates the server
-// signed.
-
 func TestEnrollmentProducesACertificateWithoutHoldingTheAuthorityKey(t *testing.T) {
 	server := enrollmentServer(t)
 
@@ -51,8 +42,6 @@ func TestEnrollmentProducesACertificateWithoutHoldingTheAuthorityKey(t *testing.
 		"the issued certificate names the device that asked for it")
 }
 
-// The signing request carries a public key and nothing else. A harness that
-// sent a private key anywhere would have defeated the point of asking.
 func TestOnlyTheSigningRequestLeavesTheHarness(t *testing.T) {
 	var body string
 	server := enrollmentServerWithInspect(t, func(raw string) { body = raw })

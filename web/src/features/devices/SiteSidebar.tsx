@@ -5,7 +5,6 @@ import { useToastStore } from '../../lib/feedback/toast-store';
 import { UNFILED_SITE_ID, isDeviceDrag, readDraggedDeviceId } from './device-drag';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
-/** A device with no real site: an empty id or the all-zeros placeholder UUID. */
 function isUnfiled(id: string | undefined | null): boolean {
   const trimmed = id?.trim();
   return !trimmed || trimmed === UNFILED_SITE_ID;
@@ -21,9 +20,8 @@ export function SiteSidebar() {
   const updateDeviceSite = useDeviceStore((s) => s.updateDeviceSite);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
   const addToast = useToastStore((s) => s.addToast);
-  // Creating a site, deleting one, and dragging a device between them are all
-  // configuration changes the server refuses for a non-admin, so a non-admin
-  // gets a read-only sidebar rather than controls that fail on click.
+  // The server refuses site creation, deletion and device moves for a non-admin,
+  // so a non-admin gets a read-only sidebar.
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const [newName, setNewName] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -62,8 +60,7 @@ export function SiteSidebar() {
       return;
     }
     addToast(`Moved ${label} to ${targetName}`, 'success');
-    // Re-pull under the active filter so a device dragged out of the visible
-    // site leaves the grid instead of lingering as a stale card.
+    // Re-pulls under the active filter so a device dragged out of the visible site leaves the grid.
     await fetchDevices(selectedSiteId ?? undefined);
   };
 

@@ -10,17 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Rehearsal assertions for migration 013: the three tables that hold what a
-// customer changed about a rule and which machines cannot evaluate one.
-//
-// Two properties matter more than the columns. First, the isolation is real
-// against a role that is not the table owner — forced row-level security, and a
-// tenant that cannot see another's rows. Second, the tables cannot be made to
-// name a customer belonging to a different tenant, because the composite key
-// refuses it rather than an application check somebody has to remember to run.
-
-// The ids these assertions seed. They sit in their own range so nothing else in
-// the rehearsal collides with them.
+// The seeded ids sit in their own range so nothing else in the rehearsal collides with them.
 const (
 	rulesTenantA = "00000000-0000-0000-0000-000000000002"
 	rulesTenantB = "00000000-0000-0000-0000-000000000202"
@@ -29,11 +19,8 @@ const (
 	rulesDeviceA = "00000000-0000-0000-0000-000000000503"
 )
 
-// rulesTables is every table migration 013 creates.
 var rulesTables = []string{"rule_bindings", "rule_rollout", "rule_coverage_unsupported"}
 
-// assertRulesIntroduced confirms migration 013 built the rule configuration
-// tables with the isolation and the keys they depend on.
 func assertRulesIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
 	t.Helper()
 
@@ -48,11 +35,7 @@ func assertRulesIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schema
 		assertTenantLeadingIndex(t, ctx, db, table)
 	}
 
-	// These assertions seed customers and machines of their own. They run
-	// against the migrated database and again against its dump/restore copy,
-	// which carries the first run's rows, so they clear their own fixtures on
-	// both ends: once so a second run starts clean, once so the rehearsal's
-	// shared counts still describe what the migrations built.
+	// Fixtures are cleared at both ends because the dump/restore copy carries the first run's rows.
 	clearRulesFixtures(t, ctx, db)
 	defer clearRulesFixtures(t, ctx, db)
 
@@ -62,18 +45,14 @@ func assertRulesIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schema
 	assertRuleCoverageFollowsItsDevice(t, ctx, db)
 }
 
-// clearRulesFixtures removes everything the assertions below seed. Deleting the
-// two customers is enough: their machines, bindings, rollout state and coverage
-// rows all cascade from them.
+// Deleting the two customers cascades to their machines, bindings, rollout state and coverage.
 func clearRulesFixtures(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	rehearsalExecNoTx(t, ctx, db,
 		`DELETE FROM organizations WHERE id IN ($1, $2)`, rulesOrgA, rulesOrgB)
 }
 
-// assertForcedRowSecurity proves the policy also binds the table's owner. Row
-// security that stops at the owner is not a wall, because the application
-// connects as one.
+// The policy binds the table's owner too, because the application connects as the owner.
 func assertForcedRowSecurity(t *testing.T, ctx context.Context, db *sql.DB, table string) {
 	t.Helper()
 	var enabled, forced bool
@@ -84,8 +63,6 @@ func assertForcedRowSecurity(t *testing.T, ctx context.Context, db *sql.DB, tabl
 	assert.Truef(t, forced, "%s should force row-level security on its owner too", table)
 }
 
-// assertTenantLeadingIndex proves a scoped read never has to scan another
-// tenant's rows: some index on the table leads with the tenant.
 func assertTenantLeadingIndex(t *testing.T, ctx context.Context, db *sql.DB, table string) {
 	t.Helper()
 	var count int
@@ -96,8 +73,6 @@ func assertTenantLeadingIndex(t *testing.T, ctx context.Context, db *sql.DB, tab
 	assert.Positivef(t, count, "%s should have a tenant-leading index", table)
 }
 
-// seedRulesFixtures inserts one customer per tenant plus a machine in the first,
-// which is the least the isolation and key assertions need to point at.
 func seedRulesFixtures(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	rehearsalExecNoTx(t, ctx, db,
@@ -108,9 +83,6 @@ func seedRulesFixtures(t *testing.T, ctx context.Context, db *sql.DB) {
 		 ON CONFLICT DO NOTHING`, rulesDeviceA, rulesTenantA, rulesOrgA)
 }
 
-// assertRulesRLSDeniesAcrossTenants proves the wall holds for a role that is not
-// the table owner: each tenant sees its own row and nothing else, while an admin
-// context sees both.
 func assertRulesRLSDeniesAcrossTenants(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
 	t.Helper()
 	const roleName = "opengate_rls_rehearsal"
@@ -123,27 +95,23 @@ func assertRulesRLSDeniesAcrossTenants(t *testing.T, ctx context.Context, db *sq
 		 ON CONFLICT DO NOTHING`, rulesTenantA, rulesOrgA, rulesTenantB, rulesOrgB)
 
 	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse(rulesTenantA), false)
-	defer txA.Rollback() //nolint:errcheck // harmless after assertions
+	defer txA.Rollback()
 	var visibleToA int
 	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM rule_rollout`).Scan(&visibleToA))
 	assert.Equal(t, 1, visibleToA, "a tenant should see only its own rollout state")
 
-	// The wall also refuses a write into the other tenant's customer.
 	_, err := txA.ExecContext(ctx,
 		`INSERT INTO rule_rollout (tenant_id, organization_id, rule_id) VALUES ($1, $2, 'cpu-saturated')`,
 		rulesTenantB, rulesOrgB)
 	assert.Error(t, err, "a tenant must not be able to write another tenant's rollout state")
 
 	adminTx := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse(rulesTenantA), true)
-	defer adminTx.Rollback() //nolint:errcheck // harmless after assertions
+	defer adminTx.Rollback()
 	var visibleToAdmin int
 	require.NoError(t, adminTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rule_rollout`).Scan(&visibleToAdmin))
 	assert.Equal(t, 2, visibleToAdmin)
 }
 
-// assertRuleRowsCannotNameAnotherTenantsCustomer proves the composite key does
-// the refusing. A row pairing one tenant with another's customer is the mismatch
-// that would quietly break every scoped read built on it.
 func assertRuleRowsCannotNameAnotherTenantsCustomer(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	seedRulesFixtures(t, ctx, db)
@@ -161,8 +129,6 @@ func assertRuleRowsCannotNameAnotherTenantsCustomer(t *testing.T, ctx context.Co
 	assert.Error(t, err, "a coverage row must not pair one tenant with another's customer")
 }
 
-// assertRuleSelectorPrecedenceIsUnique proves the database refuses the one
-// ambiguity resolution would otherwise have to guess its way out of.
 func assertRuleSelectorPrecedenceIsUnique(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	seedRulesFixtures(t, ctx, db)
@@ -181,14 +147,10 @@ func assertRuleSelectorPrecedenceIsUnique(t *testing.T, ctx context.Context, db 
 	assert.NoError(t, insert(`{"env": "prod"}`, 20),
 		"a stated precedence says which one wins, so the pair is allowed")
 
-	// The rung's blanket binding carries no selector and needs no precedence of
-	// its own, so it is outside the constraint.
+	// The rung's blanket binding carries no selector, so it is outside the constraint.
 	require.NoError(t, insert(`{}`, 10))
 }
 
-// assertRuleCoverageFollowsItsDevice proves a decommissioned machine stops being
-// counted. A coverage row that outlived its machine would inflate a customer's
-// blind spot forever.
 func assertRuleCoverageFollowsItsDevice(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	seedRulesFixtures(t, ctx, db)
@@ -209,8 +171,6 @@ func assertRuleCoverageFollowsItsDevice(t *testing.T, ctx context.Context, db *s
 	assert.Zero(t, left, "deleting a machine should take its coverage rows with it")
 }
 
-// assertRulesDownReversal confirms migration 013's down rollback dropped the
-// three tables and the function and index they were the only users of.
 func assertRulesDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	for _, table := range rulesTables {

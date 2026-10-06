@@ -13,15 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 )
 
-// These tests exercise every branch of every resolve<Domain>Handlers fallback
-// across every domain boundary. The fallbacks let existing test ServerConfig
-// literals stay green (auto-wrap legacy Repository/Operator/Notifier into the
-// new Handlers struct) while main.go and new test code pass *.Handlers
-// explicitly. Each function has three branches that must be covered for
-// SonarCloud new_coverage to clear 80% on the audit-pilot diff.
-
-// ---- audit ----
-
 type minimalAuditRepo struct{}
 
 func (minimalAuditRepo) Write(context.Context, *audit.Event) error { return nil }
@@ -44,8 +35,6 @@ func TestResolveAuditHandlers_FallsBackToRepository(t *testing.T) {
 func TestResolveAuditHandlers_NilWhenBothMissing(t *testing.T) {
 	require.Nil(t, resolveAuditHandlers(ServerConfig{}))
 }
-
-// ---- amt ----
 
 type minimalAMTOperator struct{}
 
@@ -72,8 +61,6 @@ func TestResolveAMTHandlers_FallsBackToOperator(t *testing.T) {
 func TestResolveAMTHandlers_NilWhenOperatorMissing(t *testing.T) {
 	require.Nil(t, resolveAMTHandlers(ServerConfig{}))
 }
-
-// ---- notifications ----
 
 type minimalWebPush struct{}
 

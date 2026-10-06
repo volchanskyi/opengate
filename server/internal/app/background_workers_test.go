@@ -1,7 +1,3 @@
-// Periodic work, stated as an outcome of the assembled product rather than as a
-// sweep's own unit test. Starting the workers belongs to whoever built the
-// product, so what they do is observable from out here — which is the whole
-// reason the binary does not own them.
 package app_test
 
 import (
@@ -16,9 +12,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
-// backgroundSchedule is a complete schedule with every cadence short enough for
-// a test to watch a worker actually do a pass. Which cadence ships is the
-// binary's decision and the binary's tests hold it; nothing here asserts one.
+// backgroundSchedule is a complete schedule with cadences short enough to watch a pass.
 func backgroundSchedule() app.BackgroundSchedule {
 	return app.BackgroundSchedule{
 		Gauges:         10 * time.Millisecond,
@@ -30,16 +24,11 @@ func backgroundSchedule() app.BackgroundSchedule {
 		IncidentSweep:  10 * time.Millisecond,
 
 		RetentionSweep: 10 * time.Millisecond,
-		// A horizon long enough that the acceptance run's own rows are never
-		// candidates: this asserts the worker runs, not what it removes.
+		// A horizon this long keeps the run's own rows out of the sweep.
 		RetentionHorizon: 365 * 24 * time.Hour,
 	}
 }
 
-// A schedule with a hole in it is a worker that never runs: a zero duration
-// panics inside the ticker, on a goroutine nobody is watching, and the pass it
-// was supposed to make simply never happens. The refusal names the field, and
-// nothing is started.
 func TestStartBackgroundWorkersRefusesAScheduleWithAHoleInIt(t *testing.T) {
 	t.Parallel()
 
@@ -54,10 +43,6 @@ func TestStartBackgroundWorkersRefusesAScheduleWithAHoleInIt(t *testing.T) {
 	assert.Contains(t, err.Error(), "IncidentSweep")
 }
 
-// The whole product stood up, its periodic work started, and a pass observed as
-// an outcome rather than asserted against a sweep's own unit test. The database
-// size is measured by one of the workers before its first tick, so a gauge that
-// has moved off zero is one of them having genuinely run.
 func TestStartBackgroundWorkersRunsThePeriodicWorkers(t *testing.T) {
 	t.Parallel()
 
@@ -68,22 +53,12 @@ func TestStartBackgroundWorkersRunsThePeriodicWorkers(t *testing.T) {
 	defer stop()
 	require.NoError(t, assembly.StartBackgroundWorkers(ctx, backgroundSchedule()))
 
-	// The deadline is about the machine, not about the product. What is asserted
-	// is that a worker ran at all, and the poll below keeps asserting it however
-	// long the wait is — so the only thing a short deadline adds is a race with
-	// whatever else is using the database. Running the whole module at four
-	// processors lost this test four times out of four while the package alone
-	// passed every time, and the worker's own failure path logs a warning that
-	// never appeared: the first size query was still in flight, not failing.
+	// The size query can stay in flight while other packages use the database, so the wait is generous.
 	assert.Eventually(t, func() bool {
 		return promtestutil.ToFloat64(assembly.Metrics.DBSizeBytes) > 0
 	}, time.Minute, 20*time.Millisecond, "no worker ever measured the database")
 }
 
-// The reconciliation sweep and the release-feed sync are the two workers that
-// exist only when the assembly was given what they need. Both wired, the start
-// still returns cleanly — a worker that panics on a dependency it was handed
-// takes the process with it.
 func TestStartBackgroundWorkersRunsTheOptionalWorkersToo(t *testing.T) {
 	t.Parallel()
 

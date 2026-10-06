@@ -1,14 +1,7 @@
 name: Core Walk
 
-# The endurance run's reference walk reads the Go runtime's own heap structures
-# out of a core, and those move between Go releases. The reader has no tagged
-# releases, so it is pinned by commit beside the toolchain it has to understand,
-# and built with a patch that follows pointer maps the runtime builds on demand.
-# This runs whenever either pin, the patch or the walk moves, and every night,
-# and proves the reader still names a live object and follows it back to its
-# root on a core the pinned toolchain wrote, rather than leaving that to the
-# weekly soak. The same core goes through the newest upstream reader, unpatched,
-# and the night that reads it too this fails and says the patch can go.
+# Proves the pinned, patched core reader follows a live object to its root on a fresh core.
+# The newest unpatched upstream reader reads the same core; when it succeeds, the patch can go.
 on:
   push:
     branches: [dev]
@@ -21,8 +14,7 @@ on:
       - scripts/patches/viewcore-gcmask-on-demand.patch
       - .github/workflows/core-walk.yml
   schedule:
-    # The hour buys a place in the order rather than a start time; this is a
-    # few minutes of one runner and sits behind the weekday batch.
+    # The hour sets a place in the order, behind the weekday batch.
     - cron: '30 6 * * *'
   workflow_dispatch:
 
@@ -39,7 +31,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      # The newest upstream reader, unpatched, built beside the pinned one.
       VIEWCORE_UPSTREAM: /tmp/viewcore-upstream
     steps:
       - uses: actions/checkout@v7
@@ -49,9 +40,7 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
 
-      # gdb brings gcore, which takes the core; the reader is the one the soak
-      # installs, at the same pin and with the same patch. The upstream one is
-      # the newest commit, unpatched, and reads nothing but this probe's core.
+      # gdb brings gcore, which takes the core; the reader matches the soak's pin and patch.
       - name: Install the core tools
         run: |
           set -euo pipefail
@@ -73,9 +62,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # A night this check loses, or the night it says the patch can go, is a
-  # night somebody hears about. A job of its own, reading the result, because a
-  # job killed at its timeout runs no step of its own.
+  # A job of its own reads the result, because a job killed at its timeout runs no step.
   alert:
     name: Alert if the run did not finish
     needs: [walk]

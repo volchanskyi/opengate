@@ -23,15 +23,7 @@ function BackLink() {
   );
 }
 
-/**
- * One incident, as somebody working it sees it: what it is, how it got here, and
- * the alerts it folded with the evidence each one carries.
- *
- * Everything on this page comes from the incident read. The evidence was frozen
- * on the machine at the moment the alert fired and nothing can be fetched from
- * the machine afterwards, so what is not here about an event is not recorded
- * anywhere — which is why the page states an absence rather than leaving a gap.
- */
+/** One incident with its history and the alerts it folded, all read from the incident. */
 export function InvestigationDetail() {
   const { id } = useParams<{ id: string }>();
   const detail = useRoomStore((s) => s.detail);

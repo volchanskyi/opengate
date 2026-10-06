@@ -1,7 +1,5 @@
 import { check } from "k6";
-// The request client is the shared one rather than k6's own: it is the single
-// place that sees every request this run makes, which is what lets the run say
-// how many of them the server turned away at the door.
+// The shared request client sees every request the run makes and counts server refusals.
 import {
   anonymousHeaders,
   authHeaders,
@@ -25,11 +23,7 @@ const REQUESTS_PER_PASS = 3;
 const WALK = phases();
 
 export const options = {
-  // Arrival rate rather than a fixed count of virtual users. A fixed count is a
-  // closed loop: each user waits for its own reply before asking again, so a
-  // server that has slowed is offered less work and the latency it reports
-  // understates the damage. This keeps offering at the rate the profile
-  // declared, and says so in dropped_iterations when it cannot.
+  // Arrivals keep the declared rate when the server slows; dropped_iterations reports a shortfall.
   scenarios: arrivalScenarios(WALK, REQUESTS_PER_PASS),
   thresholds: Object.assign(
     {

@@ -9,21 +9,16 @@ import (
 )
 
 const (
-	// maxDiscoveryPayloadBytes bounds a single DiscoveryReport. It is far larger
-	// than the numeric-telemetry cap because a full package inventory (up to the
-	// agent's MAX_PACKAGES) is legitimately hundreds of KiB; a report beyond this
-	// ceiling is dropped rather than persisted.
-	maxDiscoveryPayloadBytes = 1 << 20 // 1 MiB
-	// minDiscoveryIntervalSeconds throttles reports from one connection. The
-	// agent only emits on a profile change, so a steady host is silent; this
-	// bounds a misbehaving agent without dropping a legitimate change report.
+	// maxDiscoveryPayloadBytes bounds a DiscoveryReport; a full package inventory is far larger
+	// than a numeric-telemetry message.
+	maxDiscoveryPayloadBytes = 1 << 20
+	// minDiscoveryIntervalSeconds throttles reports from one connection; the agent only reports
+	// on a profile change.
 	minDiscoveryIntervalSeconds = 30
 )
 
-// handleDiscoveryReport persists a WS-16 auto-discovery report as the device's
-// current inventory footprint, scoped to the connection's authoritative tenant
-// (never the agent-supplied tenant). The report is descriptive attack-surface data
-// only; nothing here becomes a VictoriaMetrics label.
+// handleDiscoveryReport persists a discovery report as the device's inventory footprint under the
+// connection's authoritative tenant, never an agent-supplied one.
 func (a *AgentConn) handleDiscoveryReport(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
 	if a.inventory == nil || !a.acceptDiscovery(msg.TS, payloadLen) {
 		return nil
@@ -40,8 +35,7 @@ func (a *AgentConn) handleDiscoveryReport(ctx context.Context, msg *protocol.Con
 	return nil
 }
 
-// acceptDiscovery enforces the discovery payload cap and per-connection interval
-// floor, mirroring acceptTelemetry but with discovery-appropriate bounds.
+// acceptDiscovery enforces the discovery payload cap and the per-connection interval floor.
 func (a *AgentConn) acceptDiscovery(ts int64, payloadLen int) bool {
 	if payloadLen > maxDiscoveryPayloadBytes {
 		a.dropTelemetry("discovery_payload_too_large", "bytes", payloadLen)
@@ -60,10 +54,8 @@ func (a *AgentConn) acceptDiscovery(ts int64, payloadLen int) bool {
 	return a.acceptedTelemetry(protocol.MsgDiscoveryReport)
 }
 
-// discoveryComponents flattens the five DiscoveryReport categories into inventory
-// components. Name is each component's primary label: the owning process for a
-// port, the unit for a service, the engine for a DB engine, and the container or
-// package name otherwise.
+// discoveryComponents flattens the DiscoveryReport categories into inventory components, naming
+// each by its owning process, unit, engine, container or package.
 func discoveryComponents(msg *protocol.ControlMessage) []inventory.Component {
 	out := make([]inventory.Component, 0,
 		len(msg.Ports)+len(msg.Services)+len(msg.DBEngines)+len(msg.Containers)+len(msg.Packages))

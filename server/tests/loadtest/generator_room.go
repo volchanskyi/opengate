@@ -2,28 +2,16 @@ package main
 
 import "time"
 
-// The generator's room over one phase, and the generator described by the room
-// it is given.
-//
-// The run's own reading covers the whole walk; a phase reads its own window
-// from the same cgroup accounts, and the fingerprint names the allowance rather
-// than the box around it.
-
-// GeneratorRoom is how a phase reads the room the generator had while that
-// phase ran. The run's own reading covers the whole walk, which on a ladder is
-// mostly its quiet bottom rungs; a phase reads the rung it offered.
+// GeneratorRoom reads the room the generator had over one phase's own window.
 type GeneratorRoom struct {
-	// ReadCPU is the generator's own processor accounts, and whether they
-	// could be read.
+	// ReadCPU reads the generator's own processor accounts and reports whether they were readable.
 	ReadCPU func() (cgroupCPU, bool)
-	// Allowance is the processors the generator is permitted, which is what
-	// its room is a share of.
+	// Allowance is the processors the generator is permitted, which its room is a share of.
 	Allowance float64
 }
 
-// Bracket takes the opening reading and returns what closes it over the
-// phase's own window. A generator with no allowance of its own has no room to
-// divide, and every phase reports none.
+// Bracket takes the opening reading and returns what closes it over the phase's window;
+// a generator with no allowance of its own reports no room.
 func (g GeneratorRoom) Bracket() func(window time.Duration) (headroom, refused *float64) {
 	if g.ReadCPU == nil || g.Allowance <= 0 {
 		return func(time.Duration) (*float64, *float64) { return nil, nil }
@@ -39,8 +27,7 @@ func (g GeneratorRoom) Bracket() func(window time.Duration) (headroom, refused *
 	}
 }
 
-// NewGeneratorRoom reads this process's own cgroup, where the kernel gives it
-// an allowance, and nothing otherwise.
+// NewGeneratorRoom reads this process's own cgroup allowance, and is empty without one.
 func NewGeneratorRoom() GeneratorRoom {
 	files, ok := openOwnCgroup()
 	if !ok {
@@ -64,10 +51,7 @@ func NewGeneratorRoom() GeneratorRoom {
 	}
 }
 
-// withinAllowance describes a generator by the allowance its cgroup grants,
-// where it grants one. The box around a generator held to one processor is
-// somebody else's room, and a fingerprint of the box describes the wrong side
-// of the measurement.
+// withinAllowance describes a generator by the allowance its cgroup grants, where it grants one.
 func withinAllowance(shape Fingerprint, files cgroupFiles) Fingerprint {
 	allowance, granted := readGeneratorAllowance(files)
 	if !granted {

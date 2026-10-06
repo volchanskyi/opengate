@@ -14,7 +14,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// newCustomer creates a customer in ctx's tenant and returns its id.
 func newCustomer(t *testing.T, ctx context.Context, store *db.PostgresStore, name string) uuid.UUID {
 	t.Helper()
 	org := &organization.Organization{ID: uuid.New(), Name: name + "-" + uuid.New().String()[:8]}
@@ -22,9 +21,6 @@ func newCustomer(t *testing.T, ctx context.Context, store *db.PostgresStore, nam
 	return org.ID
 }
 
-// TestDeviceAlwaysLandsInAnOrganization is the no-orphan rule at the point a
-// device row is written: the agent connection path names no customer, so the row
-// takes the tenant's own rather than being refused or left dangling.
 func TestDeviceAlwaysLandsInAnOrganization(t *testing.T) {
 	t.Parallel()
 	devices, _, _, store := newRepos(t)
@@ -43,9 +39,6 @@ func TestDeviceAlwaysLandsInAnOrganization(t *testing.T) {
 	assert.Equal(t, fallback, got.OrganizationID, "the fallback is the tenant's own organization")
 }
 
-// TestUpsertKeepsTheDeviceOrganizationOnReconnect covers the agent reconnecting
-// after a move: a re-registration names no customer, and must not drag the
-// device back to the tenant's default.
 func TestUpsertKeepsTheDeviceOrganizationOnReconnect(t *testing.T) {
 	t.Parallel()
 	devices, _, _, store := newRepos(t)

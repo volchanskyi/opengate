@@ -11,10 +11,6 @@ import (
 	"testing"
 )
 
-// TestGroupLifecycle exercises the site surface end to end under the current
-// authorization model: creating a site is a configuration change behind the
-// admin gate, and the resulting sites are visible to every member of the
-// tenant — including the member who created none of them.
 func TestGroupLifecycle(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
@@ -73,11 +69,10 @@ func TestAdminAuthorization(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
 
-	// Create admin user first (so the DB is not empty when the regular user registers).
+	// The admin exists first, so the regular user's registration skips the bootstrap.
 	adminUser, adminPass := testutil.SeedAdminUser(t, t.Context(), env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	// Create regular user via API (not the first user, so no bootstrap).
 	regularToken := env.register(t, "regular@example.com", "pass1234")
 
 	t.Run("admin can list all users", func(t *testing.T) {
@@ -97,7 +92,6 @@ func TestAdminAuthorization(t *testing.T) {
 	})
 
 	t.Run("admin can delete a user", func(t *testing.T) {
-		// Get regular user's ID
 		resp := env.doJSON(t, http.MethodGet, pathUsersMe, regularToken, nil)
 		var regUser db.User
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&regUser))
@@ -107,14 +101,13 @@ func TestAdminAuthorization(t *testing.T) {
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-		// Deleted user's token still validates (JWT is stateless) but /me returns 404
+		// A deleted user's JWT still validates because it is stateless; /me returns 404.
 		resp2 := env.doJSON(t, http.MethodGet, pathUsersMe, regularToken, nil)
 		defer resp2.Body.Close()
 		assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
 	})
 
 	t.Run("regular user cannot delete users", func(t *testing.T) {
-		// Re-register a user since we deleted the previous one
 		newToken := env.register(t, "new@example.com", "pass1234")
 		resp := env.doJSON(t, http.MethodDelete, "/api/v1/users/"+adminUser.ID.String(), newToken, nil)
 		defer resp.Body.Close()

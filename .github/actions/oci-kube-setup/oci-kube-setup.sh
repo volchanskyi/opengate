@@ -3,14 +3,10 @@
 
 set -euo pipefail
 
-# The versions this action installs are the manifest's, read from the checkout
-# the calling job already made.
 # shellcheck source=../../../scripts/lib/tool-versions.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/lib/tool-versions.sh"
 
-# Oracle's client looks for this line at the end of the key file and warns on
-# every call until it finds it. The warning goes to standard error, where it
-# stands in front of the reason whenever a cluster call fails.
+# Oracle's client warns on standard error at every call until the key file ends with this line.
 OCI_KEY_LABEL="OCI_API_KEY"
 
 install_oci_cli() {

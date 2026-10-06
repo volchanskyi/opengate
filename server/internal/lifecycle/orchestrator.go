@@ -9,27 +9,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// VerifyConfig bounds the post-delete VictoriaMetrics emptiness check. VM
-// delete-series is async, so a purge may reach verification before the series
-// have merged away; the orchestrator retries up to MaxAttempts, then leaves the
-// job in the physical-compaction-pending state for the reconciliation sweep to
-// finish.
+// VerifyConfig bounds the post-delete emptiness check: up to MaxAttempts counts, Interval apart.
 type VerifyConfig struct {
 	MaxAttempts int
 	Interval    time.Duration
 }
 
-// DefaultVerifyConfig is the production emptiness-check budget: a handful of
-// quick retries so a synchronous device delete usually completes in-request,
-// while a slow compaction falls through to the periodic sweep.
+// DefaultVerifyConfig returns the production emptiness-check budget of a few quick retries.
 func DefaultVerifyConfig() VerifyConfig {
 	return VerifyConfig{MaxAttempts: 5, Interval: 500 * time.Millisecond}
 }
 
-// Orchestrator drives right-to-be-forgotten purges: it tombstones the subject,
-// fans the erasure out across VictoriaMetrics, optional cold-tier objects, and
-// Postgres, verifies central emptiness, and persists per-store progress so a
-// crash mid-purge resumes idempotently.
+// Orchestrator drives purges: it tombstones the subject, erases it across VictoriaMetrics,
+// cold-tier objects and Postgres, and persists per-store progress so a crash resumes.
 type Orchestrator struct {
 	tombstones *TombstoneStore
 	jobs       *JobStore
@@ -76,9 +68,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	}
 }
 
-// PurgeDevice records a device tombstone, deregisters the connected agent, and
-// creates a purge job. It does not run the fan-out — the caller runs it
-// synchronously (device delete) or in the background (returned job).
+// PurgeDevice tombstones a device, deregisters its agent and creates a purge job unrun.
 func (o *Orchestrator) PurgeDevice(ctx context.Context, tenantID, deviceID uuid.UUID, by *uuid.UUID) (*PurgeJob, error) {
 	job := &PurgeJob{
 		ID:          uuid.New(),
@@ -116,9 +106,8 @@ func (o *Orchestrator) PurgeTenant(ctx context.Context, tenantID uuid.UUID, by *
 	return job, nil
 }
 
-// applyTombstone writes the deny-list entry first, then deregisters the edge so
-// no live stream, in-flight backfill, or reconnecting agent can re-create the
-// subject's data. Idempotent, so a resumed job re-applies it safely.
+// The deny-list entry is written before the edge is deregistered, so no reconnecting agent
+// re-creates the subject's data.
 func (o *Orchestrator) applyTombstone(ctx context.Context, job *PurgeJob) error {
 	if job.Scope == ScopeTenant {
 		return o.applyTenantTombstone(ctx, job)
@@ -132,12 +121,8 @@ func (o *Orchestrator) applyTombstone(ctx context.Context, job *PurgeJob) error 
 	return nil
 }
 
-// applyTenantTombstone tombstones the tenant and every device in it. Recording a
-// per-device deny-list entry (not only the tenant one) means a device that was
-// offline during the purge is still rejected by its own id when it reconnects,
-// after its Postgres row — and thus its tenant linkage — is gone. Best-effort
-// enumeration: once the device rows are deleted a resumed job simply finds none,
-// having already persisted their tombstones on the first pass.
+// Each device gets its own deny-list entry, so an offline device is rejected by id on reconnect
+// after its Postgres row is gone.
 func (o *Orchestrator) applyTenantTombstone(ctx context.Context, job *PurgeJob) error {
 	if err := o.tombstones.TombstoneTenant(ctx, job.TenantID, job.RequestedBy); err != nil {
 		return err
@@ -157,10 +142,8 @@ func (o *Orchestrator) applyTenantTombstone(ctx context.Context, job *PurgeJob) 
 	return nil
 }
 
-// Run executes the purge fan-out for a job. It is idempotent and resumable: each
-// stage is guarded by the job's persisted per-store flag, so a resumed job skips
-// finished stages. Strict ordering — VictoriaMetrics delete, cold-tier objects,
-// then Postgres rows last — keeps labels and FKs alive while the stores drain.
+// Run executes the purge stages in order, skipping stages the job's persisted flags mark done.
+// Postgres rows go last so labels and foreign keys stay available while the other stores drain.
 func (o *Orchestrator) Run(ctx context.Context, job *PurgeJob) error {
 	if err := o.stageVMDelete(ctx, job); err != nil {
 		return err
@@ -174,8 +157,6 @@ func (o *Orchestrator) Run(ctx context.Context, job *PurgeJob) error {
 	return o.stageVerifyComplete(ctx, job)
 }
 
-// stageVMDelete issues the VictoriaMetrics delete-series (logical delete; ingest
-// is already blocked by the tombstone).
 func (o *Orchestrator) stageVMDelete(ctx context.Context, job *PurgeJob) error {
 	if job.VMDeleted {
 		return nil
@@ -189,8 +170,6 @@ func (o *Orchestrator) stageVMDelete(ctx context.Context, job *PurgeJob) error {
 	return o.jobs.UpdateProgress(ctx, job)
 }
 
-// stageObjectDelete removes cold-tier object prefixes, or marks the stage done
-// when no cold tier is wired.
 func (o *Orchestrator) stageObjectDelete(ctx context.Context, job *PurgeJob) error {
 	if job.ObjectDeleted {
 		return nil
@@ -206,8 +185,6 @@ func (o *Orchestrator) stageObjectDelete(ctx context.Context, job *PurgeJob) err
 	return o.jobs.UpdateProgress(ctx, job)
 }
 
-// stagePostgresDelete removes the device/tenant descriptive rows last, cascading
-// their telemetry.
 func (o *Orchestrator) stagePostgresDelete(ctx context.Context, job *PurgeJob) error {
 	if job.PGDeleted {
 		return nil
@@ -219,8 +196,6 @@ func (o *Orchestrator) stagePostgresDelete(ctx context.Context, job *PurgeJob) e
 	return o.jobs.UpdateProgress(ctx, job)
 }
 
-// stageVerifyComplete gates completion on VictoriaMetrics emptiness; an
-// unverified job is left pending compaction for the reconciliation sweep.
 func (o *Orchestrator) stageVerifyComplete(ctx context.Context, job *PurgeJob) error {
 	if !job.Verified {
 		empty, err := o.verifyEmpty(ctx, job)
@@ -239,8 +214,7 @@ func (o *Orchestrator) stageVerifyComplete(ctx context.Context, job *PurgeJob) e
 	return o.jobs.MarkComplete(ctx, job)
 }
 
-// RunInBackground runs a purge on a detached context, for the async tenant case.
-// A long-lived timeout bounds the whole fan-out including verify retries.
+// RunInBackground runs a purge on a detached context bounded by a ten-minute timeout.
 func (o *Orchestrator) RunInBackground(job *PurgeJob) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -251,8 +225,7 @@ func (o *Orchestrator) RunInBackground(job *PurgeJob) {
 	}()
 }
 
-// Resume re-applies the tombstone and re-runs every incomplete job after a
-// server restart. Each job is idempotent, so re-running finished stages is safe.
+// Resume re-applies the tombstone and re-runs every incomplete job after a server restart.
 func (o *Orchestrator) Resume(ctx context.Context) error {
 	jobs, err := o.jobs.ListIncomplete(ctx)
 	if err != nil {
@@ -278,8 +251,6 @@ func (o *Orchestrator) deletePostgres(ctx context.Context, job *PurgeJob) error 
 	return o.pg.DeleteDevice(ctx, job.TenantID, *job.DeviceID)
 }
 
-// verifyEmpty polls VictoriaMetrics until no series match the subject or the
-// attempt budget is exhausted.
 func (o *Orchestrator) verifyEmpty(ctx context.Context, job *PurgeJob) (bool, error) {
 	attempts := max(o.verify.MaxAttempts, 1)
 	for i := range attempts {

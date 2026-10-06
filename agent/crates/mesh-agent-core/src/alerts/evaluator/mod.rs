@@ -12,18 +12,10 @@ use condition::{predicate_cost, Condition, Reading, RuleState};
 
 pub(super) use condition::window_is_expressible;
 
-/// The readings one rule may touch per second on this machine before the machine
-/// stops running it.
-///
-/// It is the figure the shipped pack is bounded by in CI, so the two gates
-/// agree: the most expensive rule the pack can contain stays comfortably under
-/// this, and a rule that reaches an endpoint without having passed that gate is
-/// stopped by the machine paying for it.
+/// The readings one rule may touch per second before the evaluator stops running it.
 pub const RULE_BUDGET_READINGS_PER_SEC: u64 = 3600;
 
-/// The span an allowance is granted over. Long enough that a rule is judged on a
-/// minute of behavior rather than on one unlucky second, short enough that a
-/// rule which is genuinely too expensive is stopped inside a minute of arriving.
+/// The span, in seconds, an allowance is granted over.
 pub const RULE_BUDGET_WINDOW_SECS: i64 = 60;
 
 /// The whole allowance one rule may spend inside a window.
@@ -40,17 +32,8 @@ pub fn rule_cost(rule: &ThresholdRule) -> u64 {
     cost
 }
 
-/// What one rule may cost the machine it runs on, and what it has spent.
-///
-/// The pack is cost-bounded before it ships, but the endpoint is what pays, and
-/// a rule can reach one without having come through that gate — an operator's
-/// own rule, a provider that is not the catalogue, a version skew. So the
-/// machine enforces its own ceiling over what a rule actually touched rather
-/// than over what it declared, and stops the rule when it is spent.
-///
-/// The stop is hard and it is per rule: evaluation ends for that rule and for
-/// nothing else. One expensive rule silencing the cheap ones would turn a bad
-/// rollout into blanket blindness while still looking contained.
+/// What one rule may cost the machine, enforced over the readings it touched; a spent rule stops
+/// and other rules keep evaluating.
 struct RuleBudget {
     /// Start of the span the current allowance is being spent against.
     window_start: Option<i64>,
@@ -67,10 +50,8 @@ impl RuleBudget {
         }
     }
 
-    /// Charge one evaluation's work and report whether the rule is now stopped.
-    /// A timestamp outside the current span — including one that went backwards
-    /// over a clock correction — opens a fresh one, so a rule is judged on what
-    /// it spends in a minute rather than since the agent started.
+    /// Charges one evaluation's work and reports whether the rule is now stopped.
+    /// A timestamp outside the current span, including a backwards clock step, opens a new span.
     fn charge(&mut self, ts: i64, work: u64) -> bool {
         let within = self
             .window_start
@@ -87,34 +68,21 @@ impl RuleBudget {
     }
 }
 
-/// One rule that is firing on this instant's readings.
-///
-/// `started` is what separates the moment a rule *begins* firing from the
-/// seconds it goes on firing afterwards. A disk that sits over its line for ten
-/// hours is one thing that happened, not thirty-six thousand: the whole episode
-/// is what a fleet board asks about, and only its start is what opens an
-/// incident. Both answers come out of one evaluation, because stepping the
-/// state machine twice would advance it twice.
+/// One rule firing on this instant's readings; `started` marks the instant it began firing.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Firing {
     /// Which rule is firing.
     pub rule_id: String,
-    /// Which revision of it this machine is running. It travels onto every
-    /// alert the rule raises, because the far end identifies an alert by the
-    /// rule *and* its revision.
+    /// The revision of the rule this machine runs, carried onto every alert it raises.
     pub rule_version: u32,
-    /// How bad the rule says this is. Stated by whoever wrote the rule, carried
-    /// to this machine with it, and put on the alert unchanged — a queue
-    /// ordered by severity cannot order an alert that states none.
+    /// The severity the rule declares, put on the alert unchanged.
     pub severity: AlertSeverity,
     /// The dimension it watched, under the name the fleet collects it by.
     pub metric: String,
     /// The reading that crossed the line.
     pub value: f64,
-    /// When the breach began holding. The same instant as `at` for a rule with
-    /// no hold — a span of nothing is still a span, and it never runs
-    /// backwards.
+    /// When the breach began holding; equals `at` for a rule with no hold.
     pub since: i64,
     /// The instant these readings were taken.
     pub at: i64,
@@ -126,8 +94,7 @@ pub struct Firing {
 struct RuleEntry {
     rule: ThresholdRule,
     state: RuleState,
-    /// Every condition the rule requires, its own first. `None` when the rule is
-    /// outside the grammar, which makes it permanently unsupported.
+    /// Every condition the rule requires, its own first; `None` marks the rule unsupported.
     conditions: Option<Vec<Condition>>,
     /// What the last evaluation concluded this rule is doing here.
     coverage: RuleCoverageState,
@@ -152,13 +119,10 @@ impl RuleEntry {
         }
     }
 
-    /// Evaluate every condition and advance the state machine, returning the
-    /// number the rule's own condition produced while it is firing, and whether
-    /// the breach behind it began.
+    /// Evaluates every condition and advances the state machine; while firing, returns the
+    /// primary value, the breach start and whether it began this second.
     fn step(&mut self, sample: &DimReadings, ts: i64) -> Option<(f64, i64, bool)> {
-        // A rule that spent past its allowance is not evaluated again on this
-        // machine. Only a different rule arriving re-arms it, so a reconnect
-        // re-pushing the same ruleset cannot spend the allowance a second time.
+        // A throttled rule stays stopped until a different rule definition replaces it.
         if self.budget.throttled {
             self.coverage = RuleCoverageState::Throttled;
             return None;
@@ -180,9 +144,7 @@ impl RuleEntry {
             })
             .collect();
 
-        // The work is already done by the time its cost is known, so the second
-        // it overspends is the last one it gets: what it produced here is
-        // dropped along with the readings it was holding.
+        // The overspending second is the last one evaluated; its result and history are dropped.
         if self.budget.charge(ts, work) {
             self.coverage = RuleCoverageState::Throttled;
             self.state = RuleState::Clear;
@@ -193,10 +155,7 @@ impl RuleEntry {
         }
 
         if readings.contains(&Reading::Unsupported) {
-            // A rule half of which cannot be read here is not a rule that failed
-            // to breach — it is a rule that is not watching this machine. Drop
-            // any latched state with it, so a breach nobody is watching cannot
-            // survive on the far side of the gap.
+            // An unreadable condition marks the rule unsupported and drops any latched state.
             self.coverage = RuleCoverageState::Unsupported;
             self.state = RuleState::Clear;
             for condition in conditions.iter_mut() {
@@ -219,9 +178,7 @@ impl RuleEntry {
             .iter()
             .zip(&values)
             .all(|(condition, &value)| condition.breaching(value));
-        // The situation is over as soon as any one side has genuinely recovered
-        // past its own boundary. With a single condition this is exactly the
-        // hysteresis the rule has always had.
+        // The breach is over once any one condition has recovered past its own boundary.
         let cleared = conditions
             .iter()
             .zip(&values)
@@ -242,9 +199,8 @@ impl RuleEntry {
     }
 }
 
-/// Every condition a rule requires, its own first, or `None` when any of them is
-/// outside the grammar — including a rule that names more extra conditions than
-/// the grammar allows.
+/// Every condition a rule requires, its own first, or `None` when any is invalid or the rule has
+/// too many extra conditions.
 fn build_conditions(rule: &ThresholdRule) -> Option<Vec<Condition>> {
     if rule.all.len() > MAX_RULE_TERMS {
         return None;
@@ -284,10 +240,8 @@ fn advance(
     }
 }
 
-/// Stateful evaluator for a tenant-scoped threshold-alert ruleset. Feed it one
-/// [`MetricSample`] per window with the sample's unix-second timestamp; it
-/// returns the set of currently-firing breaches, and reports separately what
-/// every rule is doing on this device.
+/// Stateful evaluator for a threshold-alert ruleset, fed one [`MetricSample`] per second with its
+/// unix-second timestamp.
 pub struct AlertEvaluator {
     entries: Vec<RuleEntry>,
 }
@@ -300,10 +254,8 @@ impl AlertEvaluator {
         }
     }
 
-    /// Replace the active ruleset. Evaluation state is preserved for any rule
-    /// whose definition is unchanged — an identical re-push (e.g. on reconnect)
-    /// must not reset a firing breach — while added or changed rules start Clear
-    /// and dropped rules are discarded.
+    /// Replaces the active ruleset, keeping state for unchanged rules; added or changed rules
+    /// start Clear and dropped rules are discarded.
     pub fn set_rules(&mut self, rules: Vec<ThresholdRule>) {
         let mut previous = std::mem::take(&mut self.entries);
         self.entries = rules
@@ -327,12 +279,8 @@ impl AlertEvaluator {
         self.evaluate_readings(&DimReadings::of_sample(sample), ts)
     }
 
-    /// Evaluate every rule against one instant's readings at `ts`.
-    ///
-    /// The live path arrives here with the second the sampler just took, and a
-    /// retroactive scan with a minute rebuilt from the local store — the same
-    /// state machine either way, so a rule cannot mean one thing now and
-    /// something else over history.
+    /// Evaluates every rule against one instant's readings at `ts`, for both the live path and
+    /// retroactive scans.
     pub fn evaluate_readings(&mut self, readings: &DimReadings, ts: i64) -> Vec<Firing> {
         let mut firing = Vec::new();
         for entry in &mut self.entries {
@@ -341,8 +289,7 @@ impl AlertEvaluator {
                     rule_id: entry.rule.id.clone(),
                     rule_version: entry.rule.version,
                     severity: entry.rule.severity,
-                    // The canonical name, whatever the rule was written in, so
-                    // nothing downstream sees two names for one thing.
+                    // The canonical metric name, whatever alias the rule was written in.
                     metric: entry
                         .conditions
                         .as_ref()
@@ -358,9 +305,7 @@ impl AlertEvaluator {
         firing
     }
 
-    /// What every firing rule is doing, in the shape the fleet board reads. The
-    /// whole episode, not only its start: a board answers "what is wrong right
-    /// now".
+    /// What every firing rule is doing across the whole episode.
     #[must_use]
     pub fn breaches(firing: &[Firing]) -> Vec<AlertBreach> {
         firing
@@ -373,10 +318,7 @@ impl AlertEvaluator {
             .collect()
     }
 
-    /// What every installed rule is doing on this device, one entry per rule.
-    /// Every rule is here — a rule this host cannot evaluate is reported as
-    /// unsupported rather than left out, because a rule missing from the count
-    /// is indistinguishable from a rule nobody pushed.
+    /// What every installed rule is doing, one entry per rule; unsupported rules are included.
     #[must_use]
     pub fn coverage(&self) -> Vec<RuleCoverage> {
         self.entries
@@ -396,8 +338,7 @@ fn compare(comparator: AlertComparator, value: f64, bound: f64) -> bool {
         AlertComparator::Lt => value < bound,
         AlertComparator::Gte => value >= bound,
         AlertComparator::Lte => value <= bound,
-        // A future comparator an older agent does not understand is treated as
-        // "not breaching", so an unknown rule fails safe (never fires).
+        // An unrecognised comparator never breaches.
         _ => false,
     }
 }

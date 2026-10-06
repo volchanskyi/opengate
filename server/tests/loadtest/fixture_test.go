@@ -7,12 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A fixture is what "the same run twice" means. If the fleet differs between
-// two runs, so does every number, and nobody can say which difference caused
-// which. So the plan is derived from the size and a seed, and nothing else.
-
-// planned builds one fleet, failing the test rather than returning an error the
-// case would have to handle.
 func planned(t *testing.T, size FixtureSize, seed uint64) FixturePlan {
 	t.Helper()
 	plan, err := PlanFixture(size, seed)
@@ -28,9 +22,6 @@ func TestTheThreeSizesAreTheCommittedReferenceAndItsMultiples(t *testing.T) {
 		"the lopsided fixture holds the same fleet as the large one, distributed differently")
 }
 
-// The lopsided fixture exists because an evenly spread fleet never asks the
-// question a tenant-scoped read is actually asked: one customer holding most of
-// the estate is the page that is slow in the field.
 func TestTheDistributionIsWhatTheLopsidedFixtureVaries(t *testing.T) {
 	lopsided := planned(t, FixtureLopsided, 1)
 	require.NotEmpty(t, lopsided.Customers)
@@ -44,8 +35,6 @@ func TestTheDistributionIsWhatTheLopsidedFixtureVaries(t *testing.T) {
 	}
 }
 
-// Every plan adds up. A fixture whose parts do not sum to its whole seeds a
-// fleet nobody declared.
 func TestEveryPlanAddsUp(t *testing.T) {
 	for _, size := range FixtureSizes() {
 		t.Run(string(size), func(t *testing.T) {
@@ -64,9 +53,6 @@ func TestEveryPlanAddsUp(t *testing.T) {
 	}
 }
 
-// Same size, same seed, same fleet — down to the names, which is what makes a
-// run reproducible rather than merely similar. A different seed is a different
-// fleet, or the seed does nothing and every run shares one shape.
 func TestTheSeedDecidesTheFleetAndNothingElseDoes(t *testing.T) {
 	assert.Equal(t, planned(t, FixtureLopsided, 42), planned(t, FixtureLopsided, 42))
 
@@ -75,9 +61,6 @@ func TestTheSeedDecidesTheFleetAndNothingElseDoes(t *testing.T) {
 	assert.Equal(t, first.Devices, second.Devices, "the seed varies the distribution, never the size")
 }
 
-// Names carry the run's own marker, because a cleanup that cannot recognise
-// what a run created cannot remove it — and an environment whose every user is
-// residue got there by exactly that gap. The cleanup selects on this marker.
 func TestEveryNameCarriesTheLoadTestMarker(t *testing.T) {
 	plan := planned(t, FixtureSmall, 1)
 
@@ -95,11 +78,6 @@ func TestAnUnknownFixtureSizeIsRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), "enormous")
 }
 
-// Two runs must be able to follow each other. A name built from the marker alone
-// is the same name every night, so the second night asks the server for a
-// customer that already exists, is refused, and the fleet it was building never
-// connects — which is what a whole week of nights did, because the accounts
-// carried the run's seed and the customers did not.
 func TestTwoRunsNeverAskForTheSameCustomer(t *testing.T) {
 	first, second := planned(t, FixtureSmall, 1), planned(t, FixtureSmall, 2)
 
@@ -113,8 +91,6 @@ func TestTwoRunsNeverAskForTheSameCustomer(t *testing.T) {
 	}
 }
 
-// The seed is in the name, so a cleanup that runs long after the fact can still
-// tell one run's customers from another's — the same property the accounts have.
 func TestACustomerNameCarriesTheRunItBelongsTo(t *testing.T) {
 	plan := planned(t, FixtureSmall, 4242)
 	for _, customer := range plan.Customers {

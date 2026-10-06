@@ -9,8 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// A customer's parameter overrides, stored and read back.
-
 const (
 	upsertBindingSQL = `INSERT INTO rule_bindings
 		   (id, tenant_id, organization_id, rule_id, level, level_key,
@@ -31,9 +29,7 @@ const (
 	deleteBindingSQL = `DELETE FROM rule_bindings WHERE ` + scopedToTenant + ` AND id = $1`
 )
 
-// UpsertBinding validates a binding against the rule it names and stores it.
-// Validation happens here rather than at a read, so a value the rule's author
-// never allowed is refused while an operator is still looking at it.
+// UpsertBinding validates a binding against the rule it names, then stores it.
 func (s *Store) UpsertBinding(ctx context.Context, cat Pack, b Binding) error {
 	if err := ValidateBindingAgainst(cat, b); err != nil {
 		return err
@@ -51,9 +47,8 @@ func (s *Store) UpsertBinding(ctx context.Context, cat Pack, b Binding) error {
 		selector, b.Precedence, params, b.UpdatedBy)
 }
 
-// encodeBindingJSON renders the two jsonb columns. A nil selector is stored as
-// the empty object, which is how the level's blanket binding is spelled and what
-// the partial unique index keys off.
+// encodeBindingJSON renders the jsonb columns; a nil selector is the empty object that keys the
+// level's blanket binding.
 func encodeBindingJSON(b Binding) (selector, params []byte, err error) {
 	selector, err = json.Marshal(orEmptyMap(b.Selector))
 	if err != nil {
@@ -66,8 +61,7 @@ func encodeBindingJSON(b Binding) (selector, params []byte, err error) {
 	return selector, params, nil
 }
 
-// orEmptyMap renders a nil map as an empty JSON object rather than null, so the
-// column's shape never depends on whether a caller left a field out.
+// orEmptyMap renders a nil map as an empty JSON object, keeping the column shape constant.
 func orEmptyMap[M ~map[string]V, V any](m M) M {
 	if m == nil {
 		return M{}
@@ -94,7 +88,6 @@ func (s *Store) ListBindings(ctx context.Context, organizationID uuid.UUID) ([]B
 	return out, nil
 }
 
-// scanBinding reads one row into a Binding.
 func scanBinding(rows *sql.Rows) (Binding, error) {
 	var (
 		b        Binding

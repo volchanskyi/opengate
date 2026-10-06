@@ -10,13 +10,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/organization"
 )
 
-// A customer name is a label in a picker, and the bound on it is the only thing
-// standing between that picker and a field somebody pasted a document into.
-//
-// The cases that matter are the two either side of the limit: a name of exactly
-// the maximum is a name somebody may legitimately have, and refusing it is a
-// customer who cannot be created. The pair is what distinguishes "longer than
-// the maximum" from "as long as the maximum".
 func TestValidateNameBoundsTheLabelExactly(t *testing.T) {
 	t.Parallel()
 
@@ -28,7 +21,6 @@ func TestValidateNameBoundsTheLabelExactly(t *testing.T) {
 		"one character past the maximum is refused")
 }
 
-// The empty name is refused as well, which is the other half of the same check.
 func TestValidateNameRefusesAnEmptyLabel(t *testing.T) {
 	t.Parallel()
 

@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# Offline tests for the FI4 ingress fault tooling:
-#   scripts/fault/ingress-apply.sh, scripts/fault/ingress-restore.sh, and the
-#   version-controlled staging-only templates under deploy/fault/ingress/.
-#
-# No live cluster: kubectl is stubbed on PATH with a jq-backed mock that keeps
-# the target Ingress annotations and the server Deployment replica count in state
-# files, so an apply->restore round-trip is exercised for real and asserted to be
-# byte-identical. The namespace guard, the render-time production-deny invariant,
-# and the "504 via timeout annotation, not a raw nginx snippet" contract are
-# checked without any cluster access.
+# Offline tests for scripts/fault/ingress-apply.sh, ingress-restore.sh and deploy/fault/ingress/.
+# A jq-backed kubectl mock on PATH keeps Ingress annotations and replicas in state files.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -180,7 +172,6 @@ run_fault() {
 
 echo "FI4 ingress fault tooling:"
 
-# --- edge-504 round-trip ----------------------------------------------------
 reset_cluster
 initial="$(ann_sorted)"
 rc=0
@@ -202,7 +193,6 @@ run_fault opengate-staging "$RESTORE" edge-504 >/dev/null 2>&1 || rc=$?
 assert_eq "second restore edge-504 exits 0" "0" "$rc"
 assert_eq "second restore edge-504 stays byte-identical" "$initial" "$(ann_sorted)"
 
-# --- edge-502 round-trip (upstream scaled to zero) --------------------------
 reset_cluster
 rc=0
 run_fault opengate-staging "$APPLY" edge-502 >/dev/null 2>&1 || rc=$?
@@ -214,7 +204,6 @@ run_fault opengate-staging "$RESTORE" edge-502 >/dev/null 2>&1 || rc=$?
 assert_eq "restore edge-502 exits 0" "0" "$rc"
 assert_eq "restore edge-502 restores the original replica count" "1" "$(cat "$MOCK_REPLICAS")"
 
-# --- namespace guard (production-deny on the live path) ----------------------
 reset_cluster
 rc=0
 out="$(run_fault opengate "$APPLY" edge-504 2>&1)" || rc=$?
@@ -231,7 +220,6 @@ rc=0
 out="$(run_fault opengate-prod "$APPLY" edge-502 2>&1)" || rc=$?
 assert_ne "apply edge-502 refuses a non-staging namespace" "0" "$rc"
 
-# --- argument validation ----------------------------------------------------
 rc=0
 out="$(run_fault opengate-staging "$APPLY" bogus-scenario 2>&1)" || rc=$?
 assert_eq "unknown scenario exits 2" "2" "$rc"
@@ -241,11 +229,9 @@ rc=0
 out="$(run_fault opengate-staging "$APPLY" 2>&1)" || rc=$?
 assert_eq "missing scenario arg exits 2" "2" "$rc"
 
-# --- render-time production-deny: the chart embeds no fault marker -----------
 marker_hits="$(grep -RIl 'fault\.opengate\.dev' "$REPO_ROOT/deploy/helm/opengate/templates" 2>/dev/null || true)"
 assert_eq "no chart template embeds a fault-injection annotation" "" "$marker_hits"
 
-# --- 504 template: timeout annotation, never a raw nginx snippet -------------
 template_body="$(cat "$TEMPLATE")"
 if jq empty "$TEMPLATE" >/dev/null 2>&1; then
   pass "504 template is valid JSON"

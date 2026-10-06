@@ -148,7 +148,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tokio::sync::mpsc;
 
-    /// Recording injector that tracks all inject calls.
     struct RecordingInjector {
         calls: Arc<Mutex<Vec<String>>>,
     }
@@ -227,7 +226,6 @@ mod tests {
         Arc::new(tokio::sync::Mutex::new(None))
     }
 
-    /// Decode a frame from bytes sent on the frame_tx channel.
     fn decode_frame(data: &[u8]) -> Frame {
         let (frame, _) = Frame::decode(data).expect("failed to decode frame");
         frame
@@ -265,7 +263,6 @@ mod tests {
         let file_ops = FileOpsHandler::new(true, false);
         let webrtc_pc = new_webrtc_pc();
 
-        // Send a terminal frame with no terminal session active — should not panic
         handler
             .handle_frame(
                 Frame::Terminal(TerminalFrame {
@@ -279,7 +276,6 @@ mod tests {
             )
             .await;
 
-        // No output expected
         assert!(frame_rx.try_recv().is_err());
     }
 
@@ -291,7 +287,6 @@ mod tests {
         let file_ops = FileOpsHandler::new(true, false);
         let webrtc_pc = new_webrtc_pc();
 
-        // Desktop frames from browser are unexpected — should be silently ignored
         handler
             .handle_frame(
                 Frame::Desktop(DesktopFrame {
@@ -372,7 +367,6 @@ mod tests {
         let file_ops = FileOpsHandler::new(true, false);
         let webrtc_pc = new_webrtc_pc();
 
-        // Use a temp directory that definitely exists
         let dir = tempfile::tempdir().expect("create temp dir");
         let dir_path = dir.path().to_string_lossy().to_string();
 
@@ -472,7 +466,6 @@ mod tests {
         let file_ops = FileOpsHandler::new(true, false);
         let webrtc_pc = new_webrtc_pc();
 
-        // Test unicode and empty string
         for text in ["", "héllo 🌍", "日本語テスト", "line1\nline2\ttab"] {
             handler
                 .handle_frame(
@@ -510,7 +503,6 @@ mod tests {
         Arc<std::sync::atomic::AtomicBool>,
     );
 
-    /// Helper: build a TerminalHandle backed by test channels we can observe.
     fn new_test_terminal_handle() -> TestTerminalHandle {
         let (stdin_tx, stdin_rx) = mpsc::channel(8);
         let (resize_tx, resize_rx) = mpsc::channel(8);
@@ -519,9 +511,6 @@ mod tests {
         (handle, stdin_rx, resize_rx, shutdown)
     }
 
-    /// Pin handle_frame's `Frame::Terminal` match arm: when a terminal is
-    /// active, the inbound bytes must be forwarded to its stdin channel.
-    /// Mutating away the Terminal arm would silently drop browser keystrokes.
     #[tokio::test]
     async fn handle_frame_terminal_forwards_bytes_when_session_active() {
         let handler = new_handler(all_perms());
@@ -550,9 +539,6 @@ mod tests {
         assert_eq!(bytes, b"ls -la\n");
     }
 
-    /// Pin handle_control's `ControlMessage::MouseClick` match arm and the
-    /// handle_mouse_click body. Mutating either away would skip the dispatch
-    /// or skip the inject calls entirely.
     #[tokio::test]
     async fn handle_control_mouse_click_dispatches_move_and_button() {
         let handler = new_handler(all_perms());
@@ -587,9 +573,6 @@ mod tests {
         );
     }
 
-    /// Pin handle_control's `ControlMessage::KeyPress` arm and handle_key_press
-    /// body. Must dispatch to injector AND (when terminal active and pressed)
-    /// to the terminal stdin.
     #[tokio::test]
     async fn handle_control_key_press_dispatches_to_injector_and_terminal() {
         let handler = new_handler(all_perms());
@@ -599,7 +582,6 @@ mod tests {
         let webrtc_pc = new_webrtc_pc();
         let (term, mut stdin_rx, _resize_rx, _shutdown) = new_test_terminal_handle();
 
-        // KeyPress with pressed=true should hit both injector and terminal.
         handler
             .handle_frame(
                 Frame::Control(ControlMessage::KeyPress {
@@ -618,15 +600,12 @@ mod tests {
         assert_eq!(*recorded, vec!["key:KeyA:true".to_string()]);
         drop(recorded);
 
-        // Terminal must also receive the byte.
         let bytes = stdin_rx
             .try_recv()
             .expect("terminal must receive byte for pressed key");
         assert_eq!(bytes, b"a");
     }
 
-    /// Pin handle_control's `ControlMessage::TerminalResize` arm: must call
-    /// resize on the terminal handle.
     #[tokio::test]
     async fn handle_control_terminal_resize_forwards_dimensions() {
         let handler = new_handler(all_perms());
@@ -656,9 +635,6 @@ mod tests {
         assert_eq!((cols, rows), (132, 50));
     }
 
-    /// Pin handle_control's `ControlMessage::FileDownloadRequest` arm and the
-    /// handle_file_download body: must spawn a background task that streams
-    /// data to the frame channel.
     #[tokio::test]
     async fn handle_control_file_download_streams_to_frame_channel() {
         let handler = new_handler(all_perms());
@@ -684,7 +660,6 @@ mod tests {
             )
             .await;
 
-        // Background task is spawned — give it a moment to send.
         let data = tokio::time::timeout(std::time::Duration::from_secs(2), frame_rx.recv())
             .await
             .expect("download task must send within timeout")
@@ -699,9 +674,6 @@ mod tests {
         }
     }
 
-    /// Pin `ControlMessage::IceCandidate` and `ControlMessage::SwitchAck` arms
-    /// when there is no active WebRTC peer connection. Both must early-return
-    /// without panicking, and must not emit any frames.
     #[tokio::test]
     async fn handle_control_ice_and_switch_ack_no_op_without_peer() {
         let handler = new_handler(all_perms());
@@ -741,12 +713,6 @@ mod tests {
         ));
     }
 
-    /// Pin handle_control's `ControlMessage::SwitchAck` arm with an ACTIVE peer
-    /// connection: the arm must dispatch to `SwitchHandler::handle_ack`, which
-    /// echoes a SwitchAck frame back to the browser. Deleting the arm (falling
-    /// through to the `_ => debug!` branch) would drop the confirmation — this
-    /// asserts the echo so that match-arm-deletion mutant dies. The companion
-    /// no-peer case is covered by `handle_control_ice_and_switch_ack_no_op_without_peer`.
     #[tokio::test]
     async fn handle_control_switch_ack_with_peer_echoes_frame() {
         let handler = new_handler(all_perms());
@@ -754,9 +720,7 @@ mod tests {
         let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
         let file_ops = FileOpsHandler::new(true, false);
 
-        // AgentPeerConnection::new is offline-safe: webrtc-rs only touches the
-        // network once a local description triggers ICE gathering, which the
-        // SwitchAck path never does.
+        // Constructing the peer connection stays offline until ICE gathering starts.
         let (inbound_tx, _inbound_rx) = mpsc::channel(8);
         let pc = AgentPeerConnection::new(Vec::new(), inbound_tx)
             .await
@@ -780,11 +744,6 @@ mod tests {
         assert!(matches!(frame, Frame::Control(ControlMessage::SwitchAck)));
     }
 
-    /// Recording WebRTC dispatch: captures the offer/candidate calls so the
-    /// two dispatch arms in `handle_control` are observable without a live
-    /// media stack. Routing the arms through this mock is what kills their
-    /// match-arm-deletion mutants (deleting an arm falls through to the
-    /// `_ => debug!` branch, leaving `calls` empty and failing the assert).
     struct RecordingWebRtcDispatch {
         calls: Arc<Mutex<Vec<String>>>,
     }
@@ -817,10 +776,6 @@ mod tests {
         }
     }
 
-    /// Pin handle_control's `ControlMessage::SwitchToWebRTC` arm: it must
-    /// dispatch to `WebRtcDispatch::offer` with the browser's SDP offer.
-    /// Deleting the arm would route nothing — the recording dispatch proves
-    /// both *that* and *with what* the arm fires.
     #[tokio::test]
     async fn handle_control_switch_to_webrtc_dispatches_offer() {
         let calls = Arc::new(Mutex::new(Vec::new()));
@@ -849,8 +804,6 @@ mod tests {
         assert_eq!(*calls.lock().unwrap(), vec!["offer:OFFER_SDP".to_string()]);
     }
 
-    /// Pin handle_control's `ControlMessage::IceCandidate` arm: it must
-    /// dispatch to `WebRtcDispatch::candidate` with the candidate and mid.
     #[tokio::test]
     async fn handle_control_ice_candidate_dispatches_candidate() {
         let calls = Arc::new(Mutex::new(Vec::new()));
@@ -886,7 +839,6 @@ mod tests {
     #[tokio::test]
     async fn test_send_frame_closed_channel() {
         let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(1);
-        // Drop the receiver to close the channel
         drop(frame_rx);
 
         let result = send_frame(&frame_tx, &Frame::Pong).await;

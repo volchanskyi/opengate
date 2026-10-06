@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
-# Pull the performance stack's images before it is brought up, and ask again
-# when the registry drops the connection.
-#
-# A scaling leg lost its night to one reset connection while Docker Hub handed
-# out a pull token, inside `up`, with no retry — and every step after it then
-# reported the same missing bundle in its own words. Pulling first gives the one
-# thing that goes wrong on the network a bounded retry of its own and one error
-# when it gives up. The server is built rather than pulled, so it is left to
-# `up --build`.
-#
-# A refusal that asking again cannot change — an image or a tag that does not
-# exist — fails on the first attempt.
+# Pulls the performance stack's images, retrying a dropped registry connection; a refusal a retry
+# cannot change, such as a missing tag, fails on the first attempt.
 #
 # Environment:
 #   PERF_PULL_ATTEMPTS  how many times in total (default 4)

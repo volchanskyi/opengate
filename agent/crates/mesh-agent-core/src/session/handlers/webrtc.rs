@@ -1,9 +1,4 @@
 //! WebRTC control-message handler.
-//!
-//! Owns `ControlMessage::SwitchToWebRTC` (offer/answer SDP exchange +
-//! peer-connection setup + ICE candidate forwarding) and
-//! `ControlMessage::IceCandidate` dispatch so WebRTC negotiation remains
-//! isolated from the [`super::super::handler::SessionHandler`] multiplexer.
 
 use std::sync::Arc;
 
@@ -15,23 +10,12 @@ use super::super::relay::send_frame;
 use super::ControlMessageHandler;
 use crate::webrtc::{AgentPeerConnection, IceServerConfig};
 
-/// Handles WebRTC signaling messages: offer/answer setup (SwitchToWebRTC)
-/// and incremental ICE candidate exchange. Spawns background tasks to
-/// forward ICE candidates and inbound data-channel frames back through
-/// the relay frame channel.
+/// Handles WebRTC offer/answer setup and ICE candidate exchange for a session.
 pub struct WebRTCHandler;
 
 impl ControlMessageHandler for WebRTCHandler {}
 
-/// Dispatch seam for the two WebRTC control arms (`SwitchToWebRTC` and
-/// `IceCandidate`) in [`SessionHandler::handle_control`].
-///
-/// The production path ([`RealWebRtcDispatch`]) only takes effect against a
-/// live STUN/ICE/media stack, so deleting either match arm has no observable
-/// effect in a unit test — the arm-deletion mutants survive. Routing the arms
-/// through this trait lets a test inject a recording dispatch that observes
-/// *that* and *with what arguments* each arm fires, killing those mutants
-/// without standing up a real WebRTC peer.
+/// Dispatch seam for the `SwitchToWebRTC` and `IceCandidate` control arms, replaceable in tests.
 #[async_trait::async_trait]
 pub trait WebRtcDispatch: Send + Sync {
     /// Dispatch a `SwitchToWebRTC` offer.
@@ -52,12 +36,7 @@ pub trait WebRtcDispatch: Send + Sync {
     );
 }
 
-/// Production [`WebRtcDispatch`] — delegates directly to [`WebRTCHandler`].
-///
-/// Defined here (alongside the live-stack handler that is already excluded
-/// from mutation tracking) rather than in the multiplexer module, so its
-/// untestable network-stack delegation does not introduce fresh surviving
-/// mutants in an otherwise-mutated file.
+/// Production [`WebRtcDispatch`] that delegates to [`WebRTCHandler`].
 pub struct RealWebRtcDispatch;
 
 #[async_trait::async_trait]
@@ -83,10 +62,7 @@ impl WebRtcDispatch for RealWebRtcDispatch {
 }
 
 impl WebRTCHandler {
-    /// Process a `SwitchToWebRTC` control message. Creates a peer
-    /// connection against the provided ICE server config, applies the
-    /// browser's SDP offer, sends back the answer, and spawns background
-    /// tasks for ICE forwarding + inbound data-channel frame relay.
+    /// Applies the browser's SDP offer to a new peer connection and sends back the answer.
     pub async fn handle_offer(
         ice_servers: Vec<IceServerConfig>,
         sdp_offer: String,
@@ -116,7 +92,6 @@ impl WebRTCHandler {
                             warn!("failed to send WebRTC answer: {e}");
                         }
 
-                        // ICE candidate forwarding task.
                         let pc_ice = pc.clone();
                         let tx_ice = tx.clone();
                         tokio::spawn(async move {
@@ -135,7 +110,6 @@ impl WebRTCHandler {
                             }
                         });
 
-                        // Inbound data-channel frame relay task.
                         let tx_inbound = tx.clone();
                         tokio::spawn(async move {
                             while let Some(frame) = inbound_rx.recv().await {
@@ -165,9 +139,7 @@ impl WebRTCHandler {
         }
     }
 
-    /// Process an `IceCandidate` control message. Forwards the candidate
-    /// to the active peer connection; silently no-ops when no peer
-    /// connection is held (legitimate transient state during teardown).
+    /// Forwards the candidate to the active peer connection; drops it when none is held.
     pub async fn handle_candidate(
         webrtc_pc: &Arc<Mutex<Option<Arc<AgentPeerConnection>>>>,
         candidate: &str,

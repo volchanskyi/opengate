@@ -435,6 +435,31 @@ business-logic change deferred until upload is implemented.
 
 **Pay-down trigger:** revisit when file upload is implemented (closes the last equivalent mutant).
 
+### Web features import each other past their public index, and share a store
+
+[ADR-020](../docs/adr/ADR-020-module-boundaries.md) says each web feature owns
+its state and nothing imports another feature's store. No lint holds either
+half: the boundary policies in [`eslint.config.js`](../web/eslint.config.js)
+allow any feature-to-feature import, and
+[`.dependency-cruiser.cjs`](../web/.dependency-cruiser.cjs) has no rule between
+features. Four production files cross the line today:
+
+- [`investigations/RuleCoveragePanel.tsx`](../web/src/features/investigations/RuleCoveragePanel.tsx)
+  reads the rules feature's catalogue store from `rules/state/`, which
+  [`rules/index.ts`](../web/src/features/rules/index.ts) also exports;
+- [`rules/CoveragePanel.tsx`](../web/src/features/rules/CoveragePanel.tsx)
+  imports `investigations/rule-coverage` directly;
+- [`session/SessionView.tsx`](../web/src/features/session/SessionView.tsx)
+  imports the remote-desktop, terminal, file-manager and messenger views from
+  their folders, and remote-desktop and terminal have no `index.ts`.
+
+**Pay-down trigger:** the next change to any of these features. Add a boundary
+policy that lets one feature reach another only through its `index.ts`, give
+remote-desktop and terminal an index, repoint the four files, decide whether the
+catalogue store stays shared through the rules index or moves to `src/lib`, and
+make ADR-020's wording match; add the pairs to
+[`eslint-boundaries.test.sh`](../scripts/tests/eslint-boundaries.test.sh).
+
 ### The React family is pinned exactly, to hold first paint under its budget
 
 `react`, `react-dom`, `react-router` and the two matching `@types` packages carry

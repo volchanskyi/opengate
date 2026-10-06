@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-// TestContentsProblems pins the contents-list rule: a page under docs/ that has
-// sections starts, right after its title, with a list linking every ## to ####
-// heading in order, nested by level, through the same anchors the link check
-// resolves. Decision records are left out of it.
 func TestContentsProblems(t *testing.T) {
 	const twoSections = "# Title\n\n" +
 		"- [First part](#first-part)\n" +
@@ -119,9 +115,6 @@ func TestContentsProblems(t *testing.T) {
 	}
 }
 
-// TestCheckReportsContentsProblems pins that the whole-tree run, which the
-// gauntlet and Docs Validate execute, reports a page whose contents list has
-// fallen behind its headings.
 func TestCheckReportsContentsProblems(t *testing.T) {
 	root := t.TempDir()
 	full := filepath.Join(root, "docs", "product", "Page.md")

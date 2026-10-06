@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
-# Gives each Go test tier a stated seam, so where a test lives says what it needs.
-#
-# server/tests/integration/ exists for what needs a transport: a real QUIC peer,
-# a real socket, a WebSocket. Forty-seven of its eighty-two tests once asserted
-# nothing an in-process test could not assert — pgx type semantics, a signaling
-# tracker constructed in memory, plain HTTP refusals — because nothing said where
-# a test belonged and a new test simply followed the last one.
-#
-# server/tests/acceptance/ exists for outcomes, stated through the two doors a
-# real installation has: the HTTP API and the machine's control stream. A test
-# that reaches into a repository is asserting on a row rather than on anything a
-# customer can see, so the repositories are reachable only through the harness's
-# own arrangement helpers.
-#
-# Run: ./scripts/tests/test-tier-placement.test.sh
+# Holds integration tests to those needing a transport, and acceptance tests to the HTTP API
+# and the control stream, parallel and free of repository imports outside the harness.
 
 set -euo pipefail
 
@@ -45,15 +32,10 @@ for dir in "$INTEGRATION" "$ACCEPTANCE"; do
   fi
 done
 
-# The transport entry points. A test in the integration tier must reach one of
-# them: the QUIC dialer or the harness that stands a listener up, the WebSocket
-# client, or the relay pair that joins a browser side to a machine side.
 transport_entry_points='quic\.DialAddr|quic\.Config|newAgentTestEnv|dialAgentStream|connectAgent|setupRelayPair|websocket\.Dial|nhooyr\.io/websocket'
 
 misplaced=""
 while IFS= read -r file; do
-  # A file declaring no test is harness: it carries helpers for the tests
-  # beside it and states nothing on its own.
   grep -q '^func Test' "$file" || continue
   grep -qE "$transport_entry_points" "$file" && continue
   misplaced="$misplaced ${file#"$ROOT/"}"
@@ -65,9 +47,6 @@ else
   fail "these tests need no transport and belong beside the code they exercise:$misplaced"
 fi
 
-# The acceptance tier speaks through two doors. Repository packages are the
-# inside of the product, so the only file allowed to name one is the harness,
-# which uses them to arrange a precondition the product offers no door for.
 repository_packages='internal/(device|session|alerts|rules|updater|organization|audit|inventory|notifications|lifecycle|settings|cert|relay|agentapi|signaling)"'
 arrangement_files='harness_test.go|tenancy_and_access_test.go|intel_amt_test.go'
 
@@ -84,9 +63,6 @@ else
   fail "these acceptance tests import a repository package outside the arrangement helpers:$reaching"
 fi
 
-# The acceptance tier holds no non-test Go file. That keeps it out of the
-# mutation partition check, out of .gremlins.yaml and out of every coverage
-# list — the same shape the integration tier already has.
 production_go="$(find "$ACCEPTANCE" -name '*.go' ! -name '*_test.go' | wc -l | tr -d ' ')"
 if [ "$production_go" -eq 0 ]; then
   pass "the acceptance tier holds no production Go file"
@@ -94,15 +70,10 @@ else
   fail "the acceptance tier holds $production_go non-test Go file(s)"
 fi
 
-# Every acceptance test runs in parallel. Per-test schema isolation makes that
-# safe, and it is what keeps the tier inside the integration tier's budget.
 serial=""
 while IFS= read -r file; do
-  # awk over each test function's first line of body.
   while IFS= read -r name; do
-    # The function's opening lines go into a variable rather than through the
-    # pipe: `grep -q` stops at its first match, and pipefail would report the
-    # writer's failed write as a test that does not call t.Parallel().
+    # The opening lines sit in a variable because a pipe into grep -q fails under pipefail.
     opening="$(grep -A 2 "^func $name(t \*testing.T) {" "$file" || true)"
     grep -qF 't.Parallel()' <<<"$opening" \
       || serial="$serial ${file#"$ROOT/"}:$name"

@@ -1,17 +1,5 @@
-# What a Telegram message says.
-#
-# Read on a phone, the message is the whole of what the reader has: Grafana
-# itself is reachable only through a port-forward. So it carries the reading in
-# the rule's own units and the line it crossed, the series it is about, since
-# when, and the first thing to check — and leaves out the labels Grafana adds
-# for its own bookkeeping, and `watches`, which the rules carry for the quiet
-# period rather than for the reader.
-#
-# A rule firing on no data has no reading, which is itself the finding: the
-# thing that should be reporting is not. That is said in words rather than as
-# an empty value, and in the headline beside the rule's own title. Grafana names
-# such an alert DatasourceNoData or DatasourceError and carries the rule's title
-# in `rulename`, so the headline reads the title from there.
+# A no-data alert arrives as DatasourceNoData or DatasourceError, so the headline
+# reads the rule's title from `rulename` and says no data in words.
 apiVersion: 1
 
 templates:

@@ -1,27 +1,5 @@
-//! What travels with an alert, and what the size cap takes when it will not fit.
-//!
-//! Central keeps a 60 s average per dimension and never asks the device for
-//! more, so the ten-second collapse that explains an incident exists on the
-//! endpoint and nowhere else. Evidence is therefore assembled once, at fire
-//! time, and shipped with the alert: what is not on the message is not recorded.
-//!
-//! The composition is **fixed**, not "as much as fits". Two incidents a week
-//! apart are only comparable if they were assembled the same way, so the counts
-//! below are the contract rather than a budget:
-//!
-//! | Part | Bound | Why |
-//! |---|---|---|
-//! | `ranked` | 8 dimensions | the ranking's useful tail; past eight the scores are noise |
-//! | `series` | the top 3 ranked, ±5 min, ≤ 512 points | enough to see the shape either side of the event |
-//! | `processes` | 10 at the event instant | the existing process-report rank vocabulary |
-//! | `log_samples` | 20 redacted lines | bounded *before* redaction, so a flood cannot buy CPU |
-//!
-//! Size is the codec's business, not the composer's: how large evidence
-//! compresses to is unknowable until it has been compressed. So
-//! [`encode_evidence`] composes, encodes, measures, and only then gives
-//! something up — least valuable first, in a fixed order, re-encoding after each
-//! step. Going over the cap costs the alert its tail. It never costs the alert:
-//! a machine in trouble still says so, with less behind it.
+//! What travels with an alert: a fixed composition assembled once at fire time, packed by
+//! [`encode_evidence`], which gives up the least valuable parts until the size cap holds.
 
 use mesh_protocol::{
     AlertEvidence, EvidenceSeries, HistoryPoint, ProcessReportEntry, ProtocolError, RankedDim,
@@ -58,11 +36,7 @@ pub struct DimSeries {
     pub points: Vec<HistoryPoint>,
 }
 
-/// Everything the composer reads at the moment an alert fires.
-///
-/// Borrowed rather than owned: this runs on a machine that is already in
-/// trouble, which is exactly when copying its recent history would be the wrong
-/// thing to do.
+/// Everything the composer reads at the moment an alert fires, borrowed to avoid copying history.
 #[derive(Debug, Clone, Copy)]
 pub struct EvidenceSource<'a> {
     /// The correlation engine's ranking, most anomalous first.
@@ -83,20 +57,14 @@ pub struct EvidenceSource<'a> {
 pub struct EncodedEvidence {
     /// The compressed blob.
     pub bytes: Vec<u8>,
-    /// The codec that produced it, named on the message so a later one is
-    /// additive.
+    /// The codec that produced the blob, named on the message.
     pub codec: &'static str,
     /// Whether the cap cost this evidence anything.
     pub truncated: bool,
 }
 
-/// Assemble the evidence for one alert at the fixed composition above.
-///
-/// Redaction happens here, at the edge, on every free-text field — log lines,
-/// process basenames, and dimension labels alike. A label is not supposed to be
-/// able to carry a secret, but "supposed to" is not a property anything checks
-/// at run time, and the cost of redacting a bounded list of short strings is
-/// nothing against the cost of being wrong once.
+/// Assembles the evidence for one alert, redacting every free-text field: log lines, process
+/// basenames and dimension labels.
 #[must_use]
 pub fn compose_evidence(source: &EvidenceSource<'_>) -> AlertEvidence {
     let ranked: Vec<RankedDim> = source
@@ -109,9 +77,7 @@ pub fn compose_evidence(source: &EvidenceSource<'_>) -> AlertEvidence {
         })
         .collect();
 
-    // Series follow the ranking, so the three that travel are the three a
-    // technician would have asked to see. A ranked dimension whose readings the
-    // store has already evicted costs the alert its series and nothing else.
+    // Series follow the ranking; a ranked dimension whose readings were evicted has no series.
     let series: Vec<EvidenceSeries> = source
         .ranked
         .iter()
@@ -139,9 +105,7 @@ pub fn compose_evidence(source: &EvidenceSource<'_>) -> AlertEvidence {
         })
         .collect();
 
-    // The cap is applied before redaction on purpose: redaction is the expensive
-    // half, and a host emitting ten thousand secret-bearing lines a second must
-    // not get to choose how much of the device's budget the alert spends.
+    // The cap applies before redaction, bounding the redaction cost.
     let log_samples: Vec<String> = source
         .log_lines
         .iter()
@@ -158,15 +122,8 @@ pub fn compose_evidence(source: &EvidenceSource<'_>) -> AlertEvidence {
     }
 }
 
-/// Encode evidence for the wire, giving up its least valuable parts until it
-/// fits [`MAX_EVIDENCE_BYTES`].
-///
-/// The evidence is edited in place, so the caller keeps exactly what was shipped
-/// rather than what was offered — an alert whose stored evidence disagrees with
-/// the blob beside it would be worse than no evidence at all.
-///
-/// # Errors
-/// Returns the codec's error if the evidence cannot be serialized at all.
+/// Encodes evidence, shrinking it in place until it fits [`MAX_EVIDENCE_BYTES`].
+/// Fails with the codec's error when the evidence cannot be serialized.
 pub fn encode_evidence(evidence: &mut AlertEvidence) -> Result<EncodedEvidence, ProtocolError> {
     let mut bytes = evidence.encode()?;
     if bytes.len() <= MAX_EVIDENCE_BYTES {
@@ -177,8 +134,7 @@ pub fn encode_evidence(evidence: &mut AlertEvidence) -> Result<EncodedEvidence, 
         });
     }
 
-    // Compressed size is not knowable until after encoding, so this is a second
-    // pass rather than a prediction: give something up, re-encode, measure again.
+    // Compressed size is known only after encoding: give something up, re-encode, measure again.
     evidence.truncated = true;
     while shrink(evidence) {
         bytes = evidence.encode()?;
@@ -191,9 +147,7 @@ pub fn encode_evidence(evidence: &mut AlertEvidence) -> Result<EncodedEvidence, 
         }
     }
 
-    // Nothing left to give. An empty evidence set still encodes to a few dozen
-    // bytes, so the cap holds and the alert travels; `truncated` is what says the
-    // silence is the cap's doing rather than a device that saw nothing.
+    // Nothing left to give: the empty set still encodes under the cap and `truncated` stays set.
     *evidence = AlertEvidence {
         truncated: true,
         ..AlertEvidence::default()
@@ -205,25 +159,15 @@ pub fn encode_evidence(evidence: &mut AlertEvidence) -> Result<EncodedEvidence, 
     })
 }
 
-/// Compose and pack in one step, for a producer that has nothing to do with a
-/// packing failure.
-///
-/// Evidence that will not serialize costs the alert its detail and never the
-/// alert: a machine in trouble still says so, with nothing behind it. An empty
-/// blob names no codec, because a codec on nothing reads as evidence that
-/// exists.
+/// Composes and packs in one step; evidence that will not serialize becomes an empty blob that
+/// names no codec.
 #[must_use]
 pub fn pack_evidence(source: &EvidenceSource<'_>) -> EncodedEvidence {
     pack(compose_evidence(source))
 }
 
-/// Everything one dimension's own readings say about a moment, for a finding
-/// raised over stored history.
-///
-/// A scan over history computes no ranking — it re-runs one rule over
-/// reconstructed minutes, and the dimension the rule watched is the only one it
-/// looked at. Claiming a ranking it never computed would put a score in front
-/// of a technician that means nothing, so the series travels on its own.
+/// Packs one dimension's own readings for a finding raised over stored history, which carries a
+/// series and no ranking.
 #[must_use]
 pub fn pack_metric_evidence(dim: &str, points: &[HistoryPoint], event_ts: i64) -> EncodedEvidence {
     let windowed = window_points(points, event_ts);
@@ -231,10 +175,7 @@ pub fn pack_metric_evidence(dim: &str, points: &[HistoryPoint], event_ts: i64) -
         Vec::new()
     } else {
         vec![EvidenceSeries {
-            // A dimension label comes from a compiled table and is not supposed
-            // to be able to carry a secret. "Supposed to" is not a property
-            // anything checks at run time, and redacting a short string costs
-            // nothing against being wrong once.
+            // The label is redacted like every free-text field.
             dim: redact_log_line(dim),
             points: windowed,
         }]
@@ -245,8 +186,7 @@ pub fn pack_metric_evidence(dim: &str, points: &[HistoryPoint], event_ts: i64) -
     })
 }
 
-/// Encode what was composed, answering with nothing at all when it will not
-/// encode.
+/// Encodes what was composed, answering with an empty blob when it will not encode.
 fn pack(mut evidence: AlertEvidence) -> EncodedEvidence {
     encode_evidence(&mut evidence).unwrap_or(EncodedEvidence {
         bytes: Vec::new(),
@@ -255,10 +195,7 @@ fn pack(mut evidence: AlertEvidence) -> EncodedEvidence {
     })
 }
 
-/// Readings inside the event window, capped at [`SERIES_MAX_POINTS`].
-///
-/// The cap keeps the readings nearest the event: whatever the window holds, the
-/// end of it is where the machine was when the rule fired.
+/// Readings inside the event window, capped at [`SERIES_MAX_POINTS`] by keeping the newest.
 fn window_points(points: &[HistoryPoint], event_ts: i64) -> Vec<HistoryPoint> {
     let (from, to) = (
         event_ts.saturating_sub(SERIES_SPAN_SECS),
@@ -273,14 +210,8 @@ fn window_points(points: &[HistoryPoint], event_ts: i64) -> Vec<HistoryPoint> {
     inside[overflow..].to_vec()
 }
 
-/// Give up one thing, from the least valuable end, and say whether there was
-/// anything left to give.
-///
-/// The order is the composition table read bottom-up: log samples, then the
-/// process list, then the readings inside each series, then whole series, then
-/// the ranking — which goes last and never entirely, because it is the line a
-/// technician reads first. Halving rather than dropping one at a time keeps the
-/// number of re-encodes logarithmic on a machine that is already struggling.
+/// Gives up one part, least valuable first, and reports whether anything was left to give.
+/// The order is log samples, processes, readings within series, whole series, then the ranking.
 fn shrink(evidence: &mut AlertEvidence) -> bool {
     if !evidence.log_samples.is_empty() {
         evidence

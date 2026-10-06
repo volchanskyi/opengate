@@ -16,19 +16,15 @@ func TestSanitizeInventoryText(t *testing.T) {
 	assert.Equal(t, redactedField, sanitizeInventoryText("redis:7\npassword=x"), "a newline redacts the value")
 	assert.Equal(t, redactedField, sanitizeInventoryText("tab\there"), "a tab redacts the value")
 
-	// A space is 0x20, the first character that is not a control character, and
-	// it is ordinary inside a service or image name. Redacting it would empty
-	// most of the inventory the moment a name carried one.
+	// 0x20 is the first non-control character and is valid inside a service or image name.
 	assert.Equal(t, "SQL Server (MSSQLSERVER)",
 		sanitizeInventoryText("SQL Server (MSSQLSERVER)"),
 		"a space inside a name is not a control character")
 
-	// A field longer than the cap is truncated to exactly maxInventoryFieldLen.
 	long := strings.Repeat("a", maxInventoryFieldLen+50)
 	got := sanitizeInventoryText(long)
 	assert.Len(t, got, maxInventoryFieldLen)
 
-	// A field exactly at the cap is preserved.
 	exact := strings.Repeat("b", maxInventoryFieldLen)
 	assert.Equal(t, exact, sanitizeInventoryText(exact))
 }

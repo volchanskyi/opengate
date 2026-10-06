@@ -1,13 +1,7 @@
 import { test, expect } from "./fixtures";
 import type { Route } from "@playwright/test";
 
-// The rules screen, end to end: the pack, a rule's page, the labels, and the
-// alert budget.
-//
-// Store mapping and the wording helpers are covered by the unit suite. What only
-// a browser can show is asserted here: the routes resolve and render, a rule's
-// logic never appears as a control, and the whole write surface is absent for an
-// ordinary member rather than present-and-refused.
+// A rule's logic never appears as a control, and the write surface is absent for a member.
 
 const LABEL_ID = "dddd1111-2222-4333-8444-555566667777";
 const DEVICE_ID = "bbbb1111-2222-4333-8444-555566667777";
@@ -93,11 +87,7 @@ const limits = {
 
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 
-/**
- * Stub the pack, one rule, the labels and the budget, recording every URL asked
- * for. Matched by pathname rather than by glob, because each read carries a
- * customer query only when one is selected.
- */
+// Matched by pathname because each read carries a customer query only when one is selected.
 async function stubRules(page: AuthedPage, seen: string[]) {
   await page.route(
     (url: URL) =>
@@ -127,12 +117,9 @@ test.describe("Rules", () => {
     await expect(authedPage.getByRole("link", { name: "disk-critical" })).toBeVisible();
     await expect(authedPage.getByText("disk.used_percent at or above 90")).toBeVisible();
 
-    // The count is against the fleet it was taken over, and machines that
-    // cannot run the rule are called out rather than folded into the total.
     await expect(authedPage.getByText("/ 312")).toBeVisible();
     await expect(authedPage.getByText(/6 cannot run it/)).toBeVisible();
 
-    // Nothing on the list is a control.
     await expect(authedPage.locator("input")).toHaveCount(0);
   });
 
@@ -149,12 +136,9 @@ test.describe("Rules", () => {
     await expect(authedPage.getByText("machines labelled role=file-server")).toBeVisible();
     await expect(authedPage.getByText(/allowed 50–99, ships at 90/).first()).toBeVisible();
 
-    // The clamp says what moved and that the rule is still firing at the moved
-    // value, which is the point of it.
     await expect(authedPage.getByText(/no longer allows threshold at 98/)).toBeVisible();
     await expect(authedPage.getByText(/it is running at 95/)).toBeVisible();
 
-    // Coverage accounts for every machine in the fleet.
     await expect(authedPage.getByText("312 of 312 machines accounted for.")).toBeVisible();
   });
 
@@ -179,7 +163,6 @@ test.describe("Rules", () => {
     await expect(adminPage.getByRole("button", { name: "Stop for every customer" })).toBeVisible();
     await expect(adminPage.getByText("This customer gets the rule")).toBeVisible();
 
-    // The pull-back is not something the screen offers a way to switch off.
     await expect(adminPage.getByText(/cannot be\s+switched off/)).toBeVisible();
   });
 
@@ -210,10 +193,7 @@ test.describe("Rules", () => {
   }) => {
     const seen: string[] = [];
 
-    // A real customer, read from the tenant's own list with the caller's token.
-    // The picker deliberately drops a selection the tenant does not have, so a
-    // made-up id would be cleared on boot and the reads would go out unnarrowed
-    // — the app working as designed rather than the narrowing failing.
+    // The picker drops a selection the tenant does not have, so the id comes from the tenant's list.
     const listed = await request.get("/api/v1/organizations", {
       headers: { Authorization: `Bearer ${testUser.token}` },
     });

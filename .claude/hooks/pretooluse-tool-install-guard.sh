@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-tool-install-guard.sh — a pinned tool installed from the command
-# line is installed at its pin.
-#
-# Triggers on PreToolUse Bash. Refuses a `go install`, `cargo install`,
-# `pip`/`pipx install`, or a distribution install (apt, apt-get, snap, brew) of a
-# tool scripts/lib/tool-versions.sh pins, when it names no version, `@latest`,
-# or a version other than the pin. A distribution package carries the
-# distribution's version, so it is refused whatever it names.
-#
-# Why a hook: the parity sweep reads files, and a typed command is not a file.
-# The workstation's govulncheck was replaced by a hand-typed `@latest` install;
-# the gauntlet ran that copy green for days while CI ran the pin, which crashed.
-#
-# NO BYPASS.
+# Refuses a typed install of a tool scripts/lib/tool-versions.sh pins that names no version,
+# @latest or another version; a distribution package carries its own version, so it is refused.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -28,7 +16,7 @@ grep -qE '(^|[^A-Za-z0-9_-])install([^A-Za-z0-9_-]|$)' <<<"$cmd" || exit 0
 # shellcheck source=../../scripts/lib/tool-versions.sh
 . "$PROJECT_ROOT/scripts/lib/tool-versions.sh"
 
-# Each refused install, as: tool<TAB>pin<TAB>what was asked for.
+# Each refused install is a tab-separated line of tool, pin and what was asked for.
 refused="$(
   CMD="$cmd" python3 - <<'PYEOF'
 import os, re, shlex

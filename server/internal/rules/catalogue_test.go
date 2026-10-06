@@ -10,9 +10,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// validYAML is a minimal well-formed one-rule catalogue. Every rejection test
-// below starts from this and breaks exactly one thing, so a failure names the
-// field that broke rather than "the fixture is wrong".
 const validYAML = `
 rules:
   - id: disk-critical
@@ -33,8 +30,6 @@ rules:
       clear: {min: 40, max: 98}
 `
 
-// loadFixture parses YAML with immutability checking disabled, which is what
-// every test that is not about the lock wants.
 func loadFixture(t *testing.T, yaml string) (*Catalogue, error) {
 	t.Helper()
 	return LoadCatalogue([]byte(yaml), nil)
@@ -57,12 +52,6 @@ func TestLoadCatalogueAcceptsAWellFormedRule(t *testing.T) {
 	assert.Equal(t, []string{"device"}, def.GroupBy)
 }
 
-// TestNoRuleMayGroupAboveTheCustomer pins the ceiling on grouping. The customer
-// is the widest a room may be: at the tenant, Contoso's driver rollout and
-// Fabrikam's unrelated outage land in one incident with no correct assignee, and
-// the MSP's technician opens a room about two estates. Nothing in the grammar
-// spells `tenant` today, and this is what keeps it that way — an
-// unreachable-by-convention rule is exactly how a ceiling comes back.
 func TestNoRuleMayGroupAboveTheCustomer(t *testing.T) {
 	t.Parallel()
 
@@ -75,8 +64,6 @@ func TestNoRuleMayGroupAboveTheCustomer(t *testing.T) {
 		})
 	}
 
-	// The customer itself is the widest that is allowed, so the refusal above is
-	// a ceiling rather than a vocabulary that happens to be short.
 	cat, err := loadFixture(t, strings.ReplaceAll(validYAML, "[device]", "[organization]"))
 	require.NoError(t, err)
 	def, ok := cat.Lookup("disk-critical")
@@ -84,8 +71,6 @@ func TestNoRuleMayGroupAboveTheCustomer(t *testing.T) {
 	assert.Equal(t, []string{"organization"}, def.GroupBy)
 }
 
-// A rule is only ever addressed by its id, so two definitions sharing one is
-// ambiguous rather than additive.
 func TestLoadCatalogueRejectsADuplicateRuleVersion(t *testing.T) {
 	t.Parallel()
 
@@ -103,16 +88,11 @@ func TestLoadCatalogueRejectsMalformedDefinitions(t *testing.T) {
 		wantErr string
 	}{
 		{
-			// A field the loader does not know is a typo or a feature that does
-			// not exist; either way silently ignoring it ships a rule that does
-			// not do what it says.
 			name:    "unknown field",
 			mutate:  func(y string) string { return y + "    thresold: 90\n" },
 			wantErr: "field thresold not found",
 		},
 		{
-			// Without a grouping key a rule cannot say what its alerts are about,
-			// so there is nothing to correlate or de-duplicate them by.
 			name:    "missing group_by",
 			mutate:  func(y string) string { return strings.ReplaceAll(y, "    group_by: [device]\n", "") },
 			wantErr: "group_by",
@@ -128,8 +108,6 @@ func TestLoadCatalogueRejectsMalformedDefinitions(t *testing.T) {
 			wantErr: "group_by",
 		},
 		{
-			// A metric the fleet does not collect can never fire, so a rule
-			// naming one is dead on arrival rather than merely quiet.
 			name:    "metric outside the vocabulary",
 			mutate:  func(y string) string { return strings.ReplaceAll(y, "disk.used_percent", "disk.spinning_rust") },
 			wantErr: "metric",
@@ -165,8 +143,6 @@ func TestLoadCatalogueRejectsMalformedDefinitions(t *testing.T) {
 			wantErr: "evidence",
 		},
 		{
-			// Only the fields the grammar can actually carry are tunable; a
-			// binding naming anything else would never reach the agent.
 			name: "tunable names a field that is not tunable",
 			mutate: func(y string) string {
 				return strings.ReplaceAll(y, "      threshold: {min: 50, max: 99}", "      metric: {min: 1, max: 2}")
@@ -179,8 +155,6 @@ func TestLoadCatalogueRejectsMalformedDefinitions(t *testing.T) {
 			wantErr: "lower-case",
 		},
 		{
-			// A rule that cannot say what it is for is one nobody reading the
-			// alert can act on.
 			name:    "no summary",
 			mutate:  func(y string) string { return strings.ReplaceAll(y, "    summary: A disk is nearly full.\n", "") },
 			wantErr: "summary is required",
@@ -193,9 +167,6 @@ func TestLoadCatalogueRejectsMalformedDefinitions(t *testing.T) {
 			wantErr: "coverage_requires",
 		},
 		{
-			// A further condition is compared on the machine exactly like the
-			// first, so it is held to the same vocabulary, and the refusal says
-			// which one.
 			name: "a further condition outside the vocabulary",
 			mutate: func(y string) string {
 				return y + "    all:\n      - metric: disk.spinning_rust\n        comparator: gt\n        threshold: 1\n        predicate: Instant\n"
@@ -208,8 +179,6 @@ func TestLoadCatalogueRejectsMalformedDefinitions(t *testing.T) {
 			wantErr: "bounds",
 		},
 		{
-			// A rule shipping a value its own bindings would be refused is a
-			// contradiction the catalogue must not be able to state.
 			name:    "shipped default outside its own declared bounds",
 			mutate:  func(y string) string { return strings.ReplaceAll(y, "{min: 50, max: 99}", "{min: 95, max: 99}") },
 			wantErr: "outside",
@@ -226,8 +195,6 @@ func TestLoadCatalogueRejectsMalformedDefinitions(t *testing.T) {
 	}
 }
 
-// The catalogue is the one place a rule's shape is decided, so it must be
-// loadable — a typo here is a build-time failure, never a runtime surprise.
 func TestEmbeddedCatalogueLoadsAndIsImmutable(t *testing.T) {
 	t.Parallel()
 
@@ -240,8 +207,6 @@ func TestEmbeddedCatalogueLoadsAndIsImmutable(t *testing.T) {
 		assert.NotEmpty(t, def.GroupBy, "%s must say what its alerts are about", def.ID)
 		assert.NotEmpty(t, def.Severity, "%s must say how bad it is", def.ID)
 		if def.WatchesEvents() {
-			// A rule reading the machine's own words watches no reading, so
-			// there is no name here to hold against the fleet's vocabulary.
 			assert.Empty(t, def.Metric, "%s watches words, so it names no reading", def.ID)
 			continue
 		}
@@ -250,16 +215,12 @@ func TestEmbeddedCatalogueLoadsAndIsImmutable(t *testing.T) {
 	}
 }
 
-// Immutability per (rule_id, version) is the assertion the lock file exists to
-// make: editing a shipped definition without bumping its version is refused at
-// load, so a rule cannot change meaning underneath an alert already raised by it.
 func TestLoadCatalogueRejectsAMutatedDefinitionForAnExistingVersion(t *testing.T) {
 	t.Parallel()
 
 	lock, err := DigestCatalogue([]byte(validYAML))
 	require.NoError(t, err)
 
-	// The same bytes still load: the digest is over what the rule means.
 	_, err = LoadCatalogue([]byte(validYAML), lock)
 	require.NoError(t, err)
 
@@ -268,14 +229,11 @@ func TestLoadCatalogueRejectsAMutatedDefinitionForAnExistingVersion(t *testing.T
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "immutab")
 
-	// Bumping the version is how a definition is allowed to change.
 	bumped := strings.ReplaceAll(mutated, "version: 1", "version: 2")
 	_, err = LoadCatalogue([]byte(bumped), lock)
 	require.NoError(t, err)
 }
 
-// The shipped catalogue is locked against its own committed digests, so the
-// gate is live rather than merely available.
 func TestEmbeddedCatalogueMatchesItsCommittedLock(t *testing.T) {
 	t.Parallel()
 

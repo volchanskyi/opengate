@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Merge per-shard cargo-mutants outcome files into the single outcomes.json the
-# summarizer consumes. The rust mutation leg is sharded with `cargo mutants
-# --shard k/n`; each shard writes its own mutants.out/outcomes.json over a
-# fraction of the workspace mutants. This sums the top-level count fields
-# parse_rust reads in scripts/mutation-summarize.sh, keeping that contract
-# unchanged (mirrors scripts/mutation-merge-go.sh for the Go leg).
+# Sums the top-level count fields of per-shard cargo-mutants outcomes.json files into one,
+# the fields parse_rust reads in scripts/mutation-summarize.sh.
 #
 # Usage: mutation-merge-rust.sh <out.json> <shard-outcomes.json>...
 set -euo pipefail

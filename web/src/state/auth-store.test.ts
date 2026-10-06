@@ -167,9 +167,6 @@ describe('auth store', () => {
   });
 
   it('tenantIdFromToken decodes a base64url payload needing both substitutions and padding', () => {
-    // This tenant encodes to a payload carrying '-' and '_' (base64url's stand-ins
-    // for '+' and '/') whose length is not a multiple of four, so decoding it
-    // exercises both character substitutions and the '=' padding together.
     const tenant = '_%Y~NBDRz?rZS';
     const token = jwtWithTenant(tenant);
     const payload = token.split('.')[1] ?? '';
@@ -189,9 +186,7 @@ describe('auth store', () => {
     expect(tenantIdFromToken(jwtWithTenant(''))).toBeNull();
     expect(tenantIdFromToken(tokenWithClaims({ tenant: 42 }))).toBeNull();
 
-    // A token still held from before the tenancy rename names its tenant under
-    // a key this build does not read, so it reads as no tenant. The server
-    // answers 401 for the same token and the store logs out from there.
+    // A token that names its tenant under `org` yields no tenant.
     expect(tenantIdFromToken(tokenWithClaims({ org: crypto.randomUUID() }))).toBeNull();
   });
 });

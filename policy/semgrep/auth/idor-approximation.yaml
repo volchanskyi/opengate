@@ -1,18 +1,5 @@
-# og-idor-missing-ownership-check — read-by-id without an ownership derivation.
-#
-# Catches gap class (approximate): a handler fetches a resource by a
-# caller-supplied id (s.<repo>.Get(ctx, request.Id)) without first deriving the
-# acting user (ContextUserID) or asserting organization scope
-# (requireDeviceInScope / requireAMTDeviceInScope / requireSessionInScope /
-# isOwner).
-# This is the IDOR shape — any authenticated user reading another tenant's
-# object by guessing its id.
-#
-# Ships as WARNING (MEDIUM): the pattern legitimately over-fires on admin-only
-# handlers (already gated by denyIfNotAdmin) and on global resources with no
-# ownership semantic. It is a ratchet signal surfaced in /pentest-review, not a
-# hard commit block. Promote individual findings to a fix; do not blanket-
-# suppress.
+# A read by caller-supplied id with no user or scope derivation is the cross-tenant IDOR shape.
+# The severity is WARNING because admin-only and global handlers over-fire.
 rules:
   - id: og-idor-missing-ownership-check
     languages: [go]

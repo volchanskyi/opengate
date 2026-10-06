@@ -8,16 +8,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// What a definition has to say before it may ship.
-//
-// Every refusal here happens at load rather than at the moment a rule would
-// have fired. A rule the fleet cannot evaluate, cannot render or cannot group
-// is one whose failure would otherwise surface as an alert nobody can act on,
-// months later, on somebody's estate — and by then the rule is already on every
-// machine.
-
-// validateDefinition refuses anything the grammar cannot express or the fleet
-// cannot evaluate. Position is reported when the rule has no usable id.
+// The rule's position is reported when it has no usable id.
 func validateDefinition(def Definition, index int) error {
 	where := def.ID
 	if where == "" {
@@ -39,8 +30,6 @@ func validateDefinition(def Definition, index int) error {
 	return validateTunable(def, fail)
 }
 
-// validateIdentity checks what an alert raised by the rule is identified and
-// ordered by: its id, its revision, what it is for and how bad it is.
 func validateIdentity(def Definition, fail func(string, ...any) error) error {
 	if def.ID == "" {
 		return fail("id is required")
@@ -63,8 +52,6 @@ func validateIdentity(def Definition, fail func(string, ...any) error) error {
 	return nil
 }
 
-// validateGrouping checks what the rule's alerts are about, what they carry and
-// which machines can answer for it.
 func validateGrouping(def Definition, fail func(string, ...any) error) error {
 	if len(def.GroupBy) == 0 {
 		return fail("group_by is required — a rule must say what its alerts are about")
@@ -90,13 +77,8 @@ func validateGrouping(def Definition, fail func(string, ...any) error) error {
 	return nil
 }
 
-// validateWhatItWatches checks the half of a rule that differs by kind.
-//
-// A rule about a reading is compared on the machine, so every part of that
-// comparison has to be expressible in the grammar the machine evaluates. A rule
-// about the machine's own words is matched by a reader the machine already
-// carries, so it states none of that — and naming a reading it cannot have is a
-// rule written wrong rather than one with a field to spare.
+// A reading rule is compared on the machine, so its comparison must fit the machine's grammar;
+// an event rule is matched by the machine's own log reader and states none of it.
 func validateWhatItWatches(def Definition, fail func(string, ...any) error) error {
 	if def.WatchesEvents() {
 		return validateEventRule(def, fail)
@@ -119,8 +101,6 @@ func validateWhatItWatches(def Definition, fail func(string, ...any) error) erro
 	return nil
 }
 
-// validateEventRule checks a rule about the machine's own words states none of
-// the comparison a rule about a reading is made of.
 func validateEventRule(def Definition, fail func(string, ...any) error) error {
 	for name, value := range map[string]string{
 		"metric":     def.Metric,
@@ -141,7 +121,6 @@ func validateEventRule(def Definition, fail func(string, ...any) error) error {
 	return nil
 }
 
-// validateCondition checks one side of a rule against the vocabularies.
 func validateCondition(metric, comparator, predicate string, fail func(string, ...any) error) error {
 	if _, ok := protocol.CanonicalRuleMetric(metric); !ok {
 		return fail("metric %q is outside the vocabulary the fleet collects", metric)
@@ -155,9 +134,7 @@ func validateCondition(metric, comparator, predicate string, fail func(string, .
 	return nil
 }
 
-// validateTunable checks that every declared parameter is one the grammar
-// carries, that its range is a range, and that the rule's own shipped value sits
-// inside it — a rule may not ship a default its own bindings would be refused.
+// The shipped value of a tunable sits inside its own bounds, or its bindings would be refused.
 func validateTunable(def Definition, fail func(string, ...any) error) error {
 	names := make([]string, 0, len(def.Tunable))
 	for name := range def.Tunable {
@@ -182,7 +159,6 @@ func validateTunable(def Definition, fail func(string, ...any) error) error {
 	return nil
 }
 
-// validRuleID reports whether id is lower-case letters, digits and dashes.
 func validRuleID(id string) bool {
 	for _, r := range id {
 		switch {

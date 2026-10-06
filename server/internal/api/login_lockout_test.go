@@ -13,18 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLoginHandlerPerEmailLockout verifies that repeated failed logins for one
-// account lock the login path with a 429, regardless of source IP, while a
-// different account stays unaffected.
 func TestLoginHandlerPerEmailLockout(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	const victim = "victim@example.com"
 	seedTestUser(t, srv, cfg, victim, false)
 
-	// failFromIP submits a wrong-password login for email from a distinct source
-	// address. The peer address is what identifies a client, so the test varies
-	// RemoteAddr rather than a header a caller could forge.
+	// The peer address identifies a client, so the test varies RemoteAddr, not a forgeable header.
 	failFromIP := func(email, ip string) *httptest.ResponseRecorder {
 		body, err := json.Marshal(map[string]string{"email": email, "password": "wrong"})
 		require.NoError(t, err)
@@ -36,7 +31,6 @@ func TestLoginHandlerPerEmailLockout(t *testing.T) {
 		return w
 	}
 
-	// Spread failures across distinct IPs — the per-IP limiter would not trip.
 	for i := 0; i < loginMaxFailures; i++ {
 		w := failFromIP(victim, fmt.Sprintf("203.0.113.%d", i))
 		require.Equal(t, http.StatusUnauthorized, w.Code, "attempt %d should be 401", i)

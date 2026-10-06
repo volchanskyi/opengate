@@ -1,30 +1,15 @@
 #!/usr/bin/env bash
-# Read a load profile's own numbers, for the shell steps that enforce them.
-#
-# The profile is the single source of truth for what a run asks for and what it
-# is judged against. Two shell steps need those numbers — the one that decides
-# whether tonight breached a limit, and the one that compares tonight against
-# the last fortnight — and both used to carry numbers of their own instead. One
-# measurement then had two limits in two files, and an edit to either did not do
-# what it said.
-#
-# So the numbers are read from the profile, here, once. This file is sourced;
-# it defines functions and runs nothing.
+# Reads a load profile's own numbers, the one source of what a run asks for and is judged against.
+# Sourced by the shell steps that enforce them; it defines functions and runs nothing.
 
-# profile_reader_available reports whether this machine can read a profile.
-#
-# A reader that cannot read must fail rather than answer. A gate that says yes
-# when it could not ask is the false green this repository has a rule against,
-# and it is the more dangerous half here: the caller is deciding whether a
-# night's numbers were acceptable, so "I could not read the limits" must never
-# arrive as "no limit was breached".
+# profile_reader_available reports whether this machine can read a profile; callers fail when it
+# cannot, since an unread limit must never pass as an unbreached one.
 profile_reader_available() {
   python3 -c 'import yaml' >/dev/null 2>&1
 }
 
-# profile_gates prints a profile's limits as a JSON array of
-# {series, metric, max, min, blocking}. Absent max or min come through as null,
-# which is how "no ceiling" stays distinguishable from a ceiling of zero.
+# profile_gates prints a profile's limits as a JSON array of {series, metric, max, min, blocking};
+# an absent max or min is null, which keeps "no ceiling" distinct from a ceiling of zero.
 profile_gates() {
   local profile="$1"
 
@@ -61,14 +46,8 @@ json.dump(rows, sys.stdout)
 PY
 }
 
-# profile_ungated prints the measurements a profile has deliberately left
-# without a limit, as a JSON array of {series, metric, reason}.
-#
-# The set of absolute limits the profile took over had a catch-all: a series
-# nobody listed was held to a default automatically. A profile has no catch-all,
-# so a measurement that is neither limited nor named here is one nobody has
-# ruled on — which looks exactly like one deliberately left alone and is not the
-# same thing.
+# profile_ungated prints the measurements a profile leaves without a limit, as a JSON array of
+# {series, metric, reason}; a measurement neither limited nor listed here is unruled.
 profile_ungated() {
   local profile="$1"
 
@@ -103,12 +82,7 @@ json.dump(rows, sys.stdout)
 PY
 }
 
-# profile_venue prints the venue a profile runs in.
-#
-# The venue is what decides how large a fleet the profile may ask for, and until
-# it had a reader it was a field only the harness looked at — so nothing over
-# the whole directory could tell a profile asking for more machines than its
-# venue holds from one asking for a reasonable number.
+# profile_venue prints the venue a profile runs in, which decides how large a fleet it may ask for.
 profile_venue() {
   local profile="$1" venue
 
@@ -140,13 +114,7 @@ PY
   printf '%s\n' "$venue"
 }
 
-# profile_is_ladder prints true when a profile has written down what counts as
-# giving out, and false otherwise.
-#
-# A capacity ladder is exactly a profile that states the condition it is looking
-# for before it goes looking — without that its answer is whatever the run
-# happened to survive. So the declaration is the definition, and nothing else
-# needs to keep a list of which profiles are ladders.
+# profile_is_ladder prints true when a profile declares what counts as giving out, else false.
 profile_is_ladder() {
   local profile="$1"
 
@@ -171,22 +139,8 @@ print("true" if profile.get("gave_out") else "false")
 PY
 }
 
-# profile_phases prints a profile's walk as a JSON array of
-# {name, seconds, arrivals_per_second, sessions, agents, measured}.
-#
-# It is what a browser-side generator is handed. The technician numbers — how
-# many journeys a second arrive, how many sessions are open — are technician-side
-# facts the machine-side harness cannot offer, and they were read by nothing at
-# all: a profile could declare fifteen arrivals a second while the run offered a
-# fixed twenty virtual users sleeping a second and a half between journeys, and
-# no number anywhere said the two disagreed.
-# A second argument says how many seconds of the walk have already gone. The
-# machine-side harness starts walking as soon as it has machines, and a
-# browser-side generator cannot start until the estate it reads is filed — which
-# is after the arrivals. A generator that then started the walk from its
-# beginning would be a phase behind for the rest of the night: its steady window
-# would run on past the drain, and the percentile it publishes would be taken
-# partly against a fleet that had already left.
+# profile_phases prints a profile's walk as a JSON array of {name, seconds, arrivals_per_second,
+# sessions, agents, measured}; the optional second argument is the seconds of the walk already gone.
 profile_phases() {
   local profile="$1" elapsed="${2:-0}"
 

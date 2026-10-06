@@ -12,11 +12,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/app"
 )
 
-// internalPaths are the routes that belong to the cluster and to nobody else:
-// the exposition a scraper reads, and the profiler an operator attaches to a
-// pod that is misbehaving. Both render process internals, and neither has any
-// authentication in front of it, so the boundary is the listener rather than a
-// rule on the edge.
+// internalPaths are the unauthenticated process-internal routes the cluster-only listener serves.
 var internalPaths = []string{
 	"/metrics",
 	"/debug/pprof/",
@@ -27,11 +23,6 @@ var internalPaths = []string{
 	"/debug/pprof/trace",
 }
 
-// TestInternalListenerIsTheOnlyWayToTheProcessInternals asserts the boundary as
-// two handlers rather than as one: every internal path answers on the internal
-// listener and is absent from the public one. Stating it on a single handler
-// would prove only that a route exists somewhere, which is the belief that let
-// two comments assert a boundary the ingress had stopped providing.
 func TestInternalListenerIsTheOnlyWayToTheProcessInternals(t *testing.T) {
 	t.Parallel()
 
@@ -55,9 +46,6 @@ func TestInternalListenerIsTheOnlyWayToTheProcessInternals(t *testing.T) {
 	}
 }
 
-// TestInternalListenerServesTheExposition proves the moved endpoint still
-// renders the registry the process instruments itself with — the four families
-// this incident was diagnosed from live on that page.
 func TestInternalListenerServesTheExposition(t *testing.T) {
 	t.Parallel()
 
@@ -80,10 +68,6 @@ func TestInternalListenerServesTheExposition(t *testing.T) {
 	}
 }
 
-// TestInternalListenerAddressComesFromConfiguration keeps the port the process
-// binds and the port the chart, the scrape job and the harness name in one
-// place: a listener that ignored its configured address would answer every test
-// above and still be unreachable in the cluster.
 func TestInternalListenerAddressComesFromConfiguration(t *testing.T) {
 	t.Parallel()
 
@@ -95,9 +79,6 @@ func TestInternalListenerAddressComesFromConfiguration(t *testing.T) {
 	assert.Equal(t, "127.0.0.1:18099", assembly.Internal.Addr)
 }
 
-// TestPublicListenerKeepsTheLivenessProbe fixes the one route that must not
-// move: the kubelet probes the container's published port, so /healthz staying
-// public is what keeps the pod restartable.
 func TestPublicListenerKeepsTheLivenessProbe(t *testing.T) {
 	t.Parallel()
 
@@ -109,20 +90,6 @@ func TestPublicListenerKeepsTheLivenessProbe(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "/healthz must stay on the listener the kubelet probes")
 }
 
-// TestTheExpositionCarriesWhatTheProcessIsHolding proves the three runtime
-// counts reach the page at all, which is the seam between the product being
-// assembled and the page knowing what to ask.
-//
-// They are worked out where the page is built rather than copied in on a timer,
-// so nothing here waits: a process holding no machines says nought, and it says
-// it on the first read. The alternative is a copy up to one refresh interval
-// old, which everything downstream reads as a fact about the present — a load
-// run comparing its own count of the fleet against this one was short by the
-// arrival rate times that interval, and refused a phase holding five hundred
-// machines for a server "holding" four hundred and fifty-eight.
-//
-// A binding nobody made would leave all three absent rather than reporting
-// nought, because a count nobody can take is not a count of nought.
 func TestTheExpositionCarriesWhatTheProcessIsHolding(t *testing.T) {
 	t.Parallel()
 

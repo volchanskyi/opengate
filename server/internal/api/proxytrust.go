@@ -10,66 +10,34 @@ import (
 	"time"
 )
 
-// TrustedProxies is the set of reverse proxies whose X-Forwarded-For this
-// deployment believes.
-//
-// The rule it replaces believed any peer that was loopback, private or
-// link-local — which inside a cluster is every pod there is. A request bucket
-// is an identity, so anything that can choose its own X-Forwarded-For can mint
-// a fresh allowance per request, and the old rule handed that to every
-// workload sharing the cluster rather than to the one address requests actually
-// enter through.
-//
-// An entry is one of two things:
-//
-//   - a Kubernetes service, written "<service>.<namespace>". The peer is
-//     believed when the cluster's own resolver says that address answers for
-//     that service. A service is named rather than an address because the
-//     address is the controller pod's, which changes on every restart and is
-//     knowable to nobody at deploy time.
-//   - a range or a single address, written as a CIDR or an address. This is for
-//     a venue with no cluster resolver to ask — the throwaway compose stack a
-//     performance run creates and destroys inside one job, whose proxy is on a
-//     bridge network that job made.
-//
-// Nothing configured trusts nobody, which is the right answer for a server
-// reached directly.
+// TrustedProxies is the set of proxies whose X-Forwarded-For is believed, by service or by range.
+// An empty set trusts nobody.
 type TrustedProxies struct {
 	services []proxyService
 	ranges   []netip.Prefix
 	resolver addrNamer
 
-	// How long an answer is kept. A grant is kept longer than a refusal: a
-	// grant is about a pod that has to be replaced before it changes, while a
-	// refusal is routinely about a pod that has only just started and is not
-	// yet listed against its service — a generator whose first request arrives
-	// in that gap must not be refused for the rest of the run.
+	// A refusal expires sooner than a grant because a pod that has just started is not yet
+	// listed against its service.
 	positiveTTL time.Duration
 	negativeTTL time.Duration
-	// How long the resolver is given. A peer is asked about once per TTL, so
-	// this is paid rarely; what it bounds is a request waiting on a resolver
-	// that has stopped answering.
+	// budget bounds how long a request waits on the resolver.
 	budget time.Duration
 
 	mu   sync.Mutex
 	seen map[netip.Addr]trustVerdict
 }
 
-// proxyService is a service and the namespace holding it.
 type proxyService struct {
 	name      string
 	namespace string
 }
 
-// trustVerdict is one answer about one peer, and when it stops being current.
 type trustVerdict struct {
 	trusted bool
 	expires time.Time
 }
 
-// addrNamer asks what an address is called. *net.Resolver is the shipped one;
-// the cluster's resolver is the only thing that holds the answer, so it is the
-// boundary a test stands in for.
 type addrNamer interface {
 	LookupAddr(ctx context.Context, addr string) ([]string, error)
 }
@@ -78,19 +46,12 @@ const (
 	defaultTrustPositiveTTL = 5 * time.Minute
 	defaultTrustNegativeTTL = 5 * time.Second
 	defaultTrustBudget      = 500 * time.Millisecond
-	// maxTrustedPeersRemembered bounds what the answers cost to keep. A cluster
-	// has far fewer peers than this; the cap is here because a map fed by
-	// whoever connects is a map somebody else decides the size of.
+	// maxTrustedPeersRemembered caps the answer map, whose keys are chosen by whoever connects.
 	maxTrustedPeersRemembered = 1024
 )
 
-// ParseTrustedProxies reads the configured entries. Nil with no error means
-// nothing was named, which is a deployment that believes no proxy at all.
-//
-// An entry that cannot be read is an error rather than a skip: a name with a
-// typo in it would otherwise silently narrow the trusted set to nothing, and
-// the symptom — every technician behind one allowance — appears somewhere else
-// entirely.
+// ParseTrustedProxies parses the configured entries, returning nil when none are named.
+// An unreadable entry is an error, so a typo cannot silently empty the trusted set.
 func ParseTrustedProxies(entries []string) (*TrustedProxies, error) {
 	trust := &TrustedProxies{
 		positiveTTL: defaultTrustPositiveTTL,
@@ -135,10 +96,7 @@ func isAddress(entry string) bool {
 	return err == nil
 }
 
-// parseProxyService reads "<service>.<namespace>". Exactly two labels: the rest
-// of the name a cluster gives a service — the "svc" label and the cluster's own
-// zone — is matched structurally rather than spelled here, so a cluster with a
-// different zone needs no second home for it.
+// parseProxyService reads "<service>.<namespace>"; the cluster zone is matched later, so any works.
 func parseProxyService(entry string) (proxyService, error) {
 	labels := strings.Split(entry, ".")
 	if len(labels) != 2 || labels[0] == "" || labels[1] == "" {
@@ -148,15 +106,12 @@ func parseProxyService(entry string) (proxyService, error) {
 	return proxyService{name: labels[0], namespace: labels[1]}, nil
 }
 
-// trusts reports whether the peer at addr is one of the proxies this deployment
-// operates. A nil receiver — nothing configured — trusts nobody.
 func (t *TrustedProxies) trusts(addr netip.Addr) bool {
 	if t == nil || !addr.IsValid() {
 		return false
 	}
 
-	// A range is a fact about the address itself, so it is answered without
-	// asking anybody and without being remembered.
+	// A range answers from the address alone, so it is neither resolved nor remembered.
 	for _, prefix := range t.ranges {
 		if prefix.Contains(addr) {
 			return true
@@ -203,8 +158,7 @@ func (t *TrustedProxies) remember(addr netip.Addr, trusted bool, now time.Time) 
 	t.seen[addr] = trustVerdict{trusted: trusted, expires: now.Add(ttl)}
 }
 
-// forgetExpired drops answers that are no longer current. The caller holds the
-// lock.
+// forgetExpired drops expired answers; the caller holds the lock.
 func (t *TrustedProxies) forgetExpired(now time.Time) {
 	for addr, verdict := range t.seen {
 		if !now.Before(verdict.expires) {
@@ -213,9 +167,7 @@ func (t *TrustedProxies) forgetExpired(now time.Time) {
 	}
 }
 
-// askTheCluster asks the resolver what the peer is called and reads the answer
-// for a service this deployment named. A resolver that cannot answer produces a
-// refusal: a question that could not be asked is never a grant.
+// askTheCluster matches the resolver's names for the peer against the services; failure refuses.
 func (t *TrustedProxies) askTheCluster(addr netip.Addr) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), t.budget)
 	defer cancel()
@@ -234,14 +186,7 @@ func (t *TrustedProxies) askTheCluster(addr netip.Addr) bool {
 	return false
 }
 
-// nameAnswersFor reports whether a cluster name belongs to a service.
-//
-// A cluster names an endpoint "<pod>.<service>.<namespace>.svc.<zone>", where
-// the leading label is the dashed address for an ordinary pod and the pod's own
-// hostname for one in a set. Which pod it is was never the question, so the
-// match is on the "svc" label with the service and its namespace in front of
-// it, and at least one label of zone behind — a name that stops at "svc" names
-// no cluster.
+// nameAnswersFor matches "<pod>.<service>.<namespace>.svc.<zone>"; a zone label must follow "svc".
 func nameAnswersFor(name string, service proxyService) bool {
 	labels := strings.Split(strings.TrimSuffix(name, "."), ".")
 	for i := 2; i < len(labels)-1; i++ {

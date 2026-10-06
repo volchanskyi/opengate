@@ -1,16 +1,5 @@
-# A step change with no ramp: a site whose link came back, or a rollout that
-# restarted a fleet at once. What is being measured is the recovery, not the
-# spike — the numbers that matter are how long the system took to answer
-# normally again after the step ended.
-#
-# It runs on a disposable runner stack rather than on staging. The cluster node
-# offers 1,830 millicores with 1,680 reserved, and the fleet this profile asks
-# for is several times the largest anything has ever connected to it — so the
-# venue could never answer the question, whatever the run did. A runner brings
-# its own processors and its own disk and is thrown away at the end of the job.
-#
-# A runner is x86_64 and production is ARM64, so what this produces is a
-# comparison and never an absolute capacity claim about production hardware.
+# A step change with no ramp, measured by how long the system takes to answer normally afterwards.
+# It runs on a disposable x86_64 runner stack, so results compare runs and claim no ARM64 capacity.
 schema_version: 1
 name: spike
 family: spike
@@ -38,22 +27,14 @@ phases:
     connected_agents: 500
     sessions: 5
 
-# No processor ceiling. This stack is created by the job and thrown away with
-# it, so there is no neighbour to protect, and driving the processor is the
-# experiment rather than a hazard.
+# No processor ceiling, since driving the processor is the experiment on a throwaway stack.
 safety:
   max_node_memory_percent: 90
   max_error_rate: 0.05
 
 gates:
-  # What judges this leg is its own evidence bundle, and a bundle states the
-  # machine side: a limit naming a browser-side measurement would be held
-  # against a row the reader does not produce. The technician load that runs
-  # beside the fleet is folded into the bundle all the same, and reported there.
-  #
-  # The step is expected to degrade and the recovery is what is being judged, so
-  # what every run of this owes is that its machines came back at all: a fleet
-  # that never returned measured the outage rather than the recovery from it.
+  # The evidence bundle judges the leg, so limits name machine-side measurements only.
+  # The step may degrade, and every run owes that its machines came back so recovery is measured.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0.05

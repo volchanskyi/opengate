@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -25,8 +26,6 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 	return newTestServerWithUpdaterAndAgents(t, &stubAgentGetter{})
 }
 
-// newTestServerWithUpdaterAndAgents builds the updater-enabled server against a
-// caller-supplied AgentGetter, so a test can drive the push loop's send path.
 func newTestServerWithUpdaterAndAgents(t *testing.T, agents AgentGetter) (*Server, string, string) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -66,8 +65,6 @@ func newTestServerWithUpdaterAndAgents(t *testing.T, agents AgentGetter) (*Serve
 	return srv, adminToken, userToken
 }
 
-// TestUpdateEndpoints_EmptyList pins that the manifest and status list
-// endpoints return an empty JSON array before anything is published.
 func TestUpdateEndpoints_EmptyList(t *testing.T) {
 	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
@@ -81,7 +78,6 @@ func TestUpdateEndpoints_EmptyList(t *testing.T) {
 	}
 }
 
-// samplePublish returns a valid publish request for version v.
 func samplePublish(v string) PublishUpdateRequest {
 	return PublishUpdateRequest{
 		Version: v,
@@ -92,12 +88,10 @@ func samplePublish(v string) PublishUpdateRequest {
 	}
 }
 
-// samplePush returns a push request for version v.
 func samplePush(v string) PushUpdateRequest {
 	return PushUpdateRequest{Version: v, Os: "linux", Arch: "amd64"}
 }
 
-// publishManifest publishes version v and asserts the request succeeded.
 func publishManifest(t *testing.T, srv *Server, token, v string) {
 	t.Helper()
 	w := doRequest(srv, http.MethodPost, "/api/v1/updates/manifests", token, samplePublish(v))
@@ -136,25 +130,24 @@ func TestListUpdateManifests_AfterPublish(t *testing.T) {
 	assert.Equal(t, "1.0.0", manifests[0].Version)
 }
 
+func assertPushNotFound(t *testing.T, published, pushed string) {
+	t.Helper()
+	srv, adminToken, _ := newTestServerWithUpdater(t)
+	if published != "" {
+		publishManifest(t, srv, adminToken, published)
+	}
+	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush(pushed))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
 func TestPushUpdate_NoManifest(t *testing.T) {
 	t.Parallel()
-	srv, adminToken, _ := newTestServerWithUpdater(t)
-
-	body := samplePush("1.0.0")
-
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, body)
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	assertPushNotFound(t, "", "1.0.0")
 }
 
 func TestPushUpdate_VersionMismatch(t *testing.T) {
 	t.Parallel()
-	srv, adminToken, _ := newTestServerWithUpdater(t)
-
-	publishManifest(t, srv, adminToken, "1.0.0")
-
-	// Push v2.0.0 (not published)
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("2.0.0"))
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	assertPushNotFound(t, "1.0.0", "2.0.0")
 }
 
 func TestPushUpdate_NoConnectedAgents(t *testing.T) {
@@ -163,7 +156,6 @@ func TestPushUpdate_NoConnectedAgents(t *testing.T) {
 
 	publishManifest(t, srv, adminToken, "1.0.0")
 
-	// Push (no agents connected)
 	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("1.0.0"))
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -172,43 +164,31 @@ func TestPushUpdate_NoConnectedAgents(t *testing.T) {
 	assert.Equal(t, 0, resp.PushedCount)
 }
 
-// TestPushUpdate_UndeliverableManifest pins that a manifest the agent could not
-// decode — one missing a version, URL, or signature — surfaces as a 400 rather
-// than being counted as a successful push of zero agents. The failure is a
-// property of the manifest, so every eligible agent would reject it alike.
-func TestPushUpdate_UndeliverableManifest(t *testing.T) {
-	t.Parallel()
-
+func pushToFailingAgent(t *testing.T, updateErr error) (*httptest.ResponseRecorder, *fakeAgentControl) {
+	t.Helper()
 	fake := &fakeAgentControl{
 		meta:      agentapi.AgentMeta{DeviceID: uuid.New(), OS: "linux", Arch: "amd64", AgentVersion: "0.9.0"},
-		updateErr: fmt.Errorf("%w: %s.signature is empty", agentapi.ErrIncompleteControlMessage, protocol.MsgAgentUpdate),
+		updateErr: updateErr,
 	}
 	agents := &stubAgentGetter{agents: map[protocol.DeviceID]AgentControl{fake.meta.DeviceID: fake}}
 	srv, adminToken, _ := newTestServerWithUpdaterAndAgents(t, agents)
-
 	publishManifest(t, srv, adminToken, "1.0.0")
+	return doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("1.0.0")), fake
+}
 
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("1.0.0"))
+func TestPushUpdate_UndeliverableManifest(t *testing.T) {
+	t.Parallel()
+
+	w, fake := pushToFailingAgent(t, fmt.Errorf("%w: %s.signature is empty", agentapi.ErrIncompleteControlMessage, protocol.MsgAgentUpdate))
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, 1, fake.updateCalls)
 }
 
-// A per-agent transport failure is not a manifest defect: it stays a warning and
-// the push reports how many agents it reached.
 func TestPushUpdate_PerAgentSendFailureIsSkipped(t *testing.T) {
 	t.Parallel()
 
-	fake := &fakeAgentControl{
-		meta:      agentapi.AgentMeta{DeviceID: uuid.New(), OS: "linux", Arch: "amd64", AgentVersion: "0.9.0"},
-		updateErr: errors.New("stream closed"),
-	}
-	agents := &stubAgentGetter{agents: map[protocol.DeviceID]AgentControl{fake.meta.DeviceID: fake}}
-	srv, adminToken, _ := newTestServerWithUpdaterAndAgents(t, agents)
-
-	publishManifest(t, srv, adminToken, "1.0.0")
-
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("1.0.0"))
+	w, fake := pushToFailingAgent(t, errors.New("stream closed"))
 
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp PushUpdateResponse
@@ -231,8 +211,6 @@ func TestGetUpdateSigningKey_Admin(t *testing.T) {
 	assert.Len(t, resp.PublicKey, 64) // 32 bytes = 64 hex chars
 }
 
-// TestUpdateEndpoints_NonAdmin pins that every update endpoint rejects a
-// non-admin caller with 403.
 func TestUpdateEndpoints_NonAdmin(t *testing.T) {
 	t.Parallel()
 	srv, _, userToken := newTestServerWithUpdater(t)
@@ -255,5 +233,3 @@ func TestUpdateEndpoints_NonAdmin(t *testing.T) {
 		})
 	}
 }
-
-// NormalizeOS and NormalizeArch tests are in the osutil package.

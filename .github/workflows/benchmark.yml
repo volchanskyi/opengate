@@ -28,9 +28,7 @@ jobs:
     outputs:
       started_at: ${{ steps.started.outputs.at }}
     steps:
-      # The night's date. Every sample the night writes carries this time, so a
-      # run is one point on one date however long it takes, and a re-run of its
-      # failed jobs writes the same point.
+      # Every sample the night writes carries this time, so a re-run writes the same point.
       - name: Record when the run started
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
@@ -99,9 +97,7 @@ jobs:
           cargo bench --package mesh-protocol --bench codec_bench
           DEST="$GITHUB_WORKSPACE/bench-rust-estimates"
           mkdir -p "$DEST"
-          # Data-only artifact: Criterion no longer emits HTML, and the summarizer
-          # reads only new/estimates.json. Copy just those, preserving the
-          # <bench>/new/estimates.json layout the summarizer globs.
+          # Copies only new/estimates.json, keeping the <bench>/new layout the summarizer globs.
           ( cd target/criterion && find . -path '*/new/estimates.json' -exec cp --parents {} "$DEST/" \; )
 
       - uses: actions/upload-artifact@v7
@@ -118,18 +114,14 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    # This job's result is the observability environment's deployment status, so
-    # it reports only whether the trend was collected and published. The
-    # regression verdict is a separate job below: a regression is a finding about
-    # the code, not a failure to publish, and folding it in here would mark the
-    # environment red for a healthy pipeline that did its job.
+    # This job's result is the environment's deployment status, so it reports only publishing.
+    # The regression verdict is a separate job.
     environment: observability
     permissions:
       contents: read
     outputs:
       regression: ${{ steps.summarize.outputs.regression }}
     env:
-      # When the run started, which every sample of the night carries.
       VM_RUN_STARTED_AT: ${{ needs.run.outputs.started_at }}
     steps:
       - uses: actions/checkout@v7
@@ -147,9 +139,8 @@ jobs:
           name: bench-rust-estimates
           path: artifacts/rust
 
-      # Must precede Summarize: the ns/op gate reads a VictoriaMetrics window
-      # baseline through the in-cluster VM Service, so the kubeconfig has to exist
-      # before the summarizer runs (the later Push step reuses the same setup).
+      # Precedes Summarize, whose ns/op gate reads a VictoriaMetrics baseline through the
+      # in-cluster Service.
       - name: OCI + kubeconfig setup
         uses: ./.github/actions/oci-kube-setup
         with:
@@ -251,8 +242,7 @@ jobs:
             echo "Regression: \`${{ steps.summarize.outputs.regression }}\`"
             echo "Baseline update mode: \`${{ steps.summarize.outputs.updated_baseline }}\`"
             echo ""
-            # Written by the check that judged the readings, so the page and
-            # the verdict cannot disagree about a limit.
+            # Written by the check that judged the readings, so page and verdict agree on a limit.
             if [ -s benchmark-summary.md ]; then
               cat benchmark-summary.md
             fi
@@ -266,14 +256,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Send Telegram alert
-        # Runs whatever happened above it, and the message names which of the
-        # three it was. The shape this replaces was gated on a flag an earlier
-        # step in this job produced, so a night that died before that step said
-        # nothing at all: the louder the failure, the more certain the silence.
-        #
-        # And the send below reports a refused delivery rather than swallowing
-        # it. It can afford to — the verdict this run carries is read by a job of
-        # its own, so a Telegram outage reddens this job and hides nothing.
+        # Runs whatever happened above it, and the message names which of the three it was.
+        # A refused delivery fails this job; the verdict is read by a job of its own.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}

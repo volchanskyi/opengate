@@ -38,8 +38,6 @@ func (r *recordingInventoryRepo) ListForDevice(context.Context, uuid.UUID, int) 
 	return nil, nil
 }
 
-// discoveryConn builds an AgentConn wired to an inventory repo over an in-memory
-// buffer, scoped to tenant and advertising the Discovery capability.
 func discoveryConn(t *testing.T, tenant uuid.UUID, inv inventory.Repository) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -66,8 +64,6 @@ func receiveInventoryCall(t *testing.T, calls <-chan inventoryReplaceCall) inven
 	}
 }
 
-// A full discovery report maps every category to an inventory component and is
-// persisted under the connection's authoritative tenant, never the payload tenant.
 func TestAgentConn_HandleDiscoveryReportUpsertsScopedInventory(t *testing.T) {
 	tenant := uuid.New()
 	inv := &recordingInventoryRepo{calls: make(chan inventoryReplaceCall, 1)}
@@ -103,7 +99,6 @@ func TestAgentConn_HandleDiscoveryReportUpsertsScopedInventory(t *testing.T) {
 	assert.Equal(t, inventory.Component{Kind: inventory.KindPackage, Name: "openssl", Version: "3.0.13"}, byKind[inventory.KindPackage])
 }
 
-// The dispatch switch routes a DiscoveryReport frame to the handler.
 func TestAgentConn_HandleControlDispatchesDiscovery(t *testing.T) {
 	tenant := uuid.New()
 	inv := &recordingInventoryRepo{calls: make(chan inventoryReplaceCall, 1)}
@@ -122,7 +117,6 @@ func TestAgentConn_HandleControlDispatchesDiscovery(t *testing.T) {
 	assert.Equal(t, "curl", call.components[0].Name)
 }
 
-// A nil inventory repo (the default programmatic AgentConn) is a safe no-op.
 func TestAgentConn_HandleDiscoveryReportNilRepoIsNoop(t *testing.T) {
 	tenant := uuid.New()
 	ac, _ := discoveryConn(t, tenant, nil)
@@ -136,8 +130,6 @@ func TestAgentConn_HandleDiscoveryReportNilRepoIsNoop(t *testing.T) {
 	require.NoError(t, ac.handleDiscoveryReport(tenantCtx(tenant), msg, 128))
 }
 
-// An oversized discovery payload is dropped before it reaches the repo and is
-// counted against the drop metric.
 func TestAgentConn_HandleDiscoveryReportPayloadCapDrops(t *testing.T) {
 	tenant := uuid.New()
 	inv := &recordingInventoryRepo{calls: make(chan inventoryReplaceCall, 1)}
@@ -157,8 +149,6 @@ func TestAgentConn_HandleDiscoveryReportPayloadCapDrops(t *testing.T) {
 		promtestutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("discovery_payload_too_large")), 0)
 }
 
-// An empty discovery report is counted as ingested, so it must leave the ledger
-// balanced: it issues no persist and files exactly one typed drop.
 func TestAgentConn_HandleDiscoveryReportEmptyDoesNotPersist(t *testing.T) {
 	tenant := uuid.New()
 	inv := &recordingInventoryRepo{calls: make(chan inventoryReplaceCall, 1)}
@@ -173,8 +163,6 @@ func TestAgentConn_HandleDiscoveryReportEmptyDoesNotPersist(t *testing.T) {
 		promtestutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("empty_discovery")), 0)
 }
 
-// A second report inside the interval floor is dropped; one past it is accepted
-// again, pinning the interval-floor boundary.
 func TestAgentConn_HandleDiscoveryReportIntervalFloorDrops(t *testing.T) {
 	tenant := uuid.New()
 	inv := &recordingInventoryRepo{calls: make(chan inventoryReplaceCall, 2)}

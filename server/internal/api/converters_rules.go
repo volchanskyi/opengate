@@ -10,11 +10,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// Rendering a rule and its tuning for the screen that administers it.
-
-// levelNames maps a rung of the tenancy ladder to how the API spells it. The
-// ladder itself lives in internal/settings; this is only its spelling on the
-// wire, and it exists in one place so a rung cannot be spelled two ways.
+// levelNames maps a rung of the tenancy ladder to its wire spelling.
 var levelNames = map[settings.Level]RuleBindingLevel{
 	settings.LevelDevice:       RuleBindingLevelDevice,
 	settings.LevelSite:         RuleBindingLevelSite,
@@ -58,9 +54,7 @@ var stageNames = map[rules.Stage]RuleStage{
 	rules.StageFull:   Full,
 }
 
-// noiseToAPI renders the badge. A rule nothing has raised for is quiet with no
-// history, which reads neutral rather than alarming — a fresh customer whose
-// whole pack showed red would be told nothing at all.
+// noiseToAPI renders the badge, its level derived from recent and baseline alert counts.
 func noiseToAPI(n alerts.Noise) RuleNoise {
 	return RuleNoise{
 		Recent:          n.Recent,
@@ -117,9 +111,8 @@ func bindingsToAPI(bindings []rules.Binding) []RuleBinding {
 	return out
 }
 
-// bindingFromAPI reads a tuned value an administrator stated. A value with no id
-// is a new one, so an id is minted here rather than by the client — a client
-// choosing row identities is a client that can overwrite somebody else's.
+// bindingFromAPI reads a tuned value an administrator stated. A value with no id gets a minted
+// one, and a supplied id is kept as the row identity.
 func bindingFromAPI(ruleID string, organizationID uuid.UUID, in RuleBindingInput) rules.Binding {
 	b := rules.Binding{
 		ID:             uuid.New(),
@@ -141,8 +134,7 @@ func bindingFromAPI(ruleID string, organizationID uuid.UUID, in RuleBindingInput
 	return b
 }
 
-// selectorToAPI renders the labels a tuned value is aimed at, as an object
-// rather than null so a reader never has to tell one from the other.
+// selectorToAPI renders the labels a tuned value targets, as an empty object when there are none.
 func selectorToAPI(s rules.Selector) map[string]string {
 	out := make(map[string]string, len(s))
 	for key, value := range s {
@@ -186,10 +178,8 @@ func clampsToAPI(clamps []rules.Clamp) []RuleClamp {
 	return out
 }
 
-// resolvedParamsToAPI renders every parameter as it applies to one machine, and
-// what decided it. The value comes from the same resolution the delivery path
-// runs, so the screen cannot disagree with the wire; the attribution is worked
-// out beside it from the same bindings.
+// resolvedParamsToAPI renders every parameter as it applies to one machine and what decided it.
+// Values come from the same resolution the delivery path runs.
 func resolvedParamsToAPI(
 	definition rules.Definition, machine rules.Device, bindings []rules.Binding,
 ) map[string]ResolvedRuleParameter {

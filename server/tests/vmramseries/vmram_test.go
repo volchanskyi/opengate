@@ -1,23 +1,5 @@
-// Package vmramseries measures what an active series actually costs the central
-// store, in memory and on disk, so the store is sized from a measurement rather
-// than from a rule of thumb.
-//
-// The deliverable is a fit, not a division. Resident memory read at one load
-// point and divided by the series held there charges VictoriaMetrics' fixed
-// baseline to whatever series happen to be present, which overstates the
-// per-series cost by the baseline divided by N — worst exactly where a test
-// harness has to work, at small N. A line through four or more load points
-// separates the baseline from the slope, and the slope is the number that scales
-// to a fleet.
-//
-// The committed run measures at a small scale that finishes inside the suite's
-// budget, and it always runs: the load points come from a constant, and the
-// environment can only widen them. The fleet-scale figures in the program's
-// measurement record were taken with this same harness at
-// OPENGATE_VMRAM_DEVICES=2000,3000,4000,5000.
-//
-// Nothing here changes a limit or a manifest. The number goes to the project
-// owner, who decides what to do with it.
+// Package vmramseries fits the memory cost of one active series in the central store from a line
+// through four or more load points, and measures the disk cost per sample.
 package vmramseries
 
 import (
@@ -39,15 +21,9 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
-// The fleet this store is being sized for, and the budgets the measurement is
-// read against. Q2 is derived — the per-device cap times the fleet — so the two
-// can never drift; Q3 and Q4 are ceilings the measurement is compared to, not
-// assertions on it. Exceeding Q3 does not fail this package: it hands the
-// project owner a sizing decision.
+// The fleet size and the Q2 to Q4 budgets the measurement is compared against, not asserted on.
 const (
-	// Sizes are decimal throughout, the units the budgets and the sizing table
-	// are stated in — a figure compared against a differently-based one is a
-	// 5 % error nobody notices.
+	// Sizes are decimal, the units the budgets are stated in.
 	kilobyte = 1_000
 	megabyte = 1_000_000
 	gigabyte = 1_000_000_000
@@ -60,19 +36,13 @@ const (
 	retentionWindow = 30 * 24 * time.Hour
 	vitalsCadence   = 60 * time.Second
 
-	// referenceBytesPerSample is the central store's own cost per sample,
-	// measured on the live deployment as data size over rows added. It is the
-	// cross-check for what this harness measures, not its source: a divergence of
-	// more than about 2x means the harness is writing the wrong shape.
+	// referenceBytesPerSample is the live store's data size over rows added, the cross-check for
+	// the harness.
 	referenceBytesPerSample = 0.316
 )
 
-// vitalDims is every dimension of opengate_edge_metric_avg the sizing shape
-// assumes: the cross-platform gauges with a window maximum where a within-minute
-// spike is the signal, the disk-performance trio, and the stall vitals. A
-// capacity plan must not assume the cheaper platform mix, so the harness writes
-// the Linux-only vitals too — a device that supplies them all is what the fleet
-// is sized for.
+// vitalDims is every dimension of opengate_edge_metric_avg the sizing shape assumes, including
+// the Linux-only vitals.
 var vitalDims = []string{
 	"cpu.total",
 	"cpu.total.max",
@@ -108,30 +78,16 @@ const (
 // dimension, one node-wide anomaly rate, and one rate per family.
 func seriesPerDevice() int { return len(vitalDims) + 1 + len(anomalyFamilies) }
 
-// warmupDevices are written and settled before the first load point, and their
-// reading is evidence rather than a point on the line.
-//
-// VictoriaMetrics allocates lazily. Over its first writes, resident memory is
-// caches and buffers being claimed for the first time — a fixed cost arriving
-// late, not the cost of the series that happen to be arriving with it. Measured
-// from cold, that ramp lands in the slope: a fit whose first point sits inside it
-// answers several times the marginal cost, which is the same mistake as dividing
-// by N, made more expensively. Warming the store puts every load point on the far
-// side of the ramp, which is what separating the fixed baseline from the
-// per-series slope actually requires.
+// warmupDevices are written first so every load point sits past the lazy-allocation ramp; their
+// reading is excluded from the fit.
 const warmupDevices = 1_000
 
-// The load points, as total device counts. Four is the minimum that makes a fit
-// worth more than a line through two readings, and the default scale is chosen so
-// the memory the series cost is large against the garbage collector's noise while
-// the whole package still finishes in seconds.
+// The load points are total device counts; the environment variable overrides the default scale.
 const loadPointsEnv = "OPENGATE_VMRAM_DEVICES"
 
 var defaultLoadPoints = []int{2000, 2600, 3200, 3800, 4400, 5000}
 
-// The disk half needs the opposite shape: fewer series, each carrying a real
-// run of samples at the cadence, because cost per sample measured over
-// one-sample series measures the index and nothing else.
+// The disk half uses fewer series, each carrying a run of samples at the cadence.
 const (
 	diskDevicesEnv     = "OPENGATE_VMRAM_DISK_DEVICES"
 	diskMinutesEnv     = "OPENGATE_VMRAM_DISK_MINUTES"
@@ -139,53 +95,27 @@ const (
 	defaultDiskMinutes = 60
 )
 
-// vmArgs pin VictoriaMetrics' memory budget instead of letting it default to a
-// share of whatever the host has. Per-series cost is a property of the build and
-// its configuration, so a figure that moved between a laptop and a CI runner
-// would not be a measurement of anything.
+// vmArgs pin VictoriaMetrics' memory budget so the figure is the same on every host.
 var vmArgs = []string{"-memory.allowedBytes=1073741824"}
 
-// How resident memory is read at a load point. Two properties of the process
-// being measured decide this.
-//
-// VictoriaMetrics refreshes the process metrics it reports about itself once a
-// second, so two scrapes taken closer together than that return one number
-// twice. A reading assembled from them describes the refresh interval, not the
-// store, and its steadiness is not evidence that anything has settled.
-//
-// The Go runtime frees what an import allocated only when it collects. Left
-// alone, resident memory holds a plateau of garbage that is perfectly stable
-// and unrelated to the series held — which is how a larger load point reads
-// smaller than the one before it, and takes the fit down with it.
-//
-// So a load point's reading is taken after forcing collection, repeatedly,
-// until it stops falling. One collection is not always enough: the runtime
-// returns pages over several cycles, and the residue of the warm-up drains
-// across the early points. What this converges on is the memory the store needs
-// to hold what it holds, measured in the same runtime state at every load
-// point, which is the comparability a line through those points depends on.
+// VictoriaMetrics refreshes its process metrics once a second, and the Go runtime returns pages
+// over several collections, so a load point is read after repeated forced collections.
 const (
 	rssRefreshInterval = 1200 * time.Millisecond
 	rssSettleAttempts  = 12
 	rssSettleTolerance = 0.01
 )
 
-// gaugeDriftSamples is how many cadence ticks a synthetic gauge takes to swing
-// through a radian — half an hour at the vitals cadence, which is the timescale a
-// host's CPU or memory actually wanders on.
+// gaugeDriftSamples is how many cadence ticks a synthetic gauge takes to swing through a radian.
 const gaugeDriftSamples = 30
 
-// settleAttempts and settleInterval bound the wait for VictoriaMetrics to make
-// what was just written visible in its own accounting. Exhausting them returns
-// the last reading so the caller's assertion fails loudly on the real number.
+// settleAttempts and settleInterval bound the wait for written data to reach VictoriaMetrics'
+// own accounting.
 const (
 	settleAttempts = 40
 	settleInterval = 250 * time.Millisecond
 )
 
-// TestRAMPerActiveSeriesFit is Q3: the marginal memory cost of one active
-// series, fitted over the load points, on a VictoriaMetrics that holds nothing
-// else.
 func TestRAMPerActiveSeriesFit(t *testing.T) {
 	points, err := parseLoadPoints(os.Getenv(loadPointsEnv))
 	require.NoError(t, err)
@@ -218,12 +148,7 @@ func TestRAMPerActiveSeriesFit(t *testing.T) {
 		require.Equalf(t, want, got,
 			"%d devices must hold %d series; VictoriaMetrics counted %d", total, want, got)
 
-		// At the top of the load, memory is also read with the import's garbage
-		// still in it — the figure a pod is sized from. It is taken a refresh
-		// interval after the import so the number belongs to this load point
-		// rather than to the last one the cache saw, and it is deliberately not a
-		// point on the line: what the runtime happens to be holding at the moment
-		// of a scrape is not a property of the series held.
+		// The top load point is also read uncollected, a refresh interval after the import.
 		if i == len(points)-1 {
 			time.Sleep(rssRefreshInterval)
 			topInUse = residentBytes(t, base)
@@ -255,9 +180,6 @@ func TestRAMPerActiveSeriesFit(t *testing.T) {
 		topInUse/megabyte, last.rss/megabyte)
 }
 
-// TestDiskPerSampleAtVitalsCadence is Q4: bytes on disk per stored sample,
-// measured over series that carry a real run of samples at the vitals cadence,
-// and projected to the fleet's 30 d.
 func TestDiskPerSampleAtVitalsCadence(t *testing.T) {
 	devices := envInt(t, diskDevicesEnv, defaultDiskDevices)
 	minutes := envInt(t, diskMinutesEnv, defaultDiskMinutes)
@@ -272,9 +194,7 @@ func TestDiskPerSampleAtVitalsCadence(t *testing.T) {
 	ids := deviceIDs(runID, devices)
 	series := devices * seriesPerDevice()
 
-	// Every write covers the same series set one cadence tick further back, so
-	// the store ends up with series of real length rather than a wall of
-	// one-sample series whose bytes are all index.
+	// Every write covers the same series set one cadence tick further back.
 	for minute := range minutes {
 		ingest(t, base, vitalsExposition(runID, ids, minute))
 	}
@@ -301,9 +221,7 @@ func TestDiskPerSampleAtVitalsCadence(t *testing.T) {
 		bytesPerSample/referenceBytesPerSample)
 }
 
-// parseLoadPoints reads the load points from a spec, falling back to the
-// always-on scale when it is empty. The environment can only widen the
-// experiment; there is no value of this variable that makes the test not run.
+// parseLoadPoints reads the load points from a spec, falling back to the default scale when empty.
 func parseLoadPoints(spec string) ([]int, error) {
 	if strings.TrimSpace(spec) == "" {
 		return defaultLoadPoints, nil
@@ -332,8 +250,7 @@ func parseLoadPoints(spec string) ([]int, error) {
 	return points, nil
 }
 
-// envInt reads a positive integer override, failing loudly on a malformed one
-// rather than quietly measuring at the default.
+// envInt reads a positive integer override and fails on a malformed one.
 func envInt(t *testing.T, name string, fallback int) int {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv(name))
@@ -355,15 +272,11 @@ func deviceIDs(runID string, n int) []string {
 	return ids
 }
 
-// expositionBase is the timestamp sample index 0 carries, fixed for the whole
-// run so that walking the index backwards lengthens the same series instead of
-// scattering samples across shifting grids.
+// expositionBase is the timestamp sample index 0 carries, fixed for the whole run.
 var expositionBase = time.Now().Truncate(vitalsCadence).UnixMilli()
 
-// vitalsExposition renders the sizing shape for each device as Prometheus
-// exposition lines, at the timestamp sampleIndex cadence ticks before the run's
-// base. Metric name plus label set is unique per (device, series), so the line
-// count equals the series count.
+// vitalsExposition renders the sizing shape for each device as Prometheus exposition lines,
+// sampleIndex cadence ticks before the run's base; the line count equals the series count.
 func vitalsExposition(runID string, devices []string, sampleIndex int) string {
 	const tenants = 5
 	ts := expositionBase - int64(sampleIndex)*vitalsCadence.Milliseconds()
@@ -394,15 +307,8 @@ func vitalsExposition(runID string, devices []string, sampleIndex int) string {
 	return b.String()
 }
 
-// gaugeReading is a bounded, drifting, slightly jittery value — what a host
-// gauge looks like.
-//
-// Cost per sample is a compression measurement, so the shape of the values
-// decides the answer as much as their number. A constant-valued harness measures
-// VictoriaMetrics' best case — repeated values collapse to almost nothing — while
-// full-entropy noise measures its worst; neither is the fleet. A host gauge sits
-// between the two: it moves slowly and it is reported to a tenth of a percent, so
-// consecutive samples usually differ by one step or not at all.
+// gaugeReading is a bounded, drifting, slightly jittery value to a tenth of a percent, which
+// compresses like a host gauge.
 func gaugeReading(seed, sampleIndex int) float64 {
 	phase := float64(seed%17) / 17 * 2 * math.Pi
 	drift := 50 + 40*math.Sin(phase+float64(sampleIndex)/gaugeDriftSamples)
@@ -421,9 +327,7 @@ func ingest(t *testing.T, base, body string) {
 	require.Lessf(t, resp.StatusCode, 300, "import should succeed, got %d", resp.StatusCode)
 }
 
-// settleSeries flushes VictoriaMetrics and re-reads its series count until it
-// reaches want or the attempts are spent, then returns the last reading for the
-// caller to assert on — a mismatch must fail loudly, never pass quietly.
+// settleSeries flushes and re-reads the series count until it reaches want or the attempts end.
 func settleSeries(t *testing.T, base string, want int) int {
 	t.Helper()
 	var last int
@@ -438,9 +342,7 @@ func settleSeries(t *testing.T, base string, want int) int {
 	return last
 }
 
-// settleDisk flushes until VictoriaMetrics reports a non-zero on-disk size, then
-// returns it. The last reading is returned either way so the caller asserts on
-// the real number.
+// settleDisk flushes until VictoriaMetrics reports a non-zero on-disk size, then returns it.
 func settleDisk(t *testing.T, base string) float64 {
 	t.Helper()
 	var last float64
@@ -455,14 +357,8 @@ func settleDisk(t *testing.T, base string) float64 {
 	return last
 }
 
-// collectedResidentBytes returns the VictoriaMetrics process's resident memory
-// with the garbage of the import that just finished collected out of it:
-// collection is forced and the memory re-read until the reading stops falling,
-// and the lowest reading is what the load point is credited with.
-//
-// Exhausting the attempts returns the last reading rather than raising, so a
-// store that never converges shows up as a point the fit cannot explain — a
-// loud failure on the real numbers, which is what the assertions are for.
+// collectedResidentBytes returns the lowest resident memory read while forced collections keep
+// lowering it; exhausting the attempts returns the last reading.
 func collectedResidentBytes(t *testing.T, base string) float64 {
 	t.Helper()
 	previous := math.Inf(1)

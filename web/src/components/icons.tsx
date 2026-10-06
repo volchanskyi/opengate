@@ -1,10 +1,6 @@
 import type { SVGProps } from 'react';
 
-/**
- * Small inline stroke icons (24×24, `currentColor`) used inside icon-only
- * buttons. Each is decorative — the button carries the accessible name via
- * `aria-label`/`title` — so the SVG is marked `aria-hidden`.
- */
+/** Decorative 24×24 stroke icon; the enclosing button carries the accessible name. */
 function Icon({ children, ...props }: SVGProps<SVGSVGElement>) {
   return (
     <svg

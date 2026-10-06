@@ -1,15 +1,4 @@
-# og-path-traversal-unchecked — reject user-influenced paths without `..` guard.
-#
-# Catches gap class: building a std::path::Path / PathBuf directly from a value
-# that has not been screened for parent-directory traversal ("..") before it
-# reaches a filesystem call. This is the shape of the file_ops.rs path-handling
-# surface (FileListRequest / FileDownloadRequest carry a caller-supplied path).
-#
-# Approximate by design: fires on Path::new($X) / PathBuf::from($X) where $X is
-# a bare binding (not a chained expression that already normalized the path) and
-# the enclosing function body contains no `$X.contains("..")` screen. A genuine
-# normalization (canonicalize + prefix check, or an explicit contains("..")
-# rejection) clears the finding.
+# Fires on Path::new($X) or PathBuf::from($X) of a bare binding with no `$X.contains("..")` screen.
 rules:
   - id: og-path-traversal-unchecked
     languages: [rust]
@@ -30,17 +19,12 @@ rules:
       - pattern-either:
           - pattern: Path::new($X)
           - pattern: PathBuf::from($X)
-      # Only bare identifiers — skip literals and already-derived expressions
-      # like `base.join(name)` or `foo.canonicalize()`.
+      # Bare identifiers only; literals and derived expressions such as `base.join(name)` are skipped.
       - metavariable-regex:
           metavariable: $X
           regex: '^[a-z_][a-z0-9_]*$'
-      # Cleared when a `..` rejection guards the path anywhere earlier in the
-      # enclosing function. The `if <... .contains("..") ...> { ... }` shape
-      # matches the check in condition position (a bare statement pattern would
-      # not). A separate `pattern-inside: fn {...}` is intentionally omitted —
-      # it caused the metavariable binding to conflict with this not-inside and
-      # the suppression stopped applying.
+      # A `..` rejection earlier in the enclosing function clears the finding; a separate
+      # pattern-inside is omitted because its metavariable binding conflicts with this not-inside.
       - pattern-not-inside: |
           fn $FN(...) -> $RET {
             ...

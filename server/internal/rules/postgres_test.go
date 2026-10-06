@@ -15,8 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// estate is one customer's seeded rows: the customer, a site, and a machine in
-// it, which is the least a binding or a coverage row needs to point at.
 type estate struct {
 	store  *db.PostgresStore
 	ctx    context.Context
@@ -40,8 +38,6 @@ func newEstate(t *testing.T) (*Store, estate) {
 	}
 }
 
-// mustUnsupportedSince reads when a machine first reported it could not
-// evaluate a rule, failing if it has no such row at all.
 func mustUnsupportedSince(t *testing.T, s *Store, ctx context.Context, device uuid.UUID, ruleID string) time.Time {
 	t.Helper()
 	since, ok, err := s.UnsupportedSince(ctx, device, ruleID)
@@ -74,7 +70,6 @@ func TestStoreBindingRoundTrips(t *testing.T) {
 	assert.InEpsilon(t, 95.0, got[0].Params["threshold"], 0.0001)
 	assert.InEpsilon(t, 600.0, got[0].Params["sustain_secs"], 0.0001)
 
-	// The same key retunes rather than duplicating.
 	want.Params = threshold(92)
 	require.NoError(t, s.UpsertBinding(e.ctx, cat, want))
 	got = mustListBindings(t, s, e.ctx, e.org)
@@ -85,8 +80,6 @@ func TestStoreBindingRoundTrips(t *testing.T) {
 	assert.Empty(t, mustListBindings(t, s, e.ctx, e.org))
 }
 
-// Validation happens on write, so a value outside the rule's bounds never
-// reaches a row at all.
 func TestStoreRefusesABindingOutsideTheRulesBounds(t *testing.T) {
 	t.Parallel()
 
@@ -104,8 +97,6 @@ func TestStoreRefusesABindingOutsideTheRulesBounds(t *testing.T) {
 		"a refused binding must leave nothing behind")
 }
 
-// The database refuses the ambiguity resolution would otherwise have to guess
-// its way out of: two selectors at one rung with one precedence.
 func TestStoreRefusesTwoSelectorsAtOneRungWithOnePrecedence(t *testing.T) {
 	t.Parallel()
 
@@ -121,16 +112,11 @@ func TestStoreRefusesTwoSelectorsAtOneRungWithOnePrecedence(t *testing.T) {
 	require.Error(t, s.UpsertBinding(e.ctx, cat, at(Selector{"env": "prod"}, 10)),
 		"a second selector at the same rung and precedence must be refused")
 
-	// A different precedence states which one wins, so it is allowed.
 	require.NoError(t, s.UpsertBinding(e.ctx, cat, at(Selector{"env": "prod"}, 20)))
 
-	// The rung's blanket binding is unaffected: it is already ordered behind
-	// every targeted one, so it needs no precedence of its own.
 	require.NoError(t, s.UpsertBinding(e.ctx, cat, at(nil, 10)))
 }
 
-// Every table this package writes is behind forced row-level security, so
-// another tenant cannot read or write these rows even by asking directly.
 func TestStoreDeniesCrossTenantAccess(t *testing.T) {
 	t.Parallel()
 
@@ -154,22 +140,18 @@ func TestStoreDeniesCrossTenantAccess(t *testing.T) {
 	require.NoError(t, s.UpsertRollout(ctxA, DefaultRollout(siteA.OrganizationID, "disk-critical")))
 	require.NoError(t, s.MarkUnsupported(ctxA, siteA.OrganizationID, deviceA.ID, "io-stalled"))
 
-	// Tenant B cannot see any of it, even naming tenant A's customer.
 	assert.Empty(t, mustListBindings(t, s, ctxB, siteA.OrganizationID))
 	assert.Empty(t, mustListRollouts(t, s, ctxB, siteA.OrganizationID))
 	assert.Empty(t, mustCountUnsupported(t, s, ctxB, siteA.OrganizationID))
 
-	// Nor can it write into tenant A's customer: the row check refuses it.
 	err = s.UpsertBinding(ctxB, cat,
 		orgBinding(siteA.OrganizationID, "cpu-saturated", threshold(60)))
 	require.Error(t, err, "a write into another tenant's customer must be refused")
 
-	// Tenant A still sees exactly its own row, and B's own estate is untouched.
 	assert.Len(t, mustListBindings(t, s, ctxA, siteA.OrganizationID), 1)
 	assert.Empty(t, mustListBindings(t, s, ctxB, siteB.OrganizationID))
 }
 
-// A read with no tenant on the context is refused rather than answered.
 func TestStoreRequiresTenantScope(t *testing.T) {
 	t.Parallel()
 

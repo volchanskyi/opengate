@@ -57,27 +57,17 @@ func TestSPA_PathTraversal_Returns404(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			w := doRequest(srv, http.MethodGet, tc.path, "", nil)
-			// Must not serve files outside webDir; 301/404 are both acceptable rejections.
-			// In particular, the response body must never contain content sourced from
-			// outside webDir (e.g. /etc/passwd's "root:" prefix).
 			assert.NotEqual(t, http.StatusOK, w.Code, "traversal path %s should not return 200", tc.path)
 			assert.NotContains(t, w.Body.String(), "root:", "traversal path %s leaked /etc/passwd content", tc.path)
 		})
 	}
 }
 
-// TestSPA_SymlinkEscape_Refused covers an attack vector that the prior
-// filepath.Clean+HasPrefix validation could miss: a symlink inside webDir
-// pointing at a file outside webDir. os.OpenRoot rejects this because the
-// resolved target escapes the root.
 func TestSPA_SymlinkEscape_Refused(t *testing.T) {
 	t.Parallel()
 	webDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>SPA</html>"), 0644))
 
-	// Create a symlink inside webDir that points at a file OUTSIDE webDir. We
-	// create that target ourselves (in a sibling temp dir) so the test runs
-	// deterministically on any platform — no reliance on /etc/hostname existing.
 	outsideDir := t.TempDir()
 	outsideTarget := filepath.Join(outsideDir, "secret.txt")
 	require.NoError(t, os.WriteFile(outsideTarget, []byte("outside-the-root"), 0644))
@@ -87,8 +77,6 @@ func TestSPA_SymlinkEscape_Refused(t *testing.T) {
 	srv := newTestServerWithWebDir(t, webDir)
 
 	w := doRequest(srv, http.MethodGet, "/escape.txt", "", nil)
-	// os.Root rejects symlinks resolving outside the root → fallback to SPA.
-	// Either way, the response body must NOT contain /etc/hostname content.
 	hostnameBytes, _ := os.ReadFile(outsideTarget)
 	if len(hostnameBytes) > 0 {
 		assert.NotContains(t, w.Body.String(), string(hostnameBytes),
@@ -129,11 +117,9 @@ func TestSPA_APIPathsNotIntercepted(t *testing.T) {
 
 	srv := newTestServerWithWebDir(t, webDir)
 
-	// API and WS paths should not serve the SPA
 	for _, path := range []string{"/api/v1/health", "/ws/relay/fake-token"} {
 		t.Run(path, func(t *testing.T) {
 			w := doRequest(srv, http.MethodGet, path, "", nil)
-			// These should hit the real API handler, not the SPA fallback
 			assert.NotContains(t, w.Body.String(), "<html>SPA</html>")
 		})
 	}
@@ -159,7 +145,6 @@ func TestSPA_DisabledWhenWebDirEmpty(t *testing.T) {
 		Relay:          relay.NewRelay(slog.Default()),
 		Notifier:       &notifications.NoopNotifier{},
 		Logger:         logger,
-		// WebDir deliberately empty
 	})
 
 	w := doRequest(srv, http.MethodGet, "/some-page", "", nil)

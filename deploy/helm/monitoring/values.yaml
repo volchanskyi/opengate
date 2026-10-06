@@ -1,33 +1,21 @@
-# Monitoring stack values — the Kubernetes deployment of Grafana,
-# VictoriaMetrics, Loki, Promtail, and the node exporter. Resource limits are
-# tuned per component below.
-
 nameOverride: ""
 fullnameOverride: ""
 
-# Public hostname, matched to the app chart's `domain`. Used to derive Grafana's
-# root URL (GF_SERVER_ROOT_URL). Grafana itself stays internal — reach it via
-# `kubectl port-forward` / the OCI Bastion, never an ingress (same posture as the
-# compose 127.0.0.1:3000 bind). Public uptime monitoring is an external SaaS
-# (ADR-035), so this chart exposes no ingress.
+# Public hostname matching the app chart's `domain`; it derives Grafana's root URL.
+# Grafana stays internal, reached by port-forward, so the chart exposes no ingress.
 domain: opengate.example.com
 
-# Secret (created out-of-band) with keys: GF_SECURITY_ADMIN_PASSWORD,
-# TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+# Out-of-band Secret keys: GF_SECURITY_ADMIN_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
 existingSecret: opengate-monitoring-secrets
 
 storageClass: oci-bv
 
 victoriametrics:
   image: docker.io/victoriametrics/victoria-metrics:v1.114.0
-  # Single global retention: OSS VictoriaMetrics has no per-series window, so raw
-  # samples and the avg rollups share this one. It is the only input to the
-  # rendered -retentionPeriod argument, pinned by
-  # scripts/tests/monitoring-retention.test.sh.
+  # One global retention, since OSS VictoriaMetrics has no per-series window; it alone
+  # feeds -retentionPeriod.
   retention: 30d
-  # What the StatefulSet's volume template asks for, which cannot change once the
-  # set exists. The oci-bv class provisions its 50 GB minimum whatever is asked,
-  # so the disk behind this is 50 GB either way.
+  # The volume template size is fixed once the set exists; the oci-bv class provisions 50 GB minimum.
   storage: 10Gi
   resources:
     requests:
@@ -40,12 +28,8 @@ victoriametrics:
 loki:
   image: docker.io/grafana/loki:3.5.0
   storage: 10Gi
-  # The program holds about 150 MiB. Its working set reads far higher — 475 of
-  # the 512 MiB limit — because it counts the kernel's cache of Loki's tens of
-  # thousands of chunk files, which the kernel reclaims on demand and which
-  # tracked about 92% of the limit both before and after the limit was doubled.
-  # So the request reserves the program's steady use, the limit leaves it three
-  # times that, and the memory alert reads what the program holds.
+  # Loki holds about 150 MiB; its working set also counts reclaimable chunk-file cache,
+  # so the memory alert reads resident memory.
   resources:
     requests:
       cpu: 100m
@@ -56,16 +40,10 @@ loki:
 
 grafana:
   image: docker.io/grafana/grafana-oss:11.6.0
-  # No PVC: /var/lib/grafana is an emptyDir. Every piece of configuration is
-  # provisioned from a ConfigMap and re-read on every start, so what a restart
-  # loses is what Grafana wrote about itself — annotations and alert-state
-  # history.
+  # /var/lib/grafana is an emptyDir; a restart loses only annotations and alert-state history.
   rootUrl: ""    # set to https://<domain>/grafana when fronted by an ingress
-  # Dashboard JSONs are NOT duplicated into the chart. The ConfigMap is rendered
-  # from the canonical files and read back by
-  # deploy/scripts/monitoring-config-apply.sh, which the nightly drift workflow
-  # runs — so what the cluster holds is what the repository declares, checked
-  # rather than assumed.
+  # The ConfigMap is rendered from the canonical dashboard files and read back by
+  # deploy/scripts/monitoring-config-apply.sh.
   dashboardsConfigMap: grafana-dashboards
   resources:
     requests:
@@ -77,12 +55,9 @@ grafana:
 
 promtail:
   image: docker.io/grafana/promtail:3.5.0
-  # promtail reads node pod logs. Where the node OS makes /var/log/pods
-  # root-only it runs as root; values-production.yaml sets that for OKE.
+  # Runs as root where /var/log/pods is root-only; values-production.yaml sets that for OKE.
   runAsRoot: false
-  # The working set runs 90–110 MiB with about 60 MiB of it resident, so the
-  # request reserves that steady use and the limit leaves it below the 70% at
-  # which the container-memory alert clears.
+  # The working set runs 90–110 MiB, under the 70% line where the memory alert clears.
   resources:
     requests:
       cpu: 50m
@@ -101,7 +76,4 @@ nodeExporter:
       cpu: 250m
       memory: 64Mi
 
-# Uptime monitoring is an external SaaS (ADR-035) — UptimeRobot/Better Stack
-# probing https://<domain>/healthz from off-cluster (also catches whole-node
-# outages an in-cluster monitor is blind to). No in-cluster uptime-kuma pod/PVC,
-# and this chart exposes no ingress.
+# Uptime monitoring is external, probing /healthz from off-cluster, so the chart has no uptime pod.

@@ -1,22 +1,10 @@
 #!/usr/bin/env bash
-# tdd-check.sh — shared classifier used by the Claude Code hooks that enforce
-# the TDD mandate documented in CLAUDE.md.
+# Classifies files for the hooks that enforce the TDD mandate.
 #
-# Subcommands:
-#   is-source <path>      exit 0 if <path> is a source file (per project
-#                         classifier — Go/Rust/TS/JS, excluding tests and
-#                         generated files); exit 1 otherwise.
-#   is-code <path>        exit 0 if <path> is a code file (Go/Rust/TS/JS,
-#                         excluding only generated files — tests ARE included);
-#                         exit 1 otherwise. Used by the PMAT B+ precommit gate
-#                         (ADR-019 Amendment 1), which grades all changed code
-#                         including tests, but never machine-generated output.
-#   has-test-change       exit 0 if the current branch has any test-file
-#                         change vs its merge-base with origin/dev
-#                         (committed OR staged OR unstaged OR untracked);
-#                         exit 1 if no test change exists.
-#
-# Used by .claude/hooks/pretooluse-tdd-gate.sh (PR 2 of the hooks rollout).
+# Usage:
+#   is-source <path>   exit 0 for a Go, Rust, TS or JS file that is neither a test nor generated
+#   is-code <path>     exit 0 for a Go, Rust, TS or JS file that is not generated; tests count
+#   has-test-change    exit 0 when the branch has a test-file change, committed or not
 set -euo pipefail
 
 SOURCE_EXT_RE='\.(go|rs|tsx?|jsx?)$'
@@ -31,10 +19,7 @@ is_source() {
   return 0
 }
 
-# is_code: like is_source but KEEPS test files. Only generated files are
-# excluded. The PMAT precommit gate grades all changed code (tests included,
-# per the ADR-019 Amendment 1 scope decision) but never machine-generated output,
-# which is regenerated and not hand-maintainable to a grade floor.
+# Test files count as code; only generated output is excluded.
 is_code() {
   local path="$1"
   [[ "$path" =~ $SOURCE_EXT_RE ]] || return 1
@@ -42,10 +27,7 @@ is_code() {
   return 0
 }
 
-# Resolve the branch merge-base for diffing. Preference order is dev-first
-# because all project work happens on dev (CLAUDE.md §Branching Rules).
-# Final fallback is the repo's root commit so the function never errors out
-# in a fresh repo without remotes.
+# Prefers dev as the merge-base and falls back to the root commit in a repo without remotes.
 resolve_base() {
   local ref roots
   for ref in origin/dev dev origin/main main; do
@@ -55,33 +37,19 @@ resolve_base() {
       fi
     fi
   done
-  # The root commit is taken off a variable rather than through `head`, which
-  # stops reading at the first line and leaves `git` a failed write that
-  # pipefail reports as a repository with no root at all.
+  # A variable supplies the root commit because `head` would fail git's write under pipefail.
   roots="$(git rev-list --max-parents=0 HEAD 2>/dev/null || true)"
   printf '%s\n' "${roots%%$'\n'*}"
 }
 
-# rust_change_is_inline_tests_only BASE PATH — is every line this branch
-# changed in PATH inside the file's own `#[cfg(test)] mod tests` block?
-#
-# Rust keeps a module's unit tests in the file they cover. That is the language's
-# idiom and most of the agent's tests are written that way, so a branch that adds
-# nothing but tests to such a file has no test-shaped path anywhere in it and the
-# path patterns above see only a source change. Asking the diff is the only way
-# to tell that apart from a change to the code itself.
-#
-# Conservative in both directions it cannot resolve: a file with no inline test
-# module, a diff that reaches above the block, or a block whose opening
-# attribute is not immediately followed by its `mod` line all answer no, and the
-# change stays a source change.
+# Succeeds when every changed line of PATH sits inside the file's own `#[cfg(test)] mod` block.
+# A file with no such block, or a diff reaching above it, answers no and stays a source change.
 rust_change_is_inline_tests_only() {
   local base="$1" path="$2"
   [[ "$path" =~ \.rs$ ]] || return 1
   [ -f "$path" ] || return 1
 
-  # The last `#[cfg(test)]` that opens a module, so a file carrying a cfg(test)
-  # helper higher up is judged by its test block rather than by the helper.
+  # The last `#[cfg(test)]` that opens a module, so a cfg(test) helper higher up is skipped.
   local marker
   marker=$(awk '
     /^[[:space:]]*#\[cfg\(test\)\]/ { attr = NR; next }
@@ -91,15 +59,13 @@ rust_change_is_inline_tests_only() {
   ' "$path")
   [ "${marker:-0}" -gt 0 ] || return 1
 
-  # Base commit against the working tree, so committed, staged and unstaged
-  # changes are all in the one diff.
+  # Diffing the base against the working tree puts committed, staged and unstaged changes together.
   local hunks
   hunks=$(git diff -U0 "$base" -- "$path" 2>/dev/null | grep '^@@' || true)
   [ -n "$hunks" ] || return 1
 
-  # Every hunk's new-side start must fall at or after the attribute. A hunk that
-  # deletes without adding reports the line it followed, so the same comparison
-  # holds: a deletion out of the code above the block starts above it.
+  # Every hunk's new-side start must fall at or after the attribute; a pure deletion reports the
+  # line it followed, so the same comparison holds.
   printf '%s\n' "$hunks" | awk -v m="$marker" '
     {
       plus = $3
@@ -129,8 +95,6 @@ has_test_change() {
     return 0
   fi
 
-  # No test-shaped path. A Rust file may still carry the change in its own
-  # inline test module.
   local rs
   while IFS= read -r rs; do
     [ -n "$rs" ] || continue
@@ -172,7 +136,7 @@ main() {
   esac
 }
 
-# Only run main if executed directly. Allow `source` for testing internals.
+# Runs only when executed directly; sourcing exposes the functions.
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   main "$@"
 fi

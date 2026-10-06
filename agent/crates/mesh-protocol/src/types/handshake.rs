@@ -1,6 +1,4 @@
-//! Handshake message types for agent–server authentication.
-//!
-//! These use binary encoding (not msgpack), so no Serialize/Deserialize derive.
+//! Handshake messages for agent–server authentication, binary-encoded without serde derives.
 
 /// Handshake messages for agent–server authentication.
 #[derive(Debug, Clone, PartialEq, Eq)]

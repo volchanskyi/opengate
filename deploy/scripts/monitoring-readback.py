@@ -13,11 +13,9 @@
 The store is reached through the API server's proxy to its Service, with the
 kubectl the caller already holds, so nothing is scheduled to ask it.
 
-A ConfigMap is what a process was given, not what it loaded. The relabel that
-names each server series' environment sat in the ConfigMap for two days while
-the running store scraped without it, and every production rule read nothing.
-So `loaded` compares the process's own account with the declared file, and
-`coverage` asks whether each production rule can see anything at all.
+A ConfigMap is what a process was given. `loaded` compares the process's own
+account of what it loaded with the declared file, and `coverage` asks whether
+each production rule can see anything at all.
 
 Environment:
   VM_NAMESPACE             where the store runs (default monitoring)
@@ -42,8 +40,7 @@ SERVICE = os.environ.get("VM_SERVICE", "monitoring-victoriametrics")
 PROXY = f"/api/v1/namespaces/{NAMESPACE}/services/{SERVICE}:8428/proxy"
 POLL = float(os.environ.get("MONITORING_READBACK_POLL", "10"))
 
-# The window each kind of dashboard is read over: a live board shows the last
-# six hours, a trend board the store's thirty days.
+# A live board reads the last six hours; a trend board reads the store's thirty days.
 WINDOWS = {"live": 6 * 3600, "trend": 30 * 86400}
 RANGE_TEXT = {"live": "6h", "trend": "30d"}
 RATE_INTERVAL = {"live": "5m", "trend": "1d"}
@@ -64,9 +61,6 @@ def ask(path, params):
         return json.loads(done.stdout)
     except json.JSONDecodeError as err:
         raise Unreachable(f"the store answered something that is not JSON: {err}") from err
-
-
-# --- loaded -----------------------------------------------------------------
 
 
 def is_zero(value):
@@ -99,9 +93,6 @@ def loaded(declared_path):
     declared = yaml.safe_load(pathlib.Path(declared_path).read_text(encoding="utf-8"))
     live = yaml.safe_load(sys.stdin.read())
     return 0 if covers(live, declared) else 1
-
-
-# --- panels -----------------------------------------------------------------
 
 
 def panels_of(dashboard):
@@ -176,8 +167,6 @@ def panel_findings(directory, now):
                         findings.append(f"{where}: answers nothing and does not say what empty means: {query}")
     return findings
 
-
-# --- coverage ---------------------------------------------------------------
 
 SELECTOR = re.compile(r"([a-zA-Z_:][a-zA-Z0-9_:]*)\s*\{([^}]*)\}")
 MATCHER = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)\s*"([^"]*)"')

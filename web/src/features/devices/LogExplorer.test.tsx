@@ -20,8 +20,6 @@ describe('LogExplorer', () => {
     });
   });
 
-  // A window that stays set after it was cleared narrows every page after it,
-  // while the pane says it is showing everything.
   it('clearing the time window drops it and reads from the start without one', async () => {
     const user = userEvent.setup();
     render(<LogExplorer deviceId="d1" source="agent" title="Agent Logs" />);

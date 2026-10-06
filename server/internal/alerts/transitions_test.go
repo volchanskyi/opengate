@@ -11,18 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// How a room is allowed to move, and what each refusal means.
-//
-// A room in `new` *is* the triage queue, so these are the queue's rules. Its own
-// columns say where it stands; the event rows say how it got there, which is
-// what a handover between two technicians reads. A resolution needs a cause
-// code, because `false_positive` is the only channel that says which curated
-// rule needs its threshold moved — a resolve that skips it silently spends the
-// feedback the rule pack is tuned from.
-
-// TestEveryLegalTransitionSucceedsAndIsRecorded drives the first half of C5. The
-// room's own columns say where it stands; the event rows say how it got there,
-// which is what a handover between two technicians reads.
 func TestEveryLegalTransitionSucceedsAndIsRecorded(t *testing.T) {
 	t.Parallel()
 
@@ -70,9 +58,6 @@ func TestEveryLegalTransitionSucceedsAndIsRecorded(t *testing.T) {
 	}
 }
 
-// TestIllegalTransitionsAreRefusedByName drives the second half of C5. Each of
-// these is a different mistake with a different fix, so each is its own error
-// rather than one rejection an API would have to guess the meaning of.
 func TestIllegalTransitionsAreRefusedByName(t *testing.T) {
 	t.Parallel()
 
@@ -142,9 +127,6 @@ func TestIllegalTransitionsAreRefusedByName(t *testing.T) {
 	}
 }
 
-// TestATransitionOnNothingIsRefused keeps a guessed id from reading as success,
-// and a room in another tenant from being distinguishable from one that does not
-// exist.
 func TestATransitionOnNothingIsRefused(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -158,11 +140,6 @@ func TestATransitionOnNothingIsRefused(t *testing.T) {
 		ErrIncidentNotFound, "another tenant's room is indistinguishable from no room")
 }
 
-// TestReopeningIsItsOwnDoor is why `resolved -> investigating` is refused above.
-// A technician who closed something that was not fixed has to be able to say so,
-// but it is a different act from carrying on with an open room: it undoes an
-// answer that has already been given, so it clears the cause code rather than
-// leaving a closed room's reason attached to an open one.
 func TestReopeningIsItsOwnDoor(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -183,15 +160,9 @@ func TestReopeningIsItsOwnDoor(t *testing.T) {
 	assert.Equal(t, "status_change", history[1].kind)
 	assert.Contains(t, history[1].body, "reopened")
 
-	// Reopening one that is already open is not a second act.
 	assert.ErrorIs(t, e.alerts.Reopen(e.ctx, room, tech), ErrIllegalTransition)
 }
 
-// TestReopeningYieldsToTheRoomThatTookItsPlace is the collision the partial
-// unique index would otherwise refuse with a constraint error nobody can act on.
-// Once the same condition has recurred and opened a fresh room, the closed one
-// cannot come back — there is exactly one open room per key, and the live one is
-// where the alerts are landing.
 func TestReopeningYieldsToTheRoomThatTookItsPlace(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -203,8 +174,7 @@ func TestReopeningYieldsToTheRoomThatTookItsPlace(t *testing.T) {
 	require.NoError(t, e.alerts.Transition(e.ctx, first,
 		Change{To: StatusResolved, Cause: CauseResolvedSelf, Actor: tech}))
 
-	// The same condition, a day later: a new room, because the closed one is
-	// outside the index the fold keys on.
+	// A day later the same condition opens a new room; the closed one is outside the fold's index.
 	later := e.now.Add(24 * time.Hour)
 	e.recordUnder(t, e.variant(func(a *Alert) {
 		at(later)(a)

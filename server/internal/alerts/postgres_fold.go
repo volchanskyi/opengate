@@ -10,23 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Folding an alert into the room it belongs to.
-//
-// Grouping is the whole value of an incident: 312 alerts a technician cannot
-// read are one room they can. Two axes decide which room — how wide it is, and
-// how long firings on one key stay one thing — and this file is where an
-// arriving alert is measured against both.
-//
-// Every statement is a single literal that can be read start to finish, for the
-// reason stated in postgres.go: a query assembled from pieces is
-// indistinguishable, to anything reading this file, from one assembled from
-// input. TestEveryIncidentStatementNamesItsTenantExceptTheJanitor is what keeps
-// the tenant predicate on all of them.
-
-// lockOpenRoomSQL reads the open room holding a grouping key and holds it for
-// the rest of the transaction. The lock is what serialises two alerts arriving
-// on two connections for one estate-wide event: without it both would read "no
-// room", and only one of the two rooms they opened would survive the index.
+// The row lock serialises concurrent folds into one open room.
 const lockOpenRoomSQL = `
 	SELECT id, first_seen, last_seen
 	  FROM incidents
@@ -35,14 +19,7 @@ const lockOpenRoomSQL = `
 	   AND status <> 'resolved'
 	   FOR UPDATE`
 
-// closeLapsedRoomSQL closes a room the arriving alert is too late to join, and
-// says why in the room's own history.
-//
-// It closes the room at the instant it *became* closeable rather than at the
-// moment somebody noticed, so the sweep and the fold record the same time for
-// the same room however long the gap between them was. No cause code is set:
-// those are a person's answer, and inventing one here would put a technician's
-// vocabulary in the system's mouth.
+// Closes at the instant the room became closeable and leaves the cause code to a person.
 const closeLapsedRoomSQL = `
 	WITH closed AS (
 	    UPDATE incidents
@@ -56,14 +33,7 @@ const closeLapsedRoomSQL = `
 	       '{"reason": "no alert within the reopen window"}'::jsonb
 	  FROM closed`
 
-// openOrJoinRoomSQL opens the room for a grouping key, or hands back the one
-// that already holds it.
-//
-// The conflict clause is what makes concurrent folds converge: an insert that
-// loses the race blocks on the winner's row rather than failing, so both alerts
-// end up in one room instead of one of them erroring out. The counts stay at
-// zero here — they are restated from the room's own alerts afterwards, so a
-// fold and an erasure arrive at the same number by the same route.
+// The conflict clause makes concurrent folds converge on one room.
 const openOrJoinRoomSQL = `
 	INSERT INTO incidents (id, tenant_id, organization_id, rule_id, scope, scope_key,
 	                       severity, status, opened_at, first_seen, last_seen,
@@ -74,24 +44,11 @@ const openOrJoinRoomSQL = `
 	DO UPDATE SET last_seen = GREATEST(incidents.last_seen, EXCLUDED.last_seen)
 	RETURNING id`
 
-// attachAlertSQL files one alert into the room it folded into.
 const attachAlertSQL = `
 	UPDATE alerts SET incident_id = $1
 	 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $2`
 
-// attachPendingObservationsSQL files the readings that were waiting into the
-// room they turned out to belong to.
-//
-// A low-severity observation is not an incident on its own — one host a little
-// slower than usual is noise — so it is stored holding no room until something
-// makes it meaningful. When a room for its key does open, those readings are the
-// context the investigation wants, and leaving them loose would hide the shape
-// of the event from the only surface anybody looks at.
-//
-// The site rung is read from the machine rather than the alert on purpose: which
-// office a machine is filed into is a fact about the machine and can change, and
-// a copy on the alert row would make a year-old alert claim a site the machine
-// has since left.
+// The site rung is read from the machine, since an alert row carries no site.
 const attachPendingObservationsSQL = `
 	UPDATE alerts a SET incident_id = $1
 	 WHERE a.tenant_id = current_setting('app.current_tenant')::uuid
@@ -103,10 +60,6 @@ const attachPendingObservationsSQL = `
 	        OR ($6::text = 'site' AND EXISTS (
 	                SELECT 1 FROM devices d WHERE d.id = a.device_id AND d.site_id = $7::uuid)))`
 
-// countPendingObserversSQL counts how many distinct machines are reporting the
-// same sub-threshold observation, which is the only thing that turns one into an
-// incident. A fleet event where no host individually breaches is visible exactly
-// because several hosts see it at once.
 const countPendingObserversSQL = `
 	SELECT COUNT(DISTINCT a.device_id)
 	  FROM alerts a
@@ -119,18 +72,7 @@ const countPendingObserversSQL = `
 	        OR ($5::text = 'site' AND EXISTS (
 	                SELECT 1 FROM devices d WHERE d.id = a.device_id AND d.site_id = $6::uuid)))`
 
-// restateRoomFromItsAlertsSQL rewrites everything the room says about itself
-// from the alerts it actually holds.
-//
-// Restating rather than incrementing is what makes the numbers survive the two
-// things that break a counter: a concurrent fold, where two increments can read
-// the same starting value, and an erasure, where a machine's rows leave and no
-// foreign key can subtract them. It is also why a resumed purge is safe to run
-// twice. `occurrences` counts alerts and `device_count` counts machines — forty
-// machines and 312 alerts are the same event and two very different numbers.
-//
-// The span is event time throughout, so a retroactive finding places the room
-// where it happened instead of where it was received.
+// Restating from the alerts survives concurrent folds and erasures.
 const restateRoomFromItsAlertsSQL = `
 	UPDATE incidents i
 	   SET occurrences  = held.alerts,
@@ -149,25 +91,17 @@ const restateRoomFromItsAlertsSQL = `
 	 WHERE i.tenant_id = current_setting('app.current_tenant')::uuid
 	   AND i.id = $1 AND held.alerts > 0`
 
-// deviceSiteSQL reads which office a machine is filed into. A grouping key is
-// derived on this side from the machine's own place in the tenancy ladder,
-// never taken from the endpoint: a device that could name its own key could name
-// another customer's room and file its alerts into it.
+// The grouping key derives from the machine's own place in the ladder, never from the endpoint.
 const deviceSiteSQL = `
 	SELECT site_id FROM devices
 	 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-// openRoom is the part of a room the fold needs: which one it is, and the span
-// it already covers.
 type openRoom struct {
 	id        uuid.UUID
 	firstSeen time.Time
 	lastSeen  time.Time
 }
 
-// folding is one alert on its way into a room, with everything the journey
-// needs: the transaction it shares with the alert's own insert, the machine's
-// derived place in the tenancy ladder, and the two axes its rule groups on.
 type folding struct {
 	tx       *sql.Tx
 	tenantID uuid.UUID
@@ -177,11 +111,6 @@ type folding struct {
 	now      time.Time
 }
 
-// fold files an alert into the room it belongs to, opening one when there is
-// none. It runs inside the same transaction as the alert's own insert: an alert
-// stored outside its room is invisible to the only surface a technician looks
-// at, which is worse than one that never arrived, because nothing says it is
-// missing.
 func fold(ctx context.Context, tx *sql.Tx, tenantID uuid.UUID, a Alert, g Grouping, now time.Time) error {
 	key, err := scopeKeyFor(ctx, tx, a, g.Scope)
 	if err != nil {
@@ -197,15 +126,11 @@ func fold(ctx context.Context, tx *sql.Tx, tenantID uuid.UUID, a Alert, g Groupi
 	case held && g.spans(room.firstSeen, room.lastSeen, a.ObservedAt):
 		return f.fileInto(ctx, room.id)
 	case held && g.lapsed(room.lastSeen, a.ObservedAt):
-		// Nothing can fold into this room any more, so it is closed at the
-		// instant it became closeable and the alert starts a fresh one.
 		if err := f.closeLapsed(ctx, room); err != nil {
 			return err
 		}
 	case held:
-		// The alert predates the room. It is not part of the story the room
-		// tells, and the room is not stale, so the alert is kept and filed under
-		// nothing rather than back-dated into work that is already under way.
+		// An alert predating a live room stays unfiled.
 		return nil
 	}
 
@@ -216,13 +141,7 @@ func fold(ctx context.Context, tx *sql.Tx, tenantID uuid.UUID, a Alert, g Groupi
 	return f.openRoom(ctx)
 }
 
-// scopeKeyFor derives what a room is about from the machine's own place in the
-// tenancy ladder.
-//
-// A machine filed into no office cannot be grouped with one, and pooling every
-// unfiled machine under one absent key would put unrelated estates in a room
-// with no correct assignee — so the room narrows to the machine itself, the
-// narrowest thing that can honestly be named.
+// A machine filed into no site narrows to a device room.
 func scopeKeyFor(ctx context.Context, tx *sql.Tx, a Alert, scope Scope) (groupingKey, error) {
 	key := groupingKey{organizationID: a.OrganizationID, ruleID: a.RuleID, scope: scope}
 	switch scope {
@@ -250,14 +169,10 @@ func scopeKeyFor(ctx context.Context, tx *sql.Tx, a Alert, scope Scope) (groupin
 	}
 }
 
-// lockOpenRoom reads and holds the open room this alert would join.
 func (f folding) lockOpenRoom(ctx context.Context) (openRoom, bool, error) {
 	return lockOpenRoomForKey(ctx, f.tx, f.key)
 }
 
-// lockOpenRoomForKey reads the open room holding a grouping key and keeps it for
-// the rest of the transaction, so a concurrent fold cannot decide anything about
-// the same key underneath the caller.
 func lockOpenRoomForKey(ctx context.Context, tx *sql.Tx, key groupingKey) (openRoom, bool, error) {
 	var room openRoom
 	switch err := tx.QueryRowContext(ctx, lockOpenRoomSQL,
@@ -272,8 +187,7 @@ func lockOpenRoomForKey(ctx context.Context, tx *sql.Tx, key groupingKey) (openR
 	}
 }
 
-// closeLapsed ends a room nothing can still fold into, at the instant it became
-// closeable rather than the moment the next alert happened to arrive.
+// A lapsed room closes at its last alert plus the window, the instant it became closeable.
 func (f folding) closeLapsed(ctx context.Context, room openRoom) error {
 	at := room.lastSeen.Add(f.grouping.Window)
 	if _, err := f.tx.ExecContext(ctx, closeLapsedRoomSQL, room.id, at); err != nil {
@@ -282,20 +196,13 @@ func (f folding) closeLapsed(ctx context.Context, room openRoom) error {
 	return nil
 }
 
-// opensARoom reports whether this alert is enough to raise one on its own.
-//
-// Anything a rule calls a warning or worse is. A low-severity observation is
-// not: one host reading a little slower than usual is noise, and an estate-wide
-// event that no single host breaches on is visible only because several hosts
-// see it at once. So an observation waits, holding no room, until a second
-// machine reports the same thing inside the window.
+// An info observation waits unfiled until a second machine reports it inside the window.
 func (f folding) opensARoom(ctx context.Context) (bool, error) {
 	if f.alert.Severity != SeverityInfo {
 		return true, nil
 	}
 	if f.key.scope == ScopeDevice {
-		// Cross-device co-occurrence cannot happen inside a room about one
-		// machine, so an observation there never raises one.
+		// Co-occurrence needs two machines, so a device-scoped observation never raises a room.
 		return false, nil
 	}
 	from, to := f.coOccurrenceWindow()
@@ -308,8 +215,6 @@ func (f folding) opensARoom(ctx context.Context) (bool, error) {
 	return observers > 1, nil
 }
 
-// openRoom opens the room for a grouping key and gathers into it both this alert
-// and any observations that were waiting for something to belong to.
 func (f folding) openRoom(ctx context.Context) error {
 	var id uuid.UUID
 	if err := f.tx.QueryRowContext(ctx, openOrJoinRoomSQL,
@@ -327,15 +232,10 @@ func (f folding) openRoom(ctx context.Context) error {
 	return f.fileInto(ctx, id)
 }
 
-// coOccurrenceWindow is how far either side of this alert an observation still
-// counts as the same event. Two-sided for the same reason the fold is: a
-// retroactive scan produces its findings in whatever order it walks history.
 func (f folding) coOccurrenceWindow() (from, to time.Time) {
 	return f.alert.ObservedAt.Add(-f.grouping.Window), f.alert.ObservedAt.Add(f.grouping.Window)
 }
 
-// fileInto puts the alert in a room and restates what the room says about
-// itself.
 func (f folding) fileInto(ctx context.Context, id uuid.UUID) error {
 	if _, err := f.tx.ExecContext(ctx, attachAlertSQL, id, f.alert.ID); err != nil {
 		return fmt.Errorf("file alert into incident: %w", err)
@@ -346,9 +246,6 @@ func (f folding) fileInto(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// groupingKey is what a room is about: the customer, the rule, and the rung
-// of the tenancy ladder the room is filed under. It is what the fold resolves
-// an alert to, and what decides whether a closed room may be reopened.
 type groupingKey struct {
 	organizationID uuid.UUID
 	ruleID         string

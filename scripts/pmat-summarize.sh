@@ -1,32 +1,18 @@
 #!/usr/bin/env bash
-# pmat-summarize.sh — ADR-019 integration point 3 (nightly analytics).
+# Emits a one-line JSON row from the pmat repo-score and TDG check outputs and flags a regression.
+# A regression is a repo score drop of REPO_SCORE_DROP_THRESHOLD or a rise in files below B+.
 #
-# Reads `pmat repo-score` + `pmat tdg check-quality` JSON outputs, emits a
-# canonical single-line JSON row for Loki, runs the day-over-day regression
-# check, and prints a Telegram-ready alert payload on regression.
+# Environment:
+#   REPO_SCORE_JSON   the `pmat repo-score` JSON (default: repo-score.json)
+#   TDG_CHECK_JSON    the `pmat tdg check-quality` JSON (default: tdg-check.json)
+#   PREV_REPO_SCORE   previous repo_score; empty or "null" skips the score rule
+#   PREV_BELOW_BPLUS  previous count of files below B+; empty or "null" skips the count rule
+#   GITHUB_SHA        the commit tagged into the row
 #
-# Mirrors scripts/mutation-summarize.sh. Invoked by .github/workflows/
-# pmat-trend.yml after the pmat runs complete.
-#
-# Inputs (paths overridable via env for testing):
-#   REPO_SCORE_JSON   default: repo-score.json   (`pmat repo-score --format json`)
-#   TDG_CHECK_JSON    default: tdg-check.json     (`pmat tdg check-quality
-#                                                   -p . --min-grade B+ --format json`)
-# Previous-run values (fetched from Loki by the workflow; empty/"null" on the
-# first run, which suppresses the day-over-day rules):
-#   PREV_REPO_SCORE   previous repo_score
-#   PREV_BELOW_BPLUS  previous count of files below B+
-# Other env:
-#   GITHUB_SHA        tagged into the canonical row
-#
-# Alert conditions (ADR-019):
-#   - repo_score drop ≥ REPO_SCORE_DROP_THRESHOLD points day-over-day, OR
-#   - a file newly below B+ since the previous run. We track this via the
-#     below-B+ COUNT rising (a faithful, Loki-storable proxy for "any single
-#     file slipped below B+"; the per-file enforcement lives in the C5
-#     precommit gate). Recorded in ADR-019.
-#
-# Exit codes: 0 no regression · 1 regression detected · 2 input missing.
+# Exit codes:
+#   0  no regression
+#   1  regression detected
+#   2  input missing
 set -uo pipefail
 
 REPO_SCORE_JSON="${REPO_SCORE_JSON:-repo-score.json}"
@@ -36,20 +22,8 @@ REPO_SCORE_DROP_THRESHOLD="${REPO_SCORE_DROP_THRESHOLD:-3.0}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# slice_json FILE — print exactly ONE clean JSON object from FILE.
-#
-# pmat's `check-quality` output is hostile to naive slicing: it prints a
-# progress banner first, colours it with ANSI escapes that `--color never`
-# does NOT suppress, AND (on `-p .`) emits the result object *twice*. A
-# `sed '/^{/,$p'` grab therefore yields banner-free but DOUBLE JSON, which
-# `jq --argjson` rejects as "invalid JSON text" (it wants a single value).
-# This was the CI failure in pmat-trend run 26730207721.
-#
-# On `-p .` check-quality emits TWO result objects: an F-grade-cap gate first
-# (violations = F-grade files) and the MIN-GRADE gate last (violations = files
-# below B+ — what `below_bplus` must count). So: strip ANSI, then raw_decode
-# every top-level object and keep the LAST one (the min-grade gate in pinned
-# 3.17.0). repo-score's clean single object passes through unchanged.
+# slice_json prints the last JSON object in FILE after stripping ANSI escapes and the banner.
+# check-quality emits the F-grade gate first and the min-grade gate last, which below_bplus counts.
 slice_json() {
   python3 - "$1" <<'PY'
 import json, re, sys
@@ -57,7 +31,7 @@ try:
     raw = open(sys.argv[1]).read()
 except OSError:
     sys.exit(1)
-raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)   # strip ANSI colour escapes
+raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)   # ANSI colour escapes are stripped.
 dec = json.JSONDecoder()
 i, last = 0, None
 while i < len(raw):
@@ -75,7 +49,6 @@ json.dump(last, sys.stdout)
 PY
 }
 
-# build_row → canonical JSON row for the current run.
 build_row() {
   [[ -f "$REPO_SCORE_JSON" ]] || {
     echo "missing: $REPO_SCORE_JSON" >&2
@@ -107,7 +80,6 @@ build_row() {
     }
 }
 
-# regression_check CURR_ROW → exit 1 + REGRESSION_ALERT lines if regressed.
 regression_check() {
   local curr="$1"
   local curr_score curr_grade curr_below

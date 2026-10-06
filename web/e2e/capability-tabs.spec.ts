@@ -1,14 +1,7 @@
 import { test, expect } from "./fixtures";
 import type { Route } from "@playwright/test";
 
-// These specs verify SessionView tab filtering in availableTabs():
-// "Desktop" and "Chat" only render when capabilities include "RemoteDesktop";
-// "Terminal" and "Files" always render.
-//
-// SessionView reads capabilities from React Router `location.state`, which
-// DeviceDetail populates on the Start Session click. We drive the same flow
-// here by mocking the device + session-create endpoints, then asserting which
-// tabs render under each capability set.
+// SessionView reads capabilities from router `location.state`, set when Start Session is clicked.
 
 const GROUP_ID = "33333333-3333-4333-8333-333333333333";
 
@@ -66,8 +59,7 @@ async function stubDeviceRoutes(
   await authedPage.route(`**/api/v1/devices/${id}/hardware`, (route: Route) =>
     route.fulfill({ status: 404, body: "" }),
   );
-  // POST /api/v1/sessions returns a token+relay_url so navigate() fires
-  // client-side routing to /sessions/:token with capabilities in state.
+  // The POST reply carries a token and relay_url so the client routes to /sessions/:token.
   await authedPage.route("**/api/v1/sessions", (route: Route) => {
     if (route.request().method() !== "POST") return route.fallback();
     return ok(route, {
@@ -83,7 +75,6 @@ async function openSessionView(
 ) {
   await authedPage.goto(`/devices/${id}`);
   await authedPage.getByRole("button", { name: /start session/i }).click();
-  // Wait for client-side nav with state to reach SessionView (tablist rendered).
   await expect(authedPage.getByRole("tablist")).toBeVisible();
 }
 

@@ -150,19 +150,11 @@ fn redact_cmdline_preserves_the_replacement_for_inline_assignments() {
     assert_eq!(redact_cmdline("app --password=hunter2"), "app [REDACTED]");
 }
 
-/// Builds the raw-log redaction corpus: each row is a secret-bearing log line
-/// whose `secret` substring must never survive redaction. This corpus is
-/// mirrored, case for case, by the server-side guard's `TestRedactSecrets` in
-/// `server/internal/api/log_redact_test.go` — the two guards are independent
-/// defense-in-depth layers, so both must strip every shape. Keep them in sync.
-///
-/// The connection-string case is assembled from parts rather than written as a
-/// literal DSN so the fixture is not itself a hardcoded-credential hotspot.
+/// The connection string is assembled from parts so the fixture holds no literal credential.
 fn raw_log_secret_corpus() -> Vec<(String, String)> {
     let dsn_pw = "s3cr3tpw";
     let dsn = format!("dsn postgres://appuser:{dsn_pw}@db.internal:5432/app opened");
     vec![
-        // Bearer / basic auth headers.
         (
             "level=info msg=\"request\" auth=\"Bearer abcDEF012345_tok\"".into(),
             "abcDEF012345_tok".into(),
@@ -171,7 +163,6 @@ fn raw_log_secret_corpus() -> Vec<(String, String)> {
             "proxy authorization: Basic dXNlcjpwYXNzd29yZA==".into(),
             "dXNlcjpwYXNzd29yZA==".into(),
         ),
-        // key=value and key: value assignments.
         (
             "connecting with password=hunter2secret to db".into(),
             "hunter2secret".into(),
@@ -184,13 +175,11 @@ fn raw_log_secret_corpus() -> Vec<(String, String)> {
             "client_secret=ghp_00112233445566778899 rotated".into(),
             "ghp_00112233445566778899".into(),
         ),
-        // JWT session token (three base64url segments).
         (
             "session started token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N"
                 .into(),
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N".into(),
         ),
-        // Cloud keys: AWS access-key id and GCP API key.
         (
             "aws creds AKIAIOSFODNN7EXAMPLE loaded".into(),
             "AKIAIOSFODNN7EXAMPLE".into(),
@@ -199,16 +188,12 @@ fn raw_log_secret_corpus() -> Vec<(String, String)> {
             "google key AIzaSyA1234567890abcdefghijklmnopqrstuvw in env".into(),
             "AIzaSyA1234567890abcdefghijklmnopqrstuvw".into(),
         ),
-        // Connection string with embedded credentials.
         (dsn, dsn_pw.into()),
-        // A mounted share carries `user:pass@host` with no scheme in front of
-        // it, so a credential check keyed off `://` reads this as ordinary text
-        // and lets the password off the device.
+        // A share path carries `user:pass@host` with no scheme, so a `://` check misses it.
         (
             "mount //fileserver/share svc:Wint3r2026@fileserver failed".into(),
             "Wint3r2026".into(),
         ),
-        // An rsync/ssh target is the same shape again, with a path after it.
         (
             "rsync backup:s3cr3t@10.0.0.5:/srv/data timed out".into(),
             "s3cr3t".into(),
@@ -233,14 +218,11 @@ fn redact_log_line_strips_every_secret_shape() {
 
 #[test]
 fn redact_log_line_leaves_benign_lines_intact() {
-    // A line with no secret material is returned unchanged, including a plain URL
-    // that carries no credentials.
     for benign in [
         "user alice logged in from 10.0.0.1",
         "GET https://example.com/health 200 in 4ms",
         "disk usage 42% on /var",
-        // An email address is an `@` with no credential in front of it, and
-        // over-redacting it would cost every line that names a person.
+        // An email address has no credential before its `@`; redacting it would damage lines.
         "mail delivered to alice@example.com in 12ms",
     ] {
         assert_eq!(

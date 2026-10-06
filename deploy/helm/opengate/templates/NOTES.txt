@@ -33,7 +33,7 @@ lifecycle policy once, outside this chart, then put the PAR base URL (ending in
   oci os preauth-request create --bucket-name opengate-pg-backups \
     --name pg-backup-writer --access-type AnyObjectWrite \
     --time-expires <YYYY-MM-DD> --object-name ''      # write-only, no listing
-  # Retention (replaces the old `find -mtime`): delete objects older than keepDays
+  # Retention: delete objects older than keepDays
   oci os object-lifecycle-policy put --bucket-name opengate-pg-backups \
     --items '[{"name":"expire","action":"DELETE","timeAmount":{{ .Values.postgres.backup.keepDays }},"timeUnit":"DAYS","isEnabled":true,"target":"objects"}]'
 {{- end }}

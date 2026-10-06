@@ -9,15 +9,6 @@ import (
 	"time"
 )
 
-// The harness's own account of a run has to become a bundle, or the evidence is
-// a block of text in a workflow log that nothing reads back — and a comparison
-// against a run older than the metrics store's retention has nothing to read.
-//
-// Everything here is derived from what the run already knows. Nothing is asked
-// of the system under test after the fact: a bundle assembled from a later
-// query describes the system at the time of the query, which is a different
-// moment from the one being reported.
-
 // runBundleInputs is a finished run, as the harness saw it.
 type runBundleInputs struct {
 	Profile    *Profile
@@ -26,74 +17,50 @@ type runBundleInputs struct {
 	Total      time.Duration
 	AgentCount int
 	Target     string
-	// Commit is the source revision; the environment supplies it in CI and the
-	// field falls back to a stated unknown, which the bundle then refuses. The
-	// harness runs inside a pod that inherits no revision, so every staging
-	// bundle carried that string while the canonical rows beside it carried the
-	// real one — an evidence file nobody could attribute to any code.
+	// Commit is the source revision; empty falls back to the CI environment, then "unknown".
 	Commit string
 
-	// TargetShape and GeneratorShape are the two sides of the measurement. The
-	// target's limits are known to whoever started it and to nothing in this
-	// process, which sees only an address, so they are passed in; the
-	// generator's are this machine and are read here.
+	// TargetShape and GeneratorShape are the two sides of the measurement.
+	// The target's limits are passed in; the generator's are read from this machine.
 	TargetShape    Fingerprint
 	GeneratorShape Fingerprint
 
-	// Headroom is what the generator had left while it produced the load. A
-	// zero value is a run that never looked, which invalidates.
+	// Headroom is what the generator had left while it produced the load; zero invalidates the run.
 	Headroom Headroom
 
-	// Journeys are the technician-side screens this night timed, read from the
-	// export that generator already writes.
+	// Journeys are the technician-side screens this night timed.
 	Journeys []JourneyResult
 
 	// FixtureWeight is what the fleet cost on disk, where a run weighed it.
 	FixtureWeight *FixtureWeight
 
-	// Filer is the estate's filing, where the run had a fleet to file. What it
-	// managed travels, because a run that could not file its estate measured
-	// every scoped read against a fleet the product cannot find.
+	// Filer is the estate's filing, where the run had a fleet to file.
 	Filer *estateFiler
 
-	// Phases are the profile's own segments as they actually ran. Empty means
-	// the run offered everything at once, which is a shape in its own right and
-	// is reported as one phase named for what it was.
+	// Phases are the profile's segments as they ran; empty is a run that offered everything at once.
 	Phases []PhaseResult
 
-	// FlatTargetBusy is how hard the target worked over a run that offered
-	// everything at once — the reading a walked phase takes, over the only
-	// window that shape has. Nil is a run that could not take it.
+	// FlatTargetBusy is how hard the target worked over a run that offered everything at once.
+	// Nil is a run that could not take the reading.
 	FlatTargetBusy *float64
-	// FlatTargetBusyAbsent accounts for a whole-run reading that could not be
-	// taken, for the same reason a phase's does.
+	// FlatTargetBusyAbsent accounts for a whole-run reading that could not be taken.
 	FlatTargetBusyAbsent string
 
-	// Registration is how long the server took to write the device row, read
-	// from the server itself. Nil means nobody asked it.
+	// Registration is how long the server took to write the device row; nil means nobody asked.
 	Registration *ServerRegistration
 
 	// Fixture is the fleet this run built, when it built one.
 	Fixture *BuiltFixture
 
-	// Conservation is what the target was holding either side of the run, and
-	// how many completed operations sit between the two readings.
+	// Conservation is what the target held either side of the run and the operations between.
 	Conservation TargetConservation
 
-	// Leak is what grew inside the target between the profiles a long run kept,
-	// where the run was asked to keep any. Nil is a run nobody asked to watch.
+	// Leak is what grew inside the target between the profiles of a long run; nil is a run not watched.
 	Leak *LeakTrail
 }
 
-// arrivedAgents counts the machines that connected, handshook and registered.
-// A machine that never got in took nothing the target has to give back.
-//
-// Arriving is what the count is about, and it is not the same question as
-// whether the machine's life ended cleanly. A machine that arrived, carried
-// load and was severed under it arrived; counting only the ones still standing
-// at the wind-down turns every reading taken from this into a reading of the
-// survivors, and the harder the run the fewer of those there are. On the night
-// the ladder found its breaking point the two answers were 10,520 and 439.
+// arrivedAgents counts the machines that connected, handshook and registered, whatever
+// became of them afterwards.
 func arrivedAgents(results []agentResult) int {
 	arrived := 0
 	for _, result := range results {
@@ -104,30 +71,8 @@ func arrivedAgents(results []agentResult) int {
 	return arrived
 }
 
-// askedAgents is the machines that asked the server for something: every
-// machine-life the run produced, less the ones the run stood down itself.
-//
-// A wind-down cancels every start still reaching for the server when a level
-// comes down, and such a machine never registered — so counting it among the
-// ones that failed to arrive publishes an error rate about the harness's own
-// wind-down, against limits several profiles hold at nought. It is the
-// denominator the canonical rows already divide by.
-//
-// It is counted off the results rather than off the fleet the run was told to
-// offer, because the two are not the same number wherever a machine is replaced
-// when it leaves: the endurance run declares five hundred and produces several
-// thousand machine-lives. Dividing by the declaration there puts more arrivals
-// over the line than the line allows for and reports a share below nought,
-// which every ceiling in every profile passes. Counted this way a machine that
-// arrived is a machine that asked, so the share stays between nought and one
-// whatever shape the run had.
-//
-// A machine the server refused on purpose is out for the same reason wearing
-// different clothes. It asked and was told no by a limit doing its job, and
-// counting a correctly enforced ceiling as a defect makes the ceiling look
-// broken and buries the real failures underneath it. Which answers count as
-// deliberate is decided in postEnrollment, so a server that broke is still in
-// here.
+// askedAgents counts machine-lives that asked the server for something, leaving out those the
+// run stood down itself and those refused on purpose. It counts results, as machines are replaced.
 func askedAgents(results []agentResult) int {
 	asked := 0
 	for _, result := range results {
@@ -147,11 +92,8 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 	arrived, connect, handshake, register := summarizeResults(in.Results)
 	finished := in.StartedAt.Add(in.Total)
 
-	// The share of the machines that asked the server for something and did not
-	// get in. Over the machine-lives the run produced less what it stood down
-	// itself, which is the same denominator the canonical rows use — a run that
-	// stood its whole fleet down asked nothing and reports nothing rather than
-	// everything.
+	// The error rate is the share of asking machines that did not get in; a run that stood
+	// its whole fleet down asked nothing and reports zero.
 	errorRate := 0.0
 	if asked := askedAgents(in.Results); asked > 0 {
 		errorRate = float64(asked-arrived) / float64(asked)
@@ -171,9 +113,8 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		Leak:              in.Leak,
 	}
 
-	// Where the ladder broke, for a profile that said what breaking means. It is
-	// read off the phases the run actually walked, so a run stopped early
-	// answers about the rungs it reached rather than about the ones it declared.
+	// The breaking point is read off the phases the run walked, so an early stop answers
+	// about the rungs it reached.
 	if in.Profile != nil {
 		bundle.BreakingPoint = FindBreakingPoint(in.Profile.GaveOut, bundle.Phases)
 	}
@@ -214,15 +155,10 @@ func runIdentity(in runBundleInputs, finished time.Time) RunIdentity {
 	return identity
 }
 
-// unknownCommit is what a run that could not find its own revision says. It is
-// a stated absence rather than an empty string so a reader sees a run that did
-// not know instead of a field somebody forgot, and the bundle refuses it — a
-// measurement that cannot be attributed to any code is not evidence about that
-// code.
+// unknownCommit is a stated absence for a run that cannot find its revision; the bundle refuses it.
 const unknownCommit = "unknown"
 
-// commitFromEnvironment reads the revision CI already knows, falling back to a
-// stated unknown.
+// commitFromEnvironment reads the revision CI already knows, falling back to unknownCommit.
 func commitFromEnvironment() string {
 	if sha := os.Getenv("GITHUB_SHA"); sha != "" {
 		return sha
@@ -230,13 +166,8 @@ func commitFromEnvironment() string {
 	return unknownCommit
 }
 
-// uncountedCleanup is the bundle's cleanup section as the harness can write it:
-// uncounted, with the reason.
-//
-// A run creates accounts, customers and machines through the fixture, and the
-// harness has finished before anything is removed. On staging the cleanup step
-// removes and counts them after the run and folds its proof into this bundle; on
-// the disposable stack the whole stack goes with the job, so nothing is counted.
+// uncountedCleanup is the bundle's cleanup section as the harness can write it: uncounted, with
+// the reason, since removal happens after the harness has finished.
 func uncountedCleanup(in runBundleInputs) CleanupProof {
 	if in.Profile != nil && in.Profile.Environment == EnvRunner {
 		return CleanupProof{NotCounted: "the stack is torn down with the job that built it, so nothing outlives the run to count"}
@@ -244,9 +175,7 @@ func uncountedCleanup(in runBundleInputs) CleanupProof {
 	return CleanupProof{NotCounted: "the cleanup step counts what the run left and folds its proof into this bundle after the run"}
 }
 
-// targetFingerprint is the system under test as whoever started it described
-// it. A run given no description of its target says what it was pointed at and
-// nothing about its shape, which the bundle then refuses.
+// targetFingerprint is the system under test as whoever started it described it.
 func targetFingerprint(in runBundleInputs) Fingerprint {
 	shape := in.TargetShape
 	if shape.Kind == "" {
@@ -258,9 +187,8 @@ func targetFingerprint(in runBundleInputs) Fingerprint {
 	return shape
 }
 
-// generatorFingerprint is the machine producing the load. A run that measured
-// it says so; one that did not falls back to what the runtime can see about
-// itself, which is the processor count and the architecture and no memory.
+// generatorFingerprint is the machine producing the load, falling back to the processor count
+// and architecture the runtime reports.
 func generatorFingerprint(in runBundleInputs) Fingerprint {
 	shape := in.GeneratorShape
 	if shape.Kind == "" {
@@ -279,20 +207,13 @@ func generatorFingerprint(in runBundleInputs) Fingerprint {
 }
 
 // fixtureCounts records the fleet this run drove.
-//
-// The machine count is the machines that enrolled, not the machines the plan
-// asked for. Those are different numbers and were reported as one: a bundle
-// said two thousand machines while the database, weighed in the same job,
-// held five hundred. What was planned travels beside it under its own name.
+// Devices is the machines that enrolled; the planned count travels beside it.
 func fixtureCounts(in runBundleInputs, enrolled int) FixtureCounts {
 	counts := FixtureCounts{Size: FixtureSmall, Tenants: 1, Customers: 1, Sites: 1}
 	if in.Profile != nil {
 		counts.Size = in.Profile.Fixture
 	}
 
-	// A run that built its own fleet knows exactly what customers and accounts
-	// are there, so it says so rather than inferring the shape from how many
-	// machines it dialled.
 	if in.Fixture != nil {
 		built := in.Fixture.Counts()
 		counts.Size = built.Size
@@ -305,8 +226,7 @@ func fixtureCounts(in runBundleInputs, enrolled int) FixtureCounts {
 
 	counts.Devices = enrolled
 	if counts.Devices <= 0 && in.AgentCount > 0 {
-		// Nothing arrived. The fleet is empty, and the run is invalid for that
-		// reason rather than for a fixture the bundle refused to describe.
+		// Nothing arrived, so the fleet is empty and the run is invalid for that reason.
 		counts.Devices = in.AgentCount
 	}
 	if counts.Devices <= 0 {
@@ -325,9 +245,8 @@ func fixtureCounts(in runBundleInputs, enrolled int) FixtureCounts {
 	return counts
 }
 
-// phaseResults is the run's phases. A run driven by a profile reports the
-// profile's own segments; one without a profile offered everything at once, and
-// that is reported as the single phase it was rather than dressed up as more.
+// phaseResults is the run's phases: the profile's own segments, or a single connect phase for a
+// run that offered everything at once.
 func phaseResults(in runBundleInputs, finished time.Time, arrived int,
 	register []time.Duration, errorRate float64,
 ) []PhaseResult {
@@ -338,9 +257,7 @@ func phaseResults(in runBundleInputs, finished time.Time, arrived int,
 }
 
 func connectPhase(in runBundleInputs, finished time.Time, arrived int, register []time.Duration, errorRate float64) PhaseResult {
-	// The connect ends when the fleet is up. A run that then holds its fleet for
-	// the generator beside it spends most of its wall clock there, so a phase
-	// carrying the run's own end reports the hold under the arrival's name.
+	// The connect phase ends when the fleet is up, so the hold afterwards is not reported as arrival.
 	lastArrival := finished
 	if window := arrivalWindow(in.Results, in.StartedAt); window > 0 {
 		lastArrival = in.StartedAt.Add(window)
@@ -349,9 +266,7 @@ func connectPhase(in runBundleInputs, finished time.Time, arrived int, register 
 		Name:       "connect",
 		StartedAt:  in.StartedAt,
 		FinishedAt: lastArrival,
-		// Every machine is offered at once, so the offered and achieved counts
-		// are the fleet and the fleet that arrived, and the two arrival rates
-		// are those counts over the window the fleet took to turn up.
+		// Every machine is offered at once, so the arrival rates are fleet counts over the window.
 		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(in.AgentCount), lastArrival.Sub(in.StartedAt).Seconds()),
 		AchievedAgentArrivalsPerSecond: ratePerSecond(int64(arrived), lastArrival.Sub(in.StartedAt).Seconds()),
 		OfferedConnectedAgents:         in.AgentCount,
@@ -365,9 +280,8 @@ func connectPhase(in runBundleInputs, finished time.Time, arrived int, register 
 	}
 }
 
-// producedScenarios reports whether this half of the night measured anything. A
-// run where nothing connected produced no rows, which is a partial night rather
-// than a slow system.
+// producedScenarios names the scenario this half of the night measured, and none when nothing
+// connected, which makes the night partial.
 func producedScenarios(arrived int) []string {
 	if arrived == 0 {
 		return nil
@@ -375,13 +289,8 @@ func producedScenarios(arrived int) []string {
 	return []string{"quic-agents"}
 }
 
-// summarizeResults splits the run into what arrived and the three latency
-// series it produced.
-//
-// A timing belongs to the machine that took it. A machine that connected in
-// 200ms and was severed an hour later connected in 200ms, and dropping it
-// because of how its life ended removes the slowest arrivals from the series
-// first — which reports a run as faster the more of its fleet it lost.
+// summarizeResults splits the run into the arrival count and the three latency series.
+// A timing belongs to the machine that took it, whatever became of that machine later.
 func summarizeResults(results []agentResult) (arrived int, connect, handshake, register []time.Duration) {
 	for _, result := range results {
 		if result.arrivedAt.IsZero() {
@@ -399,9 +308,7 @@ func millis(d time.Duration) float64 {
 	return float64(d) / float64(time.Millisecond)
 }
 
-// writeRunBundle puts a built bundle on disk. Building and writing are separate
-// because the verdict is read on every run and the file is written only when one
-// was asked for.
+// writeRunBundle puts a built bundle on disk when a run asked for the file.
 func writeRunBundle(bundle *Bundle, dir string) error {
 	path, err := bundle.WriteTo(dir)
 	if err != nil {

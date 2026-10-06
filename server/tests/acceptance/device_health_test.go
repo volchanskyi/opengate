@@ -14,8 +14,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// readings is the chart a technician sees on a machine's page: an axis of
-// bucket timestamps and one line per dimension, aligned to it.
+// readings is a machine's chart: bucket timestamps and one aligned series per dimension.
 type readings struct {
 	T      []int64 `json:"t"`
 	Series []struct {
@@ -24,9 +23,7 @@ type readings struct {
 	} `json:"series"`
 }
 
-// values returns the readings a technician can actually see on one line — the
-// buckets the machine reported, with the empty ones dropped the way an eye
-// drops them.
+// values returns one series' reported readings with the empty buckets dropped.
 func (r readings) values(dim string) []float64 {
 	var out []float64
 	for _, series := range r.Series {
@@ -42,7 +39,7 @@ func (r readings) values(dim string) []float64 {
 	return out
 }
 
-// readings asks the device page for a machine's numbers over a window.
+// readings fetches a machine's numbers over a window.
 func (a *Technician) readings(deviceID fmt.Stringer, from, to time.Time, dims ...string) readings {
 	a.t.Helper()
 
@@ -57,33 +54,18 @@ func (a *Technician) readings(deviceID fmt.Stringer, from, to time.Time, dims ..
 	return out
 }
 
-// report is one minute of readings, the way a machine closes a window and
-// sends what it saw.
+// report sends one closed minute window of readings.
 func (m *Machine) report(at time.Time, dims ...protocol.MetricDim) {
 	m.t.Helper()
 	m.Send(&protocol.ControlMessage{Type: protocol.MsgAgentMetricWindow, TS: at.Unix(), Dims: dims})
 }
 
-// settle sends a heartbeat, which is the boundary the machine's telemetry
-// burst is written at. A machine that has reported and then gone quiet has
-// already sent one; a test that reports and then reads must too, or it reads
-// before the write.
+// settle sends a heartbeat, the boundary at which the telemetry burst is written.
 func (m *Machine) settle() {
 	m.t.Helper()
 	m.Send(&protocol.ControlMessage{Type: protocol.MsgAgentHeartbeat, Timestamp: time.Now().UTC().Unix()})
 }
 
-// TestAMachineReportsAMinuteAndTheTechnicianReadsItBack is the sentence Device
-// Health promises, and it is the one a shipped defect walked straight through.
-//
-// The write half had coverage against in-process fakes, the read half against
-// a fake reader, and the metrics client against a real store — four halves and
-// no whole. What that arrangement could not see is a path that counts a
-// reading as received and then never writes it: the fleet measured thousands
-// of windows ingested, one persisted, and zero dropped, and every tier stayed
-// green for the whole of it. This test is the only shape that goes red for
-// that, because it asks the question a technician asks — is the number on the
-// page?
 func TestAMachineReportsAMinuteAndTheTechnicianReadsItBack(t *testing.T) {
 	t.Parallel()
 
@@ -111,10 +93,6 @@ func TestAMachineReportsAMinuteAndTheTechnicianReadsItBack(t *testing.T) {
 	assert.NotEmpty(t, chart.T, "the chart carries the window's own axis, not just the buckets that had data")
 }
 
-// TestReadingsThatArriveWithNothingInThemAreAccountedFor is the empty-payload
-// case, named because it is the one that cost the fleet. Every message the
-// product receives either lands or says why not; a message that is counted as
-// received and then quietly discarded is the failure this states against.
 func TestReadingsThatArriveWithNothingInThemAreAccountedFor(t *testing.T) {
 	t.Parallel()
 
@@ -134,10 +112,6 @@ func TestReadingsThatArriveWithNothingInThemAreAccountedFor(t *testing.T) {
 		"a window with nothing in it must be counted as a drop, with the reason said out loud")
 }
 
-// TestAReadingFromAMachineWithAWrongClockIsStillKept covers the laptop coming
-// back from a suspended virtual machine that stamps its readings hours out. A
-// clamp is not a drop: the reading is pulled to the nearer bound of what the
-// product will accept, and it is still on the page.
 func TestAReadingFromAMachineWithAWrongClockIsStillKept(t *testing.T) {
 	t.Parallel()
 
@@ -148,7 +122,7 @@ func TestAReadingFromAMachineWithAWrongClockIsStillKept(t *testing.T) {
 	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-laptop-07")
 	machine.AwaitOnline()
 
-	// A clock hours ahead of everybody else's.
+	// The timestamp is six hours ahead, beyond the accepted window, so the reading is clamped.
 	machine.report(time.Now().UTC().Add(6*time.Hour), protocol.MetricDim{Name: "cpu.total", Avg: 12.5})
 	machine.settle()
 
@@ -156,10 +130,6 @@ func TestAReadingFromAMachineWithAWrongClockIsStillKept(t *testing.T) {
 	admin.awaitReading(product, machine.DeviceID, from, to, "cpu.total")
 }
 
-// TestADimensionTheFleetNeverAgreedToIsRefused pins the bound on what a
-// machine may put in the store. A dimension name arrives as untrusted input,
-// and copying it into a label would make the whole tenant's series count a
-// property of what one machine sends.
 func TestADimensionTheFleetNeverAgreedToIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -180,10 +150,8 @@ func TestADimensionTheFleetNeverAgreedToIsRefused(t *testing.T) {
 		"a dimension outside the agreed vocabulary is dropped and counted, never stored")
 }
 
-// awaitReading waits until a dimension the machine reported is readable on the
-// device page. Each attempt publishes what the store already holds first, so
-// the wait is on the product having written the reading rather than on the
-// store's batching timer.
+// awaitReading waits until a reported dimension is readable, publishing the store's pending
+// batch on each attempt.
 func (a *Technician) awaitReading(product *Product, deviceID fmt.Stringer, from, to time.Time, dim string) {
 	a.t.Helper()
 	require.Eventuallyf(a.t, func() bool {
@@ -193,11 +161,7 @@ func (a *Technician) awaitReading(product *Product, deviceID fmt.Stringer, from,
 		"a %s reading the machine sent must become a number on the machine's page", dim)
 }
 
-// platformInstrumentation is the platform's own reading of itself — what a
-// monitoring system scrapes. It is a door an operator has, which is why an
-// outcome about accounting may be stated through it. The door is the
-// cluster-only listener: the exposition is what a scraper reaches, never what
-// the ingress publishes.
+// platformInstrumentation returns the metrics exposition served by the cluster-only listener.
 func (a *Technician) platformInstrumentation() string {
 	a.t.Helper()
 	req, err := http.NewRequestWithContext(a.t.Context(),

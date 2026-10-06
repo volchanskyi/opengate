@@ -9,14 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Filing an estate as it arrives.
-//
-// A machine can only be filed once its row exists, and the row exists when the
-// machine registers — so the filing follows each arrival rather than waiting for
-// the last one. What the run holds beforehand is enough to do it without asking
-// the server anything: the plan says which customer this machine belongs to, and
-// the credential it dials with carries its identifier.
-
 // aFiler builds a filer over a fake server, with an estate of the given size.
 func aFiler(t *testing.T, estate, readyAt int) (*estateFiler, *fakeAPI) {
 	t.Helper()
@@ -33,6 +25,15 @@ func aMachine(index int) tenantAgent {
 	return tenantAgent{agentIndex: index, hostname: fmt.Sprintf("soak-t0-a%d", index)}
 }
 
+// failFilingAt makes the fake server refuse requests to exactly that path; empty clears it.
+func failFilingAt(api *fakeAPI, path string) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.failAt = path
+}
+
+const devicesPath = "/api/v1/devices/"
+
 func TestAnArrivedMachineIsFiledUnderItsCustomerAndIntoASite(t *testing.T) {
 	filer, api := aFiler(t, 10, 10)
 
@@ -48,9 +49,6 @@ func TestAnArrivedMachineIsFiledUnderItsCustomerAndIntoASite(t *testing.T) {
 	assert.Zero(t, refused)
 }
 
-// A machine that comes back after an outage is the same machine, so filing it
-// again would be a second write for a row that is already right. It is also how
-// a five-hour run with ten cycles of churn would turn one filing into ten.
 func TestAMachineThatComesBackIsNotFiledAgain(t *testing.T) {
 	filer, api := aFiler(t, 10, 10)
 	machine := aMachine(0)
@@ -64,17 +62,9 @@ func TestAMachineThatComesBackIsNotFiledAgain(t *testing.T) {
 	assert.Equal(t, 1, filed)
 }
 
-// A refusal is counted and the machine carries on.
-//
-// Filing is not the load, and a run that died because one filing was refused
-// would throw away the measurement it had already taken. What must not happen is
-// the opposite — a run that could not file its estate reporting a filed one —
-// so the count travels and the run says what it managed.
 func TestAFilingTheServerRefusesIsCountedRatherThanFatal(t *testing.T) {
 	filer, api := aFiler(t, 10, 10)
-	api.mu.Lock()
-	api.failAt = "/api/v1/devices/"
-	api.mu.Unlock()
+	failFilingAt(api, devicesPath)
 
 	filer.file(context.Background(), aMachine(0))
 
@@ -83,12 +73,6 @@ func TestAFilingTheServerRefusesIsCountedRatherThanFatal(t *testing.T) {
 	assert.Equal(t, 1, refused)
 }
 
-// The run announces a filed estate once, at the level it declared.
-//
-// The browser-side scenarios pick the building they will time in their own
-// setup, once, before their first iteration — so a scenario started before any
-// machine is filed reads an empty building for its whole run, whatever gets
-// filed afterwards. The announcement is what the step ordering hangs off.
 func TestTheEstateAnnouncesItselfFiledOnceTheDeclaredLevelIsReached(t *testing.T) {
 	filer, _ := aFiler(t, 10, 3)
 
@@ -96,27 +80,18 @@ func TestTheEstateAnnouncesItselfFiledOnceTheDeclaredLevelIsReached(t *testing.T
 	assert.False(t, filer.file(context.Background(), aMachine(1)), "two of three is not the level")
 	assert.True(t, filer.file(context.Background(), aMachine(2)), "the third machine reaches it")
 
-	// Once, not once per arrival after it: a step waiting on the line would
-	// otherwise be told the same thing hundreds of times.
 	assert.False(t, filer.file(context.Background(), aMachine(3)), "the level is announced once")
 }
 
-// A refused filing does not count toward the level, or a run that filed nothing
-// would announce a filed estate.
 func TestRefusedFilingsDoNotReachTheAnnouncedLevel(t *testing.T) {
 	filer, api := aFiler(t, 10, 2)
-	api.mu.Lock()
-	api.failAt = "/api/v1/devices/"
-	api.mu.Unlock()
+	failFilingAt(api, devicesPath)
 
 	assert.False(t, filer.file(context.Background(), aMachine(0)))
 	assert.False(t, filer.file(context.Background(), aMachine(1)))
 	assert.False(t, filer.file(context.Background(), aMachine(2)))
 }
 
-// A run that built no fixture has no customers to file under, and that is an
-// ordinary shape rather than a failure: a bare run against a local stack brings
-// its own machines and nobody to file them for.
 func TestARunWithNoFixtureFilesNothing(t *testing.T) {
 	var filer *estateFiler
 	assert.NotPanics(t, func() {
@@ -127,12 +102,6 @@ func TestARunWithNoFixtureFilesNothing(t *testing.T) {
 	assert.Zero(t, refused)
 }
 
-// The two things that happen when a machine arrives, composed once.
-//
-// The fleet counts the arrival in the phase it happened in, and the estate files
-// the machine. Both hang off the same moment — the machine is registered, so its
-// row exists — and naming the pair is what lets a test say the filing is still
-// wired to it.
 func TestAnArrivalBothCountsAndFiles(t *testing.T) {
 	filer, api := aFiler(t, 10, 10)
 	machine := aMachine(0)
@@ -144,19 +113,10 @@ func TestAnArrivalBothCountsAndFiles(t *testing.T) {
 	assert.Len(t, api.filedToCustomer, 1, "the estate files the machine that arrived")
 }
 
-// A run with nobody keeping a tally and nothing to file against is the ordinary
-// bare run, and it must not fall over on either half being absent.
 func TestAnArrivalWithNobodyWatchingIsHarmless(t *testing.T) {
 	assert.NotPanics(t, func() { arrivalOf(nil, nil, aMachine(0))() })
 }
 
-// How many filed machines make the estate worth announcing.
-//
-// It is the first phase's level rather than the whole estate: a profile climbs,
-// so the estate is only complete once the tallest phase is reached, and a step
-// waiting for that would stand idle through the ramp it was meant to overlap.
-// What the scenarios need is a building that holds machines, and the first
-// phase's level is the first moment the run can promise one.
 func TestTheAnnouncedLevelIsTheFirstPhasesOwn(t *testing.T) {
 	profile := &Profile{Phases: []Phase{
 		{Name: "ramp", ConnectedAgents: 250},
@@ -164,30 +124,14 @@ func TestTheAnnouncedLevelIsTheFirstPhasesOwn(t *testing.T) {
 	}}
 	assert.Equal(t, 250, filingLevel(profile, 500))
 
-	// A run with no profile offers every machine at once, so the estate is the
-	// level and there is no earlier moment to name.
 	assert.Equal(t, 500, filingLevel(nil, 500))
 
-	// A first phase that connects nobody is a profile that starts idle; the
-	// estate is the honest answer rather than nought, which would announce a
-	// filed estate before anything had arrived.
 	assert.Equal(t, 500, filingLevel(&Profile{Phases: []Phase{{Name: "quiet"}}}, 500))
 }
 
-// Filing spends the same allowance the arrivals do. Every machine that registers
-// costs the server another request or two on the address the enrolment came
-// from, and that address is allowed about a hundred requests a second — so a
-// refusal asked for again once per machine is not merely wasted, it is taken out
-// of the budget the fleet needs to arrive at all.
-//
-// A refusal can be about one machine, so one is not enough to stop on. A run of
-// them with nothing ever filed is about the run, and asking again is spending
-// requests on an answer that will not change.
 func TestAFleetTheRunCannotFileStopsBeingAskedFor(t *testing.T) {
 	filer, api := aFiler(t, 100, 100)
-	api.mu.Lock()
-	api.failAt = "/api/v1/devices/"
-	api.mu.Unlock()
+	failFilingAt(api, devicesPath)
 
 	for i := 0; i < 40; i++ {
 		filer.file(context.Background(), aMachine(i))
@@ -199,19 +143,13 @@ func TestAFleetTheRunCannotFileStopsBeingAskedFor(t *testing.T) {
 		"a run that cannot file stops asking rather than spending an arrival's allowance per machine")
 }
 
-// One refusal is not a fleet it cannot file. A machine the server would not take
-// says nothing about the next one, so the run carries on filing.
 func TestOneRefusalDoesNotStopTheRunFiling(t *testing.T) {
 	filer, api := aFiler(t, 10, 10)
 
-	api.mu.Lock()
-	api.failAt = "/api/v1/devices/"
-	api.mu.Unlock()
+	failFilingAt(api, devicesPath)
 	filer.file(context.Background(), aMachine(0))
 
-	api.mu.Lock()
-	api.failAt = ""
-	api.mu.Unlock()
+	failFilingAt(api, "")
 	filer.file(context.Background(), aMachine(1))
 
 	filed, refused := filer.counts()
@@ -219,15 +157,11 @@ func TestOneRefusalDoesNotStopTheRunFiling(t *testing.T) {
 	assert.Equal(t, 1, refused)
 }
 
-// A run that has filed anything at all has proved the mechanism works, so later
-// refusals are about their own machines and never stop it.
 func TestARunThatHasFiledKeepsTryingHoweverManyAreRefused(t *testing.T) {
 	filer, api := aFiler(t, 100, 100)
 	filer.file(context.Background(), aMachine(0))
 
-	api.mu.Lock()
-	api.failAt = "/api/v1/devices/"
-	api.mu.Unlock()
+	failFilingAt(api, devicesPath)
 	for i := 1; i < 40; i++ {
 		filer.file(context.Background(), aMachine(i))
 	}

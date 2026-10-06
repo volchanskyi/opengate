@@ -16,12 +16,7 @@ env:
 permissions: {}
 
 jobs:
-  # --------------------------------------------------------------------------
-  # Path-gate: decide whether the diff vs the SHA that produced :latest
-  # actually changes any image input. Skipping the multi-arch build saves
-  # 1-3 min per run on the ~80% of main-branch commits that only touch
-  # docs/agent/deploy/CI. See scripts/build-image-gate.sh.
-  # --------------------------------------------------------------------------
+  # Decides whether the diff against the SHA that produced :latest changes any image input.
   check-image-changed:
     name: Check image inputs changed since :latest
     runs-on: ubuntu-24.04
@@ -49,18 +44,8 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: ./scripts/build-image-gate.sh >> "$GITHUB_OUTPUT"
 
-  # --------------------------------------------------------------------------
-  # The two machines the staging browser suite reads its device pages against
-  # run this binary. It is built here because this workflow checks out the same
-  # commit the deploy rolls out, so a run can never pair one commit's server
-  # with another commit's machines — and because this workflow's cache token
-  # writes, while the deploy's carries read scope only and leaves a toolchain
-  # cache there permanently cold.
-  #
-  # Deliberately outside the image_changed gate: the deploy needs the binary on
-  # every run, including the ~80% that change no image input and take the
-  # tag-forward path below.
-  # --------------------------------------------------------------------------
+  # Built here because this workflow's cache token can write and the deploy's cannot.
+  # Runs outside the image_changed gate, since the deploy needs the binary on every run.
   build-agent:
     name: Build the agent for ${{ matrix.target }}
     runs-on: ubuntu-24.04
@@ -95,8 +80,7 @@ jobs:
       - name: Install cross tools
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
-          # Pinned to a rev rather than a tag: the cross-build needs main, and an
-          # unpinned --git install compiles a tree nobody has tested.
+          # Pinned to a rev: the cross-build needs main, and an unpinned --git install is untested.
           cargo install --locked cross \
             --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27
 
@@ -113,18 +97,13 @@ jobs:
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: cross build --release --target ${{ matrix.target }} -p mesh-agent
 
-      # The deploy reaches back into this run for it by name.
       - uses: actions/upload-artifact@v7
         with:
           name: mesh-agent-${{ matrix.target }}
           path: agent/target/${{ matrix.target }}/release/mesh-agent
           retention-days: 20
 
-  # A cache save that is refused prints a warning and exits zero, so the only
-  # evidence the agent build's cache is still warm is the key coming back out of
-  # the cache API. Without this, a workflow that quietly lost its write scope —
-  # which is exactly what happened to the deploy — pays a cold cross-build on
-  # every run and reports nothing.
+  # A refused cache save exits zero, so the cache API is asked for the key the build wrote.
   assert-agent-cache:
     name: The agent cache write landed for ${{ matrix.target }}
     needs: build-agent
@@ -144,8 +123,7 @@ jobs:
           sparse-checkout: scripts/assert-cache-written.sh
           sparse-checkout-cone-mode: false
 
-      # rust-cache computes the rest of the key itself; this is the part the
-      # job chose, and it is enough to say whether something warmed this target.
+      # rust-cache computes the rest of the key; this is the part the job chose.
       - name: Read the agent cache entry back
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,8 +140,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-    # The scanner version, equal to its row in scripts/lib/tool-versions.sh. Not
-    # TRIVY_*: trivy reads every such variable as one of its own flags.
+    # Equals the scanner's row in scripts/lib/tool-versions.sh; trivy reads each TRIVY_* as a flag.
     env:
       PINNED_TRIVY: v0.70.0
     steps:
@@ -250,13 +227,8 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
 
-  # --------------------------------------------------------------------------
-  # Tag-forward path: no image input changed, so reuse the existing :latest
-  # digest under the new sha- tag. CD requires sha-<7char> to exist for
-  # `docker compose pull` and has no fallback. crane copy stamps the
-  # destination tag with the same manifest digest, so cosign signatures,
-  # SBOM, and Trivy attestations are inherited via the digest.
-  # --------------------------------------------------------------------------
+  # Reuses the existing :latest digest under the new sha- tag, which CD requires to exist.
+  # crane copy keeps the manifest digest, so signatures, SBOM and attestations carry over.
   tag-forward:
     name: Tag-forward :latest → sha-<newsha>
     needs: check-image-changed

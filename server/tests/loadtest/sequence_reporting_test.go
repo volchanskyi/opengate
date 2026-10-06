@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What a run reports about the phases it walked, and what it refuses to walk.
-
 func TestOfferedLoadIsRecordedBesideAchievedLoad(t *testing.T) {
 	profile := threePhaseProfile()
 	fleet := &recordingFleet{}
@@ -18,13 +16,9 @@ func TestOfferedLoadIsRecordedBesideAchievedLoad(t *testing.T) {
 	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
-	// Without both, a generator that could not keep up and a server that was
-	// slow are the same reading.
 	assert.Equal(t, 500, results[1].OfferedConnectedAgents)
 	assert.Equal(t, 500, results[1].AchievedConnectedAgents)
-	// The phase climbs 250 machines over five minutes, which is the machine-side
-	// rate it offered; the technician figure the profile declares travels beside
-	// it under its own name because nothing in this process offers it.
+	// The phase climbs 250 machines over five minutes; the technician figure travels beside it.
 	assert.InDelta(t, 250.0/300.0, results[1].OfferedAgentArrivalsPerSecond, 0.001)
 	assert.InDelta(t, 5.0, results[1].OfferedOperatorArrivalsPerSecond, 0.001)
 }

@@ -1,33 +1,6 @@
 #!/usr/bin/env bash
-# Hold the QUIC fleet inside the staging cluster, and read its verdict back.
-#
-# The fleet has to stay connected for the whole k6 window, because the relay
-# scenario opens the operator's side of a real session and a session needs a
-# machine on the other end of it. Held on one `kubectl exec` running for that
-# whole window, the fleet lives and dies with a stream three hops long — runner,
-# API server, kubelet — and the run has no account of it either way.
-#
-# So the harness is launched detached in the pod and left there. The launch is a
-# call that returns in a moment; what it started is a process the pod owns, and
-# every later question about it — is it offering a fleet, what did it decide,
-# what did it print — is a fresh call that can be asked again if the first one
-# does not arrive.
-#
-# Two properties follow, and they are the reason for the shape:
-#
-#   * A launch that never happened is made again. The API server's request to
-#     the kubelet can be refused outright, and a harness that never ran built no
-#     fixture, so making the call again is safe. The decision is taken by asking
-#     the pod what it holds — never by reading the error text, which changes with
-#     the client and says nothing about what the pod did.
-#   * A launch that happened is never made twice. A second harness would build a
-#     second fixture over the first one's names, and a customer's name is unique
-#     inside its tenant, so the second run would be refused partway through and
-#     leave the fleet it was supposed to double.
-#
-# `start` returns only once the harness has said it is offering its fleet. A
-# sleep in its place reports success on a fleet that never started, and the
-# scenarios beside it then measure a system with nothing connected to it.
+# Holds the QUIC fleet in a detached process in the staging pod and reads its verdict back.
+# A refused launch is repeated; a launch that happened is never made twice.
 #
 # Environment:
 #   LOADTEST_POD                            pod holding /tmp/loadtest (required)
@@ -47,39 +20,17 @@
 #   loadtest-quic-incluster.sh collect
 set -euo pipefail
 
-# The line the harness prints once its fixture is built and it is about to offer
-# its fleet. It is the harness's own account of itself, which is what makes it a
-# readiness signal rather than a guess about how long a fixture takes.
+# The harness prints this once its fixture is built and it is about to offer its fleet.
 FLEET_ANNOUNCEMENT='Starting QUIC load test'
 
-# The line the harness prints once the estate it declared is filed — each
-# machine under the customer that holds it and into one of that customer's
-# buildings. It is server/tests/loadtest/filing.go's estateFiledAnnouncement.
-#
-# Filing follows the load because a machine's row does not exist until it has
-# registered, so this arrives after the fleet announcement rather than with it.
-# The scenarios that read a building have to wait for it: each chooses its
-# building once, in its own setup, so one started against an unfiled fleet reads
-# an empty building for the whole of its run.
+# The harness prints this once every machine is filed under its customer and building.
 FILED_ANNOUNCEMENT='Estate filed'
 
-# The line the harness prints when it starts walking the profile, followed by
-# the second it started at. It is server/tests/loadtest/safety.go's
-# walkStartedAnnouncement.
-#
-# The browser-side generators join that walk where it is. They cannot start
-# until the estate they read is filed, which is after the arrivals, so a
-# generator that began the shape again from its beginning would be a phase
-# behind for the rest of the night — holding its steady window open past the
-# drain and publishing a percentile taken partly against a fleet that had
-# already left.
+# The harness prints this when it starts walking the profile, followed by the start second.
 WALK_ANNOUNCEMENT='Walk started at'
 
-# NO_FLEET is the verdict when there is no run to report on — nothing was
-# launched, or nothing reached a verdict inside the bound. It is deliberately
-# outside the harness's own vocabulary (0 clean, 1 some agents failed, 2 the run
-# measured nothing), so scripts/loadtest-quic-run.sh reads it as an abort and
-# discards whatever output exists.
+# NO_FLEET is the verdict when nothing launched or nothing reached a verdict in the bound.
+# It lies outside the harness's own exit codes (0, 1, 2), so the runner reads it as an abort.
 NO_FLEET=4
 
 POD="${LOADTEST_POD:-}"
@@ -88,8 +39,7 @@ POD_LOG="${LOADTEST_QUIC_POD_LOG:-/tmp/loadtest-fleet.log}"
 POD_STATUS="${LOADTEST_QUIC_POD_STATUS:-/tmp/loadtest-fleet.status}"
 START_ATTEMPTS="${LOADTEST_QUIC_START_ATTEMPTS:-3}"
 START_TIMEOUT="${LOADTEST_QUIC_START_TIMEOUT_SECONDS:-600}"
-# The filing follows the arrivals, and the arrivals are the profile's first
-# phase — so this bound covers a ramp as well as a fixture build.
+# Filing follows the arrivals, so this bound covers a ramp as well as a fixture build.
 FILED_TIMEOUT="${LOADTEST_QUIC_FILED_TIMEOUT_SECONDS:-900}"
 COLLECT_TIMEOUT="${LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS:-1500}"
 POLL="${LOADTEST_QUIC_POLL_SECONDS:-5}"
@@ -101,24 +51,14 @@ usage() {
   echo "       $0 collect" >&2
 }
 
-# pod_sh runs one short script inside the pod. Every question this shim asks is
-# one of these, so a call that does not arrive costs the answer rather than the
-# run.
+# pod_sh runs one short script inside the pod.
 pod_sh() {
-  # Not retried: every caller of this either loops over it already — three
-  # attempts before it refuses to guess whether the pod holds a fleet — or reads
-  # a blank as the answer. A retry inside those multiplies the wait before a pod
-  # that is never going to answer is treated as one, and the whole point of the
-  # refusal is that it happens rather than being retried into a guess.
+  # Not retried: each caller loops over it already or reads a blank as the answer.
   kubectl -n "$NAMESPACE" exec "$POD" -- sh -c "$1"
 }
 
-# The launcher, run inside the pod. It detaches the harness from the exec that
-# started it and writes down both halves of what the run will be asked for: what
-# the harness printed, and what it exited with.
-#
-# The guard is what makes a repeated launch safe: a pod already holding a fleet
-# says so and starts nothing.
+# The launcher detaches the harness in the pod and records its output and exit code.
+# A pod already holding a fleet says so and starts nothing.
 read -r -d '' LAUNCHER <<'LAUNCHER_EOF' || true
 log="$1"
 status="$2"
@@ -139,23 +79,13 @@ fi
 echo "fleet launched"
 LAUNCHER_EOF
 
-# pod_holds_fleet answers whether a harness was ever started in this pod, and
-# refuses to guess when it could not ask. A guard that answers yes when the
-# question did not arrive is the false green it exists to close, and here the
-# wrong answer starts a second fixture over the first one's names — or, at
-# collect time, throws away a night whose fleet was still running.
-#
-# The pod answers in a word rather than in an exit code. `test -e` exits 1 for a
-# file that is not there and kubectl exits 1 for a call that never reached the
-# pod, so an exit code cannot tell an absence from a refusal; a word can only be
-# printed by a pod that heard the question. Anything else is the question going
-# unanswered, and it is asked again.
+# pod_holds_fleet answers whether a harness was ever started in this pod, and returns 2 when
+# the pod did not answer. The pod replies with a word, since `test -e` and kubectl both exit 1.
 pod_holds_fleet() {
   local attempt answer
   for attempt in 1 2 3; do
     answer="$(pod_sh "if [ -e '$POD_LOG' ]; then echo held; else echo none; fi" 2>/dev/null || true)"
-    # The last line, because a client is free to print something of its own
-    # before the pod's answer.
+    # The last line is the pod's word; a client may print its own lines first.
     answer="${answer##*$'\n'}"
     case "$answer" in
       held) return 0 ;;
@@ -177,30 +107,22 @@ pod_status() {
 
 # launch makes one attempt and says whether the pod is now holding a harness.
 launch() {
-  # Not retried here: the caller's own loop is the retry, and it re-reads what
-  # the pod did with the previous attempt before making another. A retry inside
-  # it would launch a second fleet against the same server without that reading.
+  # Not retried: the caller's loop re-reads what the pod holds before each attempt.
   if kubectl -n "$NAMESPACE" exec "$POD" -- \
     sh -c "$LAUNCHER" loadtest-fleet-launcher "$POD_LOG" "$POD_STATUS" "$@"; then
     return 0
   fi
   echo "::warning::the launch of the QUIC fleet was refused before it reached $POD." >&2
-  # The refusal says nothing about what the pod did with the command, so the pod
-  # is asked.
+  # The pod is asked, since a refusal does not say what the pod did with the command.
   pod_holds_fleet
 }
 
-# await_fleet waits for the harness's own announcement, and stops early when the
-# harness has already reached a verdict — a run that exited before offering a
-# fleet has an answer, and it is in its output.
+# await_fleet waits for the fleet announcement and stops early once the harness has a verdict.
 await_fleet() {
   local deadline=$((SECONDS + START_TIMEOUT))
   local status log
   while [ "$SECONDS" -lt "$deadline" ]; do
-    # The log is read into a variable rather than piped. `grep -q` stops at its
-    # first match, and a pod log is comfortably larger than a pipe will hold —
-    # so the writer's failed write would be reported as an announcement that
-    # never came, and the wait would run out against a fleet that had started.
+    # The log is read into a variable, since `grep -q` exits at its first match under pipefail.
     log="$(pod_log)"
     if grep -qF "$FLEET_ANNOUNCEMENT" <<<"$log"; then
       echo "the QUIC fleet is holding in $POD"
@@ -219,17 +141,8 @@ await_fleet() {
   return "$NO_FLEET"
 }
 
-# await_filed waits for the run to say its estate is filed, and stops early when
-# the harness has already reached a verdict.
-#
-# Its bound is its own, because it waits for a later event than await_fleet does:
-# the fleet announces itself before it dials, and the filing follows the
-# arrivals — a machine cannot be filed before its row exists.
-#
-# A harness that never files is refused rather than waited out quietly. The
-# scenarios behind this wait narrow every device read to a building, so running
-# them against an unfiled fleet publishes empty reads as the night's numbers,
-# which is the shape this ordering exists to prevent.
+# await_filed waits for the estate announcement, which follows the arrivals, and stops early
+# once the harness has a verdict. Scenarios that read a building need the estate filed first.
 await_filed() {
   local deadline=$((SECONDS + FILED_TIMEOUT))
   local status
@@ -251,10 +164,7 @@ await_filed() {
   return "$NO_FLEET"
 }
 
-# walk_started_at prints the second the harness started walking. A log with no
-# such line is refused rather than answered with the clock here: a caller that
-# takes "now" for "when the walk began" joins the walk at its beginning, which
-# is the mistake this exists to prevent.
+# walk_started_at prints the second the harness started walking and fails when the log has none.
 walk_started_at() {
   local announced line
   announced="$(grep -F "$WALK_ANNOUNCEMENT" <<<"$(pod_log)" || true)"
@@ -286,8 +196,7 @@ start() {
     case "$holds" in
       0) break ;;
       1)
-        # Nothing was started, so nothing was built and the call is safe to make
-        # again.
+        # Nothing was started, so the launch is safe to repeat.
         if [ "$attempt" -ge "$START_ATTEMPTS" ]; then
           echo "::error::the QUIC fleet was never launched: $START_ATTEMPTS attempts were refused before reaching $POD." >&2
           return "$NO_FLEET"
@@ -310,8 +219,7 @@ collect() {
     echo "::error::no fleet was launched in $POD, so this run has no QUIC measurement to collect." >&2
     return "$NO_FLEET"
   fi
-  # Anything else means the pod could not be asked, and pod_holds_fleet has
-  # already said so.
+  # Any other status means the pod could not be asked.
   if [ "$holds" -ne 0 ]; then
     return "$NO_FLEET"
   fi

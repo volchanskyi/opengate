@@ -1,42 +1,9 @@
 #!/usr/bin/env bash
-# toolchain-parity.sh — keeps the workstation's language toolchains level with
-# the ones CI resolves.
-#
-# Sourced by scripts/precommit-gauntlet.sh (and by
-# scripts/tests/toolchain-parity.test.sh). NOT executable on its own — this is
-# a library of bash functions.
-#
-# Why it exists: every CI toolchain pin in this repo floats. The Rust jobs ask
-# dtolnay/rust-toolchain for `stable` (and fuzz.yml for `nightly`), and the web
-# jobs ask actions/setup-node for major `24`; both resolve to the newest
-# release at the moment the job runs, while a workstation resolves them once
-# and then keeps whatever it downloaded. A workstation that has fallen behind
-# runs a gauntlet that cannot see the lints, warnings and behaviour the CI run
-# will — a green local gate and a red pipeline, with nothing in the diff to
-# explain it.
-#
-# Go is pinned rather than floating: server/go.mod's `toolchain` directive is
-# the single source of truth, every exact go-version in the workflows is held
-# equal to it by scripts/tests/ci-govulncheck-go-version.test.sh, and
-# GOTOOLCHAIN=auto makes a local `go` command in server/ re-exec into it. So
-# the local check is that the re-exec actually lands on the pinned version.
-#
-# Functions exported (the parsers are pure so the tests can drive them with
-# fixtures instead of a network round trip):
-#   toolchain_rust_channel_current CHANNEL RUSTUP_CHECK_OUTPUT
-#   toolchain_rust_expected CHANNEL RUSTUP_CHECK_OUTPUT
-#   toolchain_gomod_pin GO_MOD_PATH
-#   toolchain_go_effective GO_VERSION_OUTPUT
-#   toolchain_go_advice LOCAL PIN
-#   toolchain_node_latest_for_major MAJOR DIST_INDEX_JSON
-#   toolchain_ci_node_major WORKFLOW_DIR
-#   toolchain_versions_match LOCAL EXPECTED
-#   toolchain_use_nvm_default
-#   toolchain_parity_check REPO_ROOT       — the whole gate; logs to stderr
+# Keeps the workstation's language toolchains level with the ones CI resolves.
+# Rust and Node float in CI while a workstation keeps what it downloaded; Go follows server/go.mod.
 
-# toolchain_rust_channel_current CHANNEL OUTPUT — 0 when `rustup check` says
-# CHANNEL is up to date. A channel rustup did not report is not installed, and
-# counts as drift rather than as a pass.
+# toolchain_rust_channel_current CHANNEL OUTPUT returns 0 when `rustup check` reports the channel
+# up to date; an unreported channel counts as drift.
 toolchain_rust_channel_current() {
   local channel="$1" output="$2"
   local line
@@ -45,9 +12,8 @@ toolchain_rust_channel_current() {
   printf '%s\n' "$line" | grep -q ' - up to date'
 }
 
-# toolchain_rust_expected CHANNEL OUTPUT — the version CI would resolve for
-# CHANNEL: the right-hand side of an "update available" line, or the installed
-# version when there is nothing to update to.
+# toolchain_rust_expected CHANNEL OUTPUT prints the version CI would resolve: the "update available"
+# target, else the installed version.
 toolchain_rust_expected() {
   local channel="$1" output="$2"
   local line
@@ -60,8 +26,7 @@ toolchain_rust_expected() {
   printf '%s\n' "$line" | sed 's/.*up to date: *//' | awk '{print $1}'
 }
 
-# toolchain_gomod_pin GO_MOD_PATH — the Go version the module builds with:
-# the `toolchain` directive when present, else the `go` directive.
+# toolchain_gomod_pin GO_MOD_PATH prints the `toolchain` directive when present, else `go`'s.
 toolchain_gomod_pin() {
   local gomod="$1" pin
   pin="$(grep -E '^toolchain go[0-9]' "$gomod" 2>/dev/null | awk '{print $2}' | head -1)"
@@ -72,23 +37,14 @@ toolchain_gomod_pin() {
   printf '%s\n' "$pin"
 }
 
-# toolchain_go_effective GO_VERSION_OUTPUT — the goX.Y.Z token off the
-# `go version` line, which under GOTOOLCHAIN=auto names the toolchain that
-# actually ran. A "go: downloading …" banner on the way there names a
-# download rather than what ran, so only the real line is read.
+# toolchain_go_effective GO_VERSION_OUTPUT prints the goX.Y.Z token of the `go version` line, which
+# names the toolchain that ran under GOTOOLCHAIN=auto.
 toolchain_go_effective() {
   printf '%s\n' "$1" | sed -n 's/^go version \(go[0-9][^ ]*\).*/\1/p' | head -1
 }
 
-# toolchain_go_advice LOCAL PIN — the command that makes this machine run the
-# module's pinned toolchain, which depends on which way the drift goes.
-#
-# GOTOOLCHAIN=auto only ever upgrades: handed a module pinned above the `go` on
-# PATH it fetches the pin and re-execs into it, and handed one pinned below it
-# runs the newer install and says nothing. So a workstation whose Go rolled ahead
-# of the project — a snap on a moving track will, eventually — needs the pin
-# named rather than left to auto, and telling it to unset a variable that was
-# already unset points the reader at nothing.
+# toolchain_go_advice LOCAL PIN prints the command that lands on the pinned toolchain;
+# GOTOOLCHAIN=auto only upgrades, so a local Go newer than the pin needs the pin named.
 toolchain_go_advice() {
   local local_version="$1" pin="$2"
   if [ -n "$local_version" ] \
@@ -99,9 +55,8 @@ toolchain_go_advice() {
   printf 'unset GOTOOLCHAIN\n'
 }
 
-# toolchain_node_latest_for_major MAJOR DIST_INDEX_JSON — the newest vMAJOR.x
-# release in nodejs.org's release index, which is what setup-node installs for
-# a bare major pin. The index is ordered newest-first.
+# toolchain_node_latest_for_major MAJOR DIST_INDEX_JSON prints the first vMAJOR.x in the
+# newest-first index, which is what setup-node installs for a bare major.
 toolchain_node_latest_for_major() {
   local major="$1" json="$2"
   printf '%s' "$json" \
@@ -110,9 +65,8 @@ toolchain_node_latest_for_major() {
     | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
 }
 
-# toolchain_ci_node_major WORKFLOW_DIR — the node major every workflow pins.
-# Non-zero when they disagree: there is then no single version a workstation
-# can match, and matching one job would mismatch the other.
+# toolchain_ci_node_major WORKFLOW_DIR prints the node major every workflow pins, and fails when
+# they disagree since no single version then matches them all.
 toolchain_ci_node_major() {
   local dir="$1" majors
   majors="$(grep -rhoE "node-version:[[:space:]]*'[0-9]+'" "$dir" 2>/dev/null \
@@ -122,18 +76,13 @@ toolchain_ci_node_major() {
   printf '%s\n' "$majors"
 }
 
-# toolchain_versions_match LOCAL EXPECTED — 0 only on an exact match. Newer is
-# drift too: it means the workstation is testing something CI will not run.
+# toolchain_versions_match LOCAL EXPECTED returns 0 only on an exact match; newer is drift too.
 toolchain_versions_match() {
   [ -n "$1" ] && [ "$1" = "$2" ]
 }
 
-# toolchain_use_nvm_default — select nvm's default alias in this shell.
-# A long-lived session's PATH is a snapshot of the node that was installed when
-# it started, and nvm keeps whatever version that PATH already points at, so a
-# gauntlet inheriting it can run a version the default alias moved away from
-# days ago. Best-effort: when nvm is absent or refuses, the parity check below
-# is what reports the truth.
+# toolchain_use_nvm_default selects nvm's default alias, since a long-lived session's PATH keeps the
+# node it started with; it is best effort and the parity check reports the truth.
 toolchain_use_nvm_default() {
   local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
   [ -s "$nvm_dir/nvm.sh" ] || return 0
@@ -142,15 +91,11 @@ toolchain_use_nvm_default() {
   nvm use --silent default >/dev/null 2>&1 || return 0
 }
 
-# toolchain_parity_check REPO_ROOT — run the whole gate. Returns 0 when every
-# local toolchain matches what CI resolves, 1 otherwise, printing the exact
-# command that closes each gap.
 toolchain_parity_check() {
   local root="$1" drift=0
 
   toolchain_use_nvm_default
 
-  # --- Rust: stable for the build/lint jobs, nightly for fuzz.yml ----------
   local rustup_out
   if ! rustup_out="$(rustup check 2>&1)"; then
     echo "✗ 'rustup check' failed — cannot tell whether the local Rust toolchains match CI." >&2
@@ -168,7 +113,6 @@ toolchain_parity_check() {
     fi
   done
 
-  # --- Go: the module's own pin, reached through GOTOOLCHAIN=auto ----------
   local go_pin go_local
   go_pin="$(toolchain_gomod_pin "$root/server/go.mod")"
   go_local="$(toolchain_go_effective "$(cd "$root/server" && go version 2>&1)")"
@@ -178,7 +122,6 @@ toolchain_parity_check() {
     drift=1
   fi
 
-  # --- Node: the major the workflows pin, at its newest release -----------
   local node_major
   if ! node_major="$(toolchain_ci_node_major "$root/.github/workflows")"; then
     echo "✗ The workflows do not agree on one node-version, so there is nothing to match." >&2
@@ -203,14 +146,7 @@ toolchain_parity_check() {
     drift=1
   fi
 
-  # --- the pinned tools: what this machine will actually resolve ----------
-  #
-  # The three above float, so the question there is whether the workstation has
-  # kept up. These do not float: scripts/lib/tool-versions.sh names one version
-  # and both sides install it, so the question is only whether this machine is
-  # running what it installed. It can fail to be — an older copy earlier on
-  # PATH, or an installer that has never been run here — and the symptom is a
-  # gauntlet judging the repository with a tool CI will not use.
+  # Pinned tools never float, so the check is whether PATH resolves the copy that was installed.
   if ! toolchain_pinned_tools_check "$root"; then
     drift=1
   fi
@@ -218,11 +154,8 @@ toolchain_parity_check() {
   return "$drift"
 }
 
-# The pinned tools the gauntlet runs, each asked of scripts/require-tool.sh,
-# which knows how the tool words its version and how to install its pin.
-# scripts/tests/tool-version-parity.test.sh fails on a manifest row for a tool
-# the gauntlet runs that is missing here: a row nothing reads on this side is
-# how a scanner drifted off its pin by hand and nothing noticed.
+# The pinned tools the gauntlet runs, each checked by scripts/require-tool.sh; a manifest row for
+# one missing here fails scripts/tests/tool-version-parity.test.sh.
 TOOLCHAIN_PINNED_TOOLS=(
   jq shellcheck shfmt age age-keygen zstd
   govulncheck staticcheck gosec go-arch-lint oapi-codegen
@@ -231,9 +164,6 @@ TOOLCHAIN_PINNED_TOOLS=(
   actionlint semgrep pmat
 )
 
-# toolchain_pinned_tools_check ROOT — 0 when every pinned tool the gauntlet runs
-# is, on this machine, the pinned one. Reports each mismatch with the one command
-# that fixes it.
 toolchain_pinned_tools_check() {
   local root="$1" bad=0 tool out
   for tool in "${TOOLCHAIN_PINNED_TOOLS[@]}"; do

@@ -18,9 +18,7 @@ use super::{
     ENSEMBLE_ITERS, ENSEMBLE_MODELS, WARMUP_SAMPLES,
 };
 
-/// Where one sampler tick's results go. Every destination is optional: a
-/// machine with no store samples without persisting, and one with no alert
-/// wiring samples without evaluating rules.
+/// Where one sampler tick's results go; every destination is optional.
 pub(crate) struct SamplerOutputs {
     /// The local store each sample is persisted into.
     pub sink: Option<SharedSink>,
@@ -33,29 +31,19 @@ pub(crate) struct SamplerOutputs {
 }
 
 /// Everything the sampler carries from one second to the next.
-///
-/// The sampler task owns one of these and hands it each second's sample, so
-/// what the machine does with a reading — classify it, evaluate the pushed
-/// rules against it, raise an alert, emit a summary, persist it — is the same
-/// code whether a clock or a test is driving it.
 pub(super) struct SamplerState {
     /// Warm-up readings collected before the ensemble exists.
     warmup: Vec<[f32; 3]>,
-    /// The trained anomaly ensemble, once there is one.
     ensemble: Option<EdgeMlEnsemble<3>>,
-    /// The tenant-pushed threshold ruleset, evaluated against every sample.
     alert_eval: AlertEvaluator,
-    /// When a breach-carrying health summary last went out.
     last_health_emit: Option<i64>,
-    /// Whether the last health summary reported a breach.
     last_breaching: bool,
-    /// Rolling window of trained-ensemble verdicts behind the fleet-health badge.
+    /// Rolling window of trained-ensemble verdicts behind the anomaly rate.
     anomaly_bits: VecDeque<bool>,
-    /// When a node anomaly-rate summary last went out.
     last_anomaly_emit: Option<i64>,
     /// Tracks the maintenance→Active edge, which re-baselines the sampler.
     maintenance_edge: MaintenanceTransition,
-    /// Folds 1 s samples into 10 s-average windows for the live stream.
+    /// Folds 1 s samples into 60 s-average windows for the live stream.
     windower: HostMetricWindower,
 }
 
@@ -74,13 +62,8 @@ impl SamplerState {
         }
     }
 
-    /// Whether this tick samples at all.
-    ///
-    /// Maintenance suppresses all sampler work — no sampling, store write, or
-    /// alert evaluation — so the admin's disruptive host changes never pollute
-    /// the anomaly baseline or fire a breach. On leaving maintenance the
-    /// pre-change ensemble and breach state are discarded, so the post-change
-    /// footprint retrains as the new normal.
+    /// Whether this tick samples; maintenance suppresses all work and leaving it discards the
+    /// trained ensemble and breach state so the changed host retrains its baseline.
     pub(super) fn begin_tick(&mut self, in_maintenance: bool) -> bool {
         if self.maintenance_edge.just_exited(in_maintenance) {
             self.ensemble = None;
@@ -92,17 +75,13 @@ impl SamplerState {
             info!("edge-sentinel: left maintenance, re-baselining anomaly detection");
         }
         if in_maintenance {
-            // Discard any partial window so none spans the maintenance
-            // interval; the stream resumes cleanly on the next Active tick.
+            // Dropping the partial window keeps every window clear of the maintenance interval.
             self.windower.reset();
         }
         !in_maintenance
     }
 
-    /// Everything the machine does with one second's reading.
     pub(super) fn on_sample(&mut self, out: &SamplerOutputs, sample: &MetricSample, now: i64) {
-        // Publish how busy the machine is, so background work that should only
-        // run on an idle host has something current to look at.
         out.load.report(sample.cpu_total_percent);
 
         if let Some(tx) = out.host_metric_tx.as_ref() {
@@ -129,15 +108,10 @@ impl SamplerState {
         }
     }
 
-    /// The ensemble's verdict on this reading, training it once the warm-up
-    /// window is full. Until it exists every reading is `false`, and those
-    /// verdicts stay out of the rolling window so the emitted rate reflects the
-    /// trained model only.
+    /// The ensemble's verdict on this reading; warm-up readings yield `false` and stay out of
+    /// the rolling window so the emitted rate reflects the trained model only.
     fn classify(&mut self, sample: &MetricSample) -> bool {
-        // The ensemble needs a fixed-width vector, and a host with no
-        // measurable mount has no disk-fullness signal to detect — it
-        // contributes a flat 0 to the model rather than an invented reading.
-        // The published vital stays absent; this value never leaves the host.
+        // The ensemble takes a fixed-width vector, so a host with no measurable mount feeds 0.
         let features = [
             sample.cpu_total_percent,
             sample.memory_used_percent,
@@ -155,7 +129,6 @@ impl SamplerState {
         anomaly
     }
 
-    /// Collect one warm-up reading, and train once there are enough.
     fn warm_up(&mut self, features: [f32; 3]) {
         self.warmup.push(features);
         if self.warmup.len() < WARMUP_SAMPLES {
@@ -170,13 +143,8 @@ impl SamplerState {
         }
     }
 
-    /// Install any freshly-pushed ruleset, evaluate the reading, raise an alert
-    /// for every rule that has just started firing, and emit a breach-carrying
-    /// health summary.
-    ///
-    /// Emission is throttled to [`HEALTH_EMIT_INTERVAL_SECS`](super::HEALTH_EMIT_INTERVAL_SECS) and only fires
-    /// while a breach is active (plus one final summary reporting the clear), so
-    /// a steady host is silent and a burst never backpressures control.
+    /// Installs a pushed ruleset, raises an alert for each rule that just started firing, and
+    /// emits a throttled breach summary while breaching plus one reporting the clear.
     fn evaluate_rules(
         &mut self,
         alerts: &AlertWiring,
@@ -193,10 +161,6 @@ impl SamplerState {
         }
         let firing = self.alert_eval.evaluate(sample, now);
 
-        // An episode that has just begun is one thing that happened, so it
-        // raises one alert carrying everything this machine knows about why —
-        // assembled here, at the moment it fired, because nothing will be asked
-        // of the machine afterwards.
         for started in firing.iter().filter(|f| f.started) {
             raise_alert(&alerts.alert_sink, store, sample, started, now);
         }
@@ -217,13 +181,8 @@ impl SamplerState {
         self.last_breaching = breaching;
     }
 
-    /// The periodic node anomaly-rate summary: the trained-window rate on a
-    /// fixed cadence, carrying a sampler version so the server records the
-    /// series behind the fleet-health badge (a steady host emits no breach
-    /// summary, so this is the badge's only source). It carries rule coverage
-    /// for the same reason — a rule quietly watching nothing on a calm machine
-    /// is exactly what coverage exists to surface, and a calm machine sends
-    /// nothing else.
+    /// Emits the periodic anomaly-rate summary with rule coverage, the only summary a calm
+    /// machine sends.
     fn emit_anomaly_rate(&mut self, alerts: &AlertWiring, now: i64) {
         if self.ensemble.is_none() || !should_emit_anomaly(self.last_anomaly_emit, now) {
             return;
@@ -242,7 +201,7 @@ impl SamplerState {
     }
 }
 
-/// Persist one reading with its anomaly bit into the local store.
+/// Persists one reading with its anomaly bit into the local store.
 pub(super) fn persist(sink: &SharedSink, now: i64, sample: &MetricSample, anomaly: bool) {
     match sink.lock() {
         Ok(mut sink) => {
@@ -270,8 +229,6 @@ mod tests {
     use std::sync::mpsc::{sync_channel, Receiver};
     use std::sync::{Arc, Mutex};
 
-    /// A machine wired the way the agent wires it, with the rule already
-    /// pushed and one word rule reported by the log watch.
     struct Wired {
         out: SamplerOutputs,
         alerts: AlertSink,
@@ -305,9 +262,6 @@ mod tests {
         }
     }
 
-    /// A reading crossing a pushed rule's line raises one alert, stamped with
-    /// the revision and severity the server sent, naming the stretch it held
-    /// over, and carrying what was running — the only moment that exists.
     #[test]
     fn a_rule_that_starts_firing_raises_one_alert_carrying_what_was_running() {
         let dir = tempfile::tempdir().unwrap();
@@ -351,9 +305,6 @@ mod tests {
         );
     }
 
-    /// The breach goes out as a health summary counting every rule on the
-    /// machine — the ones the sampler evaluates and the ones the log watch
-    /// answers for — and the clear goes out once when it ends.
     #[test]
     fn a_breach_is_reported_with_every_rule_counted_and_its_clear_once() {
         let machine = wired(None, vec![cpu_rule()]);
@@ -396,8 +347,6 @@ mod tests {
         );
     }
 
-    /// Readings persist into the store, and a closed window reaches the live
-    /// stream.
     #[test]
     fn each_reading_is_stored_and_closed_windows_are_streamed() {
         let dir = tempfile::tempdir().unwrap();
@@ -424,8 +373,6 @@ mod tests {
         assert_eq!(points.len(), 70, "every second was written");
     }
 
-    /// Maintenance stops the tick, and leaving it throws away what was learnt
-    /// before the admin changed the machine.
     #[test]
     fn leaving_maintenance_rebaselines_the_sampler() {
         let machine = wired(None, Vec::new());
@@ -455,13 +402,10 @@ mod tests {
         assert_eq!(state.last_anomaly_emit, None);
     }
 
-    /// Once trained, the ensemble's verdicts feed the rate behind the
-    /// fleet-health badge, which goes out stamped with the sampler version.
     #[test]
     fn a_trained_sampler_emits_its_anomaly_rate() {
         let machine = wired(None, Vec::new());
         let mut state = SamplerState::new();
-        // The warm-up's last reading is the one that trains the ensemble.
         let trained_at = T0 + WARMUP_SAMPLES as i64 - 1;
         for second in 0..=WARMUP_SAMPLES as i64 {
             state.on_sample(

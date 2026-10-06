@@ -11,13 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The harness's own account of a run has to become a bundle, or the run's
-// evidence is a block of text in a workflow log that nothing can read back.
-
-// Two machines that got in and one that never did. The arrivals carry the
-// moment they finished registering, because that is what a machine that
-// connected, handshook and registered comes back with — a result holding three
-// timings and no arrival is a shape no run produces.
+// harnessResults is two arrivals, each carrying the registration moment, and one failed dial.
 func harnessResults() []agentResult {
 	start := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)
 	return []agentResult{
@@ -29,8 +23,6 @@ func harnessResults() []agentResult {
 	}
 }
 
-// bundleFrom builds a run's evidence from the results it produced, so each case
-// below differs only in the run it describes.
 func bundleFrom(t *testing.T, results []agentResult, withProfile bool) *Bundle {
 	t.Helper()
 	in := measuredRun()
@@ -53,8 +45,6 @@ func TestARunBecomesACompleteBundle(t *testing.T) {
 	assert.Equal(t, bundle.Run.StartedAt.Add(3*time.Second), bundle.Run.FinishedAt)
 }
 
-// A run with no profile still produces a bundle. The alternative is evidence
-// that exists only when somebody remembered a flag.
 func TestABundleIsProducedWithoutAProfile(t *testing.T) {
 	bundle := bundleFrom(t, harnessResults(), false)
 
@@ -62,9 +52,6 @@ func TestABundleIsProducedWithoutAProfile(t *testing.T) {
 	assert.Equal(t, "ad-hoc", bundle.Run.ProfileName)
 }
 
-// Offered and achieved are both recorded, because a harness that could only
-// connect a third of the fleet reads exactly like a server that refused two
-// thirds of it.
 func TestTheBundleRecordsWhatWasOfferedAndWhatArrived(t *testing.T) {
 	bundle := bundleFrom(t, harnessResults(), true)
 
@@ -75,8 +62,6 @@ func TestTheBundleRecordsWhatWasOfferedAndWhatArrived(t *testing.T) {
 	assert.InDelta(t, 1.0/3.0, phase.ErrorRate, 0.001)
 }
 
-// Each stage's tail travels separately. Folding them into one aggregate hides
-// which of them a slow run was slow in, and they are different pieces of work.
 func TestTheBundleCarriesThePerStageLatencies(t *testing.T) {
 	bundle := bundleFrom(t, harnessResults(), true)
 
@@ -86,10 +71,6 @@ func TestTheBundleCarriesThePerStageLatencies(t *testing.T) {
 	}
 }
 
-// Registration is the server's figure or it is nothing. The harness's own clock
-// stops when the frame reaches a local send buffer, and the row is written later
-// somewhere else — so a number from here cannot move however slow that write
-// becomes, and two ceilings sat on exactly that.
 func TestABundleWithoutAServerReadingPublishesNoRegistrationFigure(t *testing.T) {
 	bundle := bundleFrom(t, harnessResults(), true)
 
@@ -112,23 +93,11 @@ func TestABundleCarriesTheServersOwnRegistrationFigure(t *testing.T) {
 	bundle := buildRunBundle(in)
 	series := observedSeries(bundle)
 	assert.True(t, series["register_p95_ms"])
-	// And the middle case beside the tail, because they answer different
-	// questions about the same queue and only one of them reproduces where the
-	// venue is driven hard. At the largest fleet the throwaway stack has been
-	// shown to hold, two runs an hour apart under identical load read tails of
-	// 5,773 and 9,443 ms while their middle cases read 239 and 255 — so the
-	// tail there is the queue and the middle case is the write.
 	assert.True(t, series["register_p50_ms"])
-	// The pool travels beside it: a registration queued behind a connection and
-	// one executing slowly are the same latency until the pool says which.
 	assert.True(t, series["db_pool_in_use"])
 	assert.True(t, series["register_rejected"])
 }
 
-// A tail past the widest bucket the server publishes is not a reading of that
-// bucket. The harness reports the last finite bound, because an infinity
-// cannot be held against a limit, and the bundle says the figure is a floor:
-// the spike leg's "10 000 ms" was every registration past ten seconds.
 func TestARegistrationTailPastTheTopBucketIsMarkedPastTheScale(t *testing.T) {
 	in := runBundleInputs{
 		Results:    harnessResults(),
@@ -160,7 +129,6 @@ func TestARegistrationTailPastTheTopBucketIsMarkedPastTheScale(t *testing.T) {
 	assert.Empty(t, marks["register_p50_ms"], "a middle case inside the scale is a reading")
 }
 
-// The phases a run walked are the phases it reports.
 func TestABundleReportsTheProfilesOwnPhases(t *testing.T) {
 	in := measuredRun()
 	in.Phases = []PhaseResult{
@@ -174,8 +142,6 @@ func TestABundleReportsTheProfilesOwnPhases(t *testing.T) {
 	assert.Equal(t, "steady", bundle.Phases[1].Name)
 }
 
-// A run that built its own fleet says what is in it, rather than inferring the
-// shape from how many machines it happened to dial.
 func TestABundleCountsTheFixtureTheRunBuilt(t *testing.T) {
 	plan, err := PlanFixture(FixtureLarge, 3)
 	require.NoError(t, err)
@@ -198,7 +164,6 @@ func TestABundleCountsTheFixtureTheRunBuilt(t *testing.T) {
 	assert.Equal(t, plan.Devices, bundle.Fixture.PlannedDevices)
 }
 
-// observedSeries is the set of series a bundle carries.
 func observedSeries(bundle *Bundle) map[string]bool {
 	series := map[string]bool{}
 	for _, observation := range bundle.Observations {
@@ -207,9 +172,6 @@ func observedSeries(bundle *Bundle) map[string]bool {
 	return series
 }
 
-// A run where every machine failed is invalid, not merely bad: nothing about
-// the server was measured, so it must not move a window median. One where they
-// all connected is valid.
 func TestTheVerdictFollowsWhetherAnythingWasMeasured(t *testing.T) {
 	nothing := bundleFrom(t, []agentResult{{err: errors.New("dial: timeout")}}, true)
 	assert.Equal(t, ResultInvalid, nothing.Verdict.Result)
@@ -237,11 +199,6 @@ func TestWriteRunBundlePutsTheEvidenceOnDisk(t *testing.T) {
 	assert.NoError(t, read.Validate())
 }
 
-// A phase named "connect" that ends when the run ends is not describing the
-// connect. A held fleet's run is eight minutes of holding after a second of
-// arriving, so a connect phase spanning the whole run reports the hold under
-// the arrival's name — and anything reading the phase back for an arrival rate
-// divides by the wrong number.
 func TestTheConnectPhaseEndsWhenTheFleetIsUp(t *testing.T) {
 	start := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)
 	results := []agentResult{
@@ -265,22 +222,6 @@ func TestTheConnectPhaseEndsWhenTheFleetIsUp(t *testing.T) {
 		"the run still ends when it ended — only the phase is bounded to the arrival")
 }
 
-// A machine severed after it arrived is still a machine that arrived.
-//
-// The bundle of 2026-09-13 says both that the fleet which exists is 439
-// machines and that 10,520 of them were filed under a customer. One run, two
-// numbers, and both are named for machines that exist. Underneath sat a single
-// predicate: the summary counted results whose whole life ended with no error,
-// so under a load that severed the fleet it counted the survivors — and it
-// dropped the connect, handshake and registration timings of everyone else,
-// which is a survivorship filter on the very measurement the night was taken to
-// produce. Every healthy night hides it, because on a system that holds, the
-// machines that arrived and the machines that ended cleanly are the same
-// machines.
-//
-// Arriving and ending cleanly are separate facts and the run already records
-// both: arrivedAt is set when the machine finished registering and is kept
-// across every reconnection, and the severance is counted on its own.
 func TestAMachineSeveredAfterArrivingIsStillOneThatArrived(t *testing.T) {
 	t.Parallel()
 
@@ -289,11 +230,11 @@ func TestAMachineSeveredAfterArrivingIsStillOneThatArrived(t *testing.T) {
 		// Survived to the wind-down.
 		{connectDur: 10 * time.Millisecond, handshakeDur: 4 * time.Millisecond,
 			registerDur: 5 * time.Millisecond, arrivedAt: start.Add(100 * time.Millisecond)},
-		// Arrived, worked, and lost its connection under the load.
+		// Arrived, then lost its connection under load.
 		{connectDur: 200 * time.Millisecond, handshakeDur: 90 * time.Millisecond,
 			registerDur: 60 * time.Millisecond, arrivedAt: start.Add(200 * time.Millisecond),
 			err: ErrHeldPeerGone},
-		// Never got in at all.
+		// Never got in.
 		{err: errors.New("dial: timeout")},
 	}
 
@@ -308,8 +249,6 @@ func TestAMachineSeveredAfterArrivingIsStillOneThatArrived(t *testing.T) {
 	assert.Equal(t, 2, bundle.Fixture.Devices,
 		"the fleet that exists is the machines that registered, not the ones that outlived the load")
 
-	// And the severed machine's own timings are in the series. They are the
-	// slowest ones, which is exactly why dropping them flatters the run.
 	series := map[string]float64{}
 	for _, observation := range bundle.Observations {
 		series[observation.Series] = observation.Value
@@ -321,10 +260,6 @@ func TestAMachineSeveredAfterArrivingIsStillOneThatArrived(t *testing.T) {
 		"the severance is still counted, separately, where it belongs")
 }
 
-// A run that severed nothing says so, and a run that lost machines mid-hold
-// says how many. The count is the difference between "the fleet held" and "the
-// fleet was gone and every agent reported success", which is the shape a whole
-// night was recorded in.
 func TestTheBundleCountsMachinesSeveredMidHold(t *testing.T) {
 	t.Parallel()
 
@@ -340,7 +275,6 @@ func TestTheBundleCountsMachinesSeveredMidHold(t *testing.T) {
 		"only the machine whose hold was severed counts; a machine that never connected took nothing")
 }
 
-// observationValue reads one series out of a bundle's observations.
 func observationValue(t *testing.T, bundle *Bundle, series string) float64 {
 	t.Helper()
 	for _, observation := range bundle.Observations {

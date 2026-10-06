@@ -23,7 +23,7 @@ pub struct TerminalHandle {
 }
 
 impl TerminalHandle {
-    /// Create a new terminal handle.
+    /// Builds a handle over the stdin and resize channels and the shared shutdown flag.
     pub fn new(
         stdin_tx: mpsc::Sender<Vec<u8>>,
         resize_tx: mpsc::Sender<(u16, u16)>,
@@ -36,7 +36,7 @@ impl TerminalHandle {
         }
     }
 
-    /// Send a key press to the terminal stdin.
+    /// Sends the key's byte sequence to the terminal stdin.
     pub fn send_key(&self, key: KeyCode) {
         let bytes = key_to_bytes(key);
         if !bytes.is_empty() {
@@ -46,7 +46,7 @@ impl TerminalHandle {
         }
     }
 
-    /// Send raw bytes to the terminal stdin (used for TerminalFrame data from browser).
+    /// Sends raw bytes, such as browser `TerminalFrame` data, to the terminal stdin.
     pub fn send_raw(&self, data: Vec<u8>) {
         if !data.is_empty() {
             if let Err(e) = self.stdin_tx.try_send(data) {
@@ -55,24 +55,23 @@ impl TerminalHandle {
         }
     }
 
-    /// Resize the terminal.
+    /// Requests a terminal resize to `cols` by `rows`.
     pub fn resize(&self, cols: u16, rows: u16) {
         if let Err(e) = self.resize_tx.try_send((cols, rows)) {
             log_try_send(e, "resize");
         }
     }
 
-    /// Signal the terminal to shut down.
+    /// Flags the terminal to shut down.
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::Relaxed);
     }
 }
 
-/// Convert a KeyCode to terminal-compatible bytes.
+/// Maps a `KeyCode` to the bytes a terminal expects.
 pub(crate) fn key_to_bytes(key: KeyCode) -> &'static [u8] {
     use KeyCode::*;
     match key {
-        // Letters (a-z)
         KeyA => b"a",
         KeyB => b"b",
         KeyC => b"c",
@@ -99,7 +98,6 @@ pub(crate) fn key_to_bytes(key: KeyCode) -> &'static [u8] {
         KeyX => b"x",
         KeyY => b"y",
         KeyZ => b"z",
-        // Digits (0-9)
         Digit0 => b"0",
         Digit1 => b"1",
         Digit2 => b"2",
@@ -110,13 +108,11 @@ pub(crate) fn key_to_bytes(key: KeyCode) -> &'static [u8] {
         Digit7 => b"7",
         Digit8 => b"8",
         Digit9 => b"9",
-        // Whitespace / control
         Enter => b"\r",
         Tab => b"\t",
         Escape => b"\x1b",
         Backspace => b"\x7f",
         Space => b" ",
-        // Arrows & navigation
         ArrowUp => b"\x1b[A",
         ArrowDown => b"\x1b[B",
         ArrowRight => b"\x1b[C",
@@ -127,7 +123,6 @@ pub(crate) fn key_to_bytes(key: KeyCode) -> &'static [u8] {
         PageDown => b"\x1b[6~",
         Delete => b"\x1b[3~",
         Insert => b"\x1b[2~",
-        // Function keys
         F1 => b"\x1bOP",
         F2 => b"\x1bOQ",
         F3 => b"\x1bOR",
@@ -140,7 +135,6 @@ pub(crate) fn key_to_bytes(key: KeyCode) -> &'static [u8] {
         F10 => b"\x1b[21~",
         F11 => b"\x1b[23~",
         F12 => b"\x1b[24~",
-        // Punctuation
         Minus => b"-",
         Equal => b"=",
         BracketLeft => b"[",
@@ -152,7 +146,7 @@ pub(crate) fn key_to_bytes(key: KeyCode) -> &'static [u8] {
         Period => b".",
         Slash => b"/",
         Backquote => b"`",
-        // Modifiers and special keys don't produce bytes
+        // Modifiers and unmapped keys produce no bytes.
         _ => b"",
     }
 }
@@ -161,12 +155,9 @@ pub(crate) fn key_to_bytes(key: KeyCode) -> &'static [u8] {
 mod tests {
     use super::*;
 
-    /// Exhaustive table for every KeyCode -> bytes mapping. Each row pins a
-    /// single match arm in `key_to_bytes`, so deleting any arm fails the test.
     #[test]
     fn key_to_bytes_table() {
         let cases: &[(KeyCode, &[u8])] = &[
-            // Letters
             (KeyCode::KeyA, b"a"),
             (KeyCode::KeyB, b"b"),
             (KeyCode::KeyC, b"c"),
@@ -193,7 +184,6 @@ mod tests {
             (KeyCode::KeyX, b"x"),
             (KeyCode::KeyY, b"y"),
             (KeyCode::KeyZ, b"z"),
-            // Digits
             (KeyCode::Digit0, b"0"),
             (KeyCode::Digit1, b"1"),
             (KeyCode::Digit2, b"2"),
@@ -204,13 +194,11 @@ mod tests {
             (KeyCode::Digit7, b"7"),
             (KeyCode::Digit8, b"8"),
             (KeyCode::Digit9, b"9"),
-            // Whitespace / control
             (KeyCode::Enter, b"\r"),
             (KeyCode::Tab, b"\t"),
             (KeyCode::Escape, b"\x1b"),
             (KeyCode::Backspace, b"\x7f"),
             (KeyCode::Space, b" "),
-            // Arrows & navigation
             (KeyCode::ArrowUp, b"\x1b[A"),
             (KeyCode::ArrowDown, b"\x1b[B"),
             (KeyCode::ArrowRight, b"\x1b[C"),
@@ -221,7 +209,6 @@ mod tests {
             (KeyCode::PageDown, b"\x1b[6~"),
             (KeyCode::Delete, b"\x1b[3~"),
             (KeyCode::Insert, b"\x1b[2~"),
-            // Function keys
             (KeyCode::F1, b"\x1bOP"),
             (KeyCode::F2, b"\x1bOQ"),
             (KeyCode::F3, b"\x1bOR"),
@@ -234,7 +221,6 @@ mod tests {
             (KeyCode::F10, b"\x1b[21~"),
             (KeyCode::F11, b"\x1b[23~"),
             (KeyCode::F12, b"\x1b[24~"),
-            // Punctuation
             (KeyCode::Minus, b"-"),
             (KeyCode::Equal, b"="),
             (KeyCode::BracketLeft, b"["),
@@ -258,7 +244,6 @@ mod tests {
         }
     }
 
-    /// Modifier and unmapped keys must produce empty bytes.
     #[test]
     fn key_to_bytes_modifiers_and_unmapped_empty() {
         for k in [
@@ -332,13 +317,11 @@ mod tests {
 
     #[test]
     fn send_key_on_full_channel_does_not_panic() {
-        // capacity 1 channel filled before send
         let (stdin_tx, _stdin_rx) = mpsc::channel(1);
         let (resize_tx, _resize_rx) = mpsc::channel(1);
         let shutdown = Arc::new(AtomicBool::new(false));
 
         let handle = TerminalHandle::new(stdin_tx.clone(), resize_tx, shutdown);
-        // Saturate then send — exercises log_try_send Full branch.
         stdin_tx.try_send(vec![0xff]).unwrap();
         handle.send_key(KeyCode::KeyA);
         handle.send_raw(vec![0x42]);
@@ -350,7 +333,6 @@ mod tests {
         let (resize_tx, resize_rx) = mpsc::channel(8);
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        // Close receivers — exercises log_try_send Closed branch.
         drop(stdin_rx);
         drop(resize_rx);
 

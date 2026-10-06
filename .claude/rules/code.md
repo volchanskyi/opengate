@@ -2,9 +2,9 @@
 
 ## Comments
 
-Code, config, and workflow comments describe the **current** behavior only.
-Never narrate what was removed, retired, or replaced. See
-[`docs-live-state.md`](docs-live-state.md).
+Every comment is a short positive statement of what the code beside it does,
+or why it has this shape: [`code-comments.md`](code-comments.md), enforced at
+write time and on every commit.
 
 ## Rust
 

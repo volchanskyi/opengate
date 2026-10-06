@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-# Build canonical benchmark rows from Go -benchmem output and Criterion JSON,
-# then gate regressions. Deterministic allocation metrics (allocs/op, bytes/op)
-# are compared against the committed baseline at ±2%. The machine-dependent ns/op
-# metric is hard-gated against a noise-robust VictoriaMetrics window baseline (the
-# median of the latest reading of each of the 14 dates before tonight's × a frozen
-# relative band) OR an absolute ceiling anchored on the committed baseline —
-# either rule reds. The frozen band/ceiling were calibrated from the live VM
-# series' measured run-to-run variance; fail-open on any VM failure.
+# Builds benchmark rows from Go -benchmem and Criterion output and gates regressions.
+# Allocation metrics are held to the baseline at ±2%; ns/op to a VM window median or a ceiling.
 #
 # Environment:
 #   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
@@ -28,9 +22,7 @@ BASELINE_FILE="${BASELINE_FILE:-benchmarks/baseline.json}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# ns/op window-gate constants — frozen from live-VM calibration (measured
-# run-to-run CV ≤ 12.4%, worst no-change excursion +28%). See the plan
-# vm-readback-m2-benchmark-nsop-gate.md for the derivation; do not hand-tune here.
+# ns/op window-gate constants, calibrated from measured run-to-run variance.
 NS_WINDOW_DAYS=14       # < 30d VM retention; the 14 dates before tonight's
 NS_REL_TOL=0.50         # regress if ns/op > window median × (1 + this)
 NS_ABS_CEIL_TOL=1.0     # regress if ns/op > committed-baseline ns × (1 + this)
@@ -165,12 +157,8 @@ hard_regressions() {
   ' <<<"$baseline"
 }
 
-# Fetch the per-{benchmark,lang} ns/op window from VictoriaMetrics: the median of
-# the latest reading of each date before tonight's (relative-rule baseline) and how
-# many dates that is (cold-start guard). A night is a date, so nights that ran
-# tonight's code count and a re-run of tonight is kept out by its date.
-# Prints TSV "lang<TAB>name<TAB>median<TAB>count", one line per series.
-# FAIL-OPEN: any VM/transport failure yields no lines (⇒ absolute-only).
+# Prints "lang<TAB>name<TAB>median<TAB>count" per series: the median of each prior date's latest
+# reading. A VM failure yields no lines, leaving only the absolute rule.
 ns_window_stats() {
   vm_nightly_window benchmark_ns_op 'env="ci"' "$NS_WINDOW_DAYS" | awk -F'\t' '
     {
@@ -202,11 +190,8 @@ ns_window_map() {
   [[ -n "$map" ]] && printf '%s' "$map" || printf '{}'
 }
 
-# ns/op two-rule gate. Regress if EITHER current ns/op > window median × (1+tol)
-# (relative — only when the window has ≥ NS_MIN_WINDOW_SAMPLES samples), OR current
-# > committed-baseline ns × (1+ceil) (absolute backstop — always applies, catches
-# slow drift the self-updating window would track). Emits TSV per regressed series:
-# lang, name, "ns_op", baseline_value, current, tol_pct, rule-label.
+# Emits one TSV row per series whose ns/op exceeds the window band or the baseline ceiling.
+# The window rule needs NS_MIN_WINDOW_SAMPLES dates; the ceiling always applies.
 ns_window_regressions() {
   local rows="$1" baseline="$2" window="$3"
   jq -r \
@@ -237,10 +222,7 @@ ns_window_regressions() {
   ' <<<"$baseline"
 }
 
-# summary_page ROWS BASELINE WINDOW writes the run's summary page. It states the
-# same limits the two gates above apply: the baseline plus its tolerance for the
-# allocation counts, and for the timing the nights' band (where there are enough
-# nights) and the baseline ceiling.
+# Writes the summary page, stating the same limits the two gates apply.
 summary_page() {
   local rows="$1" baseline="$2" window="$3"
   {

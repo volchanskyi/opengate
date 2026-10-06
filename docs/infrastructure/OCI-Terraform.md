@@ -88,6 +88,18 @@ terraform plan    # review resources
 terraform apply   # provision
 ```
 
+The deploy and load-test workflows reach the cluster through the `OKE_CLUSTER_ID`
+repository secret, set from the cluster's output after the first apply:
+
+```bash
+gh secret set OKE_CLUSTER_ID --body "$(terraform -chdir=deploy/terraform output -raw oke_cluster_id)"
+```
+
+The defaults of `oke_kubernetes_version` and `oke_node_image_id` in
+[`variables.tf`](../../deploy/terraform/variables.tf) are resolved with the `oci ce`
+commands their descriptions name. Refresh both when the node pool reports an
+unavailable image.
+
 ### State backend
 
 State lives in an OCI Object Storage bucket (`opengate-tfstate`) accessed through the S3-compatible API, **not** on the operator's laptop. This eliminates the laptop-SPOF and gives us versioned rollback for free.

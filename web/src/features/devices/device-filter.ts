@@ -3,13 +3,7 @@ import { healthBand, HEALTH_META, type HealthBand } from './health';
 
 type Device = components['schemas']['Device'];
 
-/**
- * A narrowing applied to the device list, deep-linked from the Dashboard and
- * Fleet-Health cards via `/devices?status=…&maintenance=…&health=…`. Each field
- * is optional; an absent field imposes no constraint and multiple fields AND
- * together. The reducer is pure so it can be unit-tested independently of the
- * router and composed alongside the existing keyword search.
- */
+/** A device-list narrowing; an absent field imposes no constraint and set fields AND together. */
 export interface DeviceFilter {
   /** `online` := status === 'online'; `offline` := status !== 'online' (includes connecting). */
   status?: 'online' | 'offline';

@@ -9,11 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tests for the client-side Conn channel-open path (mps_conn.go). The shared
-// server/handshake harness lives in mps_test.go (same package).
-
-// newTestConn builds a Conn over one end of a net.Pipe for white-box tests of
-// the client-side channel-open path. The returned peer is the AMT-device end.
 func newTestConn(t *testing.T) (*Conn, net.Conn) {
 	t.Helper()
 	client, peer := newDeadlinePipe(t)
@@ -29,13 +24,12 @@ func TestOpenChannelConfirm(t *testing.T) {
 	c, peer := newTestConn(t)
 
 	go func() {
-		// Consume the direct-tcpip channel-open request, then confirm it.
 		_, _, _ = ReadMessage(peer)
-		confirm := make([]byte, 17) // type + recipient + sender + window + maxpkt
+		confirm := make([]byte, 17)
 		confirm[0] = APFChannelOpenConfirm
-		binary.BigEndian.PutUint32(confirm[5:], 42)      // sender (our remote channel id)
-		binary.BigEndian.PutUint32(confirm[9:], 0x4000)  // initial window
-		binary.BigEndian.PutUint32(confirm[13:], 0x8000) // max packet
+		binary.BigEndian.PutUint32(confirm[5:], 42)
+		binary.BigEndian.PutUint32(confirm[9:], 0x4000)
+		binary.BigEndian.PutUint32(confirm[13:], 0x8000)
 		_, _ = peer.Write(confirm)
 	}()
 
@@ -58,9 +52,9 @@ func TestOpenChannelRejected(t *testing.T) {
 
 	go func() {
 		_, _, _ = ReadMessage(peer)
-		fail := make([]byte, 9) // type + recipient + reason
+		fail := make([]byte, 9)
 		fail[0] = APFChannelOpenFailure
-		binary.BigEndian.PutUint32(fail[5:], 7) // reason code
+		binary.BigEndian.PutUint32(fail[5:], 7)
 		_, _ = peer.Write(fail)
 	}()
 
@@ -76,7 +70,7 @@ func TestOpenChannelUnexpectedResponse(t *testing.T) {
 
 	go func() {
 		_, _, _ = ReadMessage(peer)
-		other := make([]byte, 5) // a keepalive reply (cookie) — not a channel response
+		other := make([]byte, 5) // keepalive reply carrying a cookie
 		other[0] = APFKeepaliveReply
 		_, _ = peer.Write(other)
 	}()
@@ -89,7 +83,6 @@ func TestOpenChannelUnexpectedResponse(t *testing.T) {
 
 func TestOpenChannelWriteError(t *testing.T) {
 	c, peer := newTestConn(t)
-	// Close both ends so the channel-open write fails immediately.
 	_ = peer.Close()
 	_ = c.netConn.Close()
 

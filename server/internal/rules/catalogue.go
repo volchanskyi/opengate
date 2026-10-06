@@ -1,22 +1,5 @@
-// Package rules owns what a monitoring rule may say and which machines it is
-// watching.
-//
-// A rule has three layers, and they are separated by how mutable they are:
-//
-//   - Its definition — the predicate, the grammar it is written in, the evidence
-//     an alert carries, and what its alerts are grouped by — is versioned YAML
-//     compiled into the server. Definitions are immutable per (id, version), so
-//     the rule that raised an alert last week still means what it meant then.
-//   - A customer's parameter overrides live in Postgres, keyed down the tenancy
-//     ladder, because a threshold is exactly the thing an operator retunes.
-//   - A rule's rollout state — whether it is on, how far it has reached, and the
-//     kill switch — lives in Postgres too, because stopping a rule cannot
-//     require a deploy.
-//
-// Keeping definitions out of the database is what makes the program's highest
-// leverage gate possible: a predicate is cost-bounded in CI, before it reaches
-// an endpoint, where the analysis is free and a bad rule costs nothing. The same
-// check in a runtime API path would be a production incident instead.
+// Package rules owns what a monitoring rule may say and which machines it is watching: compiled-in
+// versioned definitions, customer parameter bindings in Postgres, and per-rule rollout state.
 package rules
 
 import (
@@ -31,14 +14,10 @@ import (
 )
 
 const (
-	// maxRuleIDLen bounds a rule id. Ids travel to the agent and come back on
-	// breaches and coverage reports, so they stay short and plain.
+	// Ids travel to the agent and come back on breaches and coverage reports, so they stay short.
 	maxRuleIDLen = 64
 )
 
-// groupByVocabulary is what a rule's alerts may be grouped by. Grouping is what
-// turns repeated firings into one thing an operator looks at, so the key has to
-// name something the server can actually group on.
 var groupByVocabulary = map[string]bool{
 	"device":       true,
 	"site":         true,
@@ -47,9 +26,7 @@ var groupByVocabulary = map[string]bool{
 	"metric":       true,
 }
 
-// evidenceVocabulary is what an alert raised by a rule may carry with it. Each
-// entry names a body of evidence the server already collects; a rule cannot ask
-// for something nobody gathers.
+// Each entry names a body of evidence the server already collects.
 var evidenceVocabulary = map[string]bool{
 	"vitals":        true,
 	"top_processes": true,
@@ -58,8 +35,6 @@ var evidenceVocabulary = map[string]bool{
 	"correlation":   true,
 }
 
-// comparatorVocabulary maps the catalogue's spelling of a comparison to the wire
-// enum the agent decodes.
 var comparatorVocabulary = map[string]protocol.AlertComparator{
 	"gt":  protocol.AlertComparatorGt,
 	"lt":  protocol.AlertComparatorLt,
@@ -67,8 +42,7 @@ var comparatorVocabulary = map[string]protocol.AlertComparator{
 	"lte": protocol.AlertComparatorLte,
 }
 
-// predicateVocabulary is how a rule may derive the number it compares. An empty
-// name is the plain instant threshold a rule states by saying nothing.
+// An empty name is the plain instant threshold.
 var predicateVocabulary = map[string]protocol.RulePredicate{
 	"":           protocol.RulePredicateInstant,
 	"Instant":    protocol.RulePredicateInstant,
@@ -78,32 +52,23 @@ var predicateVocabulary = map[string]protocol.RulePredicate{
 }
 
 const (
-	// minRuleVersion is the first revision a definition may declare. Counting
-	// from one leaves nothing for an absent revision to be mistaken for.
+	// Counting from one leaves nothing for an absent revision to be mistaken for.
 	minRuleVersion = 1
-	// maxRuleVersion is the last one the wire can carry, which is what bounds
-	// it: an alert names the revision that fired, so a revision that did not
-	// survive the journey would identify an alert as something else.
+	// An alert names the revision that fired, so the wire's uint32 bounds the revision.
 	maxRuleVersion = uint64(math.MaxUint32)
 )
 
-// KindEvent names a rule that watches the machine's own log records. A rule
-// that names no kind watches a reading, which is what every rule in the file
-// was before this one existed.
+// KindEvent names a rule that watches the machine's own log records.
 const KindEvent = "event"
 
-// severityVocabulary maps the file's spelling of how bad a rule is to the enum
-// an alert carries. The set is closed at the database too, so a severity
-// outside it would be a write that fails rather than a screen that renders
-// nothing.
+// The set is closed at the database too, so a severity outside it fails the write.
 var severityVocabulary = map[string]protocol.AlertSeverity{
 	"info":     protocol.AlertSeverityInfo,
 	"warning":  protocol.AlertSeverityWarning,
 	"critical": protocol.AlertSeverityCritical,
 }
 
-// Bounds is the range a tunable parameter may be set to. A binding outside it is
-// refused on write, so the rule's author decides how far an operator can go.
+// Bounds is the range a tunable parameter may be set to; a binding outside it is refused on write.
 type Bounds struct {
 	Min float64 `yaml:"min" json:"min"`
 	Max float64 `yaml:"max" json:"max"`
@@ -134,31 +99,15 @@ func (t Term) Comparator() protocol.AlertComparator { return comparatorVocabular
 // Predicate resolves the term's predicate to the wire enum.
 func (t Term) Predicate() protocol.RulePredicate { return predicateVocabulary[t.PredicateName] }
 
-// Definition is one rule as the catalogue states it: immutable per
-// (ID, Version), and the whole of what the rule means.
+// Definition is one rule as the catalogue states it, immutable per (ID, Version).
 type Definition struct {
 	ID      string `yaml:"id" json:"id"`
 	Version int    `yaml:"version" json:"version"`
-	// Kind is what the rule watches. Empty is a rule about a reading, which is
-	// what every rule was when the file held only those; KindEvent is a rule
-	// about the words the machine writes about itself.
-	//
-	// The two are evaluated by different machinery on the endpoint and only one
-	// of them travels: a rule about a reading is sent to the machine and
-	// compared there, while the phrases a rule about words matches on are what
-	// the machine's log reader is built around and stay compiled into it. What
-	// this file carries for one of those is the rest of the rule — its name,
-	// its revision, how bad it is, and where its alerts belong — which is
-	// exactly what the server needs to accept an alert, place it in a room and
-	// let an administrator stop it.
-	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
-	// Severity is how bad this rule's alerts are. It orders the queue: a rule
-	// that stated none would file a disk about to stop accepting writes beside
-	// one that merely feels slow.
+	// Kind is empty for a rule about a reading, which travels to the machine; KindEvent rules match
+	// phrases compiled into the machine's log reader, so the catalogue states no metric for them.
+	Kind     string `yaml:"kind,omitempty" json:"kind,omitempty"`
 	Severity string `yaml:"severity" json:"severity"`
-	// Summary says what the rule is for, in an operator's words. It is
-	// documentation rather than behavior, and is deliberately outside the
-	// immutability digest so a clearer wording is not a version bump.
+	// Summary is documentation outside the digest, so rewording it needs no version bump.
 	Summary string `yaml:"summary" json:"-"`
 
 	Metric         string  `yaml:"metric" json:"metric"`
@@ -170,24 +119,18 @@ type Definition struct {
 	WindowSecs     uint32  `yaml:"window_secs" json:"window_secs"`
 	All            []Term  `yaml:"all" json:"all"`
 
-	// GroupBy is what this rule's alerts are about — the key repeated firings
-	// collapse onto. A rule without one cannot be correlated or de-duplicated.
+	// GroupBy is the key repeated firings collapse onto; a rule without one cannot be de-duplicated.
 	GroupBy []string `yaml:"group_by" json:"group_by"`
 	// GroupWindowSecs is how long firings on one group key stay one alert.
-	GroupWindowSecs uint32 `yaml:"group_window_secs" json:"group_window_secs"`
-	// Evidence is what an alert from this rule carries with it.
-	Evidence []string `yaml:"evidence" json:"evidence"`
-	// CoverageRequires names the metrics a device must be able to read for this
-	// rule to be evaluable on it. A device that cannot read one of them reports
-	// the rule unsupported rather than quietly never firing.
+	GroupWindowSecs uint32   `yaml:"group_window_secs" json:"group_window_secs"`
+	Evidence        []string `yaml:"evidence" json:"evidence"`
+	// A device unable to read one of these metrics reports the rule unsupported.
 	CoverageRequires []string `yaml:"coverage_requires" json:"coverage_requires"`
-	// Tunable declares which parameters a customer binding may override, and how
-	// far. A parameter absent here cannot be bound at all.
+	// A parameter absent here cannot be bound at all.
 	Tunable map[string]Bounds `yaml:"tunable" json:"tunable"`
 }
 
-// WatchesEvents reports whether this rule reads the machine's own words rather
-// than one of its readings.
+// WatchesEvents reports whether this rule reads the machine's own words.
 func (d Definition) WatchesEvents() bool { return d.Kind == KindEvent }
 
 // WireSeverity resolves the rule's severity to the enum an alert carries.
@@ -206,8 +149,7 @@ func (d Definition) Predicate() protocol.RulePredicate { return predicateVocabul
 // Key is the identity a definition is immutable under.
 func (d Definition) Key() string { return d.ID + "@" + strconv.Itoa(d.Version) }
 
-// Digest is the fingerprint of what this definition means. Prose is excluded
-// (see Summary), so the digest changes exactly when behavior does.
+// Digest fingerprints what the definition means; prose is excluded, so it changes with behavior.
 func (d Definition) Digest() (string, error) {
 	encoded, err := json.Marshal(d)
 	if err != nil {
@@ -217,11 +159,8 @@ func (d Definition) Digest() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ShippedParam returns the definition's own value for a tunable parameter, and
-// whether name is one. The names it answers for are the fields a customer
-// binding may override: the numbers on the rule, never its shape — retuning a
-// threshold is configuration, while changing the metric or the predicate is a
-// different rule.
+// ShippedParam returns the definition's own value for a tunable parameter, and whether name is one.
+// Only numbers on the rule are tunable; a changed metric or predicate is a different rule.
 func (d Definition) ShippedParam(name string) (float64, bool) {
 	switch name {
 	case "threshold":
@@ -237,7 +176,6 @@ func (d Definition) ShippedParam(name string) (float64, bool) {
 	}
 }
 
-// catalogueFile is the YAML shape of one pack file.
 type catalogueFile struct {
 	Rules []Definition `yaml:"rules"`
 }

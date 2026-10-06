@@ -25,14 +25,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// stubAgentGetter is a test double for AgentGetter. It stores AgentControl values
-// (the consumer port), so a test can hold either a real *agentapi.AgentConn or a
-// hand-written fake.
 type stubAgentGetter struct {
-	agents map[protocol.DeviceID]AgentControl
-	// refreshedFor records which customers, and which tenants, were told to
-	// re-read their rules. A change an administrator makes is only real once it
-	// has left for the machines, so a case can assert it did.
+	agents           map[protocol.DeviceID]AgentControl
 	refreshedFor     []uuid.UUID
 	refreshedTenants []uuid.UUID
 }
@@ -69,7 +63,6 @@ func (s *stubAgentGetter) ListConnectedAgents() []AgentControl {
 	return agents
 }
 
-// stubAMTOperator is a test double for amt.Operator.
 type stubAMTOperator struct{}
 
 func (s *stubAMTOperator) PowerAction(_ context.Context, _ uuid.UUID, _ int) error {
@@ -97,13 +90,7 @@ func testTenantContext(t *testing.T) context.Context {
 	return dbtx.WithDefaultTenant(t.Context(), true)
 }
 
-// newTestServer creates a Server backed by a Postgres test store and a test JWTConfig.
-// testPurger stands in for the lifecycle orchestrator so the shared API test
-// servers carry the shape every deployed server has. What the API layer owns is
-// that a device delete routes through a purger at all; what the orchestrator
-// then does with the job — the tombstone, the VictoriaMetrics erasure, the
-// emptiness verify — is covered in internal/lifecycle. Running a device job
-// removes the row here, so a handler test sees the fleet a real purge leaves.
+// testPurger stands in for the lifecycle orchestrator and removes the device row when run.
 type testPurger struct{ devices device.Repository }
 
 func (p *testPurger) PurgeDevice(_ context.Context, tenantID, deviceID uuid.UUID, _ *uuid.UUID) (*lifecycle.PurgeJob, error) {
@@ -159,9 +146,6 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	return srv, cfg
 }
 
-// newTestServerWithStoreAndAgents creates a Server with an existing store, custom
-// AgentGetter and relay. Use this when the caller has already obtained a store
-// and seeded data — it avoids a redundant TRUNCATE.
 func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agents AgentGetter, r *relay.Relay) (*Server, *auth.JWTConfig) {
 	t.Helper()
 	cfg := testJWTConfig()
@@ -191,7 +175,6 @@ func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agen
 	return srv, cfg
 }
 
-// seedTestUser inserts a user directly into the server's store and returns the user and a valid JWT.
 func seedTestUser(t *testing.T, srv *Server, cfg *auth.JWTConfig, email string, isAdmin bool) (*auth.User, string) {
 	t.Helper()
 	hash, err := auth.HashPassword("password123")
@@ -214,12 +197,10 @@ func seedTestUser(t *testing.T, srv *Server, cfg *auth.JWTConfig, email string, 
 	return user, token
 }
 
-// doRequest sends a JSON request to srv and returns the response recorder.
 func doRequest(srv *Server, method, path, token string, body interface{}) *httptest.ResponseRecorder {
 	return doRequestWithHeaders(srv, method, path, token, body, nil)
 }
 
-// doRequestWithHeaders sends a JSON request with extra headers to srv.
 func doRequestWithHeaders(srv *Server, method, path, token string, body interface{}, headers map[string]string) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
 	if body != nil {
@@ -238,7 +219,6 @@ func doRequestWithHeaders(srv *Server, method, path, token string, body interfac
 	return w
 }
 
-// doRawRequest sends a request with a raw string body to srv.
 func doRawRequest(srv *Server, method, path, token string, rawBody string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(rawBody))
 	req.Header.Set("Content-Type", "application/json")

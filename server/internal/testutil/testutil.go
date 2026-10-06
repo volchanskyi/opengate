@@ -26,35 +26,20 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
-// Per-test connection pool caps. Tight enough to let many parallel tests
-// share a single Postgres instance — combined with the maxLiveStores
-// semaphore below, peak transient connection use stays bounded.
+// Per-test pool caps keep many parallel tests within one Postgres instance's connections.
 const (
 	testMaxOpenConns = 3
 	testMaxIdleConns = 1
 
-	// maxLiveStores caps the number of NewTestStore-backed schemas that
-	// are alive at once IN A SINGLE TEST BINARY. The semaphore is per-
-	// process; `go test ./...` runs Postgres-using packages as separate
-	// binaries concurrently (default `-p` = GOMAXPROCS). Each slot's
-	// lifetime touches up to ~12 transient conns (test pool + migration
-	// advisory-lock + cleanup admin + lingering pg_stat_activity entries
-	// that take a few seconds to clear). With 16 slots × 2 packages ×
-	// ~12 ≈ 384 conns peak, callers should run Postgres with
-	// `max_connections=400` (see Makefile postgres-test-up target and
-	// `.github/workflows/ci.yml`).
+	// maxLiveStores caps live test schemas per test binary; each uses up to ~12 transient connections.
+	// Parallel binaries together need Postgres at max_connections=400.
 	maxLiveStores = 16
 )
 
-// liveStoreSem throttles concurrent test-store lifetimes (acquire on
-// NewTestStore, release in t.Cleanup) so the working set fits inside
-// Postgres's max_connections budget. See maxLiveStores for the sizing.
+// liveStoreSem bounds concurrent test stores: acquired in NewTestStore, released in t.Cleanup.
 var liveStoreSem = make(chan struct{}, maxLiveStores)
 
-// openAdminSQL returns a single-connection sql.DB for short-lived schema
-// CREATE/DROP operations. Avoids the overhead of NewPostgresStore (which
-// would re-run migrations and open a 25-connection pool just to issue one
-// DDL statement).
+// openAdminSQL returns a single-connection sql.DB for short-lived schema CREATE/DROP statements.
 func openAdminSQL(ctx context.Context, url string) (*sql.DB, error) {
 	d, err := sql.Open("pgx", url)
 	if err != nil {
@@ -69,23 +54,14 @@ func openAdminSQL(ctx context.Context, url string) (*sql.DB, error) {
 	return d, nil
 }
 
-// NewTestStore returns a Postgres-backed store backed by a fresh per-test
-// schema. The schema is created on entry, migrations run against it, and
-// it is dropped on test cleanup. Each test gets full isolation, so tests
-// using this helper MAY call t.Parallel().
-//
-// The backing Postgres comes from POSTGRES_TEST_URL when set; otherwise a
-// throwaway container is auto-provisioned (see internal/testpg). The test
-// always runs — it never skips on a missing database.
+// NewTestStore returns a Postgres-backed store on a fresh, migrated per-test schema.
+// The schema is dropped at cleanup, so callers may use t.Parallel.
 func NewTestStore(t testing.TB) *db.PostgresStore {
 	t.Helper()
 	return newTestStore(t, testMaxOpenConns)
 }
 
-// NewTestStoreWithPool is NewTestStore with the connection ceiling named
-// explicitly. A test that has to make the pool itself the constraint — proving
-// a caller queues rather than executes — cannot do it against a pool wide
-// enough to serve everyone at once.
+// NewTestStoreWithPool is NewTestStore with the pool capped at maxOpenConns connections.
 func NewTestStoreWithPool(t testing.TB, maxOpenConns int) *db.PostgresStore {
 	t.Helper()
 	return newTestStore(t, maxOpenConns)
@@ -96,12 +72,8 @@ func newTestStore(t testing.TB, maxOpenConns int) *db.PostgresStore {
 
 	pgBaseURL := testpg.BaseURL(t)
 
-	// Throttle concurrent live stores to stay under Postgres max_connections.
-	// Register the release via t.Cleanup IMMEDIATELY after acquiring — before
-	// any require.NoError calls — so a failure during setup still releases
-	// the slot. The cleanup also handles schema DROP; the schemaName is
-	// captured by reference and may still be "" if setup failed before
-	// CREATE SCHEMA, in which case the DROP is a no-op (IF EXISTS).
+	// The cleanup is registered right after acquiring so a setup failure still releases the slot.
+	// schemaName is captured by reference and stays empty if setup failed before CREATE SCHEMA.
 	liveStoreSem <- struct{}{}
 	var (
 		schemaName string
@@ -126,16 +98,13 @@ func newTestStore(t testing.TB, maxOpenConns int) *db.PostgresStore {
 		<-liveStoreSem
 	})
 
-	// Per-test schema name. PostgreSQL identifiers are limited to 63 bytes;
-	// 16 hex chars after "ogt_" keeps us well under that and gives a
-	// collision-resistant unique name.
+	// PostgreSQL identifiers are limited to 63 bytes; "ogt_" plus 16 hex characters stays under it.
 	schemaName = "ogt_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Step 1: create the schema using a single-connection admin sql.DB.
-	// Identifier is generated in-process (not external input) — safe to inline.
+	// The schema identifier is generated in-process, so inlining it into the DDL is safe.
 	admin, err := openAdminSQL(ctx, pgBaseURL)
 	require.NoErrorf(t, err, "open admin sql for schema setup")
 	_, err = admin.ExecContext(ctx, `CREATE SCHEMA `+schemaName)
@@ -145,9 +114,6 @@ func newTestStore(t testing.TB, maxOpenConns int) *db.PostgresStore {
 	}
 	_ = admin.Close()
 
-	// Step 2: open the test store with search_path scoped to the new schema
-	// so migrations run against an empty target and produce a fully seeded
-	// schema (incl. the Administrators row from migration 001).
 	sep := "?"
 	if strings.Contains(pgBaseURL, "?") {
 		sep = "&"
@@ -162,14 +128,7 @@ func newTestStore(t testing.TB, maxOpenConns int) *db.PostgresStore {
 	return store
 }
 
-// NewUnmigratedDB opens a pool whose search_path names a schema that was never
-// created, so every unqualified table a store reads is absent. Connecting,
-// beginning a transaction and setting the tenant scope all still succeed — only
-// the statement itself fails, which is what puts a store's "the read could not
-// be answered" branch under test.
-//
-// It reaches no schema another test owns, so it is safe to run in parallel with
-// the whole suite, and it needs no cleanup beyond closing the pool.
+// NewUnmigratedDB opens a pool whose search_path names a missing schema, so table reads fail.
 func NewUnmigratedDB(t testing.TB) *sql.DB {
 	t.Helper()
 
@@ -186,9 +145,7 @@ func NewUnmigratedDB(t testing.TB) *sql.DB {
 	return pool
 }
 
-// NewTestAudit returns a Postgres-backed audit.Repository sharing the
-// connection pool of s. The audit_events schema is owned by the db package's
-// migrations.
+// NewTestAudit returns a Postgres-backed audit.Repository sharing the connection pool of s.
 func NewTestAudit(t testing.TB, s *db.PostgresStore) audit.Repository {
 	t.Helper()
 	return audit.NewPostgres(s.DB())
@@ -262,10 +219,7 @@ func NewTestUsers(t testing.TB, s *db.PostgresStore) auth.UserRepository {
 	return auth.NewPostgresUsers(s.DB())
 }
 
-// EnsureTenant inserts tenantID if it does not exist and gives it the default
-// organization every tenant has, so a device seeded into it always has somewhere
-// to belong. Tests that exercise cross-tenant behavior can create extra tenants
-// without depending on a specific repository package.
+// EnsureTenant inserts tenantID if absent, along with the default organization every tenant has.
 func EnsureTenant(t testing.TB, ctx context.Context, s *db.PostgresStore, tenantID uuid.UUID, name string) {
 	t.Helper()
 	_, err := s.DB().ExecContext(ctx,
@@ -305,11 +259,7 @@ func SeedUser(t testing.TB, ctx context.Context, s *db.PostgresStore) *auth.User
 	return u
 }
 
-// SeedSite inserts a site into the store's tenant scope and returns it. It goes
-// under the tenant's own customer, which is the same one a device seeded without
-// an explicit customer lands in — so the pair a device and its site have to form
-// holds by default. Uses an ad-hoc device.SiteRepository over the same
-// connection pool to avoid forcing every test setup to thread a repo through.
+// SeedSite inserts a site under the tenant's own customer and returns it.
 func SeedSite(t testing.TB, ctx context.Context, s *db.PostgresStore) *device.Site {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)
@@ -318,8 +268,7 @@ func SeedSite(t testing.TB, ctx context.Context, s *db.PostgresStore) *device.Si
 	return SeedSiteIn(t, ctx, s, organizationID)
 }
 
-// SeedSiteIn inserts a site under a named customer rather than the tenant's own,
-// so a device can be seeded into whichever customer a case is about.
+// SeedSiteIn inserts a site under the customer organizationID and returns it.
 func SeedSiteIn(t testing.TB, ctx context.Context, s *db.PostgresStore, organizationID uuid.UUID) *device.Site {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)
@@ -332,11 +281,7 @@ func SeedSiteIn(t testing.TB, ctx context.Context, s *db.PostgresStore, organiza
 	return site
 }
 
-// SeedOrganization inserts a second customer inside the caller's tenant and
-// returns its id. Two customers sharing one tenant is what anything keyed on the
-// customer — a rule binding, an hourly ceiling, an incident grouping key — has to
-// be proven against, since a tenant-keyed implementation passes every
-// single-customer test.
+// SeedOrganization inserts another customer inside the caller's tenant and returns its id.
 func SeedOrganization(t testing.TB, ctx context.Context, s *db.PostgresStore, name string) uuid.UUID {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)
@@ -363,10 +308,7 @@ func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, siteID u
 	return d
 }
 
-// SeedDeviceIn inserts an offline device filed under a named customer rather
-// than the tenant's own. A device that names no customer lands in the tenant's
-// oldest one, so a case about two customers inside one tenant has to say which —
-// otherwise both "customers" are the same row and the case proves nothing.
+// SeedDeviceIn inserts an offline device under the customer organizationID.
 func SeedDeviceIn(t testing.TB, ctx context.Context, s *db.PostgresStore, organizationID, siteID uuid.UUID) *device.Device {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)
@@ -418,9 +360,7 @@ func SeedAdminUser(t testing.TB, ctx context.Context, s *db.PostgresStore) (*aut
 	return u, password
 }
 
-// SeedAMTDevice inserts an AMT connection record for deviceID via the
-// amt.Repository. AMT is a property of a managed device, so the caller supplies
-// the device the connection belongs to.
+// SeedAMTDevice inserts an AMT connection record for deviceID via the amt.Repository.
 func SeedAMTDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, deviceID uuid.UUID) *db.AMTDevice {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)

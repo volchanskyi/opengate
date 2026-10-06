@@ -19,14 +19,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestServer_MetricsWiring verifies that NewServer wires the metrics
-// middleware when Metrics is non-nil, and that the exposition it feeds is not
-// reachable on this listener. Without the first half the CONDITIONALS_NEGATION
-// mutant on that `!= nil` check survives: API tests that pass nil metrics never
-// exercise the registered branch. The second half is the boundary — the
-// exposition renders process internals to anyone who asks, and everything this
-// router serves is published by one catch-all ingress rule, so it belongs to
-// the cluster-only listener the composition root builds.
 func TestServer_MetricsWiring(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
@@ -59,18 +51,12 @@ func TestServer_MetricsWiring(t *testing.T) {
 		Metrics:        m,
 	})
 
-	// 1) The exposition is absent from the listener the ingress publishes.
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound, w.Code,
 		"/metrics belongs to the cluster-only listener, not to the public router")
 
-	// 2) HTTPMiddleware is wired when Metrics != nil (kills the api.go
-	// conditional mutation). Issue a request that hits a real route, then read
-	// the registry the middleware writes to — the same registry the internal
-	// listener renders. If the middleware were not registered, the counter
-	// would have zero series.
 	hreq := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	hw := httptest.NewRecorder()
 	srv.ServeHTTP(hw, hreq)
@@ -81,9 +67,6 @@ func TestServer_MetricsWiring(t *testing.T) {
 		"metrics middleware should record an HTTP request series for GET, got:\n%s", scrape)
 }
 
-// gatherText renders a registry the way the internal listener does, so a test
-// in this package can assert what the middleware wrote without the endpoint
-// that renders it being on this package's router.
 func gatherText(t *testing.T, registry *prometheus.Registry) string {
 	t.Helper()
 	rec := httptest.NewRecorder()

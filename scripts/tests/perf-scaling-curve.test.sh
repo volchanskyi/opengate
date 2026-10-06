@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/perf-scaling-curve.sh — the step that reads every leg of the
-# scaling sweep together.
-#
-# The sweep existed for months with no consumer: two jobs that read none of each
-# other's output, no publish step, no gate, and uploads set to warn on an empty
-# file set. Four bundles a night, never compared. So the cases below are about
-# the two things a sweep has to be able to say — that its rungs were different
-# rungs, and that they did not all come back with the same answer — and about
-# the shape it publishes for a reader, which is the reason the sweep runs.
+# Tests for scripts/perf-scaling-curve.sh, which reads every leg of the scaling sweep together.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,11 +30,7 @@ assert_eq() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# leg writes one bundle: the processor share the server was given, its verdict,
-# the wait time the machines saw, how hard the server worked, and what a
-# technician waited for a fleet list. The last is the half the sweep holds
-# constant, so a leg without one is a leg that offered no technician load at
-# all — the fifth argument is left off to produce exactly that.
+# Leaving off the fifth argument produces a leg that offered no technician load.
 leg() {
   local cpus="$1" verdict="$2" connect="$3" busy="$4" journey="${5:-}"
   local dir="$WORK/legs/scaling-$cpus"
@@ -73,7 +61,6 @@ run_curve() {
 
 echo "perf-scaling-curve:"
 
-# A sweep whose rungs differ is a curve, whichever way it happens to bend.
 reset_legs
 leg 0.25 valid 62 96 310
 leg 0.5 valid 41 88 260
@@ -92,9 +79,6 @@ else
   fail "the curve publishes how hard the target worked at each rung"
 fi
 
-# A curve that does not rise is a finding and not a failure. Two nights from the
-# same code disagreed about the shape, so one night's monotonicity is not
-# something to gate on.
 reset_legs
 leg 0.25 valid 16 40 310
 leg 0.5 valid 13 41 260
@@ -103,7 +87,6 @@ leg 2 valid 16 42 170
 run_curve
 assert_eq "a flat curve is published rather than failed" "0" "$STATUS"
 
-# The condition the 2026-09-05 sweep was actually in: four legs, one answer.
 reset_legs
 leg 0.25 valid 14 40 190
 leg 0.5 valid 14 40 190
@@ -116,8 +99,6 @@ else
   fail "a sweep whose legs all say the same thing fails"
 fi
 
-# The other half of that night: every leg reporting the same processor share, so
-# the rungs were never rungs.
 reset_legs
 mkdir -p "$WORK/legs/a" "$WORK/legs/b"
 leg 1 valid 14 40 190
@@ -132,8 +113,6 @@ else
   fail "a sweep whose legs name one processor share fails"
 fi
 
-# A leg that measured nothing takes its rung out of the curve, and a curve with
-# a hole in it is not one.
 reset_legs
 leg 0.25 valid 62 96 310
 leg 1 invalid 0 0 190
@@ -144,8 +123,6 @@ else
   fail "an invalid leg fails the sweep rather than being averaged in"
 fi
 
-# One rung is a run. Reporting it as a sweep is how three rungs go missing with
-# nothing saying so.
 reset_legs
 leg 1 valid 22 71 190
 run_curve
@@ -155,8 +132,6 @@ else
   fail "a single leg is refused as a curve"
 fi
 
-# Nothing at all is the loudest case and the easiest to pass by accident: an
-# absence satisfies an absence-shaped check.
 reset_legs
 mkdir -p "$WORK/legs"
 run_curve
@@ -174,8 +149,6 @@ else
   fail "a missing download directory fails rather than reading as an empty sweep"
 fi
 
-# The workflow has to actually run this, or the sweep goes back to having no
-# consumer — which is the defect, not the script's absence.
 WORKFLOW="$REPO_ROOT/.github/workflows/perf-stack.yml"
 if grep -qF 'perf-scaling-curve.sh' "$WORKFLOW"; then
   pass "perf-stack.yml reads its own sweep"

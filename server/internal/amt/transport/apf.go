@@ -1,13 +1,5 @@
-// Package transport implements the Intel AMT Management Presence Server.
-//
-// The MPS accepts CIRA (Client Initiated Remote Access) connections from
-// Intel AMT devices over TLS. Communication uses the APF (AMT Port
-// Forwarding) protocol, which is based on SSH channel semantics defined
-// in RFC 4254 with Intel extensions.
-//
-// This file holds the wire framing and the low-level body readers. The typed
-// message structs and their parsers live in apf_messages.go; the message
-// writers live in apf_write.go.
+// Package transport implements the Intel AMT Management Presence Server: CIRA over TLS, speaking
+// APF, which follows the SSH channel semantics of RFC 4254 with Intel extensions.
 package transport
 
 import (
@@ -73,8 +65,6 @@ var ErrMessageTooShort = errors.New("apf: message too short")
 // ErrUnknownMessageType is returned for unrecognised APF message types.
 var ErrUnknownMessageType = errors.New("apf: unknown message type")
 
-// --- Reading ---
-
 // ReadMessage reads one APF message from r and returns the type byte and payload.
 func ReadMessage(r io.Reader) (uint8, []byte, error) {
 	var msgType [1]byte
@@ -89,7 +79,6 @@ func ReadMessage(r io.Reader) (uint8, []byte, error) {
 	return msgType[0], payload, nil
 }
 
-// readMessageBody reads the variable-length body for a given APF message type.
 func readMessageBody(r io.Reader, msgType uint8) ([]byte, error) {
 	switch msgType {
 	case APFServiceRequest, APFServiceAccept:
@@ -126,8 +115,6 @@ func readMessageBody(r io.Reader, msgType uint8) ([]byte, error) {
 	}
 }
 
-// --- internal read helpers ---
-
 func readString(data []byte, offset int) (string, int, error) {
 	if offset+4 > len(data) {
 		return "", 0, ErrMessageTooShort
@@ -148,11 +135,8 @@ func readFixed(r io.Reader, n int) ([]byte, error) {
 	return buf, nil
 }
 
-// readAPFString reads one 4-byte length-prefixed APF string from r, followed by
-// `trailing` fixed bytes, and returns the full wire segment (length prefix +
-// string + trailing bytes). The string length is bounded by maxAPFStringLen;
-// label names the field for the "too long" error. This consolidates the
-// length-prefixed read+bound-check shared by every APF body reader below.
+// readAPFString reads a length-prefixed string plus `trailing` fixed bytes and returns the
+// whole wire segment; label names the field in the error for a string over maxAPFStringLen.
 func readAPFString(r io.Reader, label string, trailing int) ([]byte, error) {
 	var lenBuf [4]byte
 	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
@@ -175,7 +159,6 @@ func readStringMsg(r io.Reader) ([]byte, error) {
 }
 
 func readUserAuthRequest(r io.Reader) ([]byte, error) {
-	// Three length-prefixed strings: username, service, method.
 	var result []byte
 	for range 3 {
 		seg, err := readAPFString(r, "auth string", 0)
@@ -188,13 +171,11 @@ func readUserAuthRequest(r io.Reader) ([]byte, error) {
 }
 
 func readGlobalRequest(r io.Reader) ([]byte, error) {
-	// request name (string) + want_reply (1 byte) + variable data.
 	buf, err := readAPFString(r, "request name", 1)
 	if err != nil {
 		return nil, err
 	}
-	// The remaining data depends on the request type.
-	// For tcpip-forward: string(address) + uint32(port).
+	// Forward requests carry string(address) + uint32(port) after the name.
 	strLen := binary.BigEndian.Uint32(buf[:4])
 	reqName := string(buf[4 : 4+strLen])
 	if reqName == "tcpip-forward" || reqName == "cancel-tcpip-forward" {
@@ -208,18 +189,16 @@ func readGlobalRequest(r io.Reader) ([]byte, error) {
 }
 
 func readForwardData(r io.Reader) ([]byte, error) {
-	// string(address) + uint32(port).
 	return readAPFString(r, "forward address", 4)
 }
 
 func readChannelOpen(r io.Reader) ([]byte, error) {
-	// channel type (string) + sender_ch + window + max_pkt (12 bytes) + optional data.
+	// Trailing 12 bytes: sender channel, window and max packet size.
 	buf, err := readAPFString(r, "channel type", 12)
 	if err != nil {
 		return nil, err
 	}
-	// Channel open may carry additional data (connected address/port/origin).
-	// For "direct-tcpip" and "forwarded-tcpip": 2 strings + 2 uint32s.
+	// The direct-tcpip and forwarded-tcpip types carry 2 strings and 2 uint32s.
 	strLen := binary.BigEndian.Uint32(buf[:4])
 	chType := string(buf[4 : 4+strLen])
 	if chType == "direct-tcpip" || chType == "forwarded-tcpip" {
@@ -233,7 +212,6 @@ func readChannelOpen(r io.Reader) ([]byte, error) {
 }
 
 func readChannelOpenExtra(r io.Reader) ([]byte, error) {
-	// 2 strings (connected addr, origin addr), each followed by a uint32 port.
 	var result []byte
 	for range 2 {
 		seg, err := readAPFString(r, "address", 4)
@@ -246,7 +224,6 @@ func readChannelOpenExtra(r io.Reader) ([]byte, error) {
 }
 
 func readChannelData(r io.Reader) ([]byte, error) {
-	// recipient channel (uint32) + data (string)
 	var header [8]byte // channel + data length
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return nil, err

@@ -28,10 +28,8 @@ type DeviceUpdate struct {
 	AckedAt  *time.Time `json:"acked_at,omitempty"`
 }
 
-// DeviceUpdateRepository is the outbound persistence port for device update
-// records. Create populates the generated ID on success; SetStatus is the
-// terminal ack from the agent (success or failed) and updates the AckedAt
-// timestamp atomically.
+// DeviceUpdateRepository is the persistence port for device update records.
+// Create populates the generated ID; SetStatus records the agent's final ack and AckedAt.
 type DeviceUpdateRepository interface {
 	Create(ctx context.Context, du *DeviceUpdate) error
 	SetStatus(ctx context.Context, deviceID uuid.UUID, version string, status Status, errMsg string) error

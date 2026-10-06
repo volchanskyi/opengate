@@ -2,30 +2,16 @@ package rules
 
 import "github.com/volchanskyi/opengate/server/internal/protocol"
 
-// What a rule costs an endpoint, and the budget that bounds it.
-//
-// The number is the readings a rule retains and may touch. It mirrors
-// `rule_cost` in the agent's evaluator exactly — the agent sizes its ring buffer
-// from the same figure, so what a rule costs to evaluate is what it costs to
-// hold. Because it is computable from a rule's declared fields alone, a
-// predicate whose cost cannot be worked out statically is one the grammar
-// cannot express, and the budget below is enforceable before a rule is ever
-// pushed.
+// The cost limits count retained readings, as `rule_cost` does in the agent's evaluator.
 const (
-	// MaxRuleCost is the readings one rule may ask an endpoint to hold: an hour
-	// of per-second samples. A rule needing more than an hour of history is not
-	// a threshold rule, it is a query, and belongs on the aggregates instead.
+	// MaxRuleCost is the readings one rule may ask an endpoint to hold: an hour of per-second samples.
 	MaxRuleCost uint64 = 3600
-	// MaxCatalogueCost bounds what the whole shipped pack asks of one endpoint.
-	// The per-rule ceiling alone does not bound an agent — enough rules just
-	// inside it would still sink one — so the total is capped as well.
+	// MaxCatalogueCost bounds the total readings the whole shipped pack asks of one endpoint.
 	MaxCatalogueCost uint64 = 20000
 )
 
-// predicateCost is the readings one predicate retains. An instant reading needs
-// only the current one; a windowed predicate holds every second of its window
-// plus the second that closes it, because the rate needs both ends and the
-// aggregates need the whole run.
+// predicateCost is the readings one predicate retains: one for an instant reading, otherwise
+// the window's seconds plus the second that closes it.
 func predicateCost(predicate protocol.RulePredicate, windowSecs uint32) uint64 {
 	if predicate == protocol.RulePredicateInstant {
 		return 1
@@ -33,14 +19,8 @@ func predicateCost(predicate protocol.RulePredicate, windowSecs uint32) uint64 {
 	return uint64(windowSecs) + 1
 }
 
-// RuleCost is a rule's whole evaluation cost: its own condition plus every
-// extra one it requires.
-//
-// A rule about the machine's own words costs nothing per rule. The machine
-// reads its log on one bounded poll a minute and runs the whole pack over what
-// comes back, so a further matcher in that pack asks the machine for nothing
-// further — and charging each one against a budget measured in retained
-// readings would refuse a pack the machine reads for free.
+// RuleCost is a rule's whole evaluation cost: its own condition plus every extra one.
+// An event-watching rule costs zero because the agent polls its log once a minute for the pack.
 func RuleCost(def Definition) uint64 {
 	if def.WatchesEvents() {
 		return 0
@@ -52,8 +32,7 @@ func RuleCost(def Definition) uint64 {
 	return cost
 }
 
-// saturatingAdd keeps a pathological catalogue from wrapping the budget check
-// around zero and passing a gate it should fail.
+// saturatingAdd caps at the maximum so an overflowing sum cannot wrap to zero and pass the budget.
 func saturatingAdd(a, b uint64) uint64 {
 	if sum := a + b; sum >= a {
 		return sum

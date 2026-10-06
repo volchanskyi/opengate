@@ -1,24 +1,12 @@
 #!/usr/bin/env bash
-# Shared VictoriaMetrics push transport for CI trend pipelines. Reads
-# Prometheus text from a file argument or stdin, holds every sample to the shape
-# the trend store keeps, and POSTs it from a throwaway curl pod to the
-# in-cluster VictoriaMetrics Service. The calling workflow must provide a
-# kubeconfig.
-#
-# A sample's labels name the measurement and nothing else. A label that changes
-# every run — the commit, the run, a grade — makes every run a series of its own,
-# and a trend drawn from those is one colour a night joined by nothing. So such
-# a sample is refused, every sample is stamped with the time its run started
-# (so a night is one point on one date, however long the run took, and a re-run
-# writes the same point), and each push writes one
-# ci_run_info{workflow,commit,run_id} beside it, so a night still names its
-# code.
+# Pushes Prometheus text to the in-cluster VictoriaMetrics Service from a throwaway curl pod.
+# Every sample is stamped with its run's start, so a re-run writes the same point.
 #
 # Environment:
 #   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
-#   VM_NAMESPACE (default monitoring), VM_SERVICE (default
-#   monitoring-victoriametrics), VM_CURL_IMAGE (default
-#   docker.io/curlimages/curl:8.11.1).
+#   VM_NAMESPACE  namespace of the Service (default monitoring)
+#   VM_SERVICE  the Service name (default monitoring-victoriametrics)
+#   VM_CURL_IMAGE  the curl pod image (default docker.io/curlimages/curl:8.11.1)
 
 # The labels a sample may not carry: each changes every run.
 VM_PER_RUN_LABELS='commit|run_id|grade'
@@ -55,7 +43,6 @@ vm_validate_prometheus_text() {
   fi
 }
 
-# vm_label_escape escapes a label value for Prometheus text.
 vm_label_escape() {
   sed 's/\\/\\\\/g; s/"/\\"/g' <<<"$1"
 }

@@ -26,7 +26,6 @@
       "Bash(go:*)",
       "Bash(gofmt:*)",
       "Bash(goimports:*)",
-      "Bash(golangci-lint:*)",
       "Bash(gosec:*)",
       "Bash(govulncheck:*)",
       "Bash(gremlins:*)",
@@ -117,6 +116,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/pretooluse-doc-link-check.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/pretooluse-comment-check.sh"
           },
           {
             "type": "command",

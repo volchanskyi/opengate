@@ -10,19 +10,6 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-// Reading evidence back on the server side.
-//
-// Evidence is written once, on a machine, and read whenever somebody opens the
-// incident it belongs to. Nothing can be fetched again, so the read has exactly
-// two honest answers: this is what the machine sent, or this cannot be read and
-// here is why. A third — bytes handed back under a codec nobody claimed, or a
-// structure assembled from a blob that half-decoded — would put invented detail
-// in front of a technician deciding what happened to a customer's machine.
-
-// TestDecodeAlertEvidenceReadsWhatTheAgentWrote is the codec contract from the
-// reading end: the agent compresses with pure-Rust DEFLATE and the server reads
-// it with the standard library, so neither side carries a compression
-// dependency.
 func TestDecodeAlertEvidenceReadsWhatTheAgentWrote(t *testing.T) {
 	t.Parallel()
 	evidence, err := DecodeAlertEvidence(readGolden(t, "alert_evidence.bin"), EvidenceCodec)
@@ -34,17 +21,11 @@ func TestDecodeAlertEvidenceReadsWhatTheAgentWrote(t *testing.T) {
 	assert.Len(t, evidence.LogSamples, evidenceLogSamples)
 	assert.False(t, evidence.Truncated)
 
-	// The ranking is the ranking — a technician reads the first line expecting
-	// it to be the worst one.
 	for i := 1; i < len(evidence.Ranked); i++ {
 		assert.LessOrEqual(t, evidence.Ranked[i].Score, evidence.Ranked[i-1].Score)
 	}
 }
 
-// TestDecodeAlertEvidenceRefusesACodecItDoesNotKnow. The codec travels on the
-// row rather than being assumed, precisely so a later one is additive — and a
-// reader that meets one it does not know has to say so rather than inflate the
-// bytes and hand back whatever comes out.
 func TestDecodeAlertEvidenceRefusesACodecItDoesNotKnow(t *testing.T) {
 	t.Parallel()
 	blob := readGolden(t, "alert_evidence.bin")
@@ -55,10 +36,6 @@ func TestDecodeAlertEvidenceRefusesACodecItDoesNotKnow(t *testing.T) {
 	}
 }
 
-// TestDecodeAlertEvidenceRefusesWhatDoesNotReadBack. Every one of these is a
-// blob that exists and cannot be trusted, and each has to fail rather than
-// produce a partial structure: evidence is the whole of what will ever be known
-// about a moment, so half of it is worse than none.
 func TestDecodeAlertEvidenceRefusesWhatDoesNotReadBack(t *testing.T) {
 	t.Parallel()
 	whole := readGolden(t, "alert_evidence.bin")
@@ -85,11 +62,6 @@ func TestDecodeAlertEvidenceRefusesWhatDoesNotReadBack(t *testing.T) {
 	}
 }
 
-// TestDecodeAlertEvidenceRefusesABlobThatExpandsTooFar. The composition is fixed
-// — eight ranked dimensions, three series, ten processes, twenty log lines — so
-// nothing honest approaches the bound. What it refuses is the dishonest blob:
-// sixty-four kilobytes of DEFLATE can name gigabytes of output, and inflating it
-// to find out would be the server doing the endpoint's bidding.
 func TestDecodeAlertEvidenceRefusesABlobThatExpandsTooFar(t *testing.T) {
 	t.Parallel()
 	bomb := deflated(t, make([]byte, MaxEvidenceInflatedBytes+1))
@@ -99,9 +71,6 @@ func TestDecodeAlertEvidenceRefusesABlobThatExpandsTooFar(t *testing.T) {
 	assert.ErrorIs(t, err, ErrEvidenceTooLarge)
 }
 
-// TestDecodedEvidenceSurvivesARoundTrip pins that what the decoder produces is
-// the same evidence the encoder was given, field for field. A decoder that
-// silently dropped a field would pass every "it decoded" assertion.
 func TestDecodedEvidenceSurvivesARoundTrip(t *testing.T) {
 	t.Parallel()
 	want := AlertEvidence{

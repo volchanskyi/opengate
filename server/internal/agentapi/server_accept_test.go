@@ -25,20 +25,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// The connection lifecycle, driven end to end in this process.
-//
-// A machine reaching this server crosses four doors in order — the control
-// stream it opens, the handshake that names it, the registration that makes it
-// visible, and the teardown that marks it offline — and each of them lives in
-// this package. Until this file existed nothing here drove any of them: the
-// only tests that did lived in the integration tier, whose coverage is measured
-// against nothing, so the whole accept path read as untested and was carved out
-// of the coverage gate rather than covered.
-//
-// The listener is a real QUIC transport on loopback with the product's own mTLS
-// configuration, so what is asserted is what a machine actually gets.
-
-// acceptEnv is a listening AgentServer plus what a test needs to reach it.
 type acceptEnv struct {
 	srv     *AgentServer
 	addr    string
@@ -46,16 +32,11 @@ type acceptEnv struct {
 	cancel  context.CancelFunc
 }
 
-// newAcceptEnv starts the product's QUIC listener on loopback and returns once
-// it is accepting. The listener stops when the test ends.
 func newAcceptEnv(t *testing.T) *acceptEnv {
 	t.Helper()
 	return newAcceptEnvWithMetrics(t, nil)
 }
 
-// newAcceptEnvWithMetrics is newAcceptEnv with a registry the server records
-// against, for the assertions that are about what the accept path publishes
-// rather than about what it stores.
 func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -92,10 +73,8 @@ func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
 	return &acceptEnv{srv: srv, addr: addr, devices: devices, cancel: cancel}
 }
 
-// dial reaches the listener as a machine holding a signed agent certificate,
-// opens the control stream and greets the server. It stops there: a machine the
-// administrator deleted is closed at the next door, so anything read after this
-// races that close.
+// dial sends the AgentHello and stops; a deleted machine is closed right after the handshake,
+// so a read after dial races that close.
 func (e *acceptEnv) dial(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic.Stream) {
 	t.Helper()
 	tlsCert, err := e.srv.cert.SignAgent(deviceID.String(), "accept-test")
@@ -103,10 +82,8 @@ func (e *acceptEnv) dial(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic.St
 	return e.dialWith(t, e.srv.cert.AgentTLSConfig(tlsCert))
 }
 
-// dialWith is dial over a configuration the caller keeps. One machine dialling
-// twice is one certificate and one session cache held across both attempts,
-// which is what makes the second attempt resumable; a fresh config per dial
-// would make every reconnect look cold.
+// dialWith dials over a caller-kept config so one certificate and session cache span
+// attempts, which makes a reconnect resumable.
 func (e *acceptEnv) dialWith(t *testing.T, tlsCfg *tls.Config) (*quic.Conn, *quic.Stream) {
 	t.Helper()
 	require.NotEmpty(t, tlsCfg.Certificates,
@@ -131,8 +108,6 @@ func (e *acceptEnv) dialWith(t *testing.T, tlsCfg *tls.Config) (*quic.Conn, *qui
 	return conn, stream
 }
 
-// connect dials and reads back the server's greeting, so the caller holds a
-// stream the handshake has already completed on.
 func (e *acceptEnv) connect(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic.Stream) {
 	t.Helper()
 	conn, stream := e.dial(t, deviceID)
@@ -140,8 +115,6 @@ func (e *acceptEnv) connect(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic
 	return conn, stream
 }
 
-// readServerHello blocks until the server has greeted back, so the caller knows
-// the handshake ran to completion on the server side rather than racing it.
 func readServerHello(t *testing.T, stream *quic.Stream) {
 	t.Helper()
 	serverHello := make([]byte, 81)
@@ -150,7 +123,6 @@ func readServerHello(t *testing.T, stream *quic.Stream) {
 	require.Equal(t, byte(protocol.MsgServerHello), serverHello[0])
 }
 
-// register sends the frame that makes a machine visible to the fleet.
 func register(t *testing.T, stream *quic.Stream, hostname string) {
 	t.Helper()
 	codec := &protocol.Codec{}
@@ -166,8 +138,6 @@ func register(t *testing.T, stream *quic.Stream, hostname string) {
 	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
 }
 
-// waitForCount polls until the server holds want connections, so an assertion
-// is about the outcome rather than about how quickly a goroutine got there.
 func waitForCount(t *testing.T, srv *AgentServer, want int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -180,14 +150,8 @@ func waitForCount(t *testing.T, srv *AgentServer, want int) {
 	t.Fatalf("connected agents never reached %d (holding %d)", want, srv.ConnectedAgentCount())
 }
 
-// waitForStatus polls until the machine's row carries want.
-//
-// The connection count is not this signal and cannot stand in for it. The count
-// moves when the connection joins the fleet, which the accept path does before
-// it reads a single frame; the row moves when the register frame is handled,
-// which is a later moment on another goroutine. A case that waits on the count
-// and then reads the row is reading whatever the row happened to hold — the
-// seeded value, on a machine busy enough to widen the gap.
+// waitForStatus polls the machine's row; the connection count moves on the accept path,
+// before the register frame is handled.
 func waitForStatus(t *testing.T, env *acceptEnv, deviceID uuid.UUID, want device.DeviceStatus) {
 	t.Helper()
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
@@ -206,16 +170,11 @@ func waitForStatus(t *testing.T, env *acceptEnv, deviceID uuid.UUID, want device
 	t.Fatalf("the machine's status never reached %q (holding %q)", want, last)
 }
 
-// TestAMachineThatConnectsBecomesVisibleAndThenOffline walks the whole
-// lifecycle: the machine dials, hands over its certificate, registers, is
-// counted, and — when it goes away — is marked offline and stops being counted.
 func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	env := newAcceptEnv(t)
 	deviceID := uuid.New()
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	// Seeded under the name the enrolment gave it. Registration reports the name
-	// the machine calls itself, and the two differ here so the assertion below
-	// is about what registration wrote rather than about what the seed left.
+	// The seeded hostname differs from the registered one so the assertion reflects registration.
 	require.NoError(t, env.devices.Upsert(ctx, &device.Device{
 		ID:       deviceID,
 		Hostname: "as-enrolled",
@@ -231,14 +190,12 @@ func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	require.NotNil(t, ac, "the machine that registered is the one the fleet holds")
 	assert.Equal(t, deviceID, uuid.UUID(ac.DeviceID))
 
-	// The row is read once registration has landed. The count moves earlier, on
-	// the accept path, so reading on the count alone reads the seed.
+	// The count moves on the accept path before registration lands, so the row is awaited.
 	waitForStatus(t, env, deviceID, db.StatusOnline)
 	stored, err := env.devices.Get(ctx, deviceID)
 	require.NoError(t, err)
 	assert.Equal(t, "the-machine", stored.Hostname)
 
-	// The machine leaves.
 	require.NoError(t, stream.Close())
 	waitForCount(t, env.srv, 0)
 
@@ -252,10 +209,6 @@ func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	t.Fatal("a machine that left was never marked offline")
 }
 
-// TestAMachineTheAdministratorDeletedIsTurnedAway covers the door that runs
-// between the handshake and registration: a device the administrator removed is
-// closed with the deregistration code, and never becomes a connection the fleet
-// holds.
 func TestAMachineTheAdministratorDeletedIsTurnedAway(t *testing.T) {
 	env := newAcceptEnv(t)
 	deviceID := uuid.New()
@@ -279,10 +232,6 @@ func TestAMachineTheAdministratorDeletedIsTurnedAway(t *testing.T) {
 		"a machine turned away at the door never joins the fleet")
 }
 
-// TestAMachineTheDatabaseHasNotSeenStillRegisters covers the fallbacks either
-// side of registration: a machine connecting before any row exists for it has
-// no tenant to resolve and no hostname to look up, and neither is a reason to
-// turn it away — a first enrolment is exactly this shape.
 func TestAMachineTheDatabaseHasNotSeenStillRegisters(t *testing.T) {
 	env := newAcceptEnv(t)
 	deviceID := uuid.New()
@@ -296,11 +245,6 @@ func TestAMachineTheDatabaseHasNotSeenStillRegisters(t *testing.T) {
 	assert.Equal(t, uuid.Nil, ac.SiteID, "a machine nobody has filed yet is in no site")
 }
 
-// TestASecondConnectionLeavesTheLiveOneAlone is the property a reconnect
-// depends on. A machine that drops and comes straight back leaves two teardowns
-// racing one registration, and the older one must not mark a machine offline
-// that is connected right now — an operator would see a live machine reported
-// as gone.
 func TestASecondConnectionLeavesTheLiveOneAlone(t *testing.T) {
 	env := newAcceptEnv(t)
 	deviceID := uuid.New()
@@ -315,15 +259,11 @@ func TestASecondConnectionLeavesTheLiveOneAlone(t *testing.T) {
 	_, first := env.connect(t, deviceID)
 	register(t, first, "the-machine")
 	waitForCount(t, env.srv, 1)
-	// The machine is online before the reconnect, because that is the state the
-	// older connection's teardown must not undo. Waiting on the count alone
-	// would leave the row still holding the seeded offline, and the assertion
-	// below would then be about the seed rather than about the teardown.
+	// Online before the reconnect is the state the older connection's teardown must not undo.
 	waitForStatus(t, env, deviceID, db.StatusOnline)
 	firstConn := env.srv.GetAgent(protocol.DeviceID(deviceID))
 	require.NotNil(t, firstConn)
 
-	// The machine comes back before the old connection has been torn down.
 	_, second := env.connect(t, deviceID)
 	register(t, second, "the-machine")
 	deadline := time.Now().Add(10 * time.Second)
@@ -336,14 +276,10 @@ func TestASecondConnectionLeavesTheLiveOneAlone(t *testing.T) {
 	require.NotSame(t, firstConn, env.srv.GetAgent(protocol.DeviceID(deviceID)),
 		"the newer connection is the one the fleet holds")
 
-	// One machine is connected, however many times it dialled to get there.
-	// The count is what the platform's connected-agents gauge reads, so a
-	// second connection that added one the teardown of the first cannot take
-	// back would raise the fleet's size for the life of the process.
+	// The connected-agents gauge reads this count, so a second connection must not inflate it.
 	assert.Equal(t, 1, env.srv.ConnectedAgentCount(),
 		"two connections to one machine is still one machine")
 
-	// Now the old one finishes leaving. The machine stays online.
 	require.NoError(t, first.Close())
 	waitForCount(t, env.srv, 1)
 
@@ -352,8 +288,6 @@ func TestASecondConnectionLeavesTheLiveOneAlone(t *testing.T) {
 	assert.NotEqual(t, db.StatusOffline, stored.Status,
 		"a machine that is connected right now is not reported as gone")
 
-	// And when the live one leaves, the fleet is empty again rather than
-	// holding the reconnect forever.
 	require.NoError(t, second.Close())
 	waitForCount(t, env.srv, 0)
 }

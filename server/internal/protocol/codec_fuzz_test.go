@@ -28,12 +28,6 @@ func forEachGolden(f *testing.F, fn func(data []byte)) {
 	}
 }
 
-// FuzzReadFrame fuzzes the wire-envelope parser. The contract is "do not
-// panic, do not allocate beyond MaxFrameSize, return a recognizable error on
-// malformed input". The fuzzer explores around the seed corpus of real
-// protocol frames, looking for inputs that violate the contract.
-//
-// Run locally: `go test -fuzz=FuzzReadFrame -fuzztime=30s ./server/internal/protocol/`
 func FuzzReadFrame(f *testing.F) {
 	forEachGolden(f, func(data []byte) { f.Add(data) })
 	// Hand-crafted edge cases — empty, truncated headers, header-only.
@@ -46,27 +40,14 @@ func FuzzReadFrame(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		codec := &Codec{}
-		// We do not assert on the success/error outcome — fuzz contract is
-		// "no panic, no OOM". If a payload claims a length greater than
-		// MaxFrameSize the codec returns ErrFrameTooLarge before allocating.
 		_, payload, err := codec.ReadFrame(bytes.NewReader(data))
-		// Sanity invariant: on success the payload size is bounded.
 		if err == nil && len(payload) > MaxFrameSize {
 			t.Fatalf("ReadFrame returned payload of %d bytes (max %d)", len(payload), MaxFrameSize)
 		}
 	})
 }
 
-// FuzzDecodeControl fuzzes the msgpack control-message decoder. The contract
-// is "any byte sequence decodes successfully or returns an error — never
-// panic". Crashes from this fuzzer most often indicate an unchecked nil
-// dereference or a panic inside the msgpack library.
-//
-// Run locally: `go test -fuzz=FuzzDecodeControl -fuzztime=30s ./server/internal/protocol/`
 func FuzzDecodeControl(f *testing.F) {
-	// Seed corpus: payload sections extracted from forward goldens. We use
-	// ReadFrame to peel the envelope so the fuzzer starts from msgpack-shaped
-	// inputs, not the wire frame.
 	codec := &Codec{}
 	forEachGolden(f, func(data []byte) {
 		// Only control frames carry a msgpack payload; skip the rest.

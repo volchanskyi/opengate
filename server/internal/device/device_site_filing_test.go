@@ -12,8 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// filingFixture is the estate every filing case works against: two customers in
-// one tenant, an office belonging to the first, and one machine.
 type filingFixture struct {
 	devices  device.Repository
 	ctx      context.Context
@@ -39,8 +37,6 @@ func newFilingFixture(t *testing.T) filingFixture {
 	}
 }
 
-// inContosoDallas puts the fixture's machine in Contoso and files it into the
-// Dallas office, which is the starting state for the cases about leaving it.
 func (f filingFixture) inContosoDallas(t *testing.T) {
 	t.Helper()
 	require.NoError(t, f.devices.UpdateOrganization(f.ctx, f.device.ID, f.contoso))
@@ -54,9 +50,6 @@ func (f filingFixture) read(t *testing.T) *device.Device {
 	return got
 }
 
-// TestDeviceSiteMustBeInTheDeviceOrganization is the mismatch the plan refuses
-// to accept silently: the machine belongs to Fabrikam, so filing it into
-// Contoso's Dallas office is an error, not a quietly stored wrong answer.
 func TestDeviceSiteMustBeInTheDeviceOrganization(t *testing.T) {
 	t.Parallel()
 	f := newFilingFixture(t)
@@ -67,8 +60,6 @@ func TestDeviceSiteMustBeInTheDeviceOrganization(t *testing.T) {
 	assert.Equal(t, uuid.Nil, f.read(t).SiteID, "a refused move leaves the machine where it was")
 }
 
-// TestDeviceTakesASiteInItsOwnOrganization is the positive case of the rule
-// above.
 func TestDeviceTakesASiteInItsOwnOrganization(t *testing.T) {
 	t.Parallel()
 	f := newFilingFixture(t)
@@ -77,10 +68,6 @@ func TestDeviceTakesASiteInItsOwnOrganization(t *testing.T) {
 	assert.Equal(t, f.dallas.ID, f.read(t).SiteID)
 }
 
-// TestMovingACustomerClearsTheSite is the leak the option run surfaced: a laptop
-// that follows its owner from Contoso to Fabrikam must not arrive still filed
-// into a Contoso office. The site is the narrower level, so it cannot survive
-// the level above it changing.
 func TestMovingACustomerClearsTheSite(t *testing.T) {
 	t.Parallel()
 	f := newFilingFixture(t)
@@ -93,12 +80,6 @@ func TestMovingACustomerClearsTheSite(t *testing.T) {
 	assert.Equal(t, uuid.Nil, got.SiteID, "the old customer's office does not travel with the machine")
 }
 
-// TestAReconnectAfterAMoveDoesNotResurrectTheOldSite is the case that would
-// otherwise lock a machine out: the agent still believes it is in the office it
-// was enrolled into and re-sends that site on every reconnect. After a move that
-// office belongs to another customer, so honouring the agent would fail the pair
-// constraint and refuse the registration outright. Filing is a server-side
-// decision, so the stored answer stands.
 func TestAReconnectAfterAMoveDoesNotResurrectTheOldSite(t *testing.T) {
 	t.Parallel()
 	f := newFilingFixture(t)
@@ -116,14 +97,11 @@ func TestAReconnectAfterAMoveDoesNotResurrectTheOldSite(t *testing.T) {
 	assert.Equal(t, device.StatusOnline, got.Status)
 }
 
-// TestRegistrationIgnoresASiteOutsideTheDeviceCustomer covers the same rule at
-// first registration, where there is no stored answer to fall back on: the
-// machine lands unfiled rather than being refused.
 func TestRegistrationIgnoresASiteOutsideTheDeviceCustomer(t *testing.T) {
 	t.Parallel()
 	f := newFilingFixture(t)
 
-	// No customer named, so the machine lands in the tenant's own, not Contoso.
+	// No customer named, so the machine lands in the tenant's own organization.
 	fresh := &device.Device{
 		ID: uuid.New(), SiteID: f.dallas.ID, Hostname: "new-agent", Status: device.StatusOnline,
 	}

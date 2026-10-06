@@ -10,16 +10,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// The read behind the badge on every rule in the pack.
-
-// ruleNoiseSQL counts one customer's recent alerts per rule beside the rule's
-// own history, in one grouped pass — the badge is drawn for every rule on one
-// screen, so a query per rule would be a read per row of a list.
-//
-// The customer is named explicitly. Row-level security stops this crossing a
-// tenant, and nothing at all stops it crossing a customer inside one: without
-// the predicate the badge would show a number belonging to somebody else, and it
-// would look entirely plausible.
+// ruleNoiseSQL counts one customer's recent alerts per rule beside the rule's own history.
+// The organization predicate is required because row-level security stops only tenant crossings.
 const ruleNoiseSQL = `
 	SELECT rule_id,
 	       COUNT(*) FILTER (WHERE received_at > $2::timestamptz) AS recent,
@@ -30,14 +22,13 @@ const ruleNoiseSQL = `
 	   AND received_at > $3::timestamptz
 	 GROUP BY rule_id`
 
-// RuleNoise reads how noisy each of one customer's rules has been lately, keyed
-// by rule id. A rule absent from the result has raised nothing at all.
+// RuleNoise reads how noisy each of one customer's rules has been lately, keyed by rule id.
+// A rule absent from the result has raised nothing.
 func (s *Store) RuleNoise(ctx context.Context, organizationID uuid.UUID) (map[string]Noise, error) {
 	now := s.now().UTC()
 	recentFrom := now.Add(-noiseWindow)
 	historyFrom := now.Add(-noiseHistory)
-	// The hours the history is averaged over: everything in the window that is
-	// not the recent hour the badge is about.
+	// The history spans the whole window except the recent hour the badge counts.
 	historyHours := (noiseHistory - noiseWindow).Hours()
 
 	out := make(map[string]Noise)
@@ -46,7 +37,7 @@ func (s *Store) RuleNoise(ctx context.Context, organizationID uuid.UUID) (map[st
 		if err != nil {
 			return fmt.Errorf("read rule noise: %w", err)
 		}
-		defer rows.Close() //nolint:errcheck // read-only; rows.Err below is the check
+		defer rows.Close()
 
 		for rows.Next() {
 			var (

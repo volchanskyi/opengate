@@ -3,6 +3,7 @@ package agentapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,31 +15,30 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// fakeRuleConfig stands in for the Postgres rule store, so these cases are about
-// what the provider does with bindings and rollout rather than about SQL. The
-// store's own behavior is proven against a real database in internal/rules.
+// fakeRuleConfig is an in-memory rule store keyed by customer.
 type fakeRuleConfig struct {
 	bindings map[uuid.UUID][]rules.Binding
 	rollouts map[uuid.UUID]map[string]rules.Rollout
 	err      error
 }
 
-func (f *fakeRuleConfig) ListBindings(_ context.Context, organizationID uuid.UUID) ([]rules.Binding, error) {
+func customerRows[T any](f *fakeRuleConfig, rows map[uuid.UUID]T, org uuid.UUID) (T, error) {
 	if f.err != nil {
-		return nil, f.err
+		var none T
+		return none, f.err
 	}
-	return f.bindings[organizationID], nil
+	return rows[org], nil
 }
 
-func (f *fakeRuleConfig) ListRollouts(_ context.Context, organizationID uuid.UUID) (map[string]rules.Rollout, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.rollouts[organizationID], nil
+func (f *fakeRuleConfig) ListBindings(_ context.Context, org uuid.UUID) ([]rules.Binding, error) {
+	return customerRows(f, f.bindings, org)
 }
 
-// staticTags gives every machine the same tags, which is enough to exercise a
-// selector without a tag store existing yet.
+func (f *fakeRuleConfig) ListRollouts(_ context.Context, org uuid.UUID) (map[string]rules.Rollout, error) {
+	return customerRows(f, f.rollouts, org)
+}
+
+// staticTags gives every machine the same tags.
 type staticTags map[string]string
 
 func (s staticTags) TagsFor(context.Context, uuid.UUID) (map[string]string, error) {
@@ -52,8 +52,7 @@ func newCatalogueProvider(t *testing.T, store RuleConfigStore, tags DeviceTagRea
 	return NewCatalogueAlertRuleProvider(cat, store, tags, nil, nil, testLogger())
 }
 
-// orgBinding builds a binding covering one whole customer — the shape every
-// case here needs, differing only in the rule and the numbers.
+// orgBinding builds a binding covering one whole customer.
 func orgBinding(org uuid.UUID, ruleID string, params map[string]float64) rules.Binding {
 	return rules.Binding{
 		ID:             uuid.New(),
@@ -65,7 +64,17 @@ func orgBinding(org uuid.UUID, ruleID string, params map[string]float64) rules.B
 	}
 }
 
-// bindingsFor is the store shape a single customer's bindings go in.
+func diskBinding(org uuid.UUID, threshold float64) rules.Binding {
+	return orgBinding(org, "disk-critical", map[string]float64{"threshold": threshold})
+}
+
+func fileServerBinding(org uuid.UUID, threshold float64) rules.Binding {
+	b := diskBinding(org, threshold)
+	b.Selector = rules.Selector{"role": "file-server"}
+	return b
+}
+
+// bindingsFor wraps one customer's bindings in the store shape.
 func bindingsFor(org uuid.UUID, b ...rules.Binding) map[uuid.UUID][]rules.Binding {
 	return map[uuid.UUID][]rules.Binding{org: b}
 }
@@ -76,6 +85,11 @@ func mustResolve(t *testing.T, p *CatalogueAlertRuleProvider, scope settings.Sco
 	got, err := p.RulesFor(context.Background(), scope)
 	require.NoError(t, err)
 	return byRuleID(got.Rules)
+}
+
+func assertDiskThreshold(t *testing.T, p *CatalogueAlertRuleProvider, scope settings.Scope, want float64, msg string) {
+	t.Helper()
+	assert.InEpsilon(t, want, mustResolve(t, p, scope)["disk-critical"].Threshold, 0.0001, msg)
 }
 
 func ladderFor(org uuid.UUID) settings.Scope {
@@ -95,7 +109,6 @@ func byRuleID(got []protocol.ThresholdRule) map[string]protocol.ThresholdRule {
 	return out
 }
 
-// A customer who has configured nothing gets the curated pack as it shipped.
 func TestCatalogueProviderServesTheShippedPackByDefault(t *testing.T) {
 	t.Parallel()
 
@@ -123,41 +136,32 @@ func TestCatalogueProviderServesTheShippedPackByDefault(t *testing.T) {
 	assert.Equal(t, "disk.used_percent", disk.Metric)
 }
 
-// A customer's binding retunes the rule that reaches their machines, and only
-// the parameter they set.
 func TestCatalogueProviderAppliesACustomersBinding(t *testing.T) {
 	t.Parallel()
 
 	org := uuid.New()
 	scope := ladderFor(org)
-	store := &fakeRuleConfig{bindings: bindingsFor(org,
-		orgBinding(org, "disk-critical", map[string]float64{"threshold": 95}))}
+	store := &fakeRuleConfig{bindings: bindingsFor(org, diskBinding(org, 95))}
 
 	disk := mustResolve(t, newCatalogueProvider(t, store, nil), scope)["disk-critical"]
 	assert.InEpsilon(t, 95.0, disk.Threshold, 0.0001, "the customer's threshold reaches the machine")
 	assert.InEpsilon(t, 85.0, disk.Clear, 0.0001, "what they did not set stays what shipped")
 }
 
-// A selector narrows a binding to the machines it names, which is what lets one
-// customer rule cover a file server and a workstation differently.
 func TestCatalogueProviderHonoursASelector(t *testing.T) {
 	t.Parallel()
 
 	org := uuid.New()
-	targeted := orgBinding(org, "disk-critical", map[string]float64{"threshold": 98})
-	targeted.Selector = rules.Selector{"role": "file-server"}
-	store := &fakeRuleConfig{bindings: bindingsFor(org, targeted)}
+	store := &fakeRuleConfig{bindings: bindingsFor(org, fileServerBinding(org, 98))}
 
 	fileServer := newCatalogueProvider(t, store, staticTags{"role": "file-server"})
-	assert.InEpsilon(t, 98.0, mustResolve(t, fileServer, ladderFor(org))["disk-critical"].Threshold, 0.0001)
+	assertDiskThreshold(t, fileServer, ladderFor(org), 98, "the named role takes the customer's number")
 
 	workstation := newCatalogueProvider(t, store, staticTags{"role": "workstation"})
-	assert.InEpsilon(t, 90.0, mustResolve(t, workstation, ladderFor(org))["disk-critical"].Threshold, 0.0001,
+	assertDiskThreshold(t, workstation, ladderFor(org), 90,
 		"a machine the selector does not name keeps the shipped number")
 }
 
-// A rule the customer switched off, or that has been killed, stops reaching
-// their machines at all. Everything else still does.
 func TestCatalogueProviderWithholdsAStoppedRule(t *testing.T) {
 	t.Parallel()
 
@@ -187,38 +191,25 @@ func TestCatalogueProviderWithholdsAStoppedRule(t *testing.T) {
 	}
 }
 
-// A rule written under a name from before the vitals rename still reaches the
-// dimension the fleet collects — the end-to-end form, through the real provider.
 func TestCatalogueProviderResolvesLegacyMetricNamesEndToEnd(t *testing.T) {
 	t.Parallel()
 
-	legacy, err := rules.LoadCatalogue([]byte(`
-rules:
-  - id: legacy-memory
+	const ruleYAML = `
+  - id: %s
     version: 1
     severity: warning
     summary: Written before the vitals rename.
-    metric: mem.used
+    metric: %s
     comparator: gte
-    threshold: 95
+    threshold: %d
     clear: 85
     sustain_secs: 300
     predicate: Instant
     group_by: [device]
-    group_window_secs: 300
-  - id: legacy-disk
-    version: 1
-    severity: warning
-    summary: Written before the vitals rename.
-    metric: disk.used
-    comparator: gte
-    threshold: 90
-    clear: 85
-    sustain_secs: 300
-    predicate: Instant
-    group_by: [device]
-    group_window_secs: 300
-`), nil)
+    group_window_secs: 300`
+	doc := "rules:" + fmt.Sprintf(ruleYAML, "legacy-memory", "mem.used", 95) +
+		fmt.Sprintf(ruleYAML, "legacy-disk", "disk.used", 90) + "\n"
+	legacy, err := rules.LoadCatalogue([]byte(doc), nil)
 	require.NoError(t, err)
 
 	p := NewCatalogueAlertRuleProvider(legacy, &fakeRuleConfig{}, nil, nil, nil, testLogger())
@@ -234,9 +225,6 @@ rules:
 	}
 }
 
-// One customer's numbers must not reach another's machines, including when both
-// customers sit inside a single tenant — the case a tenant-scoped database read
-// does not catch on its own.
 func TestCatalogueProviderKeepsCustomersApartInsideOneTenant(t *testing.T) {
 	t.Parallel()
 
@@ -244,8 +232,7 @@ func TestCatalogueProviderKeepsCustomersApartInsideOneTenant(t *testing.T) {
 	contoso, fabrikam := uuid.New(), uuid.New()
 
 	store := &fakeRuleConfig{
-		bindings: bindingsFor(contoso,
-			orgBinding(contoso, "disk-critical", map[string]float64{"threshold": 98})),
+		bindings: bindingsFor(contoso, diskBinding(contoso, 98)),
 		rollouts: map[uuid.UUID]map[string]rules.Rollout{
 			contoso: {"cpu-saturated": {OrganizationID: contoso, RuleID: "cpu-saturated"}},
 		},
@@ -256,20 +243,16 @@ func TestCatalogueProviderKeepsCustomersApartInsideOneTenant(t *testing.T) {
 		return settings.Scope{DeviceID: uuid.New(), OrganizationID: org, TenantID: tenant}
 	}
 
+	assertDiskThreshold(t, p, inTenant(contoso), 98, "Contoso keeps its own number")
+	assertDiskThreshold(t, p, inTenant(fabrikam), 90, "Contoso's threshold must not reach Fabrikam")
+
 	contosoRules := mustResolve(t, p, inTenant(contoso))
 	fabrikamRules := mustResolve(t, p, inTenant(fabrikam))
-
-	assert.InEpsilon(t, 98.0, contosoRules["disk-critical"].Threshold, 0.0001)
-	assert.InEpsilon(t, 90.0, fabrikamRules["disk-critical"].Threshold, 0.0001,
-		"Contoso's threshold must not reach Fabrikam")
 
 	assert.NotContains(t, contosoRules, "cpu-saturated", "Contoso switched this one off")
 	assert.Contains(t, fabrikamRules, "cpu-saturated", "Fabrikam did not")
 }
 
-// A store that cannot be read is reported rather than papered over. Pushing the
-// shipped defaults instead would ignore a customer's kill switch at exactly the
-// moment somebody reached for it.
 func TestCatalogueProviderReportsAnUnreadableStore(t *testing.T) {
 	t.Parallel()
 
@@ -281,31 +264,22 @@ func TestCatalogueProviderReportsAnUnreadableStore(t *testing.T) {
 	assert.Empty(t, got.Rules, "no ruleset is better than one that ignores a kill switch")
 }
 
-// A machine with no customer on its ladder has nothing to resolve against, so it
-// takes the shipped pack rather than another customer's numbers.
 func TestCatalogueProviderServesShippedRulesWithoutACustomer(t *testing.T) {
 	t.Parallel()
 
 	p := newCatalogueProvider(t, &fakeRuleConfig{}, nil)
 	noCustomer := settings.Scope{DeviceID: uuid.New(), TenantID: uuid.New()}
-	assert.InEpsilon(t, 90.0, mustResolve(t, p, noCustomer)["disk-critical"].Threshold, 0.0001)
+	assertDiskThreshold(t, p, noCustomer, 90, "the shipped number applies with no customer")
 }
 
-// Tags are a targeting aid, not a dependency: a tag source that fails leaves the
-// machine matching only the bindings that name no tags, rather than losing its
-// rules entirely.
 func TestCatalogueProviderSurvivesAFailingTagSource(t *testing.T) {
 	t.Parallel()
 
 	org := uuid.New()
-	targeted := orgBinding(org, "disk-critical", map[string]float64{"threshold": 98})
-	targeted.Selector = rules.Selector{"role": "file-server"}
-	store := &fakeRuleConfig{bindings: bindingsFor(org,
-		orgBinding(org, "disk-critical", map[string]float64{"threshold": 93}), targeted)}
+	store := &fakeRuleConfig{bindings: bindingsFor(org, diskBinding(org, 93), fileServerBinding(org, 98))}
 
 	p := newCatalogueProvider(t, store, failingTags{})
-	assert.InEpsilon(t, 93.0, mustResolve(t, p, ladderFor(org))["disk-critical"].Threshold, 0.0001,
-		"the customer's untargeted binding still applies")
+	assertDiskThreshold(t, p, ladderFor(org), 93, "the customer's untargeted binding still applies")
 }
 
 type failingTags struct{}

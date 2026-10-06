@@ -14,21 +14,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// What the triage queue has to guarantee, driven against a real database.
-//
-// A queue is read while it is being written to, which is the whole difficulty:
-// an alert lands, a room's last activity moves, and the row a technician was
-// about to page past moves with it. So the page is a keyset rather than an
-// offset — an offset over a moving queue drops rows silently, and the row it
-// drops is an incident nobody sees.
-//
-// The other half is who sees what. Isolation is the tenant's and the database
-// enforces it; narrowing to one customer is a filter a query has to get right,
-// and getting it wrong shows one customer's estate to a technician looking at
-// another's without anything being refused.
-
-// seedRoom writes one room with everything a queue filter can narrow on, so a
-// case states only the axis it is about.
+// room is one incident a queue test seeds, with every field a queue filter can narrow on.
 type room struct {
 	org      uuid.UUID
 	ruleID   string
@@ -38,7 +24,6 @@ type room struct {
 	lastSeen time.Time
 }
 
-// seed writes the room and returns its id.
 func (e estate) seed(t *testing.T, r room) uuid.UUID {
 	t.Helper()
 	if r.org == uuid.Nil {
@@ -56,8 +41,8 @@ func (e estate) seed(t *testing.T, r room) uuid.UUID {
 	if r.lastSeen.IsZero() {
 		r.lastSeen = e.now
 	}
-	// Filed at the machine rung with a key of its own, so a case can seed as many
-	// rooms as it likes without colliding on the one-open-room-per-key index.
+	// Each room has a key of its own, so seeding many never collides on the
+	// one-open-room-per-key index.
 	id := uuid.New()
 	e.exec(t,
 		`INSERT INTO incidents (id, tenant_id, organization_id, rule_id, scope, scope_key,
@@ -72,7 +57,6 @@ func (e estate) seed(t *testing.T, r room) uuid.UUID {
 	return id
 }
 
-// queue reads a page and fails the case if the read itself does.
 func (e estate) queue(t *testing.T, f Filter) Page {
 	t.Helper()
 	page, err := e.alerts.Queue(e.ctx, f)
@@ -80,8 +64,6 @@ func (e estate) queue(t *testing.T, f Filter) Page {
 	return page
 }
 
-// ids renders a page as the rooms it holds, which is what every case here
-// asserts on.
 func ids(page Page) []uuid.UUID {
 	out := make([]uuid.UUID, 0, len(page.Incidents))
 	for _, incident := range page.Incidents {
@@ -90,10 +72,6 @@ func ids(page Page) []uuid.UUID {
 	return out
 }
 
-// TestQueueAnswersNewestActivityFirst pins the order the triage queue is read
-// in. It is last activity rather than when a room opened: a week-old room that
-// fired again this morning is today's work, and one that opened this morning and
-// went quiet is not.
 func TestQueueAnswersNewestActivityFirst(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -108,9 +86,6 @@ func TestQueueAnswersNewestActivityFirst(t *testing.T) {
 	assert.True(t, page.Next.IsZero(), "a page that exhausted the queue offers no cursor")
 }
 
-// TestQueueCarriesWhatTheQueueIsReadFor asserts a listed room says everything a
-// technician triages on without a second read. A queue whose rows have to be
-// enriched one by one is a queue that costs a round trip per row to render.
 func TestQueueCarriesWhatTheQueueIsReadFor(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -137,9 +112,6 @@ func TestQueueCarriesWhatTheQueueIsReadFor(t *testing.T) {
 	assert.Equal(t, 1, got.DeviceCount)
 }
 
-// TestQueueNarrowsOnEveryAxisTheUICanOffer walks each filter on its own. They
-// are separate cases rather than one combined read because a filter that
-// silently narrows nothing passes any test where another filter did the work.
 func TestQueueNarrowsOnEveryAxisTheUICanOffer(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -149,8 +121,7 @@ func TestQueueNarrowsOnEveryAxisTheUICanOffer(t *testing.T) {
 		ruleID: "disk-critical", severity: SeverityCritical,
 		status: StatusAcknowledged, assignee: user.ID, lastSeen: e.now,
 	})
-	// One neighbour per axis, each differing from the wanted room in exactly the
-	// thing its case filters on.
+	// One neighbour per axis, each differing from the wanted room only in the filtered field.
 	e.seed(t, room{ruleID: "cpu-saturated", severity: SeverityCritical, status: StatusAcknowledged, assignee: user.ID})
 	e.seed(t, room{ruleID: "disk-critical", severity: SeverityInfo, status: StatusAcknowledged, assignee: user.ID})
 	e.seed(t, room{ruleID: "disk-critical", severity: SeverityCritical, status: StatusResolved, assignee: user.ID})
@@ -185,17 +156,12 @@ func TestQueueNarrowsOnEveryAxisTheUICanOffer(t *testing.T) {
 	})
 }
 
-// TestQueueNarrowsToOneMachine is the device page's strip, asked of the queue
-// rather than of a second implementation. A room is not keyed on a machine — a
-// customer-wide event is one room across forty of them — so the question is
-// which rooms hold an alert this machine raised.
 func TestQueueNarrowsToOneMachine(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
 	others := e.fleet(t, 1)
 
-	// One estate-wide room the machine under test contributed to, and one it did
-	// not: the strip must show the first and not the second.
+	// One estate-wide room the machine contributed to, and one it did not.
 	e.recordUnder(t, e.variant(nil), perCustomer, Stored)
 	joined := e.roomFor(t, perCustomer, "disk-critical", e.org).ID
 	elsewhere := e.seed(t, room{ruleID: "cpu-saturated"})
@@ -208,9 +174,6 @@ func TestQueueNarrowsToOneMachine(t *testing.T) {
 	assert.NotContains(t, ids(page), elsewhere)
 }
 
-// TestQueueStopsAtTheTenantWall proves the isolation half. A room in another
-// tenant answers exactly as one that does not exist, including when its id is
-// named outright — a caller who guesses an id is the case this is for.
 func TestQueueStopsAtTheTenantWall(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -224,10 +187,6 @@ func TestQueueStopsAtTheTenantWall(t *testing.T) {
 	assert.ErrorIs(t, err, ErrIncidentNotFound, "a crafted id from another tenant resolves to nothing")
 }
 
-// TestQueueNeverReturnsAnotherCustomersRoom is the other kind of leak, and the
-// quieter one: both customers are inside one tenant, so the wall is not
-// breached and nothing is refused — a wrong query simply shows Contoso's
-// estate to somebody looking at Fabrikam's.
 func TestQueueNeverReturnsAnotherCustomersRoom(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -243,17 +202,10 @@ func TestQueueNeverReturnsAnotherCustomersRoom(t *testing.T) {
 	assert.ErrorIs(t, err, ErrIncidentNotFound,
 		"a room read while looking at another customer is not that customer's room")
 
-	// Unnarrowed, one tenant's technician sees both customers — the customer is a
-	// filter, not a wall.
+	// Unnarrowed, one tenant's technician sees both customers; the customer is a filter.
 	assert.Len(t, e.queue(t, Filter{}).Incidents, 2)
 }
 
-// TestQueuePagesDoNotSkipOrRepeatWhileTheQueueMoves is why the page is a keyset.
-//
-// Between two pages an alert lands and a room's last activity moves to the head
-// of the queue. Under an offset every row behind it shifts by one, so the first
-// row of the second page is one nobody ever saw — silently, since a queue does
-// not report the rows it did not return.
 func TestQueuePagesDoNotSkipOrRepeatWhileTheQueueMoves(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -280,9 +232,6 @@ func TestQueuePagesDoNotSkipOrRepeatWhileTheQueueMoves(t *testing.T) {
 	}
 }
 
-// TestQueuePageIsBounded keeps one read from becoming the whole table. A caller
-// asking for everything is answered with a page and a cursor, which is the same
-// answer a caller asking for a sensible number gets.
 func TestQueuePageIsBounded(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -298,8 +247,6 @@ func TestQueuePageIsBounded(t *testing.T) {
 		"a nonsense page size is not a page of nothing")
 }
 
-// TestEveryQueueStatementNamesItsTenant extends the wall the alert and incident
-// statements already stand behind, to the reads a person makes.
 func TestEveryQueueStatementNamesItsTenant(t *testing.T) {
 	t.Parallel()
 	for name, query := range map[string]string{
@@ -316,15 +263,6 @@ func TestEveryQueueStatementNamesItsTenant(t *testing.T) {
 	}
 }
 
-// TestQueueAtTenThousandRoomsIsAnIndexedRead is Q10, asserted as a plan rather
-// than as a stopwatch.
-//
-// A wall-clock assertion inside a unit suite is flaky by construction — it
-// measures the machine it runs on — while the plan is what actually keeps the
-// budget: a page of fifty read in last-activity order from a customer-leading
-// index costs the same at ten thousand rooms as at ten. A sequential scan
-// passes at ten thousand on a fast laptop and misses the budget on the estate
-// this is sized for, which is exactly the failure a timing test cannot catch.
 func TestQueueAtTenThousandRoomsIsAnIndexedRead(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -336,10 +274,7 @@ func TestQueueAtTenThousandRoomsIsAnIndexedRead(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		filter Filter
-		// ordered marks the reads whose page must come out of an index already
-		// in order. These are the ones the budget rests on: an unnarrowed queue
-		// answered by sorting every room a customer has costs the whole table to
-		// return fifty rows, and that cost grows with the estate.
+		// ordered marks the reads whose page must come out of an index already in order.
 		ordered bool
 	}{
 		{"the default queue", Filter{OrganizationID: e.org}, true},
@@ -349,9 +284,7 @@ func TestQueueAtTenThousandRoomsIsAnIndexedRead(t *testing.T) {
 		{"several statuses", Filter{OrganizationID: e.org, Statuses: OpenStatuses()}, true},
 		{"one severity", Filter{OrganizationID: e.org, Severities: []Severity{SeverityCritical}}, true},
 		{"one assignee", Filter{OrganizationID: e.org, AssigneeID: user.ID}, true},
-		// The narrow ones are allowed to sort: a rule or a machine selects a
-		// small enough set that ordering it costs less than walking the queue
-		// index until fifty of them turn up.
+		// A rule or a machine selects a set small enough to sort.
 		{"one rule", Filter{OrganizationID: e.org, RuleID: "disk-critical"}, false},
 		{"one machine", Filter{OrganizationID: e.org, DeviceID: e.device}, false},
 		{"every axis at once", Filter{
@@ -361,10 +294,7 @@ func TestQueueAtTenThousandRoomsIsAnIndexedRead(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			plan := e.planFor(t, tc.filter)
-			// The incidents table is the one that grows with the estate, so it is
-			// the one that may never be read whole. A page of fifty that scans it
-			// passes at ten thousand rooms on a fast laptop and misses the budget
-			// on the estate this is sized for.
+			// The incidents table grows with the estate, so a page never scans it whole.
 			assert.NotContainsf(t, plan, "Seq Scan on incidents",
 				"%s must not read the incident table to answer a page:\n%s", tc.name, plan)
 			assert.Containsf(t, plan, "on incidents",
@@ -379,9 +309,7 @@ func TestQueueAtTenThousandRoomsIsAnIndexedRead(t *testing.T) {
 	}
 }
 
-// seedOpenRooms writes n rooms spread across the statuses, severities and rules
-// a queue is narrowed by, so the planner sees a distribution rather than one
-// value repeated ten thousand times.
+// seedOpenRooms writes n rooms spread across the statuses, severities and rules a queue narrows by.
 func (e estate) seedOpenRooms(t *testing.T, n int, assignee uuid.UUID) {
 	t.Helper()
 	e.exec(t,
@@ -401,16 +329,14 @@ func (e estate) seedOpenRooms(t *testing.T, n int, assignee uuid.UUID) {
 		e.tenant, e.org, assignee, e.now, n)
 }
 
-// analyze hands the planner current statistics. Without them it plans against
-// an empty table and picks a scan for a reason the assertion is not about.
+// analyze hands the planner current statistics so it plans against the seeded table.
 func (e estate) analyze(t *testing.T) {
 	t.Helper()
 	e.exec(t, `ANALYZE incidents`)
 	e.exec(t, `ANALYZE alerts`)
 }
 
-// planFor asks the database how it would answer a page, through the same scope
-// production reads pass.
+// planFor asks the database how it would answer a page, through the production read scope.
 func (e estate) planFor(t *testing.T, f Filter) string {
 	t.Helper()
 	query, args := queueQuery(f.normalized())
@@ -434,9 +360,6 @@ func (e estate) planFor(t *testing.T, f Filter) string {
 	return plan
 }
 
-// TestQueueSurvivesAStoreThatIsGone keeps a broken deployment loud rather than
-// answering an empty triage queue, which is the one wrong answer nobody
-// questions.
 func TestQueueSurvivesAStoreThatIsGone(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)

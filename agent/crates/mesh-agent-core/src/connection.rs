@@ -82,14 +82,12 @@ impl<S: ControlStream> AgentConnection<S> {
 
     /// Receive the next control message from the server.
     pub async fn receive_control(&mut self) -> Result<ControlMessage, ConnectionError> {
-        // Read type byte
         let mut type_buf = [0u8; 1];
         self.stream.read_exact(&mut type_buf).await?;
 
         let frame_type = type_buf[0];
 
         if frame_type == codec::FRAME_PING {
-            // Respond with pong
             self.stream.write_all(&[codec::FRAME_PONG]).await?;
             return Err(ConnectionError::Io(std::io::Error::other(
                 "ping received, pong sent",
@@ -102,7 +100,6 @@ impl<S: ControlStream> AgentConnection<S> {
             ));
         }
 
-        // Read 4-byte big-endian length
         let mut len_buf = [0u8; 4];
         self.stream.read_exact(&mut len_buf).await?;
         let payload_len = u32::from_be_bytes(len_buf) as usize;
@@ -116,11 +113,9 @@ impl<S: ControlStream> AgentConnection<S> {
             ));
         }
 
-        // Read payload
         let mut payload = vec![0u8; payload_len];
         self.stream.read_exact(&mut payload).await?;
 
-        // Decode control message
         let msg: ControlMessage = rmp_serde::from_slice(&payload).map_err(|e| {
             ConnectionError::Protocol(mesh_protocol::ProtocolError::MsgpackDecode(e))
         })?;
@@ -128,10 +123,7 @@ impl<S: ControlStream> AgentConnection<S> {
         Ok(msg)
     }
 
-    /// Handle a SessionRequest by accepting and spawning a session task.
-    ///
-    /// Sends `SessionAccept` back on the control stream and spawns a
-    /// `SessionHandler` on a new tokio task that connects to the relay.
+    /// Accepts a SessionRequest and spawns a `SessionHandler` task that connects to the relay.
     pub async fn handle_session_request(
         &mut self,
         token: mesh_protocol::SessionToken,
@@ -140,7 +132,6 @@ impl<S: ControlStream> AgentConnection<S> {
         capture: Box<dyn ScreenCapture>,
         injector: Box<dyn InputInjector>,
     ) -> Result<tokio::task::JoinHandle<()>, ConnectionError> {
-        // Send acceptance back to server
         self.send_control(ControlMessage::SessionAccept {
             token: token.clone(),
             relay_url: relay_url.clone(),
@@ -149,7 +140,6 @@ impl<S: ControlStream> AgentConnection<S> {
 
         info!(token = %token.redacted(), "accepted session, connecting to relay");
 
-        // Spawn the session handler on a separate task
         let handler = SessionHandler::new(token, permissions);
         let handle = tokio::spawn(async move {
             if let Err(e) = handler.run(&relay_url, capture, injector).await {
@@ -161,22 +151,12 @@ impl<S: ControlStream> AgentConnection<S> {
     }
 }
 
-/// Base delay for the exponential backoff schedule.
 const BACKOFF_BASE: Duration = Duration::from_secs(1);
-/// Upper bound on any single backoff delay.
 const BACKOFF_CAP: Duration = Duration::from_secs(30);
-/// Cap on the doubling exponent so `1u32 << exp` cannot overflow; well past the
-/// point where `BACKOFF_BASE << exp` already saturates at `BACKOFF_CAP`.
+/// Cap on the doubling exponent so `1u32 << exp` cannot overflow.
 const MAX_BACKOFF_SHIFT: u32 = 16;
 
-/// Full-jitter exponential backoff (AWS "Exponential Backoff And Jitter").
-///
-/// Returns a uniform-random delay in `[0, min(cap, base · 2^exp)]`. Full jitter
-/// — rather than equal or decorrelated jitter — is chosen because the goal is to
-/// de-synchronise a reconnecting herd after a node restart; spreading delays
-/// across the whole window scatters retries most aggressively. The RNG is
-/// injected so tests can seed it for deterministic bounds checks while
-/// production passes the thread RNG.
+/// Full-jitter backoff: a uniform-random delay in `[0, min(cap, base · 2^exp)]` from the given RNG.
 pub fn full_jitter<R: Rng + ?Sized>(
     base: Duration,
     cap: Duration,
@@ -190,15 +170,7 @@ pub fn full_jitter<R: Rng + ?Sized>(
     Duration::from_millis(rng.random_range(0..=ceiling_ms))
 }
 
-/// Bounds the agent's self-inflicted reconnect rate when a *registered*
-/// connection flaps — drops within a short window of registering.
-///
-/// Without it, a connection the server accepts then immediately closes resets
-/// the per-connect backoff to zero, so the outer reconnect loop respins at the
-/// dial rate (observed live during a server-side device deletion). The governor
-/// escalates a jittered backoff across consecutive short sessions and resets it
-/// once a session stays up past the stability window, so a recovered agent
-/// reconnects without a lingering penalty.
+/// Escalates a jittered backoff across consecutive short sessions and resets on a stable one.
 pub struct ReconnectGovernor {
     flap_count: u32,
     base: Duration,
@@ -211,9 +183,7 @@ impl ReconnectGovernor {
     pub const DEFAULT_BASE: Duration = BACKOFF_BASE;
     /// Upper bound on any single flap backoff.
     pub const DEFAULT_CAP: Duration = BACKOFF_CAP;
-    /// A session must stay registered at least this long to count as stable;
-    /// anything shorter is treated as a flap. 5s comfortably exceeds a healthy
-    /// connect+register round-trip while still catching accept-then-drop spins.
+    /// A session registered for at least this long counts as stable; a shorter one is a flap.
     pub const DEFAULT_STABILITY_WINDOW: Duration = Duration::from_secs(5);
 
     /// Create a governor with the default schedule.
@@ -226,13 +196,7 @@ impl ReconnectGovernor {
         }
     }
 
-    /// Record that a registered session ended after `session_duration`.
-    ///
-    /// Returns `Some(delay)` to sleep before reconnecting when the session was
-    /// shorter than the stability window (a flap) — the delay is a jittered
-    /// exponential backoff that escalates with each consecutive flap. Returns
-    /// `None` when the session was stable (`>= window`), resetting the flap
-    /// counter so the caller reconnects immediately.
+    /// Records a session end; returns an escalating backoff after a flap, or `None` after a stable one.
     pub fn record_disconnect<R: Rng + ?Sized>(
         &mut self,
         session_duration: Duration,
@@ -258,8 +222,7 @@ impl Default for ReconnectGovernor {
     }
 }
 
-/// Reconnect with full-jitter exponential backoff.
-/// Delay for attempt *n* is uniform-random within `[0, min(30s, 1s · 2^(n-1))]`.
+/// Retries `connect_fn` up to `max_attempts` times with full-jitter backoff between attempts.
 pub async fn reconnect_with_backoff<F, Fut, T, E>(
     mut connect_fn: F,
     max_attempts: u32,
@@ -301,15 +264,6 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
 
-    /// full_jitter must never exceed `min(cap, base · 2^exp)` for any draw, and
-    /// must spread its draws across the whole of that window at every exponent.
-    ///
-    /// The lower half is what pins the direction of the shift. `1 << exp` read
-    /// as `1 >> exp` is zero for every exponent above the first, so the ceiling
-    /// collapses to zero and every backoff with it — which is precisely the
-    /// accept-then-drop spin the governor above exists to stop. A thousand
-    /// seeded draws over `[0, ceiling]` reach past the midpoint with certainty
-    /// no machine will ever contradict, and the seed makes the verdict fixed.
     #[test]
     fn full_jitter_stays_within_bounds() {
         let base = Duration::from_secs(1);
@@ -334,8 +288,6 @@ mod tests {
         }
     }
 
-    /// A huge exponent must still be clamped to the cap (no overflow, no
-    /// unbounded delay).
     #[test]
     fn full_jitter_respects_cap() {
         let base = Duration::from_secs(1);
@@ -347,8 +299,6 @@ mod tests {
         }
     }
 
-    /// A short session backs off and escalates the flap counter; a stable
-    /// session (>= window, boundary inclusive) returns no delay and resets.
     #[test]
     fn governor_backs_off_short_sessions_and_resets_on_stable() {
         let mut g = ReconnectGovernor::new();
@@ -366,7 +316,6 @@ mod tests {
             .expect("flap 2 backs off");
         assert_eq!(g.flap_count(), 2);
 
-        // Exactly the window counts as stable (>= boundary), resetting the counter.
         assert!(
             g.record_disconnect(ReconnectGovernor::DEFAULT_STABILITY_WINDOW, &mut rng)
                 .is_none(),
@@ -375,9 +324,6 @@ mod tests {
         assert_eq!(g.flap_count(), 0);
     }
 
-    /// The observed incident: many consecutive sub-window sessions. Every one
-    /// must back off (the loop cannot spin), each within the cap, and one
-    /// stable session clears the accumulated penalty.
     #[test]
     fn governor_rate_limits_accept_then_drop_storm() {
         let mut g = ReconnectGovernor::new();
@@ -396,7 +342,6 @@ mod tests {
         assert_eq!(g.flap_count(), 0);
     }
 
-    /// Test helper: wraps a tokio DuplexStream as a ControlStream.
     impl ControlStream for tokio::io::DuplexStream {
         async fn write_all(&mut self, buf: &[u8]) -> Result<(), std::io::Error> {
             AsyncWriteExt::write_all(self, buf).await
@@ -425,12 +370,10 @@ mod tests {
             version: "0.1.0".to_string(),
         };
 
-        // Send in background
         let send_handle = tokio::spawn(async move {
             conn.send_control(msg).await.unwrap();
         });
 
-        // Read on the server side
         let mut type_buf = [0u8; 1];
         AsyncReadExt::read_exact(&mut server, &mut type_buf)
             .await
@@ -449,7 +392,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Decode and verify
         let decoded: ControlMessage = rmp_serde::from_slice(&payload).unwrap();
         match decoded {
             ControlMessage::AgentRegister {
@@ -486,7 +428,6 @@ mod tests {
             },
         };
 
-        // Encode and write the frame on the server side
         let frame = Frame::Control(msg);
         let encoded = frame.encode().unwrap();
 
@@ -496,7 +437,6 @@ mod tests {
                 .unwrap();
         });
 
-        // Receive on the client side
         let received = conn.receive_control().await.unwrap();
         match received {
             ControlMessage::SessionRequest {
@@ -513,8 +453,6 @@ mod tests {
         }
     }
 
-    /// A run that fails twice then succeeds returns the value and stops
-    /// retrying. Paused time auto-advances through the two backoff sleeps.
     #[tokio::test(start_paused = true)]
     async fn test_reconnect_backoff_succeeds_after_failures() {
         let attempt_count = Arc::new(AtomicU32::new(0));
@@ -538,7 +476,7 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
-        assert_eq!(attempt_count.load(Ordering::SeqCst), 3); // failed twice, succeeded on 3rd
+        assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]
@@ -583,13 +521,6 @@ mod tests {
         send_handle.await.unwrap();
     }
 
-    /// A single-attempt run that fails returns without waiting.
-    ///
-    /// `attempt < max_attempts` read as `<=` sleeps after the last attempt, so
-    /// a caller that asked for one try waits a jittered second before being
-    /// told what it already knew. Paused time is what makes that visible: the
-    /// real code advances the clock by nothing at all, so the assertion is an
-    /// exact zero rather than a band a random draw can slip under.
     #[tokio::test(start_paused = true)]
     async fn reconnect_backoff_does_not_sleep_after_last_attempt() {
         let start = tokio::time::Instant::now();
@@ -604,13 +535,6 @@ mod tests {
         );
     }
 
-    /// Pin AsyncControlStream::write_all: must actually push bytes to the
-    /// underlying stream. Mutating to `Ok(())` would silently drop the write.
-    ///
-    /// The writer is dropped before the peer reads, so a write that never
-    /// happened reads back as end-of-stream and fails here. Waiting for the
-    /// bytes instead would hang forever on that mutant, and a test that hangs
-    /// buys the same verdict at the price of a mutation run's whole leash.
     #[tokio::test]
     async fn async_control_stream_write_all_actually_writes() {
         let (client, mut server) = tokio::io::duplex(64);
@@ -626,8 +550,6 @@ mod tests {
         assert_eq!(buf, payload, "bytes must reach the peer");
     }
 
-    /// Pin AsyncControlStream::read_exact: must read exactly the requested
-    /// length. Mutating to `Ok(())` would leave the buffer untouched.
     #[tokio::test]
     async fn async_control_stream_read_exact_actually_reads() {
         let (client, mut server) = tokio::io::duplex(64);
@@ -643,10 +565,6 @@ mod tests {
         writer.await.unwrap();
     }
 
-    /// Pin AsyncControlStream::read: must return the actual byte count,
-    /// not a constant. Mutating to `Ok(0)` would simulate EOF and break
-    /// callers that loop until n == 0; mutating to `Ok(1)` would lie about
-    /// the length and corrupt downstream parsing.
     #[tokio::test]
     async fn async_control_stream_read_returns_actual_byte_count() {
         let (client, mut server) = tokio::io::duplex(64);
@@ -663,16 +581,11 @@ mod tests {
         writer.await.unwrap();
     }
 
-    /// Pin `payload_len > MAX_FRAME_SIZE` in receive_control: a payload at
-    /// EXACTLY MAX_FRAME_SIZE must NOT be rejected (mutating `>` to `>=`
-    /// would reject it; `>` to `==` would only reject the exact value).
-    /// We use just-above-MAX to verify rejection still works.
     #[tokio::test]
     async fn receive_control_rejects_payload_above_max_frame_size() {
         let (client, mut server) = tokio::io::duplex(8192);
         let mut conn = AgentConnection::new(client);
 
-        // Header: type=Control, length=MAX_FRAME_SIZE+1 (no payload follows).
         let too_big = (codec::MAX_FRAME_SIZE as u32) + 1;
         tokio::spawn(async move {
             AsyncWriteExt::write_all(&mut server, &[FRAME_CONTROL])
@@ -718,10 +631,6 @@ mod tests {
         assert_eq!(msg, ControlMessage::Unknown);
     }
 
-    /// Exhausting every attempt must surface an error naming the attempt count.
-    /// Paused time auto-advances through the full-jitter backoff sleeps, so the
-    /// randomized 1s + 2s wait costs no wall clock and the runtime is
-    /// deterministic across runs.
     #[tokio::test(start_paused = true)]
     async fn test_reconnect_backoff_all_failures() {
         let result: Result<u32, _> = reconnect_with_backoff(
@@ -735,17 +644,6 @@ mod tests {
         assert!(err.to_string().contains("failed after 3 attempts"));
     }
 
-    /// A first flap is drawn against the base delay and no more.
-    ///
-    /// The exponent handed to the jitter is `flap_count - 1`, so the first
-    /// short session draws against `base` itself. Read as `flap_count + 1` the
-    /// first blip is drawn against a four-second ceiling, and as
-    /// `flap_count / 1` a two-second one — so a machine that drops once on an
-    /// otherwise healthy link sits out a multi-second wait before it comes
-    /// back, and a technician watching it sees the agent go away and stay away.
-    /// Five hundred fresh governors from one seed make that fixed rather than
-    /// likely; the second assertion keeps the first from passing on a window
-    /// that collapsed to zero.
     #[test]
     fn a_first_flap_is_drawn_against_the_base_delay() {
         let mut rng = StdRng::seed_from_u64(4242);
@@ -769,14 +667,6 @@ mod tests {
         );
     }
 
-    /// A header declaring exactly MAX_FRAME_SIZE is a legal frame.
-    ///
-    /// The cap is inclusive: `payload_len > MAX_FRAME_SIZE` read as `>=`
-    /// refuses a frame the protocol allows, and the agent drops the link to the
-    /// server over it. The peer here sends the header and then goes away, so
-    /// the size check is reached without moving sixteen mebibytes — the real
-    /// code passes it and then fails reading a payload that never arrives,
-    /// which is a different error from the one the mutant returns.
     #[tokio::test]
     async fn receive_control_accepts_a_frame_at_exactly_the_size_cap() {
         let (client, mut server) = tokio::io::duplex(64);
@@ -802,16 +692,6 @@ mod tests {
         }
     }
 
-    /// The reconnect loop waits between attempts.
-    ///
-    /// `attempt < max_attempts` read as `>` is false for every attempt in
-    /// `1..=max_attempts`, so the loop never sleeps and an agent that cannot
-    /// reach the server retries as fast as it can dial — the whole estate
-    /// hammering a server that is already struggling. Paused time advances
-    /// itself through the seven jittered sleeps, so this costs no wall clock
-    /// and depends on no machine's speed. Each sleep is drawn from
-    /// `[0, ceiling]`, so the only way the total reads zero is all seven
-    /// drawing zero, at odds past one in ten to the twenty-fourth.
     #[tokio::test(start_paused = true)]
     async fn reconnect_backoff_waits_between_attempts() {
         let start = tokio::time::Instant::now();

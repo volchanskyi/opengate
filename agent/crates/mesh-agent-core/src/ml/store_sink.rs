@@ -1,19 +1,5 @@
-//! Edge-Sentinel sampler → local store sink.
-//!
-//! Bridges a [`MetricSample`] (plus its ensemble anomaly verdict) into the
-//! graduated agent-local [`LocalTsdb`]: the sovereign copy of min/max/last + 1 s
-//! raw that central `avg`-only VictoriaMetrics does not keep. Each host metric
-//! dimension is a fixed series; percentage gauges use ×100 fixed-point (lossless
-//! to centi precision) and the disk-performance gauges ×1000 (service time is
-//! sub-millisecond on an NVMe and queue depth is fractional), while the net-rate
-//! gauges are rounded to whole bytes/second and ride the adaptive integer path
-//! (lossless), so a live 60 s average and a reconnect-backfilled average of the
-//! same seconds agree exactly.
-//!
-//! Writes are buffered and flushed on a cadence — never fsync-per-sample — so the
-//! sampler stays inside the agent's <1 % CPU budget. Detection reads its recent
-//! context from an MVCC [`snapshot`](LocalTsdb::snapshot) that is unaffected by
-//! the sampler's concurrent writes.
+//! Bridges a [`MetricSample`] and its ensemble verdict into the agent-local [`LocalTsdb`].
+//! Writes are buffered and flushed on a cadence; detection reads an MVCC snapshot.
 
 use std::path::Path;
 
@@ -57,10 +43,8 @@ const PERCENT_SCALE: i64 = 100;
 /// Fixed-point scale for whole-number counts: unit precision, exact.
 const COUNT_SCALE: i64 = 1;
 
-/// Every host-metric series the backfill/telemetry path carries, in a stable
-/// order. The single source of truth paired with [`series_dim_name`]. Ids are a
-/// persistence contract — an agent upgrading in place reads rows it wrote under
-/// the old ones — so a series is appended here, never renumbered or reused.
+/// Every host-metric series the backfill path carries, in a stable order paired with
+/// [`series_dim_name`]. Ids key persisted rows, so a series is appended, never renumbered.
 pub const BACKFILL_SERIES: [SeriesId; 13] = [
     SERIES_CPU,
     SERIES_MEM,
@@ -82,21 +66,13 @@ pub const BACKFILL_SERIES: [SeriesId; 13] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum WindowReduction {
-    /// The mean of the bucket's readings. Each sample is an instantaneous
-    /// reading of the resource, so the minute's average is the mean of the
-    /// readings taken in it.
+    /// The mean of the bucket's instantaneous readings.
     Mean,
-    /// The bucket's latest reading. The kernel has already averaged a stall
-    /// vital over the trailing 60 s, so the last reading of a 60 s bucket *is*
-    /// that bucket's average — while the mean of sixty overlapping 60 s
-    /// averages spreads the minute across two and damps exactly the stall the
-    /// vital exists to show.
+    /// The bucket's latest reading, for stall vitals the kernel already averages over 60 s.
     Last,
 }
 
-/// How `series` reduces over a 60 s bucket. Shared by the live windower and
-/// reconnect-backfill so a live point and a gap-filled point for the same
-/// `(dim, ts)` are the same number.
+/// How `series` reduces over a 60 s bucket, shared by the live windower and backfill.
 #[must_use]
 pub fn series_reduction(series: SeriesId) -> WindowReduction {
     match series {
@@ -109,10 +85,8 @@ pub fn series_reduction(series: SeriesId) -> WindowReduction {
     }
 }
 
-/// The stable central dimension label for a local series, or `None` for an
-/// unknown series id. This label becomes the VM `dim=` label, so live telemetry
-/// and reconnect backfill land in the *same* series — keep the three mappings
-/// ([`series_dim_name`] / [`series_max_dim_name`] / [`dim_series`]) in lockstep.
+/// The stable central dimension label for a local series, or `None` for an unknown id.
+/// Stays in lockstep with [`series_max_dim_name`] and [`dim_series`].
 #[must_use]
 pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
     match series {
@@ -133,23 +107,8 @@ pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
     }
 }
 
-/// The central label for a series' per-window **maximum**, or `None` for a
-/// series that ships no maximum.
-///
-/// Averaging is what destroys a stall, not the sample rate: over a 60 s window
-/// at 1 Hz, five seconds pinned at 100 % move a 20 % average to 26.7 % — noise
-/// — while the maximum reads 100. So the five gauges where a spike *is* the
-/// signal each ship a companion maximum beside their average. `disk.await_ms` is
-/// one of them for exactly that arithmetic: a five-second I/O freeze barely
-/// moves the minute's service time and pins its maximum, which is what tells an
-/// investigator a desktop freeze was I/O-bound rather than CPU-bound.
-/// `disk.used_percent` moves too slowly for a within-minute peak to mean
-/// anything, `disk.mounts_critical` is already a threshold count, and
-/// `disk.queue_depth` is a time-weighted average over the interval rather than
-/// an instantaneous reading, so none of the three has one. The stall vitals ship
-/// none either: the kernel already reduced a whole minute of stalling into each
-/// reading, so a maximum over a minute of those readings answers no question the
-/// reading itself does not.
+/// The central label for a series' per-window maximum, or `None` for a series that ships none.
+/// Only the five gauges where a within-window spike is the signal carry a maximum.
 #[must_use]
 pub fn series_max_dim_name(series: SeriesId) -> Option<&'static str> {
     match series {
@@ -162,10 +121,8 @@ pub fn series_max_dim_name(series: SeriesId) -> Option<&'static str> {
     }
 }
 
-/// Every central dim name, in the order a window emits them: each series'
-/// average followed by its maximum where it has one. This is the whole
-/// agent-side vocabulary of `opengate_edge_metric_avg`, and the count the
-/// server's allowlist and the central cardinality cap are measured against.
+/// Every central dim name in window emission order: each series' average, then its maximum.
+/// This is the agent-side vocabulary the server allowlist and cardinality cap are held to.
 #[must_use]
 pub fn central_dim_names() -> Vec<&'static str> {
     BACKFILL_SERIES
@@ -179,9 +136,7 @@ pub fn central_dim_names() -> Vec<&'static str> {
 }
 
 /// The local series id for a central dimension label, or `None` if unknown.
-/// Inverse of [`series_dim_name`] and [`series_max_dim_name`] — a `.max` label
-/// resolves to the series it summarizes, because a maximum is a reduction over
-/// that series rather than a series of its own.
+/// A `.max` label resolves to the series it summarizes.
 #[must_use]
 pub fn dim_series(name: &str) -> Option<SeriesId> {
     match name {
@@ -202,14 +157,8 @@ pub fn dim_series(name: &str) -> Option<SeriesId> {
     }
 }
 
-/// One sample's readings in [`BACKFILL_SERIES`] order — the single ordered
-/// mapping from a [`MetricSample`] to the dims that leave the sampler. The local
-/// store ([`LocalStoreSink::record`]) and the live stream share it, so the two
-/// can never disagree about which reading is which series. A `None` is a reading
-/// this sample does not carry — a net rate before it can be computed, or the
-/// disk reduction on a host with no measurable mount, or every stall vital on a
-/// host whose kernel publishes no pressure information — and leaves a gap rather
-/// than writing a wrong number.
+/// One sample's readings in [`BACKFILL_SERIES`] order, shared by the local store and the
+/// live stream. A `None` is a reading the sample does not carry and leaves a gap.
 #[must_use]
 pub(crate) fn sample_dim_values(sample: &MetricSample) -> [Option<f64>; BACKFILL_SERIES.len()] {
     [
@@ -236,22 +185,8 @@ fn series_index(series: SeriesId) -> Option<usize> {
     BACKFILL_SERIES.iter().position(|&s| s == series)
 }
 
-/// One instant's readings, in [`BACKFILL_SERIES`] order.
-///
-/// This is what a rule is evaluated against, and both sides produce it: the
-/// sampler from the second it just took, and a retroactive scan from a minute it
-/// reconstructs out of the local store. Going through one ordered mapping is
-/// what stops a rule meaning one thing live and another over history.
-///
-/// A `None` is a reading that does not exist — never a zero, which a comparator
-/// would happily believe. It covers a permanent gap (a kernel with no pressure
-/// information, a container whose disk counters are its neighbours') and a
-/// passing one (a disk that completed no I/O has no service time, because 0 ms
-/// would read as instantaneous), and one instant cannot tell those apart. A rule
-/// that reads nothing here is reported as watching nothing here, which is the
-/// conservative direction: claiming a rule watches a machine it produces no
-/// answer for is the failure coverage exists to prevent, while a rule that
-/// starts answering reports itself active on its next reading.
+/// One instant's readings in [`BACKFILL_SERIES`] order, which rules evaluate against live
+/// and over history. A `None` is a reading that does not exist, never a zero.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct DimReadings([Option<f64>; BACKFILL_SERIES.len()]);
 
@@ -291,8 +226,8 @@ pub struct LocalStoreSink {
 }
 
 impl LocalStoreSink {
-    /// Open (creating/migrating) the store under `path`, capped at `cap_bytes`,
-    /// flushing durably every `commit_every` samples (the bounded-loss window).
+    /// Opens the store under `path` capped at `cap_bytes`, flushing durably every
+    /// `commit_every` samples.
     pub fn open(path: &Path, cap_bytes: u64, commit_every: usize) -> Result<Self, TsdbError> {
         let config = TsdbConfig {
             cap_bytes,
@@ -318,26 +253,19 @@ impl LocalStoreSink {
         })
     }
 
-    /// The footprint policy this store runs under. Anything that has to stand
-    /// down before the store starts trading history for space reads its own
-    /// threshold from here rather than from a second copy of the numbers.
+    /// The footprint policy this store runs under.
     #[must_use]
     pub fn config(&self) -> TsdbConfig {
         self.config
     }
 
-    /// Report currently-free host-disk bytes so the cap backs off under host
-    /// pressure (the sampler feeds this from `sysinfo`).
+    /// Reports free host-disk bytes so the cap backs off under host pressure.
     pub fn set_host_free_bytes(&mut self, free: Option<u64>) {
         self.store.set_host_free_bytes(free);
     }
 
-    /// Append one host sample across every metric series, stamping each with the
-    /// window's `anomaly` verdict, and flush durably on the configured cadence.
-    /// A series is appended only when the sample carries that reading; an absent
-    /// one — a net rate before it can be computed, or a disk reduction on a host
-    /// with no measurable mount — leaves a gap rather than writing a wrong
-    /// number, and reconnect-backfill rolls the same gaps.
+    /// Appends one host sample across every series, stamped with the `anomaly` verdict, and
+    /// flushes durably on the configured cadence. A reading the sample lacks leaves a gap.
     pub fn record(
         &mut self,
         ts: i64,
@@ -391,8 +319,6 @@ mod tests {
 
     #[test]
     fn dim_name_and_series_are_inverse_and_total() {
-        // Every backfill series has a stable label, and the label resolves back
-        // to the same series — live telemetry and backfill must agree on the map.
         for series in BACKFILL_SERIES {
             let name = series_dim_name(series).expect("every backfill series has a label");
             assert_eq!(dim_series(name), Some(series), "round-trips for {name}");
@@ -400,8 +326,6 @@ mod tests {
         assert_eq!(BACKFILL_SERIES.len(), 13);
     }
 
-    /// Each series appears exactly once. A duplicate would double-count the dim
-    /// in every live window and every backfill batch.
     #[test]
     fn each_series_appears_once_in_the_backfill_set() {
         let mut seen = BACKFILL_SERIES.to_vec();
@@ -410,9 +334,6 @@ mod tests {
         assert_eq!(seen.len(), BACKFILL_SERIES.len());
     }
 
-    /// Ids key rows in the on-disk store, so an agent upgrading in place reads
-    /// its existing history under the ids it wrote. Pinning them here makes a
-    /// renumber a test failure rather than a silent history loss.
     #[test]
     fn series_ids_are_a_persistence_contract() {
         assert_eq!(
@@ -435,9 +356,6 @@ mod tests {
         );
     }
 
-    /// A `.max` label resolves back to the series it summarizes, and the five
-    /// gauges that ship a maximum are exactly the five where a within-window
-    /// spike is the signal.
     #[test]
     fn max_labels_resolve_to_the_series_they_summarize() {
         for series in BACKFILL_SERIES {
@@ -467,10 +385,6 @@ mod tests {
         );
     }
 
-    /// The emitted vocabulary is exactly eighteen names, each appearing once, in
-    /// series order with every maximum beside its average. The central series
-    /// cap is counted against this list, so a name added here is a deliberate
-    /// spend of headroom that no longer exists.
     #[test]
     fn the_central_dim_vocabulary_is_eighteen_distinct_names() {
         let names = central_dim_names();
@@ -503,19 +417,12 @@ mod tests {
         assert_eq!(sorted.len(), names.len(), "no dim is emitted twice");
     }
 
-    /// The health summary's own series, beside the vital dims: one node-wide
-    /// anomaly rate and one per detected metric family (cpu, mem, disk, net,
-    /// proc).
+    /// One node-wide anomaly rate plus one per metric family (cpu, mem, disk, net, proc).
     const ANOMALY_SERIES: usize = 1 + 5;
-    /// The most central series one device may occupy. The server's ingest path
-    /// enforces the same number against its own allowlist, and the cross-language
-    /// golden fixture pins the two vocabularies together; asserting it here is
-    /// what makes a dim added to the agent's contract fail before it reaches the
-    /// wire.
+    /// The most central series one device may occupy, matching the server's allowlist.
     const VITAL_SERIES_CAP: usize = 24;
 
-    /// Whether a dim comes from a source only Linux publishes — kernel pressure
-    /// or `/proc/diskstats`.
+    /// Whether a dim comes from a Linux-only source: kernel pressure or `/proc/diskstats`.
     fn is_linux_only(name: &str) -> bool {
         name.starts_with("stall.")
             || matches!(
@@ -524,21 +431,11 @@ mod tests {
             )
     }
 
-    /// The whole per-device cost, in one assertion: a Linux host writes eighteen
-    /// dims plus the node-wide anomaly rate and five per-family rates, which is
-    /// **exactly** the cap of 24. The headroom the contract reserved is now
-    /// spent, so the next vital of any kind re-opens the cap rather than fitting
-    /// quietly.
     #[test]
     fn a_linux_device_occupies_exactly_the_central_cap() {
         assert_eq!(central_dim_names().len() + ANOMALY_SERIES, VITAL_SERIES_CAP);
     }
 
-    /// A host with neither `/proc/diskstats` nor kernel pressure — every
-    /// non-Linux platform, and a container for the disk half — writes the sixteen
-    /// platform-neutral series, and the missing eight are *absent*: a vital the
-    /// host cannot measure ships no dim at all, which is how coverage accounting
-    /// can call it unsupported instead of reading a run of zeroes as calm.
     #[test]
     fn a_host_without_the_linux_only_sources_occupies_sixteen() {
         let names = central_dim_names();
@@ -570,19 +467,12 @@ mod tests {
         );
     }
 
-    /// The contract carries no `stall.cpu.full`: the kernel defines it as always
-    /// zero, and a constant is not worth one of the twenty-four series a device
-    /// may occupy.
     #[test]
     fn cpu_full_is_not_part_of_the_stall_vocabulary() {
         assert_eq!(dim_series("stall.cpu.full"), None);
         assert!(!central_dim_names().contains(&"stall.cpu.full"));
     }
 
-    /// A stall vital is already the kernel's own 60 s average, so its bucket
-    /// publishes the last reading in it; every other series is an instantaneous
-    /// gauge whose bucket publishes the mean. Averaging sixty overlapping 60 s
-    /// averages would spread a stall across two minutes and damp it in both.
     #[test]
     fn stall_vitals_publish_their_last_reading_and_the_gauges_their_mean() {
         for series in [

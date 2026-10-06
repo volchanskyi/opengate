@@ -1,21 +1,9 @@
 #!/usr/bin/env bash
-# Turn a Kubernetes quantity into the plain number a reader can compare.
+# Converts a Kubernetes quantity into a plain number, failing on a quantity it cannot read.
 #
-# The cluster states a container's limits in its own notation: a processor share
-# as "250m", memory as "384Mi". Both are exact and neither is a number — put
-# straight into an evidence bundle they land in a numeric field as a string, or
-# as whatever the leading digits happened to be, and the figure a later reader
-# compares two runs by is then 250 processors and 384 bytes.
-#
-# So the conversion happens once, here, where it is testable, rather than in a
-# workflow line nobody can run.
-#
-#   k8s-quantity.sh cpu 250m      → 0.25       (processors, fractional)
-#   k8s-quantity.sh memory 384Mi  → 402653184  (bytes)
-#
-# A quantity it cannot read fails rather than printing zero. Zero processors and
-# zero bytes is the smallest machine ever measured, and a bundle carrying it
-# would be refused for the wrong reason — or worse, accepted.
+# Usage:
+#   k8s-quantity.sh cpu 250m      prints 0.25, in processors
+#   k8s-quantity.sh memory 384Mi  prints 402653184, in bytes
 set -euo pipefail
 
 usage() {
@@ -36,11 +24,8 @@ cpu_cores() {
   esac
 }
 
-# memory_bytes turns a memory quantity into bytes. Kubernetes writes binary
-# multiples with an "i" (Ki, Mi, Gi) and decimal ones without (k, M, G), and
-# they are different numbers — 384Mi is 402,653,184 bytes and 384M is
-# 384,000,000, a difference of eighteen megabytes that a memory ceiling is
-# stated to the byte precisely to avoid.
+# memory_bytes turns a memory quantity into bytes; the binary suffixes (Mi) and the decimal ones
+# (M) are different multiples.
 memory_bytes() {
   local raw="$1"
   local mult=1 digits="$raw"

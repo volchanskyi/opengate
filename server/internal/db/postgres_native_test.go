@@ -20,37 +20,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// Postgres-native integration tests pin
-// driver-specific semantics for TIMESTAMPTZ, JSONB and UUID columns that no
-// existing test pinned. A pgx/v5 upgrade or pool-config change could silently
-// regress any of these. These tests exercise the production tables directly
-// through the *sql.DB exposed by testutil.NewTestStore (with schema
-// isolation), guarding against:
-//
-//   - TIMESTAMPTZ: a value inserted with a non-UTC offset must read back as
-//     the equivalent UTC instant. Postgres stores TIMESTAMPTZ as UTC and
-//     pgx returns time.Time in UTC.
-//   - JSONB: bit-level round-trip on device_hardware.network_interfaces with
-//     unicode, empty strings, null-equivalent (empty slices), and multi-
-//     element values.
-//   - UUID: malformed strings rejected at the database boundary; valid
-//     UUIDs accepted regardless of letter case and normalised on read.
-//   - Concurrent writes: 32 parallel UpsertDevice goroutines complete
-//     without pool, deadlock, or constraint errors.
-//   - Prepared-statement cache: 200 sequential executes of the same SQL
-//     statement complete without "prepared statement already exists"
-//     pgx errors.
-
-// pgStore returns the test store and its underlying *sql.DB for postgres-native tests.
 func pgStore(t *testing.T) (*db.PostgresStore, *sql.DB) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 	return store, store.DB()
 }
 
-// seedDeviceRow inserts a minimal row directly so we can pin exact
-// timestamps. UpsertDevice() sets last_seen = NOW(), which would mask
-// the round-trip we're trying to verify.
+// seedDeviceRow inserts a device row directly because the upsert sets last_seen to NOW().
 func seedDeviceRow(t *testing.T, ctx context.Context, sqlDB *sql.DB, id uuid.UUID, lastSeen time.Time) {
 	t.Helper()
 	_, err := sqlDB.ExecContext(ctx, `
@@ -65,10 +41,7 @@ func TestPostgresTIMESTAMPTZNormalizesNonUTCOffsetToUTC(t *testing.T) {
 	_, sqlDB := pgStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	// IST is UTC+05:30 — chosen for a non-whole-hour offset so a stripped
-	// offset would be detectable both in the hour and minute fields.
-	// Microsecond is the smallest unit Postgres stores; sub-microsecond
-	// digits would be silently truncated and break a strict comparison.
+	// IST is UTC+05:30, a non-whole-hour offset; Postgres stores microsecond precision.
 	ist := time.FixedZone("IST", 5*3600+30*60)
 	original := time.Date(2026, 3, 14, 9, 15, 30, 123_456_000, ist)
 	wantUTC := original.UTC()
@@ -82,10 +55,7 @@ func TestPostgresTIMESTAMPTZNormalizesNonUTCOffsetToUTC(t *testing.T) {
 	).Scan(&got)
 	require.NoError(t, err)
 
-	// The returned time.Time may be in time.Local (pgx's default behaviour
-	// for TIMESTAMPTZ); what must hold is the *instant* equality at
-	// Postgres's microsecond precision. A regression that drops the offset
-	// or stores naive timestamps would shift the instant.
+	// pgx may return the time in time.Local, so only the instant is compared.
 	assert.True(t, got.Equal(wantUTC),
 		"want UTC instant %v; got %v", wantUTC, got)
 	assert.Equal(t, wantUTC.UnixMicro(), got.UnixMicro(),
@@ -104,11 +74,9 @@ func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 		{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff",
 			IPv4: []string{"10.0.0.1"},
 			IPv6: []string{"fe80::1", "2001:db8::1"}},
-		// Unicode in name + MAC empty.
 		{Name: "测试-🌐", MAC: "",
 			IPv4: []string{},
 			IPv6: []string{}},
-		// Empty name, single IPv4, no IPv6 at all.
 		{Name: "", MAC: "11:22:33:44:55:66",
 			IPv4: []string{"192.168.1.10"},
 			IPv6: []string{}},
@@ -128,16 +96,12 @@ func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
-	// Compare by re-encoding to JSON to assert bit-level fidelity — slice
-	// equality alone would not catch a corrupted IPv6 entry hidden behind
-	// reflect.DeepEqual's permissive nil/empty matching.
 	wantJSON, err := json.Marshal(originals)
 	require.NoError(t, err)
 	gotJSON, err := json.Marshal(got.NetworkInterfaces)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(wantJSON), string(gotJSON))
 
-	// Unicode preservation: must round-trip the actual rune sequence.
 	require.Len(t, got.NetworkInterfaces, 3)
 	assert.Equal(t, "测试-🌐", got.NetworkInterfaces[1].Name)
 }
@@ -183,7 +147,6 @@ func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 		{"all lowercase", canonical},
 		{"all uppercase", strings.ToUpper(canonical)},
 		{"mixed case", "550E8400-e29B-41D4-a716-446655440000"},
-		// 32 hex chars without dashes is also accepted by Postgres.
 		{"no dashes", strings.ReplaceAll(canonical, "-", "")},
 	}
 	want := uuid.MustParse(canonical)
@@ -259,11 +222,6 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 
 	site := testutil.SeedSite(t, ctx, store)
 
-	// 200 sequential upserts of distinct rows. The driver caches the
-	// prepared statement keyed by SQL text; a pool-config regression that
-	// recreates statements on every call would surface here either as a
-	// "prepared statement already exists" error from pgx or as exhausting
-	// the server-side statement table.
 	const N = 200
 	for i := range N {
 		err := testutil.NewTestDevices(t, store).Upsert(ctx, &device.Device{
@@ -280,17 +238,11 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 		}
 	}
 
-	// Reset of a single connection should not leak server-side prepared
-	// statements either — ensure subsequent queries still work.
 	devices, err := testutil.NewTestDevices(t, store).List(ctx, device.Filter{})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(devices), N)
 }
 
-// TestPostgresMalformedUUIDInsertRollbackable proves that a failed UUID
-// insert is reported with a recoverable error rather than tearing down
-// the connection — important because the pgx driver pools connections
-// and a permanently-broken conn would poison the pool for later tests.
 func TestPostgresMalformedUUIDInsertRollbackable(t *testing.T) {
 	t.Parallel()
 	_, sqlDB := pgStore(t)
@@ -302,7 +254,6 @@ func TestPostgresMalformedUUIDInsertRollbackable(t *testing.T) {
 	`, "not-a-uuid", dbtx.DefaultTenantID)
 	require.Error(t, err)
 
-	// The pool must still be usable.
 	var n int
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT 1`).Scan(&n))
 	assert.Equal(t, 1, n)

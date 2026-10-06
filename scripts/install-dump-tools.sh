@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
-# Provision the pinned age and zstd: what the endurance run compresses and
-# encrypts its core dump with, and what the maintainer opens it with.
-#
-# CI and the workstation both run this script, and the versions come from
-# scripts/lib/tool-versions.sh. Neither side had one version before: the
-# workstation's distribution ships an older zstd and the runner image carries
-# its own, so a dump made on one side and opened on the other was a comparison
-# between two tools nobody chose.
-#
-# age is the release binary, checked against its published digest. zstd is
-# built from its release source, which needs a C compiler and no root.
+# Provisions the pinned age and zstd that compress and encrypt the endurance run's core dump.
+# age is the release binary checked against its digest; zstd builds from source with a C compiler.
 
 set -euo pipefail
 

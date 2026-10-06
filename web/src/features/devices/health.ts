@@ -1,9 +1,4 @@
-/**
- * Edge-node health derived from the latest anomaly rate a device reported. The
- * rate is a scalar in [0,1]; the grid badge and the device-detail anomaly panel
- * both classify it into one of these bands. Thresholds are intentionally coarse
- * — this is an investigation aid, not an alerting signal.
- */
+/** Health band for the latest anomaly rate, a scalar in [0,1]. */
 export type HealthBand = 'healthy' | 'watch' | 'anomalous' | 'unknown';
 
 export const WATCH_THRESHOLD = 0.1;

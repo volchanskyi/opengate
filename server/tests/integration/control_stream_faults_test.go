@@ -19,18 +19,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// Phase B / B4: control-stream fault injection.
-//
-// The server's control loop (agentapi.Server.runControlLoop) reads frames
-// from the agent's QUIC stream and dispatches them to handleControl. A
-// misbehaving or crashing agent can violate any of: frame envelope, payload
-// well-formedness, or stream liveness. These tests pin the server's
-// observable behaviour for each fault class so future refactors of the
-// control loop don't regress the reconciliation path (device → offline
-// after stream errors, no goroutine leak across the disconnect).
-
-// waitForDeviceStatus polls the DB until the given device reaches the
-// expected status, or the deadline expires.
 func waitForDeviceStatus(t *testing.T, store *db.PostgresStore, deviceID protocol.DeviceID, want db.DeviceStatus) {
 	t.Helper()
 	devs := device.NewPostgresDevices(store.DB())
@@ -41,11 +29,6 @@ func waitForDeviceStatus(t *testing.T, store *db.PostgresStore, deviceID protoco
 		"device %s never reached status %q", deviceID, want)
 }
 
-// setupOnlineAgent creates a test env, seeds a user + site, connects a
-// fake agent through the full handshake, and waits for the resulting
-// device row to flip to StatusOnline. Returns the env (for store / srv
-// access in tests), the agent-side QUIC stream (for fault injection), and
-// the device's UUID.
 func setupOnlineAgent(t *testing.T) (*agentTestEnv, *quic.Stream, protocol.DeviceID) {
 	t.Helper()
 	env := newAgentTestEnv(t)
@@ -56,9 +39,6 @@ func setupOnlineAgent(t *testing.T) (*agentTestEnv, *quic.Stream, protocol.Devic
 	return env, stream, deviceID
 }
 
-// writeRawControlFrameHeader writes a FrameControl envelope claiming
-// payloadLen bytes will follow, without writing the payload. Useful for
-// partial-frame and corruption tests.
 func writeRawControlFrameHeader(t *testing.T, stream *quic.Stream, payloadLen uint32) {
 	t.Helper()
 	var header [5]byte
@@ -68,9 +48,6 @@ func writeRawControlFrameHeader(t *testing.T, stream *quic.Stream, payloadLen ui
 	require.NoError(t, err)
 }
 
-// writeCorruptedControlFrame writes a valid FrameControl envelope around
-// a payload that is NOT a valid msgpack-encoded ControlMessage. The
-// server's codec.DecodeControl must reject it.
 func writeCorruptedControlFrame(t *testing.T, stream *quic.Stream, garbage []byte) {
 	t.Helper()
 	writeRawControlFrameHeader(t, stream, uint32(len(garbage)))
@@ -82,12 +59,9 @@ func TestControlStream_CorruptedMsgpackPayloadDisconnectsAgent(t *testing.T) {
 	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
 
-	// Garbage that the msgpack decoder cannot parse. 0xc1 is the reserved
-	// byte in MessagePack and is guaranteed to produce a decode error.
+	// 0xc1 is the reserved byte in MessagePack, so decoding always fails.
 	writeCorruptedControlFrame(t, stream, []byte{0xc1, 0xc1, 0xc1, 0xc1})
 
-	// The control loop logs the decode error and exits, which triggers
-	// unregisterConn → SetDeviceStatus(offline).
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOffline)
 }
 
@@ -95,9 +69,6 @@ func TestControlStream_PartialFrameThenCloseDisconnectsAgent(t *testing.T) {
 	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
 
-	// Announce a 256-byte payload, then send only 10 bytes and close.
-	// codec.ReadFrame must surface io.ErrUnexpectedEOF (or io.EOF after
-	// close) — runControlLoop handles both as a clean exit, not a panic.
 	writeRawControlFrameHeader(t, stream, 256)
 	_, err := stream.Write([]byte("partial-10"))
 	require.NoError(t, err)
@@ -106,13 +77,6 @@ func TestControlStream_PartialFrameThenCloseDisconnectsAgent(t *testing.T) {
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOffline)
 }
 
-// TestControlStream_ConcurrentServerInitiatedSendsArriveDecodable was deferred
-// during Phase B / B5 because it exposed a race in AgentConn.sendControl: the
-// codec's WriteFrame issues a 5-byte header write followed by an N-byte
-// payload write, and two concurrent server-initiated sends could interleave
-// (header A, header B, payload A, payload B) — corrupting the envelope on the
-// agent side. Phase C / C3 closes the race by adding a write mutex inside
-// AgentConn; this test pins the contract so future refactors don't regress.
 func TestControlStream_ConcurrentServerInitiatedSendsArriveDecodable(t *testing.T) {
 	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
@@ -120,8 +84,6 @@ func TestControlStream_ConcurrentServerInitiatedSendsArriveDecodable(t *testing.
 	ac := env.srv.GetAgent(deviceID)
 	require.NotNil(t, ac, "agent must be registered before issuing concurrent sends")
 
-	// Fire two server-initiated control sends concurrently. Without the
-	// write mutex, the (header, payload) pairs can interleave on the stream.
 	errCh := make(chan error, 2)
 	go func() { errCh <- ac.SendRequestHardwareReport(context.Background()) }()
 	go func() { errCh <- ac.SendRequestDeviceLogs(context.Background(), device.LogFilter{}) }()
@@ -129,8 +91,6 @@ func TestControlStream_ConcurrentServerInitiatedSendsArriveDecodable(t *testing.
 		require.NoError(t, <-errCh, "concurrent send %d returned an error", i)
 	}
 
-	// Read both frames from the agent side. Both must decode cleanly and
-	// each message type must appear exactly once.
 	codec := &protocol.Codec{}
 	seen := map[protocol.ControlMessageType]int{}
 	for i := 0; i < 2; i++ {
@@ -150,44 +110,20 @@ func TestControlStream_SendAfterStreamCloseFailsAndReconciles(t *testing.T) {
 	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
 
-	// Resolve the AgentConn the API would use, then close the stream from
-	// the agent side. This simulates "handler tries to push a request,
-	// agent has just disconnected" — the path API handlers like
-	// RestartDevice / GetDeviceHardware traverse when the connection has
-	// been torn down without an explicit deregister.
 	ac := env.srv.GetAgent(deviceID)
 	require.NotNil(t, ac, "agent must be registered before we close the stream")
 	require.NoError(t, stream.Close())
 
-	// Eventually the server's read of the closed stream surfaces an error,
-	// the control loop exits, and the device goes offline. Verify the
-	// reconciliation happens before we attempt the send so we exercise
-	// the "agent is gone" branch deterministically.
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOffline)
 
-	// Now any control-plane send on the same AgentConn must surface an
-	// error rather than silently succeeding or hanging — the API
-	// handlers turn that into a 5xx response, which is the correct
-	// observable behaviour.
-	//
-	// The refusal is the server's own. A QUIC write is accepted by the
-	// local send buffer whether or not the far side is still there, so
-	// waiting for the transport to answer is waiting for something that
-	// never comes: the connection is let go before the device row is
-	// written, and this send lands in the window between the two.
+	// A QUIC write is accepted by the local send buffer whether or not the peer is still there,
+	// so the refusal comes from the server itself.
 	err := ac.SendRequestHardwareReport(context.Background())
 	require.Error(t, err, "send on a released connection must surface an error")
 	assert.True(t, errors.Is(err, agentapi.ErrConnectionClosed),
 		"the error names the connection as gone, got %v", err)
 }
 
-// TestControlStream_ManyConcurrentSendsAllDecodable stress-tests the writeMu
-// contract: with many writers racing on one stream, a missing mutex lets a
-// (5-byte envelope, N-byte payload) pair from one send interleave with
-// another's, so at least one frame fails to decode. Two racers (the test
-// above) only interleave probabilistically; N racers across mixed message
-// sizes make the corruption near-certain when the lock is gone, so this is
-// the test that actually fails if writeMu is removed. Runs under -race.
 func TestControlStream_ManyConcurrentSendsAllDecodable(t *testing.T) {
 	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
@@ -195,8 +131,7 @@ func TestControlStream_ManyConcurrentSendsAllDecodable(t *testing.T) {
 	ac := env.srv.GetAgent(deviceID)
 	require.NotNil(t, ac, "agent must be registered before issuing concurrent sends")
 
-	// Alternate two message types of different encoded sizes to widen the
-	// interleaving window a missing mutex would expose.
+	// Two message types of different encoded sizes widen the interleaving window.
 	const sends = 64
 	errCh := make(chan error, sends)
 	var wg sync.WaitGroup
@@ -217,8 +152,6 @@ func TestControlStream_ManyConcurrentSendsAllDecodable(t *testing.T) {
 		require.NoError(t, err, "a concurrent send returned an error")
 	}
 
-	// Every frame must decode cleanly and the per-type counts must match what
-	// was sent — proof that no envelope/payload pair interleaved on the wire.
 	codec := &protocol.Codec{}
 	seen := map[protocol.ControlMessageType]int{}
 	for i := 0; i < sends; i++ {

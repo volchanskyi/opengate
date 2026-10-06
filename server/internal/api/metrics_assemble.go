@@ -8,27 +8,14 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-// metricGrid is the time axis of one range response, derived from the request
-// alone: exactly span/step instants, every one a whole multiple of the step
-// apart. Deriving it from the request rather than from the timestamps the store
-// happened to return is what makes the window selector mean something — a 7 d
-// request over a device with twenty minutes of data renders seven days with a
-// hole, not two points indistinguishable from a 1 h request.
-//
-// Both edges sit on the step lattice because that is where VictoriaMetrics
-// evaluates the query: past a few dozen points it rounds an unaligned start
-// down to a whole multiple of the step for its rollup cache, so a grid that
-// disagreed by one bucket would shift every value by one bucket. Issuing the
-// read at the grid's own edges makes that rounding a no-op and the two agree by
-// construction.
+// metricGrid is the time axis of a range response, derived from the request alone.
+// Its edges sit on the step lattice because VictoriaMetrics rounds an unaligned start down to it.
 type metricGrid struct {
 	ts   []int64
 	step int64
 }
 
-// buildMetricGrid lays out the axis for one (from, to, step) request. The end
-// instant is exclusive, so the count is exactly span/step; a window shorter than
-// one step still gets a single bucket rather than an empty axis.
+// buildMetricGrid lays out span/step buckets with an exclusive end; a shorter window gets one.
 func buildMetricGrid(from, to time.Time, step time.Duration) metricGrid {
 	stepSecs := int64(step.Seconds())
 	if stepSecs < 1 {
@@ -39,8 +26,7 @@ func buildMetricGrid(from, to time.Time, step time.Duration) metricGrid {
 		buckets = 1
 	}
 
-	// Floor the start onto the step lattice, the same rounding VictoriaMetrics
-	// applies to a range query's start.
+	// The start floors onto the step lattice, as VictoriaMetrics rounds a range query's start.
 	rem := from.Unix() % stepSecs
 	if rem < 0 {
 		rem += stepSecs
@@ -54,15 +40,11 @@ func buildMetricGrid(from, to time.Time, step time.Duration) metricGrid {
 	return metricGrid{ts: ts, step: stepSecs}
 }
 
-// queryStart and queryEnd are the instants the range read is issued at — the
-// grid's own first and last bucket, so the answer can only land on the axis the
-// response declares.
+// queryStart and queryEnd are the grid's first and last bucket, where the range read is issued.
 func (g metricGrid) queryStart() time.Time { return time.Unix(g.ts[0], 0).UTC() }
 func (g metricGrid) queryEnd() time.Time   { return time.Unix(g.ts[len(g.ts)-1], 0).UTC() }
 
-// slot locates a timestamp's bucket. A timestamp off the lattice or outside the
-// window has no bucket: the caller accounts for it rather than nudging it into
-// a neighbour, which would misreport when the value was measured.
+// slot locates a timestamp's bucket; a timestamp off the lattice or outside the window has none.
 func (g metricGrid) slot(ts int64) (int, bool) {
 	offset := ts - g.ts[0]
 	if offset < 0 || offset%g.step != 0 {
@@ -75,11 +57,7 @@ func (g metricGrid) slot(ts int64) (int, bool) {
 	return int(i), true
 }
 
-// offGridPoints accounts for samples that fell outside the request-derived
-// grid, keeping the first one so the log can name it. The read path is issued
-// at the grid's own instants, so a non-zero count is a defect — and a defect
-// that is counted and logged is one that can be found, unlike a value silently
-// discarded.
+// offGridPoints counts samples outside the grid and keeps the first one for the log.
 type offGridPoints struct {
 	count int
 	dim   string
@@ -93,10 +71,7 @@ func (o *offGridPoints) record(dim string, ts int64) {
 	o.count++
 }
 
-// assembleMetricRange projects the avg/min/max series onto the request-derived
-// grid and emits one MetricSeries per numeric dimension. Buckets a series lacks
-// stay null, which a charting engine renders as a gap. It returns what did not
-// fit the grid alongside the response, so the caller can report it.
+// assembleMetricRange projects the avg/min/max series onto the grid; missing buckets stay null.
 func assembleMetricRange(avg, mins, maxs []telemetry.RangeSeries, want map[string]bool, wantBand bool, grid metricGrid) (MetricRangeResponse, offGridPoints) {
 	minByDim := indexByDim(mins)
 	maxByDim := indexByDim(maxs)
@@ -128,10 +103,7 @@ func assembleMetricRange(avg, mins, maxs []telemetry.RangeSeries, want map[strin
 	}, off
 }
 
-// attachBand fills a series' avg_of_60s band from the per-dim min/max results,
-// but only when both are present so a chart never draws a half band. The band
-// shares the avg line's grid — a fill on a different axis would not belong to
-// the line it wraps.
+// attachBand fills the avg_of_60s band only when both min and max are present.
 func attachBand(ms *MetricSeries, dim string, grid metricGrid, off *offGridPoints, minByDim, maxByDim map[string]telemetry.RangeSeries) {
 	mn, okMin := minByDim[dim]
 	mx, okMax := maxByDim[dim]
@@ -145,10 +117,8 @@ func attachBand(ms *MetricSeries, dim string, grid metricGrid, off *offGridPoint
 	ms.MinMaxSource = MetricSeriesMinMaxSourceAvgOf60s
 }
 
-// alignValues projects one series' values onto the grid; absent buckets stay nil
-// (JSON null) and off-grid points are recorded rather than dropped. A value the
-// wire cannot carry (NaN, ±Inf) leaves its bucket a gap, which is honest — it is
-// an unmeasurable reading, not a misplaced one.
+// alignValues projects one series onto the grid; absent buckets stay nil and off-grid points are
+// recorded. A NaN or ±Inf value leaves its bucket a gap.
 func alignValues(s telemetry.RangeSeries, dim string, g metricGrid, off *offGridPoints) []*float64 {
 	out := make([]*float64, len(g.ts))
 	for i := 0; i < len(s.Timestamps) && i < len(s.Values); i++ {
@@ -206,8 +176,7 @@ func clampMaxPoints(mp *int) int {
 	return v
 }
 
-// chooseStep picks the smallest whole-second bucket (never below the 60 s
-// vitals cadence) that keeps the point count within maxPoints for the window.
+// chooseStep picks the smallest whole-second bucket, at least 60 s, that fits maxPoints.
 func chooseStep(from, to time.Time, maxPoints int) time.Duration {
 	windowSecs := int64(to.Sub(from).Seconds())
 	if windowSecs <= 0 {
@@ -222,7 +191,7 @@ func chooseStep(from, to time.Time, maxPoints int) time.Duration {
 
 func bandFromParam(b *GetDeviceMetricsParamsBand) bool {
 	if b == nil {
-		return true // default: avg_of_60s band
+		return true
 	}
 	return *b == GetDeviceMetricsParamsBandAvgOf60s
 }

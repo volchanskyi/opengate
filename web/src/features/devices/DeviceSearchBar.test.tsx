@@ -2,12 +2,10 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DeviceSearchBar } from './DeviceSearchBar';
 
-/** Advance past the 300ms debounce window. */
 async function settleDebounce() {
   await act(async () => { await vi.advanceTimersByTimeAsync(300); });
 }
 
-/** The search box, typed into one character at a time. */
 function typeQuery(text: string) {
   const input = screen.getByPlaceholderText<HTMLInputElement>('Search Devices...');
   for (let end = 1; end <= text.length; end += 1) {
@@ -21,9 +19,6 @@ describe('DeviceSearchBar', () => {
   afterEach(() => { vi.useRealTimers(); });
 
   it('searches once for a burst of keystrokes, with the final query', async () => {
-    // Every keystroke restarting the timer is the point of the debounce: a
-    // fleet search that fired per character would run three filter passes for
-    // "web" and flicker the grid through partial matches.
     const onSearch = vi.fn();
     render(<DeviceSearchBar onSearch={onSearch} totalCount={9} filteredCount={9} />);
     await settleDebounce();
@@ -63,7 +58,6 @@ describe('DeviceSearchBar', () => {
 
     expect(input.value).toBe('');
     expect(onSearch).toHaveBeenCalledWith('');
-    // The clear control and the count belong to an active query only.
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByText(/of 9/)).toBeNull();
   });

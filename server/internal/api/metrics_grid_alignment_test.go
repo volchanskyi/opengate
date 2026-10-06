@@ -15,9 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
-// newVMBackedServer wires a test server to a real VictoriaMetrics and its own
-// metrics registry, so the read path under test is the production one and the
-// misalignment counter is observable.
 func newVMBackedServer(t *testing.T) (*Server, *appmetrics.Metrics) {
 	t.Helper()
 	srv, _ := newTestServer(t)
@@ -27,8 +24,6 @@ func newVMBackedServer(t *testing.T) (*Server, *appmetrics.Metrics) {
 	return srv, m
 }
 
-// writeRawWindow writes one dimension's raw 10 s samples over [start, start+span]
-// and flushes them, the shape the edge agent's metric windows land in.
 func writeRawWindow(t *testing.T, srv *Server, ctx context.Context, tenant, device uuid.UUID, start time.Time, span time.Duration) {
 	t.Helper()
 	client, ok := srv.telemetryReader.(*telemetry.VMClient)
@@ -47,24 +42,12 @@ func writeRawWindow(t *testing.T, srv *Server, ctx context.Context, tenant, devi
 	require.NoError(t, client.Flush(ctx))
 }
 
-// TestMetricGridMatchesVictoriaMetricsEvaluationInstants measures — against a
-// real VictoriaMetrics, not a mock — that the grid the server computes for
-// (from, to, step) is exactly the set of instants VictoriaMetrics evaluates the
-// range query at.
-//
-// This has to be measured because VictoriaMetrics silently rounds an unaligned
-// start down to a whole multiple of the step once a query has enough points
-// (its rollup-cache alignment). A grid that disagreed by one bucket would shift
-// every value by one bucket with nothing to show for it, so the server issues
-// the query at the grid's own edges — both whole multiples of the step, where
-// the rounding is a no-op — and the two agree in every case below.
 func TestMetricGridMatchesVictoriaMetricsEvaluationInstants(t *testing.T) {
 	srv, m := newVMBackedServer(t)
 	ctx := context.Background()
 	tenant := uuid.New()
 	device := uuid.New()
 
-	// A dense 20 min run of raw samples, ending on a step boundary.
 	dataStart := time.Now().UTC().Truncate(600 * time.Second).Add(-2 * time.Hour)
 	writeRawWindow(t, srv, ctx, tenant, device, dataStart, 20*time.Minute)
 
@@ -75,10 +58,7 @@ func TestMetricGridMatchesVictoriaMetricsEvaluationInstants(t *testing.T) {
 		step    time.Duration
 		buckets int
 	}{
-		// Few enough points that VictoriaMetrics does no rounding of its own.
 		{"aligned window, coarse step", dataStart, dataStart.Add(20 * time.Minute), 60 * time.Second, 20},
-		// Past VictoriaMetrics' rounding threshold, with a start deliberately off
-		// the lattice — the case that shifts every bucket if the grid disagrees.
 		{"unaligned start, many buckets", dataStart.Add(7 * time.Second), dataStart.Add(20 * time.Minute), 10 * time.Second, 119},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,15 +74,12 @@ func TestMetricGridMatchesVictoriaMetricsEvaluationInstants(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, series, 1)
 
-			// Every instant VictoriaMetrics answered at is a bucket of the grid, at
-			// the slot the grid puts it in — no rounding drift, no off-by-one.
 			require.NotEmpty(t, series[0].Timestamps)
 			for _, ts := range series[0].Timestamps {
 				slot, ok := grid.slot(ts)
 				require.True(t, ok, "VictoriaMetrics answered at %d, off the server grid starting %d step %d", ts, grid.ts[0], grid.step)
 				require.Equal(t, grid.ts[slot], ts)
 			}
-			// The dense run fills the grid end to end, so the two agree exactly.
 			assert.Equal(t, grid.ts, series[0].Timestamps)
 		})
 	}
@@ -110,10 +87,6 @@ func TestMetricGridMatchesVictoriaMetricsEvaluationInstants(t *testing.T) {
 	assert.Zero(t, promtestutil.ToFloat64(m.MetricsGridMisalignedTotal))
 }
 
-// TestGetDeviceMetricsSevenDayWindowOverTwentyMinutesOfData is A3 end to end
-// against a real VictoriaMetrics: a technician selecting 7 d on a device that
-// has only 20 minutes of telemetry sees seven days with one short run of data
-// and an honest hole, not two points indistinguishable from a 1 h window.
 func TestGetDeviceMetricsSevenDayWindowOverTwentyMinutesOfData(t *testing.T) {
 	srv, m := newVMBackedServer(t)
 	ctx := context.Background()
@@ -136,8 +109,6 @@ func TestGetDeviceMetricsSevenDayWindowOverTwentyMinutesOfData(t *testing.T) {
 	require.Len(t, resp.T, wantBuckets, "the axis spans the requested window, not the data")
 	assert.Equal(t, int(stepSecs), resp.BucketS)
 	assert.True(t, resp.Downsampled)
-	// The axis covers the whole request: it opens on the step boundary at or just
-	// before `from` and runs to one step short of `to`.
 	assert.LessOrEqual(t, resp.T[0], from.Unix())
 	assert.Greater(t, resp.T[0], from.Unix()-stepSecs)
 	assert.Equal(t, resp.T[0]+int64(wantBuckets-1)*stepSecs, resp.T[len(resp.T)-1])
@@ -148,8 +119,6 @@ func TestGetDeviceMetricsSevenDayWindowOverTwentyMinutesOfData(t *testing.T) {
 
 	filled := nonNullSlots(vals)
 	require.NotEmpty(t, filled, "the 20 minutes of data must render")
-	// 20 minutes at this step is a handful of buckets out of a thousand: one
-	// contiguous run of data, everything else an honest gap.
 	assert.Less(t, len(filled), 10)
 	assert.Equal(t, filled[len(filled)-1]-filled[0]+1, len(filled), "the run is contiguous")
 	for _, slot := range filled {
@@ -160,10 +129,6 @@ func TestGetDeviceMetricsSevenDayWindowOverTwentyMinutesOfData(t *testing.T) {
 		"a query issued on the grid's own instants can never answer off it")
 }
 
-// TestGetDeviceMetricsWindowSelectorChangesThePointCount is the dead-control
-// symptom the grid fix removes: four windows over the same instant used to
-// return whatever VictoriaMetrics held, so every preset rendered alike. Each
-// window now returns its own bucket count, from the same data.
 func TestGetDeviceMetricsWindowSelectorChangesThePointCount(t *testing.T) {
 	srv, _ := newVMBackedServer(t)
 	ctx := context.Background()
@@ -183,10 +148,6 @@ func TestGetDeviceMetricsWindowSelectorChangesThePointCount(t *testing.T) {
 		assert.LessOrEqual(t, len(resp.T), maxMaxPointsBound)
 	}
 
-	// An hour at the 60 s vitals cadence is 60 buckets — under the cap, so the
-	// window sets the count. Wider windows widen the bucket instead and land
-	// just under the cap, because the step is a whole number of seconds and the
-	// span rarely divides by it evenly.
 	assert.Equal(t, 60, counts[time.Hour])
 	assert.Equal(t, 360, counts[6*time.Hour])
 	assert.Equal(t, 993, counts[24*time.Hour])

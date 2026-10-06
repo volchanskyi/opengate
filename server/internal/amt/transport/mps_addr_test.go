@@ -7,10 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestAnMPSListenerThatNeverBindsStopsBeingWaitedOn states the same bound the
-// agent listener carries. Addr answers a question about a listener that may
-// never come up, and nothing publishes an address when it does not — so a wait
-// with no deadline stops the caller for good on a channel nobody will write.
 func TestAnMPSListenerThatNeverBindsStopsBeingWaitedOn(t *testing.T) {
 	t.Parallel()
 
@@ -23,8 +19,6 @@ func TestAnMPSListenerThatNeverBindsStopsBeingWaitedOn(t *testing.T) {
 	assert.Less(t, time.Since(start), 5*time.Second, "the wait is bounded, not indefinite")
 }
 
-// TestABoundMPSListenerAnswersWithItsAddress is the other half: the bound costs
-// a running listener nothing.
 func TestABoundMPSListenerAnswersWithItsAddress(t *testing.T) {
 	t.Parallel()
 

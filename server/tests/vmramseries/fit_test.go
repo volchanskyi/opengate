@@ -8,22 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The arithmetic behind the measurement, kept separate from the VictoriaMetrics
-// half so the method itself is provable without a container: a line through the
-// load points, the two projections taken off it, and the disk projection.
-
-// seriesRAMPoint is one load point of the experiment — the active series
-// VictoriaMetrics held, and the resident memory its process used while holding
-// them.
+// seriesRAMPoint is one load point: the active series held and the resident memory used.
 type seriesRAMPoint struct {
 	series int
 	rss    float64
 }
 
-// ramFit is the least-squares line through the load points. bytesPerSeries is
-// the marginal cost of one more active series and is the number that scales;
-// baselineBytes is VictoriaMetrics' fixed cost, which exists whether the store
-// holds one series or a hundred thousand.
+// ramFit is the least-squares line through the load points: marginal bytes per series, fixed
+// baseline bytes, and R2.
 type ramFit struct {
 	bytesPerSeries float64
 	baselineBytes  float64
@@ -33,19 +25,11 @@ type ramFit struct {
 var (
 	// errTooFewPoints refuses a fit that a single reading could satisfy.
 	errTooFewPoints = errors.New("vmramseries: a fit needs at least two load points")
-	// errFlatLoad refuses load points that all sit at the same series count:
-	// there is no slope to recover from readings taken at one x.
+	// errFlatLoad refuses load points that all sit at one series count, which carry no slope.
 	errFlatLoad = errors.New("vmramseries: load points do not vary in series count")
 )
 
-// fitSeriesRAM returns the least-squares line of resident memory against active
-// series.
-//
-// The slope is the deliverable. Dividing a single RSS reading by the series held
-// at that moment answers a different question — it charges VictoriaMetrics'
-// whole baseline to the series that happen to be present, which overstates the
-// per-series cost by the baseline divided by N and so lands furthest from the
-// truth exactly where the store is smallest.
+// fitSeriesRAM returns the least-squares line of resident memory against active series.
 func fitSeriesRAM(points []seriesRAMPoint) (ramFit, error) {
 	if len(points) < 2 {
 		return ramFit{}, errTooFewPoints
@@ -79,9 +63,7 @@ func fitSeriesRAM(points []seriesRAMPoint) (ramFit, error) {
 		dy := p.rss - meanY
 		total += dy * dy
 	}
-	// Readings that are all equal leave nothing for the line to explain, and the
-	// line passes through every one of them exactly — a perfect fit, not an
-	// undefined one.
+	// Equal readings leave nothing to explain, and the line passes through them: a perfect fit.
 	r2 := 1.0
 	if total > 0 {
 		r2 = 1 - residual/total
@@ -90,24 +72,17 @@ func fitSeriesRAM(points []seriesRAMPoint) (ramFit, error) {
 	return ramFit{bytesPerSeries: slope, baselineBytes: intercept, r2: r2}, nil
 }
 
-// projectRAMBytes is the memory the fit predicts VictoriaMetrics needs to hold a
-// series count: baseline plus marginal cost. This is the figure the Q3 budget
-// bounds, because a pod pays for the baseline too.
+// projectRAMBytes is the memory the fit predicts for a series count: baseline plus marginal cost.
 func (f ramFit) projectRAMBytes(series int) float64 {
 	return f.baselineBytes + f.bytesPerSeries*float64(series)
 }
 
-// marginalRAMBytes is the fit's per-series cost scaled to a series count, with
-// the baseline left out — the form the sizing expectation table is stated in, so
-// the measurement can be read straight against it.
+// marginalRAMBytes is the fit's per-series cost scaled to a series count, baseline excluded.
 func (f ramFit) marginalRAMBytes(series int) float64 {
 	return f.bytesPerSeries * float64(series)
 }
 
-// naiveBytesPerSeries is what a single RSS reading divided by its series count
-// claims the per-series cost is. It exists to be measured against the fit: the
-// gap between the two is the baseline this experiment was written to separate
-// out.
+// naiveBytesPerSeries is one RSS reading divided by its series count, baseline included.
 func naiveBytesPerSeries(p seriesRAMPoint) float64 {
 	if p.series == 0 {
 		return 0
@@ -115,9 +90,8 @@ func naiveBytesPerSeries(p seriesRAMPoint) float64 {
 	return p.rss / float64(p.series)
 }
 
-// projectDiskBytes projects on-disk cost from a measured bytes-per-sample
-// figure: every active series contributes one sample per cadence tick for the
-// whole retention window.
+// projectDiskBytes projects on-disk cost with one sample per series per cadence tick over the
+// retention window.
 func projectDiskBytes(bytesPerSample float64, activeSeries int, retention, cadence time.Duration) float64 {
 	samplesPerSeries := float64(retention) / float64(cadence)
 	return bytesPerSample * samplesPerSeries * float64(activeSeries)
@@ -137,7 +111,6 @@ func TestFitSeriesRAM(t *testing.T) {
 		wantR2AtLeast float64
 	}{
 		{
-			// 80 MB of baseline plus 2 KB per series, read without noise.
 			name: "recovers slope and baseline from an exact line",
 			points: []seriesRAMPoint{
 				{series: 10_000, rss: 80*megabyte + 10_000*2000},
@@ -164,8 +137,6 @@ func TestFitSeriesRAM(t *testing.T) {
 			wantR2AtLeast: 0.99,
 		},
 		{
-			// A store whose memory does not move with series count has a real
-			// answer — zero marginal cost — and the line explains it exactly.
 			name: "reports a flat store as zero marginal cost",
 			points: []seriesRAMPoint{
 				{series: 10_000, rss: 80 * megabyte},
@@ -218,11 +189,6 @@ func TestFitSeriesRAM(t *testing.T) {
 	}
 }
 
-// TestFitBeatsSinglePointDivision is the reason this package fits a line instead
-// of dividing. Both methods see the same store — 80 MB of baseline and 2 KB per
-// series — and the division answers 10 KB at the smallest load point, five times
-// the truth, converging only as the baseline is diluted by series that a test
-// harness cannot afford to write.
 func TestFitBeatsSinglePointDivision(t *testing.T) {
 	const (
 		baseline  = 80 * megabyte
@@ -244,8 +210,6 @@ func TestFitBeatsSinglePointDivision(t *testing.T) {
 	require.Greater(t, naive, 4*got.bytesPerSeries,
 		"the single-point answer must be visibly wrong, or this test proves nothing")
 
-	// The error shrinks with N, which is why a harness that can only afford a
-	// small store has to fit rather than divide.
 	require.Less(t, naiveBytesPerSeries(points[3]), naive)
 	require.Greater(t, naiveBytesPerSeries(points[3]), got.bytesPerSeries)
 }
@@ -270,8 +234,6 @@ func TestProjectDiskBytes(t *testing.T) {
 		tol            float64
 	}{
 		{
-			// The central store's own measured cost per sample, scaled to the
-			// fleet: 30 d at 60 s is 43 200 samples on each of 120 000 series.
 			name:           "reference fleet at the measured cost per sample",
 			bytesPerSample: referenceBytesPerSample,
 			series:         seriesBudget,
@@ -302,9 +264,6 @@ func TestProjectDiskBytes(t *testing.T) {
 	}
 }
 
-// TestFleetDiskFitsTheBudget states Q4 as arithmetic over the measured cost per
-// sample, so the fleet-scale figure the harness produces has a stated
-// expectation to be read against rather than being the first number anyone sees.
 func TestFleetDiskFitsTheBudget(t *testing.T) {
 	projected := projectDiskBytes(referenceBytesPerSample, seriesBudget, retentionWindow, vitalsCadence)
 	require.LessOrEqual(t, projected, float64(diskBudgetBytes),
@@ -312,18 +271,12 @@ func TestFleetDiskFitsTheBudget(t *testing.T) {
 		projected/gigabyte, float64(diskBudgetBytes)/gigabyte)
 }
 
-// TestFleetSeriesMatchTheBudget pins Q2 as the product it is derived from, so the
-// budget and the per-device cap can never drift apart.
 func TestFleetSeriesMatchTheBudget(t *testing.T) {
 	require.Equal(t, 24, seriesPerDevice(), "the vitals a Linux device contributes")
 	require.Equal(t, seriesBudget, fleetAgents*seriesPerDevice(),
 		"the active-series budget is the per-device cap times the fleet, not an independent number")
 }
 
-// TestVitalsSetIsTheSizingShape pins what the harness writes. Sizing assumes
-// every device contributes the full 24 — a capacity plan must not assume the
-// cheaper platform mix — so the harness writes all of them, including the eight
-// Linux-only vitals the cap reserves room for.
 func TestVitalsSetIsTheSizingShape(t *testing.T) {
 	require.Len(t, vitalDims, 18)
 	require.Len(t, anomalyFamilies, 5)

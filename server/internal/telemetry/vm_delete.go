@@ -11,19 +11,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// WithDeleteAuthKey configures the server-side key VictoriaMetrics requires on
-// its delete-series admin API (-deleteAuthKey). It is never exposed to the edge.
-// It returns the receiver for chaining.
+// WithDeleteAuthKey sets the server-side key VictoriaMetrics requires on its delete-series
+// admin API and returns the receiver.
 func (v *VMClient) WithDeleteAuthKey(key string) *VMClient {
 	v.deleteAuthKey = key
 	return v
 }
 
-// DeleteSeries issues a scoped delete-series covering every metric for the
-// subject: the whole tenant when deviceID is nil, otherwise one device within the
-// tenant. The selector always includes tenant_id so a purge can never span tenants.
-// VictoriaMetrics processes the delete asynchronously and frees disk on a later
-// merge, so callers verify completion with CountSeries.
+// DeleteSeries deletes every metric for the tenant, or for one device when deviceID is set.
+// The selector always pins tenant_id; the delete is asynchronous, so callers poll CountSeries.
 func (v *VMClient) DeleteSeries(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) error {
 	selector, err := subjectSelector(tenantID, deviceID)
 	if err != nil {
@@ -74,9 +70,8 @@ type SeriesSubject struct {
 	DeviceID uuid.UUID
 }
 
-// ListSubjects returns the distinct (tenant_id, device_id) pairs present in
-// VictoriaMetrics. Series lacking either label, or carrying an unparseable one,
-// are skipped: a reconciliation sweep must never delete what it cannot scope.
+// ListSubjects returns the distinct (tenant_id, device_id) pairs in VictoriaMetrics, skipping
+// series with a missing or unparseable label so a sweep never deletes what it cannot scope.
 func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
 	q := url.Values{}
 	q.Set(matchParam, `{device_id=~".+"}`)
@@ -112,9 +107,8 @@ func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
 	return out, nil
 }
 
-// subjectSelector builds a bare label-matcher selector for a purge subject. It
-// always pins tenant_id and, for a device purge, device_id — never a metric name,
-// so it matches every metric belonging to the subject.
+// subjectSelector builds a label-matcher selector pinning tenant_id and, for a device
+// purge, device_id, with no metric name so every metric of the subject matches.
 func subjectSelector(tenantID uuid.UUID, deviceID *uuid.UUID) (string, error) {
 	if tenantID == uuid.Nil {
 		return "", fmt.Errorf("tenant_id is required")

@@ -16,18 +16,12 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-// The incidents strip owns its own read and is exercised in
-// DeviceIncidentsStrip.test.tsx; stub it here so these tests assert only that
-// the device page carries it, keyed to the device on screen.
 vi.mock('../investigations', () => ({
   DeviceIncidentsStrip: ({ deviceId }: { deviceId: string }) => (
     <div data-testid="incidents-strip">{deviceId}</div>
   ),
 }));
 
-// The telemetry panel is exercised in DeviceMetrics.test.tsx; stub it here so
-// these tests stay isolated from uPlot/canvas and the metrics fetch. The stub
-// exposes onViewLogs so the correlation-jump glue can be driven.
 vi.mock('./DeviceMetrics', () => ({
   DeviceMetrics: ({ deviceId, onViewLogs }: { deviceId: string; onViewLogs?: (f: number, t: number) => void }) => (
     <div data-testid="device-metrics">
@@ -140,8 +134,7 @@ describe('DeviceDetail — sessions', () => {
     useSessionStore.setState({ ...useSessionStore.getState(), fetchSessions: fetchSessionsFn });
 
     renderDetail();
-    expect(fetchSessionsFn).toHaveBeenCalledTimes(1); // mount
-
+    expect(fetchSessionsFn).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(30_000);
     expect(fetchSessionsFn).toHaveBeenCalledTimes(2);
     expect(fetchSessionsFn).toHaveBeenLastCalledWith('d1');

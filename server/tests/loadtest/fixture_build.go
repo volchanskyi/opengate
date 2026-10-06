@@ -10,30 +10,10 @@ import (
 	"time"
 )
 
-// A plan is not a fleet. PlanFixture decides what a fleet should be — how many
-// customers, how the machines are spread between them, how many people look
-// after them — and deciding it changes nothing in any database. Something has to
-// walk that decision through the server, and this is it.
-//
-// It goes through the same interface a technician uses. A loader that wrote rows
-// straight into the database would be faster and would describe a fleet shaped
-// by what the loader believes the schema means; the two drift, quietly, and the
-// first thing to notice is a measurement nobody can explain. Everything here is
-// an ordinary request.
-//
-// Machines are the exception, and only in where they come from: a machine exists
-// because one connected and registered, so the fixture mints the credential an
-// installer would spend and the harness enrols with it. Filing each machine
-// under its customer afterwards is an ordinary request like the rest.
-
-// fixtureRequestTimeout bounds one call. A fixture is thousands of them, and one
-// that hangs would hold the whole build with nothing to say about why.
+// fixtureRequestTimeout bounds one call to the public API.
 const fixtureRequestTimeout = 30 * time.Second
 
-// fixturePassword is the password every account a run creates is created with.
-// These accounts live for one run inside an environment a run empties, and the
-// value is here rather than generated so a cleanup that has to sign in as one
-// can.
+// fixturePassword is the fixed password of every account a run creates.
 const fixturePassword = "LoadTestPass123!"
 
 // FixtureClient drives the public API as one signed-in administrator.
@@ -41,19 +21,17 @@ type FixtureClient struct {
 	baseURL string
 	http    *http.Client
 	token   string
-	// runFor is how long the run that spends this fixture's credential lasts,
-	// which is what that credential has to outlive.
+	// runFor is how long the run lasts, which the enrollment credential has to outlive.
 	runFor time.Duration
 }
 
-// NewFixtureClient builds a client against one server, for a run that has
-// declared no length.
+// NewFixtureClient builds a client against one server, for a run of no declared length.
 func NewFixtureClient(baseURL string) *FixtureClient {
 	return NewFixtureClientForRun(baseURL, 0)
 }
 
-// NewFixtureClientForRun builds a client for a run of a known length, so the
-// credential the fleet enrols with can be made to outlive it.
+// NewFixtureClientForRun builds a client for a run of a known length, which the fleet's
+// enrollment credential outlives.
 func NewFixtureClientForRun(baseURL string, runFor time.Duration) *FixtureClient {
 	return &FixtureClient{
 		baseURL: baseURL,
@@ -65,8 +43,7 @@ func NewFixtureClientForRun(baseURL string, runFor time.Duration) *FixtureClient
 // Token is the session this client holds, empty before it has signed in.
 func (c *FixtureClient) Token() string { return c.token }
 
-// BuiltCustomer is one customer as it exists on the server, with the sites it
-// was given and the share of the fleet it is to hold.
+// BuiltCustomer is one customer on the server, with its sites and planned share of the fleet.
 type BuiltCustomer struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
@@ -81,27 +58,17 @@ type BuiltFixture struct {
 	Customers []BuiltCustomer `json:"customers"`
 	Users     []string        `json:"users"`
 	Sites     int             `json:"sites"`
-	// PlannedDevices is how many machines the fleet is to hold. The machines
-	// themselves arrive by enrolling, which is the harness's job, so this is the
-	// number it is given rather than a number of rows already written.
+	// PlannedDevices is how many machines the fleet is to hold; they arrive by enrolling.
 	PlannedDevices int `json:"planned_devices"`
-	// EnrollmentToken is the credential those machines spend. It is short-lived
-	// and belongs to this run alone.
+	// EnrollmentToken is the short-lived credential those machines spend.
 	EnrollmentToken string `json:"-"`
 }
 
-// Counts is this fixture in the shape a bundle records it.
-//
-// The machine count it can state is the planned one: the machines themselves
-// arrive by enrolling, which happens after this and may fall short. Reporting
-// the plan as the fleet is how a bundle came to say two thousand machines while
-// the database, weighed in the same job, held five hundred — so the fleet that
-// exists is filled in by whoever counted the arrivals.
+// Counts is this fixture in the shape a bundle records it; its device count is the planned one.
 func (b BuiltFixture) Counts() FixtureCounts {
 	return FixtureCounts{
 		Size: b.Size,
-		// One. Load identities live in the default tenant because no interface
-		// asks for a second one; the debt register carries that and its trigger.
+		// Load identities live in the default tenant.
 		Tenants:        1,
 		Customers:      len(b.Customers),
 		Sites:          b.Sites,
@@ -110,15 +77,8 @@ func (b BuiltFixture) Counts() FixtureCounts {
 	}
 }
 
-// EnsureAdmin opens the administrator session the build needs, either by signing
-// in or — in an environment that starts empty — by registering the first account,
-// which the server promotes to administrator because it is the first.
-//
-// Which of the two applies is stated rather than discovered. A client that tried
-// one and fell back to the other would create an account on an environment that
-// already had one, and that account would be an ordinary member with no way to
-// create a customer; the run would then fail several steps later with a refusal
-// that names the wrong cause.
+// EnsureAdmin opens the administrator session by signing in, or with bootstrap by registering
+// the first account, which the server promotes to administrator.
 func (c *FixtureClient) EnsureAdmin(email, password string, bootstrap bool) error {
 	if !bootstrap {
 		return c.SignIn(email, password)
@@ -140,9 +100,7 @@ func (c *FixtureClient) EnsureAdmin(email, password string, bootstrap bool) erro
 	return nil
 }
 
-// SignIn opens the administrator session the rest of the build needs. Creating a
-// customer, a site or an enrollment token is administrator work, so a client
-// that has not signed in can build nothing at all.
+// SignIn opens the administrator session the rest of the build needs.
 func (c *FixtureClient) SignIn(email, password string) error {
 	var reply struct {
 		Token string `json:"token"`
@@ -225,8 +183,7 @@ func (c *FixtureClient) createCustomer(plan CustomerPlan) (BuiltCustomer, error)
 	return built, nil
 }
 
-// registerMember creates one operator account. It registers rather than being
-// created by an administrator, because that is the path a real person takes.
+// registerMember creates one operator account through the public registration endpoint.
 func (c *FixtureClient) registerMember(email string) error {
 	var reply struct {
 		Token string `json:"token"`
@@ -240,17 +197,14 @@ func (c *FixtureClient) registerMember(email string) error {
 	return nil
 }
 
-// mintEnrollmentToken issues the credential the fleet enrols with. It is the one
-// an installer spends, it lives no longer than the run that spends it, and the
-// run deletes it.
+// mintEnrollmentToken issues the credential the fleet enrols with, which the run deletes.
 func (c *FixtureClient) mintEnrollmentToken(plan FixturePlan) (string, error) {
 	var reply struct {
 		Token string `json:"token"`
 	}
 	body := map[string]any{
 		"label": fmt.Sprintf("%s-fixture-%d", loadTestMarker, plan.Seed),
-		// Zero is unlimited, which is what a fleet of this size needs from one
-		// credential.
+		// Zero uses are unlimited.
 		"max_uses":         0,
 		"expires_in_hours": enrollmentTokenHours(c.runFor),
 	}
@@ -263,25 +217,8 @@ func (c *FixtureClient) mintEnrollmentToken(plan FixturePlan) (string, error) {
 	return reply.Token, nil
 }
 
-// enrollmentTokenHours is how long the credential the fleet enrols with has to
-// live.
-//
-// Every machine a phase starts calls the enrolment endpoint, so the credential
-// has to outlive the whole walk rather than its first minute. An hour was the
-// figure, which refused every arrival a profile made past its first sixty
-// minutes — a five-hour soak would have enrolled nobody after the first phase
-// and reported it as machines that failed to connect.
-//
-// The endpoint takes whole hours, so a part hour is rounded up: a run cut off a
-// minute inside its last hour is the same defect in miniature. A whole extra
-// hour is added on top of that for the fixture build, which happens before the
-// clock starts and takes as long as the fleet is large. A run that declares no
-// length is the everyday flat one, whose machines all arrive at the start, and
-// it keeps the hour it has always had.
-//
-// A longer-lived credential is a credential worth more to anyone who takes it,
-// and the answer is that this one is deleted by the run's own cleanup rather
-// than left to expire.
+// enrollmentTokenHours is the credential lifetime in whole hours: the run length rounded up
+// plus one hour for the fixture build, or one hour for a run of no declared length.
 func enrollmentTokenHours(runFor time.Duration) int {
 	hours := 1
 	if runFor > 0 {
@@ -291,11 +228,8 @@ func enrollmentTokenHours(runFor time.Duration) int {
 	return hours
 }
 
-// FileDevices puts each machine under the customer that is to hold it and into
-// one of that customer's buildings, in the proportions the plan declared. An
-// evenly spread fleet never asks the question a customer-scoped page is actually
-// asked: the page that is slow in the field belongs to the customer holding most
-// of the estate.
+// FileDevices files each machine under a customer and into one of its sites, in the
+// proportions the plan declared.
 func (c *FixtureClient) FileDevices(built BuiltFixture, deviceIDs []string) error {
 	for i, deviceID := range deviceIDs {
 		if err := c.FileDevice(built, i, len(deviceIDs), deviceID); err != nil {
@@ -305,53 +239,32 @@ func (c *FixtureClient) FileDevices(built BuiltFixture, deviceIDs []string) erro
 	return nil
 }
 
-// FileDevice files one machine, at its own place in the estate.
-//
-// It is a single machine rather than a pass over the fleet because a machine can
-// only be filed once its row exists, and the row exists when it registers — so
-// filing follows each arrival rather than waiting for the last one. Where in the
-// estate this machine sits is what decides its customer, so the caller passes
-// the position and the size rather than a list.
-//
-// Both halves go through the same interface a technician uses, and both are
-// needed. The customer is who the machine answers under; the building is what
-// every list narrows by, so a machine filed under a customer and into no
-// building is one no scoped page can find.
+// FileDevice files one machine at its index in an estate of total, under a customer
+// and into one of that customer's sites.
 func (c *FixtureClient) FileDevice(built BuiltFixture, index, total int, deviceID string) error {
 	if len(built.Customers) == 0 {
 		return errors.New("file machines: the fixture has no customers to file them under")
 	}
 
-	// Filing is charged to the same address the machine arrived from. It is not
-	// free of the load: every arrival costs the server two more requests on that
-	// address, and on a fleet of eight thousand it is taken out eight thousand
-	// times.
+	// Filing presents the machine's own address, so it spends that address's arrival allowance.
 	presented := presentedAddress(index)
 
 	customer := built.Customers[c.customerFor(built, index, total)]
 	path := fmt.Sprintf("/api/v1/devices/%s/organization", deviceID)
 	body := map[string]string{"organization_id": customer.ID}
-	// Both halves wait for the row the register frame has not produced yet. See
-	// waitForTheRow.
+	// Both halves wait for the machine's row, which the register frame writes.
 	if err := waitForTheRow(func() error {
 		return c.callAs(presented, http.MethodPut, path, body, http.StatusOK, nil)
 	}); err != nil {
 		return fmt.Errorf("file machine %s under %s: %w", deviceID, customer.Name, err)
 	}
 
-	// A customer the plan gave no building to has nowhere to put this machine,
-	// and leaving it under the customer alone is the honest state rather than a
-	// failure. The planner gives every customer at least one, so this is a guard
-	// against a fixture nobody has built rather than a case in play.
+	// A customer with no site keeps the machine under the customer alone.
 	if len(customer.SiteIDs) == 0 {
 		return nil
 	}
 
-	// Spread by the machine's place in the estate, so a customer with thirty
-	// buildings holds machines in thirty of them. Filing every one of a
-	// customer's machines into its first building files the estate truthfully
-	// and still leaves every other building empty — which is the same empty read
-	// a scoped page gets today, wearing a different shape.
+	// The machine's index picks the site, spreading a customer's machines over all its sites.
 	site := customer.SiteIDs[index%len(customer.SiteIDs)]
 	if err := waitForTheRow(func() error {
 		return c.callAs(presented, http.MethodPatch, "/api/v1/devices/"+deviceID,
@@ -362,8 +275,7 @@ func (c *FixtureClient) FileDevice(built BuiltFixture, index, total int, deviceI
 	return nil
 }
 
-// customerFor picks which customer holds the machine at this position, so the
-// fleet lands in the declared proportions rather than evenly.
+// customerFor picks the customer holding the machine at this position, in the declared proportions.
 func (c *FixtureClient) customerFor(built BuiltFixture, index, total int) int {
 	planned := 0
 	for _, customer := range built.Customers {
@@ -373,8 +285,7 @@ func (c *FixtureClient) customerFor(built BuiltFixture, index, total int) int {
 		return index % len(built.Customers)
 	}
 
-	// Scale each customer's share to however many machines actually arrived, so
-	// a short fleet keeps the shape rather than filling the first customer.
+	// The position is scaled to the machines that arrived, so a short fleet keeps its shape.
 	position := index * planned / total
 	running := 0
 	for i, customer := range built.Customers {
@@ -386,17 +297,13 @@ func (c *FixtureClient) customerFor(built BuiltFixture, index, total int) int {
 	return len(built.Customers) - 1
 }
 
-// call makes one request and decodes its reply, treating any other status as the
-// failure it is. A fixture built on top of a refused call is a fleet nobody
-// declared, and the numbers measured against it look ordinary.
+// call makes one request and decodes its reply, failing on any status other than wantStatus.
 func (c *FixtureClient) call(method, path string, body any, wantStatus int, out any) error {
 	return c.callAs("", method, path, body, wantStatus, out)
 }
 
-// callAs is call, presenting an address. The fixture-building calls present
-// nothing — they are one administrator doing administrator work, which is what
-// they are on a real system too — while the per-machine calls present the
-// machine they are about.
+// callAs is call, presenting an address; the administrator calls present none and the
+// per-machine calls present the machine's own.
 func (c *FixtureClient) callAs(presented, method, path string, body any, wantStatus int, out any) error {
 	var payload []byte
 	if body != nil {

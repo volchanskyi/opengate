@@ -8,21 +8,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Registration outcomes. Enrollment is the one moment a fleet is all doing the
-// same thing at once — a rollout, a site coming back after an outage, a
-// reconnect storm — so how long it takes and how often it fails is the number
-// that says whether the server absorbed it.
+// Registration outcomes.
 const (
 	// RegistrationOK is a registration whose device row is written and online.
 	RegistrationOK = "ok"
-	// RegistrationError is a registration the server refused or could not
-	// complete: the device row was not written, or could not be brought online.
+	// RegistrationError is a registration refused or unable to write or bring online its device row.
 	RegistrationError = "error"
 )
 
-// registrationResults is the closed outcome vocabulary, exported from start-up
-// so an install that has never failed a registration publishes a zero rather
-// than nothing at all.
+// registrationResults is the closed outcome vocabulary, exported at zero from start-up.
 var registrationResults = []string{RegistrationOK, RegistrationError}
 
 // RegistrationResults returns the registration outcome vocabulary.
@@ -30,10 +24,7 @@ func RegistrationResults() []string {
 	return append([]string(nil), registrationResults...)
 }
 
-// Database-pool states. All four are published together because no one of them
-// answers the question a saturation report asks: a pool with every connection
-// checked out is busy, and the same reading against its ceiling is exhausted.
-// Occupancy against the ceiling separates the two.
+// Database-pool states; occupancy against the max ceiling separates busy from exhausted.
 const (
 	dbPoolOpen   = "open"
 	dbPoolActive = "active"
@@ -48,16 +39,8 @@ func DBPoolStates() []string {
 	return append([]string(nil), dbPoolStates...)
 }
 
-// DBPoolStats is one reading of the connection pool: how many connections
-// exist, how many are checked out, how many are parked, the ceiling they are
-// measured against, and the pool's running account of callers that had to wait
-// for a connection and how long they spent doing it.
-//
-// Waits are cumulative rather than instantaneous on purpose. The pool keeps a
-// running total, not a live queue length, so a gauge of "callers waiting now"
-// would be a number nothing measures. The total is the stronger signal anyway:
-// any increase at all says a request queued behind the pool, which is the
-// finding a load run is looking for.
+// DBPoolStats is one reading of the connection pool: open, checked-out and idle connections,
+// the ceiling, and the cumulative wait count and duration the pool keeps.
 type DBPoolStats struct {
 	Open         int
 	Active       int
@@ -67,9 +50,7 @@ type DBPoolStats struct {
 	WaitDuration time.Duration
 }
 
-// DBPoolStatter reports the current pool reading. The database layer owns the
-// numbers and knows nothing about this package; the adapter below is what
-// carries them across, so the dependency runs one way only.
+// DBPoolStatter reports the current pool reading.
 type DBPoolStatter interface {
 	PoolStats() DBPoolStats
 }
@@ -91,30 +72,16 @@ func (f SQLPoolStatter) PoolStats() DBPoolStats {
 	}
 }
 
-// registrationDurationBuckets span a registration that lands in a few
-// milliseconds through one that is queued behind a saturated pool. The upper
-// buckets exist so a storm shows as a tail rather than as a flat +Inf: the
-// busiest runner-hosted legs register in ten seconds and more, so the scale
-// reaches a minute.
+// registrationDurationBuckets span a few milliseconds to a minute so a storm shows as a tail.
 var registrationDurationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
 
-// RegistrationDurationBuckets returns the bounds registration timing is
-// reported in, widest last.
-//
-// The last of them is the slowest arrival this server can describe, and that
-// makes it a fact other things are held to rather than an implementation
-// detail: a load harness waiting on the target to admit machines it has already
-// accepted has to be willing to wait longer than that, and a limit written
-// above it can never fire. Both would otherwise keep a copy of the figure, and
-// a vocabulary with two homes is the defect the outcome names beside it exist
-// to avoid.
+// RegistrationDurationBuckets returns the registration timing bounds, widest last.
+// The widest bound is the slowest registration the server can describe.
 func RegistrationDurationBuckets() []float64 {
 	return append([]float64(nil), registrationDurationBuckets...)
 }
 
 // newRegistrationAndPoolMetrics builds the registration and pool collectors.
-// They are assembled here rather than inline in NewMetrics so the instrument,
-// its vocabulary and its seeding stay in one file.
 func newRegistrationAndPoolMetrics(m *Metrics) []prometheus.Collector {
 	m.AgentRegistrationsTotal = counterVec("agent_registrations_total",
 		"Total agent registrations the server completed, by outcome. Counted where the device row is written, so this is enrollment as the server saw it rather than as a client's send buffer reported it.",
@@ -143,8 +110,7 @@ func newRegistrationAndPoolMetrics(m *Metrics) []prometheus.Collector {
 	}
 }
 
-// seedRegistrationAndPoolMetrics exports every label of both closed
-// vocabularies at zero, so an idle server publishes numbers instead of gaps.
+// seedRegistrationAndPoolMetrics exports every label of both closed vocabularies at zero.
 func seedRegistrationAndPoolMetrics(m *Metrics) {
 	for _, result := range registrationResults {
 		m.AgentRegistrationsTotal.WithLabelValues(result)
@@ -154,10 +120,7 @@ func seedRegistrationAndPoolMetrics(m *Metrics) {
 	}
 }
 
-// ObserveAgentRegistration records one completed registration and how long the
-// server took over it. This is the measurement a load harness reads: the
-// harness's own clock stops at a local write into the QUIC send buffer, which
-// happens long before the device row exists.
+// ObserveAgentRegistration records one completed registration and the server-side time it took.
 func (m *Metrics) ObserveAgentRegistration(result string, duration time.Duration) {
 	m.AgentRegistrationsTotal.WithLabelValues(result).Inc()
 	m.AgentRegistrationDuration.WithLabelValues(result).Observe(duration.Seconds())
@@ -171,10 +134,8 @@ func (m *Metrics) SetDBPool(stats DBPoolStats) {
 	m.DBPoolConnections.WithLabelValues(dbPoolMax).Set(float64(stats.Max))
 }
 
-// StartDBPoolUpdater publishes a pool reading every interval until ctx is
-// cancelled, starting with one read before the first tick so a scrape taken
-// right after boot sees the pool. A nil statter leaves the seeded zeros in
-// place, which is the honest reading for a build with no pooled database.
+// StartDBPoolUpdater publishes a pool reading every interval until ctx is cancelled,
+// starting with one read. A nil statter leaves the seeded zeros in place.
 func StartDBPoolUpdater(ctx context.Context, m *Metrics, statter DBPoolStatter, interval time.Duration) {
 	if statter == nil {
 		return
@@ -183,9 +144,7 @@ func StartDBPoolUpdater(ctx context.Context, m *Metrics, statter DBPoolStatter, 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// The pool reports waits as running totals while Prometheus counters are
-	// advanced by increment, so each reading contributes only what is new since
-	// the last one — the same shape the signaling counters use.
+	// The pool reports running totals, so each reading adds only the increase since the last.
 	var prevWaits int64
 	var prevWaitSeconds float64
 	publish := func() {

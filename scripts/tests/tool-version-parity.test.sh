@@ -1,40 +1,13 @@
 #!/usr/bin/env bash
-# Every tool version is written down once, and everything else agrees with it.
-#
-# scripts/lib/tool-versions.sh is the manifest. This holds the workflows to it:
-# a version literal that disagrees fails, and so does an install that names no
-# version at all.
-#
-# Why a sweep and not a convention: the two skews this repository has paid for
-# were both a fact with two homes and nothing reading both.
-#
-#   * jq had no home at all. The workstation took the distribution's 1.6 and CI
-#     took the runner image's 1.7.1, and the two render a number differently —
-#     1.6 canonicalises 17.700 to 17.7, 1.7 keeps the literal. A drill's test
-#     asserting on that reading passed every local gauntlet and failed every CI
-#     run, and no file in the repository so much as mentioned jq.
-#
-#   * Go had two. server/go.mod's toolchain directive was bumped to clear a
-#     stdlib advisory and the gauntlet followed it; CI's Security Audit job
-#     carried its own go-version and went on scanning the vulnerable patch.
-#     scripts/tests/ci-govulncheck-go-version.test.sh is that case's guard, and
-#     this is the same idea over every other tool.
-#
-# The runner image is the layer underneath both. `ubuntu-latest` is a moving tag
-# that picks jq, python3, curl, git and coreutils for all of CI, and rolls to the
-# next LTS on GitHub's schedule; naming the image is what turns each of those
-# into a decision that lands in a diff.
-#
-# Run: ./scripts/tests/tool-version-parity.test.sh
+# Holds the workflows, the Makefile and the install scripts to scripts/lib/tool-versions.sh.
+# A version literal that disagrees fails, and so does an install that names no version.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
-# The shared actions the workflows call. An install written inside one is an
-# install every calling job runs, and the sweep that read only the workflows
-# missed the one that resolved the Oracle CLI to whatever came out that day.
+# An install written inside a shared action runs in every job that calls it.
 ACTIONS="$ROOT/.github/actions"
 # shellcheck source=../lib/tool-versions.sh
 . "$ROOT/scripts/lib/tool-versions.sh"
@@ -60,8 +33,6 @@ workflow_text="$(cat "$WORKFLOWS"/*.yml)"
   exit 1
 }
 
-# --- the runner image is named, never inferred -------------------------------
-
 if grep -rqE '^\s*runs-on: *ubuntu-latest\s*$' "$WORKFLOWS"; then
   fail "a job runs on the moving ubuntu-latest tag instead of $TOOL_RUNNER_IMAGE"
 else
@@ -75,12 +46,8 @@ else
   fail "no job names $TOOL_RUNNER_IMAGE — the manifest and the workflows disagree"
 fi
 
-# --- a manifest tool's version, wherever it is written, is the manifest's -----
-#
-# Each row is: manifest key, and a grep -E pattern whose every match must carry
-# the pinned version. A pattern that matches nothing fails: a tool that has been
-# renamed or removed from the workflows leaves a manifest row nothing checks,
-# and a row nothing checks is how the drift starts again.
+# Each row pairs a manifest key with a grep -E pattern whose every match carries the pinned
+# version; a pattern that matches nothing fails.
 checked_tools=0
 CHECKED_KEYS=()
 check_tool() { # KEY, human name, pattern with %s where the version goes
@@ -92,16 +59,12 @@ check_tool() { # KEY, human name, pattern with %s where the version goes
   fi
   checked_tools=$((checked_tools + 1))
   CHECKED_KEYS+=("$key")
-  # Every line mentioning the tool in a version-carrying position, wherever it
-  # is written: a workflow, the Makefile, or an install script.
   found="$(grep -rhE "$pattern" "$WORKFLOWS" "$ACTIONS" "$ROOT/Makefile" "$ROOT"/scripts/*.sh || true)"
   if [ -z "$found" ]; then
     fail "$name: the manifest pins $want but nothing names it — stale row or renamed step"
     return
   fi
-  # A line that reads the manifest instead of repeating its number has nothing
-  # to drift: it is the same guarantee, made by construction rather than by a
-  # sweep. scripts/require-tool.sh builds every workstation install that way.
+  # A line carrying the manifest key reads the pin, so it cannot drift.
   bad="$(grep -vF "$want" <<<"$found" | grep -vF "TOOL_VERSION_$key" || true)"
   if [ -n "$bad" ]; then
     fail "$name: pinned at $want, but an install site says otherwise:$(printf ' [%s]' "$(head -1 <<<"$bad" | sed 's/^ *//')")"
@@ -127,8 +90,7 @@ check_tool CARGO_MODULES cargo-modules 'cargo install .*cargo-modules'
 check_tool GOVULNCHECK govulncheck 'go install .*govulncheck'
 check_tool GO_ARCH_LINT go-arch-lint 'go install .*go-arch-lint'
 check_tool OAPI_CODEGEN oapi-codegen 'go install .*oapi-codegen'
-# The reader is built by scripts/install-viewcore.sh, which reads its pin here
-# and patches it; any literal pin of the module elsewhere has to agree.
+# scripts/install-viewcore.sh reads this pin; any literal pin of the module elsewhere must agree.
 check_tool VIEWCORE viewcore 'TOOL_VERSION_VIEWCORE|x/debug/cmd/viewcore@'
 check_tool STATICCHECK staticcheck 'go install .*staticcheck'
 check_tool GOSEC gosec 'go install .*gosec'
@@ -140,6 +102,14 @@ check_tool OCI_CLI oci-cli 'pip install .*oci-cli'
 check_tool ACTIONLINT actionlint '^\s*PINNED_ACTIONLINT:'
 check_tool TFLINT tflint '^\s*PINNED_TFLINT:'
 check_tool TRIVY trivy '^\s*PINNED_TRIVY:'
+check_tool SONAR_SCANNER sonar-scanner '^\s*scannerVersion:'
+check_tool SONAR_SCANNER_IMAGE sonar-scanner-image 'sonar-scanner-cli:'
+
+if [[ "$TOOL_VERSION_SONAR_SCANNER_IMAGE" == *_"${TOOL_VERSION_SONAR_SCANNER%.*}" ]]; then
+  pass "the scanner image $TOOL_VERSION_SONAR_SCANNER_IMAGE bundles the pinned CLI $TOOL_VERSION_SONAR_SCANNER"
+else
+  fail "the scanner image $TOOL_VERSION_SONAR_SCANNER_IMAGE does not bundle the pinned CLI $TOOL_VERSION_SONAR_SCANNER"
+fi
 
 if [ "$checked_tools" -ge 27 ]; then
   pass "$checked_tools manifest rows were checked against every install site"
@@ -147,13 +117,7 @@ else
   fail "only $checked_tools manifest rows were checked — the sweep lost rows"
 fi
 
-# --- every manifest row is held in CI -----------------------------------------
-#
-# check_tool reads a row's every install site, and a row it is never handed is a
-# row nothing reads. Three were: actionlint, tflint and trivy came from actions
-# that were never told a version and resolved their own, while the manifest
-# carried a number nobody compared with anything. A row an installer CI runs
-# reads straight from the manifest is held by construction.
+# A row an installer that CI runs reads straight from the manifest is held by construction.
 manifest_keys="$(grep -oE '^export TOOL_VERSION_[A-Z0-9_]+=' "$ROOT/scripts/lib/tool-versions.sh" \
   | sed 's/^export TOOL_VERSION_//; s/=$//' | sort -u)"
 ci_text="$(cat "$WORKFLOWS"/*.yml "$ACTIONS"/*/*.yml)"
@@ -172,17 +136,8 @@ else
   pass "all $(wc -l <<<"$manifest_keys") manifest rows are held to what CI installs"
 fi
 
-# --- every row for a tool the gauntlet runs is checked on the workstation -----
-#
-# The CI half above was the only half. govulncheck's pin crashed under the Go the
-# module moved to; on the workstation it had been replaced by hand with whatever
-# came out that day, and the gauntlet ran that copy green while CI crashed on
-# most runs. The local check read six tools, and govulncheck was not one of them.
-#
-# What the gauntlet runs is read from the gauntlet: its own commands, the
-# commands of every make target it calls (make -n), and every script either of
-# those starts. A manifest row whose tool appears there is a tool the gauntlet
-# runs, and scripts/lib/toolchain-parity.sh has to check it.
+# The tools the gauntlet runs are read from its commands, its make targets' commands (make -n)
+# and the scripts they start; each must be checked by scripts/lib/toolchain-parity.sh.
 # shellcheck source=../lib/toolchain-parity.sh
 . "$ROOT/scripts/lib/toolchain-parity.sh"
 # shellcheck source=../require-tool.sh
@@ -194,8 +149,7 @@ make_text=""
 while IFS= read -r target; do
   make_text="$make_text"$'\n'"$(make -s -C "$ROOT" -n "$target" 2>/dev/null || true)"
 done < <(grep -oE '(^|[^A-Za-z0-9_-])make [a-z][a-z0-9-]+' <<<"$gauntlet_text" | awk '{ print $NF }' | sort -u)
-# require-tool.sh names every pinned tool and runs none of them; the tool a
-# target asks it about is its argument, which the make text already carries.
+# require-tool.sh names every pinned tool and runs none; the make text carries its arguments.
 script_text=""
 while IFS= read -r script; do
   [ -f "$ROOT/$script" ] && [ "$script" != scripts/require-tool.sh ] || continue
@@ -203,12 +157,11 @@ while IFS= read -r script; do
 done < <(grep -oE 'scripts/[a-z0-9-]+\.sh' <<<"$gauntlet_text$make_text" | sort -u)
 runs_text="$gauntlet_text$make_text$script_text"
 
-# command_re KEY — how the tool a manifest row pins appears as a command.
 command_re() {
   local name
   name="$(tr 'A-Z_' 'a-z-' <<<"$1")"
   case "$name" in
-    # The coverage run drives the test runner as `cargo llvm-cov nextest`.
+    # The coverage run invokes the test runner as `cargo llvm-cov nextest`.
     cargo-nextest) name="(cargo[ -]|llvm-cov )nextest" ;;
     cargo-*) name="cargo[ -]${name#cargo-}" ;;
     oci-cli) name="oci" ;;
@@ -216,8 +169,7 @@ command_re() {
   printf '(^|[^A-Za-z0-9_./-])%s($|[^A-Za-z0-9_-])' "$name"
 }
 
-# unchecked_rows TOOL... — the manifest rows for a tool the gauntlet runs that a
-# local check over exactly these tools would not read.
+# Prints the manifest rows of gauntlet-run tools that a check over exactly TOOL... would miss.
 unchecked_rows() {
   local key tool checked_keys=""
   for tool in "$@"; do checked_keys="$checked_keys $(manifest_key "$tool")"; done
@@ -232,7 +184,6 @@ unchecked_rows() {
 if [ -z "$make_text" ] || [ -z "$script_text" ]; then
   fail "the local-half sweep read none of what the gauntlet runs"
 fi
-# The defect first: the six tools the local check read when govulncheck drifted.
 if grep -qxF GOVULNCHECK <<<"$(unchecked_rows jq shellcheck shfmt age age-keygen zstd)"; then
   pass "the local check govulncheck drifted under misses a tool the gauntlet runs"
 else
@@ -245,26 +196,10 @@ else
   pass "every pinned tool the gauntlet runs is checked on the workstation (${#TOOLCHAIN_PINNED_TOOLS[@]} tools)"
 fi
 
-# --- nothing installs a tool without saying which one ------------------------
-#
-# The shapes that resolve a version at run time. Each one has been the cause of
-# a build nobody could reproduce, and `cargo install` without a version is the
-# one this repository's own ci-cd-determinism rule already names.
-#
-# Read from the Makefile and the install scripts as well as the workflows,
-# because an install is an install wherever it is written and this sweep could
-# only see one of the three places. The Makefile told six tools to install
-# themselves at whatever version resolved that day, three of them contradicting
-# a version this manifest already pins — and one of those, staticcheck, stopped
-# working outright when the Go it had been built with fell behind the code it
-# analyses, in a gauntlet step whose subject is dead code.
 unpinned=""
 add_unpinned() { unpinned="$unpinned  $1"$'\n'; }
 
-# Continuations are joined and comments dropped first. A `cargo install` whose
-# --rev sits on the next line is pinned, and a timeout-minutes comment that
-# merely mentions one is not an install at all — both read the other way to a
-# sweep that takes the workflows a raw line at a time.
+# Continuations are joined and comments dropped, so a --rev on the next line still pins.
 mapfile -t action_sources < <(find "$ACTIONS" -type f \( -name '*.yml' -o -name '*.sh' \) | sort)
 if [ "${#action_sources[@]}" -eq 0 ]; then
   fail "the install sweep found no shared action to read"
@@ -305,10 +240,7 @@ while IFS= read -r line; do
 done < <(grep -E '\-\-git http' <<<"$install_lines" \
   | grep -vE '\-\-rev [0-9a-f]{40}' || true)
 
-# An action that fetches a tool by name resolves the version itself, which is
-# the same decision nobody recorded wearing a different spelling. taiki-e's
-# install-action takes `tool: name@version`; a bare name is the newest release
-# on the morning the job happens to run.
+# An action given a bare tool name resolves the newest release; install-action takes name@version.
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   add_unpinned "action install with no version: ${line#"${line%%[![:space:]]*}"}"
@@ -322,15 +254,9 @@ else
   pass "every workflow install names an exact version"
 fi
 
-# --- the jobs that run jq get the pinned one ---------------------------------
-#
-# jq is the tool the runner image would otherwise choose, and the composite
-# action is what puts the manifest's copy in front of it. A job that runs jq
-# without the action is running the image's.
 jq_jobs_missing=""
 jq_jobs_seen=0
 while IFS= read -r wf; do
-  # Split the file into its jobs so the question is asked per job, not per file.
   python3 - "$wf" <<'PY' || true
 import re, sys
 src = open(sys.argv[1]).read()
@@ -359,11 +285,6 @@ else
   pass "all $jq_jobs_seen jobs running jq set up the pinned tools first"
 fi
 
-# --- the install script installs what the manifest says ----------------------
-#
-# The manifest is only the source of truth if the installs read it. A version
-# re-typed into the installer is the second home the whole file exists to
-# prevent.
 installer="$ROOT/scripts/install-shell-tools.sh"
 if grep -q 'lib/tool-versions.sh' "$installer" \
   && ! grep -qE '^[A-Z_]+_VERSION="[0-9]' "$installer"; then

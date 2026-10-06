@@ -11,11 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestObserveAgentRegistrationRecordsOutcomeAndDuration proves registration is
-// measured where it completes. A load harness that stops its own clock after
-// writing the register frame times a local send buffer, so the number it
-// reports is structurally near zero whatever the server does; the outcome and
-// duration here are the server's own account of the same event.
 func TestObserveAgentRegistrationRecordsOutcomeAndDuration(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 
@@ -28,9 +23,6 @@ func TestObserveAgentRegistrationRecordsOutcomeAndDuration(t *testing.T) {
 	require.Equal(t, 2, testutil.CollectAndCount(m.AgentRegistrationDuration))
 }
 
-// TestAgentRegistrationOutcomesAreExportedFromTheStart keeps a fleet that has
-// never failed distinguishable from a server nobody has asked. A missing series
-// reads as "no data", which is not the same answer as "no failures".
 func TestAgentRegistrationOutcomesAreExportedFromTheStart(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 
@@ -41,9 +33,6 @@ func TestAgentRegistrationOutcomesAreExportedFromTheStart(t *testing.T) {
 	require.Equal(t, len(RegistrationResults()), testutil.CollectAndCount(m.AgentRegistrationsTotal))
 }
 
-// TestDBPoolStatesCoverTheWholePool proves the four pool states are exported
-// together. Reading only the in-use count cannot tell a pool that is busy from
-// one that is exhausted; the ceiling beside it is what separates them.
 func TestDBPoolStatesCoverTheWholePool(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 
@@ -56,9 +45,6 @@ func TestDBPoolStatesCoverTheWholePool(t *testing.T) {
 	require.Equal(t, len(DBPoolStates()), testutil.CollectAndCount(m.DBPoolConnections))
 }
 
-// TestDBPoolWaitsAdvanceByDelta proves a queued caller reaches the counter
-// exactly once. The pool keeps a running total; the counter is advanced by
-// increment, so re-reading the same total must add nothing.
 func TestDBPoolWaitsAdvanceByDelta(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 	ctx, cancel := context.WithCancel(context.Background())
@@ -95,9 +81,6 @@ func TestDBPoolWaitsAdvanceByDelta(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
-// TestDBPoolWaitsIgnoreAPoolThatRestarts — a pool rebuilt behind the updater
-// reports a total lower than the last one. Adding that as a negative delta
-// would make a counter go backwards, which no counter may do.
 func TestDBPoolWaitsIgnoreAPoolThatRestarts(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 	ctx, cancel := context.WithCancel(context.Background())
@@ -118,8 +101,6 @@ func TestDBPoolWaitsIgnoreAPoolThatRestarts(t *testing.T) {
 	}, 100*time.Millisecond, 10*time.Millisecond)
 }
 
-// TestDBPoolGaugesAreExportedBeforeTheFirstRead — same reason as the
-// registration outcomes: an idle server must publish zeros, not silence.
 func TestDBPoolGaugesAreExportedBeforeTheFirstRead(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 
@@ -132,9 +113,6 @@ type poolStatterFunc func() DBPoolStats
 
 func (f poolStatterFunc) PoolStats() DBPoolStats { return f() }
 
-// TestStartDBPoolUpdaterReadsOnceBeforeItsFirstTick means a scrape taken
-// straight after boot sees the pool rather than a zero that reads as an idle
-// system.
 func TestStartDBPoolUpdaterReadsOnceBeforeItsFirstTick(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 	ctx, cancel := context.WithCancel(context.Background())
@@ -148,8 +126,6 @@ func TestStartDBPoolUpdaterReadsOnceBeforeItsFirstTick(t *testing.T) {
 	require.InDelta(t, 1, testutil.ToFloat64(m.DBPoolConnections.WithLabelValues("active")), 0)
 }
 
-// TestStartDBPoolUpdaterStopsOnCancel keeps the ticker goroutine from outliving
-// the server it observes.
 func TestStartDBPoolUpdaterStopsOnCancel(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 	ctx, cancel := context.WithCancel(context.Background())
@@ -173,8 +149,6 @@ func TestStartDBPoolUpdaterStopsOnCancel(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
-// TestStartDBPoolUpdaterToleratesAnUnwiredSource — a build without a pooled
-// database still runs the loop, and must not panic when nothing reports.
 func TestStartDBPoolUpdaterToleratesAnUnwiredSource(t *testing.T) {
 	m := NewMetrics(prometheus.NewRegistry())
 	ctx, cancel := context.WithCancel(context.Background())
@@ -186,12 +160,6 @@ func TestStartDBPoolUpdaterToleratesAnUnwiredSource(t *testing.T) {
 	require.InDelta(t, 0, testutil.ToFloat64(m.DBPoolConnections.WithLabelValues("open")), 0)
 }
 
-// TestRegistrationDurationBucketsAreReadableByWhatReadsTheSeries keeps the
-// widest arrival this server can describe available to the things that have to
-// clear it. A load harness holds still while the target admits machines it has
-// already accepted, and how long it is willing to wait has to exceed the
-// slowest registration there is a bucket for — a figure it would otherwise have
-// to keep a second copy of.
 func TestRegistrationDurationBucketsAreReadableByWhatReadsTheSeries(t *testing.T) {
 	buckets := RegistrationDurationBuckets()
 
@@ -205,10 +173,6 @@ func TestRegistrationDurationBucketsAreReadableByWhatReadsTheSeries(t *testing.T
 	require.NotEqual(t, -1.0, registrationDurationBuckets[0], "the caller gets a copy, not the series' own bounds")
 }
 
-// TestRegistrationDurationReachesAMinute keeps a registration queued behind a
-// saturated target a reading rather than a floor. The busiest runner-hosted
-// legs registered in ten seconds and more, and a histogram that stopped at ten
-// reported every one of them as exactly ten.
 func TestRegistrationDurationReachesAMinute(t *testing.T) {
 	buckets := RegistrationDurationBuckets()
 

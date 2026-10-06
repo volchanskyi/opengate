@@ -16,9 +16,7 @@ type tenantAgent struct {
 	hostname    string
 }
 
-// buildHealthSummary builds the node + per-family anomaly-rate summary an agent
-// emits by default. The values are deterministic placeholders; the soak proves
-// the ingest path and cardinality, not the anomaly math.
+// buildHealthSummary builds the node and per-family anomaly-rate summary with placeholder values.
 func buildHealthSummary(ts int64) *protocol.ControlMessage {
 	families := make([]protocol.FamilyAnomalyRate, len(defaultFamilies))
 	for i, f := range defaultFamilies {
@@ -34,8 +32,7 @@ func buildHealthSummary(ts int64) *protocol.ControlMessage {
 	}
 }
 
-// buildDefaultMetricWindow builds a host metric window over the default sampler
-// dimensions, driving the WS-4 avg-series ingest path.
+// buildDefaultMetricWindow builds a host metric window over the default sampler dimensions.
 func buildDefaultMetricWindow(ts int64) *protocol.ControlMessage {
 	dims := make([]protocol.MetricDim, len(defaultMetricDimNames))
 	for i, name := range defaultMetricDimNames {
@@ -61,9 +58,8 @@ func buildProcessReport(ts int64) *protocol.ControlMessage {
 	return &protocol.ControlMessage{Type: protocol.MsgProcessReport, TS: ts, TopN: entries}
 }
 
-// defaultTelemetryFrames returns the full default telemetry shape one agent
-// emits each cycle, in emission order: health summary, host metric window, and
-// process report. No frame asserts a tenant — the server assigns it.
+// defaultTelemetryFrames returns one cycle of default telemetry in emission order: health
+// summary, host metric window, process report. No frame asserts a tenant.
 func defaultTelemetryFrames(ts int64) []*protocol.ControlMessage {
 	return []*protocol.ControlMessage{
 		buildHealthSummary(ts),
@@ -72,8 +68,8 @@ func defaultTelemetryFrames(ts int64) []*protocol.ControlMessage {
 	}
 }
 
-// emitDefaultTelemetry emits the default telemetry shape for opts.telemetryCycles
-// cycles (at least one when enabled), driving the WS-4 ingest path under load.
+// emitDefaultTelemetry emits the default telemetry shape for opts.telemetryCycles cycles,
+// at least one when enabled.
 func emitDefaultTelemetry(codec *protocol.Codec, w io.Writer, opts loadOptions) error {
 	if !opts.defaultTelemetry {
 		return nil

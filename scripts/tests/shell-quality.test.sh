@@ -134,12 +134,7 @@ else
   fail "cargo module snapshot disables ambient tracing filters"
 fi
 
-# The local runner and the commit-time gate disagree about nothing.
-#
-# The gate in scripts/precommit-gauntlet.sh executes each test file, so one
-# without its executable bit fails there. A runner that hands the same file to
-# `bash` instead runs it happily, and the missing bit surfaces only once a
-# commit attempt has already spent the rest of the gauntlet on it.
+# The gauntlet executes each test file, so the runner refuses one without its executable bit.
 demo_dir="$TMP_DIR/execbit"
 mkdir -p "$demo_dir"
 cat >"$demo_dir/sample.test.sh" <<'DEMO'
@@ -171,14 +166,7 @@ else
   fail "the runner refuses a test file the gate could not execute (out=[$out])"
 fi
 
-# A test writes nothing into the job that runs it.
-#
-# In CI a test runs inside a step, which hands it the step's own summary, output,
-# environment and path files. A load-test fixture wrote "k6 scenario
-# api-baseline crossed one of its own thresholds" into the Config Lint job's
-# summary, as if a load test had run there. So each test is handed files of its
-# own, and one that writes to them fails, naming the file — and the job's own
-# summary is left as it was.
+# Each test is handed summary, output, environment and path files of its own, and a write fails.
 STEP_REPO="$TMP_DIR/steprepo"
 mkdir -p "$STEP_REPO/scripts/tests"
 git -C "$STEP_REPO" init -q
@@ -212,7 +200,6 @@ else
   fail "tests that write nothing into the job pass"
 fi
 
-# The gauntlet runs this runner, so the two run the same tests the same way.
 if grep -qF 'scripts/shell-quality.sh test' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
   pass "the gauntlet's shell-tests step is this runner"
 else

@@ -1,36 +1,14 @@
-/**
- * URL scheme allowlist for values that reach an href/src attribute.
- *
- * Server-stored URLs (agent manifest download links) are written by an
- * administrator and never scheme-checked on the way in, so the check belongs
- * here: a `javascript:` or `data:` value in an href executes in the app origin
- * the moment a user clicks it, turning a stored field into script execution.
- */
+// Stored URLs are not scheme-checked on the way in, and a `javascript:` or `data:` href
+// runs in the app origin on click, so every href or src value passes this allowlist.
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 
-/**
- * A value that leaves the app's origin without naming a scheme.
- *
- * Two leading slashes retarget to another host, and the URL parser treats a
- * backslash as a slash for every scheme a browser follows — so `/\host/…`,
- * `\\host/…` and `\/host/…` all reach `host` exactly as `//host/…` does. The
- * pair is what makes it a retarget; a single leading slash is a path on this
- * origin, and a backslash further along resolves against it too.
- */
+// Two leading slashes or backslashes, in any mix, retarget to another host; one is a local path.
 const LEAVES_THE_ORIGIN = /^[/\\]{2}/;
 
 /**
- * Return url when it is safe to place in an href/src, otherwise undefined.
- *
- * Same-origin relative paths ("/api/…") are allowed. Anything that leaves the
- * origin without a scheme, does not parse, or parses to a protocol outside the
- * allowlist is rejected — callers render plain text instead of a link.
- *
- * Whitespace needs no handling of its own: the parser strips leading and
- * trailing spaces before reading a scheme, so " javascript:…" is rejected on
- * its protocol, and a value that is nothing but whitespace parses to nothing
- * at all.
+ * Returns url when it is a same-origin path or an http(s) URL, otherwise undefined.
+ * The URL parser strips surrounding whitespace before reading the scheme, so " javascript:" fails.
  */
 export function safeExternalUrl(url: string | undefined | null): string | undefined {
   if (!url || LEAVES_THE_ORIGIN.test(url)) {

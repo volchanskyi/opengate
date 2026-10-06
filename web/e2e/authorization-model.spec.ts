@@ -2,8 +2,6 @@ import { test, expect } from "./fixtures";
 import type { APIRequestContext, Request } from "@playwright/test";
 
 // Organization is the visibility boundary; is_admin is the mutation boundary.
-// Every member of an organization sees the same fleet and may command any of
-// its devices; only configuration is gated on admin.
 
 function auth(token: string) {
   return { headers: { Authorization: `Bearer ${token}` } };
@@ -16,9 +14,7 @@ async function siteIds(request: APIRequestContext, token: string): Promise<strin
   return sites.map((s) => s.id);
 }
 
-// A site is visible to the whole tenant, so one left behind here would
-// surface in another spec's "empty device list" assertion and its screenshot
-// baseline. Track what each test creates and remove it afterwards, pass or fail.
+// A site is visible to the whole tenant, so every test removes the sites it creates.
 const createdSiteIds: string[] = [];
 
 async function seedSite(
@@ -33,7 +29,6 @@ async function seedSite(
   return site.id;
 }
 
-/** Drops an id a test already deleted itself, so the hook does not re-delete it. */
 function forgetSite(id: string): void {
   const at = createdSiteIds.indexOf(id);
   if (at !== -1) {
@@ -59,7 +54,6 @@ test.describe("Authorization model", () => {
     const adminDevices = await request.get("/api/v1/devices", auth(adminUser.token));
     expect(adminDevices.status()).toBe(200);
 
-    // Site listing is a fleet read, not an ownership query.
     expect((await request.get("/api/v1/sites", auth(testUser.token))).status()).toBe(200);
   });
 
@@ -72,7 +66,6 @@ test.describe("Authorization model", () => {
 
     expect(await siteIds(request, testUser.token)).toContain(id);
 
-    // And the detail read is open too.
     const detail = await request.get(`/api/v1/sites/${id}`, auth(testUser.token));
     expect(detail.status()).toBe(200);
   });
@@ -95,7 +88,6 @@ test.describe("Authorization model", () => {
 
     const adminDelete = await request.delete(`/api/v1/sites/${id}`, auth(adminUser.token));
     expect(adminDelete.status()).toBe(204);
-    // Already gone — drop it so the cleanup hook does not chase a dead id.
     forgetSite(id);
   });
 
@@ -116,7 +108,6 @@ test.describe("Authorization model", () => {
   }) => {
     await authedPage.goto("/devices");
     await expect(authedPage.getByRole("heading", { name: "Sites" })).toBeVisible();
-    // Absent from the DOM, not merely disabled.
     await expect(authedPage.getByText("+ New")).toHaveCount(0);
     await expect(authedPage.getByText(/drag a device card onto a site/i)).toHaveCount(0);
   });
@@ -152,7 +143,6 @@ test.describe("Fleet summary endpoint", () => {
   test("the static route wins over /devices/{id}", async ({ request, testUser }) => {
     const resp = await request.get("/api/v1/devices/summary", auth(testUser.token));
     expect(resp.status()).toBe(200);
-    // A device payload would carry a hostname; the summary never does.
     expect(await resp.text()).not.toContain("hostname");
   });
 

@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import fc from 'fast-check';
 import { useFileStore } from './file-store';
 
-// Pinned runs + seed so any counterexample reproduces deterministically in the
-// gauntlet (tests-determinism.md). No .skip / .only.
+// A pinned run count and seed make every counterexample reproducible.
 const RUNS = { numRuns: 300, seed: 0x0ac17a7e } as const;
 
 function resetStore(): void {
@@ -18,9 +17,7 @@ function resetStore(): void {
   });
 }
 
-// A reference model of the progress maps. The store's downloads/uploads must
-// always equal what a plain Map would hold after the same action sequence:
-// the last progress per name, with cleared names removed.
+// The reference model holds the last progress per name, with cleared names removed.
 type Channel = 'download' | 'upload';
 type Action =
   | { kind: 'set'; channel: Channel; name: string; progress: number }
@@ -70,7 +67,6 @@ describe('file-store reducer properties', () => {
         const { downloads, uploads } = useFileStore.getState();
         expect(downloads).toEqual(Object.fromEntries(model.download));
         expect(uploads).toEqual(Object.fromEntries(model.upload));
-        // Clears must never leave a stale key behind.
         expect(Object.keys(downloads).sort()).toEqual([...model.download.keys()].sort());
         expect(Object.keys(uploads).sort()).toEqual([...model.upload.keys()].sort());
       }),

@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
-# Parse `terraform show -json` output, emit a human-readable summary suitable
-# for a PR comment, and fail (exit 1) if a destroy action targets a protected
-# resource type — unless the caller asserts the destroy has been approved.
-#
-# Invoked by .github/workflows/iac-plan-preview.yml (S4 of the IaC pyramid).
+# Parses `terraform show -json` into a markdown summary for a PR comment and fails when a
+# destroy targets a protected resource type, unless the caller asserts it is approved.
 #
 # Usage:
 #   parse-tfplan.sh <tfplan.json> [--approve-destroy]
-#
-# Output (stdout): markdown summary, e.g.
-#     **Resource changes:** 1 to add, 2 to change, 0 to destroy.
-#     <details><summary>Per-resource actions</summary>
-#     - + module.compute.oci_core_instance.opengate
-#     ...
 #
 # Exit codes:
 #   0  no destroy of a protected resource (or --approve-destroy supplied)
@@ -32,9 +23,7 @@ fi
   exit 2
 }
 
-# Resources whose destruction has high blast radius (data loss, networking-level
-# outage, or tfstate loss). Adding to this list is a security decision — the
-# protected set should grow over time, never shrink.
+# Destroying these risks data loss, a networking outage or tfstate loss; the set only grows.
 PROTECTED_TYPES=(
   oci_core_vcn
   oci_core_subnet
@@ -43,7 +32,6 @@ PROTECTED_TYPES=(
   oci_objectstorage_bucket
 )
 
-# Build a jq array of protected types
 PROTECTED_JQ_LIST=$(printf '%s\n' "${PROTECTED_TYPES[@]}" | jq -R . | jq -s .)
 
 SUMMARY="$(jq -e --argjson protected "$PROTECTED_JQ_LIST" -c '
@@ -69,7 +57,6 @@ CHANGE=$(jq -r '.change' <<<"$SUMMARY")
 DESTROY=$(jq -r '.destroy' <<<"$SUMMARY")
 PROTECTED_DESTROY_COUNT=$(jq -r '.protected_destroys | length' <<<"$SUMMARY")
 
-# Emit markdown summary to stdout (consumed by the workflow as the PR body).
 {
   echo "**Resource changes:** $ADD to add, $CHANGE to change, $DESTROY to destroy."
   echo ""
@@ -102,7 +89,6 @@ PROTECTED_DESTROY_COUNT=$(jq -r '.protected_destroys | length' <<<"$SUMMARY")
   fi
 }
 
-# Final gate decision.
 if [[ "$PROTECTED_DESTROY_COUNT" -gt 0 && "$APPROVE_DESTROY" != "1" ]]; then
   echo "::error::Plan destroys $PROTECTED_DESTROY_COUNT protected resource(s) without iac:approve-destroy label" >&2
   exit 1

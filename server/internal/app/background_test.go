@@ -17,9 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/session"
 )
 
-// testSchedule is a complete schedule for driving the loops. The numbers it
-// holds are the running server's, but nothing here asserts anything about them:
-// which cadence ships is the binary's decision, and its own tests hold it.
+// testSchedule is a complete schedule for driving the loops.
 var testSchedule = BackgroundSchedule{
 	Gauges:         5 * time.Second,
 	DBSize:         60 * time.Second,
@@ -33,9 +31,7 @@ var testSchedule = BackgroundSchedule{
 	RetentionHorizon: 365 * 24 * time.Hour,
 }
 
-// sweepRepo is a session.Repository double recording the keep-list each sweep
-// passes down. Only DeleteStale is exercised; the embedded interface satisfies
-// the rest.
+// sweepRepo is a session.Repository double recording the keep-list each sweep passes down.
 type sweepRepo struct {
 	session.Repository
 	keep  [][]string
@@ -48,17 +44,13 @@ func (r *sweepRepo) DeleteStale(_ context.Context, _ time.Time, keep []string) (
 	return len(keep), nil
 }
 
-// nopConn is a relay.Conn that never carries traffic — enough to register a
-// side and hold the session open.
+// nopConn is a relay.Conn that carries no traffic.
 type nopConn struct{}
 
 func (nopConn) ReadMessage() ([]byte, error) { select {} }
 func (nopConn) WriteMessage([]byte) error    { return nil }
 func (nopConn) Close() error                 { return nil }
 
-// TestLiveRelayTokens_MirrorsTheRelay pins the keep-list the sweep spares rows
-// by. A token the relay holds that this drops would have its session row
-// deleted out from under a live connection.
 func TestLiveRelayTokens_MirrorsTheRelay(t *testing.T) {
 	agentRelay := relay.NewRelay(slog.Default())
 	live := liveRelayTokens(agentRelay)
@@ -74,17 +66,12 @@ func TestLiveRelayTokens_MirrorsTheRelay(t *testing.T) {
 	assert.Empty(t, live())
 }
 
-// TestStartSessionSweepLoop_SweepsAtBootThenStops covers the pass that runs
-// before the first tick: a process that just started holds no relay sessions,
-// so rows its predecessor left behind are collectable straight away rather than
-// one interval later.
 func TestStartSessionSweepLoop_SweepsAtBootThenStops(t *testing.T) {
 	repo := &sweepRepo{}
 	agentRelay := relay.NewRelay(slog.Default())
 	sweeper := session.NewSweeper(repo, liveRelayTokens(agentRelay), testSchedule.SessionGrace, slog.Default())
 
-	// A context already cancelled leaves exactly the boot pass observable: the
-	// loop sweeps, then finds ctx done instead of waiting out an interval.
+	// A cancelled context leaves exactly the boot pass observable.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	startSessionSweepLoop(ctx, testSchedule.SessionSweep, sweeper, slog.Default())
@@ -94,9 +81,6 @@ func TestStartSessionSweepLoop_SweepsAtBootThenStops(t *testing.T) {
 	assert.Empty(t, repo.keep[0])
 }
 
-// TestAScheduleWithAHoleInItIsRefused covers what a zero duration would
-// otherwise do: time.NewTicker panics on it, inside a goroutine nobody is
-// watching, and the worker that was supposed to be there simply is not.
 func TestAScheduleWithAHoleInItIsRefused(t *testing.T) {
 	full := testSchedule
 	require.NoError(t, full.Validate())
@@ -112,8 +96,7 @@ func TestAScheduleWithAHoleInItIsRefused(t *testing.T) {
 	assert.Error(t, negative.Validate(), "a negative interval is a hole too")
 }
 
-// quietRoomResolver counts sweeps and reports what it was asked to hold rooms
-// open for.
+// quietRoomResolver counts sweeps and records the hold windows it was given.
 type quietRoomResolver struct {
 	calls   int
 	windows map[string]time.Duration
@@ -125,10 +108,6 @@ func (r *quietRoomResolver) ResolveStale(_ context.Context, windows map[string]t
 	return 0, nil
 }
 
-// TestStartIncidentSweepLoop_SweepsAtBootThenStops covers the pass before the
-// first tick. A process that was down for longer than a room's whole hold comes
-// back to a triage queue holding incidents that should already have closed, and
-// waiting out an interval before looking would leave them there.
 func TestStartIncidentSweepLoop_SweepsAtBootThenStops(t *testing.T) {
 	resolver := &quietRoomResolver{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -141,11 +120,6 @@ func TestStartIncidentSweepLoop_SweepsAtBootThenStops(t *testing.T) {
 	assert.Equal(t, map[string]time.Duration{"disk-critical": time.Hour}, resolver.windows)
 }
 
-// TestGroupWindowsAreTheRulesOwn pins the one number auto-resolve is allowed to
-// use. A room must stay open for exactly as long as a new alert could still fold
-// into it, so the hold is read from each rule's grouping window rather than
-// being a figure of the sweep's own — any other value makes auto-resolve and
-// grouping disagree, and a recurrence fragments into a queue of one-offs.
 func TestGroupWindowsAreTheRulesOwn(t *testing.T) {
 	catalogue, err := rules.Embedded()
 	require.NoError(t, err)
@@ -161,9 +135,7 @@ func TestGroupWindowsAreTheRulesOwn(t *testing.T) {
 	}
 }
 
-// recordingLogger captures what a sweep said, so the contract in the janitor's
-// own comment — a failure is always worth a line, a pass that reclaimed nothing
-// says nothing — is a test rather than a promise.
+// recordingLogger captures what a sweep logged.
 func recordingLogger() (*slog.Logger, *bytes.Buffer) {
 	var buf bytes.Buffer
 	return slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), &buf
@@ -179,9 +151,6 @@ func (r *countingResolver) ResolveStale(context.Context, map[string]time.Duratio
 	return r.reclaimed, r.err
 }
 
-// A pass that reclaimed something says so, because that is the only place the
-// reclamation is visible: the sweep runs on a goroutine nobody is watching and
-// changes rows nobody asked about.
 func TestASweepThatReclaimedSomethingSaysSo(t *testing.T) {
 	logger, said := recordingLogger()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -193,8 +162,6 @@ func TestASweepThatReclaimedSomethingSaysSo(t *testing.T) {
 	assert.Contains(t, said.String(), "count=7")
 }
 
-// A pass that reclaimed nothing is the ordinary case, and an ordinary case that
-// logs is a log nobody reads.
 func TestASweepThatReclaimedNothingSaysNothing(t *testing.T) {
 	logger, said := recordingLogger()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -205,8 +172,6 @@ func TestASweepThatReclaimedNothingSaysNothing(t *testing.T) {
 	assert.Empty(t, said.String())
 }
 
-// A failure is always worth a line. A sweep that cannot run leaves whatever it
-// was reclaiming to accumulate, and silence there is how it accumulates unseen.
 func TestASweepThatFailedSaysWhy(t *testing.T) {
 	logger, said := recordingLogger()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -219,8 +184,6 @@ func TestASweepThatFailedSaysWhy(t *testing.T) {
 	assert.Contains(t, said.String(), "the queue is unreadable")
 }
 
-// A session sweep that collected rows says how many, for the same reason: the
-// rows it removed are ones a technician would otherwise still see as live.
 func TestASessionSweepThatCollectedRowsSaysHowMany(t *testing.T) {
 	logger, said := recordingLogger()
 	agentRelay := relay.NewRelay(slog.Default())
@@ -228,8 +191,7 @@ func TestASessionSweepThatCollectedRowsSaysHowMany(t *testing.T) {
 	_, err := agentRelay.Register(context.Background(), token, nopConn{}, relay.SideBrowser)
 	require.NoError(t, err)
 
-	// The double returns one deletion per token it was told to spare, so a live
-	// relay entry is what makes this pass reclaim anything at all.
+	// The double returns one deletion per spared token, so a live relay entry makes the pass reclaim.
 	sweeper := session.NewSweeper(&sweepRepo{}, liveRelayTokens(agentRelay), testSchedule.SessionGrace, logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -255,16 +217,12 @@ func (s *countingOrphanSweeper) Sweep(context.Context) (int, error) {
 	return s.reclaimed, s.err
 }
 
-// Orphaned series are the defence in depth behind a purge that partly failed,
-// so a pass that found any is a pass that found a failed purge — the one thing
-// this sweep exists to surface.
 func TestAReconcileSweepThatFoundOrphansWarns(t *testing.T) {
 	logger, said := recordingLogger()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// The sweep ends the loop once it has run, so exactly one pass is observable
-	// and the test never waits on a second tick.
+	// The sweep ends the loop once it has run, so exactly one pass is observable.
 	sweeper := &countingOrphanSweeper{reclaimed: 3, after: cancel}
 	startReconcileLoop(ctx, time.Millisecond, sweeper, logger)
 
@@ -272,9 +230,6 @@ func TestAReconcileSweepThatFoundOrphansWarns(t *testing.T) {
 	assert.Contains(t, said.String(), "count=3")
 }
 
-// It waits out the first interval rather than sweeping at boot: the orphans it
-// collects can only be left behind by a purge this process ran, so there is
-// nothing waiting for it when it starts.
 func TestTheReconcileSweepDoesNotRunAtBoot(t *testing.T) {
 	logger, said := recordingLogger()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -298,11 +253,6 @@ func (c *expiredRowCollector) SweepExpired(_ context.Context, horizon time.Durat
 	return 0, c.err
 }
 
-// TestStartRetentionSweepLoop_SweepsAtBootThenStops covers the pass before the
-// first tick. These tables only grow, and a process that was down for longer
-// than the interval comes back to rows that were already past the horizon while
-// it was gone — waiting out an interval before looking leaves them there, on
-// top of whatever the outage itself accumulated.
 func TestStartRetentionSweepLoop_SweepsAtBootThenStops(t *testing.T) {
 	collector := &expiredRowCollector{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -316,10 +266,6 @@ func TestStartRetentionSweepLoop_SweepsAtBootThenStops(t *testing.T) {
 		"the loop passes the configured horizon down, never one of its own")
 }
 
-// TestARetentionSweepThatReclaimedSomethingSaysSo: deleting a customer's records
-// is not routine housekeeping, so a pass that removed anything leaves a line
-// saying how much. A pass that removed nothing is the ordinary case and is
-// silent.
 func TestARetentionSweepThatReclaimedSomething(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

@@ -1,37 +1,16 @@
-# Hold the load constant and vary how much data is already there. Running it any
-# other way conflates the two: a slower run against a bigger fleet says nothing
-# about which of the two caused it.
-#
-# It runs on a disposable runner stack rather than on staging, because staging's
-# database writes into the same node root production depends on, and because a
-# comparison between fixture sizes needs no production-shaped hardware — only
-# the same hardware for each size.
+# The load is constant while the data already present varies, so a slower run has one cause.
+# It runs on a disposable runner stack, since a size comparison needs the same hardware per size.
 schema_version: 1
 name: volume-8000
 family: volume
 environment: runner
 fixture: lopsided
 
-# One point of the sweep. The legs differ in machines that actually enrolled,
-# because the fixture's name does not decide how much data is there — the large
-# and lopsided fixtures plan the same count and differ only in distribution, so
-# a sweep over fixture names was a two-point sweep wearing three labels. The
-# machines are what the database holds, and they are what varies here.
-#
-# The top of this sweep is the largest fleet the throwaway venue has been
-# shown to hold, rather than a round number: the ladder beside it held this
-# and gave one rung higher. The figure lives once, with the run that
-# established it, in scripts/lib/loadtest-venue-ceilings.sh, and
-# scripts/tests/loadtest-venue-ceiling.test.sh refuses a profile asking its
-# venue for more than that.
+# The top of the sweep is the largest fleet the throwaway venue is shown to hold.
+# loadtest-venue-ceilings.sh records that figure and loadtest-venue-ceiling.test.sh enforces it.
 phases:
-  # Two minutes rather than the thirty seconds its siblings take, so all three
-  # legs bring their machines in at the same rate — about thirteen a second. A
-  # sweep whose legs also differ in how fast the fleet arrives is varying two
-  # things, and this leg is the one where the difference bites: sixteen hundred
-  # machines in thirty seconds is fifty-three arrivals a second, and each arrival
-  # costs another request to file the machine under its customer, against a
-  # server that accepts a hundred a second from one address.
+  # Two minutes keeps all three legs arriving at the same rate, about thirteen machines a second.
+  # Thirty seconds would offer fifty-three arrivals a second against a server that accepts a hundred.
   - name: ramp
     duration: 2m
     operator_arrivals_per_second: 2
@@ -44,68 +23,30 @@ phases:
     sessions: 5
     measured: true
 
-# No processor ceiling. This stack is created by the job and thrown away with
-# it, so there is no neighbour to protect, and driving the processor is the
-# experiment rather than a hazard. What is declared is the room the run can
-# still exhaust: past it the node has nowhere to put what the run produces.
+# No processor ceiling, since driving the processor is the experiment on a throwaway stack.
+# The declared limits keep the room the node needs to store what the run produces.
 safety:
   max_node_memory_percent: 90
   max_error_rate: 0.01
 
 gates:
-  # What judges a leg here is the evidence bundle, and a bundle states the
-  # machine side: a limit naming a browser-side measurement would be held
-  # against a row the reader does not produce. The technician load that runs
-  # beside the fleet is folded into the bundle all the same, and read by the
-  # curve that puts the legs side by side — which is where an estate slowing
-  # reads down is visible at all.
-  #
-  # The write path is what more data slows, and registration is the write this
-  # venue times — the server's own figure, taken where the device row lands
-  # rather than at the generator's send buffer.
+  # The evidence bundle judges a leg, so limits name machine-side measurements only.
+  # Registration is the write more data slows, timed by the server where the device row lands.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0
     blocking: true
-  # The middle case rather than the tail, and 500 ms rather than the figure the
-  # siblings hold their tails to — because this leg offers a different load, and
-  # a limit is bracketed by nights of the load its own leg offers.
-  #
-  # Until the family began offering the technician load its profiles declare,
-  # the tail here read 396, 424, 470 and 482 ms across four nights with the
-  # target using 38 to 62 per cent of its processor. With that load beside the
-  # fleet it reads 4,510 to 9,443 across five, at 85 to 87 per cent — and two
-  # valid runs an hour apart under identical load read 5,773 and 9,443, with the
-  # 99th of the second reaching 10,000 exactly, which is the histogram's last
-  # boundary rather than a measurement. Nothing about the server moved between
-  # them. The tail at this fleet is the queue, and it does not reproduce.
-  #
-  # The middle case does: 220, 239 and 255 ms across those same runs. It is the
-  # write rather than the wait for one, which is what this venue is timing, and
-  # 500 ms is roughly six times the spread between the three — while saying
-  # something a reader can hold on to, that at the largest fleet this venue has
-  # been shown to carry half the machines still register inside what the
-  # smaller legs' tails do.
+  # The median is the write itself, while the tail at this fleet size is a queue that varies per run.
+  # Across five nights the median read 220 to 255 ms, so 500 ms leaves room without going slack.
   - series: quic/quic-agents/register
     metric: latency_p50_ms
     max: 500
     blocking: true
 
-# Measurements this profile has looked at and deliberately left alone. An entry
-# here is a decision; a measurement in neither list is nobody having decided,
-# and the two read identically from the outside.
+# Each entry is a measurement this profile deliberately leaves without a limit.
 ungated:
-  # The top rung of a sweep is driven to the largest fleet its venue has been
-  # shown to hold, and there the target uses 87 per cent of its one processor.
-  # Registration's tail is then a reading of that queue: two valid runs an hour
-  # apart under identical load read 5,773 and 9,443 ms, and the second's 99th
-  # reached the histogram's last boundary, where a reading stops being a
-  # measurement at all. A ceiling wide enough not to fire on that spread is one
-  # that cannot fire on anything, and a ceiling above the boundary is refused by
-  # loadtest-gate-series.test.sh for the same reason. What this leg owes at that
-  # ceiling is that its machines arrive, which the aggregate above holds at
-  # nought; what the family is for is the shape across its three legs, which
-  # perf-volume-curve.sh publishes.
+  # At the venue's largest fleet the tail reads the target's processor queue, which varies per run.
+  # A ceiling above the histogram's last boundary is refused by loadtest-gate-series.test.sh.
   - series: quic/quic-agents/register
     metric: latency_p95_ms
     reason: at the venue's largest fleet the tail is the queue rather than the write, and it does not reproduce between runs

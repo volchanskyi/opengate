@@ -11,27 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What the fleet knows about itself, and what it had been reporting instead.
-
-// D9. A machine left the connected set only when it errored. One that finished
-// its hold normally stayed counted for the life of the run, so the fleet's
-// count was a count of machines started — and a bundle saying 500 connected
-// said only that 500 were once dialled.
 func TestAMachineThatCompletesLeavesTheConnectedCount(t *testing.T) {
 	release := make(chan struct{})
 	var started atomic.Int64
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
 		started.Add(1)
-		// A machine reports its arrival where a real one does — the moment it
-		// is connected, handshook and registered — because that is what puts it
-		// in the fleet at all.
 		presence.Arrived()
 		select {
 		case <-release:
 		case <-ctx.Done():
 		}
-		// And reports the connection ending where a real one does, which is
-		// what takes it back out of the fleet.
 		presence.Left()
 		return agentResult{connectDur: 5 * time.Millisecond}
 	})
@@ -42,8 +31,6 @@ func TestAMachineThatCompletesLeavesTheConnectedCount(t *testing.T) {
 		2*time.Second, 10*time.Millisecond)
 	require.Equal(t, 4, fleet.Connected())
 
-	// Every machine finishes of its own accord, which is what a machine whose
-	// hold has elapsed does. Nothing errored and nothing was wound down.
 	close(release)
 
 	require.Eventually(t, func() bool { return fleet.Connected() == 0 },
@@ -51,9 +38,6 @@ func TestAMachineThatCompletesLeavesTheConnectedCount(t *testing.T) {
 		"a machine that has finished is not one of the connected")
 }
 
-// The gap between what was asked for and what is there is the finding, so a
-// machine that completed must not still be filling a slot the level would
-// otherwise refill.
 func TestTheFleetCountsWhatIsUpRatherThanWhatWasStarted(t *testing.T) {
 	starter := &startCounter{}
 	fleet := NewQUICFleet(starter.start)
@@ -66,8 +50,6 @@ func TestTheFleetCountsWhatIsUpRatherThanWhatWasStarted(t *testing.T) {
 	assert.Equal(t, 0, fleet.Connected())
 }
 
-// The tallies a phase divides into its error rate, its faults and its expected
-// rejections. Each is counted where it is known — at the machine that saw it.
 func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 	outcomes := []agentResult{
 		{connectDur: time.Millisecond, arrivedAt: time.Now()},
@@ -79,8 +61,6 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 	var next atomic.Int64
 	fleet := NewQUICFleet(func(_ context.Context, _ int, presence fleetPresence) agentResult {
 		result := outcomes[next.Add(1)-1]
-		// A machine says so when it reaches registered, which the two that
-		// carry an arrival time did and the three that carry an error did not.
 		if !result.arrivedAt.IsZero() {
 			presence.Arrived()
 		}
@@ -100,10 +80,6 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 		"and a refusal leaves the denominator with the numerator, or the share it produces is of a fleet that was never asked")
 }
 
-// D10. The phase's latency was the last finished machine's connect time, which
-// in a profiled run is no machine at all. A live round trip is a fresh connect,
-// handshake and register — the only one the machine side has, because the
-// control stream has no reply to a heartbeat.
 func TestProbeLatencyIsALiveRoundTrip(t *testing.T) {
 	var probes atomic.Int64
 	fleet := NewQUICFleetWithProbe(
@@ -121,8 +97,6 @@ func TestProbeLatencyIsALiveRoundTrip(t *testing.T) {
 	assert.EqualValues(t, 1, probes.Load())
 }
 
-// A round trip that could not be taken is absent rather than instant: zero is
-// the fastest reading ever recorded, and this is the opposite of one.
 func TestAProbeThatFailsReportsNoLatency(t *testing.T) {
 	fleet := NewQUICFleetWithProbe(
 		func(ctx context.Context, _ int, presence fleetPresence) agentResult {
@@ -137,8 +111,6 @@ func TestAProbeThatFailsReportsNoLatency(t *testing.T) {
 	assert.Zero(t, fleet.ProbeLatency())
 }
 
-// A fleet built without a prober takes no round trips rather than reporting a
-// stale one, which is what the field used to carry.
 func TestAFleetWithNoProberReportsNoLatency(t *testing.T) {
 	starter := &startCounter{}
 	fleet := NewQUICFleet(starter.start)
@@ -148,12 +120,6 @@ func TestAFleetWithNoProberReportsNoLatency(t *testing.T) {
 	assert.Zero(t, fleet.ProbeLatency())
 }
 
-// D6. An arrival was tallied when a machine's life *ended*, and in a profiled
-// run no machine's life ends inside a phase — the fleet is held to the end of
-// the walk. So every phase of every profiled run reported nought arrivals
-// against an offered rate it had genuinely met, and the floor that invalidates
-// a run for load never offered fired on all five legs of a sweep whose fleets
-// had all arrived. An arrival is counted where it happens.
 func TestArrivalsAreCountedWhileTheMachinesAreStillHeld(t *testing.T) {
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
 		presence.Arrived()
@@ -171,8 +137,6 @@ func TestArrivalsAreCountedWhileTheMachinesAreStillHeld(t *testing.T) {
 		"a machine that has not ended has not failed")
 }
 
-// A machine that never reached registered is the failure, and it is counted
-// once — when its life ends, which is the first moment anything knows.
 func TestAMachineThatNeverArrivedIsCountedOnceAsAFailure(t *testing.T) {
 	fleet := NewQUICFleet(func(context.Context, int, fleetPresence) agentResult {
 		return agentResult{err: errors.New("dial: timeout")}
@@ -187,10 +151,6 @@ func TestAMachineThatNeverArrivedIsCountedOnceAsAFailure(t *testing.T) {
 		"every machine produces exactly one outcome")
 }
 
-// A machine that arrived and was later cut off is a fault rather than a
-// failure to arrive. Counting it as both puts one machine into the attempted
-// tally twice and reports an error rate for a phase whose every machine turned
-// up.
 func TestAnArrivedMachineThatIsSeveredIsAFaultRatherThanAFailedArrival(t *testing.T) {
 	fleet := NewQUICFleet(func(_ context.Context, _ int, presence fleetPresence) agentResult {
 		presence.Arrived()

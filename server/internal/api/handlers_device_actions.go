@@ -9,9 +9,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
-// defaultRestartReason is recorded when a caller restarts a device without
-// stating one. It is non-empty so the frame the agent receives always carries a
-// decodable reason.
+// defaultRestartReason is recorded when a caller states none, so the agent frame always
+// carries a decodable reason.
 const defaultRestartReason = "restart requested from web UI"
 
 // RestartDevice implements StrictServerInterface. Restarting an agent is a
@@ -29,10 +28,8 @@ func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequest
 		return RestartDevice409JSONResponse{Error: "agent not connected"}, nil
 	}
 
-	// A reason that carries no printable text encodes a frame the agent cannot
-	// decode — the device would not restart and the caller would still see a
-	// 200. Refuse it here instead. An omitted reason keeps the server default,
-	// which always reaches the agent intact.
+	// A reason without printable text encodes a frame the agent cannot decode, so it is refused;
+	// an omitted reason keeps the server default.
 	reason := defaultRestartReason
 	if request.Body != nil && request.Body.Reason != nil {
 		reason = *request.Body.Reason
@@ -81,10 +78,8 @@ func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestOb
 
 func (s *Server) moveDeviceToGroup(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error) {
 	newGroupID := *request.Body.SiteId
-	// The nil UUID is the "no site" destination: it takes the device out of
-	// its site instead of moving it into another one, so there is no target
-	// site to look up. A named destination must exist in the caller's
-	// tenant, which the tenant-scoped lookup establishes.
+	// The nil UUID is the "no site" destination and needs no lookup; a named destination must
+	// exist in the caller's tenant.
 	if newGroupID != uuid.Nil {
 		if _, err := s.sites.Get(ctx, newGroupID); err != nil {
 			if errors.Is(err, device.ErrSiteNotFound) {
@@ -99,9 +94,8 @@ func (s *Server) moveDeviceToGroup(ctx context.Context, request UpdateDeviceRequ
 	return nil, nil
 }
 
-// DeleteDevice implements StrictServerInterface. Removing a device from the
-// fleet — and purging its telemetry with it — is a configuration change behind
-// the admin gate.
+// DeleteDevice implements StrictServerInterface; deleting a device and purging its telemetry
+// requires admin.
 func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestObject) (DeleteDeviceResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, DeleteDevice403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
@@ -112,11 +106,8 @@ func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestOb
 		}
 		return nil, err
 	}
-	// Deleting the device and erasing what it reported are one act. Without the
-	// orchestrator the erasure cannot happen, so the delete does not either.
-	// Scope is settled first, so somebody else's machine is still absent rather
-	// than refused — an outsider learns nothing here, this server's wiring
-	// included.
+	// Delete and erasure are one act, so a missing purger refuses the delete. Scope is checked
+	// first, so another tenant's device answers 404 and leaks nothing about the wiring.
 	if s.purger == nil {
 		return DeleteDevice403JSONResponse{Error: msgPurgeNotConfigured}, nil
 	}
@@ -128,11 +119,8 @@ func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestOb
 	return DeleteDevice204Response{}, nil
 }
 
-// purgeDeletedDevice erases a deleted device's centralized telemetry across
-// every store via the lifecycle orchestrator: it tombstones the device
-// (blocking further ingest), deprovisions the agent, deletes its VictoriaMetrics
-// series and Postgres rows, and verifies emptiness. Its caller refuses the
-// delete outright when no orchestrator is wired, so the purger is present here.
+// purgeDeletedDevice erases a deleted device's telemetry from every store through the lifecycle
+// orchestrator: tombstone, deprovision, delete series and rows, verify emptiness.
 func (s *Server) purgeDeletedDevice(ctx context.Context, deviceID uuid.UUID) error {
 	claims := ContextClaims(ctx)
 	if claims == nil {
@@ -143,8 +131,7 @@ func (s *Server) purgeDeletedDevice(ctx context.Context, deviceID uuid.UUID) err
 	if err != nil {
 		return err
 	}
-	// A device purge is fast (VM delete issued, Postgres rows removed, bounded
-	// emptiness verify); run it in-request so the device is gone on return. A
-	// still-pending VM compaction leaves the job resumable for the sweep.
+	// The purge is fast, so it runs in-request and the device is gone on return; a pending
+	// compaction leaves the job resumable for the sweep.
 	return s.purger.Run(ctx, job)
 }

@@ -17,9 +17,8 @@ func safeUint64(v int) uint64 {
 	return uint64(v)
 }
 
-// buildBackfillSamples builds n pre-rolled historical samples at 10 s spacing
-// starting at startTS, cycling through the default host dims. Timestamps are
-// strictly increasing so the batch replays recent-first in true time order.
+// buildBackfillSamples builds n historical samples at 10 s spacing from startTS, cycling the
+// default host dims with strictly increasing timestamps.
 func buildBackfillSamples(n int, startTS int64) []protocol.BackfillSample {
 	samples := make([]protocol.BackfillSample, n)
 	for i := 0; i < n; i++ {
@@ -42,9 +41,8 @@ func buildBackfillSlotRequest(pending uint64, oldest int64) *protocol.ControlMes
 	}
 }
 
-// buildBackfillBatch builds one tiered backfill batch preserving each sample's
-// original timestamp, with the tier + cursor the ack echoes so the agent
-// advances the right durable per-tier watermark.
+// buildBackfillBatch builds one tiered backfill batch that keeps each sample's timestamp and
+// carries the tier and cursor the ack echoes.
 func buildBackfillBatch(tier protocol.BackfillTier, samples []protocol.BackfillSample, cursor int64) *protocol.ControlMessage {
 	return &protocol.ControlMessage{
 		Type:            protocol.MsgMetricBackfillBatch,
@@ -54,31 +52,15 @@ func buildBackfillBatch(tier protocol.BackfillTier, samples []protocol.BackfillS
 	}
 }
 
-// maxDeferrals bounds how many times a persistent machine will be told to wait
-// before it stops asking on this connection. The scheduler shortens a deferred
-// machine's wait the longer it has waited, so a machine still being deferred
-// after this many rounds is a finding about the scheduler rather than a thing
-// to keep a connection asking about for the life of the run.
+// maxDeferrals bounds how many times a persistent machine is told to wait before it stops
+// asking on this connection.
 const maxDeferrals = 8
 
-// deferralWaitCap bounds one wait. The retry time comes from the server, and a
-// machine that took an implausible one at face value would sit out the window
-// the run is measuring.
+// deferralWaitCap bounds one wait on the server-supplied retry time.
 const deferralWaitCap = 60 * time.Second
 
-// drainBackfill drives the agent side of a reconnect storm: it requests a drain
-// slot, and on GrantBackfill sends up to opts.backfillBatches batches, waiting
-// for a MetricBackfillAck between each (one acked batch at a time, matching the
-// agent replay engine). A read timeout (no scheduler wired) ends the drain
-// cleanly with zero batches sent. It returns the number of batches acked.
-//
-// What a DeferBackfill means depends on what the run is measuring. A load run
-// sheds the load: the deferral path is the thing under measurement and a
-// machine that queued through it would hide the shedding. A machine standing in
-// for a customer's workstation waits out the retry time the server handed it
-// and asks again, which is what a shipped agent does — and without it, a site
-// of twenty catches up four machines deep and then stops, because the server
-// admits four per customer and the other sixteen would never ask a second time.
+// drainBackfill requests a drain slot and, once granted, sends up to opts.backfillBatches
+// batches one acked batch at a time, returning how many were acked.
 func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) (int, error) {
 	if opts.backfillBatches <= 0 {
 		return 0, nil
@@ -108,13 +90,8 @@ func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream
 	return sent, nil
 }
 
-// awaitSlot asks the scheduler for a drain slot and answers whether this
-// machine may drain. A machine that is not persistent asks once; one that is
-// waits out the retry time it was handed and asks again, up to maxDeferrals.
-//
-// A reply that is neither a grant nor a deferral, and a read that timed out
-// because nothing is scheduling, both end the asking without a drain and
-// without an error: neither says the machine failed.
+// awaitSlot asks the scheduler for a drain slot and reports whether this machine may drain.
+// A persistent machine waits out each retry time and asks again, up to maxDeferrals.
 func awaitSlot(
 	ctx context.Context, codec *protocol.Codec, stream soakStream,
 	opts loadOptions, pending uint64, oldest int64,
@@ -151,9 +128,7 @@ func awaitSlot(
 	}
 }
 
-// waitToAskAgain sits out the server's retry time, and reports whether the run
-// is still going afterwards. A run that wound down while a machine was waiting
-// does not get one more question out of it.
+// waitToAskAgain sits out the server's retry time and reports whether the run is still going.
 func waitToAskAgain(ctx context.Context, retryAfter uint32) bool {
 	wait := time.Duration(retryAfter) * time.Second
 	if wait > deferralWaitCap {
@@ -172,9 +147,8 @@ func waitToAskAgain(ctx context.Context, retryAfter uint32) bool {
 	}
 }
 
-// sendBackfillBatch writes one tiered backfill batch and waits for its ack,
-// returning whether the batch was acked (a read timeout or a non-ack reply ends
-// the drain without an error, mirroring an expired grant).
+// sendBackfillBatch writes one tiered backfill batch and reports whether it was acked; a read
+// timeout or a non-ack reply ends the drain without an error.
 func sendBackfillBatch(codec *protocol.Codec, stream soakStream, samplesPerBatch int, startTS int64) (bool, error) {
 	samples := buildBackfillSamples(samplesPerBatch, startTS)
 	batch := buildBackfillBatch(protocol.BackfillTierRecent60s, samples, samples[len(samples)-1].TS)

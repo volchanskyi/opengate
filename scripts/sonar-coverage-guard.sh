@@ -1,65 +1,28 @@
 #!/usr/bin/env bash
-# sonar-coverage-guard.sh — local guardrail against the SonarCloud "new_coverage
-# sits at the 80.0 boundary" failure.
+# Fails when new_coverage, or the coverage of the lines this change touches, falls below a floor
+# set above the 80 gate. The diff half reads file content, so uncommitted lines are measured.
 #
-# The quality gate fails new_coverage when it is `LT 80`. A value like
-# 79.95% *displays* as "80.0" but fails the gate, and because new-code coverage
-# carries sub-line nondeterminism (race/atomic goroutine lines) and shifts with
-# the new-code baseline, a run that clears 80 locally can land at 79.95 in CI —
-# green locally, red in CI (observed CI run 26929821908: new_coverage 79.95%).
-#
-# This guard runs in the gauntlet AFTER `make sonar` has uploaded fresh coverage
-# and the gate has been evaluated. It makes two checks, and it needs both because
-# neither can see what the other does.
-#
-#   1. The aggregate. It queries the exact (unrounded) new_coverage and fails
-#      unless it clears a buffer ABOVE the 80 gate floor, so a borderline local
-#      pass can never become a CI failure. SonarCloud derives "new" from git
-#      blame, so this figure covers the commits already in the new-code period
-#      and is blind to the lines being committed right now — they carry no
-#      commit yet and are measured by nothing.
-#
-#   2. The diff. Every line this change adds or edits, checked against the hit
-#      counts SonarCloud computed from the coverage report we just uploaded —
-#      file content, not blame, so uncommitted lines are reported like any
-#      other. This is the half that sees the commit in front of it.
-#
-# The gap between them is not hypothetical: a file split out of another arrives
-# with every line dated to the split, so CI measures all of it as new. That is
-# how a refactor whose extracted file sat at 47% passed a green local gauntlet
-# and failed the gate on push. Check 1 saw a period the split was not in yet;
-# check 2 would have read the split's own lines and refused.
-#
-# The gate stays at 80; both checks hold the local result off the cliff edge.
-#
-# Env:
-#   SONAR_TOKEN            required (same token the scan uses).
+# Environment:
+#   SONAR_TOKEN            required, the token the scan uses
 #   SONAR_PROJECT          default volchanskyi_opengate
 #   SONAR_BRANCH           default dev
 #   SONAR_API              default https://sonarcloud.io
-#   NEW_COVERAGE_FLOOR     local floor, default 82 (= the 80 gate + 2pt buffer).
-#   NEW_COVERAGE_OVERRIDE  test seam: use this value instead of querying the API.
-#   SCOV_BASE              git ref changed lines are compared against, default HEAD.
-#   SCOV_SETTLE_RETRIES    settle polls before giving up on the analysis, default 12.
-#   SCOV_SETTLE_SLEEP      seconds between settle polls, default 5.
-#   SCOV_CHANGED_OVERRIDE  test seam: newline-separated changed-file list.
-#   SCOV_LINES_OVERRIDE    test seam: "path:line:hits" rows, standing in for the
-#                          API. A line the coverage report says nothing about —
-#                          a comment, a blank, a declaration — simply has no row.
-#   SCOV_TOUCHED_OVERRIDE  test seam: "path:line" rows, standing in for the diff.
-#   SCOV_PROPERTIES        sonar-project.properties path, default the repo-root
-#                          file. It is what says which files the coverage gate
-#                          covers at all.
-#   SCOV_REPORT_ROOT       directory the coverage reports are read from, default
-#                          the repository root. The reports are the fallback for
-#                          a file the branch analysis holds no component for.
-#   CURL_BIN               curl binary (stubbed in tests).
+#   NEW_COVERAGE_FLOOR     local floor, default 82
+#   NEW_COVERAGE_OVERRIDE  test seam: this value stands in for the API query
+#   SCOV_BASE              git ref changed lines are compared against, default HEAD
+#   SCOV_SETTLE_RETRIES    settle polls before giving up on the analysis, default 12
+#   SCOV_SETTLE_SLEEP      seconds between settle polls, default 5
+#   SCOV_CHANGED_OVERRIDE  test seam: newline-separated changed-file list
+#   SCOV_LINES_OVERRIDE    test seam: "path:line:hits" rows standing in for the API
+#   SCOV_TOUCHED_OVERRIDE  test seam: "path:line" rows standing in for the diff
+#   SCOV_PROPERTIES        sonar-project.properties path, default the repo-root file
+#   SCOV_REPORT_ROOT       directory the coverage reports are read from, default the repo root
+#   CURL_BIN               curl binary (stubbed in tests)
 #
-# Exit codes: 0 = both checks clear the floor, or there is nothing to cover;
-#             1 = a check is below the floor;
-#             2 = prerequisite missing (no SONAR_TOKEN and no override), or the
-#                 uploaded analysis never became queryable — a guard that cannot
-#                 ask must not answer yes.
+# Exit codes:
+#   0  both checks clear the floor, or there is nothing to cover
+#   1  a check is below the floor
+#   2  no SONAR_TOKEN and no override, or the uploaded analysis never became queryable
 set -uo pipefail
 
 SONAR_PROJECT="${SONAR_PROJECT:-volchanskyi_opengate}"
@@ -72,8 +35,6 @@ SCOV_SETTLE_SLEEP="${SCOV_SETTLE_SLEEP:-5}"
 SCOV_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURL_BIN="${CURL_BIN:-curl}"
 
-# scov_fetch — print the raw new_coverage value (empty when the metric is absent,
-# i.e. the analysis introduced no new lines to cover).
 scov_fetch() {
   if [ -n "${NEW_COVERAGE_OVERRIDE:-}" ]; then
     printf '%s' "$NEW_COVERAGE_OVERRIDE"
@@ -84,8 +45,6 @@ scov_fetch() {
     | jq -r '.component.measures[]? | select(.metric=="new_coverage") | (.periods[0].value // .period.value) // empty' 2>/dev/null
 }
 
-# scov_below_floor <value> <floor> — exit 0 (true) when value < floor. Float-safe
-# via awk so "79.95" < "82" compares numerically, not lexically.
 scov_below_floor() {
   awk -v v="$1" -v f="$2" 'BEGIN { exit !((v + 0) < (f + 0)) }'
 }
@@ -115,9 +74,6 @@ scov_main() {
   return 0
 }
 
-# scov_run — both checks. The aggregate covers the commits already in the
-# new-code period; the diff covers the one being made now. Neither sees what the
-# other does, so both have to pass.
 scov_run() {
   local status=0
   scov_main || status=$?
@@ -125,11 +81,6 @@ scov_run() {
   scov_check_diff
 }
 
-# --- The diff half ------------------------------------------------------------
-
-# scov_is_source <path> — exit 0 when path is a SonarCloud-analyzed production
-# source file: under a sonar.sources root, a Rust/Go/TS extension, and neither a
-# test nor generated file (mirrors sonar.exclusions / sonar.test.inclusions).
 scov_is_source() {
   local p="$1"
   case "$p" in
@@ -147,11 +98,6 @@ scov_is_source() {
   esac
 }
 
-# scov_property <name> — one setting's value from sonar-project.properties, with
-# the backslash continuations joined and the whitespace taken out.
-#
-# The file is read rather than copied, because a second copy of the analysis's
-# scope is a second thing to keep true and the first one to go stale.
 scov_property() {
   local name="$1" file="${SCOV_PROPERTIES:-$SCOV_REPO_ROOT/sonar-project.properties}"
   [ -f "$file" ] || return 0
@@ -166,16 +112,7 @@ scov_property() {
     }' "$file"
 }
 
-# scov_gate_covers <path> — whether the coverage gate measures this file at all.
-#
-# A file the analysis never indexes, and a file the coverage exclusions name,
-# carry no figure anywhere by design. That is the same silence as a production
-# file whose coverage the analysis dropped, and only the second is the defect
-# the refusal below exists for — so the two are told apart here, from the
-# analysis's own configuration rather than from a list kept beside it.
-#
-# A commit confined to the load harness and a documentation tool was refused on
-# every attempt for touching nothing this gate measures.
+# A file outside the sonar.sources roots or under a coverage exclusion has no figure by design.
 scov_gate_covers() {
   local path="$1" root exclusion
   scov_is_source "$path" || return 1
@@ -189,9 +126,7 @@ scov_gate_covers() {
 
   while IFS= read -r exclusion; do
     [ -n "$exclusion" ] || continue
-    # A Sonar glob is shell-glob syntax with "**" meaning any depth, which a
-    # case pattern already reads as "anything" — the separators either side are
-    # what the two spellings differ over.
+    # A Sonar "**" glob becomes "*", which a case pattern matches across any depth.
     # shellcheck disable=SC2254
     case "$path" in
       ${exclusion//\*\*\//*} | ${exclusion//\*\*/*}) return 1 ;;
@@ -200,8 +135,6 @@ scov_gate_covers() {
   return 0
 }
 
-# scov_changed_files — print the changed + untracked files the coverage gate
-# covers, one per line.
 scov_changed_files() {
   if [ -n "${SCOV_CHANGED_OVERRIDE:-}" ]; then
     printf '%s\n' "$SCOV_CHANGED_OVERRIDE" | while IFS= read -r f; do
@@ -217,13 +150,7 @@ scov_changed_files() {
   done
 }
 
-# scov_added_lines — read a unified diff on standard input and print the working
-# tree's line numbers it added or edited, one per line.
-#
-# It is separate from the command that produces the diff so it can be held to
-# the hunk shapes that matter — a single-line hunk with no count, and a pure
-# deletion, which touches no line of the working tree at all — without standing
-# up a repository to produce each one.
+# A single-line hunk has no count, and a pure deletion touches no working-tree line.
 scov_added_lines() {
   awk '
     /^@@/ {
@@ -238,10 +165,6 @@ scov_added_lines() {
     }'
 }
 
-# scov_changed_lines <path> — print the working tree's line numbers this change
-# added or edited. A file git does not know yet is new in its entirety, and
-# reporting nothing for one is how a brand-new uncovered file walks past the
-# check written to catch it.
 scov_changed_lines() {
   local path="$1"
   if [ -n "${SCOV_TOUCHED_OVERRIDE:-}" ]; then
@@ -257,10 +180,6 @@ scov_changed_lines() {
   git diff -U0 --no-color "$SCOV_BASE" -- "$path" 2>/dev/null | scov_added_lines
 }
 
-# scov_line_hits <path> — print "line hits" for every line SonarCloud has a
-# coverage figure for, from the analysis just uploaded. The hit counts come from
-# the coverage report and the file's own content, so a line with no commit
-# behind it is reported exactly like one that has had a commit for years.
 scov_line_hits() {
   local path="$1"
   if [ -n "${SCOV_LINES_OVERRIDE:-}" ]; then
@@ -268,12 +187,8 @@ scov_line_hits() {
       | awk -F: -v p="$path" '$1 == p && NF >= 3 { print $2, $3 }'
     return 0
   fi
-  # The branch holds whichever analysis finished last, and a CI scan of the
-  # previous push can land between this run's upload and this read. Its hits
-  # describe other content, and laid over this change's line numbers they read
-  # as coverage of lines nobody tested. So they count only where the branch
-  # holds the file exactly as the working tree does; otherwise nothing is
-  # printed and the caller reads the reports this run produced.
+  # The branch holds the last finished analysis, so its hits count only where its copy of the file
+  # equals the working tree's; otherwise nothing prints and the caller reads the local reports.
   local analysed
   analysed="$("$CURL_BIN" -s -u "$SONAR_TOKEN:" \
     "$SONAR_API/api/sources/raw?key=$SONAR_PROJECT:$path&branch=$SONAR_BRANCH" 2>/dev/null)"
@@ -283,24 +198,7 @@ scov_line_hits() {
     | jq -r '.sources[]? | select(has("lineHits")) | "\(.line) \(.lineHits)"' 2>/dev/null
 }
 
-# scov_local_line_hits <path> — print "line hits" for a file, read from the
-# coverage reports the scan uploaded.
-#
-# What the analysis holds per file is not a fact about the coverage report; it
-# is a fact about the branch. SonarCloud keeps file-level data for a short-lived
-# branch only where that branch changed the file, and `dev` is short-lived — so
-# a file the previous commit did not touch has no component on it, whatever its
-# coverage. The lines being committed right now are never in that set, which is
-# exactly the blame gap this check exists to close, arrived at from the other
-# side.
-#
-# It surfaced on a commit whose predecessor touched only test-harness files:
-# every guarded source file came back "not found" for a change that had just
-# added a well-covered one, and the guard refused permanently rather than once.
-#
-# The reports describe the working tree, so they carry no blame gap at all, and
-# they are the same numbers SonarCloud was given — sonar-project.properties
-# names all three, and this reads them where that file points.
+# SonarCloud keeps file data for a short-lived branch only for files that branch changed.
 scov_local_line_hits() {
   local path="$1" root="${SCOV_REPORT_ROOT:-.}" want_go
 
@@ -317,9 +215,8 @@ scov_local_line_hits() {
         }
         NR == 1 { next }
         NF == 3 {
-          # "<import path>/<file>.go:<start>.<col>,<end>.<col> <stmts> <count>".
-          # The name is everything before the last colon, which is where a
-          # separator-based split goes wrong: the path is full of dots.
+          # Each line is "<import path>/<file>.go:<start>.<col>,<end>.<col> <stmts> <count>";
+          # the name ends at ".go:", since the path is full of dots.
           cut = index($1, ".go:")
           if (cut == 0) next
           if (substr($1, 1, cut + 2) != want) next
@@ -345,8 +242,6 @@ scov_local_line_hits() {
   esac
 }
 
-# scov_lcov_line_hits <report> <path> — print "line hits" for one file in an
-# LCOV report.
 scov_lcov_line_hits() {
   local report="$1" want="$2"
   [ -f "$report" ] || return 0
@@ -359,18 +254,7 @@ scov_lcov_line_hits() {
     }' "$report" 2>/dev/null
 }
 
-# scov_report_was_read <path> — whether the coverage report covering this file's
-# tree exists and names at least one source.
-#
-# It is what separates a file with nothing to execute from a measurement that
-# went missing, and the two are otherwise the same silence. A Rust module that
-# is doc comments and `pub mod` lines has no executable line, so llvm-cov writes
-# no record for it while naming every other file in its crate — and a guard that
-# reads that as coverage nobody took refuses a change that has nothing to cover.
-#
-# A report that names nothing is the case this guard exists for, and it still
-# refuses. The read-back is the signal rather than the absence, for the reason
-# rust-lcov-relativize.sh gives about the report it rewrites.
+# Separates a file with nothing to execute from a missing measurement.
 scov_report_was_read() {
   local path="$1" root="${SCOV_REPORT_ROOT:-.}"
   case "$path" in
@@ -381,8 +265,6 @@ scov_report_was_read() {
   esac
 }
 
-# scov_file_tally <path> — print "covered to_cover" over the lines this change
-# touched, or nothing when the file's own coverage report was never read.
 scov_file_tally() {
   local path="$1" hits changed
   hits="$(scov_line_hits "$path")"
@@ -406,8 +288,6 @@ scov_file_tally() {
   ' <<<"$hits"
 }
 
-# scov_diff_coverage <files> — print "covered to_cover" summed over every changed
-# file, and exit non-zero when the analysis reported figures for none of them.
 scov_diff_coverage() {
   local f tally covered=0 to_cover=0 measured=0
   while IFS= read -r f; do
@@ -421,8 +301,6 @@ scov_diff_coverage() {
   printf '%d %d\n' "$covered" "$to_cover"
 }
 
-# scov_check_diff — the second check. Fails when the lines this change touched
-# are covered below the floor.
 scov_check_diff() {
   local files tally covered to_cover percent i=0
   files="$(scov_changed_files)"
@@ -431,10 +309,7 @@ scov_check_diff() {
     return 0
   fi
 
-  # `make sonar` waits on the compute engine, but the sources endpoint can lag a
-  # few seconds behind indexing. Reading it too early returns nothing for every
-  # file, and a guard that passes because it could not ask is the false green it
-  # was written to close.
+  # The sources endpoint can lag indexing by seconds, and an early read returns nothing per file.
   until tally="$(scov_diff_coverage "$files")"; do
     i=$((i + 1))
     if [ "$i" -gt "$SCOV_SETTLE_RETRIES" ]; then

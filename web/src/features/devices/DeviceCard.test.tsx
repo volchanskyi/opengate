@@ -130,12 +130,11 @@ describe('DeviceCard', () => {
     it('"just now" for last_seen <60s ago', () => {
       const lastSeen = new Date(NOW - 30 * 1000).toISOString();
       renderCard({ last_seen: lastSeen });
-      // Pins string literal 'just now' — kills StringLiteral mutant.
       expect(screen.getByText('Last seen: just now')).toBeInTheDocument();
     });
 
     it('"Xm ago" for 1–59 minutes ago (kills `seconds < 60` boundary mutants)', () => {
-      const lastSeen = new Date(NOW - 5 * 60 * 1000).toISOString(); // 5 min
+      const lastSeen = new Date(NOW - 5 * 60 * 1000).toISOString();
       renderCard({ last_seen: lastSeen });
       expect(screen.getByText('Last seen: 5m ago')).toBeInTheDocument();
     });
@@ -143,13 +142,11 @@ describe('DeviceCard', () => {
     it('"1m ago" exactly at 60s — kills `<` → `<=` boundary mutant on seconds', () => {
       const lastSeen = new Date(NOW - 60 * 1000).toISOString();
       renderCard({ last_seen: lastSeen });
-      // At seconds=60 the function falls into the minutes branch: 1m ago,
-      // not "just now".
       expect(screen.getByText('Last seen: 1m ago')).toBeInTheDocument();
     });
 
     it('"Xh ago" for 1–23 hours ago', () => {
-      const lastSeen = new Date(NOW - 3 * 60 * 60 * 1000).toISOString(); // 3 hours
+      const lastSeen = new Date(NOW - 3 * 60 * 60 * 1000).toISOString();
       renderCard({ last_seen: lastSeen });
       expect(screen.getByText('Last seen: 3h ago')).toBeInTheDocument();
     });
@@ -163,8 +160,6 @@ describe('DeviceCard', () => {
     it('"Xd ago" for >=24 hours ago', () => {
       const lastSeen = new Date(NOW - 5 * 24 * 60 * 60 * 1000).toISOString();
       renderCard({ last_seen: lastSeen });
-      // Kills `<` → `>=` mutant on hours: with arithmetic mutant `*` instead of `/`,
-      // days would be `5 * 24 * 24 = 2880` not 5.
       expect(screen.getByText('Last seen: 5d ago')).toBeInTheDocument();
     });
 

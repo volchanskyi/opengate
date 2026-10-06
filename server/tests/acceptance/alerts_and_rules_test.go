@@ -21,11 +21,6 @@ func rulesFor(msg *protocol.ControlMessage, ruleID string) (protocol.ThresholdRu
 	return protocol.ThresholdRule{}, false
 }
 
-// TestARuleReachesAMachineAndItsBreachComesBackAsAnAlert is the sentence
-// Alerts and Rules promises. The detection half is proven on the agent side
-// and the filing half on the server side; what neither can show is that the
-// rule a machine is running is the rule this product sent it, and that the
-// alert it raises against that rule is the one the customer's queue receives.
 func TestARuleReachesAMachineAndItsBreachComesBackAsAnAlert(t *testing.T) {
 	t.Parallel()
 
@@ -52,11 +47,6 @@ func TestARuleReachesAMachineAndItsBreachComesBackAsAnAlert(t *testing.T) {
 		"the rule the machine was given is the rule the customer's queue names")
 }
 
-// TestATunedThresholdReachesOneCustomerAndNotTheOther is the sentence Rule
-// Administration promises. Retuning is per-customer, and the proof that it is
-// has to be a machine in another customer still running the shipped default —
-// a check against the stored binding would pass even if the value never
-// travelled.
 func TestATunedThresholdReachesOneCustomerAndNotTheOther(t *testing.T) {
 	t.Parallel()
 
@@ -66,7 +56,6 @@ func TestATunedThresholdReachesOneCustomerAndNotTheOther(t *testing.T) {
 	admin := product.Administrator(contoso)
 	token := admin.mintEnrolmentToken("rollout").Token
 
-	// A machine that stays in Contoso, and one moved to Fabrikam.
 	fabrikamMachine := product.Machine(token, "fabrikam-build-agent",
 		protocol.CapTerminal, protocol.CapThresholdAlerts)
 	fabrikamMachine.AwaitOnline()
@@ -84,7 +73,6 @@ func TestATunedThresholdReachesOneCustomerAndNotTheOther(t *testing.T) {
 	assert.InDelta(t, float64(tuned), inContoso.Threshold, 0.001,
 		"Contoso's machines run Contoso's number")
 
-	// The machine that moved to Fabrikam re-reads its rules when it reconnects.
 	fabrikamMachine.Disconnect()
 	rejoined := product.MachineWithIdentity(token, fabrikamMachine.DeviceID, "fabrikam-build-agent",
 		protocol.CapTerminal, protocol.CapThresholdAlerts)
@@ -96,9 +84,6 @@ func TestATunedThresholdReachesOneCustomerAndNotTheOther(t *testing.T) {
 		"another customer's machines are untouched by Contoso's retuning")
 }
 
-// TestAStopSwitchReachesMachinesAlreadyCarryingTheRule is the mitigation for a
-// rule that turns out to be wrong. It has to take effect on the estate that is
-// already running it, without a deploy and without waiting for anything.
 func TestAStopSwitchReachesMachinesAlreadyCarryingTheRule(t *testing.T) {
 	t.Parallel()
 
@@ -128,8 +113,7 @@ func TestAStopSwitchReachesMachinesAlreadyCarryingTheRule(t *testing.T) {
 	}, eventually, poll, "a stopped rule must stop being sent to the estate")
 }
 
-// tuneRule files a customer's own value for one of the rule's parameters,
-// which is the whole of what retuning is.
+// tuneRule files a customer's own value for one of the rule's parameters.
 func (a *Technician) tuneRule(ruleID string, customer uuid.UUID, threshold float64) Reply {
 	a.t.Helper()
 	return a.Put("/api/v1/rules/"+ruleID+"/bindings", map[string]any{

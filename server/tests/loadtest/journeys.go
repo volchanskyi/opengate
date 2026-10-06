@@ -9,28 +9,13 @@ import (
 	"strings"
 )
 
-// The three technician journeys a run already times, carried into the evidence.
-//
-// A slow night that can only say "the API was slow" names nothing anybody can
-// act on. The technician-side generator times a machine list, a machine's own
-// page and a command being accepted, publishes all three into the trend, and
-// the bundle beside them carried a null — so a bundle read a year later, when
-// the metrics store has long since forgotten the night, says which screens
-// existed and not which one was slow.
-//
-// Nothing is measured twice here. The figures are read out of the export the
-// generator already writes.
-
-// journeyPrefix and journeySuffix bracket the names the generator publishes:
-// `journey_device_list_ms` is the device-list journey in milliseconds.
+// Published names look like journey_device_list_ms, in milliseconds.
 const (
 	journeyPrefix = "journey_"
 	journeySuffix = "_ms"
 )
 
-// k6Export is the shape of the summary the technician-side generator writes.
-// Only the metrics block is read, the way the exposition readers beside this
-// one read only the families they name.
+// k6Export reads only the metrics block of the generator's summary.
 type k6Export struct {
 	Metrics map[string]struct {
 		Type   string             `json:"type"`
@@ -38,11 +23,7 @@ type k6Export struct {
 	} `json:"metrics"`
 }
 
-// LoadJourneys reads the journeys out of one generator export.
-//
-// An export carrying none is silence rather than an error: the technician-side
-// generator does not run in every venue, and a venue without one has no
-// journeys to report rather than a broken reading.
+// LoadJourneys reads the journeys from one generator export; an export carrying none yields none.
 func LoadJourneys(path string) ([]JourneyResult, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
@@ -68,16 +49,12 @@ func LoadJourneys(path string) ([]JourneyResult, error) {
 		})
 	}
 
-	// Named order, so two runs of the same night list their journeys the same
-	// way and a reader diffing two bundles sees the numbers change rather than
-	// the order.
+	// Name order keeps the journey lists of two bundles diffable.
 	sort.Slice(journeys, func(i, j int) bool { return journeys[i].Name < journeys[j].Name })
 	return journeys, nil
 }
 
-// journeyName is the journey a metric describes, or false for a metric that is
-// not one. Every other series in the export belongs to the request path rather
-// than to a screen.
+// journeyName returns false for a metric outside the journey naming.
 func journeyName(metric string) (string, bool) {
 	if !strings.HasPrefix(metric, journeyPrefix) || !strings.HasSuffix(metric, journeySuffix) {
 		return "", false
@@ -89,26 +66,19 @@ func journeyName(metric string) (string, bool) {
 	return strings.ReplaceAll(name, "_", "-"), true
 }
 
-// FixtureWeight is what the fleet actually cost, measured from the database and
-// the metrics store rather than counted from the plan. It is read in the shape
+// FixtureWeight is the fleet's measured database and metrics-store cost, in the shape
 // scripts/perf-weigh-fixture.sh writes.
 type FixtureWeight struct {
 	DatabaseBytes int64               `json:"fixture_bytes"`
 	Counts        FixtureWeightCounts `json:"counts"`
 }
 
-// FixtureWeightCounts is the weighing's counts, where the series the fleet
-// occupies in the metrics store are counted beside the rows.
+// FixtureWeightCounts holds the series count the fleet occupies in the metrics store.
 type FixtureWeightCounts struct {
 	TelemetrySeries int64 `json:"telemetry_series"`
 }
 
 // LoadFixtureWeight reads the weighing a run took beside itself.
-//
-// The volume family's whole finding is this number, and the job that measures
-// it wrote the figure into a file of its own that nothing downstream read — so
-// the one measurement answering the family's question never reached the
-// evidence the family produces.
 func LoadFixtureWeight(path string) (FixtureWeight, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {

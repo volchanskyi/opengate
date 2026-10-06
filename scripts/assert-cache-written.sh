@@ -1,16 +1,7 @@
 #!/usr/bin/env bash
-# Assert that a cache key exists, by asking the cache API for it.
-#
-# A refused cache save prints a warning and exits zero, so the step that made
-# it is reported as a success and the entry it never wrote is missed until
-# somebody goes looking. Reading the key back is the only evidence that stands.
-#
+# Asserts a cache key exists by asking the cache API, since a refused save exits zero.
+# Matches a key containing the fragment; needs GITHUB_REPOSITORY and a gh token with actions: read.
 # Usage: scripts/assert-cache-written.sh <key-or-fragment>
-#
-# Matches any key containing the fragment, because an action that computes its
-# own key does not tell the caller what it settled on; the fragment names the
-# part the caller chose. Needs GITHUB_REPOSITORY and a gh token carrying
-# `actions: read`.
 
 set -euo pipefail
 

@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEncodeDecodeFileFrame pins file payload MessagePack round-trips.
 func TestEncodeDecodeFileFrame(t *testing.T) {
 	codec := &Codec{}
 

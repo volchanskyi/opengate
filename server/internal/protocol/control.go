@@ -48,7 +48,7 @@ const (
 	MsgRequestHealthWindow   ControlMessageType = "RequestHealthWindow"
 	MsgHealthWindowResponse  ControlMessageType = "HealthWindowResponse"
 
-	// Edge-Sentinel WS-15 offline reconnect-backfill.
+	// Offline reconnect-backfill messages.
 	MsgRequestBackfillSlot  ControlMessageType = "RequestBackfillSlot"
 	MsgGrantBackfill        ControlMessageType = "GrantBackfill"
 	MsgDeferBackfill        ControlMessageType = "DeferBackfill"
@@ -57,27 +57,23 @@ const (
 	MsgRequestLocalHistory  ControlMessageType = "RequestLocalHistory"
 	MsgLocalHistoryResponse ControlMessageType = "LocalHistoryResponse"
 
-	// Edge-Sentinel WS-16 auto-discovery inventory report.
+	// Auto-discovery inventory report.
 	MsgDiscoveryReport ControlMessageType = "DiscoveryReport"
 
-	// Edge-Sentinel WS-19 server → agent threshold-alert ruleset push.
+	// Server-to-agent threshold-alert ruleset push.
 	MsgPushAlertRules ControlMessageType = "PushAlertRules"
 
 	// Maintenance mode: server → agent toggle and the agent's applied-state report.
 	MsgSetMaintenanceMode ControlMessageType = "SetMaintenanceMode"
 	MsgMaintenanceApplied ControlMessageType = "MaintenanceApplied"
 
-	// MsgAgentAlert is the alert transport: one alert carrying everything the
-	// device knows about why it fired. It is the only one — the server holds no
-	// high-resolution history behind a signal and never asks the device for more,
-	// so a second transport would be a second source of truth for the same event.
+	// MsgAgentAlert is the only alert transport: one alert carries everything the device knows
+	// about why it fired, since the server holds no high-resolution history.
 	MsgAgentAlert ControlMessageType = "AgentAlert"
 )
 
-// AlertSeverity is how bad an alert is. It mirrors the Rust AlertSeverity enum,
-// which serializes as its variant name. The set is closed: severity decides how
-// an incident is presented, so the server refuses a value outside it rather than
-// storing one nothing downstream knows how to render.
+// AlertSeverity is how bad an alert is, serialized as the Rust AlertSeverity variant name.
+// The set is closed so every stored value is one the incident view can render.
 type AlertSeverity string
 
 const (
@@ -91,18 +87,12 @@ const (
 )
 
 const (
-	// EvidenceCodec is how AlertEvidence is compressed on the wire. Versioned in
-	// the name and carried on every alert rather than assumed, so a later codec
-	// is additive and a reader that does not know one says so instead of
-	// decoding nonsense. DEFLATE because both sides already have it — pure-Rust
-	// miniz_oxide on the agent, compress/flate here — so the evidence contract
-	// costs neither side a dependency.
+	// EvidenceCodec names the DEFLATE codec of AlertEvidence; the version in the name travels on
+	// every alert so a later codec is additive.
 	EvidenceCodec = "deflate-1"
 
-	// MaxEvidenceBytes is the most an alert's compressed evidence may weigh. The
-	// agent truncates to fit it and says so; going over is never a reason to
-	// refuse the alert, because an alert without its evidence still says a
-	// machine is in trouble and that part cannot be reconstructed later.
+	// MaxEvidenceBytes is the most compressed evidence an alert carries; the agent truncates to
+	// fit and still sends the alert.
 	MaxEvidenceBytes = 64 * 1024
 )
 
@@ -117,9 +107,8 @@ func ValidAlertSeverity(s AlertSeverity) bool {
 	}
 }
 
-// AlertComparator is the comparison direction of a WS-19 threshold-alert rule.
-// It mirrors the Rust AlertComparator enum, which serializes as its variant
-// name.
+// AlertComparator is the comparison direction of a threshold-alert rule, serialized as the
+// Rust AlertComparator variant name.
 type AlertComparator string
 
 const (
@@ -133,10 +122,8 @@ const (
 	AlertComparatorLte AlertComparator = "Lte"
 )
 
-// BackfillTier identifies which central VictoriaMetrics tier a reconnect
-// backfill batch targets. It mirrors the Rust BackfillTier enum, which
-// serializes as its variant name. Full-res 1 s raw is never a backfill tier —
-// it is reachable only via an on-demand deep-history pull.
+// BackfillTier names the central VictoriaMetrics tier a backfill batch targets, serialized as
+// the Rust BackfillTier variant name.
 type BackfillTier string
 
 const (
@@ -149,11 +136,8 @@ const (
 	BackfillTierRollup1h BackfillTier = "Rollup1h"
 )
 
-// ControlMessage is the envelope for all control-plane messages.
-// It uses msgpack encoding with named fields matching the Rust enum structure.
-//
-// The Rust side encodes ControlMessage as a msgpack map with a key indicating
-// the variant. We mirror this by encoding as a map with the type name key.
+// ControlMessage is the control-plane envelope, encoded as a msgpack map keyed by the variant
+// name to match the Rust enum.
 type ControlMessage struct {
 	Type ControlMessageType `msgpack:"type"`
 
@@ -180,21 +164,16 @@ type ControlMessage struct {
 	Limit           uint32               `msgpack:"limit,omitempty"`
 	Summaries       []HealthSummary      `msgpack:"summaries,omitempty"`
 
-	// Edge-Sentinel WS-19 threshold alerts. Breaches and RuleCoverage ride an
-	// AgentHealthSummary (agent → server); AlertRules ride a PushAlertRules
-	// (server → agent). Coverage rides the summary rather than a message of its
-	// own for the same reason breaches do: it is small, it is per-device, and it
-	// is already on its way.
+	// Breaches and RuleCoverage ride an AgentHealthSummary (agent to server); AlertRules ride a
+	// PushAlertRules (server to agent).
 	Breaches     []AlertBreach   `msgpack:"breaches,omitempty"`
 	AlertRules   []ThresholdRule `msgpack:"rules,omitempty"`
 	RuleCoverage []RuleCoverage  `msgpack:"rule_coverage,omitempty"`
-	// DeviceHourlyCeiling rides a PushAlertRules: how many alerts the machine
-	// may raise in a rolling hour. The customer sets it, and it travels with the
-	// rules because it is enforced where the alerts are raised — a check at this
-	// end would receive the flood it exists to prevent.
+	// DeviceHourlyCeiling rides a PushAlertRules: the most alerts the machine may raise in a
+	// rolling hour, enforced where the alerts are raised.
 	DeviceHourlyCeiling uint32 `msgpack:"device_hourly_ceiling,omitempty"`
 
-	// Edge-Sentinel WS-15 reconnect-backfill scheduler + tiered replay.
+	// Reconnect-backfill scheduler and tiered replay.
 	PendingSamples  uint64           `msgpack:"pending_samples,omitempty"`
 	OldestTS        int64            `msgpack:"oldest_ts,omitempty"`
 	Rate            uint32           `msgpack:"rate,omitempty"`
@@ -271,12 +250,8 @@ type ControlMessage struct {
 	DiskTotalMB       uint64             `msgpack:"disk_total_mb,omitempty"`
 	DiskFreeMB        uint64             `msgpack:"disk_free_mb,omitempty"`
 	NetworkInterfaces []NetworkInterface `msgpack:"network_interfaces,omitempty"`
-	// SystemUUID is the host's SMBIOS system UUID — the key that resolves which
-	// managed device an Intel AMT CIRA connection belongs to. AMTAvailable and
-	// AMTVersion report what the host's Management Engine interface exposes.
-	// AMTAvailable is a pointer so a stated false survives omitempty: the server
-	// must be able to tell "this host has no Management Engine" apart from "this
-	// agent is too old to report", which preserves the previous value instead.
+	// SystemUUID is the SMBIOS UUID that resolves which device an AMT CIRA connection belongs to.
+	// AMTAvailable is a pointer: a stated false survives omitempty; absent keeps the old value.
 	SystemUUID   string `msgpack:"system_uuid,omitempty"`
 	AMTAvailable *bool  `msgpack:"amt_available,omitempty"`
 	AMTVersion   string `msgpack:"amt_version,omitempty"`
@@ -297,13 +272,11 @@ type ControlMessage struct {
 	LogEntries []LogEntry `msgpack:"log_entries,omitempty"`
 	TotalCount uint32     `msgpack:"total_count,omitempty"`
 	HasMore    *bool      `msgpack:"has_more,omitempty"`
-	// AvailableUnits enumerates the distinct emitting units the host source
-	// offers for the unit dropdown (systemd units / Windows providers), capped
-	// and sorted. Empty for the agent's own files and for older agents.
+	// AvailableUnits lists the distinct emitting units (capped, sorted) for the unit dropdown;
+	// empty for the agent's own files and for older agents.
 	AvailableUnits []string `msgpack:"available_units,omitempty"`
 
-	// DiscoveryReport (WS-16). TS/TenantID/Truncated are shared with the fields
-	// above. Each category is per-device bounded on the agent; Truncated is set
+	// DiscoveryReport: each category is bounded per device on the agent, and Truncated is set
 	// when any category was capped.
 	Ports      []DiscoveredPort      `msgpack:"ports,omitempty"`
 	Services   []DiscoveredService   `msgpack:"services,omitempty"`
@@ -311,23 +284,12 @@ type ControlMessage struct {
 	Containers []DiscoveredContainer `msgpack:"containers,omitempty"`
 	Packages   []DiscoveredPackage   `msgpack:"packages,omitempty"`
 
-	// SetMaintenanceMode (server → agent) / MaintenanceApplied (agent → server).
-	// A pointer so a false value still serializes — omitempty would otherwise
-	// drop it and break the byte-for-byte contract with Rust's always-present
-	// field.
+	// SetMaintenanceMode (server to agent) and MaintenanceApplied (agent to server). A pointer
+	// keeps a false value serialized, matching Rust's always-present field.
 	Enabled *bool `msgpack:"enabled,omitempty"`
 
-	// AgentAlert (agent → server). Declaration order here is the order the agent
-	// emits, which is what keeps the re-encode byte-identical.
-	//
-	// Severity and Backfilled are pointers for the same reason Enabled is: both
-	// are always stated on the wire, and omitempty would drop a stated Info or a
-	// stated false. Reading "nothing said" as "not serious" is the one mistake
-	// this transport must not make.
-	//
-	// (device, RuleID, RuleVersion, WindowStartTS) is the alert's identity, so a
-	// reconnect that replays a queued alert resolves to the same row. AlertID is
-	// the device's own handle for tracing one report end to end.
+	// AgentAlert (agent to server). Severity and Backfilled are pointers so a stated value stays
+	// distinct from an absent one.
 	AlertID       string         `msgpack:"alert_id,omitempty"`
 	RuleID        string         `msgpack:"rule_id,omitempty"`
 	RuleVersion   uint32         `msgpack:"rule_version,omitempty"`
@@ -338,9 +300,7 @@ type ControlMessage struct {
 	WindowEndTS   int64          `msgpack:"window_end_ts,omitempty"`
 	ObservedTS    int64          `msgpack:"observed_ts,omitempty"`
 	Backfilled    *bool          `msgpack:"backfilled,omitempty"`
-	// EvidenceCodec names how Evidence is compressed, e.g. "deflate-1". It rides
-	// the message rather than being assumed so a later codec is additive and a
-	// server that does not know one says so instead of decoding nonsense.
+	// EvidenceCodec names how Evidence is compressed, e.g. "deflate-1", so a later codec is additive.
 	EvidenceCodec string `msgpack:"evidence_codec,omitempty"`
 	// Evidence is a compressed AlertEvidence. Empty is a legal alert: the device
 	// had nothing to attach, which still says the machine is in trouble.
@@ -354,17 +314,15 @@ type RankedDim struct {
 	Score float64 `msgpack:"score"`
 }
 
-// EvidenceSeries is one dimension's readings either side of the event, at the
-// resolution only the device holds. Central keeps a 60 s average per dimension,
-// which is where a ten-second collapse goes to disappear.
+// EvidenceSeries is one dimension's readings either side of the event at the device's own
+// resolution, finer than the 60 s average central keeps.
 type EvidenceSeries struct {
 	Dim    string         `msgpack:"dim"`
 	Points []HistoryPoint `msgpack:"points"`
 }
 
-// AlertEvidence is everything the device knows about why an alert fired. It
-// arrives compressed inside ControlMessage.Evidence and is never fetched
-// afterwards, so what is not here about an event is not recorded anywhere.
+// AlertEvidence is everything the device knows about why an alert fired, carried compressed in
+// ControlMessage.Evidence and never fetched afterwards.
 type AlertEvidence struct {
 	Ranked     []RankedDim          `msgpack:"ranked"`
 	Series     []EvidenceSeries     `msgpack:"series"`
@@ -395,31 +353,25 @@ type MetricDim struct {
 	Avg  float64 `msgpack:"avg"`
 }
 
-// RulePredicate is how a rule derives the number it compares against its
-// threshold. It mirrors the Rust RulePredicate enum, which serializes as its
-// variant name. Every variant's evaluation cost is a function of the rule's own
-// declared fields, so a rule whose cost the build cannot compute is one the
-// grammar cannot express.
+// RulePredicate is how a rule derives the number it compares to its threshold, serialized as
+// the Rust RulePredicate variant name.
 type RulePredicate string
 
 const (
 	// RulePredicateInstant compares the reading itself, this second.
 	RulePredicateInstant RulePredicate = "Instant"
-	// RulePredicateRate compares change per second across the rule's window —
-	// the shape of a resource getting worse rather than one already bad.
+	// RulePredicateRate compares change per second across the rule's window, the shape of a
+	// resource getting worse.
 	RulePredicateRate RulePredicate = "Rate"
 	// RulePredicateWindowMax compares the largest reading in the window. A
 	// minute's average hides a five-second freeze; its maximum does not.
 	RulePredicateWindowMax RulePredicate = "WindowMax"
-	// RulePredicateWindowMean compares the mean reading over the window —
-	// generally slow, rather than momentarily busy.
+	// RulePredicateWindowMean compares the mean reading over the window, smoothing spikes.
 	RulePredicateWindowMean RulePredicate = "WindowMean"
 )
 
-// RuleTerm is one extra condition a rule requires at the same instant as its
-// own. Sustain and the firing state belong to the rule; a term carries only what
-// it takes to decide whether this side holds right now. It mirrors the Rust
-// RuleTerm struct.
+// RuleTerm is one extra condition a rule requires at the same instant as its own, mirroring the
+// Rust RuleTerm struct; sustain and the firing state belong to the rule.
 type RuleTerm struct {
 	Metric     string          `msgpack:"metric"`
 	Comparator AlertComparator `msgpack:"comparator"`
@@ -429,25 +381,14 @@ type RuleTerm struct {
 	WindowSecs uint32          `msgpack:"window_secs"`
 }
 
-// ThresholdRule is one declarative edge threshold-alert rule (WS-19), evaluated
-// locally by the agent. It mirrors the Rust ThresholdRule struct. Rules are
-// tenant-scoped config pushed to the agent via PushAlertRules.
-//
-// Predicate, WindowSecs and All are additive: a rule carrying none of them is
-// the plain single-dimension threshold the fleet already runs, and the agent
-// decodes it as such.
+// ThresholdRule is one declarative threshold-alert rule the agent evaluates locally, mirroring
+// the Rust ThresholdRule struct; rules are tenant-scoped config pushed via PushAlertRules.
 type ThresholdRule struct {
 	ID string `msgpack:"id"`
-	// Version is which revision of the definition this is. It travels because
-	// an alert's identity is (device, rule, revision, window start), and a
-	// machine cannot state a revision nobody sent it. Always emitted, like the
-	// other numbers below: a rule carrying no revision would raise alerts the
-	// server refuses.
+	// Version is the revision of this definition, part of an alert's identity (device, rule,
+	// revision, window start) and always emitted.
 	Version uint32 `msgpack:"version"`
-	// Severity is how bad this rule's alerts are. It travels with the rule so
-	// the machine states it on every alert it raises: an alert that said
-	// nothing about how bad it is would arrive unorderable in a queue that is
-	// ordered by exactly that.
+	// Severity is how bad this rule's alerts are; the machine states it on every alert it raises.
 	Severity    AlertSeverity   `msgpack:"severity"`
 	Metric      string          `msgpack:"metric"`
 	Comparator  AlertComparator `msgpack:"comparator"`
@@ -461,30 +402,26 @@ type ThresholdRule struct {
 	All []RuleTerm `msgpack:"all,omitempty"`
 }
 
-// AlertBreach is one currently-firing threshold-alert breach (WS-19), carried
-// additively in an AgentHealthSummary. Investigation-aid only — no auto-notify.
+// AlertBreach is one currently-firing threshold-alert breach, carried in an AgentHealthSummary
+// as an investigation aid.
 type AlertBreach struct {
 	RuleID string  `msgpack:"rule_id"`
 	Metric string  `msgpack:"metric"`
 	Value  float64 `msgpack:"value"`
 }
 
-// RuleCoverageState is what one rule is doing on one device. It mirrors the Rust
-// RuleCoverageState enum, which serializes as its variant name. A device that
-// reports none of them is unknown, which only the server can know because only
-// the server knows the fleet.
+// RuleCoverageState is what one rule does on one device, serialized as the Rust
+// RuleCoverageState variant name; a device reporting none is unknown.
 type RuleCoverageState string
 
 const (
 	// RuleCoverageActive means the rule is being evaluated on this device.
 	RuleCoverageActive RuleCoverageState = "Active"
-	// RuleCoverageUnsupported means the rule cannot be evaluated here: the
-	// metric is outside the vocabulary, the predicate is outside the grammar's
-	// bounds, or this host cannot take the reading at all.
+	// RuleCoverageUnsupported means the rule cannot be evaluated here: unknown metric, predicate
+	// outside the grammar's bounds, or a reading this host cannot take.
 	RuleCoverageUnsupported RuleCoverageState = "Unsupported"
-	// RuleCoverageThrottled means the rule cost this device more than its
-	// allowance, so the device stopped running it. It is a fact about the rule
-	// rather than about the host, which is why it is not filed as unsupported.
+	// RuleCoverageThrottled means the rule cost more than its allowance and the device stopped
+	// running it; the state describes the rule, not the host.
 	RuleCoverageThrottled RuleCoverageState = "Throttled"
 )
 
@@ -516,9 +453,8 @@ type HealthSummary struct {
 	ModelVersion    string              `msgpack:"model_ver"`
 }
 
-// BackfillSample is one pre-rolled historical sample replayed during reconnect
-// backfill. Central VM keeps avg only, so it carries the dimension, the original
-// sample timestamp (seconds), and the averaged value for that bucket.
+// BackfillSample is one pre-rolled historical sample replayed during reconnect backfill: the
+// dimension, the original timestamp in seconds, and the bucket's average.
 type BackfillSample struct {
 	Name  string  `msgpack:"name"`
 	TS    int64   `msgpack:"ts"`
@@ -532,9 +468,8 @@ type HistoryPoint struct {
 	Value float64 `msgpack:"value"`
 }
 
-// DiscoveredPort is one listening network port discovered on the host (WS-16):
-// transport, port number, and owning process basename only — never a bound
-// address.
+// DiscoveredPort is one listening port on the host: transport, port number and owning process
+// basename, never a bound address.
 type DiscoveredPort struct {
 	Proto   string `msgpack:"proto"`
 	Port    uint16 `msgpack:"port"`
@@ -548,9 +483,8 @@ type DiscoveredService struct {
 	State string `msgpack:"state"`
 }
 
-// DiscoveredDbEngine is one database engine inferred from a listening port plus
-// its owning process: engine family, best-effort version, and port — never a
-// connection string or credential.
+// DiscoveredDbEngine is one database engine inferred from a listening port and its process:
+// family, best-effort version and port, never a connection string or credential.
 type DiscoveredDbEngine struct {
 	Engine  string `msgpack:"engine"`
 	Version string `msgpack:"version"`

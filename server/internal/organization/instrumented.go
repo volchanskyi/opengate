@@ -5,9 +5,7 @@ import (
 	"time"
 )
 
-// Observer records the duration and success of a single repository call. The
-// metrics package supplies a Prometheus-backed implementation; tests supply an
-// in-memory recorder.
+// Observer records the duration and success of a single repository call.
 type Observer interface {
 	Observe(operation string, duration time.Duration, ok bool)
 }

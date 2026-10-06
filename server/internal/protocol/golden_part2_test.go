@@ -8,7 +8,6 @@ import (
 )
 
 func TestGoldenFrameWireFormat(t *testing.T) {
-	// All framed golden files share the wire format: [type][4-byte-BE-length][msgpack-payload]
 	tests := []struct {
 		name         string
 		file         string
@@ -61,17 +60,14 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			data := readGolden(t, tt.file)
 
-			// Verify frame type byte
 			assert.Equal(t, tt.expectedType, data[0], "frame type mismatch")
 
-			// Verify we can read the frame
 			reader := bytes.NewReader(data)
 			frameType, payload, err := codec.ReadFrame(reader)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedType, frameType)
 			assert.NotEmpty(t, payload, "payload should not be empty")
 
-			// For control frames, verify we can decode the msgpack payload
 			if frameType == FrameControl {
 				msg, err := codec.DecodeControl(payload)
 				require.NoError(t, err, "failed to decode control message from golden file")

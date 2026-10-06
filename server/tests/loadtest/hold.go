@@ -11,40 +11,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// A fleet's steady-state cost is connections that stay up, not connections that
-// open, so a machine that has done its traffic stays in the run rather than
-// leaving. This is what it does while it is there: it answers what the server
-// asks of it, it joins any session it is handed, and it proves on an interval
-// that the connection still exists.
-//
-// That last part is why the hold writes at all. The heartbeat runs agent to
-// server, so a held machine receives nothing from a healthy server either — a
-// quiet server and a severed one produce identical silence, and no amount of
-// reading separates them.
-
-// holdOpen keeps this machine in the run for opts.holdFor, answering what the
-// server sends and proving on an interval that the far side is still there.
-// A fleet's steady-state cost is connections that stay up, not connections that
-// open; a harness that disconnects immediately never applies it.
-//
-// A read that times out is the ordinary case — a quiet server has nothing to
-// say — so the loop simply reads again until the hold is over.
-//
-// Reading is why the hold had to start writing. The heartbeat runs agent to
-// server, so a held machine receives nothing from a healthy server either: a
-// quiet server and a dead one produce the same silence, and no amount of
-// reading separates them. A write does. A heartbeat to a QUIC peer that is gone
-// fails and names it; one to a live peer is a frame the server already expects
-// during the traffic phase, and it keeps the device's status online, which the
-// relay scenario beside this run depends on.
-//
-// The hold ends when the run winds this machine down as well as when its own
-// clock runs out, and the first of the two is the one that decides. A profiled
-// run gives every machine a hold as long as the whole walk — the machine has to
-// still be there for the last phase — so a hold that watched only its clock
-// could not be wound down at all: the machine stayed connected while the run's
-// count of the fleet said it had gone, the identity it holds never returned to
-// the estate, and every later phase that asked for machines found none free.
+// holdOpen ends when the run winds the machine down or its hold elapses, whichever is first.
 func holdOpen(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) error {
 	if opts.holdFor <= 0 {
 		return nil
@@ -58,20 +25,8 @@ func holdOpen(ctx context.Context, codec *protocol.Codec, stream soakStream, opt
 	})
 }
 
-// proveUntilWoundDown keeps a machine proving its connection for the rest of
-// its stay, once the hold it was given has elapsed.
-//
-// The run decides when a machine leaves, not the machine's own hold: a fleet
-// walking a profile holds its machines to the end of the walk, so the hold
-// running out is nowhere near the end of the stay. A machine that went quiet at
-// that point kept its connection — the server keep-alives every thirty seconds
-// against a ninety-second idle timeout, and a machine's online status follows
-// the connection rather than the heartbeat — so nothing looked wrong. What it
-// lost was ErrHeldPeerGone, the only detector of a severed fleet, which is
-// raised by the write: a machine that has stopped writing cannot raise it. In a
-// profiled run the blind window is every minute past the hold.
-//
-// A machine asked to hold for nothing has already left, and stays left.
+// proveUntilWoundDown keeps heartbeating until the run winds the machine down, because the
+// heartbeat write is what raises ErrHeldPeerGone.
 func proveUntilWoundDown(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) error {
 	if opts.holdFor <= 0 {
 		return nil
@@ -84,18 +39,12 @@ func proveUntilWoundDown(ctx context.Context, codec *protocol.Codec, stream soak
 	})
 }
 
-// proveConnection answers what the server sends and proves on an interval that
-// the far side is still there, for as long as `left` reports time remaining in
-// the stay.
-//
-// A read that times out is the ordinary case — a quiet server has nothing to
-// say — so the loop simply reads again.
+// proveConnection answers the server and heartbeats while left reports time remaining; a read
+// timeout is the ordinary quiet-server case.
 func proveConnection(codec *protocol.Codec, stream soakStream, opts loadOptions,
 	left func() time.Duration,
 ) error {
-	// Once before the loop, so a stay shorter than one interval still asks. A
-	// run held for seconds is the cheapest kind to make, and it would otherwise
-	// be the kind that could not see a severance at all.
+	// One heartbeat before the loop lets a stay shorter than one interval detect a severance.
 	if err := sendHeartbeat(codec, stream); err != nil {
 		return err
 	}
@@ -130,14 +79,9 @@ func proveConnection(codec *protocol.Codec, stream soakStream, opts loadOptions,
 	}
 }
 
-// ErrHeldPeerGone is a machine that lost its connection part way through the
-// hold. It is a named error rather than a message so the bundle can count them:
-// "the fleet held" and "the fleet was severed and nobody could tell" are the
-// two outcomes this whole path exists to separate.
+// ErrHeldPeerGone marks a heartbeat write that failed because the machine's connection is gone.
 var ErrHeldPeerGone = errors.New("hold open: heartbeat write failed, so this machine's connection is gone")
 
-// sendHeartbeat writes one agent heartbeat, which is how a held machine asks
-// whether its connection still exists.
 func sendHeartbeat(codec *protocol.Codec, w io.Writer) error {
 	payload, err := codec.EncodeControl(&protocol.ControlMessage{
 		Type:      protocol.MsgAgentHeartbeat,
@@ -152,25 +96,12 @@ func sendHeartbeat(codec *protocol.Codec, w io.Writer) error {
 	return nil
 }
 
-// holdHeartbeatInterval is how often a held machine proves its connection.
-//
-// Well inside any hold a run asks for, and well inside the window a severance
-// has to be caught in: the run that found this defect held for 8m30s and lost
-// its fleet at the four-minute mark, so an interval of a quarter of a minute
-// turns a four-and-a-half-minute blind spot into fifteen seconds. It is also
-// far slower than the traffic phase's own writes, so it adds nothing a
-// throughput figure would notice.
 const holdHeartbeatInterval = 15 * time.Second
 
-// holdReadSlice bounds one read while a machine is held open, so the hold ends
-// close to when it was asked to rather than at the next frame the server
-// happens to send.
+// holdReadSlice bounds one read so the hold ends close to its deadline.
 const holdReadSlice = 2 * time.Second
 
-// answerHeldFrame replies to what the server sends a held-open machine. Only
-// the frames a load run needs to keep moving are answered; anything else is
-// read and discarded, which is what an agent that does not support a capability
-// does.
+// answerHeldFrame answers device-log and session requests; other frames are discarded.
 func answerHeldFrame(codec *protocol.Codec, w io.Writer, msg *protocol.ControlMessage, opts loadOptions) error {
 	switch msg.Type {
 	case protocol.MsgRequestDeviceLogs:
@@ -190,12 +121,8 @@ func answerHeldFrame(codec *protocol.Codec, w io.Writer, msg *protocol.ControlMe
 	return nil
 }
 
-// joinRequestedSession opens the machine side of the session the server just
-// handed this connection and echoes on it until the operator's side goes away.
-//
-// It runs on its own goroutine because the relay is a separate connection: the
-// control stream must stay readable, or the machine stops answering everything
-// else for as long as somebody has a session open.
+// joinRequestedSession echoes on its own goroutine so the control stream stays readable while
+// the relay session is open.
 func joinRequestedSession(msg *protocol.ControlMessage, counter *atomic.Int64) error {
 	req, err := RelayRequestFrom(msg)
 	if err != nil {
@@ -219,6 +146,5 @@ func joinRequestedSession(msg *protocol.ControlMessage, counter *atomic.Int64) e
 	return nil
 }
 
-// relaySessionLifetime bounds one simulated session, so a run cannot leave a
-// goroutine echoing into a pipe nobody is reading.
+// relaySessionLifetime bounds one simulated session so no goroutine echoes into an unread pipe.
 const relaySessionLifetime = 5 * time.Minute

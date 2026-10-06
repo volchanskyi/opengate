@@ -8,9 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// What a rule has to earn before it reaches more of an estate.
-
-// staged builds a rollout sitting in a stage, entered `held` ago.
 func staged(stage Stage, held time.Duration, now time.Time) Rollout {
 	r := DefaultRollout(uuid.New(), "disk-critical")
 	r.RolloutPercent = PercentFor(stage)
@@ -18,14 +15,10 @@ func staged(stage Stage, held time.Duration, now time.Time) Rollout {
 	return r
 }
 
-// decide evaluates a rollout that has been in `stage` for `held`.
 func decide(stage Stage, held time.Duration, report GateReport, now time.Time) StageDecision {
 	return DecideStage(staged(stage, held, now), report, now)
 }
 
-// A gate that failed is not a rollout that pauses: it is one that goes back to
-// the population it was last quiet on. Each signal is its own case, because a
-// single combined one passes just as well with two of the three unwired.
 func TestATrippedGateRevertsRatherThanAdvances(t *testing.T) {
 	t.Parallel()
 
@@ -43,7 +36,6 @@ func TestATrippedGateRevertsRatherThanAdvances(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Long past the hold: nothing about elapsed time may advance it.
 			got := decide(StageStaged, 24*time.Hour, tc.report, now)
 			assert.Equal(t, StageRevert, got.Action, "a tripped gate reverts")
 			assert.Equal(t, StageCanary, got.Stage, "back to the stage before it")
@@ -52,9 +44,6 @@ func TestATrippedGateRevertsRatherThanAdvances(t *testing.T) {
 	}
 }
 
-// The hold is a minimum, not a trigger. Time alone never moves a rule, and time
-// plus a quiet estate moves it exactly one stage — jumping a canary straight to
-// the fleet would spend the whole mitigation in one step.
 func TestAdvanceNeedsBothTheHoldAndAQuietEstate(t *testing.T) {
 	t.Parallel()
 
@@ -74,8 +63,6 @@ func TestAdvanceNeedsBothTheHoldAndAQuietEstate(t *testing.T) {
 	assert.Equal(t, StageFull, longQuiet.Stage, "a month of quiet is still one stage at a time")
 }
 
-// Each stage holds for its own minimum. The staged hold is the longer one
-// because it is the last stop before the whole estate.
 func TestEachStageHoldsForItsOwnMinimum(t *testing.T) {
 	t.Parallel()
 

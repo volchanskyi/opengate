@@ -16,11 +16,7 @@ const STATE_LABEL = new Map<CoverageState, string>(
   Object.entries(STATE_LABELS) as [CoverageState, string][],
 );
 
-/**
- * All four states, in the order a reader should scan them: what a rule watches
- * first, then the three ways it does not. Showing three of them would make a
- * rule with a standing blind spot look like it was watching a smaller estate.
- */
+/** All four states in scan order: what a rule watches first, then the three ways it does not. */
 export const COVERAGE_STATES = Object.keys(STATE_LABELS) as readonly CoverageState[];
 
 export function coverageStateLabel(state: CoverageState): string {

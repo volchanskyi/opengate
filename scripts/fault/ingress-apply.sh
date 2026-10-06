@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Apply a staging-only edge fault at ingress-nginx (FI4). Reverts with
-# ingress-restore.sh. Refuses any namespace but opengate-staging, snapshots the
-# fields it touches so the change is reversible, and restores best-effort if the
-# apply fails partway. See deploy/fault/ingress/README.md.
+# Applies a staging-only edge fault at ingress-nginx, snapshotting the fields it touches.
+# A failed apply restores the snapshot; only the opengate-staging namespace is accepted.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

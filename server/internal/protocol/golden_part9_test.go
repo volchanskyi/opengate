@@ -7,11 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// WS-16 auto-discovery wire contract. The DiscoveryReport is Rust-encoded and
-// decoded here for byte-level struct fidelity. It is additive and gated by the
-// Discovery capability; the payload carries only bounded, secret-free inventory
-// (engine/port/version — never connection strings or credentials).
-
 func TestGoldenControlDiscoveryReport(t *testing.T) {
 	msg := decodeControlFrame(t, "control_discovery_report.bin")
 	assert.Equal(t, MsgDiscoveryReport, msg.Type)
