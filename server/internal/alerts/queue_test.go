@@ -264,6 +264,17 @@ func TestEveryQueueStatementNamesItsTenant(t *testing.T) {
 	}
 }
 
+func TestTheRoomNamesWhatItIsAboutTheWayTheQueueDoes(t *testing.T) {
+	t.Parallel()
+	for name, query := range map[string]string{
+		"queueForCustomerSQL": queueForCustomerSQL,
+		"queueForTenantSQL":   queueForTenantSQL,
+		"roomSQL":             roomSQL,
+	} {
+		assert.Containsf(t, query, scopeNameColumn, "%s names its scope its own way", name)
+	}
+}
+
 func TestQueueAtTenThousandRoomsIsAnIndexedRead(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)

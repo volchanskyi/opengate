@@ -174,13 +174,13 @@ func labels[T ~string](values []T) []string {
 	return out
 }
 
-type incidentColumns interface {
+type rowScanner interface {
 	Scan(dest ...any) error
 }
 
 // Columns a room may lack, an assignee or a cause, map to zero values so callers check no pointer.
 // Columns a statement selects after the incident's own are scanned into extra.
-func scanIncident(row incidentColumns, extra ...any) (Incident, error) {
+func scanIncident(row rowScanner, extra ...any) (Incident, error) {
 	var (
 		incident   Incident
 		assignee   uuid.NullUUID
@@ -202,7 +202,7 @@ func scanIncident(row incidentColumns, extra ...any) (Incident, error) {
 }
 
 // scanNamedIncident reads an incident followed by the name of what it is about.
-func scanNamedIncident(row incidentColumns) (Incident, error) {
+func scanNamedIncident(row rowScanner) (Incident, error) {
 	var name sql.NullString
 	incident, err := scanIncident(row, &name)
 	incident.ScopeName = name.String

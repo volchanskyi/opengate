@@ -248,7 +248,7 @@ describe('InvestigationDetail — polling', () => {
     setVisibility('hidden');
     const before = mockedGet.mock.calls.length;
     await vi.advanceTimersByTimeAsync(120_000);
-    expect(mockedGet.mock.calls.length).toBe(before);
+    expect(mockedGet.mock.calls).toHaveLength(before);
   });
 
   it('leaves nothing behind when the room is closed', async () => {

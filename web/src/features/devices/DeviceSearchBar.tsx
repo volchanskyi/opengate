@@ -2,12 +2,12 @@ import { useEffect } from 'react';
 
 interface Props {
   /** The typed text, owned by the list so it can clear it. */
-  query: string;
-  onQueryChange: (query: string) => void;
+  readonly query: string;
+  readonly onQueryChange: (query: string) => void;
   /** Called with the text once typing pauses. */
-  onSearch: (query: string) => void;
-  totalCount: number;
-  filteredCount: number;
+  readonly onSearch: (query: string) => void;
+  readonly totalCount: number;
+  readonly filteredCount: number;
 }
 
 export function DeviceSearchBar({ query, onQueryChange, onSearch, totalCount, filteredCount }: Props) {

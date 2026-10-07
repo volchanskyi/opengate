@@ -24,10 +24,19 @@ const (
 )
 
 // roomSQL reads one room; a room outside the caller's customer or tenant answers "no such room".
+// It is one literal holding the queue's scopeNameColumn word for word.
 const roomSQL = `
 	SELECT i.id, i.organization_id, i.rule_id, i.scope, i.scope_key, i.severity, i.status,
 	       i.assignee_id, i.opened_at, i.first_seen, i.last_seen, i.resolved_at, i.cause_code,
-	       i.occurrences, i.device_count,` + scopeNameColumn + `
+	       i.occurrences, i.device_count,
+	       CASE i.scope
+	         WHEN 'device' THEN (SELECT d.hostname FROM devices d
+	                              WHERE d.id = i.scope_key AND d.tenant_id = i.tenant_id)
+	         WHEN 'site' THEN (SELECT s.name FROM sites s
+	                            WHERE s.id = i.scope_key AND s.tenant_id = i.tenant_id)
+	         WHEN 'organization' THEN (SELECT o.name FROM organizations o
+	                                    WHERE o.id = i.scope_key AND o.tenant_id = i.tenant_id)
+	       END
 	  FROM incidents i
 	 WHERE i.tenant_id = current_setting('app.current_tenant')::uuid
 	   AND i.id = $1

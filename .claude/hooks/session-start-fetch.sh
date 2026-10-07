@@ -18,7 +18,7 @@ subjects=$(git log --format='%h %s' HEAD..origin/dev | head -10)
 msg="Local HEAD is $behind commit(s) behind origin/dev. Upstream commits you have NOT pulled yet:
 $subjects
 
-Before reasoning about repo state (especially shared paths like deploy/, .github/, docs/), run: git pull --rebase origin dev"
+Before reasoning about repo state (especially shared paths like deploy/, .github/, docs/), run: git pull --rebase=merges origin dev"
 
 # Emit JSON via python3 (portable, no jq dependency).
 MSG="$msg" python3 -c '

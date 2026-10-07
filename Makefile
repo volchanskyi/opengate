@@ -250,27 +250,7 @@ sonar-coverage:
 
 sonar: sonar-coverage
 	@test -n "$$SONAR_TOKEN" || { echo "ERROR: SONAR_TOKEN not set. Export it or add to .env"; exit 1; }
-	@rm -rf .scannerwork
-	@. scripts/lib/tool-versions.sh; for attempt in 1 2 3; do \
-		out=$$(docker run --rm \
-			-e SONAR_TOKEN="$$SONAR_TOKEN" \
-			-v "$$(pwd):/usr/src" \
-			-w /usr/src \
-			sonarsource/sonar-scanner-cli:"$$TOOL_VERSION_SONAR_SCANNER_IMAGE" \
-			-Dsonar.qualitygate.wait=true \
-			-Dsonar.scanner.skipJreProvisioning=true \
-			-Dsonar.scanner.keepReport=true \
-			-Dsonar.working.directory=.scannerwork \
-			-Dsonar.branch.name=dev 2>&1); rc=$$?; \
-		printf '%s\n' "$$out"; \
-		[ $$rc -eq 0 ] && exit 0; \
-		if printf '%s' "$$out" | grep -q 'QUALITY GATE STATUS: FAILED'; then \
-			echo "::error::sonar quality gate FAILED — fix coverage/issues (not transient, not retrying)"; exit 1; \
-		fi; \
-		if [ "$$attempt" -eq 3 ]; then echo "::error::sonar scan failed after 3 attempts (transient infra error)"; exit 1; fi; \
-		echo "::warning::sonar scan attempt $$attempt failed (transient — e.g. SonarCloud plugin-CDN EOFException); retrying in $$((attempt * 15))s"; \
-		sleep $$((attempt * 15)); \
-	done
+	@./scripts/sonar-scan.sh
 
 sonar-quick:
 	@test -n "$$SONAR_TOKEN" || { echo "ERROR: SONAR_TOKEN not set. Export it or add to .env"; exit 1; }

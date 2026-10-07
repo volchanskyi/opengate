@@ -28,16 +28,13 @@ describe('Breadcrumbs', () => {
     expect(devicesText.tagName).toBe('SPAN');
   });
 
-  it('renders settings breadcrumb at /settings (last segment, no link)', () => {
-    renderAt('/settings');
-    const node = screen.getByText('Settings');
-    expect(node.tagName).toBe('SPAN');
-  });
-
-  it('renders the investigations crumb at /investigations (last segment, no link)', () => {
-    renderAt('/investigations');
-    const node = screen.getByText('Investigations');
-    expect(node.tagName).toBe('SPAN');
+  it.each([
+    { path: '/settings', label: 'Settings' },
+    { path: '/investigations', label: 'Investigations' },
+    { path: '/audit', label: 'Audit Log' },
+  ])('names $label as the last crumb at $path, with no link', ({ path, label }) => {
+    renderAt(path);
+    expect(screen.getByText(label).tagName).toBe('SPAN');
   });
 
   it('links back to the queue from inside a room, and names the room by its leading block', () => {
@@ -63,31 +60,15 @@ describe('Breadcrumbs', () => {
     expect(screen.getByText('Profile')).toBeInTheDocument();
   });
 
-  it('renders audit breadcrumb at /audit (last)', () => {
-    renderAt('/audit');
-    const node = screen.getByText('Audit Log');
-    expect(node.tagName).toBe('SPAN');
-  });
-
-  it('renders /audit/foo with Audit Log linked to /audit', () => {
-    renderAt('/audit/foo');
-    const link = screen.getByText('Audit Log');
+  it.each([
+    { path: '/audit/foo', label: 'Audit Log', href: '/audit' },
+    { path: '/users/u1', label: 'Users', href: '/users' },
+    { path: '/updates/x', label: 'Agent Settings', href: '/updates' },
+  ])('links $label back to $href from $path', ({ path, label, href }) => {
+    renderAt(path);
+    const link = screen.getByText(label);
     expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe('/audit');
-  });
-
-  it('renders /users/u1 with Users linked to /users', () => {
-    renderAt('/users/u1');
-    const link = screen.getByText('Users');
-    expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe('/users');
-  });
-
-  it('renders /updates/x with Agent Settings linked to /updates', () => {
-    renderAt('/updates/x');
-    const link = screen.getByText('Agent Settings');
-    expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe('/updates');
+    expect(link.getAttribute('href')).toBe(href);
   });
 
   it('renders /sessions/abc as Session label (params.token branch)', () => {

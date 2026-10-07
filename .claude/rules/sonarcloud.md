@@ -9,6 +9,11 @@ commit.
 
 - The precommit gauntlet always runs `make sonar` — full scan with fresh
   coverage upload.
+- `make sonar` runs [`sonar-scan.sh`](../../scripts/sonar-scan.sh), which scans
+  a snapshot commit of the work tree, sitting on `HEAD`, from a throwaway
+  worktree. SonarCloud raises issues only on committed content, so a scan of
+  the work tree itself raises nothing in an uncommitted edit or a new file. The
+  scan's kept report comes back to the work tree for the guards below.
 - `make sonar-quick` is for ad-hoc probing only. The gauntlet does not use it,
   and no `PRECOMMIT_SKIP_SONAR` escape hatch exists.
 - Requires Docker and `SONAR_TOKEN` in the environment or in `.env`
@@ -17,9 +22,9 @@ commit.
 
 ### A green local scan is not a green gate on its own
 
-Every `new_*` condition is scoped by git blame, and the gauntlet scans before
-the commit exists. Three guards run after `make sonar`, each reading a measure
-computed from file content rather than from blame:
+Every `new_*` condition is scoped by git blame. Three guards run after
+`make sonar`, each reading a measure computed from file content rather than
+from blame:
 
 | Guard | Gate condition it stands in for |
 |---|---|
@@ -44,6 +49,17 @@ computed from file content rather than from blame:
 - The scanner is pinned in
   [`tool-versions.sh`](../../scripts/lib/tool-versions.sh): the image tag for
   `make sonar` and the CI fallback, the CLI version for the scan action.
+
+### CI reads the gate's own answer
+
+- A CI scan that reached SonarCloud leaves `.scannerwork/report-task.txt`, so
+  its failure is the gate's verdict and fails the job as one. Only a scan that
+  never reached SonarCloud hands over to the Docker fallback, which runs as the
+  runner's user and names the branch or pull request from the event.
+- [`sonarcloud-main.yml`](../../.github/workflows/sonarcloud-main.yml) analyses
+  `main` after every merge, with the coverage of the CI run that tested it, so
+  `dev` is compared against the code that shipped. It stands apart from CI and
+  gates nothing.
 
 ### A red local scan is not a red gate either
 
@@ -73,6 +89,8 @@ Before pushing, grep the diff for patterns this project has fixed before.
 new Go DB file:
 
 - `fmt\.Sprintf.*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP)` — `go:S2077`
+- a statement constant joined with `+` and handed straight to a query call —
+  `go:S2077`, even when every piece is constant; one complete literal is not
 - `strings\.Join.*(WHERE|AND|OR)` — same hotspot, different shape
 - 3+ identical string literals in one file — `go:S1192`
 

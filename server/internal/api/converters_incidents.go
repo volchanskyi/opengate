@@ -84,7 +84,7 @@ func deref[T any](value *T) T {
 }
 
 // assignUUID fills in an optional identifier, leaving it zero when absent.
-func assignUUID(into *uuid.UUID, value *uuid.UUID) {
+func assignUUID(into, value *uuid.UUID) {
 	if value != nil {
 		*into = *value
 	}

@@ -26,6 +26,7 @@ const DEVICE_DETAIL_POLL_MS = 30_000;
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 type DeviceAMT = components['schemas']['DeviceAMT'];
+type Device = components['schemas']['Device'];
 
 interface AmtSectionProps {
   readonly amt: DeviceAMT | undefined;
@@ -65,11 +66,16 @@ function isUnassignedSite(id: string | undefined | null): boolean {
   return !trimmed || trimmed === UNASSIGNED_SITE_ID;
 }
 
+/** The device's hostname once the store holds the device the route names. */
+function crumbOf(device: Device | null, id: string | undefined): string | undefined {
+  return device !== null && device.id === id ? device.hostname : undefined;
+}
+
 export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const device = useDeviceStore((s) => s.selectedDevice);
-  useRouteCrumb(device !== null && device.id === id ? device.hostname : undefined);
+  useRouteCrumb(crumbOf(device, id));
   const isLoading = useDeviceStore((s) => s.isLoading);
   const fetchDevice = useDeviceStore((s) => s.fetchDevice);
   const deleteDevice = useDeviceStore((s) => s.deleteDevice);

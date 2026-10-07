@@ -27,7 +27,7 @@
 
 ## Triggers
 
-Every push to `dev` and every pull request targeting `main` or `dev` runs the CI pipeline. CodeQL and security scanning run on every push and PR (no separate schedule). Load testing has its own scheduled workflow.
+Every push to `dev` and every pull request targeting `main` or `dev` runs the CI pipeline. CodeQL and security scanning run on every push and PR (no separate schedule). Load testing has its own scheduled workflow. A push to `main`, which the merge makes, runs the [SonarCloud analysis of `main`](#sonarcloud).
 
 ## Branches
 
@@ -232,11 +232,20 @@ rather than one per step.
 
 The [`sonarcloud` job](../../.github/workflows/ci.yml) runs after Go unit, Rust
 test, and Web test jobs complete. It downloads all three coverage artifacts
-and runs the pinned SonarQube scan action against the full codebase. If the
-action download path fails, the job retries the same analysis through the
-Docker scanner image using the shared Docker Hub pull protection. Both take
-their scanner from [`tool-versions.sh`](../../scripts/lib/tool-versions.sh).
-The scan is skipped on scheduled runs.
+and runs the pinned SonarQube scan action against the full codebase. A scan
+that reached SonarCloud and failed is the quality gate's verdict, and fails the
+job as one. Only a scan that never reached SonarCloud, because the action could
+not download the scanner, is retried through the Docker scanner image using the
+shared Docker Hub pull protection; it runs as the runner's user and names the
+branch or pull request the event carries. Both take their scanner from
+[`tool-versions.sh`](../../scripts/lib/tool-versions.sh). The scan is skipped on
+scheduled runs.
+
+SonarCloud judges a change on `dev` against `main`, so
+[`sonarcloud-main.yml`](../../.github/workflows/sonarcloud-main.yml) analyses
+`main` after every merge, with the coverage reports of the CI run that tested
+the merged commit. It stands apart from CI: the merge, the image build and the
+deploy never wait on it.
 
 The scan keeps its report in `.scannerwork/scanner-report/`, and
 [`check-duplication`](../../scripts/check-duplication/) reads the repeated code
@@ -276,11 +285,13 @@ The same SonarCloud scan that runs in CI can be executed locally using the `sona
 
 | Target | What it does | When to use |
 |--------|-------------|-------------|
-| `make sonar` | Generates all 3 coverage files, then runs the scanner | Before pushing — full CI parity |
+| `make sonar` | Generates all 3 coverage files, then scans a snapshot commit of the work tree | Before pushing — full CI parity |
 | `make sonar-quick` | Runs the scanner without regenerating coverage | Quick check for code quality issues only |
 | `make sonar-coverage` | Generates coverage files without running the scanner | When you only need coverage reports |
 
 All targets reuse the existing `sonar-project.properties` configuration. The scanner runs with `-Dsonar.qualitygate.wait=true` and `-Dsonar.branch.name=dev`, matching CI behavior, and `make sonar` keeps the report for the repeated-code reader. Results appear on the SonarCloud dashboard under the `dev` branch analysis.
+
+SonarCloud raises issues only on committed content, so [`sonar-scan.sh`](../../scripts/sonar-scan.sh) commits the work tree — uncommitted edits and new files included — into a throwaway snapshot on `HEAD`, checks it out in a temporary worktree, and scans that. The work tree, the index and `HEAD` are left as they were.
 
 **Note:** The first run pulls the `sonarsource/sonar-scanner-cli` Docker image (~600 MB). Subsequent runs use the cached image. An active internet connection is required since the analysis runs against SonarCloud (not a local SonarQube instance).
 

@@ -35,6 +35,9 @@ vi.mock('./DeviceMetrics', () => ({
 
 describe('DeviceDetail — the page', () => {
   beforeEach(seedDeviceDetailStores);
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it('hands the breadcrumb its hostname through its own history entry', async () => {
     const router = createMemoryRouter(
@@ -46,10 +49,6 @@ describe('DeviceDetail — the page', () => {
       expect(router.state.location.state).toEqual({ crumb: mockDevice.hostname });
     });
     expect(router.state.location.pathname).toBe('/devices/d1');
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   it('opening the page requests the customers the device can be moved between', () => {

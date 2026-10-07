@@ -47,7 +47,7 @@ describe('SiteSidebar', () => {
 
   it('highlights active site', () => {
     render(<SiteSidebar />);
-    const groupA = screen.getByText('Site A').closest('div');
+    const groupA = screen.getByText('Site A').closest('li');
     expect(groupA?.className).toContain('bg-gray-700');
   });
 
@@ -192,7 +192,7 @@ describe('SiteSidebar', () => {
 
   it('non-active sites use the gray text style; active uses white-on-gray', () => {
     render(<SiteSidebar />);
-    const groupB = screen.getByText('Site B').closest('div');
+    const groupB = screen.getByText('Site B').closest('li');
     expect(groupB?.className).toContain('text-gray-400');
     expect(groupB?.className).not.toContain('bg-gray-700 text-white');
   });

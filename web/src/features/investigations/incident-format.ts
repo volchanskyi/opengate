@@ -24,7 +24,8 @@ const SCOPE_WORDS = new Map<Scope, readonly [string, string]>([
 /** What a room is about, such as "Host · reception-pc"; a removed record is said to be removed. */
 export function scopeLabel(incident: Pick<Incident, 'scope' | 'scope_name'>): string {
   const [word, noun] = SCOPE_WORDS.get(incident.scope) ?? [incident.scope, incident.scope];
-  return `${word} · ${incident.scope_name ?? `a removed ${noun}`}`;
+  const name = incident.scope_name ?? `a removed ${noun}`;
+  return `${word} · ${name}`;
 }
 
 /** A user's display name; an id the room could not name belongs to a removed user. */

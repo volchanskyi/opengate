@@ -10,7 +10,7 @@ dbg() {
 }
 dbg "enter: pwd=$(pwd) GIT_DIR=${GIT_DIR:-unset} CI=${CI:-unset} GHA=${GITHUB_ACTIONS:-unset}"
 
-# The pull --rebase and push below never re-enter this hook.
+# The pull and push below never re-enter this hook.
 if [ -n "${OPENGATE_AUTOPUSH_ACTIVE:-}" ]; then
   dbg "exit: re-entrancy guard (OPENGATE_AUTOPUSH_ACTIVE set)"
   exit 0
@@ -49,11 +49,12 @@ fi
 tidy_write refactor.head "$(git rev-parse HEAD)"
 dbg "marker written: $(tidy_read refactor.head)"
 
-# A conflicting rebase is aborted; a replayed commit changes HEAD, so the marker is re-pointed.
-if ! git pull --rebase origin dev; then
+# The rebase keeps dev's merges of main whole, since main's commits replayed singly collide.
+# A conflicting rebase is aborted; a replay moves HEAD, so the marker follows.
+if ! git pull --rebase=merges origin dev; then
   git rebase --abort 2>/dev/null || true
-  dbg "exit: 'git pull --rebase origin dev' failed"
-  echo "auto-push aborted: 'git pull --rebase origin dev' failed — resolve and push manually"
+  dbg "exit: 'git pull --rebase=merges origin dev' failed"
+  echo "auto-push aborted: 'git pull --rebase=merges origin dev' failed — resolve and push manually"
   exit 0
 fi
 tidy_write refactor.head "$(git rev-parse HEAD)"

@@ -66,10 +66,8 @@ export function SiteSidebar() {
 
   /** Drop-zone wiring shared by every site row and the Not Assigned row. */
   const dropProps = (targetId: string, targetName: string) => (!isAdmin ? {
-    role: 'listitem',
     'aria-label': targetName,
   } : {
-    role: 'listitem',
     'aria-label': targetName,
     onDragOver: (e: React.DragEvent) => {
       if (!isDeviceDrag(e.dataTransfer)) return;
@@ -117,9 +115,9 @@ export function SiteSidebar() {
         </form>
       )}
 
-      <div role="list" className="space-y-2">
+      <ul className="space-y-2">
         {sites.map((site) => (
-          <div
+          <li
             key={site.id}
             {...dropProps(site.id, site.name)}
             className={`flex items-center justify-between rounded px-3 py-2 cursor-pointer text-sm ${zoneRing(site.id)} ${
@@ -143,11 +141,11 @@ export function SiteSidebar() {
                 {confirmDelete === site.id ? 'Confirm?' : 'x'}
               </button>
             )}
-          </div>
+          </li>
         ))}
 
         {sites.length > 0 && (
-          <div
+          <li
             {...dropProps(NOT_ASSIGNED_SITE_ID, 'Not Assigned')}
             title={isAdmin ? 'Drop a device here to take it out of its site' : undefined}
             className={`flex items-center rounded border border-dashed border-gray-600 px-3 py-2 text-sm ${zoneRing(NOT_ASSIGNED_SITE_ID)} ${
@@ -161,9 +159,9 @@ export function SiteSidebar() {
             >
               Not Assigned
             </button>
-          </div>
+          </li>
         )}
-      </div>
+      </ul>
 
       {sites.length === 0 && (
         <p className="text-sm text-gray-500">No sites yet</p>

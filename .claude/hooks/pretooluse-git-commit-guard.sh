@@ -56,7 +56,7 @@ if git fetch --quiet origin dev 2>/dev/null; then
     behind="$(git rev-list --count HEAD..origin/dev 2>/dev/null || echo 0)"
     if [ "${behind:-0}" -gt 0 ] 2>/dev/null; then
       summary="$(git log --format='%h %s' HEAD..origin/dev 2>/dev/null | head -5 || true)"
-      block git-behind-upstream "git commit refused: local HEAD is $behind commit(s) behind origin/dev. Run: git pull --rebase origin dev. Upstream commits:
+      block git-behind-upstream "git commit refused: local HEAD is $behind commit(s) behind origin/dev. Run: git pull --rebase=merges origin dev. Upstream commits:
 $summary"
     fi
   fi
