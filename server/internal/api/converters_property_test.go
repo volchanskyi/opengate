@@ -9,14 +9,6 @@ import (
 	"pgregory.net/rapid"
 )
 
-// Property-based coverage for the model→API converters, the nil-deref helpers,
-// and the device-logs pagination math. Complements the example-based cases in
-// converters_test.go. rapid.Check always runs under `go test` and explores a
-// bounded number of cases deterministically, per tests-determinism.md.
-
-// TestProperty_DevicesToAPI_PreservesOrderAndLength asserts the slice converter
-// preserves length and per-element identity/order — i.e. it is a faithful 1:1
-// map, never reordering, dropping, or duplicating a device.
 func TestProperty_DevicesToAPI_PreservesOrderAndLength(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -41,9 +33,6 @@ func TestProperty_DevicesToAPI_PreservesOrderAndLength(t *testing.T) {
 	})
 }
 
-// TestProperty_DeviceToAPI_OsDisplayPointer asserts the OsDisplay optional is
-// nil exactly when the source string is empty, and otherwise points to the
-// source value — the invariant the handler relies on to omit the field.
 func TestProperty_DeviceToAPI_OsDisplayPointer(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -60,9 +49,6 @@ func TestProperty_DeviceToAPI_OsDisplayPointer(t *testing.T) {
 	})
 }
 
-// TestProperty_DerefHelpers asserts the nil-deref helpers: nil yields the
-// fallback (zero / supplied), a non-nil pointer yields its pointee, for
-// arbitrary inputs.
 func TestProperty_DerefHelpers(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -84,11 +70,6 @@ func TestProperty_DerefHelpers(t *testing.T) {
 	})
 }
 
-// TestProperty_DeviceLogsToAPI_Pagination asserts the pagination read model:
-// Entries length and Total are preserved verbatim, and HasMore is true exactly
-// when another page exists beyond the current window (Offset+Limit < Total).
-// Random offset/limit/total exercise the Offset+Limit == Total boundary the
-// example tests pin only at fixed points.
 func TestProperty_DeviceLogsToAPI_Pagination(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {

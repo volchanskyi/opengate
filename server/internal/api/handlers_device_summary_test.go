@@ -107,9 +107,6 @@ func TestGetDeviceSummary(t *testing.T) {
 	})
 }
 
-// TestGetDeviceSummaryIsTenantScoped proves the deliberate scope choice: the
-// summary always describes the caller's own tenant, so its tiles and its
-// health bands cover one device set.
 func TestGetDeviceSummaryIsTenantScoped(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -124,10 +121,6 @@ func TestGetDeviceSummaryIsTenantScoped(t *testing.T) {
 	assert.Equal(t, DeviceSummary{}, got, "another tenant's fleet is invisible")
 }
 
-// TestGetDeviceSummaryIsConstantSize proves the payload does not grow with the
-// fleet. The response is a fixed set of keys holding integers, so growing the
-// fleet 51-fold may only widen those integers by a digit or two — it can never
-// add a field, and it can never add a per-device entry.
 func TestGetDeviceSummaryIsConstantSize(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -148,7 +141,7 @@ func TestGetDeviceSummaryIsConstantSize(t *testing.T) {
 
 	assert.Equal(t, jsonShape(t, smallBody), jsonShape(t, largeBody),
 		"the payload's shape must not change with fleet size")
-	// 51 devices instead of 1 widens total/online/unknown by one digit each.
+	// Growing from 1 to 51 devices widens total, online and unknown by one digit each.
 	assert.LessOrEqual(t, len(largeBody)-len(smallBody), 3,
 		"a 51-fold fleet may only widen the integers, never add structure")
 }

@@ -1,42 +1,5 @@
-//! WS-15 reconnect-backfill replay engine (agent side).
-//!
-//! On reconnect the agent drains its durable WS-14b history to the central store
-//! as a **resolution-tiered, recent-first, gradually-drained** flow — never a
-//! stampede. Because local data is durable, backfill has no urgency and never
-//! loses data; the only questions are order, resolution, and staying inside the
-//! server-granted rate.
-//!
-//! The locked decisions this module encodes:
-//! - **Tiered mapping** — the recent window ships as 60 s rolled from T0
-//!   ([`BackfillTier::Recent60s`]), the same grid and the same fold the live
-//!   stream emits on, so a backfilled point and a live point for the same second
-//!   are the same point; older history up to the mid boundary ships as 1 min from
-//!   T1 ([`BackfillTier::Rollup1m`]); older-still up to retention ships as 1 hr
-//!   from T2 ([`BackfillTier::Rollup1h`]). Full-res **1 s raw is never sent** —
-//!   it is reachable only via [`answer_local_history`].
-//! - **Extrema ride along** — every bucket ships its average and, for the gauges
-//!   that carry one, the bucket's maximum. The rollup tiers take that maximum
-//!   from the stored bucket, never from the averages they just read: a
-//!   max-of-averages is a different and smaller number, and it hides the stall
-//!   the maximum exists to show.
-//! - **Hybrid order** — the recent window drains first, then the older tiers
-//!   oldest-first from a per-tier watermark, so an interrupted drain resumes
-//!   cleanly.
-//! - **Retention clamp + clock bounds** — a bucket older than `now - retention`
-//!   or wildly in the future (beyond `now + skew`) is skipped, never shipped.
-//!
-//! The engine is pure and synchronous: it reads through a [`TierReader`] (the
-//! store's MVCC snapshot in production, a fake in tests) and yields ready-to-send
-//! [`PlannedBatch`]es. The walk itself — the phases, their timestamp bands and
-//! the batch boundaries — is [`drain`]; this module owns what the walk reads
-//! through ([`TierReader`]), what bounds it ([`BackfillConfig`]), where it
-//! resumes from ([`BackfillCursors`], [`CursorStore`]) and the 60 s fold the
-//! recent tier ships on ([`roll_to_60s`]).
-//!
-//! It never advances the *durable* cursor itself — the caller
-//! persists a batch's cursor only after the server acks it, so a dropped
-//! connection re-sends from the last durable watermark (idempotent; the server
-//! dedups by timestamp).
+//! Reconnect backfill: recent-first tiered replay of durable history, where the caller persists
+//! a batch's cursor only after the server acks it, so a dropped connection re-sends idempotently.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -52,10 +15,9 @@ mod drain;
 
 pub use drain::{BackfillDrain, PlannedBatch};
 
-/// Read side of the local store the backfill engine needs. Implemented by the
-/// store's [`TsdbSnapshot`] in production and by an in-memory fake in tests.
+/// Read side of the local store that the backfill engine drains.
 pub trait TierReader {
-    /// Committed T0 raw samples (+anomaly bit) over `[start, end]`, ascending.
+    /// Committed T0 raw samples with the anomaly bit over `[start, end]`, ascending.
     fn range_raw(
         &self,
         series: SeriesId,
@@ -97,29 +59,24 @@ impl TierReader for TsdbSnapshot {
 /// One bucket's readings for a series: the bucket's average and its maximum.
 type BucketReduction = (SeriesId, f64, f64);
 
-/// Seconds in a recent / 1 min / 1 hr backfill bucket. The recent tier rolls raw
-/// T0 to the same 60 s grid the live stream uses.
+/// Seconds in a recent, 1 min and 1 hr backfill bucket; the recent tier uses the live 60 s grid.
 const RECENT_STEP: i64 = 60;
 const MIN_STEP: i64 = 60;
 const HOUR_STEP: i64 = 3600;
 
-/// Tunables for a reconnect-backfill drain. Age bands are half-open by sample
-/// age (`now - ts`): `[0, recent)` → Recent60s, `[recent, mid)` → Rollup1m,
-/// `[mid, retention)` → Rollup1h, `>= retention` → skipped (on-demand only).
+/// Age bands by `now - ts`: up to `recent` ships 60 s, up to `mid` 1 min,
+/// up to `retention` 1 hr.
 #[derive(Debug, Clone, Copy)]
 pub struct BackfillConfig {
-    /// Central VM retention window (seconds). Buckets at or beyond this age are
-    /// never shipped — they remain reachable only via an on-demand pull.
+    /// Central retention in seconds; buckets older than this are never shipped.
     pub retention_secs: i64,
     /// Age below which history ships as 60 s rolled from T0.
     pub recent_secs: i64,
-    /// Age below which (and at/above `recent_secs`) history ships as 1 min from T1;
-    /// at/above this and below `retention_secs` it ships as 1 hr from T2.
+    /// Age below which history ships as 1 min from T1; older ships as 1 hr from T2.
     pub mid_secs: i64,
-    /// A bucket timestamp beyond `now + future_skew_secs` is a wild clock and is
-    /// skipped rather than shipped to a bogus future instant.
+    /// Buckets beyond `now + future_skew_secs` are skipped as a wild clock.
     pub future_skew_secs: i64,
-    /// Soft cap on samples per batch (drains split into multiple batches).
+    /// Soft cap on samples per batch.
     pub max_batch_samples: usize,
 }
 
@@ -135,8 +92,7 @@ impl Default for BackfillConfig {
     }
 }
 
-/// Durable per-tier resume watermarks: the newest bucket timestamp already
-/// shipped-and-acked for each tier, or `None` if a tier has never shipped.
+/// Per-tier resume watermarks: the newest acked bucket timestamp, `None` if never shipped.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BackfillCursors {
     /// Newest 60 s window shipped from T0.
@@ -158,21 +114,13 @@ impl BackfillCursors {
     }
 }
 
-/// The 60 s window start a raw second-timestamp falls into
-/// (window start = `floor(ts/60)*60`). Shared with the live host-metric emitter
-/// so a live 60 s average and a reconnect-backfilled 60 s average key the same
-/// bucket for the same second — the two paths never diverge on a timestamp.
+/// The 60 s window start (`floor(ts/60)*60`) shared by the live emitter and backfill.
 pub(crate) fn window_start_60s(ts: i64) -> i64 {
     ts.div_euclid(RECENT_STEP) * RECENT_STEP
 }
 
-/// Fold 1 s raw samples into 60 s windows of `(window start, value, maximum)`,
-/// ascending. `reduction` is the series' own rule for the published value — the
-/// mean of the window for an instantaneous gauge, its latest reading for a stall
-/// vital the kernel has already averaged over 60 s — so a gap-filled point
-/// equals the live point the emitter would have sent for the same window. A
-/// partial window (fewer than 60 samples, e.g. across an offline gap) reduces
-/// the samples that exist — the best available values.
+/// Folds 1 s samples into ascending 60 s `(window start, value, maximum)`, with `reduction`
+/// choosing mean or latest so a backfilled point equals the live one.
 pub(crate) fn roll_to_60s(
     samples: &[(Sample, bool)],
     reduction: WindowReduction,
@@ -202,18 +150,14 @@ pub(crate) fn roll_to_60s(
         .collect()
 }
 
-/// Reserved cursor-table keys for the three durable per-tier backfill
-/// watermarks. Real metric series are small ids (0..); these sit at the very top
-/// of the [`SeriesId`] space so a tier watermark never collides with a series'
-/// WS-14b per-series cursor in the same table.
+/// Reserved cursor key for the 60 s-tier watermark, at the top of the [`SeriesId`] space.
 pub const TIER_CURSOR_RECENT60S: SeriesId = SeriesId::MAX;
-/// Reserved key for the 1 min-tier watermark.
+/// Reserved cursor key for the 1 min-tier watermark.
 pub const TIER_CURSOR_ROLLUP1M: SeriesId = SeriesId::MAX - 1;
-/// Reserved key for the 1 hr-tier watermark.
+/// Reserved cursor key for the 1 hr-tier watermark.
 pub const TIER_CURSOR_ROLLUP1H: SeriesId = SeriesId::MAX - 2;
 
-/// The reserved durable-cursor key for a shippable tier, or `None` for a tier
-/// the drain never persists (there is no default/unknown watermark).
+/// The reserved cursor key for a shippable tier, `None` for a tier with no watermark.
 #[must_use]
 pub fn tier_cursor_key(tier: BackfillTier) -> Option<SeriesId> {
     match tier {
@@ -224,13 +168,11 @@ pub fn tier_cursor_key(tier: BackfillTier) -> Option<SeriesId> {
     }
 }
 
-/// Durable persistence of the three per-tier backfill watermarks. Implemented
-/// over the store's cursor table by [`LocalTsdb`] in production and by an
-/// in-memory fake in tests.
+/// Durable storage for the per-tier backfill watermarks.
 pub trait CursorStore {
     /// The persisted watermark for a reserved tier key, or `None` if never set.
     fn load_cursor(&self, key: SeriesId) -> Result<Option<i64>, TsdbError>;
-    /// Persist a watermark advance for a reserved tier key.
+    /// Persists a watermark advance for a reserved tier key.
     fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError>;
 }
 
@@ -240,14 +182,12 @@ impl CursorStore for LocalTsdb {
     }
 
     fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError> {
-        // Buffered (non-fsync) durability: a cursor lost to a crash only re-sends
-        // already-persisted-central, timestamp-deduped history — never data loss
-        // — so the watermark advance stays off the fsync path.
+        // A cursor lost to a crash only re-sends timestamp-deduped history, so no fsync is needed.
         self.set_cursor(key, ts, Durability::None)
     }
 }
 
-/// Load the three durable per-tier resume watermarks from `store`.
+/// Loads the per-tier resume watermarks from `store`.
 pub fn load_cursors<C: CursorStore>(store: &C) -> Result<BackfillCursors, TsdbError> {
     Ok(BackfillCursors {
         recent60s: store.load_cursor(TIER_CURSOR_RECENT60S)?,
@@ -256,8 +196,7 @@ pub fn load_cursors<C: CursorStore>(store: &C) -> Result<BackfillCursors, TsdbEr
     })
 }
 
-/// Advance the durable watermark for a tier whose batch the server acked. A tier
-/// with no reserved key (a future variant) is a silent no-op.
+/// Advances the watermark for a tier whose batch the server acked; a tier without a key is a no-op.
 pub fn record_ack<C: CursorStore>(
     store: &mut C,
     tier: BackfillTier,
@@ -269,10 +208,7 @@ pub fn record_ack<C: CursorStore>(
     Ok(())
 }
 
-/// A cheap backlog hint for `RequestBackfillSlot`: the total pending bucket count
-/// across all tiers from the durable cursors, and the oldest pending bucket
-/// timestamp (`0` when nothing is pending, never a bogus instant). Drains a
-/// throwaway plan over `reader`; the drain is deterministic and side-effect-free.
+/// The pending sample count and oldest pending timestamp (`0` when none), from a throwaway drain.
 pub fn pending_hint<R: TierReader>(
     reader: &R,
     now: i64,
@@ -292,9 +228,8 @@ pub fn pending_hint<R: TierReader>(
     Ok((pending, if pending == 0 { 0 } else { oldest }))
 }
 
-/// The minimum delay before sending the next batch so a drain of `sample_count`
-/// samples stays within `rate` samples/sec. A `rate` of `0` means "as fast as
-/// per-batch acks allow" (no pacing); an empty batch never waits.
+/// The delay keeping `sample_count` samples within `rate` samples/sec; rate `0` or an empty
+/// batch waits zero.
 #[must_use]
 pub fn pace_delay(sample_count: usize, rate: u32) -> Duration {
     if rate == 0 || sample_count == 0 {
@@ -303,9 +238,8 @@ pub fn pace_delay(sample_count: usize, rate: u32) -> Duration {
     Duration::from_secs_f64(sample_count as f64 / f64::from(rate))
 }
 
-/// Answer an on-demand deep-history pull: full-resolution 1 s T0 raw for `series`
-/// over `[from, to]`, capped at `max_points`. Returns the ascending points and a
-/// `truncated` flag set when the window held more than `max_points` samples.
+/// Returns 1 s raw points for `series` over `[from, to]`, capped at `max_points`, and whether
+/// the window was truncated.
 pub fn answer_local_history<R: TierReader>(
     reader: &R,
     series: SeriesId,
@@ -343,10 +277,6 @@ mod tests {
         );
     }
 
-    /// A stall vital is already the kernel's 60 s average, so its window
-    /// publishes the latest reading in it. Averaging the window instead would
-    /// report 29.5 for a minute that ended at 59 — a stall that resolved and a
-    /// stall still in progress would look alike.
     #[test]
     fn roll_to_60s_publishes_the_latest_reading_for_a_stall_vital() {
         let samples: Vec<(Sample, bool)> = (0..150)
@@ -360,8 +290,6 @@ mod tests {
         );
     }
 
-    /// Samples reaching the roll-up out of order (a late NTP correction) must
-    /// not make an earlier reading the window's latest.
     #[test]
     fn roll_to_60s_latest_reading_is_by_timestamp_not_arrival() {
         let samples = vec![
@@ -391,8 +319,6 @@ mod tests {
         );
     }
 
-    /// A window of negative readings must not report a maximum of zero — the
-    /// running extremum starts below every possible sample, not at the origin.
     #[test]
     fn roll_to_60s_maximum_of_negative_readings_is_negative() {
         let samples = vec![

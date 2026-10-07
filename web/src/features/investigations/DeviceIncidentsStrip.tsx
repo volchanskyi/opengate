@@ -9,16 +9,10 @@ import { useQueueStore } from './state/queue-store';
 /** How often a machine's page re-reads what it is caught up in. */
 const STRIP_POLL_MS = 60_000;
 
-/**
- * The open incidents one machine is in, as a strip on that machine's page —
- * including the customer-wide ones it is one of forty machines in.
- *
- * A machine with nothing open renders nothing at all: an empty box on every
- * healthy device's page is noise that trains people to stop reading the space.
- */
+/** The open incidents one machine is in, customer-wide ones included; empty renders nothing. */
 export function DeviceIncidentsStrip({ deviceId, className = '' }: {
   readonly deviceId: string;
-  /** Layout the host page needs on the strip itself, so nothing is laid out when there is no strip. */
+  /** Layout classes the host page applies to the strip. */
   readonly className?: string;
 }) {
   const incidents = useQueueStore((s) => s.byDevice.get(deviceId));

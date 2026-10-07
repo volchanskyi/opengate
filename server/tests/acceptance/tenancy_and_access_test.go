@@ -12,9 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// arrangeSeparateTenant creates a second installation-worth of isolation
-// inside the same database. A tenant is what the product actually permits by,
-// and there is no operator door that creates one.
 func (p *Product) arrangeSeparateTenant(name string) uuid.UUID {
 	p.t.Helper()
 	tenantID := uuid.New()
@@ -22,8 +19,7 @@ func (p *Product) arrangeSeparateTenant(name string) uuid.UUID {
 	return tenantID
 }
 
-// TechnicianIn signs a technician in inside another tenant, which is the only
-// boundary the product refuses across.
+// TechnicianIn signs an administrator in inside another tenant.
 func (p *Product) TechnicianIn(tenantID uuid.UUID) *Technician {
 	p.t.Helper()
 
@@ -35,10 +31,6 @@ func (p *Product) TechnicianIn(tenantID uuid.UUID) *Technician {
 	return &Technician{t: p.t, product: p, User: user, token: token, admin: true}
 }
 
-// TestOneTenantsEstateIsInvisibleToAnother is the sentence Tenancy and Access
-// promises, stated once across the whole surface rather than route by route. A
-// guessed identifier must answer the way a missing one does: a different
-// status code for "exists but is not yours" tells the caller the row is there.
 func TestOneTenantsEstateIsInvisibleToAnother(t *testing.T) {
 	t.Parallel()
 
@@ -65,10 +57,6 @@ func TestOneTenantsEstateIsInvisibleToAnother(t *testing.T) {
 		"a live connection is the one thing that must never cross a tenant")
 }
 
-// TestTheLastAdministratorCannotBeDemoted keeps an installation from locking
-// itself out. Take administration away from the last person who holds it and
-// nobody is left who can mint an enrolment token, publish a build, or put
-// anybody back — including themselves.
 func TestTheLastAdministratorCannotBeDemoted(t *testing.T) {
 	t.Parallel()
 
@@ -84,8 +72,6 @@ func TestTheLastAdministratorCannotBeDemoted(t *testing.T) {
 		"taking administration from the last person who holds it must be refused")
 }
 
-// registerAdministrator creates an operator and gives them administration,
-// which is what somebody setting an installation up does first.
 func (a *Technician) registerAdministrator(email string) uuid.UUID {
 	a.t.Helper()
 
@@ -116,7 +102,6 @@ func (a *Technician) registerAdministrator(email string) uuid.UUID {
 	return created.ID
 }
 
-// demote takes administration away from an operator.
 func (a *Technician) demote(user uuid.UUID) Reply {
 	a.t.Helper()
 	return a.Patch("/api/v1/users/"+user.String(), map[string]any{"is_admin": false})

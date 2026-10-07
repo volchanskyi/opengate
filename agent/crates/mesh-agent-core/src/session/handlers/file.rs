@@ -1,8 +1,4 @@
 //! File-operations control-message handler.
-//!
-//! Owns `ControlMessage::FileListRequest`, `FileDownloadRequest`, and
-//! `FileUploadRequest` dispatch so file operations remain isolated from the
-//! [`super::super::handler::SessionHandler`] multiplexer.
 
 use mesh_protocol::{ControlMessage, Frame};
 use tokio::sync::mpsc;
@@ -12,19 +8,13 @@ use super::super::relay::send_frame;
 use super::ControlMessageHandler;
 use crate::file_ops::FileOpsHandler;
 
-/// Handles file-related control messages (list, download, upload).
-///
-/// Unit struct with associated functions — no per-session state. The
-/// FileOpsHandler is threaded explicitly and carries the file_read /
-/// file_write permission gates internally.
+/// Handles file list, download and upload messages; `FileOpsHandler` holds the permission gates.
 pub struct FileHandler;
 
 impl ControlMessageHandler for FileHandler {}
 
 impl FileHandler {
-    /// Process a `FileListRequest` control message. Lists the directory
-    /// via FileOpsHandler and sends the response (or a FileListError on
-    /// failure) over the frame channel.
+    /// Sends the directory listing, or a `FileListError`, over the frame channel.
     pub async fn handle_list(
         file_ops: &FileOpsHandler,
         frame_tx: &mpsc::Sender<Vec<u8>>,
@@ -53,10 +43,7 @@ impl FileHandler {
         }
     }
 
-    /// Process a `FileDownloadRequest` control message. Spawns a
-    /// background task that streams the file via FileOpsHandler;
-    /// failures are logged but do not propagate (the download stream
-    /// owns its own error reporting via the frame channel).
+    /// Spawns a task that streams the file over the frame channel; a failure is logged.
     pub fn handle_download(
         file_ops: &FileOpsHandler,
         frame_tx: &mpsc::Sender<Vec<u8>>,
@@ -72,12 +59,9 @@ impl FileHandler {
         });
     }
 
-    /// Process a `FileUploadRequest` control message. Upload is not yet
-    /// implemented; the handler accepts and drops the message silently
-    /// (no frame emitted, no panic). Matches the pre-carve-out behavior.
+    /// Accepts and drops a `FileUploadRequest`.
     pub fn handle_upload(_path: &str, _total_size: u64) {
-        // Intentional no-op — upload feature deferred. See ControlMessage
-        // protocol notes in mesh-protocol/src/control.rs.
+        // The dispatcher logs the request, and no file is written.
     }
 }
 

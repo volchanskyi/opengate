@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/perf-volume-curve.sh — the step that reads the volume
-# family's legs together.
-#
-# The family varies how much data is already there and holds the load constant.
-# Three bundles a night were produced and nothing compared them: no publish
-# step, no trend, no gate. Three runs that happen to share a profile, and the
-# whole subject of the family — whether the system slows down as the estate
-# grows — is a comparison between those three and nowhere else.
-#
-# So the cases below are about what a sweep over data volume has to be able to
-# say: that its legs held different amounts of data, that the load it held
-# constant was actually offered at every one of them, and that they did not all
-# come back with the same answer.
+# Tests for scripts/perf-volume-curve.sh, which reads the volume family's legs together.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,11 +30,7 @@ assert_eq() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# leg writes one bundle: how many machines the estate ended up holding, what
-# that estate weighs, its verdict, what the server took to record a machine, and
-# what a technician waited for a fleet list. The last is the half the family
-# holds constant, so a leg without one is a leg that offered no technician load
-# at all — the fifth argument is left off to produce exactly that.
+# Leaving off the fifth argument produces a leg that offered no technician load.
 leg() {
   local devices="$1" verdict="$2" register="$3" bytes="$4" journey="${5:-}"
   local dir="$WORK/legs/volume-$devices"
@@ -76,8 +60,6 @@ run_curve() {
 
 echo "perf-volume-curve:"
 
-# --- The shape is published, because the shape is what the family is for ------
-
 reset_legs
 leg 500 valid 40 10000000 12
 leg 2000 valid 60 30000000 20
@@ -96,17 +78,12 @@ else
   fail "the table omits the technician reading"
 fi
 
-# A curve that fails to rise is not failed. One night is one sample per leg, and
-# a gate asserting that more data is always slower would fail the night the
-# database got faster at the same size — which is a finding, not a fault.
 reset_legs
 leg 500 valid 100 10000000 30
 leg 2000 valid 40 30000000 12
 leg 8000 valid 60 90000000 20
 run_curve
 assert_eq "a curve that does not rise is published, not failed" 0 "$STATUS"
-
-# --- What it refuses ----------------------------------------------------------
 
 reset_legs
 leg 500 valid 40 10000000 12
@@ -120,9 +97,6 @@ else
   fail "the refusal does not say which leg measured nothing"
 fi
 
-# The legs must hold different amounts of data or the sweep is one point walked
-# three times. This is the shape the family actually had before its profiles
-# enrolled different fleets: three names, one estate.
 reset_legs
 leg 500 valid 40 10000000 12
 mkdir -p "$WORK/legs/volume-copy"
@@ -135,9 +109,6 @@ else
   fail "the refusal does not explain that the legs are the same point"
 fi
 
-# A leg with no technician reading offered nothing but machines arriving, which
-# is the load whose cost barely moves with the size of the estate — so the leg
-# varied the family's variable against something that cannot feel it.
 reset_legs
 leg 500 valid 40 10000000 12
 leg 2000 valid 60 30000000
@@ -149,8 +120,6 @@ else
   fail "the refusal does not mention the technician reading"
 fi
 
-# The family's own variable. A leg whose estate was never weighed cannot be
-# placed on an axis of how much data is there.
 reset_legs
 leg 500 valid 40 10000000 12
 leg 2000 valid 60 0 20
@@ -162,14 +131,11 @@ else
   fail "the refusal does not mention the weight"
 fi
 
-# One leg is a run. Reporting it as a sweep is how a sweep comes to be missing
-# two of its three legs with nothing saying so.
 reset_legs
 leg 500 valid 40 10000000 12
 run_curve
 assert_eq "a single leg is not a curve" 1 "$STATUS"
 
-# And a directory with nothing in it must not read as a clean sweep.
 reset_legs
 mkdir -p "$WORK/legs"
 run_curve

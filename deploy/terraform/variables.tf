@@ -52,12 +52,6 @@ variable "ssh_allowed_cidr" {
   }
 }
 
-# --- OKE (Phase 13b cutover) -------------------------------------------------
-# Defaults are the live values resolved at wiring time (region us-sanjose-1,
-# 2026-06-06): `oci ce cluster-options get` for the version and
-# `oci ce node-pool-options get` for the aarch64 OKE image. Refresh when OCI
-# deprecates the image (the node pool will report an unavailable-image error).
-
 variable "oke_kubernetes_version" {
   description = "OKE control-plane + node-pool Kubernetes version. Resolve via `oci ce cluster-options get --cluster-option-id all`."
   type        = string
@@ -75,10 +69,6 @@ variable "oke_availability_domain" {
   type        = string
   default     = "pQib:US-SANJOSE-1-AD-1"
 }
-
-# --- Off-cluster Postgres backups (ADR-035) ----------------------------------
-# Defaults match the live imperatively-created bucket + retention rule so the
-# Phase-B `terraform import` reconciliation plans a no-op.
 
 variable "backup_bucket_name" {
   description = "Name of the off-cluster Postgres backup bucket."

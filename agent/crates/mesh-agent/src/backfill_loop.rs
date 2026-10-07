@@ -1,18 +1,5 @@
-//! WS-15 reconnect-backfill drive loop (agent binary side).
-//!
-//! Bridges the pure [`mesh_agent_core::ml::backfill`] engine and the durable
-//! WS-14b [`LocalStoreSink`] to the live QUIC control stream. On each new
-//! session the coordinator requests a server-coordinated admission slot, and —
-//! once granted — drains the persisted history **recent-first, tier-mapped,
-//! throttled to the granted rate, one acked batch at a time**, advancing the
-//! durable per-tier watermark only after the server acks. It also answers
-//! server-brokered on-demand deep-history pulls from the local T0 raw tier.
-//!
-//! Every method that touches the store runs the redb read/write on a
-//! [`spawn_blocking`](tokio::task::spawn_blocking) thread, so a cold-cache range
-//! read or a long backlog scan never blocks the async control loop's reactor.
-//! The store lock is shared with the sampler and is held only for the duration
-//! of one snapshot/drain/cursor-write.
+//! Reconnect-backfill loop: drains persisted history recent-first, one acked batch at a time,
+//! and answers deep-history pulls; store access runs on blocking threads.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -28,13 +15,10 @@ use mesh_agent_core::ml::backfill::{
 use mesh_agent_core::ml::store_sink::{dim_series, LocalStoreSink, BACKFILL_SERIES};
 use mesh_protocol::{BackfillTier, ControlMessage};
 
-/// Maximum full-resolution points returned for one deep-history pull when the
-/// server does not bound the request itself (defense in depth against a huge
-/// window). The admin-gated server endpoint also caps this.
+/// Maximum full-resolution points in one deep-history pull; also the default.
 const HISTORY_HARD_CAP: usize = 100_000;
 
-/// Where a coordinator is in the request → grant → drain lifecycle for the
-/// current session.
+/// Where a coordinator is in the request, grant, drain lifecycle for the current session.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Phase {
     /// No slot requested yet this session (or nothing to drain).
@@ -54,7 +38,7 @@ enum Phase {
     Quiescent,
 }
 
-/// Drives WS-15 reconnect backfill for one agent over its live control stream.
+/// Drives reconnect backfill for one agent over its live control stream.
 pub(crate) struct BackfillCoordinator {
     store: Arc<Mutex<LocalStoreSink>>,
     cfg: BackfillConfig,
@@ -62,7 +46,6 @@ pub(crate) struct BackfillCoordinator {
 }
 
 impl BackfillCoordinator {
-    /// Create a coordinator over the sampler-shared local store.
     pub(crate) fn new(store: Arc<Mutex<LocalStoreSink>>) -> Self {
         Self {
             store,
@@ -71,10 +54,8 @@ impl BackfillCoordinator {
         }
     }
 
-    /// Begin a backfill cycle for a freshly-registered session: reset state and,
-    /// if history is pending, return the `RequestBackfillSlot` to send. Returns
-    /// `None` (and goes quiescent) when nothing is pending — an idle agent never
-    /// asks for a slot it does not need.
+    /// Begins a backfill cycle for a new session and returns the `RequestBackfillSlot` to send,
+    /// or `None` when no history is pending.
     pub(crate) async fn start_session(&mut self) -> Option<ControlMessage> {
         self.phase = Phase::Idle;
         let cfg = self.cfg;
@@ -105,8 +86,7 @@ impl BackfillCoordinator {
         })
     }
 
-    /// Handle a `GrantBackfill`: hold the grant and enter the draining phase. The
-    /// caller schedules an immediate [`next_batch`](Self::next_batch) send.
+    /// Holds the grant and enters the draining phase.
     pub(crate) fn on_grant(&mut self, rate: u32, deadline: i64) {
         self.phase = Phase::Draining {
             rate,
@@ -116,9 +96,7 @@ impl BackfillCoordinator {
         };
     }
 
-    /// Handle a `DeferBackfill`: hold durable data and go quiescent until a
-    /// jittered retry. Returns the delay before the caller should
-    /// [`start_session`](Self::start_session) again.
+    /// Goes quiescent and returns the jittered delay before the caller restarts the session.
     pub(crate) fn on_defer(&mut self, retry_after: u32) -> Duration {
         self.phase = Phase::Quiescent;
         let base = u64::from(retry_after.max(1));
@@ -127,10 +105,8 @@ impl BackfillCoordinator {
         Duration::from_secs(base.saturating_sub(base / 4).saturating_add(jitter))
     }
 
-    /// Produce the next control message while draining, or `None` when there is
-    /// nothing to send right now. Sends one batch at a time (gated on the prior
-    /// ack). When the grant deadline has passed with work still pending it
-    /// re-requests a slot rather than draining past the grant.
+    /// Returns the next batch while draining, one at a time gated on the prior ack, or `None`.
+    /// A grant past its deadline triggers a fresh slot request.
     pub(crate) async fn next_batch(&mut self) -> Option<ControlMessage> {
         let Phase::Draining {
             rate,
@@ -173,7 +149,7 @@ impl BackfillCoordinator {
                 })
             }
             Ok(None) => {
-                self.phase = Phase::Quiescent; // fully drained this session
+                self.phase = Phase::Quiescent;
                 None
             }
             Err(e) => {
@@ -184,10 +160,8 @@ impl BackfillCoordinator {
         }
     }
 
-    /// Handle a `MetricBackfillAck`: advance the durable per-tier watermark and
-    /// return the pace delay the caller waits before the next
-    /// [`next_batch`](Self::next_batch). A stray ack outside the draining phase
-    /// is ignored.
+    /// Advances the durable per-tier watermark and returns the pace delay before the next batch.
+    /// An ack outside the draining phase is ignored.
     pub(crate) async fn on_ack(&mut self, tier: BackfillTier, cursor: i64) -> Duration {
         let Phase::Draining {
             rate,
@@ -218,9 +192,8 @@ impl BackfillCoordinator {
         pace_delay(last_len, rate)
     }
 
-    /// Answer a server-brokered `RequestLocalHistory`: a bounded full-resolution
-    /// 1 s pull of one dimension from the local T0 raw tier. An unknown dimension
-    /// yields an empty (non-truncated) response so the broker always completes.
+    /// Answers a `RequestLocalHistory` with a bounded 1 s pull of one dimension from the T0 tier.
+    /// An unknown dimension yields an empty response so the broker completes.
     pub(crate) async fn answer_history(
         &self,
         dim: String,
@@ -258,14 +231,13 @@ impl BackfillCoordinator {
         }
     }
 
-    /// True while a grant is held and the drain has not finished — the control
-    /// loop arms its paced-send timer only in this phase.
+    /// True while a grant is held and the drain has not finished.
     pub(crate) fn is_draining(&self) -> bool {
         matches!(self.phase, Phase::Draining { .. })
     }
 
-    /// Run a read-only store closure on a blocking thread, so a cold-cache redb
-    /// read never stalls the async control loop.
+    /// Runs a read-only store closure on a blocking thread so a cold-cache redb read never
+    /// stalls the async control loop.
     async fn read_store<F, T>(&self, f: F) -> Result<T, TsdbError>
     where
         F: FnOnce(&LocalStoreSink) -> Result<T, TsdbError> + Send + 'static,
@@ -314,10 +286,9 @@ mod tests {
         }
     }
 
-    /// A store seeded with `n` recent 1 s samples ending just before `now`.
     fn seeded_store(now: i64, n: i64) -> Arc<Mutex<LocalStoreSink>> {
         let dir = tempfile::tempdir().expect("tempdir");
-        // Keep the temp dir so the redb file outlives the test body.
+        // The temp dir is kept so the redb file outlives the test body.
         let path = dir.keep();
         let mut sink = LocalStoreSink::open(&path, 64 * 1024 * 1024, 1).expect("open");
         for ts in (now - n)..now {
@@ -345,7 +316,6 @@ mod tests {
         let store = seeded_store(now, 30);
         let mut c = BackfillCoordinator::new(store);
 
-        // Session start asks for a slot with a non-empty backlog hint.
         match c.start_session().await {
             Some(ControlMessage::RequestBackfillSlot {
                 pending_samples,
@@ -357,7 +327,6 @@ mod tests {
             other => panic!("expected RequestBackfillSlot, got {other:?}"),
         }
 
-        // Grant → drain. Every batch is the recent 60 s tier, never 1 s raw.
         c.on_grant(100, now + 3600);
         assert!(c.is_draining());
         let mut batches = 0;
@@ -374,7 +343,6 @@ mod tests {
                         assert_eq!(s.ts % 60, 0, "60 s windows, never 1 s");
                     }
                     batches += 1;
-                    // Server acks the batch; cursor advances, pace is honored.
                     let delay = c.on_ack(tier, cursor).await;
                     assert!(delay <= Duration::from_secs(60));
                 }
@@ -404,7 +372,6 @@ mod tests {
         let store = seeded_store(now, 40);
         let c = BackfillCoordinator::new(store);
 
-        // A known dimension returns 1 s full-resolution points, capped + flagged.
         match c
             .answer_history("cpu.total".into(), now - 40, now, 10)
             .await
@@ -421,7 +388,6 @@ mod tests {
             other => panic!("expected LocalHistoryResponse, got {other:?}"),
         }
 
-        // An unknown dimension still completes the broker with an empty response.
         match c
             .answer_history("bogus.metric".into(), now - 40, now, 100)
             .await

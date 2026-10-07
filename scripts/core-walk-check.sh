@@ -1,28 +1,6 @@
 #!/usr/bin/env bash
-# Prove the core reader still reads what the pinned Go toolchain writes, and
-# that it still needs the patch it is built with.
-#
-# The endurance run's reference walk (scripts/lib/reference-walk.sh) reads
-# the Go runtime's own heap structures out of a core — spans, type descriptors,
-# allocation bitmaps — and those are unexported and move between Go releases.
-# So whenever the toolchain or the reader's pin moves, and every night besides,
-# this builds a small program with the toolchain server/go.mod pins, takes a
-# core of it while it runs, and puts the core through the same walk the
-# endurance run uses: the overview, the memory breakdown, the goroutines, the
-# type histogram, the object list, and the walk from the heaviest objects back
-# to what holds them.
-#
-# The program holds two things the walk must name. A chain of main.node values
-# from one global, main.root. And one main.wide, a type with far more pointer
-# words than the compiler describes in a map of its own: Go builds that map at
-# run time, on first use, and reaches it through one more pointer. A reader that
-# does not follow the pointer reads the slot as the map and loses the edge to
-# the main.leaf held in the last slot — or walks off the end of the binary's
-# memory, which is how the first soak dump holding such a type was lost.
-#
-# The same core then goes through the newest upstream reader, unpatched. While
-# that still cannot follow main.leaf back to main.wideRoot the patch is earning
-# its place. The night it can, this fails and says to drop the patch.
+# Builds a small program with the pinned Go toolchain, cores it, and walks the core with the
+# pinned reader; the newest upstream reader must still fail the same walk.
 #
 # Environment:
 #   VIEWCORE_UPSTREAM  the newest upstream reader, unpatched (required)
@@ -141,9 +119,8 @@ PROBE
   fi
   echo "the pinned reader walks a core $toolchain wrote back to its roots"
 
-  # The same core through the newest upstream reader, in a shell of its own so
-  # its refusal ends that shell and not this check. The shell forgets where it
-  # last found viewcore, or it would run the patched one again.
+  # The upstream reader runs in a subshell so its refusal ends only that shell.
+  # The subshell clears the command hash so it finds the upstream viewcore.
   local upstream_bin="$work/upstream-bin" upstream_walked=""
   mkdir -p "$upstream_bin" "$out/upstream"
   ln -s "$VIEWCORE_UPSTREAM" "$upstream_bin/viewcore"

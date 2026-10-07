@@ -31,7 +31,7 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 	insertTenantFixture := func(tenantID, userID, siteID, deviceID uuid.UUID, email string) {
 		t.Helper()
 		tx := beginTenantTx(t, ctx, s.db, tenantID, false)
-		defer tx.Rollback() //nolint:errcheck // harmless after Commit
+		defer tx.Rollback()
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO users (id, tenant_id, email, password_hash) VALUES ($1, $2, $3, 'hash')`,
 			userID, tenantID, email)
@@ -56,7 +56,7 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 
 	unscopedTx, err := s.db.BeginTx(ctx, nil)
 	require.NoError(t, err)
-	defer unscopedTx.Rollback() //nolint:errcheck // harmless after failed assertion
+	defer unscopedTx.Rollback()
 	_, err = unscopedTx.ExecContext(ctx, `SET LOCAL ROLE opengate_rls_test`)
 	require.NoError(t, err)
 	var unscopedCount int
@@ -64,7 +64,7 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 	require.Error(t, err, "tenant tables must fail closed without app.current_tenant")
 
 	txA := beginTenantTx(t, ctx, s.db, tenantA, false)
-	defer txA.Rollback() //nolint:errcheck // harmless after Commit
+	defer txA.Rollback()
 	var visibleToA int
 	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices`).Scan(&visibleToA))
 	assert.Equal(t, 1, visibleToA)
@@ -73,7 +73,7 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 	assert.Zero(t, tenantBVisibleToA)
 
 	adminTx := beginTenantTx(t, ctx, s.db, tenantA, true)
-	defer adminTx.Rollback() //nolint:errcheck // harmless after Commit
+	defer adminTx.Rollback()
 	var visibleToAdmin int
 	require.NoError(t, adminTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices`).Scan(&visibleToAdmin))
 	assert.Equal(t, 2, visibleToAdmin)

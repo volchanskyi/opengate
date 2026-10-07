@@ -47,9 +47,8 @@ export function Dashboard() {
     fireAndForget(fetchSummary());
   }, [fetchSummary, selectedOrganizationId]);
 
-  // Every tile reads one fixed-size response, so a refresh costs the same
-  // whatever the fleet size. A hidden tab polls nothing and catches up on
-  // re-show.
+  // Every tile reads one fixed-size response, so a refresh costs the same at any fleet size.
+  // A hidden tab polls nothing and catches up on re-show.
   useVisibleInterval(() => { fireAndForget(fetchSummary()); }, POLL_MS);
 
   return (

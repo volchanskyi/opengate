@@ -200,11 +200,6 @@ describe('AgentSetupPage', () => {
     fireEvent.change(expiresInput, { target: { value: '48' } });
 
     await userEvent.click(screen.getByText('Create'));
-
-    // Pin all three numeric / string fields — kills:
-    // - ArrowFunction `() => undefined` mutants on the onChange handlers
-    //   (they would prevent any of these fields from updating).
-    // - LogicalOperator `||` → `&&` mutants on parseInt fallbacks.
     expect(noopCreate).toHaveBeenCalledWith({
       label: 'My Label',
       max_uses: 5,
@@ -218,13 +213,7 @@ describe('AgentSetupPage', () => {
     expect(screen.getByLabelText('Label')).toBeInTheDocument();
 
     await userEvent.click(screen.getByText('Create'));
-
-    // The form must hide (showTokenForm=false) and label/maxUses/expires must
-    // reset — kills `setShowTokenForm(false)` → `setShowTokenForm(true)` mutant
-    // and `setTokenLabel('')` → `setTokenLabel("Stryker was here!")` mutant.
     expect(screen.queryByLabelText('Label')).not.toBeInTheDocument();
-
-    // Re-open the form and confirm fields are reset to defaults (empty / 0 / 24).
     await userEvent.click(screen.getByText('New Token'));
     expect((screen.getByLabelText('Label') as HTMLInputElement).value).toBe('');
     expect((screen.getByLabelText(/Max uses/) as HTMLInputElement).value).toBe('0');
@@ -242,9 +231,6 @@ describe('AgentSetupPage', () => {
   it('does not show Active badge for an inactive (expired || exhausted) token', () => {
     useUpdateStore.setState({ enrollmentTokens: [expiredToken] });
     render(<AgentSetupPage />);
-    // Pin: only expired tokens are inactive — kills `expired || exhausted` →
-    // `expired && exhausted` mutant (which would render Active for an expired
-    // but not exhausted token).
     expect(screen.queryByText('Active')).toBeNull();
   });
 
@@ -289,7 +275,6 @@ describe('AgentSetupPage', () => {
   });
 
   it('fetchEnrollmentTokens is called on admin mount but skipped for non-admin', () => {
-    // Admin
     const adminFetch = vi.fn();
     useAuthStore.setState({ user: adminUser, token: 't' });
     useUpdateStore.setState({ fetchEnrollmentTokens: adminFetch, enrollmentTokens: [] });
@@ -297,7 +282,6 @@ describe('AgentSetupPage', () => {
     expect(adminFetch).toHaveBeenCalled();
     unmount();
 
-    // Non-admin
     const userFetch = vi.fn();
     useAuthStore.setState({ user: regularUser, token: 't' });
     useUpdateStore.setState({ fetchEnrollmentTokens: userFetch, enrollmentTokens: [] });
@@ -306,13 +290,10 @@ describe('AgentSetupPage', () => {
   });
 
   it('Copy button label flips to "Copied!" after click', async () => {
-    // Mock clipboard write to resolve immediately.
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
     render(<AgentSetupPage />);
-    // The "install" command Copy button.
     const copyBtn = screen.getAllByText('Copy')[0]!;
     await userEvent.click(copyBtn);
-    // Allow microtask queue to flush.
     await Promise.resolve();
     expect(await screen.findByText('Copied!')).toBeInTheDocument();
   });

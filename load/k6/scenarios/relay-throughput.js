@@ -1,24 +1,9 @@
-// Relay throughput, measured through an actual relay.
-//
-// This scenario opens the operator's side of a remote session, sends a frame,
-// and times the same bytes coming back from the machine. The Go harness holds
-// the machine's side and echoes; the server pipes between them. What the metric
-// records is therefore the whole relay path.
-//
-// It has to be that, because three gate ceilings are named after this series,
-// and a number filled from anything else leaves those ceilings measuring
-// something they were never calibrated against.
-// k6/ws rather than the newer module: ws.connect blocks the iteration until the
-// socket closes, which is what lets one iteration send a frame, wait for it, and
-// record the round trip as a single measurement. The promise-based module would
-// have the iteration end before the answer arrived.
+// Relay throughput: times a frame the operator's side sends and the machine's side echoes back.
+// k6/ws blocks the iteration until the socket closes, so one iteration records one round trip.
 import ws from "k6/ws";
 import { check, fail, sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
-// The request client is the shared one rather than k6's own: it is the single
-// place that sees every request this run makes, which is what lets the run say
-// how many of them the server turned away at the door. The upgrade below is
-// opened through a module of its own, so it is counted by hand.
+// The shared request client counts server refusals; the upgrade below is counted by hand.
 import {
   authHeaders,
   counted,
@@ -39,14 +24,10 @@ const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 const relayMsgLatency = new Trend("relay_msg_latency_ms");
 const relayMsgCount = new Counter("relay_msg_count");
 
-// How long the operator's side waits for its own frame to come back before
-// giving up on that iteration. Well above any healthy round trip, so a timeout
-// is a finding rather than a tight budget.
+// How long the operator's side waits for its frame to come back, well above a healthy round trip.
 const ECHO_TIMEOUT_MS = 5000;
 
-// The probe the operator sends. Bytes rather than a string, because the real
-// browser sends the agent protocol's binary frames and the relay forwards
-// whatever it is given as binary either way.
+// The probe is binary because the browser sends binary agent-protocol frames.
 const PROBE = new Uint8Array([
   0x6f, 0x70, 0x65, 0x6e, 0x67, 0x61, 0x74, 0x65, 0x2d, 0x72, 0x65, 0x6c, 0x61,
   0x79, 0x2d, 0x70, 0x72, 0x6f, 0x62, 0x65,
@@ -55,15 +36,9 @@ const PROBE = new Uint8Array([
 const WALK = phases();
 
 export const options = {
-  // How many sessions are held open is the profile's `sessions`, phase by
-  // phase. It used to be a fixed twenty for one minute, which is a shape
-  // nobody declared: a profile could say five and the run hold twenty, and no
-  // number anywhere said the two disagreed.
+  // The profile's `sessions` sets how many sessions are held open, phase by phase.
   scenarios: sessionScenarios(WALK),
-  // The generator runs beside the server, one network hop away, so this is the
-  // relay's own round trip: browser side to server, server to machine side, and
-  // back. It is deliberately looser than a single HTTP request because the path
-  // is three hops and two WebSocket upgrades rather than one request.
+  // The ceiling covers three hops and two WebSocket upgrades, so it is looser than one request's.
   thresholds: Object.assign(
     { relay_msg_latency_ms: ["p(95)<400"] },
     measuredThresholds(WALK, { relay_msg_latency_ms: ["p(95)<400"] })
@@ -75,11 +50,7 @@ export function setup() {
   const fleet = readFleet(BASE_URL, member.token);
   const devices = onlineIds(fleet);
 
-  // Two things end this run and they need different work, so the read says
-  // which one it met rather than reporting the shape they share. A fleet that
-  // never arrived is the machine side; a fleet the server is no longer holding
-  // is the server. The night that made this worth saying had a hundred of a
-  // hundred machines connected while this read came back empty.
+  // The read names whether the fleet never arrived (machine side) or the server dropped it.
   const shortfall = emptyFleetReason(fleet);
   if (shortfall) {
     fail(
@@ -106,9 +77,7 @@ export default function (data) {
   }
 
   const token = created.json("token");
-  // The browser WebSocket API cannot set headers, so the operator's credential
-  // travels in the query the way the real client sends it. The relay token says
-  // which session; this says who is joining it.
+  // The browser WebSocket API cannot set headers, so the operator's credential rides in the query.
   const relayUrl = `${wsBase(BASE_URL)}/ws/relay/${token}?side=browser&auth=${data.token}`;
 
   const sentAt = Date.now();
@@ -117,8 +86,7 @@ export default function (data) {
   const res = counted(ws.connect(relayUrl, {}, function (socket) {
     socket.on("open", () => socket.sendBinary(PROBE.buffer));
 
-    // The frame this operator sent has come back through the machine, so the
-    // elapsed time is the whole path rather than one leg of it.
+    // The echo has come back through the machine, so the elapsed time is the whole path.
     const recordEcho = () => {
       relayMsgLatency.add(Date.now() - sentAt);
       relayMsgCount.add(1);
@@ -126,18 +94,12 @@ export default function (data) {
       socket.close();
     };
 
-    // The relay is a byte pipe — the agent protocol is MessagePack, so the
-    // server writes every frame it forwards as binary — and k6 dispatches a
-    // binary frame to a different handler than a text one. Listening on only
-    // one of them leaves the echo arriving at a handler that does not exist:
-    // the frame lands, ws_msgs_received counts it, and this trend stays empty
-    // while three gate ceilings sit on the zero it reports. Both are registered
-    // so what the round trip records does not depend on which type carried it.
+    // The relay forwards binary frames and k6 dispatches binary and text to separate handlers,
+    // so both are registered and the round trip records whichever type carried it.
     socket.on("binaryMessage", recordEcho);
     socket.on("message", recordEcho);
 
-    // A machine that never answers is the finding; the socket is closed so the
-    // iteration ends rather than holding a relay entry open for the run.
+    // A machine that never answers closes the socket so no relay entry is held for the run.
     socket.setTimeout(() => socket.close(), ECHO_TIMEOUT_MS);
   }));
 

@@ -1,20 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-test-value-guard.sh — refuse a web test that cannot fail for the
-# reason it claims to.
-#
-# Triggers on PreToolUse Write|Edit|MultiEdit. It judges the file the tool call
-# would produce — for an Edit that means replaying the replacement against what
-# is on disk — and hands it to scripts/test-value-check.sh, the single source of
-# truth for both this hook and the repo-wide sweep in
-# scripts/tests/test-value.test.sh. Two shapes are refused:
-#
-#   1. A test that never binds the primary export of the module it is named
-#      for — the shape of a test that copied production code into itself.
-#   2. A global or prototype reassignment with no restore.
-#
-# Nothing here is shape-based: assertion form, styling assertions and DOM walks
-# are deliberately not refused, for the reasons .claude/rules/test-value.md
-# records. NO BYPASS — edit .claude/settings.json to change enforcement.
+# Judges the file a Write, Edit or MultiEdit would produce with scripts/test-value-check.sh,
+# refusing a test that never binds its module's primary export or reassigns a global unrestored.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -48,10 +34,8 @@ work="$(mktemp)"
 stderr_file="$(mktemp)"
 trap 'rm -f "$work" "$stderr_file"' EXIT
 
-# Build the content the tool call would leave on disk. A Write carries it
-# whole; an Edit or MultiEdit is replayed against the current file. A replay
-# that does not apply means a tool call that would fail anyway, so the guard
-# stands aside there and the sweep keeps the repo-wide line.
+# Builds the content the call would leave on disk; an edit that fails to apply is allowed through
+# because the tool call fails anyway.
 export HOOK_TOOL_INPUT_CONTENT HOOK_TOOL_INPUT_OLD_STRING HOOK_TOOL_INPUT_NEW_STRING
 export HOOK_TOOL_INPUT_REPLACE_ALL HOOK_TOOL_INPUT_EDITS
 

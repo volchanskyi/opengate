@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-bash-source-write-guard.sh — catch source-file writes via Bash.
-#
-# pretooluse-tdd-gate.sh covers Write/Edit/MultiEdit tool calls. Shell can
-# also write files (`echo > foo`, `cat >>`, `sed -i`, `tee`). This hook
-# scans the Bash command for those patterns targeting paths inside the
-# repo, classifies each via scripts/tdd-check.sh is-source, and applies
-# the same TDD gate.
-#
-# It also refuses any shell write into .claude/.markers/. Each marker there is
-# written by the step it proves — the gauntlet, scripts/refactor-gate.sh, the
-# post-commit hook — and one written from the command line proves nothing. For
-# that check the targets of cp, mv, ln, install, touch, rm, truncate, rsync, dd
-# and unlink count too, and so does an interpreter one-liner naming a marker.
-#
-# Best-effort regex. The commit-guard's TDD backup check is the final safety
-# net for anything this misses.
-#
-# NO BYPASS.
+# Applies the TDD gate to shell writes of source files, and refuses any shell write into
+# .claude/.markers/, whose files only the step each one proves writes.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -28,9 +12,7 @@ parse_input_fields tool_name tool_input.command
 cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 [ -n "$cmd" ] || exit 0
 
-# Extract candidate write-target paths from the command. Sent to Python for
-# robust tokenization (handles quoting and operators that bash regex can't
-# cleanly parse).
+# Python tokenizes the command, handling the quoting and operators a bash regex cannot.
 candidates=$(
   CMD="$cmd" python3 - <<'PYEOF'
 import os, re, shlex, sys
@@ -102,7 +84,7 @@ PYEOF
 
 repo_root="$(project_root)"
 
-# The markers first, whatever else the command writes.
+# Marker writes are refused before any source check.
 while IFS=$'\t' read -r _ raw; do
   case "$raw" in
     *.claude/.markers*)
@@ -112,25 +94,20 @@ Detected command: ${cmd}"
   esac
 done <<<"$candidates"
 
-# Check each source-write candidate.
 while IFS=$'\t' read -r kind raw; do
   [ "$kind" = "W" ] || continue
   [ -n "$raw" ] || continue
-  # Resolve absolute path relative to CWD (which the harness sets to the project dir).
   case "$raw" in
     /*) abs="$raw" ;;
     *) abs="$PWD/$raw" ;;
   esac
-  # Canonicalize without requiring the file to exist.
   abs="$(python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$abs")"
 
-  # Only consider paths inside the repo working tree.
   case "$abs" in
     "$repo_root"/*) : ;;
     *) continue ;;
   esac
 
-  # Use the path relative to repo root for the classifier.
   rel="${abs#"$repo_root"/}"
 
   if ! is_source_path "$rel"; then

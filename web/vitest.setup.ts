@@ -1,12 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 
-// jsdom has no layout engine: every element reports a zero-sized rect and there
-// is no ResizeObserver. @tanstack/react-virtual measures its scroll element to
-// decide which rows fall in the viewport, so without these stubs it would either
-// throw (missing ResizeObserver) or window down to nothing (zero-height
-// viewport). Provide a fixed, non-zero viewport so virtualized lists render a
-// realistic window in tests. Tests that need a specific rect still override
-// getBoundingClientRect on the individual element, which takes precedence.
+// jsdom has no layout or ResizeObserver; a fixed viewport lets virtualized lists render rows.
+// A test needing another rect overrides getBoundingClientRect on its element.
 const VIEWPORT_WIDTH = 1200
 const VIEWPORT_HEIGHT = 800
 
@@ -18,8 +13,7 @@ class ResizeObserverStub implements ResizeObserver {
   }
 
   observe(target: Element): void {
-    // Fire synchronously with the element's (stubbed) rect so consumers that
-    // derive layout from the first observation settle within the render's act().
+    // Fires synchronously with the stubbed rect so layout settles within the render's act().
     const rect = target.getBoundingClientRect()
     this.callback(
       [{ target, contentRect: rect } as unknown as ResizeObserverEntry],
@@ -28,19 +22,17 @@ class ResizeObserverStub implements ResizeObserver {
   }
 
   unobserve(): void {
-    // no-op: jsdom has nothing to stop observing
+    // jsdom has nothing to stop observing.
   }
 
   disconnect(): void {
-    // no-op: jsdom has nothing to disconnect
+    // jsdom has nothing to disconnect.
   }
 }
 
 globalThis.ResizeObserver = ResizeObserverStub
 
-// uPlot reads window.matchMedia at import time to pick the device pixel ratio,
-// and components scroll a focused region into view — jsdom implements neither.
-// Shim both so chart-mounting and scroll-on-focus code runs under test.
+// uPlot reads matchMedia at import and components call scrollIntoView; jsdom implements neither.
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   configurable: true,
@@ -48,20 +40,19 @@ Object.defineProperty(window, 'matchMedia', {
     matches: false,
     media: query,
     onchange: null,
-    addListener(): void { /* deprecated no-op */ },
-    removeListener(): void { /* deprecated no-op */ },
-    addEventListener(): void { /* no-op: jsdom has no media queries */ },
-    removeEventListener(): void { /* no-op */ },
+    addListener(): void { /* The deprecated listener API stays inert. */ },
+    removeListener(): void { /* The deprecated listener API stays inert. */ },
+    addEventListener(): void { /* jsdom evaluates no media queries, so nothing fires. */ },
+    removeEventListener(): void { /* Nothing is registered to remove. */ },
     dispatchEvent: (): boolean => false,
   }),
 })
 
 Element.prototype.scrollIntoView = function scrollIntoView(): void {
-  // no-op: jsdom has no layout engine to scroll
+  // jsdom has no layout engine to scroll.
 }
 
-// @tanstack/virtual-core sizes its scroll viewport from offsetWidth/offsetHeight
-// (jsdom returns 0 for both), so stub them alongside getBoundingClientRect.
+// virtual-core reads offsetWidth/offsetHeight, which jsdom returns as 0, so they are stubbed too.
 Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
   configurable: true,
   get: () => VIEWPORT_WIDTH,

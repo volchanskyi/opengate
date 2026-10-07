@@ -1,9 +1,4 @@
-//! Integration test for `SwitchHandler`.
-//!
-//! Pins the externally-visible contract: SwitchAck with no active peer
-//! connection silently no-ops (no panic, no frame emission). The
-//! peer-present path requires a real `AgentPeerConnection` (live
-//! WebRTC stack); that path is exercised at the integration-test layer.
+//! Integration test for `SwitchHandler` acknowledgements.
 
 use std::sync::Arc;
 
@@ -25,14 +20,6 @@ async fn switch_ack_with_no_peer_conn_does_not_emit_frame() {
     ));
 }
 
-/// With an active peer connection in the slot, `handle_ack` MUST echo a
-/// `SwitchAck` control frame back to the browser. This pins both the
-/// `guard.is_some()` true-branch and the `handle_ack` body itself — a mutant
-/// that replaces the body with `()` (uncaught at the crate-alone mutation
-/// baseline) would drop the confirmation and strand the browser mid-upgrade.
-/// `AgentPeerConnection::new` is offline-safe: webrtc-rs only touches the
-/// network once a local description triggers ICE gathering, which this path
-/// never does.
 #[tokio::test]
 async fn switch_ack_with_peer_emits_switch_ack_frame() {
     let (inbound_tx, _inbound_rx) = mpsc::channel(8);

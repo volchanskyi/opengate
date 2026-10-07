@@ -3,7 +3,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 
 export interface TimeSeriesChartProps {
-  /** uPlot aligned data: `[xs, ...ys]`, xs unix seconds. Rebuilt by the caller, never React-rendered per point. */
+  /** uPlot aligned data: `[xs, ...ys]`, xs unix seconds. */
   readonly data: uPlot.AlignedData;
   /** uPlot series config, index 0 is the implicit x series. */
   readonly series: readonly uPlot.Series[];
@@ -20,12 +20,8 @@ const DEFAULT_HEIGHT = 220;
 const FALLBACK_WIDTH = 600;
 
 /**
- * Imperative uPlot wrapper — the only module that imports uPlot. React owns the
- * container (chrome); uPlot owns the canvas (pixels), fed typed arrays. The chart
- * is created once per series/band structure and updated in place via `setData`
- * on data ticks, so a polling refresh never re-runs the React reconciler over
- * thousands of points. The interface is engine-agnostic so a WebGL backend can
- * swap in behind it later.
+ * TimeSeriesChart wraps uPlot imperatively: it rebuilds only when the series or band structure
+ * changes and pushes new data in place through `setData`.
  */
 export function TimeSeriesChart({
   data,
@@ -38,10 +34,8 @@ export function TimeSeriesChart({
 }: TimeSeriesChartProps) {
   const containerRef = useRef<HTMLElement | null>(null);
   const chartRef = useRef<uPlot | null>(null);
-  // Latest props read inside the mount effect without widening its deps — only a
-  // structural change (series labels / band count) should rebuild the instance.
-  // Synced in a layout effect (declared first, so it runs before the mount
-  // effect each commit) rather than during render, which is forbidden for refs.
+  // The mount effect reads the latest props from this ref, so only a structure change rebuilds.
+  // A layout effect declared first syncs it each commit, since refs are not written in render.
   const latest = useRef({ data, series, bands, yRange, height });
   useLayoutEffect(() => {
     latest.current = { data, series, bands, yRange, height };
@@ -57,12 +51,9 @@ export function TimeSeriesChart({
       width: el.clientWidth || FALLBACK_WIDTH,
       height: h,
       series: [...s],
-      // The current value is shown beside each family title, so uPlot's default
-      // legend (which renders a "Time --" row) is redundant noise — disable it.
+      // The current value shows beside each family title, so uPlot's default legend is off.
       legend: { show: false },
-      // The panel charts the window the presets choose, so the cursor reads
-      // values and nothing more — a drag that zoomed would be undone by the
-      // next poll's setData.
+      // The cursor only reads values, since a zoom drag would be undone by the next poll's setData.
       cursor: { drag: { x: false, y: false } },
       ...(b && b.length > 0 ? { bands: [...b] } : {}),
       ...(yr ? { scales: { y: { range: [yr[0], yr[1]] } } } : {}),
@@ -84,11 +75,7 @@ export function TimeSeriesChart({
     chartRef.current?.setData(data);
   }, [data]);
 
-  // Re-apply the y-scale on every yRange change. The mount effect only sets the
-  // range once (keyed on structure), so without this a later poll that brings a
-  // new peak/trough beyond the initial window's range would be clipped by the
-  // stale fixed range until the series structure changes. Runs after setData so
-  // the scale sticks over the fresh data.
+  // Re-applies the y-scale on every yRange change, after setData; the mount effect sets it once.
   const yMin = yRange?.[0];
   const yMax = yRange?.[1];
   useLayoutEffect(() => {

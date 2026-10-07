@@ -13,34 +13,18 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// One machine's life on the wire: dial, handshake, register, behave, and stay
-// until the run says otherwise.
-
 func runAgent(credentials agentCredentials, addr string, plan tenantAgent, opts loadOptions,
 	presence fleetPresence,
 ) agentResult {
-	// The deadline covers connecting and registering, plus however long this
-	// machine was asked to stay. A fixed budget would cut a held-open fleet
-	// short and report the run's own timeout as the server dropping machines.
+	// The deadline spans connecting, registering and the requested hold, so a held-open fleet
+	// is not cut short by a fixed budget.
 	ctx, cancel := context.WithTimeout(context.Background(), agentDeadline+opts.holdFor)
 	defer cancel()
 	return runAgentWithContext(ctx, credentials, addr, plan, opts, presence)
 }
 
-// runAgentWithContext is one machine's whole life, bounded by the caller's
-// context rather than by a budget of its own. A fleet walking a profile decides
-// when each machine leaves, and a machine that closed because the run wound it
-// down is not one the server dropped.
-//
-// The credential is obtained once and every connection made with it, because a
-// machine that comes back after an outage is the same machine — the server
-// knows it by its certificate, and re-enrolling would put a second machine in
-// the customer's list every time a link flapped.
-// presence is how this machine says it is attached, and later that it is not.
-// Both halves fire per connection, so a fleet walking phases counts an arrival
-// in the phase it happened in rather than in whichever phase the machine's life
-// ended in — and stops counting a machine that is between connections. A run
-// with nobody keeping a tally passes neither half.
+// runAgentWithContext runs one machine's whole life, bounded by the caller's context.
+// The credential is obtained once and reused on every reconnect, so the server sees one machine.
 func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr string,
 	plan tenantAgent, opts loadOptions, presence fleetPresence,
 ) agentResult {
@@ -49,18 +33,14 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 		return agentResult{err: err}
 	}
 
-	// The stay is measured from here rather than per connection, so a machine
-	// that spends three minutes of it behind a dark link leaves when the run
-	// says so rather than three minutes late.
+	// The stay is measured from here, so time spent behind a dark link counts against it.
 	leaveAt := time.Now().Add(opts.holdFor)
 
 	return persistThrough(ctx, opts, func(ctx context.Context) agentResult {
 		thisConnection := opts
 		thisConnection.holdFor = time.Until(leaveAt)
 		res := serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection, presence.Arrived)
-		// This connection is over, whichever way it ended. One that never
-		// registered was never among the attached, so it has nothing to give
-		// back — and the machine may yet come back on another.
+		// A connection that never registered was never counted as attached.
 		if !res.arrivedAt.IsZero() && presence.Left != nil {
 			presence.Left()
 		}
@@ -68,13 +48,11 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 	})
 }
 
-// serveOneConnection is one machine on one connection: dial, handshake,
-// register, do its traffic, and stay until the connection breaks or the run
-// ends. Coming back afterwards is persistThrough's decision, not this one's.
+// serveOneConnection runs one machine on one connection until the connection breaks or the run
+// ends.
 func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 	plan tenantAgent, opts loadOptions, noteArrival func(),
 ) agentResult {
-	// Connect.
 	t0 := time.Now()
 	conn, err := quic.DialAddr(ctx, addr, tlsConfig, &quic.Config{
 		MaxIdleTimeout: 30 * time.Second,
@@ -85,8 +63,7 @@ func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 	res := agentResult{connectDur: time.Since(t0)}
 	defer conn.CloseWithError(0, "loadtest done")
 
-	// Open control stream (agent-initiated): the agent opens and writes first,
-	// per RFC 9000 stream-discovery.
+	// The agent opens the control stream and writes first, per RFC 9000 stream discovery.
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
 		res.err = fmt.Errorf("open stream: %w", err)
@@ -107,10 +84,7 @@ func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 		return res
 	}
 	res.registerDur = time.Since(t2)
-	// The machine is part of the fleet from here. What follows — its traffic and
-	// whatever hold the run asked for — is the fleet being carried, not the
-	// fleet arriving. Whoever is keeping a tally is told now, because the
-	// machine outlives the phase it arrived in.
+	// The arrival is announced once registered, because the machine outlives the phase it arrived in.
 	res.arrivedAt = time.Now()
 	if noteArrival != nil {
 		noteArrival()
@@ -121,8 +95,6 @@ func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 		return res
 	}
 
-	// The run, not the hold, decides when this machine leaves — and it keeps
-	// proving its connection until it does.
 	if err := proveUntilWoundDown(ctx, codec, stream, opts); err != nil {
 		res.err = err
 	}
@@ -146,9 +118,8 @@ func handshake(stream io.ReadWriter, certDER []byte) error {
 	return nil
 }
 
-// agentCapabilities advertises the capabilities the soak exercises: Terminal
-// always, plus Backfill when the reconnect-storm scenario is enabled (the
-// server gates backfill admission on the advertised capability).
+// agentCapabilities advertises Terminal always, plus Backfill when backfill batches are
+// configured, because the server gates backfill admission on the advertised capability.
 func agentCapabilities(opts loadOptions) []protocol.AgentCapability {
 	caps := []protocol.AgentCapability{protocol.CapTerminal}
 	if opts.backfillBatches > 0 {

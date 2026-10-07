@@ -13,18 +13,12 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-// The incidents strip owns its own read and is exercised in
-// DeviceIncidentsStrip.test.tsx; stub it here so these tests assert only that
-// the device page carries it, keyed to the device on screen.
 vi.mock('../investigations', () => ({
   DeviceIncidentsStrip: ({ deviceId }: { deviceId: string }) => (
     <div data-testid="incidents-strip">{deviceId}</div>
   ),
 }));
 
-// The telemetry panel is exercised in DeviceMetrics.test.tsx; stub it here so
-// these tests stay isolated from uPlot/canvas and the metrics fetch. The stub
-// exposes onViewLogs so the correlation-jump glue can be driven.
 vi.mock('./DeviceMetrics', () => ({
   DeviceMetrics: ({ deviceId, onViewLogs }: { deviceId: string; onViewLogs?: (f: number, t: number) => void }) => (
     <div data-testid="device-metrics">
@@ -64,13 +58,9 @@ describe('DeviceDetail — power and Intel AMT', () => {
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
-
-    // First click on destructive action shows confirmation
     await user.click(screen.getByText('Power Cycle'));
     expect(screen.getByText('Confirm Cycle')).toBeInTheDocument();
     expect(sendPowerFn).not.toHaveBeenCalled();
-
-    // Second click triggers the action
     await user.click(screen.getByText('Confirm Cycle'));
     expect(sendPowerFn).toHaveBeenCalledWith('amt-1', 'power_cycle');
   });
@@ -139,7 +129,6 @@ describe('DeviceDetail — power and Intel AMT', () => {
     renderDetail();
     await user.click(screen.getByText('Soft Off'));
     expect(sendPowerFn).toHaveBeenCalledWith('amt-1', 'soft_off');
-    // No "Confirm" variant should appear for soft_off
     expect(screen.queryByText(/Confirm Soft/)).not.toBeInTheDocument();
   });
 
@@ -158,7 +147,6 @@ describe('DeviceDetail — power and Intel AMT', () => {
   });
 
   it('Confirm cycle/reset button label collapses back when a non-destructive action runs', async () => {
-    // Stryker target: the "destructive && confirmPowerAction !== action" guard, plus the setConfirmPowerAction(null) reset path.
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(true);
@@ -167,11 +155,8 @@ describe('DeviceDetail — power and Intel AMT', () => {
 
     await user.click(screen.getByText('Power Cycle'));
     expect(screen.getByText('Confirm Cycle')).toBeInTheDocument();
-
-    // Running a different destructive action arms a new confirm, leaving the prior one as-is.
     await user.click(screen.getByText('Hard Reset'));
     expect(screen.getByText('Confirm Reset')).toBeInTheDocument();
-    // Power Cycle is back to its default label because confirmPowerAction switched targets.
     expect(screen.getByText('Power Cycle')).toBeInTheDocument();
   });
 
@@ -187,7 +172,6 @@ describe('DeviceDetail — power and Intel AMT', () => {
 
     await user.click(screen.getByText('Confirm Cycle'));
     expect(sendPowerFn).toHaveBeenCalledWith('amt-1', 'power_cycle');
-    // After the confirm fires, the label collapses back.
     expect(screen.getByText('Power Cycle')).toBeInTheDocument();
     expect(screen.queryByText('Confirm Cycle')).not.toBeInTheDocument();
   });
@@ -197,7 +181,6 @@ describe('DeviceDetail — power and Intel AMT', () => {
     renderDetail();
     const badge = screen.getByText('Intel AMT');
     expect(badge.getAttribute('title')).toBe('Intel AMT · online');
-    // Connection state belongs to the badge tooltip; the body carries no status line.
     expect(screen.queryByText(/AMT Status:/)).not.toBeInTheDocument();
   });
 

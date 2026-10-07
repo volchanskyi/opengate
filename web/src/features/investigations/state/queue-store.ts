@@ -8,7 +8,6 @@ type Incident = components['schemas']['Incident'];
 type Status = components['schemas']['IncidentStatus'];
 type Severity = components['schemas']['IncidentSeverity'];
 
-/** How the queue is narrowed. Empty everywhere means "the whole tenant". */
 export interface QueueFilters {
   status: readonly Status[];
   severity: readonly Severity[];
@@ -16,11 +15,7 @@ export interface QueueFilters {
   deviceId: string;
 }
 
-/**
- * The queue opens on what is still somebody's problem. A resolved room is
- * history, and starting on the whole history is how a triage queue reads as
- * hundreds of rows nobody has to act on.
- */
+/** OPEN_STATUSES lists the statuses the queue opens on, those still needing action. */
 export const OPEN_STATUSES: readonly Status[] = ['new', 'acknowledged', 'investigating'];
 
 export const DEFAULT_QUEUE_FILTERS: QueueFilters = {
@@ -32,26 +27,18 @@ export const DEFAULT_QUEUE_FILTERS: QueueFilters = {
 
 interface QueueState {
   items: Incident[];
-  /** Where the next page starts, or null at the end of the queue. */
   nextCursor: string | null;
   loading: boolean;
-  /** Whether the queue has been read, so an empty queue is an answer. */
   loaded: boolean;
-  /**
-   * Whether somebody has read past the first page. A background re-read starts
-   * from the top, so it would throw away the pages they walked to.
-   */
+  // A background re-read starts from the top, so it skips a queue already paged past page one.
   pagedOn: boolean;
   error: string | null;
   filters: QueueFilters;
-  /** Open incidents per device id. An absent key means "not yet read". */
   byDevice: Map<string, Incident[]>;
   deviceErrors: Map<string, string>;
 
   setFilters: (patch: Partial<QueueFilters>) => void;
-  /** Read the queue from the top. Any cursor in hand is dropped. */
   fetchQueue: () => Promise<void>;
-  /** Read on from where the last page ended. */
   fetchMore: () => Promise<void>;
   fetchDeviceIncidents: (deviceId: string) => Promise<void>;
 }
@@ -69,8 +56,7 @@ function narrowedQuery(filters: QueueFilters, cursor: string | null) {
 }
 
 export const useQueueStore = create<QueueState>((set, get) => {
-  // A failed read keeps the rows already on screen: a poll that fails mid-shift
-  // must not empty the queue somebody is working.
+  // A failed read keeps the rows already on screen.
   const queueProgress = progressAdapter(
     (error) => { set({ error }); },
     (loading) => { set({ loading }); },

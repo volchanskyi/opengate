@@ -7,10 +7,7 @@ import (
 	"unicode/utf8"
 )
 
-// Bounds for the user-supplied free-text fields the server persists, writes to
-// the audit trail, or forwards to an agent. The OpenAPI schema documents the
-// shape of a request, but nothing validates it at runtime, so these are the
-// enforcement point.
+// Length bounds, in characters, for user-supplied free text; nothing else enforces them.
 const (
 	maxDisplayNameLen = 128
 	maxSiteNameLen    = 128
@@ -20,14 +17,8 @@ const (
 	maxEmailLen = 254
 )
 
-// invalidText reports why value is unacceptable as a stored free-text field, or
-// "" when it is acceptable.
-//
-// The length bound is in characters rather than bytes so a multi-byte name is
-// judged the way a reader sees it. Control characters are refused outright:
-// these values reach the audit trail, structured logs, and an agent's command
-// context, and none of those are places where an embedded newline, escape
-// sequence, or NUL is ever meaningful.
+// invalidText returns the reason value is refused, or "" when it is acceptable.
+// Control characters are refused because the value reaches audit trails, logs and agent commands.
 func invalidText(field, value string, maxLen int) string {
 	if utf8.RuneCountInString(value) > maxLen {
 		return fmt.Sprintf("%s must be at most %d characters", field, maxLen)
@@ -38,9 +29,7 @@ func invalidText(field, value string, maxLen int) string {
 	return ""
 }
 
-// sanitizeText bounds a free-text value the same way invalidText judges one, for
-// the endpoints whose API contract has no 400 response to reject it with. It
-// drops control characters and truncates to maxLen characters.
+// sanitizeText drops control characters and truncates to maxLen, for endpoints with no 400.
 func sanitizeText(value string, maxLen int) string {
 	cleaned := strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

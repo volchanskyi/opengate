@@ -1,12 +1,5 @@
-//! Platform abstraction traits for screen capture, input injection,
-//! and service lifecycle.
-//!
-//! These traits define the contract a platform-specific crate implements —
-//! `platform-linux` today, and the plug-in point for any further platform. The
-//! core agent programs against the traits alone, so it holds no OS-specific
-//! code. The null implementations at the bottom of this module satisfy every
-//! trait by doing nothing, which is what headless hosts, containers, and CI
-//! runs use.
+//! Platform traits for screen capture, input injection and service lifecycle, with null
+//! implementations for headless hosts, containers and CI.
 
 use mesh_protocol::{KeyEvent, MouseButton};
 
@@ -48,10 +41,7 @@ pub enum InputError {
     Backend(String),
 }
 
-/// Trait for capturing screen frames.
-///
-/// Uses `async_trait` because factory functions return `Box<dyn ScreenCapture>`,
-/// which requires object safety. Native async fn in traits is not object-safe.
+/// Trait for capturing screen frames; `async_trait` keeps it usable as `Box<dyn ScreenCapture>`.
 #[async_trait::async_trait]
 pub trait ScreenCapture: Send + 'static {
     /// Capture the next frame. Blocks until a new frame is available.
@@ -174,7 +164,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_null_capture_as_dyn_trait_object() {
-        // Verify Box<dyn ScreenCapture> works (object safety)
         let mut cap: Box<dyn ScreenCapture> = Box::new(NullCapture);
         assert_eq!(cap.resolution(), (0, 0));
         assert!(cap.next_frame().await.is_err());
@@ -182,7 +171,6 @@ mod tests {
 
     #[test]
     fn test_null_input_as_dyn_trait_object() {
-        // Verify Box<dyn InputInjector> works (object safety)
         let input: Box<dyn InputInjector> = Box::new(NullInput);
         assert!(!input.is_available());
     }

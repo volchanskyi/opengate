@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mintHS384 signs a token with HS384 — still HMAC (the keyfunc accepts it), so
-// rejecting it exercises the WithValidMethods("HS256") pin specifically.
 func mintHS384(t *testing.T, cfg JWTConfig, userID uuid.UUID) string {
 	t.Helper()
 	claims := &Claims{
@@ -28,8 +26,6 @@ func mintHS384(t *testing.T, cfg JWTConfig, userID uuid.UUID) string {
 	return signed
 }
 
-// TestValidateTokenHardening covers the issuer and signing-method pins added to
-// ValidateToken (defense-in-depth beyond the HMAC keyfunc check).
 func TestValidateTokenHardening(t *testing.T) {
 	t.Parallel()
 	cfg := testJWTConfig()

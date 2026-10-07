@@ -11,42 +11,14 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// The triage queue: one page of the rooms somebody is expected to work, newest
-// activity first.
-//
-// Newest activity rather than newest room, because a week-old incident that
-// fired again this morning is today's work and one that opened this morning and
-// went quiet is not. That ordering is also what makes the page a keyset: an
-// offset over a queue that is being written to skips rows silently, and the row
-// it skips is an incident nobody ever sees. So a page says where it ended and
-// the next one starts there.
-//
-// The customer-scoped read and the whole-tenant read are two statements rather
-// than one with an optional predicate, because they are answered from two
-// different indexes and an optional predicate leaves which one to a guess. Both
-// are single literals for the reason stated in postgres.go: a query assembled
-// from pieces is indistinguishable, to anything reading this file, from one
-// assembled from input.
-
 const (
-	// defaultQueuePage is how many rooms a caller that states no page size gets.
 	defaultQueuePage = 50
-	// maxQueuePage is the most one read can return. A queue is read to be worked
-	// through, so a caller asking for the whole table is answered with a page
-	// and the cursor after it — the same answer a caller asking for a sensible
-	// number gets.
+	// A caller asking for the whole table is answered with a page and the cursor after it.
 	maxQueuePage = 200
 )
 
-// queueForCustomerSQL reads one customer's rooms. Every filter is expressed as
-// a sentinel comparison rather than a NULL test, so the statement is one shape
-// whatever the caller narrowed on and the ordering column pair is always a plain
-// comparison the customer-leading index answers directly.
-//
-// The all-zero uuid is the "not narrowing on this" sentinel, written out in each
-// statement rather than concatenated in from a shared constant — for the reason
-// postgres.go gives: a query assembled from pieces reads, to anything looking at
-// this file, like one assembled from input.
+// Every filter is a sentinel comparison, so the statement keeps one shape for the customer index.
+// The all-zero uuid means not narrowing on that filter.
 const queueForCustomerSQL = `
 	SELECT i.id, i.organization_id, i.rule_id, i.scope, i.scope_key, i.severity, i.status,
 	       i.assignee_id, i.opened_at, i.first_seen, i.last_seen, i.resolved_at, i.cause_code,
@@ -65,11 +37,7 @@ const queueForCustomerSQL = `
 	 ORDER BY i.last_seen DESC, i.id DESC
 	 LIMIT $8::integer`
 
-// queueForTenantSQL is the same read across every customer at once, which is
-// what a technician covering an estate of them asks for. It cannot be the
-// statement above with the customer predicate dropped: that one is ordered by
-// customer first, so reading it across customers would sort the whole table to
-// answer a page of fifty.
+// A separate statement: customer-first ordering would sort the whole table across customers.
 const queueForTenantSQL = `
 	SELECT i.id, i.organization_id, i.rule_id, i.scope, i.scope_key, i.severity, i.status,
 	       i.assignee_id, i.opened_at, i.first_seen, i.last_seen, i.resolved_at, i.cause_code,
@@ -87,55 +55,35 @@ const queueForTenantSQL = `
 	 ORDER BY i.last_seen DESC, i.id DESC
 	 LIMIT $8::integer`
 
-// Cursor is where a page ended: the room's last activity and its id, which
-// together order the queue uniquely. Both are needed — two rooms can be seen at
-// the same instant, and a cursor on the timestamp alone would either repeat them
-// or lose one.
+// Cursor is where a page ended: last activity plus id, which together order the queue uniquely.
 type Cursor struct {
 	LastSeen time.Time
 	ID       uuid.UUID
 }
 
-// IsZero reports whether the cursor names no position, which is what a first
-// page starts from and what the last page hands back.
+// IsZero reports whether the cursor names no position.
 func (c Cursor) IsZero() bool { return c.ID == uuid.Nil }
 
-// beyondTheQueue is where a first page starts: later than any moment a room can
-// be seen at. Stating it as a value rather than as an absent one keeps the read
-// a single comparison the index answers, instead of a branch the planner has to
-// guess at.
+// A first page starts later than any moment a room can be seen.
 var beyondTheQueue = Cursor{
 	LastSeen: time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC),
 	ID:       uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 }
 
-// Filter is what a technician is looking at. Every field left at its zero value
-// narrows nothing, so the empty filter is the whole tenant's queue.
+// Filter selects queue rooms; a field left at its zero value narrows nothing.
 type Filter struct {
-	// OrganizationID narrows to one customer. It is a filter rather than a
-	// permission: every member of a tenant may see every customer in it, and the
-	// picker decides which one is on screen.
+	// OrganizationID narrows to one customer; every member of a tenant may see every customer in it.
 	OrganizationID uuid.UUID
-	// Statuses and Severities narrow to a set, because a triage queue is
-	// ordinarily read as "everything that is not resolved".
-	Statuses   []Status
-	Severities []Severity
-	// RuleID narrows to one rule, which is how a bad rollout is looked at.
-	RuleID string
-	// DeviceID narrows to the rooms holding an alert one machine raised. A room
-	// is not keyed on a machine — a customer-wide event is one room across forty
-	// of them — so this is the machine's own view of what it is caught up in.
-	DeviceID uuid.UUID
-	// AssigneeID narrows to one technician's work.
+	Statuses       []Status
+	Severities     []Severity
+	RuleID         string
+	// DeviceID narrows to rooms holding an alert that machine raised; a room spans many machines.
+	DeviceID   uuid.UUID
 	AssigneeID uuid.UUID
-	// After is where the previous page ended.
-	After Cursor
-	// Limit is how many rooms to return, bounded by maxQueuePage.
-	Limit int
+	After      Cursor
+	Limit      int
 }
 
-// normalized fills in the page bound and the starting position, so the statement
-// below is one shape for every caller.
 func (f Filter) normalized() Filter {
 	if f.After.IsZero() {
 		f.After = beyondTheQueue
@@ -151,10 +99,8 @@ func (f Filter) normalized() Filter {
 
 // Page is one read of the queue, and where the next one starts.
 type Page struct {
-	// Incidents are the rooms, newest activity first.
 	Incidents []Incident
-	// Next is where the following page begins, zero when this page reached the
-	// end of the queue.
+	// Next is zero when this page reached the end of the queue.
 	Next Cursor
 }
 
@@ -169,8 +115,7 @@ func (s *Store) Queue(ctx context.Context, f Filter) (Page, error) {
 		if err != nil {
 			return fmt.Errorf("read incident queue: %w", err)
 		}
-		// Read-only, so the close itself has nothing to report; rows.Err below is
-		// the check that matters.
+		// Read-only, so the close has nothing to report; rows.Err below is the check.
 		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
@@ -188,9 +133,7 @@ func (s *Store) Queue(ctx context.Context, f Filter) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	// A short page reached the end of the queue. A full one might not have, and
-	// the cursor is what says where to carry on from — including when the queue
-	// has moved underneath the reader, which it will have.
+	// A short page reached the end of the queue; a full one hands back a cursor to carry on from.
 	if len(page.Incidents) == f.Limit {
 		last := page.Incidents[len(page.Incidents)-1]
 		page.Next = Cursor{LastSeen: last.LastSeen, ID: last.ID}
@@ -198,9 +141,7 @@ func (s *Store) Queue(ctx context.Context, f Filter) (Page, error) {
 	return page, nil
 }
 
-// queueQuery picks the statement the filter is answered from and lays out its
-// arguments. The customer predicate is last so both statements share the
-// ordering, filtering and paging arguments position for position.
+// The customer argument is last so both statements share the other arguments positionally.
 func queueQuery(f Filter) (string, []any) {
 	args := []any{
 		labels(f.Statuses), labels(f.Severities), f.RuleID, f.AssigneeID, f.DeviceID,
@@ -212,9 +153,7 @@ func queueQuery(f Filter) (string, []any) {
 	return queueForCustomerSQL, append(args, f.OrganizationID)
 }
 
-// labels renders a closed-vocabulary filter as the text array the statement
-// matches against, never nil: an empty array is what "narrow on nothing" is
-// written as, and it is a value the planner can read rather than a null.
+// labels renders a filter as a text array, never nil: an empty array means narrow on nothing.
 func labels[T ~string](values []T) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -223,15 +162,11 @@ func labels[T ~string](values []T) []string {
 	return out
 }
 
-// incidentColumns is the row every incident read returns, in the order the
-// statements above select it.
 type incidentColumns interface {
 	Scan(dest ...any) error
 }
 
-// scanIncident reads one room from a row, mapping the columns a room may not
-// have yet — nobody working it, no answer for why it ended — onto their zero
-// values rather than onto a pointer every caller would have to check.
+// Columns a room may lack, an assignee or a cause, map to zero values so callers check no pointer.
 func scanIncident(row incidentColumns) (Incident, error) {
 	var (
 		incident   Incident

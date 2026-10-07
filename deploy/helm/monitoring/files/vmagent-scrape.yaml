@@ -1,13 +1,4 @@
-# VictoriaMetrics scrape config with Kubernetes service discovery. Scrapes
-# pods annotated with prometheus.io/scrape — each database's exporter and the
-# store itself — plus annotated monitoring Service endpoints such as the node
-# exporter.
-
 global:
-  # The scrape is half of how far behind an observer runs; the exporter's own
-  # gauge refresh is the other half. A load run finishes in a minute or two, so
-  # a slow scrape is not a cheaper reading of the same event — it is no reading
-  # of it at all.
   scrape_interval: 15s
   external_labels:
     cluster: opengate
@@ -49,34 +40,24 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_component]
         target_label: component
 
-  # The kubelet's own cAdvisor endpoint, and the only place a container's
-  # working set against its own limit exists. The node exporter reads the node,
-  # so a pod at 90% of its cgroup ceiling is invisible there — which is how one
-  # sat at 344 MiB against a 384Mi limit for three hours with nothing firing.
-  # container_oom_events_total is on the same page, and it names the container
-  # that was killed rather than leaving a node-wide counter to be correlated by
-  # hand.
+  # The kubelet's cAdvisor endpoint is the only source of a container's memory against its limit;
+  # container_oom_events_total names the killed container.
   - job_name: kubernetes-cadvisor
     scheme: https
     metrics_path: /metrics/cadvisor
     kubernetes_sd_configs:
       - role: node
-    # The kubelet serves this over TLS with a certificate from the cluster's own
-    # authority and requires the scraper's identity, so both halves are the
-    # in-pod service-account material rather than anything configured.
+    # The kubelet requires the scraper's identity, supplied by the in-pod service-account files.
     tls_config:
       ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
       insecure_skip_verify: true
     bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
     relabel_configs:
-      # Node discovery yields the kubelet's own address; the metrics path above
-      # is what makes it the container endpoint rather than the node one.
+      # Node discovery yields the kubelet address; metrics_path selects the container endpoint.
       - source_labels: [__meta_kubernetes_node_name]
         target_label: node
     metric_relabel_configs:
-      # Every alert on these is per container, so the three labels that name one
-      # have to survive. cAdvisor publishes them already; naming them here is
-      # what stops a later drop rule from quietly taking them.
+      # Naming the three container labels keeps a later drop rule from removing them.
       - source_labels: [namespace]
         target_label: namespace
       - source_labels: [pod]
@@ -84,9 +65,7 @@ scrape_configs:
       - source_labels: [container]
         target_label: container
 
-  # Production and staging alike. Every series names the namespace it came from,
-  # and the production alert rules read namespace="opengate" alone, so a test
-  # driving the staging server is never read as production.
+  # Scrapes production and staging; production alert rules read namespace="opengate" alone.
   - job_name: opengate-server
     kubernetes_sd_configs:
       - role: endpoints
@@ -101,7 +80,5 @@ scrape_configs:
         regex: metrics
       - source_labels: [__meta_kubernetes_namespace]
         target_label: namespace
-      # A deploy replaces the pod, and its address is the only other name a
-      # reading would carry for it.
       - source_labels: [__meta_kubernetes_pod_name]
         target_label: pod

@@ -1,21 +1,11 @@
 name: Mutation Testing
 
-# Mutation testing as observability, not as a CI gate.
-#
-# Runs nightly. Does NOT block merges or deploys.
-# On regression (drop >2pp from previous successful run OR absolute score <85%):
-#   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
-#   - Workflow exits red (audit trail)
-# All scores are pushed to VictoriaMetrics for the "Mutation Testing Trend"
-# Grafana dashboard, which is where the trend lives. The per-run canonical row
-# is also uploaded as a workflow artifact for one-off audit access. Nothing is
-# committed back to the repo: a bot push carries none of the status checks
-# branch protection requires of a new commit on dev, so a nightly snapshot
-# written that way is refused.
+# Nightly mutation run that observes scores and never blocks merges or deploys.
+# Scores go to VictoriaMetrics; a regression sends a Telegram alert and turns the run red.
 
 on:
   schedule:
-    - cron: '0 3 * * *'  # nightly 03:00 UTC (observability batch w/ terraform-drift; load-test runs later at 05:00)
+    - cron: '0 3 * * *'  # nightly 03:00 UTC
   workflow_dispatch:
 
 concurrency:
@@ -31,22 +21,11 @@ env:
   RUST_VERSION: stable
   GO_VERSION: '1.27'
   NODE_VERSION: '24'
-  CARGO_MUTANTS_VERSION: 27.0.0  # pin for reproducible mutation runs (latest as of PR 9 land)
-  GREMLINS_VERSION: v0.6.0  # pin Go mutation tool for reproducibility (matches cargo-mutants pinning)
+  CARGO_MUTANTS_VERSION: 27.0.0
+  GREMLINS_VERSION: v0.6.0
 jobs:
-  # -----------------------------------------------------------------------------
-  # Does the split still fit the cap? Counting mutants is cheap on both legs, so a
-  # shard that has outgrown its budget is visible in a few minutes instead of
-  # after 90 — the shape of failure that costs a whole nightly run.
-  #
-  # The Go count comes from a gremlins dry-run rather than from the source,
-  # because a Go mutant only runs where coverage reaches it: a new integration
-  # test grows a shard without a line of production code changing, which is
-  # exactly how three Go shards crossed the cap together.
-  #
-  # It does not gate the matrix: the run still goes ahead and reports whatever it
-  # can, and this job is the red that says why the tail will be short.
-  # -----------------------------------------------------------------------------
+  # Projects each shard's mutant count against the job cap; it does not gate the matrix.
+  # The Go count is a gremlins dry-run, since a Go mutant runs only where coverage reaches it.
   shard-budget:
     name: Shard budget
     runs-on: ubuntu-24.04
@@ -54,9 +33,7 @@ jobs:
     outputs:
       started_at: ${{ steps.started.outputs.at }}
     steps:
-      # The night's date. Every sample the night writes carries this time, so a
-      # run is one point on one date however long it takes, and a re-run of its
-      # failed jobs writes the same point.
+      # Every sample the night writes carries this time, so a re-run writes the same point.
       - name: Record when the run started
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
@@ -66,8 +43,7 @@ jobs:
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-      # The Go dry-run gathers module-wide coverage first, and the API and domain
-      # suites need the same Postgres the matrix legs run against.
+      # The Go dry-run gathers module-wide coverage, and the API and domain suites need Postgres.
       - name: Start Postgres with max_connections=400
         run: |
           for attempt in 1 2 3; do
@@ -90,10 +66,7 @@ jobs:
             sleep 1
           done
           echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
-      # The same dry-run reaches the metrics-backed packages under server/tests/,
-      # and testvm memoizes per test binary: with the URL unset each of them
-      # starts a store of its own on a runner already holding Postgres and two
-      # toolchains.
+      # testvm memoizes per test binary, so one shared store replaces one per package.
       - name: Start VictoriaMetrics
         run: |
           for attempt in 1 2 3; do
@@ -134,37 +107,22 @@ jobs:
         env:
           POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
           VICTORIAMETRICS_TEST_URL: http://127.0.0.1:8428
-        # pipefail explicitly: the default shell does not set it, so without it
-        # the step's status is tee's and a refused projection reports green —
-        # a pre-flight nobody can fail is a pre-flight that guards nothing.
+        # The default shell does not set pipefail, so the step sets it to carry the projection's status.
         run: |
           set -o pipefail
           ./scripts/mutation-shard-budget.sh | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # -----------------------------------------------------------------------------
-  # Per-language mutation runs in parallel. fail-fast: false so one language
-  # failing does not cancel the others — we want partial visibility.
-  # -----------------------------------------------------------------------------
+  # Per-language runs go in parallel; fail-fast is off so one failing leg leaves the others running.
   mutation:
     name: Mutation (${{ matrix.shard || matrix.language }})
     strategy:
       fail-fast: false
-      # The Go leg is sharded by directory/file mutation units so it scales
-      # horizontally instead of crossing a hand-tuned cap as the server grows:
-      # a single run's wall clock tracks the size of the module, not the number
-      # of mutants in it, so an unsharded leg outgrows any fixed ceiling while
-      # its mutant count stays flat. Each shard runs the whole module (module-wide coverage)
-      # and restricts mutation via --exclude-files; the split (in
-      # scripts/lib/mutation-shards.sh, asserted by the workflow tests) is
-      # balanced by CI runtime, which is dominated by the Postgres-backed
-      # packages that re-pay schema setup per mutant.
+      # Each Go shard runs the whole module for coverage and restricts mutation via --exclude-files.
+      # The split in scripts/lib/mutation-shards.sh is balanced by CI runtime.
       matrix:
         include:
-          # The Rust leg is sharded by scope too, so each id names the behavior
-          # whose coverage the leg measures and each shard's rebuilds stay inside
-          # one crate. The split lives in scripts/lib/mutation-shards.sh and is
-          # asserted by the workflow tests, which also prove every mutable source
-          # is owned exactly once.
+          # Each Rust shard id names the behavior it measures, and its rebuilds stay inside one crate.
+          # The split lives in scripts/lib/mutation-shards.sh.
           - { language: rust, shard: rust-core-ml-backfill-drain }
           - { language: rust, shard: rust-core-ml-backfill-tiers }
           - { language: rust, shard: rust-core-ml-sampling }
@@ -191,11 +149,8 @@ jobs:
           - { language: rust, shard: rust-agent-loops }
           - { language: rust, shard: rust-protocol-wire }
           - { language: web }
-          # The internal/api legs are sized by what a mutant there costs, not by
-          # file count: each one re-runs the Postgres-backed API suite and the
-          # integration tests that reach it, so a handler shard is spent at
-          # roughly sixty mutants where an agentapi shard is not spent at six
-          # hundred.
+          # The internal/api shards are sized by per-mutant cost, since each mutant re-runs the
+          # Postgres-backed API suite.
           - { language: go, shard: go-api-runtime }
           - { language: go, shard: go-api-intake }
           - { language: go, shard: go-api-status }
@@ -209,8 +164,7 @@ jobs:
           - { language: go, shard: go-api-rules }
           - { language: go, shard: go-api-enrollment }
           - { language: go, shard: go-api-updates-purge }
-          # conn_backfill.go's mutants run under the Postgres-backed harness and
-          # cost far more than the handshake's, so it is sized on its own.
+          # conn_backfill.go's mutants run under the Postgres-backed harness, so it is sized alone.
           - { language: go, shard: go-agentapi-connection }
           - { language: go, shard: go-agentapi-handshake }
           - { language: go, shard: go-agentapi-backfill }
@@ -226,16 +180,8 @@ jobs:
           - { language: go, shard: go-observability-harness }
           - { language: go, shard: go-composition-root }
     runs-on: ubuntu-24.04
-    # 90min is a flat safety cap, not a target. Every shard is sized against its
-    # own measured per-mutant cost and the leash its non-terminating mutants hold
-    # (scripts/lib/mutation-shards.sh), and the shard-budget job above refuses a
-    # split that has drifted past it before the matrix spends a night discovering
-    # the same thing.
-    #
-    # The cap sits above the widest measured shard rather than on top of it. A
-    # shard shot at the cap writes no report, the artifact set comes back short,
-    # and the whole night's score is lost — so the cost of a cap set too low is
-    # paid by every other shard, not by the one that grew.
+    # A flat safety cap above the widest measured shard; a shard shot at the cap writes no report.
+    # The shard-budget job refuses a split that has drifted past it.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -245,22 +191,12 @@ jobs:
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-      # Postgres backs the Go legs only; the Rust and web legs never open a
-      # connection, so starting it there costs an image pull and a container for
-      # nothing and puts a registry dependency on legs that have none. `-c
-      # max_connections=400` is required so the parallel per-schema test
-      # store pattern in testutil.NewTestStore stays within the conn budget.
-      # The lock table is sized at startup as max_locks_per_transaction ×
-      # max_connections, so the per-transaction ceiling rises alongside it —
-      # a migration builds the whole schema in one transaction, and enough of
-      # those together exhaust the default 64 with "out of shared memory".
+      # Only the Go legs open a Postgres connection; max_connections=400 covers the per-schema
+      # stores of testutil.NewTestStore, and max_locks_per_transaction=256 covers migrations.
       - name: Start Postgres with max_connections=400
         if: matrix.language == 'go'
         run: |
-          # The pull-through mirror above is the primary defence against Docker
-          # Hub flakes; this retry is the secondary net for a transient token or
-          # connection reset, which otherwise fails one Go shard and costs the
-          # whole nightly its canonical score row.
+          # The retry covers a transient token or connection reset that the mirror does not.
           for attempt in 1 2 3; do
             if docker pull postgres:17-alpine; then
               break
@@ -282,14 +218,8 @@ jobs:
           done
           echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
 
-      # The metrics store backs the Go legs for the same reason Postgres does,
-      # and for one more: testvm memoizes per test BINARY, so with the URL unset
-      # every package under server/tests/ that touches metrics starts a store of
-      # its own. Several of them holding a fleet's worth of series at once is the
-      # memory pressure that has the runner kill one mid-run, and it surfaces as
-      # an unrelated package failing on a refused connection or on a container
-      # reaper that never came up. gremlins runs that whole suite as its coverage
-      # baseline on every shard, so one store here replaces dozens across a night.
+      # testvm memoizes per test binary, so one shared store avoids a store per package under
+      # server/tests/ and the memory pressure of many at once.
       - name: Start VictoriaMetrics
         if: matrix.language == 'go'
         run: |
@@ -313,7 +243,6 @@ jobs:
           done
           echo "::error::victoriametrics never became ready"; docker logs vm-ci; exit 1
 
-      # -- Rust --------------------------------------------------------------
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         if: matrix.language == 'rust'
         with:
@@ -330,17 +259,8 @@ jobs:
         if: matrix.language == 'rust'
         env:
           OPENGATE_GOLDEN_DIR: ${{ github.workspace }}/testdata/golden
-        # cargo-mutants writes outcomes.json to mutants.out/ automatically.
-        # The build profile is `mutants` (agent/.cargo/mutants.toml): the test
-        # profile without debug info, which is most of the per-mutant rebuild and
-        # which nothing here reads.
-        # --jobs 4 matches the ubuntu-24.04 4-vCPU public-runner spec
-        # (https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners).
-        # --no-shuffle for deterministic ordering when comparing runs.
-        # --annotations none suppresses per-mutant GitHub Actions warning
-        # annotations — surviving mutants are observability signal in the
-        # JSONL trend / Loki dashboard, not actionable line-level warnings
-        # that should clutter the Annotations panel on every nightly run.
+        # The `mutants` profile (agent/.cargo/mutants.toml) is the test profile without debug info.
+        # --jobs 4 matches the 4-vCPU runner and --no-shuffle keeps runs comparable.
         run: |
           . scripts/lib/mutation-shards.sh
           mapfile -t shard_args < <(mutation_rust_shard_args '${{ matrix.shard }}')
@@ -349,15 +269,11 @@ jobs:
           echo
           cd agent
           cargo mutants "${shard_args[@]}" --no-shuffle --jobs 4 --annotations none || EXIT=$?
-          # cargo-mutants exits non-zero when any mutant survives. For an
-          # observability workflow that is expected; capture and continue.
+          # cargo-mutants exits non-zero when any mutant survives, which the run captures.
           echo "cargo-mutants exit: ${EXIT:-0}"
-          # …which is why the outcome file, not the exit status, is what says
-          # this shard did any work. It is read back here so a refused run fails
-          # beside the output that explains it.
+          # The outcome file says this shard did work; reading it back fails a refused run here.
           "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" cargo-mutants mutants.out/outcomes.json
 
-      # -- Go ----------------------------------------------------------------
       - uses: actions/setup-go@v7
         if: matrix.language == 'go'
         with:
@@ -371,43 +287,29 @@ jobs:
         env:
           POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
           VICTORIAMETRICS_TEST_URL: http://127.0.0.1:8428
-          # gremlins derives each mutant's timeout from the coverage dry-run
-          # elapsed × timeout-coefficient. setup-go restores the Go test cache,
-          # so without -count=1 the dry-run hits the cache (~0.5s) and the budget
-          # collapses to a few seconds — Postgres-backed mutants then re-pay ~20s
-          # schema setup and false-time-out en masse, sinking the score. -count=1
-          # forces the dry-run to actually run the tests, giving a stable budget.
+          # gremlins derives each mutant's timeout from the dry-run elapsed time, so -count=1
+          # bypasses the restored test cache and keeps that budget stable.
           GOFLAGS: "-count=1"
-        # gremlins takes one path arg and uses it twice: it walks it for mutants
-        # and runs `go test` over it to decide which lines are covered. So the
-        # path is the narrowest one that still holds everything the shard
-        # mutates, which for all but the harness shard leaves tests/acceptance,
-        # tests/integration, tests/loadtest, tests/netfault and tests/vmramseries
-        # out of the survey entirely. The path and the split both live in
-        # scripts/lib/mutation-shards.sh.
+        # gremlins walks its one path for mutants and runs `go test` over it for coverage, so the
+        # path is the narrowest one holding the shard's mutants (scripts/lib/mutation-shards.sh).
         run: |
           . scripts/lib/mutation-shards.sh
           scan="$(mutation_go_shard_scan_path '${{ matrix.shard }}')"
           excl="$(mutation_go_shard_exclude_regex '${{ matrix.shard }}')"
           echo "shard ${{ matrix.shard }} walks: $scan"
           echo "shard ${{ matrix.shard }} exclude: $excl"
-          # Every shard inherits the timeout coefficient from server/.gremlins.yaml,
-          # which is held to a bound a mutant that never terminates cannot break.
-          # The seam below is for a shard that one day needs a tighter one.
+          # Every shard inherits the timeout coefficient from server/.gremlins.yaml.
           coef="$(mutation_go_shard_timeout_coefficient '${{ matrix.shard }}')"
           coef_flag=()
           [ -n "$coef" ] && coef_flag=(--timeout-coefficient "$coef")
           echo "shard ${{ matrix.shard }} timeout-coefficient: ${coef:-baseline}"
           cd server
           gremlins unleash "$scan" -E "$excl" "${coef_flag[@]}" --output "mutation-report-${{ matrix.shard }}.json" || EXIT=$?
-          # gremlins exits non-zero on a surviving mutant, so the status above is
-          # captured rather than propagated. The report is what distinguishes a
-          # shard that measured and found survivors from one whose coverage
-          # baseline failed and never mutated anything.
+          # gremlins exits non-zero on a surviving mutant, so the status is captured; the report
+          # separates a shard that found survivors from one whose coverage baseline failed.
           echo "gremlins exit: ${EXIT:-0}"
           "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" gremlins "mutation-report-${{ matrix.shard }}.json"
 
-      # -- Web ---------------------------------------------------------------
       - uses: actions/setup-node@v7
         if: matrix.language == 'web'
         with:
@@ -420,22 +322,8 @@ jobs:
       - name: Run stryker
         if: matrix.language == 'web'
         env:
-          # Stryker re-runs the full vitest suite once per mutant via a
-          # persistent test-runner pool. Vitest's `github-actions` reporter
-          # auto-loads when GITHUB_ACTIONS=true and appends a "Vitest Test
-          # Report" section to GITHUB_STEP_SUMMARY on every run — leading to
-          # thousands of duplicated sections in the job summary. The canonical
-          # fix lives in `web/vitest.config.ts`: when STRYKER_MUTATOR_WORKER is
-          # present in process.env, vitest is configured with explicit
-          # `reporters: ['default']`, which short-circuits the auto-load branch
-          # in vitest's reporter resolver (`if (!resolved.reporters.length) {
-          # … GITHUB_ACTIONS check … }`).
-          #
-          # The /dev/null sink below remains as a belt-and-suspenders backstop
-          # in case a future vitest version reaches GITHUB_STEP_SUMMARY via a
-          # different code path. Stryker's own GHA detection (CIProvider) reads
-          # GITHUB_REPOSITORY / GITHUB_REF which remain set, so its output is
-          # unaffected.
+          # web/vitest.config.ts sets the default reporter under Stryker; the /dev/null sink keeps
+          # per-mutant vitest reports out of GITHUB_STEP_SUMMARY.
           GITHUB_STEP_SUMMARY: /dev/null
         run: |
           cd web
@@ -444,29 +332,20 @@ jobs:
           ./node_modules/.bin/stryker run
           "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" stryker reports/mutation/mutation.json
 
-      # -- Upload artifacts (HTML reports + JSON outputs, 90d retention) ----
       - name: Upload mutation artifacts (${{ matrix.shard || matrix.language }})
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: mutation-${{ matrix.shard || matrix.language }}
           retention-days: 90
-          # A shard whose tool wrote no report has done no work, and the shard
-          # step itself cannot say so: it swallows the tool's exit code because
-          # a surviving mutant is not a build failure. The report coming back
-          # out is the signal, so its absence fails the shard here rather than
-          # surfacing later as an unattributable "artifact set is incomplete".
+          # A shard step swallows the tool's exit code, so a missing report is what fails the shard.
           if-no-files-found: error
           path: |
             agent/mutants.out/
             server/mutation-report-${{ matrix.shard }}.json
             web/reports/mutation/
 
-  # -----------------------------------------------------------------------------
-  # Publish: aggregate all three matrix outputs, push to VictoriaMetrics, run
-  # the regression check, alert via Telegram, and fail red on regression. The
-  # canonical row is also uploaded as a workflow artifact for one-off audits.
-  # -----------------------------------------------------------------------------
+  # Aggregates the matrix outputs, pushes to VictoriaMetrics, checks regressions and alerts.
   publish:
     name: Publish results + alert on regression
     # shard-budget is named for the time the run started, which it records.
@@ -474,22 +353,12 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # The `observability` environment scopes the Telegram alert secrets
-    # (DEPLOY_TELEGRAM_BOT_TOKEN / DEPLOY_TELEGRAM_CHAT_ID) to unattended
-    # alerting workflows only. It is configured with no required_reviewers
-    # and no wait timer (else the nightly cron would block "Waiting on
-    # review"), and a deployment-branch policy that permits only `main`
-    # (the default branch where scheduled crons trigger) and `dev` (where
-    # workflow_dispatch normally runs). The `production` environment used
-    # by cd.yml is intentionally separate — deploys keep their gated env;
-    # observability runs do not.
+    # The `observability` environment scopes the Telegram alert secrets to unattended workflows;
+    # it has no reviewers or wait timer and permits only `main` and `dev`.
     environment: observability
     permissions:
       contents: read
-    # This job's result is the observability environment's deployment status. It
-    # covers collecting and publishing the scores (an incomplete artifact set is
-    # a genuine publish failure); the score verdict is the separate gate job
-    # below, so a real score regression does not read as a broken environment.
+    # This job's result is the environment's deployment status; the score verdict is the gate job.
     outputs:
       regression: ${{ steps.summarize.outputs.regression }}
       complete: ${{ steps.status.outputs.complete }}
@@ -522,10 +391,7 @@ jobs:
           ./scripts/mutation-status-build.sh artifacts mutation-status.json
           jq . mutation-status.json
           echo "complete=$(jq -r '.complete' mutation-status.json)" >> "$GITHUB_OUTPUT"
-          # Which legs finished, so a night where one language flaked still
-          # publishes the others' scores and still checks them for regressions.
-          # One boolean over fifty-three shards threw all three away: on six of
-          # the last ten red nights the failing leg was Go alone.
+          # Records which legs finished, so a night with one flaked language still publishes the rest.
           for language in rust go web; do
             echo "$language=$(jq -r --arg l "$language" '.complete_by_language[$l]' mutation-status.json)" >> "$GITHUB_OUTPUT"
           done
@@ -538,14 +404,9 @@ jobs:
         if: steps.status.outputs.rust == 'true' || steps.status.outputs.go == 'true' || steps.status.outputs.web == 'true'
         run: |
           set -euo pipefail
-          # The artifact directory layout is artifacts/mutation-<lang|shard>/...
-          # Status validation has already proved the complete expected set. Merge
-          # exactly that set into the canonical language inputs.
+          # Artifacts sit under artifacts/mutation-<lang|shard>/ and status validation has proved the set.
           . scripts/lib/mutation-shards.sh
-          # Each merge runs only where that leg's own shards are all present.
-          # Merging a leg that is short a shard would produce a score over the
-          # shards that happened to finish, which is a smaller number nothing
-          # marks as partial.
+          # A leg merges only when all its shards are present, since a short merge reads as a score.
           if [ "${{ steps.status.outputs.rust }}" = "true" ]; then
             rust_expected=()
             for shard in $(mutation_rust_shards); do
@@ -607,15 +468,8 @@ jobs:
             rm -f mutation-baseline.jsonl
           fi
 
-      # A night where every leg is short is a night with nothing to publish, and
-      # that is still a failure here. A night where one leg is short is not: the
-      # legs that finished have scores worth storing and regressions worth
-      # checking, and throwing them away was a detection gap rather than only
-      # waste — a Rust regression could not be seen on any night Go flaked.
-      #
-      # The run still goes red. That is the gate job's, below, which reads the
-      # whole-run `complete` and is unchanged; what moved is only that the
-      # complete legs are published before it does.
+      # A night with every leg short fails here; one short leg still publishes the finished legs.
+      # The gate job below turns the whole run red from the whole-run `complete`.
       - name: Fail a mutation run with no complete leg
         if: steps.status.outputs.complete-legs == ''
         run: |
@@ -633,14 +487,8 @@ jobs:
         env:
           GITHUB_SHA: ${{ github.sha }}
           MUTATION_LANGUAGES: ${{ steps.status.outputs.complete-legs }}
-        # Run the summarize script (APPEND unset → no on-disk history file
-        # written; trend data lives in VictoriaMetrics). Capture the canonical row and
-        # any REGRESSION_ALERT lines for downstream steps. Script exits 1 on
-        # regression — we capture that but do NOT fail this step yet (the
-        # alert step needs to run). Exit 2 means missing/malformed input, so
-        # fail immediately as an incomplete run instead of mislabeling it as
-        # a score regression. The final step re-applies exit 1 so the
-        # workflow goes red for true regressions.
+        # Exit 1 is a regression, captured so the alert step runs; exit 2 is malformed input and
+        # fails at once. The final step re-applies exit 1.
         run: |
           set -euo pipefail
           set +e
@@ -720,14 +568,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Send Telegram alert
-        # Runs whatever happened above it, and the message names which of the
-        # three it was. The shape this replaces was gated on a flag an earlier
-        # step in this job produced, so a night that died before that step said
-        # nothing at all: the louder the failure, the more certain the silence.
-        #
-        # And the send below reports a refused delivery rather than swallowing
-        # it. It can afford to — the verdict this run carries is read by a job of
-        # its own, so a Telegram outage reddens this job and hides nothing.
+        # Runs after any outcome and names which of the three happened. A refused delivery fails the
+        # job, and the verdict is read by a separate job, so an outage hides nothing.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
@@ -754,10 +596,8 @@ jobs:
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
-  # Separate from publish so a Telegram outage cannot suppress the failure
-  # signal, and so the score verdict is not recorded against the observability
-  # environment: the regression is the reason the run is red, not the
-  # notification channel and not the publishing step.
+  # Separate from publish so a Telegram outage cannot suppress the failure signal and the score
+  # verdict is not recorded against the observability environment.
   gate:
     name: Mutation score gate
     needs: [publish]
@@ -773,10 +613,7 @@ jobs:
             echo "::error::Mutation results were not published; see the publish job."
             exit 1
           fi
-          # An incomplete night is still a red night. What changed is only that
-          # the legs that did finish were published and checked before this ran:
-          # the scores are in the trend and a regression in one of them is
-          # reported, rather than being discarded because another leg flaked.
+          # An incomplete night is a red night, after the finished legs were published and checked.
           if [ "${{ needs.publish.outputs.complete }}" != "true" ]; then
             echo "::error::Mutation legs incomplete tonight: ${{ needs.publish.outputs.incomplete-legs }}. The complete legs were published; this run is red for the ones that were not."
             exit 1

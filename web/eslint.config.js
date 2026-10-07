@@ -1,8 +1,5 @@
 import js from '@eslint/js'
 import globals from 'globals'
-// NOTE: openapi-typescript 7.x caps its peer dep at TypeScript ^5.x.
-// Do NOT upgrade TypeScript to v6+ until openapi-typescript ships a
-// version that supports it (last checked: 7.13.0 still 5.x-only).
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import security from 'eslint-plugin-security'
@@ -35,7 +32,7 @@ export default defineConfig([
       // Surface silently-swallowed promise rejections.
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
-      // Promote security plugin's recommended rules from warn → error.
+      // The security plugin's recommended rules run at error severity.
       'security/detect-object-injection': 'error',
       'security/detect-non-literal-fs-filename': 'error',
       'security/detect-non-literal-regexp': 'error',
@@ -53,35 +50,23 @@ export default defineConfig([
     },
   },
   {
-    // Router config file — contains lazy() declarations alongside the router
-    // export. Fast refresh is irrelevant for routing configuration.
+    // The router file declares lazy() routes beside the router export, and fast refresh does not apply.
     files: ['src/router.tsx'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },
   },
-  // ADR-020 — per-feature boundaries.
-  //
-  // Element groups:
-  //   app        — top-level src/{main,App,router,...}.tsx — entry points,
-  //                may import from any group.
-  //   feature    — src/features/<name>/** — should import siblings only via
-  //                their barrel index.ts (deep-import rule comes later).
-  //   lib        — src/lib/<name>/** — utility layer; never imports feature.
-  //   app-state  — src/state/** — bootstrap-coupled global stores; only
-  //                useAuthStore lives here per ADR-020, but the directory is
-  //                permitted as the documented exception until the migration
-  //                completes.
-  //
-  // Flipped to ERROR on 2026-05-28 per ADR-020 — zero current
-  // boundaries violations, marker recorded at
-  // .claude/.markers/arch-lint-flipped/eslint-boundaries.
+  // Boundary groups: app entry points, features, the lib utility layer and bootstrap-coupled state.
+  // Only useAuthStore lives in src/state, the global store that the boundary rules permit.
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { boundaries },
     settings: {
       'boundaries/include': ['src/**/*'],
+      // Imports omit their extension; a target left unresolved escapes every policy.
+      'import/resolver': { node: { extensions: ['.ts', '.tsx', '.js', '.jsx'] } },
       'boundaries/elements': [
+        // The entry points are single files, which only mode 'file' classifies.
         { type: 'app', pattern: 'src/{main,App,router,vite-env.d}.{ts,tsx}', mode: 'file' },
         { type: 'app-state', pattern: 'src/state/**' },
         { type: 'feature', pattern: 'src/features/*/**' },
@@ -89,27 +74,28 @@ export default defineConfig([
       ],
     },
     rules: {
-      // v6 object-selector syntax. `boundaries/dependencies` replaces the
-      // legacy `boundaries/element-types`.
       'boundaries/dependencies': ['error', {
         default: 'disallow',
-        rules: [
+        policies: [
           // Entry points reach everywhere.
-          { from: { type: 'app' }, allow: { to: { type: ['app', 'app-state', 'feature', 'lib'] } } },
+          {
+            from: { element: { type: 'app' } },
+            allow: { to: { element: { types: { anyOf: ['app', 'app-state', 'feature', 'lib'] } } } },
+          },
           // Features may use shared utilities + the global bootstrap stores.
-          { from: { type: 'feature' }, allow: { to: { type: ['feature', 'lib', 'app-state'] } } },
+          {
+            from: { element: { type: 'feature' } },
+            allow: { to: { element: { types: { anyOf: ['feature', 'lib', 'app-state'] } } } },
+          },
           // The lib layer is a leaf — utilities only depend on other utilities.
-          { from: { type: 'lib' }, allow: { to: { type: 'lib' } } },
+          { from: { element: { type: 'lib' } }, allow: { to: { element: { type: 'lib' } } } },
           // Global bootstrap stores can pull lib helpers but not features.
-          { from: { type: 'app-state' }, allow: { to: { type: ['app-state', 'lib'] } } },
+          {
+            from: { element: { type: 'app-state' } },
+            allow: { to: { element: { types: { anyOf: ['app-state', 'lib'] } } } },
+          },
         ],
       }],
-      // ADR-020's barrel-only enforcement ("features must import siblings
-      // only via the sibling's index.ts") rides on `boundaries/dependencies`
-      // when each feature gains an index.ts. The legacy `boundaries/no-private`
-      // rule is deprecated in v6+ — its semantics merged into `dependencies`
-      // with appropriate selectors. We add per-feature barrel enforcement
-      // opportunistically as each feature migrates.
     },
   },
 ])

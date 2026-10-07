@@ -1,20 +1,10 @@
 #!/usr/bin/env bash
-# session-start-context-load.sh — inject project rules + phase status.
-#
-# Runs alongside session-start-fetch.sh. Outputs additionalContext JSON
-# that surfaces:
-#   - TL;DR of mandatory rules + which hook enforces each
-#   - In Progress + Planned + last 10 Completed rows from .claude/phases.md
-#   - Critical / High items from .claude/techdebt.md
-#   - Summary of any prior-session blocks (last 20 entries)
-#   - Pointer to .claude/rules/ (rules index in CLAUDE.md)
-#
-# Always exit 0; SessionStart hooks must never block.
+# Emits SessionStart context: mandatory rules, phase status, critical tech debt and recent blocks.
+# It always exits 0, since a SessionStart hook never blocks.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-# Discard stdin — we don't need any field from it.
 cat >/dev/null 2>&1 || true
 
 repo="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
@@ -56,7 +46,6 @@ fi
 
 prior_blocks_section=""
 if [ -d "${TMPDIR:-/tmp}/claude-${uid}" ] && [ ! -f "$blocks_log" ]; then
-  # Walk the last few session dirs, collecting their blocks.log entries.
   last_blocks="$(find "${TMPDIR:-/tmp}/claude-${uid}" -maxdepth 2 -name blocks.log -mtime -7 -print0 2>/dev/null \
     | xargs -0 -r cat 2>/dev/null | tail -20 || true)"
   if [ -n "$last_blocks" ]; then
@@ -66,7 +55,6 @@ fi
 
 full="${tldr}${phases_section}${techdebt_section}${prior_blocks_section}"
 
-# Emit JSON.
 MSG="$full" python3 -c '
 import json, os, sys
 print(json.dumps({

@@ -21,7 +21,6 @@ func (s *Server) CreateEnrollmentToken(ctx context.Context, request CreateEnroll
 		return resp, nil
 	}
 
-	// Generate crypto-random token (32 bytes = 64 hex chars).
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, fmt.Errorf("generate token: %w", err)
@@ -96,8 +95,7 @@ func (s *Server) DeleteEnrollmentToken(ctx context.Context, request DeleteEnroll
 	return DeleteEnrollmentToken204Response{}, nil
 }
 
-// Enroll implements StrictServerInterface.
-// This is a public endpoint — no auth required.
+// Enroll implements StrictServerInterface on a public endpoint that needs no authentication.
 func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (EnrollResponseObject, error) {
 	if s.cert == nil {
 		return nil, fmt.Errorf("cert provider not configured")
@@ -119,16 +117,12 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 		ServerDomain: host,
 	}
 
-	// Include the Ed25519 update signing key so agents can verify updates
-	// without needing the --update-public-key CLI flag.
 	if s.signing != nil {
 		key := s.signing.PublicKeyHex()
 		result.UpdateSigningKey = &key
 	}
 
-	// Sign agent CSR if provided; only count as a real enrollment when a
-	// certificate is actually issued (the install script probes with an
-	// empty csr_pem to validate the token without consuming a use).
+	// An empty csr_pem is the install script's probe: it validates the token without a use.
 	if request.Body != nil && request.Body.CsrPem != "" {
 		certPEM, err := s.signCSR(request.Body.CsrPem)
 		if err != nil {

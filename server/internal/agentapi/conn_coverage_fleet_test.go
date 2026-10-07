@@ -11,26 +11,16 @@ import (
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
-// The fleet-wide fold of coverage, which is what the platform's own monitoring
-// reads. Per-customer coverage answers "how much of Contoso's estate is this
-// rule watching"; this answers "how much of everything", which is the question a
-// staged rollout is judged on.
-
-// fleetCoverageFunc is a whole install's coverage as one function.
 type fleetCoverageFunc func(context.Context) (int, map[string]int, error)
 
 func (f fleetCoverageFunc) FleetCoverage(ctx context.Context) (int, map[string]int, error) {
 	return f(ctx)
 }
 
-// staticFleet answers with a fixed fleet size and blind-spot count.
 func staticFleet(size int, blind map[string]int) fleetCoverageFunc {
 	return func(context.Context) (int, map[string]int, error) { return size, blind, nil }
 }
 
-// TestFleetRuleCoverageIsTheWholeInstallSplitPerRule is the answer the gauge
-// exports: four states per rule that add up to the fleet, keyed by the state
-// names the series carry.
 func TestFleetRuleCoverageIsTheWholeInstallSplitPerRule(t *testing.T) {
 	t.Parallel()
 
@@ -60,9 +50,6 @@ func TestFleetRuleCoverageIsTheWholeInstallSplitPerRule(t *testing.T) {
 	}, got["io-stalled"], "a standing hole is read from storage, so an offline machine keeps counting")
 }
 
-// TestFleetRuleCoverageReportsAnUnreadableStore rather than reporting a fleet of
-// zero. Every machine reading as unknown is a real and alarming state; a store
-// that is briefly down is not, and the gauge must not be told they are the same.
 func TestFleetRuleCoverageReportsAnUnreadableStore(t *testing.T) {
 	t.Parallel()
 
@@ -78,8 +65,6 @@ func TestFleetRuleCoverageReportsAnUnreadableStore(t *testing.T) {
 	require.Error(t, err, "an unreadable fleet is reported, never rendered as an empty one")
 }
 
-// TestFleetRuleCoverageWithoutAStoreIsEmpty keeps a deployment wired without the
-// durable half from claiming a fleet it cannot count.
 func TestFleetRuleCoverageWithoutAStoreIsEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -91,10 +76,6 @@ func TestFleetRuleCoverageWithoutAStoreIsEmpty(t *testing.T) {
 	assert.Empty(t, got, "with no fleet to measure against there is no split to report")
 }
 
-// TestRuleCoverageCountsRenderTheWholeSplit keeps the rendering total. Three
-// states rendered out of four would make a rule look like it was watching a
-// smaller estate than it is, which is the exact failure the accounting exists to
-// make impossible.
 func TestRuleCoverageCountsRenderTheWholeSplit(t *testing.T) {
 	t.Parallel()
 

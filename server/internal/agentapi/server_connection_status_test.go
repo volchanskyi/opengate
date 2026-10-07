@@ -14,15 +14,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// recordingDevices stands in for the device repository so a test can say when
-// a status write reaches the database and in what order the writes landed. It
-// embeds the interface and implements only SetStatus: nothing else on the
-// repository is reachable from the connection-teardown path under test.
+// recordingDevices implements only SetStatus; the embedded interface is nil for every other method.
 type recordingDevices struct {
 	device.Repository
 
-	// beforeWrite runs on the calling goroutine before a write is recorded, so
-	// a test can hold one write open while it drives the other side.
 	beforeWrite func(device.DeviceStatus)
 
 	mu      sync.Mutex
@@ -45,15 +40,6 @@ func (r *recordingDevices) statuses() []device.DeviceStatus {
 	return append([]device.DeviceStatus(nil), r.written...)
 }
 
-// TestAMachineDiallingBackWaitsForTheDepartingOfflineWrite states the ordering
-// a technician's device list depends on. A machine that drops and dials
-// straight back has two connections in flight at once, and both write its
-// status: the departing one writes offline, the returning one writes online.
-// Deciding ownership from the connection map and only then reaching the
-// database leaves those two writes unordered — the offline write can land last
-// and a connected machine reads offline until something else moves it. The
-// decision and the write it authorises are one step, so a returning connection
-// is not registered while the departing one is still writing.
 func TestAMachineDiallingBackWaitsForTheDepartingOfflineWrite(t *testing.T) {
 	srv := newTestAgentServer(t)
 	deviceID := protocol.DeviceID(uuid.New())
@@ -106,9 +92,6 @@ func TestAMachineDiallingBackWaitsForTheDepartingOfflineWrite(t *testing.T) {
 		"one machine is one machine, however many connections it has open")
 }
 
-// TestASupersededConnectionWritesNothing is the other half: a teardown that
-// finds the machine already dialled back leaves the row alone rather than
-// writing over a status that is already true.
 func TestASupersededConnectionWritesNothing(t *testing.T) {
 	srv := newTestAgentServer(t)
 	deviceID := protocol.DeviceID(uuid.New())
@@ -128,9 +111,6 @@ func TestASupersededConnectionWritesNothing(t *testing.T) {
 	require.NotNil(t, srv.GetAgent(deviceID), "the returning connection survives")
 }
 
-// TestTheDeviceStatusGateIsDroppedWhenNobodyHoldsIt keeps the per-device gate
-// from becoming a map of every device the server has ever seen: a gate exists
-// only while a transition is in flight.
 func TestTheDeviceStatusGateIsDroppedWhenNobodyHoldsIt(t *testing.T) {
 	srv := newTestAgentServer(t)
 	deviceID := protocol.DeviceID(uuid.New())

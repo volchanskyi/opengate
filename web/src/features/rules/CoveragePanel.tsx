@@ -3,7 +3,6 @@ import { coverageCount, coverageTotal, type CoverageState } from '../investigati
 
 type Coverage = components['schemas']['RuleCoverage'];
 
-/** What each state means to whoever reads it, in an operator's words. */
 const STATES: readonly (readonly [CoverageState, string, string])[] = [
   ['active', 'Running it', 'text-gray-200'],
   ['throttled', 'Stopped running it — it cost more than its allowance', 'text-amber-300'],
@@ -11,14 +10,7 @@ const STATES: readonly (readonly [CoverageState, string, string])[] = [
   ['unknown', 'Not heard from', 'text-gray-400'],
 ];
 
-/**
- * How much of the estate the rule is actually watching.
- *
- * The four states always add up to the fleet. A rule quietly evaluating on half
- * an estate while reading as healthy is the failure this accounting exists to
- * make impossible, so a split that does not add up is itself the finding and is
- * said out loud rather than being left for somebody to notice.
- */
+// The four states add up to the fleet; a split that does not add up is reported.
 export function CoveragePanel({
   coverage,
   fleetSize,

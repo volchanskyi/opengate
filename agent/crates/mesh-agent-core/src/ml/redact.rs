@@ -1,13 +1,13 @@
 use sha2::{Digest, Sha256};
 
-/// Return a stable SHA-256 hex digest for a command line.
+/// Returns a stable SHA-256 hex digest for a command line.
 pub fn cmdline_hash(cmdline: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(cmdline.as_bytes());
     hex::encode(hasher.finalize())
 }
 
-/// Redact common secret-bearing command-line fragments.
+/// Redacts common secret-bearing command-line fragments.
 pub fn redact_cmdline(cmdline: &str) -> String {
     let mut redacted = Vec::new();
     let mut redact_next = false;
@@ -49,9 +49,7 @@ pub fn redact_cmdline(cmdline: &str) -> String {
     redacted.join(" ")
 }
 
-/// Lowercase secret key names whose associated value must be stripped, whether
-/// they appear as a `key=value` / `key: value` assignment or a bare
-/// `--key value` flag. Shared by the command-line and raw-log redactors.
+/// Lowercase secret key names whose value is stripped, as `key=value`, `key: value` or a flag.
 const SECRET_KEYS: [&str; 11] = [
     "password",
     "passwd",
@@ -66,13 +64,8 @@ const SECRET_KEYS: [&str; 11] = [
     "client_secret",
 ];
 
-/// Redact common secret-bearing fragments from a raw log line. This is a
-/// defense-in-depth backstop applied at the edge before any raw line leaves the
-/// device; the server applies an equivalent guard (`redactSecrets`) so neither
-/// layer is trusted alone. The line is whitespace-tokenized, so single-token
-/// secrets (JWTs, connection strings, `key=value`) and two-token shapes
-/// (`Bearer <tok>`, `password: <value>`) are both handled. Over-redaction is
-/// preferred to leaking, so ambiguous auth-scheme markers redact the next token.
+/// Redacts secret-bearing tokens from a raw log line before it leaves the device; ambiguous
+/// auth-scheme markers redact the next token, favouring over-redaction.
 pub fn redact_log_line(line: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut redact_next = false;
@@ -86,31 +79,25 @@ pub fn redact_log_line(line: &str) -> String {
 
         let lower = token.to_ascii_lowercase();
 
-        // `Bearer <tok>` / `Basic <tok>` — the credential is the next token. A
-        // trailing match also catches a glued prefix such as `auth="Bearer`.
+        // The credential follows `Bearer` or `Basic`, including a glued prefix such as `auth="Bearer`.
         if lower.ends_with("bearer") || lower.ends_with("basic") {
             out.push(token.to_string());
             redact_next = true;
             continue;
         }
-        // A bare secret key or `key:` marker whose value is the next token.
         if is_bare_secret_key(&lower) {
             out.push(token.to_string());
             redact_next = true;
             continue;
         }
-        // Connection string, URL, or UNC path carrying `user:pass@host`
-        // credentials.
         if carries_inline_credentials(token) {
             out.push("[REDACTED_URL]".to_string());
             continue;
         }
-        // Single-token `key=value` / `key:value` assignment — keep the key.
         if is_secret_assignment(&lower) {
             out.push(redact_kv(token));
             continue;
         }
-        // Self-identifying secrets independent of any surrounding key.
         if is_jwt(token) || contains_aws_access_key(token) || is_gcp_api_key(token) {
             out.push("[REDACTED]".to_string());
             continue;
@@ -122,15 +109,13 @@ pub fn redact_log_line(line: &str) -> String {
     out.join(" ")
 }
 
-/// A bare secret key (`password`, `--token`, `api_key:`) that carries no inline
-/// value — its value is the following whitespace-separated token.
+/// A bare secret key (`password`, `--token`, `api_key:`) whose value is the next token.
 fn is_bare_secret_key(lower: &str) -> bool {
     let key = lower.trim_start_matches('-').trim_end_matches(':');
     !key.contains('=') && !key.contains(':') && SECRET_KEYS.contains(&key)
 }
 
-/// Strips the value from a single `key=value` / `key:value` token, preserving
-/// the key and separator so the line stays readable.
+/// Strips the value from a `key=value` or `key:value` token, keeping the key and separator.
 fn redact_kv(token: &str) -> String {
     match token.find(['=', ':']) {
         Some(idx) => format!("{}[REDACTED]", &token[..=idx]),
@@ -138,16 +123,8 @@ fn redact_kv(token: &str) -> String {
     }
 }
 
-/// A token carrying `user:pass@host` credentials inline.
-///
-/// A scheme is not required. A mounted share is written `//server/path` and an
-/// SSH or rsync target `user:pass@host:/path`, and neither has one — so keying
-/// this off `://` reads a credential in a UNC path as ordinary text and lets it
-/// off the device. What identifies the shape is the credential itself: a colon
-/// with something either side of it, before an `@` that is followed by a host.
-///
-/// A bare email address is deliberately not this shape (no colon), so ordinary
-/// log lines naming a user survive intact.
+/// A token with inline `user:pass@host` credentials, with or without a scheme (UNC, SSH, rsync);
+/// a bare email address has no colon and passes.
 fn carries_inline_credentials(token: &str) -> bool {
     let Some((credential, host)) = token.rsplit_once('@') else {
         return false;
@@ -155,7 +132,7 @@ fn carries_inline_credentials(token: &str) -> bool {
     if host.is_empty() {
         return false;
     }
-    // The scheme's own colon is not the credential's, so look past it.
+    // The colon after a scheme is skipped.
     let credential = credential
         .rsplit_once("://")
         .map_or(credential, |(_, after)| after);
@@ -164,15 +141,14 @@ fn carries_inline_credentials(token: &str) -> bool {
         .is_some_and(|(user, secret)| !user.is_empty() && !secret.is_empty())
 }
 
-/// A JSON Web Token — three non-empty base64url segments starting `eyJ` (the
-/// base64 of `{"`). Surrounding quotes/punctuation are trimmed first.
+/// A JSON Web Token: three non-empty base64url segments starting `eyJ`, after trimming punctuation.
 fn is_jwt(token: &str) -> bool {
     let t = token
         .trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'));
     t.starts_with("eyJ") && t.matches('.').count() == 2 && t.split('.').all(|s| !s.is_empty())
 }
 
-/// A Google API key: the `AIza` prefix followed by ~35 base64url characters.
+/// A Google API key: the `AIza` prefix followed by base64url characters.
 fn is_gcp_api_key(token: &str) -> bool {
     (35..=45).contains(&token.len())
         && token.starts_with("AIza")

@@ -7,32 +7,20 @@ import (
 	"strings"
 )
 
-// The datagrams each end's kernel dropped because a socket's receive buffer
-// was full.
-//
-// A machine speaks QUIC over UDP, and a datagram that arrives at a full buffer
-// is dropped by the kernel before either process sees it. Neither end logs the
-// loss: the machine retransmits, the handshake stalls, and a rung that ran out
-// of buffer reads as a rung where the server was slow. The kernel counts the
-// drops per network namespace, so each end's count is read from the namespace
-// that end runs in, and a phase carries the difference across itself.
-
 // ownNetworkCounters is this process's own network namespace's page.
 const ownNetworkCounters = "/proc/self/net/snmp"
 
-// receiveBufferErrorsColumn is the column that counts a datagram dropped for a
-// full receive buffer.
+// receiveBufferErrorsColumn counts datagrams dropped for a full receive buffer.
 const receiveBufferErrorsColumn = "RcvbufErrors"
 
-// NetworkDrops is how a phase reads each end's drops. Either reader may be
-// absent: the target's counters are only reachable where it shares the runner's
-// kernel.
+// NetworkDrops reads each end's receive-buffer drops from the end's own network namespace.
+// The target's reader is nil where it shares no kernel with the runner.
 type NetworkDrops struct {
 	ReadGenerator func() (int64, bool)
 	ReadTarget    func() (int64, bool)
 }
 
-// Bracket takes the opening counts and returns what closes them.
+// Bracket takes the opening counts and returns a closer yielding each end's drops since.
 func (n NetworkDrops) Bracket() func() (generator, target *int64) {
 	generatorBefore, generatorOpened := readCounter(n.ReadGenerator)
 	targetBefore, targetOpened := readCounter(n.ReadTarget)
@@ -49,9 +37,7 @@ func readCounter(read func() (int64, bool)) (int64, bool) {
 	return read()
 }
 
-// droppedSince is the drops since the opening count. A counter that went
-// backwards belongs to a network stack that was replaced inside the phase, and
-// the difference would describe two of them.
+// droppedSince returns the drops since the opening count, nil when the counter went backwards.
 func droppedSince(read func() (int64, bool), before int64, opened bool) *int64 {
 	after, closed := readCounter(read)
 	if !opened || !closed || after < before {
@@ -61,8 +47,7 @@ func droppedSince(read func() (int64, bool), before int64, opened bool) *int64 {
 	return &dropped
 }
 
-// NewNetworkDrops reads this process's own namespace for the generator's drops,
-// and the target's page where the run was told where it is.
+// NewNetworkDrops reads the generator's drops from this namespace and the target's from its page.
 func NewNetworkDrops(targetCounters string) NetworkDrops {
 	drops := NetworkDrops{
 		ReadGenerator: func() (int64, bool) { return readReceiveBufferErrors(ownNetworkCounters) },
@@ -81,9 +66,8 @@ func readReceiveBufferErrors(path string) (int64, bool) {
 	return ParseUDPReceiveBufferErrors(string(page))
 }
 
-// ParseUDPReceiveBufferErrors reads the receive-buffer drops off a kernel
-// counters page. The Udp section is a header line and a value line under the
-// same prefix, and the column is found by its name in the header.
+// ParseUDPReceiveBufferErrors reads the receive-buffer drops off a kernel counters page.
+// The Udp section is a header line and a value line, and the column is found by header name.
 func ParseUDPReceiveBufferErrors(page string) (int64, bool) {
 	var header []string
 	for line := range strings.SplitSeq(page, "\n") {

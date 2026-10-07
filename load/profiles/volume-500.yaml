@@ -1,22 +1,13 @@
-# Hold the load constant and vary how much data is already there. Running it any
-# other way conflates the two: a slower run against a bigger fleet says nothing
-# about which of the two caused it.
-#
-# It runs on a disposable runner stack rather than on staging, because staging's
-# database writes into the same node root production depends on, and because a
-# comparison between fixture sizes needs no production-shaped hardware — only
-# the same hardware for each size.
+# The load is constant while the data already present varies, so a slower run has one cause.
+# It runs on a disposable runner stack, since a size comparison needs the same hardware per size.
 schema_version: 1
 name: volume-500
 family: volume
 environment: runner
 fixture: lopsided
 
-# One point of the sweep. The legs differ in machines that actually enrolled,
-# because the fixture's name does not decide how much data is there — the large
-# and lopsided fixtures plan the same count and differ only in distribution, so
-# a sweep over fixture names was a two-point sweep wearing three labels. The
-# machines are what the database holds, and they are what varies here.
+# Each leg varies the enrolled machine count, which is what the database holds.
+# Fixture names do not decide that count, so the sweep varies machines directly.
 phases:
   - name: ramp
     duration: 30s
@@ -30,25 +21,15 @@ phases:
     sessions: 5
     measured: true
 
-# No processor ceiling. This stack is created by the job and thrown away with
-# it, so there is no neighbour to protect, and driving the processor is the
-# experiment rather than a hazard. What is declared is the room the run can
-# still exhaust: past it the node has nowhere to put what the run produces.
+# No processor ceiling, since driving the processor is the experiment on a throwaway stack.
+# The declared limits keep the room the node needs to store what the run produces.
 safety:
   max_node_memory_percent: 90
   max_error_rate: 0.01
 
 gates:
-  # What judges a leg here is the evidence bundle, and a bundle states the
-  # machine side: a limit naming a browser-side measurement would be held
-  # against a row the reader does not produce. The technician load that runs
-  # beside the fleet is folded into the bundle all the same, and read by the
-  # curve that puts the legs side by side — which is where an estate slowing
-  # reads down is visible at all.
-  #
-  # The write path is what more data slows, and registration is the write this
-  # venue times — the server's own figure, taken where the device row lands
-  # rather than at the generator's send buffer.
+  # The evidence bundle judges a leg, so limits name machine-side measurements only.
+  # Registration is the write more data slows, timed by the server where the device row lands.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0

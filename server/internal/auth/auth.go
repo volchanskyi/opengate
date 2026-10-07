@@ -20,9 +20,7 @@ type JWTConfig struct {
 }
 
 // ErrTenantClaimMissing is returned when a token carries no readable tenant.
-// Every request runs inside a tenant, so a token that names none cannot be
-// honoured; it is refused as a token, which asks the caller to log in again
-// instead of letting the request reach a handler with no scope to work in.
+// Every request runs inside a tenant, so such a token is refused and the caller logs in again.
 var ErrTenantClaimMissing = errors.New("token carries no tenant claim")
 
 // Claims represents the JWT claims embedded in a token.

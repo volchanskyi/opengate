@@ -27,27 +27,22 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// Machine is one enrolled endpoint holding a control stream. It reaches the
-// product only through that stream, and it gets its identity the way a real
-// machine does: it generates a key, asks the public enrolment endpoint to sign
-// a request for it, and dials with the certificate that comes back. No private
-// key ever leaves this process and no test-only bypass exists.
+// Machine is one enrolled endpoint holding a control stream, with an identity obtained from
+// the public enrolment endpoint by signing a request for its own key.
 type Machine struct {
 	t       *testing.T
 	product *Product
 
-	// DeviceID is the identity the certificate carries and the product files
-	// the machine under.
+	// DeviceID is the identity the certificate carries.
 	DeviceID uuid.UUID
-	// Hostname is the name a technician sees in the device list.
+	// Hostname is the name shown in the device list.
 	Hostname string
 
 	conn   *quic.Conn
 	stream *quic.Stream
 	codec  *protocol.Codec
 
-	// inbox holds what the product has pushed down the stream. One reader owns
-	// the stream, so a test can wait for a message without racing another wait.
+	// inbox holds the messages the product pushed; a single reader owns the stream.
 	mu      sync.Mutex
 	inbox   []*protocol.ControlMessage
 	readErr error
@@ -61,17 +56,12 @@ type enrolReply struct {
 }
 
 // Machine enrols a new machine with the given enrolment token and connects it.
-// This is the whole path a real endpoint walks: mint, request, sign, dial,
-// register.
 func (p *Product) Machine(enrolmentToken, hostname string, capabilities ...protocol.AgentCapability) *Machine {
 	p.t.Helper()
 	return p.MachineWithIdentity(enrolmentToken, uuid.New(), hostname, capabilities...)
 }
 
-// MachineWithIdentity enrols a machine that already knows who it is. A
-// rebuilt endpoint keeps the identity it was installed with and asks for a
-// fresh certificate against it, which is how it comes back as itself rather
-// than as a second row beside itself.
+// MachineWithIdentity enrols a machine under an existing device identity with a fresh certificate.
 func (p *Product) MachineWithIdentity(
 	enrolmentToken string, deviceID uuid.UUID, hostname string, capabilities ...protocol.AgentCapability,
 ) *Machine {
@@ -104,8 +94,7 @@ func (p *Product) MachineWithIdentity(
 	return machine
 }
 
-// enrol posts a certificate request to the public enrolment endpoint and
-// insists it succeeded.
+// enrol posts a certificate request to the public enrolment endpoint and requires success.
 func (p *Product) enrol(token, csrPEM string) enrolReply {
 	p.t.Helper()
 
@@ -118,18 +107,13 @@ func (p *Product) enrol(token, csrPEM string) enrolReply {
 	return out
 }
 
-// enrolAttempt asks to enrol with a token and no certificate request, which is
-// exactly what the install script does to check a token before it commits to
-// anything. It returns whatever came back, refusals included.
+// enrolAttempt tries to enrol with a token and returns the reply, refusals included.
 func (p *Product) enrolAttempt(token string) Reply {
 	p.t.Helper()
 	return p.enrolWith(token, dummyCSR(p.t))
 }
 
-// enrolWith is the public enrolment endpoint as a machine reaches it:
-// deliberately unauthenticated, because a machine being installed holds no
-// operator credential — only the token somebody pasted into its install
-// command.
+// enrolWith calls the public enrolment endpoint, which carries no operator credential.
 func (p *Product) enrolWith(token, csrPEM string) Reply {
 	p.t.Helper()
 
@@ -148,8 +132,7 @@ func (p *Product) enrolWith(token, csrPEM string) Reply {
 	return Reply{t: p.t, Status: resp.StatusCode, Body: payload}
 }
 
-// dummyCSR is a well-formed certificate request for an identity nothing will
-// ever use. A refusal must come from the token, not from a malformed request.
+// dummyCSR returns a well-formed certificate request for a throwaway identity.
 func dummyCSR(t *testing.T) string {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -161,9 +144,8 @@ func dummyCSR(t *testing.T) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))
 }
 
-// connect dials the machine-facing door and opens the control stream. The
-// machine opens the stream and writes first, which is what RFC 9000 stream
-// discovery requires of the side that initiates.
+// connect dials the QUIC listener and opens the control stream, writing first as the
+// initiating side must for peer stream discovery.
 func (m *Machine) connect(identity *tls.Certificate) {
 	m.t.Helper()
 
@@ -192,7 +174,7 @@ func (m *Machine) connect(identity *tls.Certificate) {
 	require.Equal(m.t, byte(protocol.MsgServerHello), hello[0], "the product must greet the machine back")
 }
 
-// register tells the product what this machine is and what it can do.
+// register announces the machine's hostname and capabilities and starts its reader.
 func (m *Machine) register(capabilities []protocol.AgentCapability) {
 	m.t.Helper()
 
@@ -212,9 +194,7 @@ func (m *Machine) register(capabilities []protocol.AgentCapability) {
 	go m.readLoop()
 }
 
-// readLoop is the machine's own reader: one goroutine owns the stream and
-// files everything the product pushes, so a test can wait for a message
-// without two waits racing for the same bytes.
+// readLoop is the single goroutine that reads the stream and files pushed control messages.
 func (m *Machine) readLoop() {
 	for {
 		frameType, payload, err := m.codec.ReadFrame(m.stream)
@@ -240,7 +220,7 @@ func (m *Machine) readLoop() {
 	}
 }
 
-// Send writes one control message the way a machine does.
+// Send writes one control message on the stream.
 func (m *Machine) Send(msg *protocol.ControlMessage) {
 	m.t.Helper()
 	payload, err := m.codec.EncodeControl(msg)
@@ -248,9 +228,7 @@ func (m *Machine) Send(msg *protocol.ControlMessage) {
 	require.NoError(m.t, m.codec.WriteFrame(m.stream, protocol.FrameControl, payload))
 }
 
-// Await waits for the product to push a message of the given type and returns
-// it. It fails the test rather than blocking for ever, naming the message it
-// was waiting for.
+// Await waits for a pushed message of the given type and returns it, failing on timeout.
 func (m *Machine) Await(msgType protocol.ControlMessageType) *protocol.ControlMessage {
 	m.t.Helper()
 
@@ -269,8 +247,7 @@ func (m *Machine) Await(msgType protocol.ControlMessageType) *protocol.ControlMe
 	return found
 }
 
-// Received reports whether the product has pushed a message of the given type
-// at any point. Unlike Await it does not wait, so it states a negative.
+// Received reports without waiting whether a message of the given type has been pushed.
 func (m *Machine) Received(msgType protocol.ControlMessageType) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -282,15 +259,13 @@ func (m *Machine) Received(msgType protocol.ControlMessageType) bool {
 	return false
 }
 
-// Disconnect drops the machine off the network the way a laptop closing its
-// lid does: no goodbye, just silence.
+// Disconnect closes the connection without any goodbye on the stream.
 func (m *Machine) Disconnect() {
 	m.t.Helper()
 	require.NoError(m.t, m.conn.CloseWithError(0, "machine left the network"))
 }
 
-// AwaitOnline blocks until the product shows the machine as online, which is
-// the state a technician's device list reads.
+// AwaitOnline blocks until the device row reads online.
 func (m *Machine) AwaitOnline() {
 	m.t.Helper()
 	require.Eventually(m.t, func() bool {
@@ -299,10 +274,8 @@ func (m *Machine) AwaitOnline() {
 	}, eventually, poll, "the machine must appear online once it has registered")
 }
 
-// tryReconnect walks the whole return path for a machine that already exists —
-// certificate request, dial, greeting, register — and reports the first thing
-// that refused it instead of failing the test. It is how an outcome states
-// that an identity is no longer trusted.
+// tryReconnect repeats enrolment, dial, greeting and registration for an existing machine and
+// returns the first refusal.
 func (p *Product) tryReconnect(machine *Machine, enrolmentToken string) error {
 	p.t.Helper()
 

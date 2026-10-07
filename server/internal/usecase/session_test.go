@@ -15,7 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/usecase"
 )
 
-// fakeSessions is a minimal session.Repository stub for use-case tests.
 type fakeSessions struct {
 	stored    map[string]*session.Session
 	deleteErr error
@@ -81,10 +80,6 @@ func TestSessionService_Delete_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, usecase.ErrSessionNotFound)
 }
 
-// TestSessionService_Delete_PeerInSameTenant pins the tenant-wide command
-// boundary: ending a session belongs to any member of the tenant, not
-// only the member who opened it. The repository lookup is tenant-scoped, so a
-// token from another tenant is simply not found.
 func TestSessionService_Delete_PeerInSameTenant(t *testing.T) {
 	creator := uuid.New()
 	peer := uuid.New()

@@ -1,13 +1,7 @@
-import { encodeFrame, decodeFrame } from '../protocol/codec';
-import {
-  FRAME_CONTROL,
-  FRAME_DESKTOP,
-  FRAME_TERMINAL,
-  FRAME_FILE,
-  FRAME_PING,
-  FRAME_PONG,
-} from '../protocol/types';
+import { encodeFrame } from '../protocol/codec';
+import { FRAME_CONTROL, FRAME_TERMINAL, FRAME_FILE, FRAME_PONG } from '../protocol/types';
 import type { ControlMessage, DesktopFrame, TerminalFrame, FileFrame } from '../protocol/types';
+import { frameDispatch } from './frame-dispatch';
 
 /** WebSocket connection lifecycle state. */
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -109,31 +103,6 @@ export class WSTransport {
   }
 
   private handleMessage(data: ArrayBuffer): void {
-    try {
-      const { frame } = decodeFrame(new Uint8Array(data));
-      switch (frame.type) {
-        case FRAME_PING:
-          // Auto-respond with Pong
-          this.sendRaw(encodeFrame({ type: FRAME_PONG }));
-          break;
-        case FRAME_PONG:
-          // Ignore Pong
-          break;
-        case FRAME_CONTROL:
-          this.events.onControlMessage(frame.message);
-          break;
-        case FRAME_DESKTOP:
-          this.events.onDesktopFrame(frame.frame);
-          break;
-        case FRAME_TERMINAL:
-          this.events.onTerminalFrame(frame.frame);
-          break;
-        case FRAME_FILE:
-          this.events.onFileFrame(frame.frame);
-          break;
-      }
-    } catch (err) {
-      this.events.onError(err instanceof Error ? err : new Error(String(err)));
-    }
+    frameDispatch(data, this.events, () => this.sendRaw(encodeFrame({ type: FRAME_PONG })));
   }
 }

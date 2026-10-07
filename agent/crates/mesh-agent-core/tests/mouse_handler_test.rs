@@ -1,11 +1,4 @@
-//! Integration tests for `MouseHandler` control-message dispatch.
-//!
-//! The inner control-message fan-out lives behind a `ControlMessageHandler`
-//! marker trait. `MouseHandler` owns `MouseMove` + `MouseClick`. These tests pin
-//! the externally-visible
-//! contract: permission gating, dispatch order, and resilience to injector
-//! failures. Per-method unit tests live alongside the implementation in
-//! `src/session/handlers/mouse.rs`.
+//! Integration tests for `MouseHandler` permission gating, dispatch order and injector failures.
 
 use std::sync::{Arc, Mutex};
 

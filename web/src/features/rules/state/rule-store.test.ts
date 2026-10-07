@@ -46,7 +46,6 @@ function lastQuery(mock: { mock: { calls: unknown[][] } }): Record<string, unkno
   return call?.[1].params?.query ?? {};
 }
 
-/** The body of the most recent call, which is what a scope assertion is about. */
 function lastBody(mock: { mock: { calls: unknown[][] } }): unknown {
   const call = mock.mock.calls.at(-1) as unknown as [string, { body?: unknown }] | undefined;
   return call?.[1].body;
@@ -157,9 +156,6 @@ describe('rule-store', () => {
   });
 });
 
-// Every write re-reads the rule, so a write that did not happen must not
-// trigger the re-read: the refetch is what tells the page its request landed,
-// and one issued after a refusal would redraw the page as if it had.
 describe('rule-store refusals', () => {
   it('does not re-read the rule when a removal is refused', async () => {
     mockedDelete.mockResolvedValue(refused('that value is not yours to remove') as never);
@@ -179,8 +175,6 @@ describe('rule-store refusals', () => {
     expect(mockedGet).not.toHaveBeenCalled();
   });
 
-  // A stop that was refused has to read as refused. Reporting it as done would
-  // leave an operator believing a rule degrading an estate had been halted.
   it('does not re-read the rule when a stop is refused', async () => {
     mockedPost.mockResolvedValue(refused('stopping tenant-wide is not yours to do') as never);
 
@@ -196,9 +190,6 @@ describe('rule-store refusals', () => {
     expect(mockedGet).not.toHaveBeenCalled();
   });
 
-  // Asking how one machine is running the rule is a read the page can do
-  // without: a refusal reports itself and leaves the last answer alone rather
-  // than blanking the panel.
   it('keeps the last resolved answer when a resolve is refused', async () => {
     mockedGet.mockResolvedValueOnce(ok({
       rule_id: 'disk-critical', device_id: 'fs01', delivered: true,

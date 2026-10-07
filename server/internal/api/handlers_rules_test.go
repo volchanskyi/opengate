@@ -11,17 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 )
 
-// The rules view: what the curated pack is watching, and what it deliberately
-// does not offer.
-//
-// Coverage is the reason this endpoint exists rather than the catalogue being a
-// constant in the client — a rule quietly evaluating on half an estate while
-// reading as healthy is the failure the accounting exists to make impossible.
-
-// TestRulesReportCoverageThatAddsUpToTheFleet is the API form of the coverage
-// invariant: a rule watching half an estate must say so rather than read as
-// healthy, and the only way that is legible is if the states add up to the
-// fleet the counts were taken against.
 func TestRulesReportCoverageThatAddsUpToTheFleet(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{counts: map[string]agentapi.RuleCoverageCounts{
@@ -48,10 +37,7 @@ func TestRulesReportCoverageThatAddsUpToTheFleet(t *testing.T) {
 		assert.NotEmptyf(t, rule.Severity, "rule %s must say how bad it is", rule.Id)
 
 		if rule.Kind == Event {
-			// A rule reading the machine's own log records compares no number,
-			// so there is nothing to retune and nothing to show a line for.
-			// What an administrator can still do is stop it, which is the
-			// control that matters for a rule that turns out to be noisy.
+			// A rule reading log records compares no number, so nothing is tunable.
 			watchingWords++
 			assert.Emptyf(t, rule.Tunable, "rule %s watches words, so it has no numbers to retune", rule.Id)
 			assert.Nilf(t, rule.Metric, "rule %s watches words, so it names no reading", rule.Id)
@@ -65,11 +51,6 @@ func TestRulesReportCoverageThatAddsUpToTheFleet(t *testing.T) {
 		"the screen must show the rules that read the machine's own words, or an administrator cannot stop one")
 }
 
-// TestRulesExposeNoAuthoringSurface. Rules are data in a bounded grammar
-// compiled into the server, and there is deliberately no way to write one: an
-// agent that runs server-supplied code is a supply-chain weapon aimed at every
-// customer estate. So the read must not hand back the predicate in a shape that
-// implies it can be edited.
 func TestRulesExposeNoAuthoringSurface(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -82,5 +63,4 @@ func TestRulesExposeNoAuthoringSurface(t *testing.T) {
 	}
 }
 
-// seedRooms writes n further rooms for the customer, so a case can page a queue
-// that holds more than the one room it opened.
+// seedRooms writes n further rooms for the customer.

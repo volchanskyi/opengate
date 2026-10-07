@@ -8,9 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A phase carries what the target held in memory at its census, beside the
-// counts, so a night's summary can say how much of its memory ceiling the
-// server used through the measured phase. A census nobody took carries none.
 func TestAPhaseCarriesTheTargetsResidentMemoryAtItsCensus(t *testing.T) {
 	profile := threePhaseProfile()
 	fleet := &recordingFleet{}

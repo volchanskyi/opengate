@@ -3,10 +3,7 @@ import { request, type FullConfig } from "@playwright/test";
 const BOOTSTRAP_EMAIL = "bootstrap-admin@test.local";
 const BOOTSTRAP_PASSWORD = "BootstrapPass123!";
 
-/**
- * Registers the first user in the DB so it auto-promotes to admin.
- * Stores credentials in environment variables for test fixtures.
- */
+// Registers the first user, which the server promotes to admin, and exports its credentials.
 export default async function globalSetup(config: FullConfig) {
   const baseURL = config.projects[0]?.use?.baseURL ?? "http://localhost:8080";
   const ctx = await request.newContext({ baseURL });
@@ -17,7 +14,6 @@ export default async function globalSetup(config: FullConfig) {
     });
 
     if (!resp.ok()) {
-      // Already exists (e.g., local dev re-run) — try login instead.
       const loginResp = await ctx.post("/api/v1/auth/login", {
         data: { email: BOOTSTRAP_EMAIL, password: BOOTSTRAP_PASSWORD },
       });
@@ -36,9 +32,7 @@ export default async function globalSetup(config: FullConfig) {
     process.env.BOOTSTRAP_ADMIN_EMAIL = BOOTSTRAP_EMAIL;
     process.env.BOOTSTRAP_ADMIN_PASSWORD = BOOTSTRAP_PASSWORD;
 
-    // Verify the bootstrap user actually has admin privileges.
-    // If the DB is stale from a previous run, the first-user auto-promotion
-    // may have gone to a different account.
+    // A stale database promoted a different first user, so the admin claim is verified.
     const meResp = await ctx.get("/api/v1/users/me", {
       headers: { Authorization: `Bearer ${process.env.BOOTSTRAP_ADMIN_TOKEN}` },
     });

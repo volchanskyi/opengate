@@ -18,15 +18,7 @@ import (
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
-// An audited action writes its row on a goroutine so a slow store never holds a
-// response open. Unbounded, that is a burst amplifier: every audited request in
-// a spike starts one more goroutine competing for the same connection pool, and
-// the pool is the thing that was already slow. Its structural sibling —
-// telemetry persistence in the agent connection — holds a slot semaphore and
-// counts what it sheds. This holds the same shape.
-
-// blockingAudit is an audit repository whose writes park until released, which
-// is what a store under load looks like from here.
+// blockingAudit is an audit repository whose writes park until released.
 type blockingAudit struct {
 	release  chan struct{}
 	inFlight atomic.Int64
@@ -89,9 +81,6 @@ func TestAuditWritesHoldAConcurrencyBound(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Every action is accounted for: the ones that took a slot and the ones that
-	// found none. A shed write that nobody counted is the same defect in a
-	// quieter form.
 	require.Eventually(t, func() bool {
 		return repo.inFlight.Load() == int64(auditConcurrentWrites)
 	}, 5*time.Second, 10*time.Millisecond,
@@ -105,9 +94,6 @@ func TestAuditWritesHoldAConcurrencyBound(t *testing.T) {
 		"a shed audit write must be counted, not lost; got:\n%s", shed)
 }
 
-// The ordinary case: a store that answers writes the row and says so, or the
-// arm above proves only that the bound exists and never that anything passes
-// through it.
 func TestAnAuditedActionWritesItsRow(t *testing.T) {
 	t.Parallel()
 

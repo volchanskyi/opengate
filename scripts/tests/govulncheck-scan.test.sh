@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# scripts/govulncheck-scan.sh: the database is fetched with retries, and the
-# scan runs exactly once against the local copy.
-#
-# The scan used to sit in a loop that retried it three times. The scanner
-# pinned in CI crashed under the Go the module had moved to, and the loop turned
-# a crash into an occasional pass: whichever attempt did not crash went green.
-# The fetch is the only part that is ever transient, so it is the only part
-# retried, and both the gauntlet and CI run this one script.
+# Tests scripts/govulncheck-scan.sh: the database fetch retries, and the scan runs once locally.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +23,6 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin"
 
-# A database archive in the published layout, and one without its index.
 python3 - "$WORK" <<'PY'
 import sys, zipfile
 work = sys.argv[1]
@@ -41,7 +33,6 @@ with zipfile.ZipFile(f"{work}/bad.zip", "w") as z:
     z.writestr("README", "not a database")
 PY
 
-# curl copies the archive FAKE_DB names to its -o target, or fails.
 cat >"$WORK/bin/curl" <<'CURL'
 #!/usr/bin/env bash
 out=""
@@ -52,7 +43,6 @@ done
 [ -n "${FAKE_DB:-}" ] || { echo "curl: (22) The requested URL returned error: 503" >&2; exit 22; }
 cp "$FAKE_DB" "$out"
 CURL
-# govulncheck records each call and answers with FAKE_SCAN_RC.
 cat >"$WORK/bin/govulncheck" <<'SCANNER'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$FAKE_CALLS"
@@ -79,7 +69,6 @@ else
   fail "and scans against the local copy of the database (calls=[$(cat "$WORK/calls")])"
 fi
 
-# A finding, or a crash, is reported once — never retried into a pass.
 if run_scan "$WORK/good.zip" 3; then
   fail "a scan that fails fails the script"
 else
@@ -108,7 +97,6 @@ else
   fail "an archive that is not a database is refused, naming what it lacks (out=[$(cat "$WORK/out")])"
 fi
 
-# Both sides run the script, so they scan the same way.
 if grep -qF 'scripts/govulncheck-scan.sh' "$ROOT/scripts/precommit-gauntlet.sh"; then
   pass "the gauntlet runs the script"
 else

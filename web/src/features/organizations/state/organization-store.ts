@@ -5,16 +5,10 @@ import type { components } from '../../../types/api';
 
 type Organization = components['schemas']['Organization'];
 
-/**
- * Where the picked customer is remembered. A technician works one customer at a
- * time for stretches, so the choice survives a reload rather than snapping back
- * to the whole tenant on every visit.
- */
 export const SELECTED_ORGANIZATION_KEY = 'selectedOrganizationId';
 
 interface OrganizationState {
   organizations: Organization[];
-  /** The customer the fleet views narrow to, or null for the whole tenant. */
   selectedOrganizationId: string | null;
   isLoading: boolean;
   error: string | null;
@@ -49,9 +43,7 @@ export const useOrganizationStore = create<OrganizationState>((set, get) => ({
     );
     if (!res.ok) return;
 
-    // A customer that has been deleted or archived away must not stay selected,
-    // or the fleet views would narrow to something the tenant no longer has and
-    // read as an empty fleet.
+    // A deleted or archived customer is dropped from the selection so the fleet views stay populated.
     const selected = get().selectedOrganizationId;
     const stillThere = selected !== null && res.data.some((o) => o.id === selected);
     if (selected !== null && !stillThere) {
@@ -100,8 +92,7 @@ export const useOrganizationStore = create<OrganizationState>((set, get) => ({
       }), false,
     );
     if (res.ok) {
-      // An archived customer leaves the working set the picker offers; a
-      // restored one takes its updated row back.
+      // An archived customer leaves the picker's working set; a restored one takes its updated row.
       set((state) => ({
         organizations: archived
           ? state.organizations.filter((o) => o.id !== id)
@@ -127,10 +118,7 @@ export const useOrganizationStore = create<OrganizationState>((set, get) => ({
   },
 }));
 
-/**
- * The customer id fleet reads should narrow by, or undefined for the whole
- * tenant. Read outside React so the device store can pass it on every fetch.
- */
+// Reads the selection outside React so the device store can pass it on every fetch.
 export function selectedOrganizationQuery(): string | undefined {
   return useOrganizationStore.getState().selectedOrganizationId ?? undefined;
 }

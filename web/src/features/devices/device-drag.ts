@@ -1,10 +1,6 @@
 /**
- * Payload contract for dragging a device card onto a site in the sidebar.
- *
- * The id travels under a private MIME type rather than `text/plain` so a drop
- * zone can tell a device drag from arbitrary text (a selection dragged in from
- * another window) using only `DataTransfer.types` — the sole field readable
- * from a `dragover` handler, where the browser hides the payload itself.
+ * The private MIME type carrying a dragged device id; `DataTransfer.types` is the only field a
+ * `dragover` handler can read.
  */
 export const DEVICE_DRAG_MIME = 'application/x-opengate-device';
 
@@ -21,7 +17,7 @@ export function startDeviceDrag(transfer: DataTransfer, device: { id: string; ho
   transfer.effectAllowed = 'move';
 }
 
-/** Whether an in-flight drag carries one of our device cards. */
+/** Whether an in-flight drag carries a device card. */
 export function isDeviceDrag(transfer: DataTransfer | null): boolean {
   return transfer ? [...transfer.types].includes(DEVICE_DRAG_MIME) : false;
 }

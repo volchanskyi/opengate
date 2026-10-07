@@ -7,10 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The vocabulary is what bounds central cardinality, so it is pinned here in
-// full. A device's series are the allowlisted dims plus the anomaly rates, and
-// that total must stay under the cap with the headroom the platform-specific
-// vitals are reserved for.
 func TestVitalDimsAreTheAgreedVocabulary(t *testing.T) {
 	assert.Equal(t, []string{
 		"cpu.total",
@@ -46,8 +42,6 @@ func TestVitalSeriesPerDeviceFitTheCap(t *testing.T) {
 		"a Linux device now occupies the whole cap, so the next vital re-opens it")
 }
 
-// An unlisted dim is dropped rather than written, which is what makes central
-// cardinality a compile-time constant instead of an agent-controlled one.
 func TestKnownVitalDimsFiltersUnlistedNames(t *testing.T) {
 	assert.True(t, isVitalDim("cpu.total"))
 	assert.True(t, isVitalDim("net.tx_bps.max"))
@@ -65,9 +59,6 @@ func TestKnownVitalDimsFiltersUnlistedNames(t *testing.T) {
 	assert.False(t, isVitalDim("attacker.dim.0"))
 }
 
-// The family vocabulary bounds the second half of a device's central series the
-// same way the dim vocabulary bounds the first. It is pinned in full here
-// because the count feeds anomalySeriesPerDevice, which feeds the cap.
 func TestAnomalyFamiliesAreTheAgreedVocabulary(t *testing.T) {
 	assert.Equal(t, []string{
 		"cpu",
@@ -83,16 +74,11 @@ func TestAnomalyFamiliesAreTheAgreedVocabulary(t *testing.T) {
 	}
 }
 
-// The per-device series budget counts one rate per listed family, so the two
-// must move together: a family added to the vocabulary spends a series.
 func TestAnomalySeriesCountsTheFamilyVocabulary(t *testing.T) {
 	assert.Equal(t, 1+len(anomalyFamilies), anomalySeriesPerDevice,
 		"one node-wide rate plus one per family")
 }
 
-// An unlisted family name is dropped rather than written. Without this the
-// family label would be agent-controlled, and one misbehaving agent could
-// multiply a whole tenant's central series count.
 func TestIsAnomalyFamilyFiltersUnlistedNames(t *testing.T) {
 	assert.True(t, isAnomalyFamily("cpu"))
 	assert.True(t, isAnomalyFamily("proc"))

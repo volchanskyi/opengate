@@ -10,34 +10,7 @@ import (
 	"syscall"
 )
 
-// Every profile declares what the run must not push its machine past, and the
-// checks below are what read those numbers.
-//
-// They are not about the verdict. Two different things are being protected, and
-// a profile declares whichever of them its environment has:
-//
-//   - The processor ceiling protects a neighbour. Staging shares one node with
-//     production, so a run is asked before it starts whether the neighbour has
-//     left it room. A disposable stack has no neighbour, and driving its
-//     processor is what the scaling sweep is for, so such a profile declares no
-//     processor ceiling and this leaves it alone.
-//   - The memory and disk ceilings protect the measurement. Past them the node
-//     has nowhere to put what the run produces, and the numbers describe a
-//     machine out of room rather than the system under test. They hold wherever
-//     the run is, and for the whole of it.
-//
-// Which of those two a ceiling is decides when it can be read, and CheckRoomToStart
-// carries the reasoning.
-//
-// A reading nobody took is not a reading of zero. An absent measurement fails
-// the check rather than passing it, because a guard that treats "unknown" as
-// "plenty of room" protects nothing at all.
-//
-// Which measure of a busy machine is honest depends on whose box it is, so the
-// venue picks rather than the call site. See venueProcessorMeasure below.
-
-// procMemInfo and procLoadAvg are the kernel's own accounts of memory and of the
-// run queue. They are named here so the readers below take a fixed path.
+// procMemInfo and procLoadAvg are the kernel's own accounts of memory and of the run queue.
 const (
 	procMemInfo = "/proc/meminfo"
 	procLoadAvg = "/proc/loadavg"
@@ -45,42 +18,19 @@ const (
 
 // NodeReading is the machine the run shares, at one instant.
 type NodeReading struct {
-	// Measured says whether these figures came from anywhere. False means
-	// nothing was read, which is a different thing from a machine at rest.
+	// Measured reports whether the figures were read from the node.
 	Measured      bool
 	CPUPercent    float64
 	MemoryPercent float64
-	// DiskPercent is how full the filesystem the database writes into is. Zero
-	// when it was not read.
+	// DiskPercent is how full the database's filesystem is; zero when unread.
 	DiskPercent float64
 }
 
 // SafetyReader takes one reading.
 type SafetyReader func() NodeReading
 
-// CheckRoomToStart reports why a run must not begin, or nil if it may.
-//
-// It is the only place the processor ceiling is read, and the reason is what
-// processor time does under pressure. Memory and disk get used up: what the run
-// puts there is gone until it gives it back, and past the ceiling the node has
-// nowhere to put the next thing — so the run's own share is exactly what those
-// ceilings ask about. Processor time is not used up, it is taken in turns. A
-// node whose processors are over-committed serves everything more slowly, in
-// proportion to what each pod was promised; it does not run out, and the kubelet
-// does not evict anything for it.
-//
-// So a processor reading taken while the run is offering load is mostly a
-// reading of the run's own work, and a ceiling on that stops a run for doing
-// what it was asked to do. It did: staging's nightly was refused after its ramp
-// phase with the node reading 108% against an 85% ceiling, on a node that reads
-// between 9% and 39% when nothing is running on it.
-//
-// The question the ceiling exists to ask — is there room beside production
-// tonight — has one moment when the answer is about the neighbour alone, and
-// that is before the run has offered anything. What holds afterwards is not a
-// reading at all but the kernel's own arithmetic: every pod on that node has a
-// share it is guaranteed and a cap it cannot exceed, and the run's pods are
-// capped at figures somebody chose.
+// CheckRoomToStart reports why a run may not begin, or nil if it may. It alone reads the
+// processor ceiling, since a reading under offered load measures the run's own work.
 func CheckRoomToStart(limits Safety, reading NodeReading) error {
 	if !reading.Measured {
 		return errors.New("safety: the node was not measured, and an unmeasured node is not a node inside its limits")
@@ -95,9 +45,8 @@ func CheckRoomToStart(limits Safety, reading NodeReading) error {
 	return errors.Join(append(problems, CheckRoomToContinue(limits, reading))...)
 }
 
-// CheckRoomToContinue reports why a run already offering load must stop, or nil
-// while it may carry on. It is the ceilings on room the node can actually run
-// out of; see CheckRoomToStart for why the processor is not one of them.
+// CheckRoomToContinue reports why a run already offering load must stop, or nil while it may
+// carry on. It covers the ceilings on room the node can run out of.
 func CheckRoomToContinue(limits Safety, reading NodeReading) error {
 	if !reading.Measured {
 		return errors.New("safety: the node was not measured, and an unmeasured node is not a node inside its limits")
@@ -109,11 +58,7 @@ func CheckRoomToContinue(limits Safety, reading NodeReading) error {
 			"the node's memory is %.0f%% used against a limit of %.0f%% — past this the kubelet starts evicting",
 			reading.MemoryPercent, limits.MaxNodeMemoryPercent))
 	}
-	// Disk is held to the memory ceiling rather than one of its own. Both are
-	// the same statement — the node has nowhere left to put what the run
-	// produces — and a second number to keep in step would be a second number to
-	// forget. The message says which ceiling it is, so the reading is not
-	// mistaken for a limit somebody declared for disks.
+	// Disk shares the memory ceiling, as both mean the node has no room left for the run's output.
 	if limits.MaxNodeMemoryPercent > 0 && reading.DiskPercent > limits.MaxNodeMemoryPercent {
 		problems = append(problems, fmt.Errorf(
 			"the node's disk is %.0f%% full against the same %.0f%% ceiling as its memory — the database writes there",
@@ -122,9 +67,8 @@ func CheckRoomToContinue(limits Safety, reading NodeReading) error {
 	return errors.Join(problems...)
 }
 
-// walkStartedAnnouncement is the line the run prints when it starts walking,
-// followed by the second it started at. scripts/loadtest-quic-incluster.sh
-// reads it, the way it already reads the fleet and estate announcements.
+// walkStartedAnnouncement is printed when the walk starts, followed by the start second;
+// scripts/loadtest-quic-incluster.sh reads it.
 const walkStartedAnnouncement = "Walk started at"
 
 // RunPhasesWatched walks a profile and stops the moment the machine it shares
@@ -137,20 +81,14 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 		return nil, errors.New("run phases: the profile declares no phases")
 	}
 
-	// The walk says when it began, because something else has to join it.
-	// The browser-side generators cannot start until the estate they read is
-	// filed, which is after the arrivals — so without a time to join at, they
-	// would start the shape again from its beginning and stay a phase behind
-	// for the rest of the night, holding a steady window open past the drain
-	// and publishing a percentile taken partly against a fleet that had already
-	// left.
+	// The start time lets the browser-side generators, which begin once the estate is filed,
+	// join the shape at the right phase.
 	fmt.Printf("%s %d\n", walkStartedAnnouncement, clock.Now().Unix())
 
 	results := make([]PhaseResult, 0, len(profile.Phases))
 	from := 0
 	for i, phase := range profile.Phases {
-		// The full check once, before anything has been offered, and the room
-		// the node can run out of every time after that.
+		// The full check runs once before anything is offered; later checks cover room only.
 		check := CheckRoomToContinue
 		if i == 0 {
 			check = CheckRoomToStart
@@ -171,32 +109,12 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 	return results, nil
 }
 
-// processorMeasure turns one /proc/loadavg reading into how committed the
-// machine is, as a percentage of its processors. A shape it could not read
-// reports so rather than reporting nought, because nought is a machine at rest
-// and an unasked question is not that.
-//
-// There are two of them and they answer different questions, which is the whole
-// of the venue split below.
+// processorMeasure turns one /proc/loadavg reading into the percentage of processors committed;
+// false marks a shape it could not read.
 type processorMeasure func(raw string, processors int) (float64, bool)
 
-// venueProcessorMeasure is the measure of processor commitment the venue calls
-// for.
-//
-// A run that owns its box is read at the instant. The minute before such a
-// reading is the job's own image build, so the average would report the build as
-// the run's own commitment and stop the run before its first phase.
-//
-// A guest — a pod scheduled onto a node that carries production too — is read
-// over the last minute, because that is what "is there room beside production"
-// asks, and because the instant is a coin flip at that scale: on a two-processor
-// node the run queue moves in fifty-point steps, so a node a third busy reads as
-// a hundred or two hundred percent committed depending on which instant the look
-// landed on.
-//
-// Which of the two this is comes from the same question that decides whose room
-// the generator's own reading describes: whether the kernel gives this process a
-// processor allowance of its own.
+// venueProcessorMeasure reads the instant run queue on a box the run owns, and the one-minute
+// average for a guest, whose instant reading moves in 50-point steps on two processors.
 func venueProcessorMeasure(guest bool) processorMeasure {
 	if guest {
 		return loadAveragePercent
@@ -204,29 +122,19 @@ func venueProcessorMeasure(guest bool) processorMeasure {
 	return runQueuePercent
 }
 
-// VenueNodeReading is the machine this run shares, read the way its venue calls
-// for. It is what a profiled run walks against, so no call site has to remember
-// which measure is honest where.
+// VenueNodeReading is the machine this run shares, read the way its venue calls for.
 func VenueNodeReading() NodeReading {
 	return readNode(venueProcessorMeasure(runHasItsOwnAllowance()))
 }
 
-// LocalNodeReading is the box this process owns, read at the instant.
-//
-// It is the honest reading where the generator and the machine under test are
-// the same box — the throwaway stack — which is the one venue that reaches it.
-// What it cannot see, it does not claim.
+// LocalNodeReading is the box this process owns, read at the instant, for a generator that
+// shares the target's box.
 func LocalNodeReading() NodeReading {
 	return readNode(runQueuePercent)
 }
 
-// readNode takes one reading of the machine this process is on, measuring its
-// processors the way the caller asked for.
-//
-// A figure that did not come back leaves the whole reading unmeasured rather
-// than nought. Nought is a machine with room to spare, so a reader that fills an
-// unanswered question in with it hands every ceiling the one answer that always
-// passes.
+// readNode takes one reading of this machine; a figure that did not come back leaves the whole
+// reading unmeasured, since zero would pass every ceiling.
 func readNode(measure processorMeasure) NodeReading {
 	var reading NodeReading
 
@@ -276,20 +184,8 @@ func readMemInfo() (total, available int64, ok bool) {
 	return total, available, total > 0
 }
 
-// runQueuePercent turns one /proc/loadavg reading into how much of the machine
-// is committed right now, as a percentage of its processors.
-//
-// It reads the fourth field — the tasks runnable at this instant — and not the
-// one-minute average, which describes the minute before the reading. It is the
-// measure for a box the run owns, where that minute is the one the job spent
-// building images and a fleet.
-//
-// The reader itself is runnable while it reads, so it is subtracted: an
-// otherwise idle machine is committed to nothing, not to one task.
-//
-// The figure is reported as it is rather than trimmed to a hundred. A node
-// committed to four times what it has and one exactly full are different
-// findings, and a ceiling comparison reads them the same way either way.
+// runQueuePercent reports instant commitment: runnable tasks, less the reader itself,
+// as an uncapped percentage of processors.
 func runQueuePercent(raw string, processors int) (float64, bool) {
 	runnable, ok := parseRunQueue(raw)
 	if !ok || processors <= 0 {
@@ -302,17 +198,8 @@ func runQueuePercent(raw string, processors int) (float64, bool) {
 	return float64(others) / float64(processors) * 100, true
 }
 
-// loadAveragePercent turns one /proc/loadavg reading into how much of the
-// machine was committed over the last minute, as a percentage of its processors.
-//
-// It is the measure for a box this run is a guest on. The minute before the
-// reading is production going about its business, which is exactly what a
-// ceiling protecting a neighbour asks about — and unlike the instant it does not
-// quantise: a node a third busy reads as a third busy rather than as whichever
-// multiple of fifty percent the look happened to land on.
-//
-// Nothing is subtracted here. The average is over a minute this reader spent
-// almost all of asleep, so it carries no meaningful weight of its own.
+// loadAveragePercent reports the one-minute load average as a percentage of processors, with
+// nothing subtracted since the reader slept through the minute.
 func loadAveragePercent(raw string, processors int) (float64, bool) {
 	if processors <= 0 {
 		return 0, false
@@ -328,10 +215,8 @@ func loadAveragePercent(raw string, processors int) (float64, bool) {
 	return average / float64(processors) * 100, true
 }
 
-// parseRunQueue reads the runnable-task count out of /proc/loadavg's fourth
-// field, which has the form "runnable/total". A shape it cannot read reports no
-// reading rather than a zero, because zero is a machine at rest and those are
-// different answers.
+// parseRunQueue reads the runnable count from the "runnable/total" fourth field;
+// an unreadable shape reports no reading.
 func parseRunQueue(raw string) (int, bool) {
 	fields := strings.Fields(raw)
 	if len(fields) < 4 {

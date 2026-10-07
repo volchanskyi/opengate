@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/loadtest-bundle-merge.sh — the readings taken beside a run
-# reaching the run's own evidence.
-#
-# Two numbers a bundle declares are measured by steps other than the harness:
-# the fleet's weight on disk, read from the database after the fleet exists, and
-# the technician journeys, timed by a generator in another pod. Each wrote its
-# figure into a file of its own that no later reader opened, so the one artifact
-# that outlives the metrics store carried a null where the family's whole
-# finding belongs.
-#
-# A merge that found nothing to merge must fail. Reporting success for work that
-# did not happen is the shape this exists to close.
+# Tests for scripts/loadtest-bundle-merge.sh, which folds the readings taken beside a run into
+# the run's evidence bundle and fails when it finds nothing to merge.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,11 +43,8 @@ fresh_bundle() {
   }' >"$WORK/bundle.json"
 }
 
-# The weighing the merge reads is the one the weighing script writes, taken
-# against a stand-in database and metrics store. A fixture written by hand is
-# written in the shape its reader expects: the merge read the series count at
-# the top level, the weighing writes it under `counts`, and every bundle
-# carried nought while the count sat one level down.
+# The weighing the merge reads comes from the weighing script, run against a stand-in database
+# and metrics store.
 STUB="$WORK/stub"
 STACK="$WORK/stack"
 mkdir -p "$STUB" "$STACK"
@@ -105,8 +92,6 @@ stack_holds() {
   printf '%s' "$6" >"$STACK/process_rows"
 }
 
-# fresh_weight weighs an empty stack, builds a fleet into it, and weighs again —
-# the two readings the volume family takes either side of its build.
 fresh_weight() {
   stack_holds 9901747 12 0 0 0 0
   PATH="$STUB:$PATH" bash "$WEIGH" baseline "$WORK/baseline.json" >/dev/null
@@ -114,8 +99,6 @@ fresh_weight() {
   PATH="$STUB:$PATH" bash "$WEIGH" weigh "$WORK/baseline.json" "$WORK/weight.json" >/dev/null
 }
 
-# A proof the cleanup script writes, against a stand-in database that still
-# holds what its four counts say after the removal ran.
 fresh_proof() {
   local users="$1" devices="$2" organizations="$3" sites="$4"
   cat >"$WORK/psql" <<PSQL
@@ -158,7 +141,6 @@ run_merge() {
 
 echo "loadtest-bundle-merge:"
 
-# The fleet's weight reaches the evidence.
 fresh_bundle
 fresh_weight
 run_merge "$WORK/bundle.json" --weight "$WORK/weight.json"
@@ -172,9 +154,8 @@ assert_eq "nothing else in the fixture is disturbed" "500" \
 assert_eq "the process snapshot rows keep a name of their own" "23934" \
   "$(jq -r '.counts.process_rows' "$WORK/weight.json")"
 
-# The golden weighing the harness's own reader is tested against was taken by
-# the weighing script on the performance stack. It has to stay the shape the
-# script writes today, or the reader's test is a test of an old shape.
+# The golden weighing the harness's reader is tested against has to keep the shape the weighing
+# script writes.
 producer_shape="$(jq -c '[paths(scalars) | map(tostring) | join(".")] | sort' "$WORK/weight.json")"
 golden_shape="$(jq -c '[paths(scalars) | map(tostring) | join(".")] | sort' "$GOLDEN_WEIGHT")"
 assert_eq "the golden weighing is the shape the weighing script writes" "$producer_shape" "$golden_shape"
@@ -185,7 +166,6 @@ assert_eq "the golden weighing's series count reaches the bundle" \
   "$(jq -r '.counts.telemetry_series' "$GOLDEN_WEIGHT")" \
   "$(jq -r '.fixture.telemetry_series' "$WORK/bundle.json")"
 
-# The journeys reach the evidence, and only the journeys.
 fresh_bundle
 fresh_export
 run_merge "$WORK/bundle.json" --journeys "$WORK/export.json"
@@ -199,15 +179,8 @@ assert_eq "each carries its own tail" "88.5" \
 assert_eq "each carries how many requests timed it" "1200" \
   "$(jq -r '.journeys[] | select(.name == "device-list") | .requests' "$WORK/bundle.json")"
 
-# The shape the pinned exporter actually writes.
-#
-# k6 v1.x puts a trend statistic flat on the metric; the fixture above is v0.x,
-# which nests them under "values". Reading only the nested shape is not a wrong
-# number, it is three zeros — every field falls back to nought — so every bundle
-# the nightly produced declared that opening a fleet list, opening a machine and
-# sending an instruction each took no time at all. The fixture that should have
-# caught it was written in the shape the reader reads rather than the shape the
-# exporter writes.
+# k6 v1.x puts a trend statistic flat on the metric; the fixture above is v0.x, which nests
+# them under "values".
 fresh_bundle
 jq -n '{
   metrics: {
@@ -230,7 +203,6 @@ assert_eq "the measured phase wins over the whole run" "80.0" \
 assert_eq "a phase-tagged copy is not a second journey" "2" \
   "$(jq -r '.journeys | length' "$WORK/bundle.json")"
 
-# Both at once, which is what the volume family's job does.
 fresh_bundle
 fresh_weight
 fresh_export
@@ -241,12 +213,6 @@ assert_eq "the weighing survives the journeys" "15163392" \
 assert_eq "the journeys survive the weighing" "2" \
   "$(jq -r '.journeys | length' "$WORK/bundle.json")"
 
-# A session round trip is a journey too.
-#
-# The endurance family's whole subject is what a finished session costs, so the
-# generator that opens one has to reach the bundle the same way the screens do.
-# The metric keeps the name the trend already knows it by; what changes is that
-# the reader carries it.
 fresh_bundle
 jq -n '{
   metrics: {
@@ -265,10 +231,6 @@ assert_eq "it carries its own tail" "44.5" \
 assert_eq "and how many sessions timed it" "54000" \
   "$(jq -r '.journeys[0].requests' "$WORK/bundle.json")"
 
-# Two generators run beside one walk, so two exports fold into one bundle. A
-# second fold that replaced the first would report success while throwing the
-# earlier scenario's numbers away — the same absence this merge exists to make
-# visible, arrived at by overwriting rather than by never writing.
 fresh_bundle
 fresh_export
 run_merge "$WORK/bundle.json" --journeys "$WORK/export.json" --journeys "$WORK/relay.json"
@@ -280,9 +242,6 @@ assert_eq "they are carried in name order" "device-detail device-list relay-sess
 assert_eq "the screens survive the sessions" "88.5" \
   "$(jq -r '.journeys[] | select(.name == "device-list") | .latency_p95_ms' "$WORK/bundle.json")"
 
-# One of two exports missing is still a generator that timed nothing, and the
-# bundle must not come back carrying the half that worked as though it were the
-# night's whole technician reading.
 fresh_bundle
 fresh_export
 : >"$WORK/relay.json"
@@ -291,19 +250,15 @@ assert_eq "one empty export of two fails" "1" "$STATUS"
 assert_eq "and the bundle is left as it was" "null" \
   "$(jq -r '.journeys // "null" | if type == "array" then "array" else . end' "$WORK/bundle.json")"
 
-# A merge with nothing to merge is a step reporting success for no work.
 fresh_bundle
 run_merge "$WORK/bundle.json"
 assert_eq "naming nothing to merge is refused" "2" "$STATUS"
 
-# An absent bundle is not a bundle with nothing to add.
 rm -f "$WORK/bundle.json"
 fresh_weight
 run_merge "$WORK/bundle.json" --weight "$WORK/weight.json"
 assert_eq "an absent bundle fails" "1" "$STATUS"
 
-# A weighing that never happened must not reach the evidence as a zero — zero
-# bytes is the emptiest fixture ever built.
 fresh_bundle
 : >"$WORK/weight.json"
 run_merge "$WORK/bundle.json" --weight "$WORK/weight.json"
@@ -311,8 +266,6 @@ assert_eq "an empty weighing fails" "1" "$STATUS"
 assert_eq "and the bundle is left as it was" "null" \
   "$(jq -r '.fixture.database_bytes // "null"' "$WORK/bundle.json")"
 
-# An export carrying no journeys is a generator that timed no screens, which is
-# the absence this merge exists to make visible.
 fresh_bundle
 jq -n '{ metrics: {
   http_req_duration: { type: "trend", values: { med: 7.0 } },
@@ -322,19 +275,6 @@ jq -n '{ metrics: {
 run_merge "$WORK/bundle.json" --journeys "$WORK/export.json"
 assert_eq "an export naming no journeys fails" "1" "$STATUS"
 
-# --- what the run's requests were answered with -------------------------------
-#
-# A night where the generator's presented addresses were not believed looks
-# exactly like a night where the server was slow: both fill with refusals, both
-# red the same error-rate gate, and nothing anywhere says which. The server
-# counts requests per address and answers over the allowance with 429, so the
-# count of those is the reading that separates the two — a broken test setup from
-# a finding about the product.
-#
-# It is not in the export for free. The failure figure k6 publishes is one
-# pass/fail rate with no breakdown by status, so the scenarios count the refusals
-# themselves and this carries the count into the one artifact that outlives the
-# metrics store.
 fresh_bundle
 fresh_export
 run_merge "$WORK/bundle.json" --journeys "$WORK/export.json"
@@ -343,8 +283,6 @@ assert_eq "a night nobody was refused says so" "0" \
 assert_eq "beside how many requests it made" "7228" \
   "$(jq -r '.refusals.requests' "$WORK/bundle.json")"
 
-# Two generators run beside one walk, and the run was refused or it was not —
-# so the reading is the whole run's rather than whichever export folded last.
 fresh_bundle
 fresh_export
 jq -n '{
@@ -361,11 +299,8 @@ assert_eq "every scenario's refusals are counted" "12" \
 assert_eq "against every scenario's requests" "115228" \
   "$(jq -r '.refusals.requests' "$WORK/bundle.json")"
 
-# A counter nobody incremented is left out of the export entirely, so its absence
-# means "no refusal happened" and "this scenario never counted" at once — which
-# is the false green the reading exists to close. The scenarios add a nought on
-# every answered request so the series always exists; an export that made
-# requests and carries no count of them did not.
+# A counter nobody incremented is absent from the export, so the scenarios add zero on every
+# answered request to keep the series present.
 fresh_bundle
 jq -n '{
   metrics: {
@@ -378,8 +313,6 @@ assert_eq "an export that counted no refusals at all fails" "1" "$STATUS"
 assert_eq "and the bundle is left as it was" "null" \
   "$(jq -r '.refusals // "null" | if type == "object" then "object" else . end' "$WORK/bundle.json")"
 
-# And a share of nothing is not a share. An export naming no request cannot say
-# nothing was turned away, because nothing was asked.
 fresh_bundle
 jq -n '{
   metrics: {
@@ -391,12 +324,6 @@ jq -n '{
 run_merge "$WORK/bundle.json" --journeys "$WORK/silent.json"
 assert_eq "an export naming no request at all fails" "1" "$STATUS"
 
-# --- what the run left behind --------------------------------------------------
-#
-# The harness writes its bundle before the cleanup step runs, so what a run left
-# behind is counted by that step and nowhere else. Its proof was uploaded beside
-# the bundle and never read, while the bundle declared a clean run it had never
-# looked at. The proof is folded in as the cleanup script wrote it.
 fresh_bundle
 fresh_proof 0 0 0 0
 run_merge "$WORK/bundle.json" --cleanup "$WORK/cleanup.json"
@@ -414,7 +341,6 @@ assert_eq "a proof of residue merges" "0" "$STATUS"
 assert_eq "and the bundle comes out unclean" "3 2 1 4" \
   "$(jq -r '.cleanup | "\(.orphan_users) \(.orphan_devices) \(.orphan_organizations) \(.orphan_sites)"' "$WORK/bundle.json")"
 
-# A proof nobody wrote is not a clean run.
 fresh_bundle
 : >"$WORK/cleanup.json"
 run_merge "$WORK/bundle.json" --cleanup "$WORK/cleanup.json"

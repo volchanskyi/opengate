@@ -11,9 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// A customer's label list and which machines carry which label, stored and read
-// back.
-
 const (
 	createLabelSQL = `INSERT INTO device_tag_labels
 		   (id, tenant_id, organization_id, key, value, created_at, created_by)
@@ -29,22 +26,16 @@ const (
 		   FROM device_tag_labels
 		  WHERE ` + scopedToTenant + ` AND id = $1`
 
-	// A rule aimed at the label, in the customer that owns it. The selector is a
-	// bare key and value, so a check that forgot the customer would refuse a
-	// delete because somebody else in the tenant uses the same word.
+	// The organization predicate keeps another customer's identical key and value from matching.
 	labelAimedAtSQL = `SELECT COUNT(*) FROM rule_bindings
 		  WHERE ` + scopedToTenant + ` AND organization_id = $1 AND selector @> $2::jsonb`
 
-	// Deleting takes the label's assignments with it. The database refuses the
-	// delete otherwise, which would leave an operator with an error naming a
-	// constraint rather than machines.
+	// The label's assignments go first so the label delete meets no constraint.
 	deleteTagsOfLabelSQL = `DELETE FROM device_tags WHERE ` + scopedToTenant + ` AND label_id = $1`
 
 	deleteLabelSQL = `DELETE FROM device_tag_labels WHERE ` + scopedToTenant + ` AND id = $1`
 
-	// The machine's customer and the label's have to be the same one, and the
-	// join is what decides it rather than a check the caller has to remember. No
-	// row joins when they differ, which is the refusal.
+	// The join on organization yields no row when machine and label belong to different customers.
 	assignTagSQL = `INSERT INTO device_tags
 		   (tenant_id, organization_id, device_id, label_id, key, value, assigned_at, assigned_by)
 		 SELECT d.tenant_id, d.organization_id, d.id, l.id, l.key, l.value, NOW(), $3
@@ -89,8 +80,7 @@ func (s *Store) CreateLabel(ctx context.Context, l Label) error {
 	return nil
 }
 
-// ListLabels returns one customer's list, ordered so the screen reading it is
-// stable across reads.
+// ListLabels returns one customer's labels in key and value order.
 func (s *Store) ListLabels(ctx context.Context, organizationID uuid.UUID) ([]Label, error) {
 	var out []Label
 	err := s.eachRow(ctx, "list device tag labels", listLabelsSQL, []any{organizationID},
@@ -122,13 +112,8 @@ func (s *Store) Label(ctx context.Context, id uuid.UUID) (Label, error) {
 	return l, nil
 }
 
-// DeleteLabel removes one entry from a customer's list, and the assignments that
-// carried it.
-//
-// It is refused while a rule is aimed at the label. Removing it then would take
-// a targeted override off every machine that carried it — which does not read as
-// a deletion at all, it reads as a threshold that quietly widened across an
-// estate one afternoon.
+// DeleteLabel removes a label and its assignments, and returns ErrLabelInUse while a rule targets
+// it, since deleting it would silently widen that rule's override.
 func (s *Store) DeleteLabel(ctx context.Context, id uuid.UUID) error {
 	label, err := s.Label(ctx, id)
 	if err != nil {
@@ -155,10 +140,8 @@ func (s *Store) DeleteLabel(ctx context.Context, id uuid.UUID) error {
 	return s.exec(ctx, "delete device tag label", deleteLabelSQL, id)
 }
 
-// AssignTag gives one machine one label, replacing whatever it carried for that
-// label's key. A machine and a label belonging to different customers is
-// refused: the isolation wall is at the tenant, so nothing in the database stops
-// that on its own.
+// AssignTag gives one machine one label, replacing its label for that key, and returns
+// ErrLabelForeign when machine and label belong to different customers.
 func (s *Store) AssignTag(ctx context.Context, deviceID, labelID uuid.UUID, assignedBy string) error {
 	assigned, err := s.affected(ctx, "assign device tag", assignTagSQL, deviceID, labelID, assignedBy)
 	if err != nil {
@@ -175,8 +158,7 @@ func (s *Store) ClearTag(ctx context.Context, deviceID uuid.UUID, key string) er
 	return s.exec(ctx, "clear device tag", clearTagSQL, deviceID, key)
 }
 
-// TagsFor reads one machine's labels, which is what a targeted binding's
-// selector is matched against.
+// TagsFor reads one machine's labels, the set a binding selector is matched against.
 func (s *Store) TagsFor(ctx context.Context, deviceID uuid.UUID) (map[string]string, error) {
 	out := make(map[string]string)
 	err := s.eachRow(ctx, "read device tags", tagsForDeviceSQL, []any{deviceID},
@@ -194,8 +176,7 @@ func (s *Store) TagsFor(ctx context.Context, deviceID uuid.UUID) (map[string]str
 	return out, nil
 }
 
-// ListTagAssignments reads every machine's labels for one customer, which is
-// what the assignment screen lists.
+// ListTagAssignments reads every machine's labels for one customer.
 func (s *Store) ListTagAssignments(ctx context.Context, organizationID uuid.UUID) (map[uuid.UUID]map[string]string, error) {
 	out := make(map[uuid.UUID]map[string]string)
 	err := s.eachRow(ctx, "list device tag assignments", listTagAssignmentsSQL, []any{organizationID},
@@ -219,8 +200,7 @@ func (s *Store) ListTagAssignments(ctx context.Context, organizationID uuid.UUID
 	return out, nil
 }
 
-// DescribeSelector renders a selector as an operator reads it, so a targeted
-// binding says which machines it is aimed at rather than showing a map.
+// DescribeSelector renders a selector as sorted comma-separated key=value pairs.
 func DescribeSelector(s Selector) string {
 	if s.IsEmpty() {
 		return ""
@@ -232,7 +212,6 @@ func DescribeSelector(s Selector) string {
 	return strings.Join(parts, ", ")
 }
 
-// sortedKeys gives a selector a stable reading order.
 func sortedKeys(s Selector) []string {
 	keys := make([]string, 0, len(s))
 	for key := range s {

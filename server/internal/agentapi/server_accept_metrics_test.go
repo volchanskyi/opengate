@@ -12,21 +12,11 @@ import (
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
-// Whether a reconnecting machine resumed its TLS session is a saving the fleet
-// either earns or does not, and the server is the only side that can say. The
-// machine's own transport reports no resumption result, and a ticket it presents
-// may still be declined here — so the count is taken from this listener's own
-// connection state, against a real QUIC handshake rather than a hand-built one.
-
-// TestTheServerCountsWhetherATLSSessionResumed drives one machine through a
-// cold connection and a reconnect on the same certificate and session cache,
-// and asserts each lands on its own series.
 func TestTheServerCountsWhetherATLSSessionResumed(t *testing.T) {
 	m := appmetrics.NewMetrics(prometheus.NewRegistry())
 	env := newAcceptEnvWithMetrics(t, m)
 
-	// One machine: one certificate and one session cache, held across both
-	// attempts, exactly as a running agent holds its quinn configuration.
+	// One certificate and one session cache are held across both attempts so the second can resume.
 	deviceID := uuid.New()
 	tlsCert, err := env.srv.cert.SignAgent(deviceID.String(), "resumption-test")
 	require.NoError(t, err)
@@ -56,9 +46,6 @@ func TestTheServerCountsWhetherATLSSessionResumed(t *testing.T) {
 		"and it is not counted as a full handshake as well")
 }
 
-// TestAServerWithoutMetricsStillAcceptsMachines pins the nil-metrics
-// convention this package runs on: instrumentation is optional, and a server
-// built without it accepts connections rather than panicking on the first one.
 func TestAServerWithoutMetricsStillAcceptsMachines(t *testing.T) {
 	env := newAcceptEnv(t)
 	require.Nil(t, env.srv.metrics)

@@ -12,17 +12,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/alerts"
 )
 
-// Turning the investigation store's answers into the wire shapes, and the
-// wire's questions back into filters.
-//
-// The cursor is the one that carries a design decision rather than a mapping.
-// It is opaque to the caller on purpose: it names a position in the queue, and
-// a client that could read it would start constructing positions, which is how
-// a paging contract becomes an unindexed query somebody else has to support.
-
-// errUnreadableCursor is a position that names nothing. It is refused rather
-// than ignored — silently starting from the top would hand a technician the
-// first page again while they believed they were reading the second.
+// errUnreadableCursor marks a cursor that names no queue position; it is refused so a
+// page is never silently restarted from the top. Cursors are opaque to clients.
 var errUnreadableCursor = errors.New("cursor does not name a position in the queue")
 
 // encodeCursor renders where a page ended, empty when the page reached the end
@@ -99,9 +90,7 @@ func assignUUID(into *uuid.UUID, value *uuid.UUID) {
 	}
 }
 
-// mapped converts a closed vocabulary from the wire's spelling to the store's.
-// Both are the same set of strings; the two types exist so a value from one
-// side cannot be passed where the other is meant.
+// mapped converts a closed vocabulary between the wire and store string types.
 func mapped[From ~string, To ~string](values []From) []To {
 	out := make([]To, 0, len(values))
 	for _, value := range values {
@@ -124,9 +113,7 @@ func incidentPageToAPI(page alerts.Page) IncidentPage {
 	return out
 }
 
-// incidentToAPI renders one room. The fields a room may not have yet — nobody
-// working it, no answer for why it ended — are absent rather than zero, so a
-// reader is never shown an assignee of all zeros.
+// incidentToAPI renders one room, leaving the assignee and end reason absent until set.
 func incidentToAPI(incident alerts.Incident) Incident {
 	out := Incident{
 		Id:             incident.ID,
@@ -157,9 +144,8 @@ func incidentToAPI(incident alerts.Incident) Incident {
 	return out
 }
 
-// investigationToAPI renders the whole of one room: where it stands, the most
-// recent of what folded in, and the history in the order it happened. Both
-// lists carry their totals, so a bounded page is visibly a page.
+// investigationToAPI renders one room with its recent folded alerts and its history in order.
+// Both lists carry their totals.
 func investigationToAPI(room alerts.Investigation) IncidentDetail {
 	folded := make([]IncidentAlert, 0, len(room.Alerts))
 	for _, alert := range room.Alerts {
@@ -206,9 +192,7 @@ func foldedAlertToAPI(alert alerts.FoldedAlert) IncidentAlert {
 	return out
 }
 
-// incidentEventToAPI renders one line of a room's history. A body that cannot
-// be read comes back empty rather than failing the whole timeline: one
-// unreadable line must not cost a technician the handover it sits in.
+// incidentEventToAPI renders one line of a room's history; an unreadable body renders empty.
 func incidentEventToAPI(event alerts.Event) IncidentEvent {
 	body := map[string]any{}
 	if len(event.Body) > 0 {

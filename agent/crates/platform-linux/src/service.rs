@@ -5,17 +5,13 @@ use std::os::unix::net::UnixDatagram;
 use mesh_agent_core::ServiceLifecycle;
 use tracing::debug;
 
-/// Systemd service lifecycle notifier.
-///
-/// Sends state notifications to systemd via the `NOTIFY_SOCKET` Unix datagram.
-/// If `NOTIFY_SOCKET` is not set, all notifications are silently ignored.
+/// Sends state notifications to systemd over the `NOTIFY_SOCKET` Unix datagram; ignores them
+/// when the variable is unset.
 pub struct SystemdLifecycle {
     notify_socket: Option<String>,
 }
 
 impl SystemdLifecycle {
-    /// Create a new systemd lifecycle notifier.
-    ///
     /// Reads `NOTIFY_SOCKET` from the environment at construction time.
     pub fn new() -> Self {
         Self {
@@ -64,7 +60,6 @@ mod tests {
     use std::os::unix::net::UnixDatagram;
     use std::path::PathBuf;
 
-    /// Create a temp Unix datagram socket and a `SystemdLifecycle` pointed at it.
     fn setup_notify_test(suffix: &str) -> (UnixDatagram, SystemdLifecycle, PathBuf) {
         let path =
             std::env::temp_dir().join(format!("sd_notify_{}_{}", suffix, std::process::id()));

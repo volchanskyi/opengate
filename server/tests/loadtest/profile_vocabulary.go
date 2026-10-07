@@ -4,22 +4,14 @@ import (
 	"fmt"
 )
 
-// The closed sets a profile may draw from, and the one member deliberately
-// absent from them.
-//
-// Production is not an environment. That makes "production is never a target" a
-// property of the type rather than of a reviewer's attention: a profile naming
-// it is refused when it is read, before anything dials.
-
-// Family is which question a run is asking. The venue, the shape of the load
-// and how the verdict reads all follow from it.
+// Family is which question a run is asking.
 type Family string
 
 const (
 	// FamilyNormal is the everyday shape: the load the system is expected to
 	// carry, run to prove it still carries it.
 	FamilyNormal Family = "normal"
-	// FamilyPeak is the busiest ordinary hour rather than an exceptional one.
+	// FamilyPeak is the busiest ordinary hour.
 	FamilyPeak Family = "peak"
 	// FamilySpike is a step change with no ramp — a site coming back after an
 	// outage, a rollout that restarts a fleet at once.
@@ -31,8 +23,7 @@ const (
 	// FamilyVolume holds load constant and varies how much data is already
 	// there, which is the only way to separate the two.
 	FamilyVolume Family = "volume"
-	// FamilyScaling holds load and data constant and varies the resources, so
-	// the answer is a shape rather than a single point.
+	// FamilyScaling holds load and data constant and varies the resources.
 	FamilyScaling Family = "scaling"
 )
 
@@ -44,9 +35,7 @@ var families = []Family{
 // Families returns every family a profile may declare.
 func Families() []Family { return append([]Family(nil), families...) }
 
-// Environment is the class of system under test. Production is not a member,
-// which is what makes "production is never a target" a property of the type
-// rather than of a reviewer's attention.
+// Environment is the class of system under test; the closed set excludes production.
 type Environment string
 
 const (

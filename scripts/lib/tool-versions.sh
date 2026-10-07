@@ -1,55 +1,11 @@
 #!/usr/bin/env bash
-# tool-versions.sh — the one place a tool's version is written down.
-#
-# Sourced by the install scripts, by the gauntlet's prerequisite phase, and by
-# scripts/tests/tool-version-parity.test.sh. NOT executable on its own — this is
-# a table of shell variables.
-#
-# Why it exists: a version that is written down twice is a version that will
-# differ. Two of them already had.
-#
-#   * jq. Nobody had ever chosen one. The workstation carried whatever the
-#     distribution shipped (1.6) and CI carried whatever the runner image did
-#     (1.7.1), and the two render numbers differently: 1.6 canonicalises the
-#     17.700 a drill wrote to 17.7 while 1.7 keeps the literal. A test asserting
-#     on that reading passed on the workstation and failed on every CI run, and
-#     the diff said nothing about jq because no file in the repository mentioned
-#     it.
-#
-#   * Go. server/go.mod's toolchain directive was bumped to clear a fresh stdlib
-#     advisory; the gauntlet honoured it through GOTOOLCHAIN=auto and went
-#     green, while CI's Security Audit job pinned its own go-version and went on
-#     scanning the vulnerable patch.
-#
-# Both have the same shape: one fact, two homes, nothing reading both. So the
-# fact lives here once, the installs read it, and
-# scripts/tests/tool-version-parity.test.sh holds every other copy — every
-# workflow pin, every install line — equal to it.
-#
-# Adding a tool: add its row, install it from this variable, and the parity test
-# will require the workflows to agree. A tool nothing pins is a tool that has
-# chosen a version on your behalf.
+# The one place a tool's version is written; sourced by the install scripts, the gauntlet and
+# scripts/tests/tool-version-parity.test.sh, which holds every other copy equal to it.
 
-# --- the runner image --------------------------------------------------------
-#
-# The layer under every row below. `ubuntu-latest` is a moving tag that decides
-# jq, python3, curl, git and coreutils for all of CI without anybody choosing
-# them, and moves to the next LTS on GitHub's schedule rather than ours. Naming
-# the image makes every one of those a decision that lands in a diff.
 export TOOL_RUNNER_IMAGE="ubuntu-24.04"
 
-# --- run by the gauntlet AND by CI -------------------------------------------
-#
-# Drift in this half is the expensive kind: the gauntlet and the pipeline run the
-# same check against different tools, so the gate is green here and red there
-# with nothing in the change to explain either. Every row here is held on both
-# sides: in CI by scripts/tests/tool-version-parity.test.sh, and on the
-# workstation by scripts/lib/toolchain-parity.sh, which refuses to start the
-# gauntlet on a tool that is not its pin.
-#
-# govulncheck is why the workstation half exists. The pin crashed under the Go
-# the module moved to; the workstation had been moved past it by hand and went
-# on passing, while CI crashed on most runs and a retry loop let the rest pass.
+# Run by the gauntlet and by CI, and held on both sides: CI by the parity test, the workstation by
+# scripts/lib/toolchain-parity.sh.
 export TOOL_VERSION_SHELLCHECK="0.11.0"
 export TOOL_VERSION_SHFMT="3.13.1"
 export TOOL_VERSION_SEMGREP="1.108.0"
@@ -64,13 +20,9 @@ export TOOL_VERSION_CARGO_DENY="0.19.6"
 export TOOL_VERSION_CARGO_MODULES="0.26.0"
 export TOOL_VERSION_GOVULNCHECK="1.8.0"
 export TOOL_VERSION_OAPI_CODEGEN="2.6.0"
-# The endurance run compresses and encrypts its core dump with these, the shell
-# tests prove the round trip with them, and the maintainer opens a dump with
-# them. age is the version the maintainer's key was made with; zstd is built
-# from its release source on both sides (scripts/install-dump-tools.sh).
+# The maintainer's age key was made with this age; both sides build zstd from its release source.
 export TOOL_VERSION_AGE="1.3.2"
 export TOOL_VERSION_ZSTD="1.5.7"
-# The infrastructure lints `make lint-deploy` runs.
 export TOOL_VERSION_HADOLINT="2.12.0"
 export TOOL_VERSION_HELM="3.16.3"
 export TOOL_VERSION_KUBECONFORM="0.6.7"
@@ -78,53 +30,30 @@ export TOOL_VERSION_CONFTEST="0.55.0"
 export TOOL_VERSION_CHECKOV="3.3.16"
 export TOOL_VERSION_TFLINT="0.64.0"
 export TOOL_VERSION_TRIVY="0.70.0"
-# These were resolving themselves. The Makefile told six tools to install at
-# whatever version came out that day and the fuzz and CI workflows fetched three
-# more by bare name. It is not theoretical: staticcheck stopped working outright
-# when the Go it had been built with fell behind the code it analyses, and the
-# failure surfaced inside a gauntlet step whose subject is dead code.
 export TOOL_VERSION_STATICCHECK="0.8.1"
 export TOOL_VERSION_GOSEC="2.29.0"
 export TOOL_VERSION_CARGO_NEXTEST="0.9.129"
 export TOOL_VERSION_CARGO_LLVM_COV="0.8.5"
+# The scan action takes the CLI version; make sonar and the CI fallback take the image, which
+# bundles the same CLI.
+export TOOL_VERSION_SONAR_SCANNER="8.1.0.6389"
+export TOOL_VERSION_SONAR_SCANNER_IMAGE="12.2.0.4256_8.1.0"
 
-# --- run by CI, and by hand — never by the gauntlet ---------------------------
-#
-# These cannot produce the skew above, because no gate runs them on both sides.
-# They are pinned for the other reason: a tool that resolves itself at run time
-# is a tool whose output can change on a night nobody touched the repository,
-# and the failure surfaces as a finding in a job whose subject is something else.
-#
-# The Oracle CLI every cluster-reaching job signs in through. It was installed by
-# bare name inside a shared action, which the parity sweep did not read.
+# Run by CI and by hand only.
 export TOOL_VERSION_OCI_CLI="3.94.1"
 export TOOL_VERSION_K6="v1.6.1"
 export TOOL_VERSION_CARGO_MUTANTS="27.0.0"
 export TOOL_VERSION_GREMLINS="0.6.0"
 export TOOL_VERSION_CARGO_FUZZ="0.13.2"
-# viewcore reads a core dump as a Go heap, which is how the endurance run follows
-# what holds a leaked object rather than where it was allocated. It has no
-# tagged releases, so the pin is the commit — which is the same statement every
-# other row makes, spelled the way this module publishes versions.
+# viewcore publishes no tagged releases, so its pin is a commit.
 export TOOL_VERSION_VIEWCORE="v0.0.0-20260908162731-ac862fd6552b"
 
-# --- deliberately floating ---------------------------------------------------
-#
-# Three toolchains float on purpose, because CI asks for a channel rather than a
-# release and a pinned workstation would be the thing out of step. They are held
-# level a different way: scripts/lib/toolchain-parity.sh refuses to run the
-# gauntlet on a machine whose rustup, node or go has fallen behind what CI would
-# resolve today. Go is the exception inside the exception — server/go.mod's
-# toolchain directive pins it exactly, and
-# scripts/tests/ci-govulncheck-go-version.test.sh holds every workflow's
-# go-version equal to that.
+# CI asks for these as channels; scripts/lib/toolchain-parity.sh refuses a workstation behind them.
 export TOOL_CHANNEL_RUST="stable"
 export TOOL_CHANNEL_RUST_NIGHTLY="nightly"
 export TOOL_MAJOR_NODE="24"
 
-# tool_version NAME — the pinned version for a manifest key, or empty.
-# Keeps callers from spelling a variable name that does not exist and reading
-# the empty string as agreement.
+# tool_version NAME prints the pinned version for a manifest key, or nothing.
 tool_version() {
   local key="TOOL_VERSION_$1"
   printf '%s' "${!key-}"

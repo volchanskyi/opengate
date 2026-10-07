@@ -1,7 +1,5 @@
 package main
 
-# A fully-compliant Deployment document used as the positive baseline; each
-# negative test mutates exactly one field.
 good_deployment := {
 	"kind": "Deployment",
 	"metadata": {"name": "server"},
@@ -17,14 +15,11 @@ good_deployment := {
 	}}},
 }
 
-# --- POSITIVE --------------------------------------------------------------
-
 test_compliant_deployment_passes {
 	count(deny) == 0 with input as good_deployment
 }
 
 test_container_level_non_root_passes {
-	# runAsNonRoot set on the container instead of the pod also satisfies rule 3.
 	doc := json.patch(good_deployment, [
 		{"op": "remove", "path": "/spec/template/spec/securityContext"},
 		{"op": "add", "path": "/spec/template/spec/containers/0/securityContext", "value": {"runAsNonRoot": true}},
@@ -33,12 +28,10 @@ test_container_level_non_root_passes {
 }
 
 test_non_workload_doc_passes {
-	# A Service has no containers → no rule fires.
 	count(deny) == 0 with input as {"kind": "Service", "metadata": {"name": "server"}, "spec": {"ports": [{"port": 8080}]}}
 }
 
 test_cronjob_without_probes_passes {
-	# Batch kinds are exempt from the probe rules but still need limits + non-root.
 	doc := {
 		"kind": "CronJob",
 		"metadata": {"name": "pg-backup"},
@@ -53,8 +46,6 @@ test_cronjob_without_probes_passes {
 	}
 	count(deny) == 0 with input as doc
 }
-
-# --- NEGATIVE --------------------------------------------------------------
 
 test_latest_tag_denied {
 	doc := json.patch(good_deployment, [{"op": "add", "path": "/spec/template/spec/containers/0/image", "value": "postgres:latest"}])

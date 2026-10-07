@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEncodeHandshake pins raw binary handshake prefix encoding.
 func TestEncodeHandshake(t *testing.T) {
 	t.Run("with payload", func(t *testing.T) {
 		payload := []byte("handshake-payload")
@@ -30,7 +29,6 @@ func TestEncodeHandshake(t *testing.T) {
 	})
 }
 
-// TestDecodeHandshakeType pins active and retired handshake type handling.
 func TestDecodeHandshakeType(t *testing.T) {
 	t.Run("valid types", func(t *testing.T) {
 		tests := []struct {

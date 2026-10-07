@@ -25,18 +25,13 @@ func (a *Technician) dashboard() fleetSummary {
 	return summary
 }
 
-// fileUnder moves a machine to a customer, which is what a technician does
-// when a machine arrives in the wrong place.
+// fileUnder moves a machine to a customer.
 func (a *Technician) fileUnder(machine *Machine, customer any) Reply {
 	a.t.Helper()
 	return a.Put("/api/v1/devices/"+machine.DeviceID.String()+"/organization",
 		map[string]any{"organization_id": customer})
 }
 
-// TestTheDashboardAgreesWithTheDeviceList is the sentence Fleet and Devices
-// promises: what the counts say and what the list shows are the same estate.
-// Handler tests prove each against a stub reader; only standing the product up
-// proves they agree about a machine that actually connected.
 func TestTheDashboardAgreesWithTheDeviceList(t *testing.T) {
 	t.Parallel()
 
@@ -62,10 +57,6 @@ func TestTheDashboardAgreesWithTheDeviceList(t *testing.T) {
 		"the count strip and the list below it describe one estate")
 }
 
-// TestATechnicianSeesOneCustomersMachinesAtATime is the silent failure the
-// customer filter exists to prevent. Both customers sit inside one tenant, so
-// nothing is refused — a wrong query simply shows one customer's estate to
-// somebody looking at another's, and nobody notices.
 func TestATechnicianSeesOneCustomersMachinesAtATime(t *testing.T) {
 	t.Parallel()
 

@@ -13,8 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// stubStatusDevices satisfies the heartbeat handler's only repository call
-// (SetStatus) so the coalescing flush trigger can be driven without a database.
 type stubStatusDevices struct {
 	device.Repository
 }
@@ -23,9 +21,6 @@ func (stubStatusDevices) SetStatus(context.Context, device.DeviceID, device.Devi
 	return nil
 }
 
-// A heartbeat-shaped burst — the host-metric window firehose followed by the
-// tail-ordered anomaly summary — coalesces into a single WriteSamples, and the
-// tail summary is persisted rather than lost to the persist-slot race.
 func TestAgentConn_CoalescesHeartbeatBurstIntoOneWrite(t *testing.T) {
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 4)}
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
@@ -51,8 +46,6 @@ func TestAgentConn_CoalescesHeartbeatBurstIntoOneWrite(t *testing.T) {
 	for i := 0; i < windows+1; i++ {
 		require.NoError(t, ac.handleControl(ctx))
 	}
-	// Nothing is written until the burst is flushed — the firehose can no longer
-	// saturate the persist slots because it is buffered, not written per-message.
 	require.Empty(t, writer.calls)
 
 	ac.flushTelemetry(ctx)
@@ -70,8 +63,6 @@ func TestAgentConn_CoalescesHeartbeatBurstIntoOneWrite(t *testing.T) {
 	assert.Zero(t, ac.DroppedTelemetryCount(), "coalescing drops nothing")
 }
 
-// The heartbeat that opens each cycle flushes the previous cycle's buffered
-// telemetry (the agent sends the heartbeat first, then drains its burst).
 func TestAgentConn_HeartbeatFlushesBufferedTelemetry(t *testing.T) {
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
@@ -98,8 +89,6 @@ func TestAgentConn_HeartbeatFlushesBufferedTelemetry(t *testing.T) {
 	require.NotEmpty(t, call.samples)
 }
 
-// A burst with no following heartbeat (a disconnect mid-cycle) must still be
-// persisted by the teardown flush — buffered samples are never silently lost.
 func TestAgentConn_TeardownFlushPersistsBufferedTelemetry(t *testing.T) {
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)

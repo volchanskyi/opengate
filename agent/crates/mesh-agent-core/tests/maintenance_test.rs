@@ -1,11 +1,4 @@
-//! Maintenance-mode gate + transition tests (WS-D).
-//!
-//! The gate is the shared handle the control loop flips and the Edge-Sentinel
-//! collectors consult to suppress sampling, discovery, and alert-breach
-//! evaluation while the QUIC control channel and remote-management
-//! paths stay live. The transition tracker gives the sampler the maintenance→
-//! active edge so it re-baselines anomaly detection when the device leaves
-//! maintenance. Both are pure decision logic pinned here.
+//! Tests for the maintenance gate shared with collectors and the exit-edge tracker.
 
 use mesh_agent_core::maintenance::{MaintenanceGate, MaintenanceTransition};
 
@@ -29,7 +22,6 @@ fn gate_set_toggles_state() {
 
 #[test]
 fn gate_clones_share_state() {
-    // Collectors each hold a clone; a flip through one handle is observed by all.
     let gate = MaintenanceGate::new();
     let collector_view = gate.clone();
     gate.set(true);
@@ -67,7 +59,7 @@ fn transition_entering_is_not_an_exit() {
 #[test]
 fn transition_reports_exit_once() {
     let mut t = MaintenanceTransition::new();
-    t.just_exited(true); // enter maintenance
+    t.just_exited(true);
     assert!(
         t.just_exited(false),
         "maintenance→Active is the re-baseline edge"

@@ -23,8 +23,7 @@ func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// baseConfig is a complete, valid configuration: every acceptance of Build in
-// this file starts from it and removes exactly one thing.
+// baseConfig is a complete, valid configuration that each test starts from.
 func baseConfig(t *testing.T) app.Config {
 	t.Helper()
 	return app.Config{
@@ -35,9 +34,6 @@ func baseConfig(t *testing.T) app.Config {
 	}
 }
 
-// TestBuildNamesTheDependencyItIsMissing is the harness-failure contract: a
-// configuration short of something required fails naming it, rather than
-// assembling a server that answers 500 on the routes that needed it.
 func TestBuildNamesTheDependencyItIsMissing(t *testing.T) {
 	t.Parallel()
 
@@ -68,8 +64,6 @@ func TestBuildNamesTheDependencyItIsMissing(t *testing.T) {
 	}
 }
 
-// TestBuildAssemblesTheWholeProduct proves one call wires every port the
-// process needs, and that the assembled API server actually serves.
 func TestBuildAssemblesTheWholeProduct(t *testing.T) {
 	t.Parallel()
 
@@ -104,9 +98,6 @@ func TestBuildAssemblesTheWholeProduct(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "the assembled server serves its own health route")
 }
 
-// TestBuildTwiceSharesNoMutableState is what lets every acceptance test run in
-// parallel: two products built in one process must not be able to see each
-// other's connections, sessions or counters.
 func TestBuildTwiceSharesNoMutableState(t *testing.T) {
 	t.Parallel()
 
@@ -124,15 +115,10 @@ func TestBuildTwiceSharesNoMutableState(t *testing.T) {
 	assert.NotSame(t, first.Internal, second.Internal)
 	assert.NotSame(t, first.Store, second.Store)
 
-	// Signaling is not in that list because it is a value: the ICE servers a
-	// browser is told to try are configuration, and two products holding equal
-	// copies of it is the point rather than a leak.
+	// Signaling is a value, so two products hold equal copies.
 	assert.Equal(t, first.Signaling, second.Signaling)
 }
 
-// TestBuildWithoutNumericTelemetryLeavesPurgingOff pins the documented
-// fallback: without a metrics store there is no series to purge, so device
-// deletion is the plain Postgres delete and no orchestrator is wired.
 func TestBuildWithoutNumericTelemetryLeavesPurgingOff(t *testing.T) {
 	t.Parallel()
 
@@ -144,8 +130,6 @@ func TestBuildWithoutNumericTelemetryLeavesPurgingOff(t *testing.T) {
 	assert.Nil(t, assembly.Reconciler)
 }
 
-// TestBuildWithNumericTelemetryWiresPurging is the other half: given a metrics
-// store, the erasure orchestrator and its reconciliation sweep exist.
 func TestBuildWithNumericTelemetryWiresPurging(t *testing.T) {
 	t.Parallel()
 
@@ -160,8 +144,6 @@ func TestBuildWithNumericTelemetryWiresPurging(t *testing.T) {
 	assert.NotNil(t, assembly.Reconciler)
 }
 
-// TestBuildRejectsAnUnusableDataDir proves the assembly refuses rather than
-// half-building when the certificate material cannot be written.
 func TestBuildRejectsAnUnusableDataDir(t *testing.T) {
 	t.Parallel()
 
@@ -178,9 +160,6 @@ func TestBuildRejectsAnUnusableDataDir(t *testing.T) {
 		"got %q", err.Error())
 }
 
-// TestAgentControlGetterConvertsAMissingAgentToANilInterface pins the bridge
-// the composition root owns: the handlers test `ac == nil`, and a typed-nil
-// *AgentConn would defeat that check.
 func TestAgentControlGetterConvertsAMissingAgentToANilInterface(t *testing.T) {
 	t.Parallel()
 
@@ -191,9 +170,6 @@ func TestAgentControlGetterConvertsAMissingAgentToANilInterface(t *testing.T) {
 	assert.Empty(t, assembly.AgentControl.ListConnectedAgents())
 }
 
-// A rule change is carried to the machines the agent server holds, through the
-// same bridge; with none connected it reaches none, rather than reporting a
-// delivery that did not happen.
 func TestAgentControlGetterCarriesARuleChangeToNoMachineWhenNoneAreConnected(t *testing.T) {
 	t.Parallel()
 

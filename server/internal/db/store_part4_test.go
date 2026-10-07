@@ -13,10 +13,8 @@ import (
 	"time"
 )
 
-// startRehearsalContainer brings up the throwaway Postgres the rehearsal walks
-// its migrations against, and returns it with its connection string. It
-// intentionally ignores POSTGRES_TEST_URL: dump/restore is destructive and needs
-// matching client binaries.
+// startRehearsalContainer starts a throwaway Postgres; it ignores POSTGRES_TEST_URL because
+// dump/restore is destructive and needs matching client binaries.
 func startRehearsalContainer(t *testing.T, ctx context.Context) (*postgres.PostgresContainer, string) {
 	t.Helper()
 	container, err := postgres.Run(ctx, testpg.PostgresImage,
@@ -46,13 +44,11 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	runMigrationSteps(t, dbURL, 1)
 	rehearsalDB := openRehearsalDB(t, ctx, dbURL)
-	defer rehearsalDB.Close() //nolint:errcheck // test cleanup
+	defer rehearsalDB.Close()
 	seedPreTenancyRows(t, ctx, rehearsalDB)
 	t.Log("rehearsal: applied 001 and seeded pre-tenancy rows")
 
-	// The forward walk, in the shape the rollback walk below reads backwards:
-	// apply one migration, then prove what that migration built. A step may also
-	// seed the rows the *next* one has to sort, which is what `before` is for.
+	// Each step applies one migration and proves what it built; `before` seeds the next step's rows.
 	for _, step := range forwardMigrationSteps() {
 		if step.before != nil {
 			step.before(t, ctx, rehearsalDB)
@@ -66,24 +62,21 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
-	defer restoredDB.Close() //nolint:errcheck // test cleanup
+	defer restoredDB.Close()
 	assertHeadSchema(t, ctx, restoredDB)
 	t.Log("rehearsal: pg_dump -> pg_restore completed and restored DB re-verified")
 
 	rollBackAndVerify(t, ctx, dbURL, rehearsalDB)
 }
 
-// rehearsalStep is one migration and what it has to have done. before seeds the
-// rows that migration will sort, and runs while the schema is still the previous
-// one.
+// rehearsalStep is one migration and what it must have done; before seeds rows it will sort.
 type rehearsalStep struct {
 	note   string
 	before func(*testing.T, context.Context, *sql.DB)
 	verify func(*testing.T, context.Context, *sql.DB)
 }
 
-// forwardMigrationSteps is migrations 002 onward. 001 is applied before the
-// loop, because the connection every step below shares is opened against it.
+// forwardMigrationSteps covers migrations 002 onward; 001 is applied before the connection opens.
 func forwardMigrationSteps() []rehearsalStep {
 	return []rehearsalStep{
 		{note: "002 backfill, idempotence, cross-tenant deny, and admin bypass verified",
@@ -106,9 +99,7 @@ func forwardMigrationSteps() []rehearsalStep {
 		{note: "006 data-lifecycle tables verified", verify: assertDataLifecycleTables},
 		{note: "007 maintenance columns verified", verify: assertMaintenanceColumns},
 		{note: "008 AMT device link verified",
-			// Give 008 both a linkable and an unlinkable AMT row to sort. Seeded
-			// here rather than pre-tenancy so the 002 backfill assertions keep
-			// their one-row-per-table shape.
+			// Seeds a linkable and an unlinkable AMT row for 008, after the 002 backfill assertions.
 			before: func(t *testing.T, ctx context.Context, db *sql.DB) {
 				rehearsalExecNoTx(t, ctx, db,
 					`INSERT INTO amt_devices (uuid, org_id, hostname)
@@ -148,9 +139,7 @@ func forwardMigrationSteps() []rehearsalStep {
 	}
 }
 
-// assertHeadSchema re-runs every head-state assertion against db. It is applied
-// to the pg_dump/pg_restore copy, so a restored database must look exactly like
-// the one the migrations built.
+// assertHeadSchema re-runs every head-state assertion, including against the pg_restore copy.
 func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	assertRehearsalRLS(t, ctx, db, "public")
@@ -171,9 +160,7 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertRetentionIndexesIntroduced(t, ctx, db)
 }
 
-// rollBackAndVerify walks the migrations down one step at a time, asserting
-// after each that the step reversed cleanly. The slice is in rollback order —
-// newest migration first — and reaches the pre-tenancy schema at the end.
+// rollBackAndVerify walks the migrations down one step at a time, newest migration first.
 func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.DB) {
 	t.Helper()
 	steps := []struct {

@@ -1,13 +1,5 @@
-# OpenGate Rust agent — cargo-deny policy.
-#
-# Defense-in-depth alongside `cargo audit` (precommit-gauntlet.sh step 18):
-# cargo-audit covers advisories; cargo-deny additionally enforces license
-# compatibility, source URLs, and a bans surface for forbidden crates.
-#
-# No inline crate-level suppressions; all exceptions live in this file with an
-# explicit `reason` string.
-
-# --- Advisories ----------------------------------------------------------------
+# cargo-deny policy for the agent: licenses, sources and bans, beside `cargo audit` advisories.
+# Every exception lives in this file with an explicit `reason` string.
 
 [advisories]
 version = 2
@@ -16,13 +8,10 @@ ignore = [
   { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile archived 2025-08; awaiting upstream migration to rustls-pki-types PemObject API. No CVE." },
 ]
 
-# --- Licenses -----------------------------------------------------------------
-
 [licenses]
 version = 2
 confidence-threshold = 0.93
-# Standard OSS-compatible set. Anything not here fails the check; new licenses
-# require an explicit rationale and policy review in this file.
+# Any license outside this OSS-compatible set fails the check.
 allow = [
   "MIT",
   "Apache-2.0",
@@ -36,39 +25,17 @@ allow = [
   "CDLA-Permissive-2.0",
 ]
 
-# --- Bans ---------------------------------------------------------------------
-
 [bans]
-# Strict policy: every transitive duplicate below is enumerated with rationale,
-# and bare suppressions are not allowed. The HTTP-stack inventory below defines
-# the approved direct dependencies; code review gates additions that cargo-deny
-# cannot classify as direct-only.
 multiple-versions = "deny"
 wildcards = "deny"
-# Workspace-internal deps (the mesh-* crates and platform-* shims) use
-# `version = "*"` in path dependencies. Exempt those from the wildcard check
-# so it only catches external wildcard pins, which are the real lurking
-# CVE vector.
+# Workspace path dependencies may carry a wildcard requirement; external wildcard pins are denied.
 allow-wildcard-paths = true
 
-# HTTP-stack inventory:
-#   Direct deps    : reqwest, tokio-tungstenite
-#   Allowed via reqwest: hyper, hyper-rustls, hyper-util, http, http-body
-#   Allowed via tokio-tungstenite: tungstenite
-# Adding a new direct HTTP crate (ureq, isahc, surf, attohttpc, hreq, …)
-# requires architecture review before merge; cargo-deny cannot express a
-# "direct-only" ban, so enforcement is via code review on Cargo.toml diffs.
-# The explicit deny below catches the historically problematic stale
-# crypto/HTTP stack if it appears transitively.
 deny = [
   { crate = "openssl", reason = "rustls-only policy — openssl pulls system-level crypto and complicates static cross-compilation. If a transitive dep needs openssl, pin to rustls-equivalent variant or document in an ADR amendment." },
 ]
 
-# Transitive-duplicate allowlist. Each entry pins the OLDER version so the
-# duplicate counter sees one effective version. Resolving long-term requires
-# upstream bumps in webrtc-rs, the RustCrypto stack, and the Windows
-# API bindings cohort. Reviewer hook: any time a skip clears upstream, drop
-# the entry — drift this list down, not up.
+# Each entry pins the older version of a transitive duplicate so one effective version remains.
 skip = [
   { crate = "base64@0.22.1",                   reason = "base64 0.22/0.23 stagger — the reqwest/hyper stack and rcgen's pem 3 hold 0.22, the agent's direct pem 4 carries 0.23" },
   { crate = "bitflags@1.3.2",                  reason = "bitflags 1→2 ecosystem stagger; 1.3.2 via older webrtc-rs deps, 2.x via newer rustls/nix" },
@@ -93,8 +60,6 @@ skip = [
   # newer getrandom and rustls transitives carry 0.61.
   { crate = "windows-sys@0.52.0",              reason = "Windows API surface 0.52/0.61 stagger" },
 ]
-
-# --- Sources ------------------------------------------------------------------
 
 [sources]
 unknown-registry = "deny"

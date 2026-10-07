@@ -61,11 +61,8 @@ func (l *ipLimiter) cleanup() {
 	}
 }
 
-// RateLimiter returns middleware that applies per-IP token bucket rate limiting.
-// Requests exceeding the limit receive a 429 response.
-//
-// trust names the reverse proxies whose X-Forwarded-For decides which bucket a
-// request belongs to. Nil believes none of them and buckets by the peer.
+// RateLimiter returns per-IP token bucket middleware that answers 429 past the limit.
+// A nil trust buckets by the peer address alone.
 func RateLimiter(rps float64, burst int, trust *TrustedProxies) func(http.Handler) http.Handler {
 	limiter := newIPLimiter(rps, burst)
 	return func(next http.Handler) http.Handler {
@@ -85,10 +82,8 @@ type emailEntry struct {
 	windowStart time.Time
 }
 
-// emailLimiter throttles failed logins per (normalized) email address,
-// independently of source IP. It complements the per-IP AuthRateLimiter so a
-// distributed credential-stuffing attack spread across many IPs against a
-// single account still trips a lockout. A successful login resets the counter.
+// emailLimiter throttles failed logins per normalized email regardless of source IP.
+// A successful login resets the counter.
 type emailLimiter struct {
 	mu      sync.Mutex
 	entries map[string]*emailEntry
@@ -110,8 +105,6 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-// allowed reports whether a login attempt for the email may proceed. It returns
-// false once max failures have accumulated within the active window.
 func (l *emailLimiter) allowed(email string) bool {
 	key := normalizeEmail(email)
 	l.mu.Lock()
@@ -127,8 +120,6 @@ func (l *emailLimiter) allowed(email string) bool {
 	return e.failures < l.max
 }
 
-// recordFailure registers a failed login for the email, starting a fresh window
-// if none is active or the previous one has expired.
 func (l *emailLimiter) recordFailure(email string) {
 	key := normalizeEmail(email)
 	now := time.Now()
@@ -142,7 +133,6 @@ func (l *emailLimiter) recordFailure(email string) {
 	e.failures++
 }
 
-// reset clears any accumulated failures for the email (call on success).
 func (l *emailLimiter) reset(email string) {
 	key := normalizeEmail(email)
 	l.mu.Lock()
@@ -164,7 +154,6 @@ func (l *emailLimiter) cleanup() {
 	}
 }
 
-// peerIP returns the IP portion of the request's immediate peer address.
 func peerIP(r *http.Request) string {
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -173,15 +162,8 @@ func peerIP(r *http.Request) string {
 	return ip
 }
 
-// extractIP identifies the client a rate-limit bucket belongs to.
-//
-// X-Forwarded-For is consulted only when the request reached us from one of the
-// proxies this deployment names, and then only its *last* entry is used: the
-// reverse proxy appends the peer it actually observed, while every earlier
-// entry was supplied by the caller. Honouring a caller-supplied entry would let
-// any client mint a fresh bucket per request just by varying a header, which is
-// no rate limit at all. Anything unusable falls back to the peer address, which
-// a client cannot choose.
+// extractIP names the client of a rate-limit bucket. Only a trusted proxy's last X-Forwarded-For
+// entry counts, since earlier ones are caller-supplied; unusable values fall back to the peer.
 func extractIP(r *http.Request, trust *TrustedProxies) string {
 	peer := peerIP(r)
 	addr, err := netip.ParseAddr(peer)
@@ -203,7 +185,6 @@ func extractIP(r *http.Request, trust *TrustedProxies) string {
 	return client
 }
 
-// lastHop returns the final comma-separated element of s.
 func lastHop(s string) string {
 	for {
 		_, rest, found := strings.Cut(s, ",")

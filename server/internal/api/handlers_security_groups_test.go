@@ -60,7 +60,6 @@ func TestSecurityGroupHandlers(t *testing.T) {
 		var groups []SecurityGroup
 		err := json.NewDecoder(w.Body).Decode(&groups)
 		require.NoError(t, err)
-		// At least the one we created (may also have system groups from migration).
 		assert.GreaterOrEqual(t, len(groups), 1)
 	})
 
@@ -106,7 +105,6 @@ func TestSecurityGroupMemberHandlers(t *testing.T) {
 	adminUser, adminToken := seedTestUser(t, srv, cfg, "memadmin@example.com", true)
 	_, nonAdminToken := seedTestUser(t, srv, cfg, "memuser@example.com", false)
 
-	// Create a group to work with.
 	body := map[string]string{"name": "member-test-group"}
 	w := doRequest(srv, http.MethodPost, testPathSecurityGroups, adminToken, body)
 	require.Equal(t, http.StatusCreated, w.Code)

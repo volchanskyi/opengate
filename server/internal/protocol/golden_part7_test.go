@@ -49,7 +49,6 @@ func TestGoldenControlAgentRegisterEmptyCapabilities(t *testing.T) {
 func TestGoldenControlAgentRegisterUTF8(t *testing.T) {
 	msg := decodeControlFrame(t, "control_agent_register_utf8.bin")
 	assert.Equal(t, MsgAgentRegister, msg.Type)
-	// Emoji + CJK must round-trip bit-for-bit through msgpack.
 	assert.Equal(t, "ラップトップ-🖥️-办公室", msg.Hostname)
 	assert.Equal(t, "macos", msg.OS)
 	assert.Equal(t, "aarch64", msg.Arch)
@@ -76,9 +75,6 @@ func TestGoldenControlAgentHealthSummary(t *testing.T) {
 	assert.Equal(t, "disk-full", msg.Breaches[0].RuleID)
 	assert.Equal(t, "disk.used", msg.Breaches[0].Metric)
 	assert.InEpsilon(t, 95.5, msg.Breaches[0].Value, 0.0001)
-	// This fixture predates coverage and carries no such key, which is the shape
-	// an agent that has not been upgraded still sends. It must decode as "this
-	// device reported nothing" rather than fail and take the control stream down.
 	assert.Empty(t, msg.RuleCoverage)
 }
 
@@ -107,21 +103,7 @@ func TestGoldenControlAgentMetricWindow(t *testing.T) {
 }
 
 func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
-	// The host-metric emitter aggregates the 1 s sampler into a 60 s-average
-	// AgentMetricWindow over the thirteen host-resource series, five of which
-	// also carry the window maximum: a minute's average hides a stall and its
-	// maximum recovers it. The dim names are the shared central labels, in the
-	// order a window emits them; the net dims are primary-interface throughput in
-	// bytes/second, reduced the same way reconnect-backfill rolls them, so live
-	// and backfilled points land in the same series. disk.used_percent is the
-	// fullest mount, disk.mounts_critical counts the mounts at or above the
-	// critical threshold, the five stall dims are the share of the minute tasks
-	// spent stalled straight from the kernel's pressure accounting, and the last
-	// three are how slow the worst block device was — this fixture is a file
-	// server whose small system volume is nearly full beside a large, mostly
-	// empty data volume, during a minute whose CPU briefly pinned, whose readers
-	// spent two fifths of their time waiting on the disk, and whose data device
-	// answered a typical I/O in 18.5 ms while one stretch of the minute took 812.
+	// A 60 s-average window over the host-resource series; disk.used_percent is the fullest mount.
 	msg := decodeControlFrame(t, "control_agent_metric_window_host_metrics.bin")
 	assert.Equal(t, MsgAgentMetricWindow, msg.Type)
 	assert.Equal(t, int64(1700000260), msg.TS)
@@ -195,8 +177,6 @@ func TestGoldenControlHealthWindowResponse(t *testing.T) {
 
 func TestGoldenControlHardwareReportLargeSize(t *testing.T) {
 	data := readGolden(t, "control_hardware_report_large_size.bin")
-	// Frame length high bytes must be non-zero — proves the 4-byte BE header
-	// is actually exercised, not just the low byte.
 	require.Greater(t, len(data), 65_536,
 		"large_size golden must exceed 64 KiB to exercise BE length high bytes")
 
@@ -213,9 +193,7 @@ func TestGoldenControlHardwareReportLargeSize(t *testing.T) {
 }
 
 func TestGoldenControlChatMessageForwardCompat(t *testing.T) {
-	// Forward-compatibility: the payload contains two msgpack keys
-	// (future_field, future_number) that Go's ControlMessage struct does not
-	// declare. They must be silently ignored — the known fields decode unchanged.
+	// The payload carries msgpack keys (future_field, future_number) that ControlMessage omits.
 	msg := decodeControlFrame(t, "control_chat_message_forward_compat.bin")
 	assert.Equal(t, MsgChatMessage, msg.Type)
 	assert.Equal(t, "hello from the future", msg.Text)
@@ -223,9 +201,7 @@ func TestGoldenControlChatMessageForwardCompat(t *testing.T) {
 }
 
 func TestGoldenFrameControlLELength(t *testing.T) {
-	// Negative test: length field encoded little-endian instead of big-endian.
-	// BE interpretation inflates the declared length past MaxFrameSize, so
-	// ReadFrame must return an error rather than hang or over-read.
+	// A little-endian length read as big-endian exceeds MaxFrameSize, so ReadFrame errors.
 	data := readGolden(t, "frame_control_le_length.bin")
 	codec := &Codec{}
 	_, _, err := codec.ReadFrame(bytes.NewReader(data))

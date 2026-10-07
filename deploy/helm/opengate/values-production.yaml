@@ -1,19 +1,9 @@
-# Production overlay — real domain, HSTS on, Let's Encrypt prod, full backups.
-# Most values inherit from values.yaml; this overlay pins the env-specific knobs.
+# Production overlay: real domain, HSTS on and the Let's Encrypt production issuer.
 
 domain: opengate.cloudisland.net
 
 server:
-  # Requests equal limits, which is what puts this pod last in the kubelet's
-  # eviction order. Production shares one node with staging and with whatever a
-  # load run brings, and nothing else on that node holds the same standing.
-  #
-  # The numbers are measured, not chosen for symmetry: seven days of readings put
-  # this process's busiest five minutes at 105 millicores and its largest resident
-  # size at 30 MB, so 250m and 384Mi are roughly twice and twelve times what it
-  # has ever needed. They are also as large as the node can give — 1180m of its
-  # 1830m was already spoken for, and a run's two generator pods need 400m of
-  # what is left.
+  # Requests equal limits, which puts this pod last in the kubelet's eviction order.
   resources:
     requests:
       cpu: 250m
@@ -21,15 +11,11 @@ server:
     limits:
       cpu: 250m
       memory: 384Mi
-  # Multi-replica-correct key sharing is REQUIRED in production: the enrollment
-  # CA / VAPID / update-signing keys come from the (out-of-band) existingSecret,
-  # so every replica — and every redeploy — serves the same material and existing
-  # agents keep mTLS. Do not disable without re-carrying the keys (ADR-034).
+  # The CA, VAPID and signing keys come from existingSecret, so every replica and redeploy
+  # serves the same material and enrolled agents keep mTLS.
   sharedKeys:
     enabled: true
-  # Public endpoints agents reach directly (QUIC bypasses the CDN/ingress). Must
-  # match DNS: agents dial quicHost:quicPort and validate the server cert against
-  # quicHost. baseURL is the HTTPS origin baked into the served install.sh.
+  # Agents dial quicHost:quicPort directly, bypassing the CDN, and validate the certificate.
   quicHost: quic.opengate.cloudisland.net
   baseURL: https://opengate.cloudisland.net
 
@@ -42,20 +28,8 @@ certManager:
   server: https://acme-v02.api.letsencrypt.org/directory
 
 postgres:
-  # Memory: last in the eviction order for the same reason as the server above,
-  # and the more important half of the pair: a server that is evicted comes back,
-  # and a database that is evicted comes back to whatever the disk still held. It
-  # reserves its whole ceiling. Its largest recorded resident size is 99 MB, so
-  # 384Mi is close to four times what it has used.
-  #
-  # Processor: a ceiling is enforced per tenth of a second, and this database's
-  # own processes arrive in bursts. Capped at 250m it was paused in about a third
-  # of its busy tenths of a second for a whole week, while its busiest minute in
-  # three days used 37m and its 99th percentile 15m. So the ceiling is a whole
-  # processor and the reservation 175m, nearly five times that busiest minute.
-  # The node has never run short of processor (its busiest minute was 845m of
-  # 2000m), so the reservation decides the split only if it ever fills; with
-  # staging's database the pair reserves the 350m it always has.
+  # Memory requests equal limits for last-in-line eviction; the CPU ceiling is a whole
+  # processor because its bursts were throttled under a 250m cap.
   resources:
     requests:
       cpu: 175m

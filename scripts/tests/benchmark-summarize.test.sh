@@ -68,22 +68,8 @@ cat >"$WORK/baseline.json" <<'JSON'
 }
 JSON
 
-# --- kubectl mock: hermetic for the WHOLE file --------------------------------
-# The ns/op gate reads a 14d window median (and sample count for cold-start) from
-# VictoriaMetrics through scripts/lib/vm-query.sh's kubectl curl-pod transport,
-# and regression_check runs it on EVERY summarizer invocation — so the mock must
-# be installed before the first run, not just around the ns/op cases. An unmocked
-# call issues `kubectl -n monitoring run vm-query-$$ --rm …` against whatever
-# cluster the caller is logged into, and the gate fails open, so the damage is
-# silent. Three layers make that impossible: the mock shadows kubectl on PATH,
-# KUBECONFIG names a nonexistent file, and the VM namespace/service are test-only
-# names that match nothing real.
-#
-# The mock serves canned /api/v1/query vectors keyed by {benchmark,lang},
-# selecting median vs. count by the aggregation in the PromQL. VM_PROFILE picks a
-# scenario; empty/transport-fail exercise fail-open (⇒ absolute-only, never red on
-# infra). The mock also records its args so we can assert the current commit is
-# excluded from the window query — and that no query ever addressed a real target.
+# The kubectl mock serves canned VictoriaMetrics vectors and records its args for the whole file.
+# KUBECONFIG names a nonexistent file and the VM namespace and service match nothing real.
 BIN_DIR="$WORK/bin"
 mkdir -p "$BIN_DIR"
 cat >"$BIN_DIR/kubectl" <<'EOF'
@@ -134,7 +120,6 @@ export KUBECTL_ARGS="$WORK/kubectl.args"
 VM_RUN_STARTED_AT="$(date -u -d '2026-09-29 10:33' +%s)"
 STORE_MIDNIGHT="$(date -u -d '2026-09-29 00:00' +%s)"
 export VM_RUN_STARTED_AT STORE_MIDNIGHT
-# The summary page lands in the work directory, not wherever the suite ran from.
 export BENCHMARK_SUMMARY_FILE="$WORK/benchmark-summary.md"
 
 echo "kubectl hermeticity:"
@@ -145,11 +130,8 @@ run_clean() {
     GITHUB_SHA="deadbeef" "$SUMMARIZE"
 }
 
-# Write a one-line go.txt benchmark for EncodeFrame at the given ns/op, with the
-# baseline's own bytes/allocs so only the ns/op dimension moves.
 write_go_ns() { printf 'BenchmarkEncodeFrame-8   1000000   %s ns/op   64 B/op   2 allocs/op\n' "$1" >"$WORK/go-ns.txt"; }
 
-# Per-case knobs (VM_PROFILE / VM_COUNT / KUBECTL_STATUS) are inherited.
 run_ns_gate() {
   GO_BENCH_FILE="$WORK/go-ns.txt" CRITERION_ROOT="$WORK/criterion" \
     BASELINE_FILE="$WORK/baseline.json" GITHUB_SHA="deadbeef" "$SUMMARIZE"
@@ -168,13 +150,8 @@ assert_eq "Go B/op parsed" "64" "$(jq -r '.[] | select(.name=="BenchmarkEncodeFr
 assert_eq "Go allocs/op parsed" "2" "$(jq -r '.[] | select(.name=="BenchmarkEncodeFrame") | .allocs_op' <<<"$ROWS")"
 assert_num_eq "criterion ns/op parsed" "987.6" "$(jq -r '.[] | select(.name=="encode_frame") | .ns_op' <<<"$ROWS")"
 assert_eq "criterion allocations are unavailable" "null" "$(jq -r '.[] | select(.name=="encode_frame") | .allocs_op' <<<"$ROWS")"
-# Criterion runs data-only now (html_reports dropped): the summarizer must parse
-# ns/op from new/estimates.json alone, with no report/ HTML in the artifact.
 assert_eq "criterion fixture is data-only (no HTML report)" "" "$(find "$WORK/criterion" -name '*.html' -print -quit)"
 assert_eq "commit tagged" "deadbeef" "$(jq -r '.[0].commit' <<<"$ROWS")"
-# The canonical run also crosses the VM gate, so its one window read must be
-# served by the mock — proof the summarizer never reaches a cluster outside the
-# ns/op cases.
 assert_eq "clean run's window read went through the mock" "1" "$(grep -c 'api/v1/export' "$KUBECTL_ARGS")"
 
 echo
@@ -207,17 +184,14 @@ else
   fi
 fi
 
-# The window is nights, read by date; a re-run of tonight is kept out by its
-# date rather than by the commit it ran.
+# The window is nights read by date, so a re-run of tonight is excluded by its date.
 if grep -qF 'commit' "$WORK/kubectl.args"; then
   fail "the window read asks nothing about commits"
 else
   pass "the window read asks nothing about commits"
 fi
 
-# Twelve nights on eight commits. Folded to one point per commit the median was
-# 250 and 200 ns passed under a band of 375; over the twelve nights it is 100,
-# and 200 is past the band of 150.
+# Over twelve nights on eight commits the median is 100 ns, so 200 ns is past the band of 150.
 write_go_ns 200
 if OUT="$(VM_PROFILE=twelve run_ns_gate 2>&1)"; then
   fail "twelve nights on eight commits are judged against the twelve-night median"
@@ -244,14 +218,11 @@ else
   pass "ns/op over baseline×2 reds via the absolute backstop (cold-start)"
 fi
 
-# Cold-start fail-open: window empty AND under the ceiling ⇒ exit 0, never a red
-# or an exit-2 on missing history.
 write_go_ns 150
 rc=0
 VM_PROFILE=empty run_ns_gate >/dev/null 2>&1 || rc=$?
 assert_eq "empty window under ceiling is fail-open (exit 0)" "0" "$rc"
 
-# Transport failure fail-open: kubectl non-zero ⇒ absolute-only, no red on infra.
 write_go_ns 200
 rc=0
 KUBECTL_STATUS=19 run_ns_gate >/dev/null 2>&1 || rc=$?
@@ -268,8 +239,6 @@ fi
 
 echo
 echo "summary page:"
-# The benchmark dumped its rows as JSON. The check that judges them writes the
-# page: each reading beside what it is held to, and what the check made of it.
 write_go_ns 200
 BENCHMARK_SUMMARY_FILE="$WORK/bench-table.md" run_ns_gate >/dev/null 2>&1 || true
 table="$(cat "$WORK/bench-table.md" 2>/dev/null || true)"
@@ -302,9 +271,7 @@ if [ "$rc" -eq 2 ]; then pass "missing Go file exits 2"; else fail "missing Go f
 
 echo
 echo "kubectl blast radius:"
-# Every query recorded across the whole file must carry the test-only namespace.
-# A single line naming the real monitoring namespace means an invocation escaped
-# the mock and addressed the live cluster.
+# Every recorded query carries the test-only namespace.
 assert_eq "no query addressed the real monitoring namespace" "0" \
   "$(grep -c -- '-n monitoring ' "$KUBECTL_ARGS" || true)"
 assert_eq "every recorded query used the test namespace" "0" \

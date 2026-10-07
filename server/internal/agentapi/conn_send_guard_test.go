@@ -1,6 +1,7 @@
 package agentapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -11,11 +12,15 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// The agent decodes SessionRequest and AgentUpdate with every load-bearing
-// field required, and the server's encoder drops a zero-valued field from the
-// wire map. An empty token, relay URL, version, URL or signature therefore
-// produces a frame the agent cannot decode — which drops its control stream.
-// These tests pin that such a frame never leaves the server.
+func assertRefusedIncomplete(t *testing.T, err error, buf *bytes.Buffer, wantField string, msgType protocol.ControlMessageType) {
+	t.Helper()
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrIncompleteControlMessage), "want ErrIncompleteControlMessage, got %v", err)
+	assert.True(t, IsIncompleteMessageError(err))
+	assert.Contains(t, err.Error(), wantField)
+	assert.Contains(t, err.Error(), string(msgType))
+	assert.Zero(t, buf.Len(), "no frame may reach the agent")
+}
 
 func TestSendSessionRequest_RefusesUndecodableFrame(t *testing.T) {
 	t.Parallel()
@@ -40,12 +45,7 @@ func TestSendSessionRequest_RefusesUndecodableFrame(t *testing.T) {
 
 			err := ac.SendSessionRequest(context.Background(), tt.token, tt.relayURL, perms)
 
-			require.Error(t, err)
-			assert.True(t, errors.Is(err, ErrIncompleteControlMessage), "want ErrIncompleteControlMessage, got %v", err)
-			assert.True(t, IsIncompleteMessageError(err))
-			assert.Contains(t, err.Error(), tt.wantField)
-			assert.Contains(t, err.Error(), string(protocol.MsgSessionRequest))
-			assert.Zero(t, buf.Len(), "no frame may reach the agent")
+			assertRefusedIncomplete(t, err, buf, tt.wantField, protocol.MsgSessionRequest)
 		})
 	}
 }
@@ -58,10 +58,7 @@ func TestSendSessionRequest_SendsCompleteFrame(t *testing.T) {
 	require.NoError(t, ac.SendSessionRequest(context.Background(), token, "wss://relay/test",
 		protocol.Permissions{Desktop: true}))
 
-	_, payload, err := ac.codec.ReadFrame(buf)
-	require.NoError(t, err)
-	decoded, err := ac.codec.DecodeControl(payload)
-	require.NoError(t, err)
+	decoded := readReply(t, ac, buf)
 	assert.Equal(t, token, decoded.Token)
 	assert.Equal(t, "wss://relay/test", decoded.RelayURL)
 }
@@ -87,29 +84,18 @@ func TestSendAgentUpdate_RefusesUndecodableFrame(t *testing.T) {
 
 			err := ac.SendAgentUpdate(context.Background(), tt.version, tt.url, "sha256hash", tt.signature)
 
-			require.Error(t, err)
-			assert.True(t, errors.Is(err, ErrIncompleteControlMessage), "want ErrIncompleteControlMessage, got %v", err)
-			assert.True(t, IsIncompleteMessageError(err))
-			assert.Contains(t, err.Error(), tt.wantField)
-			assert.Contains(t, err.Error(), string(protocol.MsgAgentUpdate))
-			assert.Zero(t, buf.Len(), "no frame may reach the agent")
+			assertRefusedIncomplete(t, err, buf, tt.wantField, protocol.MsgAgentUpdate)
 		})
 	}
 }
 
-// An absent sha256 is the one AgentUpdate field the agent defaults at decode:
-// it is verified against the downloaded artifact by the updater, so it fails
-// closed at install time rather than at decode time.
 func TestSendAgentUpdate_AllowsEmptySHA256(t *testing.T) {
 	t.Parallel()
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
 	require.NoError(t, ac.SendAgentUpdate(context.Background(), "0.3.0", "https://example.com/agent", "", "sig123"))
 
-	_, payload, err := ac.codec.ReadFrame(buf)
-	require.NoError(t, err)
-	decoded, err := ac.codec.DecodeControl(payload)
-	require.NoError(t, err)
+	decoded := readReply(t, ac, buf)
 	assert.Equal(t, protocol.MsgAgentUpdate, decoded.Type)
 	assert.Empty(t, decoded.SHA256)
 	assert.Equal(t, "sig123", decoded.Signature)
@@ -121,8 +107,6 @@ func TestIsIncompleteMessageError(t *testing.T) {
 	assert.False(t, IsIncompleteMessageError(nil))
 	assert.False(t, IsIncompleteMessageError(errors.New("some other failure")))
 	assert.False(t, IsIncompleteMessageError(ErrCapabilityNotAdvertised))
-	// The two classifiers stay disjoint so a handler can tell a capability gap
-	// from an undeliverable frame.
 	assert.False(t, IsCapabilityError(ErrIncompleteControlMessage))
 }
 

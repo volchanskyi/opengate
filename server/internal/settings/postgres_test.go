@@ -19,8 +19,6 @@ func newOrganization(id uuid.UUID, name string) *organization.Organization {
 	return &organization.Organization{ID: id, Name: name}
 }
 
-// fileDevice seeds a machine into organizationID and files it into siteID,
-// returning its id.
 func fileDevice(t *testing.T, ctx context.Context, store *db.PostgresStore, devices device.Repository, organizationID, siteID uuid.UUID) uuid.UUID {
 	t.Helper()
 	d := testutil.SeedDevice(t, ctx, store, uuid.Nil)
@@ -29,11 +27,6 @@ func fileDevice(t *testing.T, ctx context.Context, store *db.PostgresStore, devi
 	return d.ID
 }
 
-// TestTheDiskRuleResolvesDownTheRealLadder is the worked case N5 names, end to
-// end against real rows rather than a hand-built scope: Contoso's Dallas office
-// is all file servers and alarms at 95, the one workstation in it alarms at 90,
-// and a machine in Contoso's Austin office — which sets nothing — takes
-// Contoso's own number.
 func TestTheDiskRuleResolvesDownTheRealLadder(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
@@ -55,7 +48,6 @@ func TestTheDiskRuleResolvesDownTheRealLadder(t *testing.T) {
 	workstation := fileDevice(t, ctx, store, devices, contoso, dallas.ID)
 	elsewhere := fileDevice(t, ctx, store, devices, contoso, austin.ID)
 
-	// The two numbers the plan names, plus the rungs above them.
 	const shippedThreshold = 90
 	overrides := []settings.Override[int]{
 		{Level: settings.LevelSite, ScopeID: dallas.ID, Value: 95},
@@ -87,8 +79,6 @@ func TestTheDiskRuleResolvesDownTheRealLadder(t *testing.T) {
 	}
 }
 
-// TestScopeForAnUnfiledMachineHasNoSiteRung covers the machine nobody has filed:
-// the ladder still resolves, it simply has one rung fewer.
 func TestScopeForAnUnfiledMachineHasNoSiteRung(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
@@ -107,8 +97,6 @@ func TestScopeForAnUnfiledMachineHasNoSiteRung(t *testing.T) {
 	assert.False(t, present)
 }
 
-// TestScopeForAnotherTenantsDeviceIsNotFound keeps the ladder inside the wall:
-// a device in another tenant reads the same as one that does not exist.
 func TestScopeForAnotherTenantsDeviceIsNotFound(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)

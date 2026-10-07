@@ -10,9 +10,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// HTTPMiddleware returns a chi-compatible middleware that records request
-// count and duration metrics. It uses chi's RoutePattern for the route label
-// to avoid cardinality explosion from path parameters.
+// HTTPMiddleware returns a chi middleware recording request count and duration.
+// The route label is chi's RoutePattern, which bounds cardinality across path parameters.
 func HTTPMiddleware(m *Metrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

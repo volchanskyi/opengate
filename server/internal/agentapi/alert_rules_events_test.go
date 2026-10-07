@@ -12,17 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
-// The half of the pack the machine owns: which of those rules travel (none of
-// them), what every rule that does travel has to carry, and how a customer
-// stops one the machine is holding itself.
-
-// A rule that watches the machine's own words is not sent to the machine.
-//
-// Its matching phrases are what the machine's log reader is built around, so
-// they are already there; what the server holds for it is the rest of the rule.
-// Sent down this path it would reach the number-comparing evaluator, which
-// would report a rule it cannot evaluate — and every machine in the estate
-// would then read as not watching a rule that is in fact watching all of them.
 func TestARuleAboutTheMachinesOwnWordsIsNotSentToTheMachine(t *testing.T) {
 	t.Parallel()
 
@@ -49,9 +38,6 @@ func TestARuleAboutTheMachinesOwnWordsIsNotSentToTheMachine(t *testing.T) {
 	require.Positive(t, watchingWords, "the shipped pack must contain rules about the machine's own words")
 }
 
-// Every rule that does reach a machine carries how bad it is, because the
-// machine states that on each alert and a queue ordered by severity cannot
-// order one that says nothing.
 func TestEveryRuleReachingAMachineSaysHowBadItIs(t *testing.T) {
 	t.Parallel()
 
@@ -66,14 +52,6 @@ func TestEveryRuleReachingAMachineSaysHowBadItIs(t *testing.T) {
 	}
 }
 
-// Stopping a rule that watches the machine's own words has to work too, and it
-// cannot work the way stopping a rule about a reading does.
-//
-// A rule about a reading stops reaching the machine, so nothing is raised. A
-// rule about words is compiled into the machine's log reader and goes on
-// matching whatever the customer decided — so the ruleset carries which of them
-// the customer still wants, and the alert path refuses the rest. Without this,
-// the switch on Priya's screen would be a switch that does nothing.
 func TestTheRulesetSaysWhichWordRulesTheCustomerStillWants(t *testing.T) {
 	t.Parallel()
 

@@ -14,34 +14,31 @@ import (
 // here can only be the per-tenant name.
 const uniqueViolation = "23505"
 
-// tenantPredicate is the scope every statement carries. The RLS policy already
-// filters, so this repeats the boundary in the statement itself: a mistake in
-// either one alone still cannot reach another tenant's row.
-const tenantPredicate = `tenant_id = current_setting('app.current_tenant')::uuid`
-
-const organizationSelect = `SELECT id, name, archived_at, created_at, updated_at FROM organizations `
-
-// Every statement is assembled here, at compile time, from constants only, and
-// each call site passes one identifier. Nothing is ever built from a value that
-// reached the process at runtime.
+// Each statement is one fixed literal that repeats the row-level-security tenant clause, so a
+// mistake in either one alone still cannot reach another tenant's row.
 const (
-	getByIDQuery = organizationSelect + `WHERE ` + tenantPredicate + ` AND id = $1`
+	getByIDQuery = `SELECT id, name, archived_at, created_at, updated_at FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-	listActiveQuery = organizationSelect + `WHERE ` + tenantPredicate + ` AND archived_at IS NULL ORDER BY name`
-	listAllQuery    = organizationSelect + `WHERE ` + tenantPredicate + ` ORDER BY name`
+	listActiveQuery = `SELECT id, name, archived_at, created_at, updated_at FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND archived_at IS NULL ORDER BY name`
+	listAllQuery = `SELECT id, name, archived_at, created_at, updated_at FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid ORDER BY name`
 
 	renameQuery = `UPDATE organizations SET name = $2, updated_at = NOW()
-			 WHERE ` + tenantPredicate + ` AND id = $1`
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
 	setArchivedQuery = `UPDATE organizations
 			    SET archived_at = CASE WHEN $2 THEN COALESCE(archived_at, NOW()) ELSE NULL END,
 			        updated_at = NOW()
-			  WHERE ` + tenantPredicate + ` AND id = $1`
+			  WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-	deleteQuery = `DELETE FROM organizations WHERE ` + tenantPredicate + ` AND id = $1`
+	deleteQuery = `DELETE FROM organizations WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-	oldestQuery     = `SELECT id FROM organizations WHERE ` + tenantPredicate + ` ORDER BY created_at, id LIMIT 1`
-	findByNameQuery = `SELECT id FROM organizations WHERE ` + tenantPredicate + ` AND name = $1`
+	oldestQuery = `SELECT id FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid ORDER BY created_at, id LIMIT 1`
+	findByNameQuery = `SELECT id FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND name = $1`
 )
 
 // PostgresOrganizations implements [Repository] against PostgreSQL.
@@ -99,8 +96,7 @@ func (p *PostgresOrganizations) List(ctx context.Context, includeArchived bool) 
 	if _, ok := dbtx.TenantFromContext(ctx); !ok {
 		return nil, dbtx.ErrTenantRequired
 	}
-	// Two fixed statements rather than one assembled from the flag, so nothing
-	// here is built from runtime input.
+	// Two fixed statements, one per flag value, keep the SQL text free of runtime input.
 	query := listActiveQuery
 	if includeArchived {
 		query = listAllQuery
@@ -165,9 +161,8 @@ func (p *PostgresOrganizations) Delete(ctx context.Context, id ID) error {
 	})
 }
 
-// EnsureDefault implements Repository. It prefers any customer the tenant
-// already has, so the default is a floor rather than a fixture, and inserts the
-// default one only when the tenant is empty.
+// EnsureDefault implements Repository. It returns any customer the tenant already has and
+// inserts the default one only when the tenant is empty.
 func (p *PostgresOrganizations) EnsureDefault(ctx context.Context) (ID, error) {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {

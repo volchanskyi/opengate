@@ -20,7 +20,7 @@ pub struct KMeansModel<const D: usize> {
 }
 
 impl<const D: usize> KMeansModel<D> {
-    /// Train a k=2 model using deterministic Lloyd iterations.
+    /// Trains a k=2 model using deterministic Lloyd iterations.
     pub fn train(samples: &[[f32; D]], iterations: usize) -> Result<Self, KMeansError> {
         if samples.len() < 2 {
             return Err(KMeansError::TooFewSamples);
@@ -71,17 +71,17 @@ impl<const D: usize> KMeansModel<D> {
         })
     }
 
-    /// Return the two trained cluster centers.
+    /// Returns the two trained cluster centers.
     pub fn centers(&self) -> [[f32; D]; 2] {
         self.centers
     }
 
-    /// Return the learned anomaly threshold.
+    /// Returns the learned anomaly threshold.
     pub fn threshold(&self) -> f32 {
         self.threshold
     }
 
-    /// Return true when a sample is farther than the learned boundary.
+    /// Returns true when a sample is farther than the learned boundary.
     pub fn is_anomaly(&self, sample: &[f32; D]) -> bool {
         nearest_distance(sample, &self.centers) > self.threshold
     }
@@ -132,25 +132,12 @@ fn squared_distance<const D: usize>(a: &[f32; D], b: &[f32; D]) -> f32 {
 mod tests {
     use super::farthest_pair;
 
-    /// The two seed centers are the most distant pair of samples, and the search
-    /// is a strict improvement scan: it keeps the FIRST pair at the maximum
-    /// distance rather than the last.
-    ///
-    /// The four corners of a square make both properties observable at once.
-    /// Both diagonals span the same, maximal distance, so the tie decides which
-    /// pair is returned; every other pair is a shorter side. Seeding is what
-    /// makes a trained model reproducible for the same input window, so "which
-    /// of two equally distant pairs wins" has to be pinned rather than left to
-    /// whichever comparison the code happens to use.
     #[test]
     fn farthest_pair_takes_the_first_maximally_distant_pair() {
-        // Sides are 100, both diagonals 200 (squared distances).
         let corners = [[0.0, 0.0], [10.0, 0.0], [0.0, 10.0], [10.0, 10.0]];
         assert_eq!(farthest_pair(&corners), (0, 3));
     }
 
-    /// With a single unambiguous maximum there is no tie to resolve, so the
-    /// farthest pair is simply the widest-separated points.
     #[test]
     fn farthest_pair_finds_the_unique_maximum() {
         let samples = [[0.0], [10.0], [3.0], [20.0]];

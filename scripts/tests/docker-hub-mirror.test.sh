@@ -9,9 +9,7 @@ ACTION="$REPO_ROOT/.github/actions/docker-hub-mirror/action.yml"
 SCRIPT="$REPO_ROOT/.github/actions/docker-hub-mirror/docker-hub-mirror.sh"
 WORKFLOWS="$REPO_ROOT/.github/workflows"
 
-# Every job that pulls a Docker Hub image goes through the mirror, so this is a
-# census rather than a sample: the count is stated here and each job is checked
-# against it, which is what catches a new pulling job that nobody wired up.
+# Every job that pulls a Docker Hub image goes through the mirror, so each job is counted.
 EXPECTED_PULL_JOBS=12
 
 PASS=0

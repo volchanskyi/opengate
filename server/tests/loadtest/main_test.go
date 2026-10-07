@@ -15,9 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// buildExtraMetricWindow produces an AgentMetricWindow over the host-metric dims
-// with an empty tenant (the server assigns the authoritative tenant from the
-// connection), mirroring the agent's live host-metric emission.
 func TestBuildExtraMetricWindow(t *testing.T) {
 	msg := buildExtraMetricWindow(1_700_000_000)
 
@@ -31,8 +28,6 @@ func TestBuildExtraMetricWindow(t *testing.T) {
 	}
 }
 
-// buildDeviceLogsResponse produces a bounded DeviceLogsResponse so an agent side
-// of the soak can answer raw pulls without unbounded payloads.
 func TestBuildDeviceLogsResponse(t *testing.T) {
 	msg := buildDeviceLogsResponse(500)
 	assert.Equal(t, protocol.MsgDeviceLogsResponse, msg.Type)
@@ -41,8 +36,6 @@ func TestBuildDeviceLogsResponse(t *testing.T) {
 	assert.EqualValues(t, len(msg.LogEntries), msg.TotalCount)
 }
 
-// answerLogPull replies to a RequestDeviceLogs control frame with a bounded
-// DeviceLogsResponse and reports that it handled a pull.
 func TestAnswerLogPull_RepliesToRequest(t *testing.T) {
 	codec := &protocol.Codec{}
 	req := &protocol.ControlMessage{Type: protocol.MsgRequestDeviceLogs, LogLimit: 50}
@@ -57,7 +50,6 @@ func TestAnswerLogPull_RepliesToRequest(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, handled, "a RequestDeviceLogs frame must be answered")
 
-	// The reply is a decodable, bounded DeviceLogsResponse.
 	frameType, respPayload, err := codec.ReadFrame(&out)
 	require.NoError(t, err)
 	assert.EqualValues(t, protocol.FrameControl, frameType)
@@ -67,8 +59,6 @@ func TestAnswerLogPull_RepliesToRequest(t *testing.T) {
 	assert.LessOrEqual(t, len(resp.LogEntries), maxSoakLogLines)
 }
 
-// A non-pull control frame is left for other handlers and reported as unhandled
-// without writing a reply.
 func TestAnswerLogPull_IgnoresOtherFrames(t *testing.T) {
 	codec := &protocol.Codec{}
 	other := &protocol.ControlMessage{Type: protocol.MsgAgentHeartbeat, Timestamp: 1}
@@ -85,12 +75,6 @@ func TestAnswerLogPull_IgnoresOtherFrames(t *testing.T) {
 	assert.Zero(t, out.Len(), "no reply is written for a non-pull frame")
 }
 
-// What the process returns is the only thing the runner around it can read, so
-// the three outcomes a run has must be three different codes.
-//
-// A run that connected nobody produced no failed agents — it produced no agents
-// at all — so a code derived from the failure count alone reports it as a clean
-// run. That is how a sweep came to read as partly working when none of it was.
 func TestTheExitCodeSaysWhichOfTheThreeOutcomesHappened(t *testing.T) {
 	t.Run("a run that measured nothing is not a clean run", func(t *testing.T) {
 		verdict := Verdict{Result: ResultInvalid, Reasons: []string{"scenario \"quic-agents\" produced no rows"}}
@@ -117,11 +101,6 @@ func TestTheExitCodeSaysWhichOfTheThreeOutcomesHappened(t *testing.T) {
 			"a run that never measured the system cannot be reported as one that did")
 	})
 
-	// A capacity ladder is sent to find the load at which machines stop
-	// arriving. The machines it loses reaching that load are its answer, so a
-	// code derived from the failure count reports the family's success as a
-	// failure — and the ladder can only ever be green by never finding
-	// anything.
 	t.Run("a ladder that found its answer is a clean run", func(t *testing.T) {
 		answer := &BreakingPoint{HeldAt: "step-4000", HeldAgents: 4000, GaveAt: "step-8000", GaveAgents: 8000}
 		assert.Equal(t, 0, exitCode(Verdict{Result: ResultValid}, 15891, answer))
@@ -139,18 +118,6 @@ func TestTheExitCodeSaysWhichOfTheThreeOutcomesHappened(t *testing.T) {
 	})
 }
 
-// The QUIC half's aggregate rate is machines divided by a duration, and which
-// duration decides whether the number is a rate at all.
-//
-// A run holds its fleet connected so the relay generator beside it has machines
-// to open sessions against. The hold is most of the run's wall clock — eight
-// minutes against a fleet that arrives in under a second — so dividing by the
-// run's own length reports the hold, not the arrival. A hundred machines that
-// all arrived read as 0.196/s against a floor of 50, every night, however
-// healthy the server was.
-//
-// The window is therefore measured to the last arrival: the moment the slowest
-// machine finished registering, which is when the fleet is up.
 func TestTheArrivalWindowEndsWhenTheFleetIsUpNotWhenTheRunIs(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0)
 	held := start.Add(8 * time.Minute)
@@ -194,8 +161,6 @@ func TestTheArrivalWindowEndsWhenTheFleetIsUpNotWhenTheRunIs(t *testing.T) {
 }
 
 // captureStdout runs fn with os.Stdout redirected and returns what it printed.
-// The results block is the harness's wire format with the summarizer, so what
-// it prints is the thing under test.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	read, write, err := os.Pipe()
@@ -211,19 +176,10 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(out)
 }
 
-// The register line the summarizer reads has to be registration.
-//
-// The harness's own clock around the register frame stops at a local send
-// buffer, which cannot move however slow the write behind it becomes: that
-// number published a p95 of zero on thirteen of eighteen nights, with the
-// occasional scheduling spike, while two gate ceilings sat on it. The server
-// times the same work where the device row lands, and that is the figure the
-// row carries.
 func TestTheRegisterLineCarriesTheServersFigureNotTheLocalWrite(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0)
 	results := []agentResult{
-		// A local send buffer accepts a frame in microseconds, so the harness's
-		// own register timings round to nothing.
+		// A local send buffer accepts a frame in microseconds, so these timings round to nothing.
 		{registerDur: 12 * time.Microsecond, arrivedAt: start.Add(100 * time.Millisecond)},
 		{registerDur: 9 * time.Microsecond, arrivedAt: start.Add(140 * time.Millisecond)},
 	}
@@ -243,8 +199,6 @@ func TestTheRegisterLineCarriesTheServersFigureNotTheLocalWrite(t *testing.T) {
 		assert.Contains(t, line, "p95=")
 		assert.Contains(t, line, "p99=")
 
-		// Connect and handshake stay the harness's own: they are the generator's
-		// side of the wire, and it is the only side that can see them.
 		assert.NotEmpty(t, resultsLine(t, out, "Connect:"))
 		assert.NotEmpty(t, resultsLine(t, out, "Handshake:"))
 	})
@@ -277,14 +231,6 @@ func resultsLine(t *testing.T, out, prefix string) string {
 	return ""
 }
 
-// What a failed run failed at.
-//
-// Every failure a machine reports names the machine it happened to, and most
-// name the address it was dialling too. Counting whole messages therefore makes
-// every failure unique: a ladder that lost 15,891 machines out of 16,000
-// reported three of them, each marked as having happened once, drawn in
-// whatever order the map handed them over. The one question the block exists to
-// answer — what went wrong — was the one thing it could not say.
 func TestErrorSamplesCountTheKindOfFailureRatherThanTheMachine(t *testing.T) {
 	results := []agentResult{
 		{err: errors.New(`enroll soak-t0-a11175: Post "http://127.0.0.1:8080/api/v1/enroll/d8c509f3": deadline exceeded`)},
@@ -301,8 +247,6 @@ func TestErrorSamplesCountTheKindOfFailureRatherThanTheMachine(t *testing.T) {
 	assert.Contains(t, printed, "[1x]")
 }
 
-// The kinds are printed commonest first, so the line at the top is the one that
-// explains the run.
 func TestErrorSamplesLeadWithTheCommonestKind(t *testing.T) {
 	var results []agentResult
 	for i := 0; i < 20; i++ {
@@ -317,8 +261,6 @@ func TestErrorSamplesLeadWithTheCommonestKind(t *testing.T) {
 	assert.Contains(t, lines[1], "[20x]", "the commonest kind is the first one printed")
 }
 
-// A run with more kinds than the block prints says how many it left out, so a
-// short list is never mistaken for the whole story.
 func TestErrorSamplesSayHowMuchTheyLeftOut(t *testing.T) {
 	var results []agentResult
 	for i := 0; i < 6; i++ {

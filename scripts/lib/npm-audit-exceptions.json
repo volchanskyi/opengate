@@ -1,0 +1,10 @@
+[
+  {
+    "dir": "web",
+    "advisory": "GHSA-vfj7-8cjw-p6xm",
+    "package": "braces",
+    "newest": "3.0.3",
+    "review_by": "2026-11-06",
+    "reason": "No patched release exists and the maintainer disputes the report. Reached only through micromatch in eslint-plugin-boundaries, ts-prune and patch-package, which read patterns written in this repository; nothing reaches the browser."
+  }
+]

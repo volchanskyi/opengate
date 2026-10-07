@@ -8,57 +8,18 @@ import (
 	"time"
 )
 
-// A fleet that can be asked to hold a level.
-//
-// The sequencer walks phases and says how many machines should be connected at
-// each step. Something has to make that true, and it has to do it the way an
-// estate behaves: a machine that is already connected stays connected, a new one
-// joins beside it, and a machine the run winds down closes deliberately rather
-// than being counted as one the server dropped.
-//
-// The dialling itself is handed in. What is worth testing here is the
-// bookkeeping — who is up, who never arrived, and what each one's timings were —
-// and that is exercised without a server on the other end.
-
-// fleetPresence is how a machine says whether it is attached.
-//
-// Both halves fire per connection rather than per machine: a machine that lost
-// its link and came back is attached again, and a count of what the fleet is
-// holding has to say so. What stays once-only is the run's tally of arrivals —
-// a machine that flapped twenty times arrived once, and counting it twenty
-// times would report a fleet that never stopped growing.
-//
-// The distinction is the one a phase's level is read against. Counting a
-// machine for the whole of an outage published a level that included machines
-// attached to nothing, and the server — counting what was actually attached —
-// disagreed by exactly them.
+// fleetPresence reports attachment per connection, so a machine that reconnects attaches again.
 type fleetPresence struct {
-	// Arrived is called the moment this connection is registered.
+	// Arrived fires when a connection registers.
 	Arrived func()
-	// Left is called when a connection that had registered ends, however it
-	// ends. A connection that never registered was never one of the attached
-	// and has nothing to give back.
+	// Left fires when a registered connection ends.
 	Left func()
 }
 
-// StartAgent is one machine's whole life. It says whether it is attached
-// through the presence handed to it, and returns when the context is cancelled,
-// or earlier if the machine could not connect at all.
-//
-// Presence is signalled where it happens rather than read off the result,
-// because a phase is a window in time and a machine that arrives inside one is
-// held long past its end. Counting arrivals at the return counts them in
-// whichever phase the machine's life happened to end in — which for a fleet
-// held to the end of the walk is no phase at all, so every phase of every
-// profiled run reported no arrivals against an offer it had met.
+// StartAgent runs one machine until its context ends or it fails to connect, signalling presence.
 type StartAgent func(ctx context.Context, index int, presence fleetPresence) agentResult
 
-// ProbeRoundTrip dials one machine, takes it all the way to registered, and
-// hangs up — reporting how long that took.
-//
-// It is a whole arrival rather than a message on a connection already open
-// because the control stream has no reply to a heartbeat: there is nothing on
-// the machine side to time a round trip against except making a new one.
+// ProbeRoundTrip dials one machine to registered, hangs up and returns the elapsed time.
 type ProbeRoundTrip func(ctx context.Context) (time.Duration, error)
 
 // QUICFleet holds a number of machines connected.
@@ -67,64 +28,38 @@ type QUICFleet struct {
 	probe ProbeRoundTrip
 
 	mu sync.Mutex
-	// running is keyed by the machine's own index, so a machine that never
-	// arrived is removed exactly rather than by dropping whichever entry
-	// happens to be last.
+	// running is keyed by machine index so a machine that never arrived is removed exactly.
 	running map[int]context.CancelFunc
-	// order is the level: every machine the run has asked for and not yet wound
-	// down, in the order it was asked for. A machine that never arrived keeps
-	// its place here after leaving running, which is what stops the next step
-	// of a ramp from dialling a replacement for it.
+	// order is the level: every machine asked for and not wound down, in request order.
 	order []int
-	// connected is the machines that arrived and have not ended. It is a count
-	// of the same population the server keeps its own count of, which is what
-	// lets the two be compared: `running` is every machine the run has queued
-	// to dial, and a machine waiting its turn or still registering is one the
-	// server has never heard of.
+	// connected counts machines that arrived and have not ended, the population the server counts.
 	connected int
 	next      int
 	results   []agentResult
-	// outcomes is what the machines have seen, tallied as each one ends. It is
-	// cumulative because a phase is the difference between two readings of it.
+	// outcomes accumulates what machines saw, since a phase is the difference of two readings.
 	outcomes FleetOutcomes
 
 	wg sync.WaitGroup
 }
 
-// NewQUICFleet builds a fleet that starts machines with the given function and
-// takes no round trips of its own.
+// NewQUICFleet builds a fleet that starts machines with the given function and takes no probes.
 func NewQUICFleet(start StartAgent) *QUICFleet {
 	return NewQUICFleetWithProbe(start, nil)
 }
 
-// NewQUICFleetWithProbe builds a fleet that can also take a live round trip
-// while it holds its level.
+// NewQUICFleetWithProbe builds a fleet that can also take a live round trip.
 func NewQUICFleetWithProbe(start StartAgent, probe ProbeRoundTrip) *QUICFleet {
 	return &QUICFleet{start: start, probe: probe, running: map[int]context.CancelFunc{}}
 }
 
-// HoldConnected brings the fleet to the level asked for, adding machines or
-// winding them down as needed. The window is the time it has to get there.
-//
-// The climb is spread across that window rather than dialled at once, and the
-// difference is the difference between an offer and a burst. A phase going from
-// eight thousand machines to sixteen thousand over five minutes is offering
-// fifty-three arrivals a second, which is a rate the server accepts; the same
-// machines dialled the instant the step is asked for are sixteen hundred
-// arrivals in a moment, which is a rate it refuses on purpose. The refusals then
-// read as machines that could not arrive, on a target that was never asked to
-// carry them.
-//
-// Winding down is not paced. A machine leaving is not an arrival, and nothing
-// on the other end rations departures.
+// HoldConnected brings the fleet to target machines, spacing new arrivals across within.
+// Wind-down is unpaced because departures are rationed by nothing.
 func (f *QUICFleet) HoldConnected(within time.Duration, target int) error {
 	if target < 0 {
 		target = 0
 	}
 
-	// The level the run last asked for, which is not the same as how many
-	// machines are connected: the difference between those two is the finding,
-	// and topping it back up would be the harness quietly closing it.
+	// The level asked for differs from the connected count, and that gap is left open.
 	f.mu.Lock()
 	current := len(f.order)
 	f.mu.Unlock()
@@ -138,34 +73,21 @@ func (f *QUICFleet) HoldConnected(within time.Duration, target int) error {
 	return nil
 }
 
-// climb brings up count machines, each one taking its turn inside the window.
-//
-// Every machine takes its place in the level immediately, so the step after this
-// one asks for the level it was going to ask for; only the dialling waits. A
-// window of nothing is every machine at once, which is what a fleet with no time
-// to spread over should do.
+// climb adds count machines to the level at once and spaces their dials across the window.
 func (f *QUICFleet) climb(count int, within time.Duration) {
 	spacing := time.Duration(0)
 	if within > 0 {
 		spacing = within / time.Duration(count)
 	}
 	for i := 0; i < count; i++ {
-		// The last machine dials at the end of the window rather than the first
-		// one dialling at its start, so the level is reached when the window
-		// says and no machine arrives before the step that asked for it.
+		// The last machine dials at the window's end, so the level is reached when the window closes.
 		f.startOne(spacing * time.Duration(i+1))
 	}
 }
 
-// waitOut spends d and reports whether it got all the way there.
-//
-// A machine the run winds down while it is still waiting its turn never dials,
-// and that is the point: it offered nothing and saw nothing, so it is neither an
-// arrival nor one that failed to arrive.
+// waitOut sleeps d and reports whether the full wait elapsed before ctx ended.
 func waitOut(ctx context.Context, d time.Duration) bool {
-	// A machine with no turn to wait for goes straight to dialling, whatever the
-	// run has since decided. Its dial is what deals with a context already
-	// ended, and that is the same machine an unpaced fleet has always started.
+	// A zero wait dials immediately; the dial itself handles an already-ended context.
 	if d <= 0 {
 		return true
 	}
@@ -196,8 +118,7 @@ func (f *QUICFleet) startOne(after time.Duration) {
 	go func() {
 		defer f.wg.Done()
 		if !waitOut(ctx, after) {
-			// Let go before its turn came. stopOne has already taken it out of
-			// the level, and it has nothing to report either way.
+			// stopOne already removed the machine from the level.
 			return
 		}
 		result := f.start(ctx, index, fleetPresence{
@@ -208,30 +129,14 @@ func (f *QUICFleet) startOne(after time.Duration) {
 		f.mu.Lock()
 		f.results = append(f.results, result)
 		f.tallyLocked(result, arrived.Load())
-		// A machine that has ended is not one of the connected, whichever way it
-		// ended. Removing only the ones that errored made the count a count of
-		// machines started: a machine that finished its hold normally stayed
-		// counted for the life of the run, and a bundle reporting five hundred
-		// connected was reporting five hundred once dialled.
-		//
-		// It keeps its place in the level so that the rest of the ramp asks for
-		// the level it was going to ask for anyway: a fleet that replaced it
-		// would dial again at every remaining step, report the same outcome once
-		// per step under a new machine each time, and end a phase having tried
-		// some number of machines that is a property of the scheduler rather
-		// than of the profile.
+		// An ended machine leaves running but keeps its place in order, so the ramp dials no replacement.
 		delete(f.running, index)
 		f.mu.Unlock()
 		cancel()
 	}()
 }
 
-// noteArrival records one connection reaching registered.
-//
-// The count of what is attached moves every time; the run's tally of arrivals
-// moves only the first, because a machine that comes back after an outage is
-// the same machine returning rather than a second one. The flag it is given is
-// what tells the two apart.
+// noteArrival counts every registration as connected and only a machine's first as an arrival.
 func (f *QUICFleet) noteArrival(arrived *atomic.Bool) {
 	first := arrived.CompareAndSwap(false, true)
 	f.mu.Lock()
@@ -242,11 +147,7 @@ func (f *QUICFleet) noteArrival(arrived *atomic.Bool) {
 	}
 }
 
-// noteDeparture records one connection that had registered ending.
-//
-// It is the other side of noteArrival and fires for every connection, so a
-// machine between two of them is not one of the attached — which is what a
-// phase's level and the target's own count are compared as.
+// noteDeparture records one registered connection ending.
 func (f *QUICFleet) noteDeparture() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -271,10 +172,8 @@ func (f *QUICFleet) stopOne() {
 	}
 }
 
-// forgetLocked drops one machine from the level and from the connected. The
-// caller holds the lock. A machine that never arrived has already left the
-// connected, and winding the level down past it still has to take it out of the
-// level — otherwise the subtraction lands on a machine that is carrying load.
+// forgetLocked drops one machine from the level, so a wind-down past a machine that never
+// arrived leaves the loaded ones alone. The caller holds the lock.
 func (f *QUICFleet) forgetLocked(index int) {
 	delete(f.running, index)
 	for i, candidate := range f.order {
@@ -285,28 +184,8 @@ func (f *QUICFleet) forgetLocked(index int) {
 	}
 }
 
-// tallyLocked records what became of one machine, given whether it ever
-// arrived. The caller holds the lock.
-//
-// A machine that never reached registered is the failure, and it is counted
-// here because its life ending is the first moment anything knows. One that did
-// arrive and was later cut off is a fault instead: it turned up, so counting it
-// as a failure to turn up puts one machine into the attempted tally twice and
-// reports an error rate for a phase whose every machine arrived.
-//
-// A refusal the server made on purpose is held apart from both: counting a
-// correctly enforced limit as a defect makes the limit look broken and buries
-// the real failures underneath it. Which answers count as one is decided where
-// the status code is, in postEnrollment — a refusal here is only ever a spent
-// credential, an expired one, or a rate past a declared ceiling. A server that
-// broke comes back as something else and lands in the failure count, which is
-// what keeps this arm from emptying the error rate.
-// A machine the run itself stood down before it arrived is held apart from
-// both, for the same reason: the wind-down cancelled it, so it never asked the
-// system anything. Counted as a failure it is indistinguishable from a server
-// that would not take it, and it lands in whichever phase the wind-down
-// happened in — which for a phase that offers no arrivals is every outcome it
-// has.
+// tallyLocked classifies a machine's end by whether it arrived: stood down, refused on purpose,
+// or failed to arrive; a later severed link is a fault. The caller holds the lock.
 func (f *QUICFleet) tallyLocked(result agentResult, arrived bool) {
 	switch {
 	case arrived:
@@ -325,14 +204,7 @@ func (f *QUICFleet) tallyLocked(result agentResult, arrived bool) {
 	}
 }
 
-// Connected is how many machines have arrived and not yet ended.
-//
-// It is not the level: the level is every machine the run has asked for, and
-// the difference between the two is the finding. Reading `len(running)` made it
-// the level in all but name — a machine joins that map when it is queued to
-// dial, before it has dialled, handshook or registered — so a phase published a
-// level nobody was holding and the check that puts the server's own count
-// beside it had nothing comparable to compare.
+// Connected counts machines that have arrived and not ended, the population the server counts.
 func (f *QUICFleet) Connected() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -346,14 +218,10 @@ func (f *QUICFleet) Outcomes() FleetOutcomes {
 	return f.outcomes
 }
 
-// probeBudget bounds one round trip, so a phase whose target has stopped
-// answering is not held up by the measurement of it.
+// probeBudget bounds one round trip so a silent target does not stall a phase.
 const probeBudget = 30 * time.Second
 
-// ProbeLatency takes a live round trip now.
-//
-// A fleet with no prober, or one whose round trip could not be taken, reports
-// zero — which the phase reads as no sample rather than as an instant one.
+// ProbeLatency takes a live round trip, returning zero when there is no prober or the trip fails.
 func (f *QUICFleet) ProbeLatency() time.Duration {
 	if f.probe == nil {
 		return 0
@@ -386,8 +254,7 @@ func (f *QUICFleet) Failures() []agentResult {
 	return failures
 }
 
-// Stop winds the whole fleet down and waits for every machine to finish, so a
-// run that has ended is not still holding connections open.
+// Stop winds the whole fleet down and waits for every machine to finish.
 func (f *QUICFleet) Stop() {
 	f.mu.Lock()
 	cancels := make([]context.CancelFunc, 0, len(f.running))

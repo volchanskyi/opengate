@@ -13,10 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The server counts requests per address. A fleet that arrives from one pod
-// spends one allowance between all of it, and a profile whose whole subject is
-// fifteen hundred machines arriving in thirty seconds is then measuring that
-// allowance rather than the server.
 func TestPresentedAddressStaysInTheRangeReservedForIt(t *testing.T) {
 	t.Parallel()
 	benchmarking := netip.MustParsePrefix("198.18.0.0/15")
@@ -48,7 +44,6 @@ func TestPresentedAddressIsStableForOneMachine(t *testing.T) {
 		"a machine that changed address between its enrolment and its filing would spend two allowances and be nobody")
 }
 
-// recordingServer answers anything and keeps the address each caller presented.
 type recordingServer struct {
 	mu        sync.Mutex
 	presented []string
@@ -80,8 +75,6 @@ func TestEnrolmentPresentsTheMachinesOwnAddress(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	// The reply is refused, which is beside the point: what is asserted is what
-	// the request carried, and it carries it whatever comes back.
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL:          recorder.server.URL,
 		EnrollmentToken:  "token",
@@ -116,10 +109,6 @@ func TestFilingPresentsTheMachinesOwnAddress(t *testing.T) {
 	}
 }
 
-// A request with no address to present carries no header at all, rather than an
-// empty one: an empty header read by a server that believes this peer would
-// fall back to the peer anyway, and a header that says nothing is worse than no
-// header for whoever reads the request later.
 func TestARequestWithNothingToPresentSendsNoHeader(t *testing.T) {
 	t.Parallel()
 	recorder := newRecordingServer(t, func(w http.ResponseWriter, _ *http.Request) {

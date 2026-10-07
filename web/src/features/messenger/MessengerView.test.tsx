@@ -31,7 +31,6 @@ describe('MessengerView', () => {
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
   });
 
-  // Enter sends rather than starting a new line; Shift+Enter keeps the newline.
   it('Enter is taken by sending, and Shift+Enter is left to the box', () => {
     render(<MessengerView />);
     const input = screen.getByPlaceholderText(/type a message/i);
@@ -65,7 +64,6 @@ describe('MessengerView', () => {
       text: 'test message',
       sender: 'browser',
     });
-    // Message should be added to store
     expect(useChatStore.getState().messages).toContainEqual(
       expect.objectContaining({ text: 'test message', sender: 'browser' }),
     );
@@ -136,13 +134,12 @@ describe('MessengerView', () => {
     render(<MessengerView />);
     const input = screen.getByPlaceholderText(/type a message/i);
     await user.type(input, 'line1{Shift>}{Enter}{/Shift}line2');
-    // sendMessage must not fire on shift+enter.
     expect(mockSendControl).not.toHaveBeenCalled();
   });
 
   it('does not send while disconnected even on Enter', async () => {
     const user = userEvent.setup();
-    // sendMessage early-returns when !transport. Set transport to null.
+    // sendMessage returns early without a transport.
     useConnectionStore.setState({ state: 'connected', transport: null });
     render(<MessengerView />);
     const input = screen.getByPlaceholderText(/type a message/i);
@@ -206,7 +203,6 @@ describe('MessengerView', () => {
     const { unmount } = render(<MessengerView />);
     setOnControlMessage.mockClear();
     unmount();
-    // Cleanup invokes setOnControlMessage(null).
     expect(setOnControlMessage).toHaveBeenCalledWith(null);
   });
 

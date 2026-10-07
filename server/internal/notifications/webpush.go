@@ -20,16 +20,12 @@ type WebPushSubscription struct {
 	Auth     string    `json:"auth"`
 }
 
-// WebPushRepository is the outbound persistence port for Web Push
-// subscriptions. The interface lives with the consuming module
-// (notifications); the Postgres adapter lives alongside in this package.
+// WebPushRepository is the persistence port for Web Push subscriptions.
 type WebPushRepository interface {
 	Upsert(ctx context.Context, sub *WebPushSubscription) error
 	ListForUser(ctx context.Context, userID uuid.UUID) ([]*WebPushSubscription, error)
 	ListAll(ctx context.Context) ([]*WebPushSubscription, error)
-	// Delete removes the subscription with this endpoint belonging to userID.
-	// A subscription is owned by exactly one user, so the owner is part of the
-	// key: tenant scope alone would let any colleague who learns an
-	// endpoint URL cancel somebody else's notifications.
+	// Delete removes the endpoint's subscription owned by userID; the owner is part of the key,
+	// so a colleague holding only the endpoint URL cannot cancel it.
 	Delete(ctx context.Context, endpoint string, userID uuid.UUID) error
 }

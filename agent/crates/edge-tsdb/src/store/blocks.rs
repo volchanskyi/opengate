@@ -1,10 +1,5 @@
-//! Block-I/O and `redb` transaction glue for [`LocalTsdb`](super::LocalTsdb).
-//!
-//! These free functions do the actual encode/decode, tier merging, cap eviction,
-//! and cold-tier DEFLATE against open `redb` tables. They take the store's state
-//! by reference (not `&mut self`) so they compose with a live write-transaction
-//! borrow of the database. Keeping them here leaves [`super`] as a thin
-//! lifecycle/API layer.
+//! Block encode/decode, tier merging, cap eviction and cold-tier DEFLATE against open `redb`
+//! tables; the functions take store state by reference so they compose with a live transaction.
 
 use std::collections::BTreeMap;
 
@@ -59,8 +54,7 @@ pub(super) fn re<E: std::fmt::Display>(e: E) -> TsdbError {
 pub(super) struct OpenSeries {
     /// First-sample timestamp (redb key) of the growing tail T0 block.
     pub(super) tail_first_ts: i64,
-    /// The tail T0 block's samples + anomaly bits (rewritten each commit until it
-    /// reaches [`T0_BLOCK_SAMPLES`] and rotates into `sealed`).
+    /// The tail T0 block's samples and anomaly bits, rewritten each commit until it fills.
     pub(super) tail: Vec<(Sample, bool)>,
     /// Full T0 blocks that rotated out of `tail` and await their final write.
     pub(super) sealed: Vec<(i64, Vec<(Sample, bool)>)>,
@@ -104,11 +98,8 @@ pub(super) fn read_stored_version(db: &Database) -> Result<Option<u64>> {
     }
 }
 
-/// Bring a store up to [`CURRENT_FORMAT`] and stamp it, in one transaction so an
-/// interrupted upgrade never leaves a half-migrated store. Every format this
-/// build reads carries the same self-describing block layout — a block names its
-/// own codec and scale — so bringing one forward is the stamp and nothing else.
-/// The stamp is what an older agent reads to refuse a store it cannot follow.
+/// Stamps a store with [`CURRENT_FORMAT`] in one transaction; blocks name their own codec and
+/// scale, so the stamp is the whole upgrade.
 pub(super) fn stamp_current_format(db: &Database) -> Result<()> {
     let wt = db.begin_write().map_err(re)?;
     {
@@ -119,9 +110,7 @@ pub(super) fn stamp_current_format(db: &Database) -> Result<()> {
     Ok(())
 }
 
-/// Sum the value bytes of every stored tier block — the store's *logical*
-/// footprint, which the disk cap bounds (redb reuses freed pages, so the file
-/// tracks this plus bounded COW overhead and never grows without bound).
+/// Sums the value bytes of every stored tier block, the logical footprint the disk cap bounds.
 pub(super) fn scan_logical(db: &Database) -> Result<u64> {
     let rt = db.begin_read().map_err(re)?;
     let mut total = 0u64;
@@ -139,9 +128,8 @@ pub(super) fn scan_logical(db: &Database) -> Result<u64> {
     Ok(total)
 }
 
-/// The stored block bytes for one series in `def` whose keys lie within
-/// `first_key..=last_key`, in key order. An absent table (nothing committed yet)
-/// yields an empty list rather than an error.
+/// The stored block bytes for one series with keys in `first_key..=last_key`, in key order;
+/// an absent table yields an empty list.
 fn series_blocks(
     rt: &ReadTransaction,
     def: BlockTable,
@@ -310,7 +298,7 @@ pub(super) fn deflate_cold_blocks(table: &mut OpenBlockTable<'_>, logical: &mut 
             .or_insert(*k);
     }
     for ((s, k), val) in entries {
-        // Leave the hot tail block, and already-cold blocks, alone.
+        // The newest block is still written each commit, so only older plain blocks compress.
         let is_cold_candidate = max_key.get(&s) != Some(&k) && val.first() == Some(&TIER_PLAIN);
         if is_cold_candidate {
             deflate_one(table, (s, k), &val, logical)?;
@@ -354,9 +342,7 @@ pub(super) fn read_raw(
     Ok(out)
 }
 
-/// Read one rollup tier over `start..end`, decoding only the blocks that can
-/// hold a bucket in it. Bounding the read is what lets a caller walking months
-/// of history in chunks pay for the chunk rather than for the history.
+/// Reads one rollup tier over `start..end`, decoding only the blocks that can hold a bucket in it.
 pub(super) fn read_tier(
     rt: &ReadTransaction,
     tier: Tier,
@@ -383,10 +369,8 @@ pub(super) fn read_tier(
     Ok(out)
 }
 
-/// The oldest and newest bucket one rollup tier holds for `series`, or `None`
-/// when it holds nothing for it. Only the first and last stored block are
-/// decoded, so asking how far back a series reaches costs two blocks rather than
-/// the whole series.
+/// The oldest and newest bucket a tier holds for `series`, or `None`; decodes only the first and
+/// last stored block.
 pub(super) fn read_tier_span(
     rt: &ReadTransaction,
     tier: Tier,
@@ -439,9 +423,8 @@ fn group_partials(new: &[Sample], interval: i64, span: i64) -> BTreeMap<i64, Vec
     by_block
 }
 
-/// Merge `partials` into the existing (possibly DEFLATE'd) tier block and
-/// re-encode it verbatim (a merged block is hot again, so it is left plain until
-/// the next [`super::LocalTsdb::compact_cold_tiers`]).
+/// Merges `partials` into the existing, possibly DEFLATE'd, tier block and re-encodes it plain
+/// until the next [`super::LocalTsdb::compact_cold_tiers`].
 fn merged_tier_bytes(existing: Option<&[u8]>, partials: &[StoredTierPoint]) -> Result<Vec<u8>> {
     let mut map: BTreeMap<i64, StoredTierPoint> = match existing {
         Some(b) => decode_tier_value(b)?
@@ -482,10 +465,6 @@ fn decode_tier_deflate(_bytes: &[u8]) -> Result<Vec<StoredTierPoint>> {
 mod tests {
     use super::*;
 
-    /// Cold-tier compaction compresses the blocks a series has finished with and
-    /// leaves the one it is still writing into alone. Compressing that one buys
-    /// nothing — the next commit merges into it and has to write it back out —
-    /// and the agent pays for it out of a CPU budget under one per cent.
     #[test]
     fn compaction_compresses_the_finished_blocks_and_not_the_open_one() {
         let dir = tempfile::tempdir().unwrap();

@@ -57,9 +57,6 @@ describe('AuthGuard', () => {
     expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
-  // A technician who reloads the browser mid-incident arrives with the token
-  // still in local storage and no user in memory. Nothing else asks the server
-  // who they are, so if the guard does not, "Loading…" is the whole session.
   it('asks the server who the technician is when a reload leaves a token and no user', async () => {
     const fetchMe = vi.fn().mockResolvedValue(undefined);
     useAuthStore.setState({ token: 'valid-token', user: null, fetchMe });

@@ -10,9 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Which source a run uses is a security decision, so it is made once and tested
-// rather than repeated at each call site.
-
 func TestAnEnrollmentURLMeansTheServerSigns(t *testing.T) {
 	server := enrollmentServer(t)
 
@@ -25,8 +22,6 @@ func TestAnEnrollmentURLMeansTheServerSigns(t *testing.T) {
 	assert.NotNil(t, config.RootCAs, "an enrolled machine verifies the server with the authority it was handed")
 }
 
-// A local stack owns its own authority, and the harness signs against it. That
-// is safe precisely because the stack is as disposable as the authority is.
 func TestNoEnrollmentURLMeansTheHarnessSignsLocally(t *testing.T) {
 	credentials, err := newAgentCredentials(t.TempDir(), "", "")
 	require.NoError(t, err)
@@ -36,8 +31,6 @@ func TestNoEnrollmentURLMeansTheHarnessSignsLocally(t *testing.T) {
 	require.Len(t, config.Certificates, 1)
 }
 
-// Enrolling with no token would silently fall back to needing the authority
-// key, which is the thing this exists to avoid.
 func TestEnrollingWithoutATokenIsRefused(t *testing.T) {
 	_, err := newAgentCredentials("", "http://localhost:8080", "")
 	require.Error(t, err)
@@ -50,17 +43,13 @@ func TestAnEnrollmentURLOutsideTheAllowlistIsRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), "not an allowed load-test target")
 }
 
-// With neither an authority to sign against nor a server to ask, there is
-// nothing to dial with — and saying so is better than failing later with a
-// message about a certificate.
 func TestNoCredentialSourceAtAllIsRefused(t *testing.T) {
 	_, err := newAgentCredentials("", "", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "certificate authority")
 }
 
-// countingSource is a credential source that records what it was asked for, so
-// a test can say how many identities a run actually minted.
+// countingSource is a credential source that records what it was asked for.
 type countingSource struct {
 	mu    sync.Mutex
 	asked []string
@@ -76,8 +65,7 @@ func (s *countingSource) forAgent(_ context.Context, plan tenantAgent) (*tls.Con
 	if failure != nil {
 		return nil, failure
 	}
-	// A fresh config per call, so a test that gets the same pointer twice knows
-	// it was the memo answering rather than a coincidence.
+	// A fresh config per call, so a repeated pointer proves the memo answered.
 	return &tls.Config{MinVersion: tls.VersionTLS13, ServerName: plan.hostname}, nil
 }
 
@@ -87,11 +75,6 @@ func (s *countingSource) askedFor() []string {
 	return append([]string(nil), s.asked...)
 }
 
-// A real machine enrols when it is installed and reconnects with the
-// certificate it already holds. A harness that mints a fresh identity on every
-// start turns a burst of reconnections into a burst of enrolments against a
-// ceiling the server enforces on purpose, and grows the customer's fleet for as
-// long as the run lasts.
 func TestAMachineEnrolsOnceAndComesBackWithWhatItHolds(t *testing.T) {
 	source := &countingSource{}
 	credentials := enrolOnce(source)
@@ -118,9 +101,6 @@ func TestTwoMachinesEnrolSeparately(t *testing.T) {
 	assert.Equal(t, []string{"soak-t0-a0", "soak-t0-a1"}, source.askedFor())
 }
 
-// An enrolment that was refused is not an identity, so remembering it would
-// hand every later start the same failure and give the run no way back. The
-// refusal is reported and the next start asks again.
 func TestARefusedEnrolmentIsNotRemembered(t *testing.T) {
 	source := &countingSource{fail: ErrEnrollmentRefused}
 	credentials := enrolOnce(source)
@@ -139,9 +119,6 @@ func TestARefusedEnrolmentIsNotRemembered(t *testing.T) {
 	assert.Len(t, source.askedFor(), 2)
 }
 
-// A ramp starts its machines together and a wind-down and climb can ask for the
-// same machine from two goroutines at once. Under -race this is the case where
-// one machine would enrol twice.
 func TestOneMachineAskedForAtOnceEnrolsOnce(t *testing.T) {
 	source := &countingSource{}
 	credentials := enrolOnce(source)

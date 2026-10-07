@@ -33,27 +33,17 @@ pub struct MetricSample {
     pub cpu_total_percent: f32,
     /// Used memory percentage.
     pub memory_used_percent: f32,
-    /// Used percentage of the **fullest mounted filesystem**. `None` when no
-    /// mount reports capacity, which is an unmeasurable disk rather than an
-    /// empty one — see [`disk_reduction`].
+    /// Used percentage of the fullest mounted filesystem; `None` when no mount reports capacity.
     pub disk_used_percent: Option<f32>,
-    /// How many mounts are at or above [`MOUNT_CRITICAL_PERCENT`] used. `None`
-    /// under the same condition as
-    /// [`disk_used_percent`](Self::disk_used_percent), so the pair is always
-    /// present together or absent together.
+    /// Mounts at or above [`MOUNT_CRITICAL_PERCENT`] used; `None` exactly when
+    /// `disk_used_percent` is `None`.
     pub disk_mounts_critical: Option<u32>,
-    /// Received throughput on the primary interface, in bytes/second (rounded to
-    /// whole bytes). `None` when no rate can be computed yet — the first sample,
-    /// an interface change, a counter reset, or a non-positive interval — so a
-    /// stale or wrong number is never reported.
+    /// Received bytes/second on the primary interface; `None` until a rate can be computed.
     pub network_rx_bps: Option<f64>,
-    /// Transmitted throughput on the primary interface, in bytes/second. `None`
-    /// under the same conditions as [`network_rx_bps`](Self::network_rx_bps).
+    /// Transmitted bytes/second on the primary interface; `None` under the same conditions.
     pub network_tx_bps: Option<f64>,
-    /// Percent of the last 60 s some task was stalled on CPU. `None` on a host
-    /// whose kernel publishes no pressure information — never a zero, which
-    /// would read as "never stalled" on a host that cannot measure stalling at
-    /// all. The same holds for the four vitals below.
+    /// Percent of the last 60 s some task was stalled on CPU; `None` on a host without
+    /// pressure information, as are the four stall fields below.
     pub stall_cpu_some: Option<f32>,
     /// Percent of the last 60 s some task was stalled on memory.
     pub stall_mem_some: Option<f32>,
@@ -63,24 +53,16 @@ pub struct MetricSample {
     pub stall_io_some: Option<f32>,
     /// Percent of the last 60 s every runnable task was stalled on I/O.
     pub stall_io_full: Option<f32>,
-    /// Average service time of one I/O on the slowest block device, in
-    /// milliseconds. `None` when no such reading exists — the first sample after
-    /// start, a device whose counters wrapped, a second in which no I/O
-    /// completed, a containerized agent, or a host without `/proc/diskstats`.
+    /// Average milliseconds per I/O on the slowest block device; `None` without a reading.
     pub disk_await_ms: Option<f32>,
-    /// Average number of I/Os outstanding on the most backed-up block device.
-    /// `None` under the same conditions, except that a second in which nothing
-    /// queued is a real reading of zero.
+    /// Average I/Os outstanding on the most backed-up block device; `None` without a reading.
     pub disk_queue_depth: Option<f32>,
     /// Top processes by CPU rank.
     pub processes: Vec<ProcessSample>,
 }
 
-/// Per-second byte rate from two cumulative counter readings on the same
-/// interface. `None` on the first sample (no `prev`), an interface change, a
-/// counter reset/wrap (`cur < prev`), or a non-positive interval — never a
-/// wrong number. The rate is rounded to whole bytes/second so it stores on the
-/// lossless integer path and live-stream averages equal reconnect-backfill.
+/// Per-second byte rate between two counter readings; `None` without a comparable
+/// predecessor. The rate is rounded to whole bytes so it takes the lossless integer path.
 #[must_use]
 pub(crate) fn byte_rate(prev: Option<(&str, u64)>, cur: (&str, u64), dt_secs: f64) -> Option<f64> {
     let (prev_iface, prev_bytes) = prev?;
@@ -90,9 +72,7 @@ pub(crate) fn byte_rate(prev: Option<(&str, u64)>, cur: (&str, u64), dt_secs: f6
     Some(((cur.1 - prev_bytes) as f64 / dt_secs).round())
 }
 
-/// Percentage of `total` that `used` occupies. A zero total means the platform
-/// reported no capacity yet, which is an absent reading rather than a full or
-/// empty resource, so it yields `0.0` instead of a NaN division.
+/// Percentage of `total` that `used` occupies; a zero total yields `0.0`.
 #[must_use]
 pub(crate) fn used_percent(used: u64, total: u64) -> f32 {
     if total == 0 {
@@ -101,18 +81,14 @@ pub(crate) fn used_percent(used: u64, total: u64) -> f32 {
     (used as f32 / total as f32) * 100.0
 }
 
-/// Percentage of aggregate disk capacity in use, from total and free bytes.
-/// Free is saturated against total so a mount whose free space exceeds its
-/// reported size (network and virtual filesystems do report this) yields 0%
-/// rather than wrapping into a nonsense figure.
+/// Percentage of a mount's capacity in use. Free is saturated against total, so a mount
+/// reporting more free space than size (network and virtual filesystems) yields 0%.
 #[must_use]
 pub(crate) fn disk_used_percent(total: u64, free: u64) -> f32 {
     used_percent(total.saturating_sub(free), total)
 }
 
-/// The used percentage at which a mount is counted critical. A volume this full
-/// has run out of comfortable headroom, so an operator wants it named while
-/// there is still room to act.
+/// The used percentage at which a mount is counted critical.
 pub const MOUNT_CRITICAL_PERCENT: f32 = 90.0;
 
 /// The host-wide disk reading reduced from every mount: how full the fullest one
@@ -125,19 +101,8 @@ pub(crate) struct DiskReduction {
     pub mounts_critical: u32,
 }
 
-/// Reduce per-mount `(total, free)` capacity to the fullest mount's used
-/// percentage and the count of mounts at or above [`MOUNT_CRITICAL_PERCENT`].
-///
-/// The fullest mount is what makes the reading actionable. Pooling every mount's
-/// bytes and dividing once answers a question nobody asks: a 120 GB system
-/// volume at 98 % beside a 2 TB data volume at 10 % pools to ~15 %, so the volume
-/// that is about to fill is invisible to any threshold, and a small OS volume
-/// beside large data volumes is the normal shape of a server.
-///
-/// A mount reporting zero total is capacity the platform did not report, so it
-/// takes part in neither number rather than reading as 100 % full. `None` when
-/// no mount reports capacity at all — a host with nothing measurable mounted has
-/// no disk reading, which is a different thing from empty disks.
+/// Reduces per-mount `(total, free)` capacity to the fullest mount's used percentage and the
+/// critical-mount count. Zero-total mounts are skipped; `None` when no mount reports capacity.
 #[must_use]
 pub(crate) fn disk_reduction(mounts: impl Iterator<Item = (u64, u64)>) -> Option<DiskReduction> {
     let mut worst: Option<f32> = None;
@@ -158,17 +123,13 @@ pub(crate) fn disk_reduction(mounts: impl Iterator<Item = (u64, u64)>) -> Option
     })
 }
 
-/// Rank of the process at `index` in the CPU-sorted list. Ranks are 1-based:
-/// rank 1 is the busiest process, and rank is the series key the detector uses,
-/// so it must never be 0.
+/// Rank of the process at `index` in the CPU-sorted list; 1-based because rank is the series key.
 #[must_use]
 pub(crate) fn process_rank(index: usize) -> u8 {
     (index + 1) as u8
 }
 
-/// The process identity that leaves the host: the executable's basename from
-/// its path when the platform reports one, else the process name. Never the
-/// path and never the command line.
+/// The process identity that leaves the host: the executable's basename, else the process name.
 #[must_use]
 pub(crate) fn basename_of(exe: Option<&std::path::Path>, name: &std::ffi::OsStr) -> String {
     exe.and_then(std::path::Path::file_name)
@@ -242,15 +203,8 @@ pub struct SysinfoSampler {
 }
 
 impl SysinfoSampler {
-    /// Create a sampler that records top processes by rank only.
-    ///
-    /// The two Linux-only sources are resolved once here, from the real
-    /// filesystem root. Pressure comes from the agent's own cgroup when it runs
-    /// inside a container and the host's `/proc/pressure` otherwise, and nothing
-    /// at all on a host whose kernel publishes no pressure information. Disk
-    /// performance comes from `/proc/diskstats`, which is not namespaced, so a
-    /// containerized agent resolves no source rather than reporting its
-    /// neighbours' I/O as its own.
+    /// Create a sampler that records top processes by rank only, resolving its pressure
+    /// source from the agent's cgroup in a container and from `/proc/pressure` otherwise.
     pub fn new(top_processes: usize) -> Result<Self, SamplerError> {
         if top_processes > u8::MAX as usize {
             return Err(SamplerError::TopNTooLarge);
@@ -273,11 +227,8 @@ impl SysinfoSampler {
         self
     }
 
-    /// Difference a primary-interface reading against the previous snapshot into
-    /// rx/tx byte-rates, then record it for the next call. An absent reading —
-    /// no primary interface resolves, or the resolved one is no longer tracked —
-    /// clears the snapshot, so the next reading starts a fresh pair rather than
-    /// being differenced across a gap of unknown length.
+    /// Differences a reading against the previous snapshot into rx/tx rates and records it.
+    /// An absent reading clears the snapshot so no rate spans a gap.
     fn net_rates(
         &mut self,
         reading: Option<NetReading>,
@@ -341,9 +292,7 @@ impl MetricSampler for SysinfoSampler {
                 .find(|(name, _)| name.as_str() == iface)
                 .map(|(_, data)| (iface, data.total_received(), data.total_transmitted()))
         });
-        // Both rate-shaped readings are differenced against the same instant, so
-        // a slow sample never gives the network and the disk different ideas of
-        // how long the interval was.
+        // Network and disk rates difference against the same instant.
         let now = Instant::now();
         let (network_rx_bps, network_tx_bps) = self.net_rates(reading, now);
         let disk_perf = self.diskperf.read(now);
@@ -374,10 +323,6 @@ impl MetricSampler for SysinfoSampler {
                     rank: process_rank(index),
                     basename: basename_of(process.exe(), process.name()),
                     cmdline_hash,
-                    // What the process was doing at this instant. The list is
-                    // already sorted on it, so a reader who sees the ranking
-                    // without the numbers has to take the order on trust — and
-                    // "the busiest process" means nothing without how busy.
                     pid: process.pid().as_u32(),
                     cpu: f64::from(process.cpu_usage()),
                     mem: process.memory() as f64,
@@ -441,11 +386,6 @@ mod tests {
         );
     }
 
-    /// An idle interface is a measurement, not a gap. Unchanged counters mean
-    /// zero bytes moved in the interval, so the rate is `Some(0.0)` — reporting
-    /// `None` instead would make a quiet link indistinguishable from a link
-    /// whose rate could not be computed, and would break the "silent host"
-    /// signal that a flat zero line gives an investigator.
     #[test]
     fn idle_interface_reports_zero_not_unknown() {
         assert_eq!(
@@ -474,8 +414,6 @@ mod tests {
         assert_eq!(used_percent(0, 8_192), 0.0);
     }
 
-    /// A host that reports no capacity has not been read yet. Dividing by it
-    /// would emit NaN, which serialises as a null the detector cannot band.
     #[test]
     fn used_percent_of_an_unreported_total_is_zero_not_nan() {
         let pct = used_percent(0, 0);
@@ -493,18 +431,12 @@ mod tests {
         assert_eq!(disk_used_percent(500, 500), 0.0);
     }
 
-    /// Network and virtual mounts do report more free space than size. That is
-    /// a full-looking 0% at worst, never an underflow.
     #[test]
     fn disk_used_percent_clamps_free_above_total() {
         assert_eq!(disk_used_percent(500, 900), 0.0);
         assert_eq!(disk_used_percent(0, 100), 0.0);
     }
 
-    /// FS01: a 120 GB system volume at 98 % beside a 2 TB data volume at 10 %.
-    /// Pooling the bytes reports ~15 % and hides the volume that is about to
-    /// fill; the fullest mount reports 98 %, which is what a threshold can act
-    /// on, and one mount is counted critical.
     #[test]
     fn fs01_reports_the_volume_that_is_about_to_fill() {
         let mounts = [
@@ -522,8 +454,6 @@ mod tests {
         assert_eq!(reduced.mounts_critical, 1);
     }
 
-    /// The threshold is inclusive: a mount sitting exactly on it is critical,
-    /// and one a hair below is not.
     #[test]
     fn a_mount_exactly_on_the_threshold_is_critical() {
         let on_it = disk_used_percent(1_000, 100);
@@ -548,8 +478,6 @@ mod tests {
         );
     }
 
-    /// Every critical mount is counted, not just the worst one — three volumes
-    /// past the line is a different morning from one.
     #[test]
     fn every_mount_past_the_threshold_is_counted() {
         let mounts = [
@@ -565,10 +493,6 @@ mod tests {
         assert_eq!(reduced.mounts_critical, 3);
     }
 
-    /// A mount whose platform reported no capacity is unmeasured, not full. It
-    /// must neither win the worst-mount comparison nor be counted critical —
-    /// pseudo-filesystems report this routinely and would otherwise alarm every
-    /// host in the fleet.
     #[test]
     fn a_mount_reporting_no_capacity_takes_part_in_neither_number() {
         let mounts = [(0u64, 0u64), (1_000, 500), (0, 500)];
@@ -579,9 +503,6 @@ mod tests {
         assert_eq!(reduced.mounts_critical, 0);
     }
 
-    /// Network and virtual mounts do report more free space than size. Clamped
-    /// to 0 % by [`disk_used_percent`], such a mount is the emptiest possible
-    /// one — never a wrapped value that wins the worst-mount comparison.
     #[test]
     fn a_mount_with_more_free_than_total_reads_as_empty() {
         let mounts = [(500u64, 900u64), (1_000, 250)];
@@ -592,8 +513,6 @@ mod tests {
         assert_eq!(reduced.mounts_critical, 0);
     }
 
-    /// A host with nothing mounted has no disk reading. Reporting 0 % would say
-    /// its volumes are empty, which is a claim about disks it does not have.
     #[test]
     fn a_host_with_no_measurable_mount_has_no_reading() {
         let none: [(u64, u64); 0] = [];
@@ -603,7 +522,6 @@ mod tests {
         assert_eq!(disk_reduction([(0u64, 0u64), (0, 128)].into_iter()), None);
     }
 
-    /// Rank is the series key: the busiest process is rank 1, never rank 0.
     #[test]
     fn process_rank_is_one_based() {
         assert_eq!(process_rank(0), 1);
@@ -622,9 +540,6 @@ mod tests {
         );
     }
 
-    /// A kernel thread has no executable path, and some platforms report a
-    /// directory-only path; both fall back to the reported process name rather
-    /// than to an empty identity.
     #[test]
     fn basename_falls_back_to_the_process_name() {
         assert_eq!(basename_of(None, OsStr::new("kthreadd")), "kthreadd");
@@ -634,7 +549,6 @@ mod tests {
         );
     }
 
-    /// The full path never leaves the host — only the last component does.
     #[test]
     fn basename_never_returns_the_full_path() {
         let basename = basename_of(
@@ -645,8 +559,6 @@ mod tests {
         assert!(!basename.contains('/'));
     }
 
-    /// A reading with no predecessor establishes the baseline: rates are
-    /// unknown, not zero, because nothing has been differenced yet.
     #[test]
     fn first_reading_establishes_the_baseline_without_rates() {
         let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
@@ -673,8 +585,6 @@ mod tests {
         assert_eq!(rates, (Some(1_000.0), Some(4_000.0)));
     }
 
-    /// Each reading becomes the next one's baseline, so a steady link reports a
-    /// steady rate rather than an ever-growing one.
     #[test]
     fn each_reading_rebaselines_for_the_next() {
         let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
@@ -693,9 +603,6 @@ mod tests {
         assert_eq!(rates, (Some(1_000.0), Some(1_000.0)));
     }
 
-    /// The primary interface moving is a new measurement series. The old
-    /// counters are not comparable, so this tick reports nothing — and the new
-    /// interface becomes the baseline for the next one.
     #[test]
     fn a_changed_interface_reports_nothing_then_rebaselines() {
         let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
@@ -715,9 +622,6 @@ mod tests {
         assert_eq!(after, (Some(500.0), Some(1_000.0)));
     }
 
-    /// Losing the primary interface drops the baseline. Keeping it would
-    /// difference the next reading across a gap of unknown length and report a
-    /// rate averaged over a window that never happened.
     #[test]
     fn an_absent_reading_drops_the_baseline() {
         let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
@@ -734,8 +638,6 @@ mod tests {
         assert_eq!(resumed, (None, None));
     }
 
-    /// A reboot resets the kernel counters. Differencing across it would report
-    /// a huge negative-turned-nonsense rate, so the tick reports nothing.
     #[test]
     fn a_counter_reset_reports_nothing_then_rebaselines() {
         let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
@@ -755,8 +657,6 @@ mod tests {
         assert_eq!(after, (Some(500.0), Some(1_000.0)));
     }
 
-    /// An idle link is a measurement: unchanged counters mean zero bytes moved,
-    /// which must stay distinguishable from "no rate available".
     #[test]
     fn an_idle_link_reports_zero_in_both_directions() {
         let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
@@ -771,8 +671,6 @@ mod tests {
         assert_eq!(rates, (Some(0.0), Some(0.0)));
     }
 
-    /// The busiest processes come back busiest first, each with the numbers
-    /// behind its place — a ranking without them has to be taken on trust.
     #[test]
     fn the_busiest_processes_come_back_with_the_numbers_behind_their_rank() {
         let mut sampler = SysinfoSampler::new(3).expect("top-N 3 is valid");

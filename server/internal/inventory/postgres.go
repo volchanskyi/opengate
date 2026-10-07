@@ -12,16 +12,12 @@ import (
 )
 
 const (
-	// defaultInventoryLimit bounds a read when the caller passes a non-positive
-	// limit. It sits above the sum of the agent's per-category caps so the full
-	// footprint of a large host still returns in one page.
+	// defaultInventoryLimit bounds a read with a non-positive limit, above the agent's caps.
 	defaultInventoryLimit = 10000
 	// maxInventoryFieldLen caps every persisted text field. Legitimate inventory
 	// labels are short; a longer value is truncated as defense-in-depth.
 	maxInventoryFieldLen = 256
-	// redactedField replaces a field carrying control characters (newlines/tabs),
-	// which never appear in a legitimate inventory label and signal smuggled or
-	// multi-line content.
+	// redactedField replaces a field carrying control characters, which signal smuggled content.
 	redactedField = "[redacted]"
 )
 
@@ -121,9 +117,8 @@ func (r *PostgresInventoryRepository) ListForDevice(ctx context.Context, deviceI
 	return out, err
 }
 
-// validKind reports whether kind is one of the accepted component kinds. The DB
-// CHECK constraint is the backstop; this skips a poison row before it fails the
-// whole batch.
+// validKind reports whether kind is an accepted component kind, so a bad row is skipped before
+// the CHECK constraint fails the batch.
 func validKind(kind string) bool {
 	switch kind {
 	case KindPort, KindService, KindDBEngine, KindContainer, KindPackage:
@@ -133,9 +128,8 @@ func validKind(kind string) bool {
 	}
 }
 
-// sanitizeInventoryText trims, redacts control-char-bearing values, and caps the
-// length of a persisted inventory field. WS-16 already forbids secrets in the
-// report; this is the persistence-boundary defense-in-depth.
+// sanitizeInventoryText trims, redacts control-character values, and caps the length of a
+// persisted inventory field.
 func sanitizeInventoryText(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

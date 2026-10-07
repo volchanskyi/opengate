@@ -8,11 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFaulttestNotShipped is the binding "no fault code in the shipped binary"
-// guarantee. `go list -deps` reports the real (non-test) build dependency graph
-// of the production binary; the faulttest package is imported only from _test.go
-// files, so it must never appear. This is stronger than an architecture-lint
-// rule: it inspects the actual transitive dependencies the linker would include.
 func TestFaulttestNotShipped(t *testing.T) {
 	t.Parallel()
 	const (

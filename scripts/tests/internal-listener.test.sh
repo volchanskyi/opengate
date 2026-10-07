@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
-# The server serves two doors, and this holds them apart.
-#
-# What the world may reach is one chi router behind one catch-all ingress rule,
-# so anything mounted on it is published — the exposition renders every series
-# the process holds, and the profiler dumps its stacks and its heap. Both moved
-# to a second listener the Service publishes and the Ingress does not route.
-#
-# That boundary is spread across a Go default, a chart values file, a Deployment
-# argument, two container ports, a Service port, a scrape job and two compose
-# stacks. Any one of them disagreeing is silent: the scrape finds no endpoint,
-# or a probe reads the SPA fallback and calls it a pass. So the port is read
-# back out of every place that names it, and required to be the same number.
+# Holds the internal listener's port equal everywhere it is named and off the Ingress.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,8 +32,6 @@ fail() {
 
 echo "internal listener:"
 
-# --- the port every place has to agree on -------------------------------------
-
 METRICS_PORT="$(awk '/^[[:space:]]+metricsPort:/ { print $2; exit }' "$VALUES")"
 if [[ "$METRICS_PORT" =~ ^[0-9]+$ ]]; then
   pass "the chart names the internal port (server.metricsPort=$METRICS_PORT)"
@@ -60,9 +47,6 @@ else
   fail "server.metricsPort must differ from server.httpPort, or there is no boundary"
 fi
 
-# The binary's own default. A pod spec that stopped passing -internal-listen
-# would fall back to it, so a default that disagrees with the chart is a
-# listener nothing can reach.
 if [ -n "$METRICS_PORT" ] && grep -qF "defaultInternalListen = \":${METRICS_PORT}\"" "$LISTENER_GO"; then
   pass "the binary's default internal address is the chart's port"
 else
@@ -74,8 +58,6 @@ if grep -qF '"internal-listen"' "$MAIN_GO"; then
 else
   fail "cmd/meshserver must expose -internal-listen"
 fi
-
-# --- the pod serves it and the Service publishes it ---------------------------
 
 if grep -qF '"-internal-listen"' "$DEPLOYMENT" \
   && grep -qF '":{{ .Values.server.metricsPort }}"' "$DEPLOYMENT"; then
@@ -98,17 +80,12 @@ else
   fail "the Service must publish a 'metrics' port targeting the container's"
 fi
 
-# --- and the edge does not route it -------------------------------------------
-
 if grep -qF 'name: http' "$INGRESS" && ! grep -qF 'name: metrics' "$INGRESS"; then
   pass "the Ingress backs onto the http port only"
 else
   fail "the Ingress must not route the internal port"
 fi
 
-# The exposition is registered on the internal mux and nowhere else. A route
-# re-added to the API router is published by the catch-all rule the moment it
-# lands, and nothing else in this file would notice.
 if grep -qF '"/metrics"' "$LISTENER_GO"; then
   pass "the exposition is served by the internal listener"
 else
@@ -127,16 +104,11 @@ else
   fail "the internal listener must serve /debug/pprof/"
 fi
 
-# net/http/pprof's init installs the profiler on http.DefaultServeMux, which is
-# reachable from anywhere in the binary. Importing it for that side effect is
-# how a profiler ends up on a listener nobody chose.
 if grep -rqF '_ "net/http/pprof"' "$REPO_ROOT/server"; then
   fail "net/http/pprof is imported for its side effect — it installs itself on DefaultServeMux"
 else
   pass "net/http/pprof is registered by hand, not through DefaultServeMux"
 fi
-
-# --- the scrape reads the port the Service publishes --------------------------
 
 server_scrape_block() {
   awk '
@@ -152,12 +124,6 @@ else
   fail "the server scrape job must keep the 'metrics' endpoint port, or it scrapes nothing"
 fi
 
-# --- both compose stacks publish it, or the harnesses that read it are blind ---
-
-# Parsed rather than grepped: a command list is equally valid written inline or
-# one argument per line, and a gate that recognises only one of those shapes
-# fails the next time somebody reformats the file — which says nothing about
-# whether the listener is started.
 compose_serves_internal_port() {
   python3 - "$1" "$2" <<'PYEOF'
 import sys, yaml

@@ -13,6 +13,17 @@ func TestPowerStateConstants(t *testing.T) {
 	assert.Equal(t, PowerState(10), HardReset)
 }
 
+func TestResourceURIsAreTheProtocolIdentifiers(t *testing.T) {
+	cim := "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/"
+	assert.Equal(t, cim+"CIM_PowerManagementService", PowerMgmtResourceURI)
+	assert.Equal(t, cim+"CIM_PowerManagementService/RequestPowerStateChange", PowerMgmtAction)
+	assert.Equal(t, cim+"CIM_ComputerSystem", ComputerSystemResourceURI)
+	assert.Equal(t, cim+"CIM_SoftwareIdentity", SoftwareIdentityResourceURI)
+	assert.Equal(t, "http://intel.com/wbem/wscim/1/amt-schema/1/AMT_SetupAndConfigurationService",
+		AMTSetupResourceURI)
+	assert.Equal(t, "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get", TransferGetAction)
+}
+
 func TestPowerStateString(t *testing.T) {
 	tests := []struct {
 		state PowerState

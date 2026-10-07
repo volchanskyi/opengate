@@ -1,15 +1,5 @@
 #!/usr/bin/env bash
-# Offline tests for scripts/mutation-baseline-fetch.sh — the thin adapter that
-# reconstructs the previous per-language mutation baseline from VictoriaMetrics
-# so scripts/mutation-summarize.sh's drop-rule (score fell >2pp from the
-# previous run) can fire in CI. Without a restored baseline previous_row is
-# always null and only the absolute floor ever trips.
-#
-# Mocks kubectl on PATH (the scripts/tests/vm-query.test.sh pattern) so the
-# shared read-back lib scripts/lib/vm-query.sh talks to canned /api/v1/export
-# fixtures. Asserts: newest-per-language row assembly, fail-open (empty /
-# transport failure ⇒ empty stdout, exit 0), a language missing in VM is simply
-# omitted (floor-only for it), and the previous night is taken by date.
+# Offline tests for scripts/mutation-baseline-fetch.sh, using a mock kubectl on PATH.
 
 set -euo pipefail
 
@@ -32,12 +22,6 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Mock kubectl serves the /api/v1/export API with a per-language fixture chosen
-# by inspecting the requested match[] selector. Each series holds nights on its
-# own dates: two nights back, last night, and — for rust — tonight's own reading,
-# left by a re-run of this very night. The baseline is last night's, which is
-# neither the highest reading nor the newest one in the store. Every invocation
-# appends its args for later inspection.
 bin_dir="$TMP_ROOT/bin"
 mkdir -p "$bin_dir"
 cat >"$bin_dir/kubectl" <<'EOF'
@@ -78,13 +62,9 @@ exit "${KUBECTL_STATUS:-0}"
 EOF
 chmod +x "$bin_dir/kubectl"
 
-# Tonight is the 29th.
 TONIGHT="$(date -u -d '2026-09-29 09:08' +%s)"
 STORE_MIDNIGHT="$(date -u -d '2026-09-29 00:00' +%s)"
 
-# Run the real fetch script with the mock kubectl on PATH and the private-VM
-# transport env. Per-case knobs (VM_FETCH_FIXTURE / KUBECTL_STATUS) are
-# inherited from the caller.
 run_fetch() {
   : >"$TMP_ROOT/kubectl.args"
   (
@@ -98,10 +78,7 @@ run_fetch() {
   )
 }
 
-# json_eq A B → 0 when A and B are the same JSON value (key order ignored, and
-# numbers compared by value not literal). jq 1.7+ preserves a number's original
-# text, so 90.0 and 90 render differently under a bare `jq -S .`; forcing each
-# number through `+ 0` canonicalizes both so the comparison stays version-stable.
+# jq 1.7+ keeps a number's original text, so each number goes through `+ 0` to compare by value.
 json_eq() {
   local norm='walk(if type == "number" then . + 0 else . end)'
   [ "$(jq -S "$norm" <<<"$1" 2>/dev/null)" = "$(jq -S "$norm" <<<"$2" 2>/dev/null)" ]
@@ -115,7 +92,6 @@ if [ ! -x "$FETCH" ]; then
   exit 1
 fi
 
-# --- Full row: newest sample per language, one canonical line -----------------
 row="$(run_fetch)"
 want='{"scores":{"rust":{"score_pct":91.5},"go":{"score_pct":88.25},"web":{"score_pct":84.5}}}'
 if json_eq "$row" "$want" \
@@ -125,7 +101,6 @@ else
   fail "full row should be $want (got: $row)"
 fi
 
-# --- A language missing in VM is omitted (floor-only applies to it) -----------
 row="$(VM_FETCH_FIXTURE=partial run_fetch)"
 want='{"scores":{"rust":{"score_pct":90}}}'
 if json_eq "$row" "$want"; then
@@ -134,7 +109,6 @@ else
   fail "partial row should carry only rust (got: $row)"
 fi
 
-# --- Fail-open: no history at all ⇒ empty stdout, exit 0 ----------------------
 code=0
 row="$(VM_FETCH_FIXTURE=empty run_fetch)" || code=$?
 if [ "$code" = "0" ] && [ -z "$row" ]; then
@@ -143,7 +117,6 @@ else
   fail "empty history must print nothing and exit 0 (code=$code, row=$row)"
 fi
 
-# --- Fail-open: transport failure ⇒ empty stdout, exit 0 ---------------------
 code=0
 row="$(KUBECTL_STATUS=19 run_fetch 2>/dev/null)" || code=$?
 if [ "$code" = "0" ] && [ -z "$row" ]; then
@@ -152,12 +125,6 @@ else
   fail "transport failure must print nothing and exit 0 (code=$code, row=$row)"
 fi
 
-# --- Tonight is kept out by its date, not by its commit -----------------------
-#
-# The baseline was the last reading of a different commit, so a week without a
-# merge compared each night against the week before it. It is last night's now,
-# whatever code ran it, and tonight's own reading — a re-run's — is kept out
-# because it carries tonight's date.
 run_fetch >/dev/null
 if grep -qF 'mutation_score{language="rust",env="ci"}' "$TMP_ROOT/kubectl.args" \
   && ! grep -qF 'commit' "$TMP_ROOT/kubectl.args"; then

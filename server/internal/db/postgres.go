@@ -15,21 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/stdlib" // also registers the pgx driver with database/sql
 )
 
-// migrationTenantScope gives the migration connection the cross-tenant reach
-// its statements need. Application tables carry FORCE ROW LEVEL SECURITY and
-// the deployed database role is NOBYPASSRLS, so a migration that reads or
-// writes rows is subject to the tenant policy just like a request is. Those
-// policies read their scope setting with no missing_ok fallback, so an absent
-// GUC aborts the migration instead of merely filtering it. app.is_admin is set
-// alongside because either side of the policy's OR may be evaluated first.
-//
-// A fresh database walks the whole chain on this one connection, so both scope
-// settings are carried: the policies read app.current_org up to the tenancy
-// rename and app.current_tenant from it onward.
-//
-// The scope lives only on the short-lived migration pool below. The pool that
-// serves application traffic never carries it, so tenant isolation is
-// unchanged.
+// migrationTenantScope gives the migration connection cross-tenant reach under FORCE ROW LEVEL
+// SECURITY; only the migration pool carries it, never the request pool.
 const migrationTenantScope = "-c app.is_admin=true" +
 	" -c app.current_org=00000000-0000-0000-0000-000000000000" +
 	" -c app.current_tenant=00000000-0000-0000-0000-000000000000"
@@ -49,17 +36,12 @@ type PostgresOptions struct {
 	MaxIdleConns int
 }
 
-// NewPostgresStore opens a PostgreSQL connection pool, runs migrations, and
-// returns a ready-to-use store.
-//
-// databaseURL follows the libpq URL form: "postgres://user:pass@host:port/db?sslmode=disable".
+// NewPostgresStore opens a PostgreSQL connection pool, runs migrations, and returns the store.
 func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, error) {
 	return NewPostgresStoreWithOptions(ctx, databaseURL, PostgresOptions{})
 }
 
 // NewPostgresStoreWithOptions is NewPostgresStore with explicit pool sizing.
-// Test code uses this to keep many parallel per-schema stores within
-// Postgres's max_connections budget.
 func NewPostgresStoreWithOptions(ctx context.Context, databaseURL string, opts PostgresOptions) (*PostgresStore, error) {
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -91,9 +73,8 @@ func NewPostgresStoreWithOptions(ctx context.Context, databaseURL string, opts P
 	return &PostgresStore{db: db}, nil
 }
 
-// openMigrationDB returns a single-connection pool dedicated to migrations,
-// every connection of which carries migrationTenantScope. Any options the
-// caller already supplied are kept — the scope is appended, not substituted.
+// openMigrationDB returns a single-connection migration pool whose connections carry
+// migrationTenantScope appended to the caller's own options.
 func openMigrationDB(databaseURL string) (*sql.DB, error) {
 	cfg, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
@@ -147,13 +128,7 @@ func (s *PostgresStore) DB() *sql.DB {
 	return s.db
 }
 
-// PoolStats reports the connection pool's current occupancy and its running
-// account of callers that had to queue for a connection.
-//
-// The pool is a resource a load run can exhaust before anything else gives way,
-// and latency alone cannot say so: a request that waited 200 ms for a
-// connection and one that spent 200 ms executing look identical from outside.
-// The wait totals are what separate them.
+// PoolStats reports the connection pool's occupancy and the callers that queued for a connection.
 func (s *PostgresStore) PoolStats() sql.DBStats {
 	return s.db.Stats()
 }

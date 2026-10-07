@@ -50,9 +50,6 @@ run_vm_push() {
 
 echo "vm transport:"
 
-# A sample names the measurement and nothing else. A label that changes every
-# run makes every run a series of its own: ninety of one latency in a fortnight,
-# drawn in ninety colours and joined by nothing.
 cat >"$TMP_ROOT/metrics.prom" <<'EOF'
 # TYPE mutation_score gauge
 mutation_score{env="ci",lang="go"} 85.5
@@ -72,15 +69,12 @@ else
   fail "VM push uses an auto-cleaned kubectl pod (output=[$output])"
 fi
 
-# Every sample carries the time the run started, so a night is one point on one
-# date however long the run took, and a re-run writes the same point.
 if grep -qxF 'mutation_score{env="ci",lang="go"} 85.5 1790000000000' "$TMP_ROOT/push.stdin"; then
   pass "a sample carries the run's start as its time"
 else
   fail "a sample carries the run's start as its time (sent=[$(cat "$TMP_ROOT/push.stdin")])"
 fi
 
-# The code a night ran is named once, in a series of its own.
 if grep -qxF 'ci_run_info{env="ci",workflow="Nightly Thing",commit="abc123",run_id="4242"} 1 1790000000000' "$TMP_ROOT/push.stdin" \
   && [ "$(grep -c '^ci_run_info' "$TMP_ROOT/push.stdin")" = "1" ]; then
   pass "a push writes one ci_run_info naming the workflow, the commit and the run"
@@ -101,7 +95,6 @@ for label in commit run_id grade; do
   fi
 done
 
-# A push that cannot say when its run started cannot place its night.
 : >"$TMP_ROOT/nostart.args"
 if STARTED_OVERRIDE="" run_vm_push "$TMP_ROOT/nostart.args" "$TMP_ROOT/nostart.stdin" \
   "$REPO_ROOT/scripts/lib/vm-push.sh" "$TMP_ROOT/metrics.prom" >/dev/null 2>&1; then

@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What the server writes names the environment it runs in. Production and
-// staging write into one store, and a dashboard asked about one of them read
-// the machine readings, anomaly rates and breaches of both, added together.
-
 func TestVMClientStampsWhatItWritesWithItsEnvironment(t *testing.T) {
 	client, ctx := newTestVMClient(t)
 	stamped := client.WithNamespace("opengate-staging")
@@ -32,7 +28,6 @@ func TestVMClientStampsWhatItWritesWithItsEnvironment(t *testing.T) {
 	assert.Equal(t, "opengate-staging", series[0].Metric["namespace"])
 }
 
-// The environment is the server's to state, never a sample's.
 func TestASampleCannotNameItsOwnEnvironment(t *testing.T) {
 	client, ctx := newTestVMClient(t)
 	err := client.WithNamespace("opengate").WriteSamples(ctx, uuid.New(), uuid.New(), []Sample{{
@@ -42,13 +37,6 @@ func TestASampleCannotNameItsOwnEnvironment(t *testing.T) {
 	require.ErrorIs(t, err, ErrReservedLabel)
 }
 
-// A device lives in one environment, so the stamp is metadata for dashboards
-// and not part of what a reading is. Readings written before the stamp and
-// readings written after it are one device's one series to every read the
-// product makes — the chart, the health badge and the fleet bands. Without
-// that, every chart would draw each measurement twice, split at the deploy,
-// for the thirty days the older readings stay in the store, and the fleet
-// bands would count a device twice while both sat inside their lookback.
 func TestReadingsFromBeforeAndAfterTheEnvironmentStampAreOneSeries(t *testing.T) {
 	client, ctx := newTestVMClient(t)
 	stamped := client.WithNamespace("opengate")

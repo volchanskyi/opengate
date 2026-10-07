@@ -14,21 +14,14 @@ use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
 use mesh_agent_core::ml::store_sink::LocalStoreSink;
 use mesh_protocol::{ControlMessage, ThresholdRule};
 
-/// The sampler-owned local store, shared with the WS-15 backfill coordinator on
-/// the control loop. The sampler holds the lock only for the sub-millisecond
-/// `record`/`commit` each second; the coordinator holds it only to open an MVCC
-/// snapshot or advance a cursor — neither blocks the other for a meaningful time.
+/// The sampler-owned local store, shared with the backfill coordinator on the control loop.
 pub(crate) type SharedSink = Arc<Mutex<LocalStoreSink>>;
 
-/// Bit pattern standing for "the sampler has not taken a reading yet". A real
-/// percentage is finite, so no reading can collide with it.
+/// Bit pattern standing for no reading yet; a finite percentage never collides with it.
 const LOAD_NOT_TAKEN: u32 = u32::MAX;
 
-/// The most recent host CPU reading, published by the sampler for anything that
-/// needs to know whether the machine is busy.
-///
-/// Deliberately absent until the sampler has actually taken a reading: work that
-/// waits for an idle machine must not treat "nobody has looked" as "idle".
+/// The most recent host CPU reading, absent until the sampler takes one so that work waiting
+/// for an idle machine never reads a missing reading as idle.
 #[derive(Clone)]
 pub(crate) struct LoadSignal(Arc<std::sync::atomic::AtomicU32>);
 
@@ -38,9 +31,7 @@ impl LoadSignal {
         Self(Arc::new(std::sync::atomic::AtomicU32::new(LOAD_NOT_TAKEN)))
     }
 
-    /// Publish this second's reading. A reading that is not a finite percentage
-    /// is not published at all, rather than stored as a number nothing can
-    /// compare.
+    /// Publishes this second's reading when it is a finite percentage.
     pub(crate) fn report(&self, cpu_percent: f32) {
         if cpu_percent.is_finite() {
             self.0
@@ -55,20 +46,12 @@ impl LoadSignal {
     }
 }
 
-/// Interval between auto-discovery sweeps. Long by design: the host profile
-/// changes rarely, and a sweep shells out to package managers and lists
-/// services, so it must never compete with control or session traffic. Reports
-/// are change-triggered — a sweep only ships when the profile differs from the
-/// last one shipped.
+/// Interval between discovery sweeps; long because a sweep shells out to package managers
+/// and lists services.
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(1800);
 
-/// Spawn the bounded auto-discovery task (WS-16). Each sweep
-/// profiles the host — listening ports, services, DB engines, containers,
-/// installed packages — into a bounded, secret-free `DiscoveryReport` and, when
-/// the profile changed since the last shipped report, forwards it to the control
-/// loop over `sink`. A report is dropped when the channel is full so a sweep can
-/// never backpressure the control stream. The first sweep runs immediately; the
-/// task then yields for [`DISCOVERY_INTERVAL`] between sweeps.
+/// Spawns the discovery task, which sends a bounded `DiscoveryReport` over `sink` whenever
+/// the host profile changes and drops it when the channel is full.
 pub(crate) fn spawn_discovery(
     sink: SyncSender<ControlMessage>,
     maintenance: MaintenanceGate,
@@ -76,9 +59,7 @@ pub(crate) fn spawn_discovery(
     tokio::task::spawn_blocking(move || {
         let mut last_fingerprint: Option<u64> = None;
         loop {
-            // In maintenance, skip the sweep entirely: services and ports churn
-            // as the admin works, and shipping that would flap the Discovered
-            // Footprint. On resume the next sweep ships the settled profile.
+            // Maintenance skips the sweep because services and ports churn as the admin works.
             if maintenance.in_maintenance() {
                 std::thread::sleep(DISCOVERY_INTERVAL);
                 continue;
@@ -105,12 +86,8 @@ pub(crate) fn spawn_discovery(
     })
 }
 
-/// Build the WS-19 breach-carrying `AgentHealthSummary` for emission. Only the
-/// breach signal and per-rule coverage are populated; the anomaly-rate fields
-/// stay at their defaults and the server leaves the tenant empty to assign (the
-/// summary is investigation-aid only). The server treats a summary with no
-/// sampler computation as breach-only and does not record an anomaly-rate sample
-/// for it.
+/// Builds a breach-only `AgentHealthSummary`; its empty sampler fields make the server record
+/// no anomaly-rate sample, and the server assigns the tenant.
 fn breach_summary(
     now: i64,
     breaches: Vec<mesh_protocol::AlertBreach>,
@@ -129,19 +106,14 @@ fn breach_summary(
     }
 }
 
-/// Sampler/model version stamped on emitted node anomaly-rate summaries. The
-/// server records the anomaly-rate series only for a summary that carries a
-/// sampler computation (non-empty version or per-family rates), so this must be
-/// set for the fleet-health badge to receive data.
+/// Sampler version stamped on anomaly-rate summaries; the server records the rate series only
+/// for a summary carrying a version or per-family rates.
 const SAMPLER_VERSION: &str = "edge-ensemble-v1";
 
-/// Rolling window of recent per-second anomaly verdicts the node anomaly rate is
-/// computed over — roughly the last minute at the 1 s sample cadence.
+/// Number of recent per-second anomaly verdicts the node anomaly rate is computed over.
 const ANOMALY_WINDOW: usize = 64;
 
-/// Minimum seconds between emitted node anomaly-rate summaries. Above the
-/// server's 10 s ingest floor and well within its instant-query lookback, so the
-/// fleet-health badge always reads a fresh sample from a steady host.
+/// Minimum seconds between anomaly-rate summaries; above the server's 10 s ingest floor.
 const ANOMALY_EMIT_INTERVAL_SECS: i64 = 60;
 
 /// Fraction of anomalous verdicts in the rolling window, in `[0, 1]`; `0` when
@@ -166,10 +138,8 @@ fn pack_bitmask(bits: &VecDeque<bool>) -> Vec<u8> {
     out
 }
 
-/// Build the periodic node anomaly-rate summary. Unlike [`breach_summary`] this
-/// carries the sampler computation — the rate, its packed verdict history, and a
-/// version — which the server records as the `opengate_edge_node_anomaly_rate`
-/// series behind the fleet-health badge.
+/// Builds the periodic anomaly-rate summary carrying the rate, its packed verdict history and
+/// the sampler version.
 fn anomaly_summary(
     now: i64,
     rate: f64,
@@ -190,17 +160,14 @@ fn anomaly_summary(
     }
 }
 
-/// Whether a node anomaly-rate summary is due this tick, throttled to at least
-/// [`ANOMALY_EMIT_INTERVAL_SECS`] apart. The first summary after training (or a
-/// re-baseline) emits promptly so the badge populates quickly.
+/// Whether an anomaly-rate summary is due: the first emits at once, later ones at least
+/// [`ANOMALY_EMIT_INTERVAL_SECS`] apart.
 fn should_emit_anomaly(last_emit: Option<i64>, now: i64) -> bool {
     last_emit.is_none_or(|last| now.saturating_sub(last) >= ANOMALY_EMIT_INTERVAL_SECS)
 }
 
-/// Decide whether to emit a WS-19 health summary this tick. Emission is throttled
-/// to at least [`HEALTH_EMIT_INTERVAL_SECS`] apart and fires while a breach is
-/// active — plus once more, when the set has just cleared, to report the clear —
-/// staying silent on a steady, breach-free host.
+/// Whether a health summary is due: while breaching and once more on clearing, at least
+/// [`HEALTH_EMIT_INTERVAL_SECS`] apart.
 fn should_emit_health(
     last_emit: Option<i64>,
     now: i64,
@@ -213,8 +180,7 @@ fn should_emit_health(
     due && (breaching || last_breaching)
 }
 
-/// Local-store wiring for the sampler task: where the redb multi-tier store
-/// lives and its footprint cap.
+/// Local-store wiring for the sampler task: the store directory and its footprint cap.
 pub(crate) struct StoreConfig {
     /// Store directory (under the agent data dir).
     pub path: PathBuf,
@@ -222,33 +188,25 @@ pub(crate) struct StoreConfig {
     pub cap_bytes: u64,
 }
 
-/// Minimum seconds between emitted WS-19 health summaries. Above the server's
-/// 10 s telemetry interval floor, so a throttled emission is never dropped for
-/// arriving too fast; the first breach after quiet still emits promptly.
+/// Minimum seconds between health summaries; above the server's 10 s telemetry interval floor.
 const HEALTH_EMIT_INTERVAL_SECS: i64 = 15;
 
-/// Shared slot the control loop drops a freshly-pushed threshold ruleset into
-/// and the sampler drains on its next tick (WS-19).
+/// Slot the control loop fills with a pushed threshold ruleset and the sampler drains on its
+/// next tick.
 pub(crate) type AlertRulesMailbox = Arc<Mutex<Option<Vec<ThresholdRule>>>>;
 
-/// Wiring for the sampler's WS-19 threshold-alert path: the mailbox the control
-/// loop drops a freshly-pushed ruleset into, and the bounded channel the sampler
-/// emits breach-carrying health summaries on.
+/// Wiring for the sampler's threshold-alert path: ruleset mailbox, health-summary channel,
+/// alert sink and event coverage.
 pub(crate) struct AlertWiring {
-    /// Latest pushed ruleset; the sampler installs it on its next tick and
-    /// clears the slot. Shared with the control loop's `PushAlertRules` handler.
+    /// Latest pushed ruleset; the sampler installs it on its next tick and clears the slot.
     pub rules: AlertRulesMailbox,
-    /// Breach-carrying `AgentHealthSummary` sink, drained by the control loop on
-    /// heartbeat alongside discovery telemetry.
+    /// Sink for breach-carrying `AgentHealthSummary`, drained by the control loop on heartbeat.
     pub health_tx: SyncSender<ControlMessage>,
-    /// Where an alert goes when a rule starts firing. The same queue every
-    /// other producer on this machine writes to, so one machine's whole output
-    /// shares one bound and one hourly allowance.
+    /// Queue shared by every alert producer on this machine, so they share one bound and one
+    /// hourly allowance.
     pub alert_sink: AlertSink,
-    /// What the rules reading this machine's own words can answer for. They are
-    /// evaluated by a different watch entirely, but the estate is told what
-    /// every rule is doing in one place, so the report carries both — a rule
-    /// missing from the count reads as a rule nobody pushed.
+    /// Coverage of the rules the event watch evaluates, reported with the sampler's own so
+    /// every pushed rule is counted.
     pub event_coverage: EventCoverage,
 }
 
@@ -257,13 +215,11 @@ const WARMUP_SAMPLES: usize = 30;
 /// Ensemble geometry (staggered k=2 models over the CPU/mem/disk feature vector).
 const ENSEMBLE_MODELS: usize = 6;
 const ENSEMBLE_ITERS: usize = 20;
-/// Durable flush cadence for the local store (bounded-loss window, in samples).
+/// Durable flush cadence for the local store, in samples.
 const STORE_COMMIT_EVERY: usize = 60;
 
-/// Fold one sample into the live host-metric windower and forward a window this
-/// tick closed. A full channel drops the window rather than backpressuring the
-/// control stream (same contract as discovery/health telemetry). Separated from
-/// the sampler loop so the emit contract is unit-testable.
+/// Folds one sample into the windower and forwards a window it closed; a full channel drops
+/// the window so telemetry never backpressures control.
 fn emit_host_metric_window(
     windower: &mut HostMetricWindower,
     tx: &SyncSender<ControlMessage>,
@@ -283,24 +239,8 @@ mod tick;
 pub(crate) use tick::SamplerOutputs;
 use tick::SamplerState;
 
-/// Spawn the Edge-Sentinel sampler task. It samples host metrics once per second,
-/// trains a local anomaly ensemble on a warm-up window, and — when a store is
-/// set — persists each raw sample with its inline anomaly bit into the graduated
-/// `LocalTsdb` (the sovereign min/max/last + 1 s raw copy). The store is shared
-/// with the WS-15 backfill coordinator; the sampler holds the lock only for the
-/// per-second append/commit. No store degrades to log-only sampling.
-///
-/// When alert wiring is set, the same 1 s tick also evaluates the tenant-pushed
-/// WS-19 threshold ruleset over the sample, raises an alert for every rule that
-/// has just started firing, and emits a breach-carrying `AgentHealthSummary`
-/// (throttled, breach-driven, silent when nothing breaches).
-///
-/// When a host-metric channel is set, the same tick folds the sample into a
-/// 10 s average and forwards each closed window as an `AgentMetricWindow` — the
-/// live host-metric stream that lights up the central Telemetry charts
-/// continuously (averaging identical to reconnect-backfill, so the two never
-/// diverge). A window is dropped when the channel is full so a burst never
-/// backpressures control.
+/// Spawns the 1 s sampler: it trains the anomaly ensemble, persists samples to the store,
+/// evaluates alert rules and forwards 60 s metric windows, dropping one when the channel is full.
 pub(crate) fn spawn_sampler(
     out: SamplerOutputs,
     maintenance: MaintenanceGate,
@@ -330,8 +270,7 @@ pub(crate) fn spawn_sampler(
     })
 }
 
-/// Open the local store, recreating it fresh on a corrupt/incompatible file, and
-/// degrading to `None` (log-only sampling) if even that fails.
+/// Opens the local store, recreating it when the open fails and returning `None` if that fails too.
 pub(crate) fn open_sink(cfg: &StoreConfig) -> Option<LocalStoreSink> {
     match LocalStoreSink::open(&cfg.path, cfg.cap_bytes, STORE_COMMIT_EVERY) {
         Ok(sink) => {
@@ -371,8 +310,6 @@ mod tests {
         values.iter().copied().collect()
     }
 
-    /// A closed window (a sample crossing into a later 10 s bucket) is forwarded
-    /// on the channel; samples inside one window send nothing yet.
     #[test]
     fn emit_host_metric_window_forwards_closed_windows() {
         let mut windower = HostMetricWindower::new();
@@ -382,7 +319,6 @@ mod tests {
         emit_host_metric_window(&mut windower, &tx, 125, &host_sample(30.0));
         assert!(rx.try_recv().is_err(), "an open window sends nothing");
 
-        // A later-window sample closes the 120-window and forwards it.
         emit_host_metric_window(&mut windower, &tx, 180, &host_sample(99.0));
         match rx.try_recv().expect("closed window is forwarded") {
             ControlMessage::AgentMetricWindow { ts, dims, .. } => {
@@ -396,17 +332,13 @@ mod tests {
         }
     }
 
-    /// A full channel drops the closed window silently — a metric burst never
-    /// backpressures the control stream.
     #[test]
     fn emit_host_metric_window_drops_when_channel_full() {
         let mut windower = HostMetricWindower::new();
         let (tx, rx) = sync_channel::<ControlMessage>(1);
 
-        // Fill the single channel slot with a first closed window.
         emit_host_metric_window(&mut windower, &tx, 120, &host_sample(10.0));
         emit_host_metric_window(&mut windower, &tx, 180, &host_sample(20.0));
-        // The next close finds the channel full; it must drop without panicking.
         emit_host_metric_window(&mut windower, &tx, 240, &host_sample(30.0));
 
         assert!(rx.try_recv().is_ok(), "the first window occupied the slot");
@@ -472,14 +404,12 @@ mod tests {
     #[test]
     fn active_breach_is_throttled_between_emits() {
         let last = Some(100);
-        // Within the throttle window: suppressed even though still breaching.
         assert!(!should_emit_health(
             last,
             100 + HEALTH_EMIT_INTERVAL_SECS - 1,
             true,
             true
         ));
-        // At the window boundary: re-emits the still-active breach.
         assert!(should_emit_health(
             last,
             100 + HEALTH_EMIT_INTERVAL_SECS,
@@ -492,9 +422,7 @@ mod tests {
     fn clear_is_reported_once_then_silent() {
         let last = Some(100);
         let due = 100 + HEALTH_EMIT_INTERVAL_SECS;
-        // Just cleared (breaching=false, last_breaching=true): emits the clear.
         assert!(should_emit_health(last, due, false, true));
-        // Already reported clear (last_breaching=false): silent thereafter.
         assert!(!should_emit_health(
             Some(due),
             due + HEALTH_EMIT_INTERVAL_SECS,
@@ -526,8 +454,6 @@ mod tests {
 
     #[test]
     fn anomaly_summary_carries_sampler_computation_and_coverage() {
-        // A calm machine emits no breach summary at all, so this is the only
-        // place its coverage can travel — which is why coverage rides here too.
         let coverage = vec![mesh_protocol::RuleCoverage {
             rule_id: "disk-critical".to_string(),
             state: mesh_protocol::RuleCoverageState::Active,
@@ -560,8 +486,6 @@ mod tests {
         }
     }
 
-    /// Nothing reads a load signal as idle before the sampler has taken a
-    /// reading — "nobody has looked" is not "the machine is quiet".
     #[test]
     fn a_load_signal_has_no_reading_until_the_sampler_takes_one() {
         let signal = super::LoadSignal::new();
@@ -570,13 +494,10 @@ mod tests {
         signal.report(12.5);
         assert_eq!(signal.cpu_percent(), Some(12.5));
 
-        // Every holder sees the same reading: the sampler publishes once and
-        // the readers share it.
         let reader = signal.clone();
         signal.report(88.0);
         assert_eq!(reader.cpu_percent(), Some(88.0));
 
-        // A reading that is not a number leaves the last real one standing.
         signal.report(f32::NAN);
         assert_eq!(reader.cpu_percent(), Some(88.0));
     }
@@ -593,7 +514,6 @@ mod tests {
     }
 }
 
-/// Readings, rules and stores the sampler's tests share.
 #[cfg(test)]
 mod test_support {
     use super::SharedSink;
@@ -623,7 +543,6 @@ mod test_support {
         }
     }
 
-    /// A rule that fires the moment the processor passes 80%.
     pub(super) fn cpu_rule() -> ThresholdRule {
         ThresholdRule {
             id: "cpu-saturated".to_string(),
@@ -640,7 +559,6 @@ mod test_support {
         }
     }
 
-    /// A reading taken while a database dump was the busiest thing running.
     pub(super) fn busy_sample(cpu: f32) -> MetricSample {
         let mut sample = host_sample(cpu);
         sample.processes = vec![ProcessSample {
@@ -654,7 +572,6 @@ mod test_support {
         sample
     }
 
-    /// A store in a fresh directory, committing every reading.
     pub(super) fn store(dir: &tempfile::TempDir) -> SharedSink {
         let sink = LocalStoreSink::open(&dir.path().join("tsdb"), 64 * 1024 * 1024, 1)
             .expect("a store opens in a fresh directory");

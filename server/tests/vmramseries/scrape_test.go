@@ -10,22 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Reading VictoriaMetrics' own /metrics. The three quantities the experiment
-// needs live there in three different shapes — a bare gauge for resident memory,
-// a family that has to be summed for on-disk bytes, and a label carrying the
-// build version — so each has its own accessor and the exposition text is parsed
-// once per scrape.
-
-// promSample is one exposition line: the raw label block between the braces, and
-// the value.
+// promSample is one exposition line: the raw label block between the braces, and the value.
 type promSample struct {
 	labels string
 	value  float64
 }
 
-// promSamples returns every sample of one metric family. Comments, other
-// families, and lines whose value does not parse are ignored — a scrape carries
-// hundreds of families and this experiment reads three.
+// promSamples returns every sample of one metric family, skipping comments and unparsable lines.
 func promSamples(body, name string) []promSample {
 	var out []promSample
 	for line := range strings.SplitSeq(body, "\n") {
@@ -46,8 +37,7 @@ func promSamples(body, name string) []promSample {
 			}
 			labels, rest = line[cut+1:end], line[end+1:]
 		}
-		// A trailing timestamp is optional in the exposition format; the value is
-		// the first field after the label block either way.
+		// A trailing timestamp is optional; the value is the first field after the label block.
 		fields := strings.Fields(rest)
 		if len(fields) == 0 {
 			continue
@@ -61,9 +51,7 @@ func promSamples(body, name string) []promSample {
 	return out
 }
 
-// promGauge returns the value of a single-sample family, and whether the scrape
-// carried it at all. Absence is reported rather than folded into a zero: a
-// missing gauge means the scrape is wrong, not that the store is empty.
+// promGauge returns the value of a single-sample family, and whether the scrape carried it.
 func promGauge(body, name string) (float64, bool) {
 	samples := promSamples(body, name)
 	if len(samples) != 1 {
@@ -72,8 +60,7 @@ func promGauge(body, name string) (float64, bool) {
 	return samples[0].value, true
 }
 
-// promSum totals every sample of a family. On-disk bytes arrive split across the
-// storage parts that hold them, so the total is the sum and not any one part.
+// promSum totals every sample of a family, such as on-disk bytes split across storage parts.
 func promSum(body, name string) float64 {
 	var total float64
 	for _, sample := range promSamples(body, name) {
@@ -84,8 +71,7 @@ func promSum(body, name string) float64 {
 
 var labelPattern = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)="([^"]*)"`)
 
-// promLabel returns a label's value from the first sample of a family. The build
-// version travels this way — as a label on a constant-1 gauge.
+// promLabel returns a label's value from the first sample of a family.
 func promLabel(body, name, label string) string {
 	samples := promSamples(body, name)
 	if len(samples) == 0 {
@@ -99,9 +85,8 @@ func promLabel(body, name, label string) string {
 	return ""
 }
 
-// exposition is a scrape shaped like VictoriaMetrics': a build-version label, a
-// bare process gauge, a family split across storage parts, and neighbours whose
-// names share a prefix with the ones being read.
+// exposition is a scrape with a version label, a process gauge, a split family and prefix-sharing
+// neighbours.
 const exposition = `# HELP vm_app_version version
 # TYPE vm_app_version gauge
 vm_app_version{version="victoria-metrics-20250506-000000-tags-v1.114.0-0-g0000000",short_version="v1.114.0"} 1
@@ -179,9 +164,6 @@ vm_data_size_bytes{type="storage/inmemory"} 64
 	require.InDelta(t, 64, samples[0].value, 1e-9)
 }
 
-// TestVitalsExpositionIsOneLinePerSeries pins the property every count in this
-// package rests on: metric name plus label set is unique per (device, series), so
-// the lines written equal the series created.
 func TestVitalsExpositionIsOneLinePerSeries(t *testing.T) {
 	const runID = "vmram-unit"
 	devices := deviceIDs(runID, 3)
@@ -200,10 +182,6 @@ func TestVitalsExpositionIsOneLinePerSeries(t *testing.T) {
 	}
 }
 
-// TestVitalsExpositionBacktracksAtTheCadence covers the disk half: a sample index
-// moves every series one cadence tick into the past and creates no new series, so
-// bytes-per-sample is measured over a real series length rather than over a store
-// of one-sample series.
 func TestVitalsExpositionBacktracksAtTheCadence(t *testing.T) {
 	const runID = "vmram-unit"
 	devices := deviceIDs(runID, 2)

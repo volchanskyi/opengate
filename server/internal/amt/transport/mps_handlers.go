@@ -6,10 +6,6 @@ import (
 	"io"
 )
 
-// This file holds post-handshake APF message dispatch and per-message handlers.
-// The server core lives in mps.go; the handshake in mps_handshake.go; the
-// Conn/Channel types in mps_conn.go.
-
 // handleMessage dispatches a post-handshake APF message.
 func (s *Server) handleMessage(mc *Conn, msgType uint8, payload []byte) error {
 	switch msgType {
@@ -126,7 +122,6 @@ func (s *Server) handleChannelData(mc *Conn, payload []byte) error {
 		return nil
 	}
 
-	// Forward data via callback or TCP connection.
 	ch.mu.Lock()
 	fwd := ch.fwd
 	onData := ch.OnData
@@ -143,7 +138,7 @@ func (s *Server) handleChannelData(mc *Conn, payload []byte) error {
 		}
 	}
 
-	// Send WindowAdj when consumed exceeds half of our advertised window.
+	// A WindowAdj goes out once consumed bytes reach half the advertised window.
 	if consumed >= int64(DefaultWindowSize)/2 {
 		ch.mu.Lock()
 		ch.recvConsumed = 0

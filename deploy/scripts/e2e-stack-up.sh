@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
-# Brings up the browser test stack: a database, a server, and two real machines.
-#
-# The machines cannot be started with everything else, because a machine needs
-# an enrolment token and a token can only be minted once the server is
-# answering. So the bring-up is in two halves with a mint between them, and it
-# uses the same public endpoints an installer uses — no test-only affordance
-# exists in the shipped server, and no key is copied anywhere.
-#
-# Both `make e2e` and playwright.config.ts's webServer call this script, so the
-# two paths cannot bring up different stacks.
-#
-# Run: bash deploy/scripts/e2e-stack-up.sh
+# Brings up the browser test stack: a database, a server and two real machines.
+# The machines start after an enrolment token is minted through the server's public endpoints.
 
 set -euo pipefail
 
@@ -22,9 +12,7 @@ AGENT_ENV="$DEPLOY_DIR/.e2e-agent.env"
 AGENT_BINARY="$DEPLOY_DIR/agent-bin/mesh-agent"
 
 BASE_URL="${E2E_BASE_URL:-http://localhost:8080}"
-# The bootstrap operator. Matches web/e2e/global-setup.ts, which logs in as this
-# account: the first registered user is promoted to administrator, so whoever
-# registers first has to be the one the suite then uses.
+# The first registered user becomes administrator, so the bootstrap operator registers first.
 BOOTSTRAP_EMAIL="bootstrap-admin@test.local"
 BOOTSTRAP_PASSWORD="BootstrapPass123!"
 
@@ -43,9 +31,7 @@ fi
 echo "▶ bringing up the database and the server"
 compose up -d --build --wait postgres server
 
-# bearer_token URL — POST the bootstrap credentials and read the token out of
-# the answer. A refusal is not fatal here: registering an account that already
-# exists is the ordinary case on a re-run against a stack that is still up.
+# A refusal is not fatal: registering an existing account is normal on a re-run.
 bearer_token() {
   curl -sS -X POST "$1" \
     -H 'Content-Type: application/json' \
@@ -54,8 +40,6 @@ bearer_token() {
 }
 
 echo "▶ signing in as the bootstrap operator"
-# The first account registered is promoted to administrator, so this has to run
-# before anything else creates one.
 token="$(bearer_token "$BASE_URL/api/v1/auth/register")"
 if [ -z "$token" ]; then
   token="$(bearer_token "$BASE_URL/api/v1/auth/login")"

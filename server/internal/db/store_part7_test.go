@@ -31,15 +31,8 @@ func assertMultitenancyDownReversal(t *testing.T, ctx context.Context, db *sql.D
 	assert.Zero(t, tenantIDColumns)
 }
 
-// tenantScopedTables lists the tables the tenancy rename moved the scope column
-// on. deleted_ids and purge_jobs carry it without a policy: they are the erasure
-// deny-list and progress log, which must outlive the rows they describe. Tables
-// introduced after the rename are not in the list — they were born with the
-// current name and have their own step's assertions.
-//
-// siteTable is named by the caller because the filing level is renamed by a
-// later migration, so the same list reads under two names depending on how far
-// the rehearsal has walked.
+// deleted_ids and purge_jobs carry the scope column without a policy; they are the erasure
+// deny-list and progress log.
 func tenantScopedTables(siteTable string) []string {
 	return []string{
 		"users", siteTable, "devices", "agent_sessions", "web_push_subscriptions",
@@ -54,8 +47,6 @@ const (
 	tenantScopeSettingAfter  = "app.current_tenant"
 )
 
-// tenantScopeColumnCount counts how many of the tenant-scoped tables carry a
-// column of the given name.
 func tenantScopeColumnCount(t *testing.T, ctx context.Context, db *sql.DB, siteTable, column string) int {
 	t.Helper()
 	var count int
@@ -66,8 +57,6 @@ func tenantScopeColumnCount(t *testing.T, ctx context.Context, db *sql.DB, siteT
 	return count
 }
 
-// policiesReadingSetting counts the tenant policies whose USING or WITH CHECK
-// expression reads the given scope setting.
 func policiesReadingSetting(t *testing.T, ctx context.Context, db *sql.DB, setting string) int {
 	t.Helper()
 	var count int
@@ -79,9 +68,6 @@ func policiesReadingSetting(t *testing.T, ctx context.Context, db *sql.DB, setti
 	return count
 }
 
-// assertTenancyRenamed confirms the rename migration moved the scope table, the
-// scope column on every table that carries it, and the setting every tenant
-// policy reads — and that nothing keeps the introduced names.
 func assertTenancyRenamed(t *testing.T, ctx context.Context, db *sql.DB, siteTable string) {
 	t.Helper()
 	var tenants sql.NullString
@@ -104,10 +90,7 @@ func assertTenancyRenamed(t *testing.T, ctx context.Context, db *sql.DB, siteTab
 	assert.Equal(t, "Default Tenant", defaultName)
 }
 
-// assertOrganizationsNameIsFree confirms the rename left the word available for
-// the customer entity the next step introduces. It belongs to that step alone:
-// once the customer table exists, the name is in use again and means something
-// else.
+// assertOrganizationsNameIsFree holds only until the customer table exists.
 func assertOrganizationsNameIsFree(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	var organizations sql.NullString
@@ -115,8 +98,6 @@ func assertOrganizationsNameIsFree(t *testing.T, ctx context.Context, db *sql.DB
 	assert.False(t, organizations.Valid, "the tenants table should not be reachable under its introduced name")
 }
 
-// assertTenancyRenameDownReversal confirms the rename rollback put every name
-// back, so the migrations below it keep operating on the schema they expect.
 func assertTenancyRenameDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	var tenants, organizations sql.NullString
@@ -125,8 +106,7 @@ func assertTenancyRenameDownReversal(t *testing.T, ctx context.Context, db *sql.
 	assert.False(t, tenants.Valid, "the rename rollback should remove the tenants name")
 	assert.True(t, organizations.Valid, "the rename rollback should restore the organizations name")
 
-	// The rollback runs below 012, so the filing level is back under its own
-	// earlier name by the time this reads the schema.
+	// The rollback runs below 012, so the filing level is back under its earlier name.
 	assert.Equal(t, len(tenantScopedTables("groups_")), tenantScopeColumnCount(t, ctx, db, "groups_", "org_id"))
 	assert.Zero(t, tenantScopeColumnCount(t, ctx, db, "groups_", "tenant_id"))
 	assert.Positive(t, policiesReadingSetting(t, ctx, db, tenantScopeSettingBefore))
@@ -140,8 +120,6 @@ func assertTelemetryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) 
 	assert.False(t, deviceProcesses.Valid)
 }
 
-// assertInventoryDownReversal confirms migration 005's down rollback dropped the
-// device_inventory table.
 func assertInventoryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	var deviceInventory sql.NullString
@@ -149,8 +127,6 @@ func assertInventoryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) 
 	assert.False(t, deviceInventory.Valid)
 }
 
-// assertDataLifecycleTables confirms migration 006 created the non-RLS
-// deleted_ids deny-list and purge_jobs progress tables.
 func assertDataLifecycleTables(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	for _, table := range []string{"public.deleted_ids", "public.purge_jobs"} {
@@ -160,8 +136,6 @@ func assertDataLifecycleTables(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 }
 
-// assertDataLifecycleDownReversal confirms the 006 down rollback dropped both
-// lifecycle tables.
 func assertDataLifecycleDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	for _, table := range []string{"public.deleted_ids", "public.purge_jobs"} {
@@ -171,8 +145,6 @@ func assertDataLifecycleDownReversal(t *testing.T, ctx context.Context, db *sql.
 	}
 }
 
-// maintenanceColumnCount returns how many of migration 007's maintenance-mode
-// columns are present on the devices table.
 func maintenanceColumnCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 	t.Helper()
 	var count int
@@ -183,21 +155,16 @@ func maintenanceColumnCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 	return count
 }
 
-// assertMaintenanceColumns confirms migration 007 added the four maintenance
-// columns to devices.
 func assertMaintenanceColumns(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	assert.Equal(t, 4, maintenanceColumnCount(t, ctx, db), "all four maintenance columns should exist after migration 007")
 }
 
-// assertMaintenanceColumnsDownReversal confirms the 007 down rollback dropped
-// the maintenance columns.
 func assertMaintenanceColumnsDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	assert.Zero(t, maintenanceColumnCount(t, ctx, db), "maintenance columns should be gone after 007 down rollback")
 }
 
-// assertDeviceLogsRetired confirms migration 004 dropped the central log cache.
 func assertDeviceLogsRetired(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	var deviceLogs sql.NullString
@@ -205,7 +172,6 @@ func assertDeviceLogsRetired(t *testing.T, ctx context.Context, db *sql.DB) {
 	assert.False(t, deviceLogs.Valid)
 }
 
-// assertDeviceLogsRestored confirms the 004 down rollback recreated the table.
 func assertDeviceLogsRestored(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	var deviceLogs sql.NullString
@@ -229,8 +195,6 @@ func sqlQuoteLiteral(value string) string {
 	return `'` + strings.ReplaceAll(value, `'`, `''`) + `'`
 }
 
-// TestNewPostgresStoreErrors covers the failure branches of NewPostgresStore:
-// malformed URL (open fails), and unreachable server (ping fails).
 func TestNewPostgresStoreErrors(t *testing.T) {
 	t.Run("malformed url", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -242,14 +206,12 @@ func TestNewPostgresStoreErrors(t *testing.T) {
 	t.Run("unreachable host", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		// 192.0.2.0/24 is TEST-NET-1 — never routable. Ping will fail fast via context.
+		// 192.0.2.0/24 is TEST-NET-1 and never routable, so the ping fails fast.
 		_, err := NewPostgresStore(ctx, "postgres://u:p@192.0.2.1:5432/db?sslmode=disable&connect_timeout=1")
 		require.Error(t, err)
 	})
 }
 
-// amtLinkColumnCount returns how many of migration 008's AMT columns are present
-// on device_hardware.
 func amtLinkColumnCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 	t.Helper()
 	var count int
@@ -260,8 +222,6 @@ func amtLinkColumnCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 	return count
 }
 
-// amtDeviceColumnNames returns the column names migration 008 moves off
-// amt_devices, plus the device link it adds.
 func amtDeviceColumnNames(t *testing.T, ctx context.Context, db *sql.DB) []string {
 	t.Helper()
 	rows, err := db.QueryContext(ctx, `
@@ -281,10 +241,7 @@ func amtDeviceColumnNames(t *testing.T, ctx context.Context, db *sql.DB) []strin
 	return names
 }
 
-// assertAMTDeviceLink confirms migration 008 moved the AMT attributes onto the
-// hardware row, reduced amt_devices to connection state keyed by device, and
-// discarded the seeded AMT row that matches no managed device — an AMT
-// connection with no device has no tenant to live in.
+// An AMT connection with no managed device has no tenant, so 008 discards the unmatched row.
 func assertAMTDeviceLink(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	assert.Equal(t, 5, amtLinkColumnCount(t, ctx, db), "all five AMT hardware columns should exist after migration 008")
@@ -305,8 +262,6 @@ func assertAMTDeviceLink(t *testing.T, ctx context.Context, db *sql.DB) {
 	assert.Equal(t, 1, indexed, "the CIRA lookup index on system_uuid should exist")
 }
 
-// assertAMTDeviceLinkDownReversal confirms the 008 down rollback restored the
-// original amt_devices shape and removed the hardware columns.
 func assertAMTDeviceLinkDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	assert.Zero(t, amtLinkColumnCount(t, ctx, db), "AMT hardware columns should be gone after 008 down rollback")
@@ -314,9 +269,7 @@ func assertAMTDeviceLinkDownReversal(t *testing.T, ctx context.Context, db *sql.
 		"the 008 down rollback should restore the original amt_devices columns")
 }
 
-// siteOwnerNullability reports whether the site table's owner_id exists and,
-// when it does, whether the column accepts NULL. The table is named by the
-// caller because the rehearsal walks through the point where it is renamed.
+// The table is named by the caller because the rehearsal walks through its rename.
 func siteOwnerNullability(t *testing.T, ctx context.Context, db *sql.DB, table string) (bool, bool) {
 	t.Helper()
 	var nullable sql.NullString
@@ -330,8 +283,6 @@ func siteOwnerNullability(t *testing.T, ctx context.Context, db *sql.DB, table s
 	return true, nullable.String == "YES"
 }
 
-// groupOwnerIndexCount reports how many indexes cover the dropped
-// (tenant_id, owner_id) pair.
 func groupOwnerIndexCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 	t.Helper()
 	var count int
@@ -341,29 +292,21 @@ func groupOwnerIndexCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 	return count
 }
 
-// assertSiteOwnerDropped confirms migration 009 removed the site-ownership
-// column and the index built on it. Tenant is the visibility boundary, so
-// nothing reads a site owner any more.
-//
-// table and tenantColumn are named by the caller because both move as the
-// rehearsal walks forward: the scope column is renamed by 010 and the table
-// itself by 012.
+// table and tenantColumn are passed in because 010 renames the scope column and 012 the table.
 func assertSiteOwnerDropped(t *testing.T, ctx context.Context, db *sql.DB, table, tenantColumn string) {
 	t.Helper()
 	exists, _ := siteOwnerNullability(t, ctx, db, table)
 	assert.Falsef(t, exists, "%s.owner_id should be gone after migration 009", table)
 	assert.Zero(t, groupOwnerIndexCount(t, ctx, db), "the owner index should be gone after migration 009")
 
-	// The surviving rows keep their tenant, which is what scopes them now.
+	// The surviving rows keep their tenant, which scopes them.
 	var orphaned int
 	require.NoError(t, db.QueryRowContext(ctx, fmt.Sprintf(
 		`SELECT COUNT(*) FROM %s WHERE %s IS NULL`, sqlIdent(table), sqlIdent(tenantColumn))).Scan(&orphaned))
 	assert.Zero(t, orphaned, "every site should still carry its tenant")
 }
 
-// assertSiteOwnerDownReversal confirms the 009 down rollback re-adds owner_id.
-// Dropping a column is lossy, so the restored column is nullable — the original
-// NOT NULL cannot be recreated without the data it held.
+// The restored owner_id is nullable because the original NOT NULL cannot be recreated.
 func assertSiteOwnerDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	exists, nullable := siteOwnerNullability(t, ctx, db, "groups_")
@@ -372,10 +315,6 @@ func assertSiteOwnerDownReversal(t *testing.T, ctx context.Context, db *sql.DB) 
 	assert.Equal(t, 1, groupOwnerIndexCount(t, ctx, db), "the owner index should be back after the 009 down rollback")
 }
 
-// assertOrganizationsIntroduced confirms the customer entity landed whole: the
-// table carries the tenant policy like every other tenant table, every tenant
-// has at least one customer, every device names one, and deleting a customer
-// takes its devices with it rather than leaving them behind.
 func assertOrganizationsIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
 	t.Helper()
 
@@ -395,7 +334,6 @@ func assertOrganizationsIntroduced(t *testing.T, ctx context.Context, db *sql.DB
 	assertOrganizationDeleteCascades(t, ctx, db, schemaName)
 }
 
-// policyCount reports how many policies of the given name exist in the schema.
 func policyCount(t *testing.T, ctx context.Context, db *sql.DB, policy string) int {
 	t.Helper()
 	var count int
@@ -404,9 +342,6 @@ func policyCount(t *testing.T, ctx context.Context, db *sql.DB, policy string) i
 	return count
 }
 
-// assertOrganizationDeleteCascades proves the erasure chain from the customer
-// down: a throwaway customer with a device and a hardware row leaves nothing
-// behind, and its tenant's other rows are untouched.
 func assertOrganizationDeleteCascades(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
 	t.Helper()
 	const roleName = "opengate_rls_rehearsal"
@@ -442,10 +377,6 @@ func assertOrganizationDeleteCascades(t *testing.T, ctx context.Context, db *sql
 	assert.Equal(t, 1, survivors, "the tenant's other devices should be untouched")
 }
 
-// assertSitesIntroduced confirms the filing level landed whole: it is named
-// sites, it carries the tenant policy under its new name, every site names a
-// customer, and the pair constraint that keeps a device's site inside the
-// device's own customer is live.
 func assertSitesIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
 	t.Helper()
 
@@ -463,8 +394,7 @@ func assertSitesIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schema
 		`SELECT COUNT(*) FROM sites WHERE organization_id IS NULL`).Scan(&orphanSites))
 	assert.Zero(t, orphanSites, "every site should name a customer")
 
-	// security_groups is a user permission group, an unrelated concept that
-	// merely shares the word. The rename must not have touched it.
+	// security_groups is a user permission group that shares the word; the rename leaves it alone.
 	var securityGroups sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.security_groups')`).Scan(&securityGroups))
 	assert.True(t, securityGroups.Valid, "user permission groups are a different concept and stay put")
@@ -472,10 +402,6 @@ func assertSitesIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schema
 	assertSiteMustMatchDeviceOrganization(t, ctx, db, schemaName)
 }
 
-// assertSiteMustMatchDeviceOrganization proves the pair constraint refuses the
-// mismatch outright: a device in one customer cannot be filed into another
-// customer's office, and deleting an office unfiles its machines rather than
-// deleting them.
 func assertSiteMustMatchDeviceOrganization(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
 	t.Helper()
 	const roleName = "opengate_rls_rehearsal"
@@ -502,8 +428,7 @@ func assertSiteMustMatchDeviceOrganization(t *testing.T, ctx context.Context, db
 		`UPDATE devices SET site_id = $1 WHERE id = $2`, siteA, deviceB)
 	require.Error(t, err, "a device must not take a site belonging to another customer")
 
-	// The same device inside the right customer is accepted, and losing the
-	// site leaves the machine in place, simply unfiled.
+	// Losing the site leaves the machine in place, unfiled.
 	rehearsalExecNoTx(t, ctx, db, `UPDATE devices SET organization_id = $1, site_id = $2 WHERE id = $3`, orgA, siteA, deviceB)
 	rehearsalExecNoTx(t, ctx, db, `DELETE FROM sites WHERE id = $1`, siteA)
 
@@ -516,8 +441,6 @@ func assertSiteMustMatchDeviceOrganization(t *testing.T, ctx context.Context, db
 	rehearsalExecNoTx(t, ctx, db, `DELETE FROM organizations WHERE id IN ($1, $2)`, orgA, orgB)
 }
 
-// assertSitesDownReversal confirms the rollback put the filing level back to a
-// flat label on the tenant: the old name returns and the customer link is gone.
 func assertSitesDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	var groups, sites sql.NullString
@@ -538,8 +461,6 @@ func assertSitesDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	assert.Zero(t, siteColumns, "and restore the device column to the name it had")
 }
 
-// assertOrganizationsDownReversal confirms the rollback removed the customer
-// entity and the device link, leaving the schema as the step before it built it.
 func assertOrganizationsDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	var organizations sql.NullString

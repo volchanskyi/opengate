@@ -7,16 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A run is gated on the verdict it wrote about itself, and what the target was
-// holding is half of that verdict. Two outcomes come out of the bracket, and
-// they are different kinds of thing: a process replaced mid-run means the
-// numbers describe two systems, so the run measured nothing; a target that kept
-// what it took is a finding about the system, so the run measured it and it was
-// found wanting.
-//
-// The third arm is the one that is easy to leave out: a run that never read its
-// target says nothing about it at all.
-
 // classifyWithTarget runs a complete, otherwise unremarkable night against one
 // target reading, so each case below differs only in what the target did.
 func classifyWithTarget(target TargetConservation) Verdict {
@@ -63,8 +53,6 @@ func TestClassifyInvalidatesARunWhoseTargetWasReplaced(t *testing.T) {
 	assert.Contains(t, verdict.Reasons[0], "target restarted mid-run")
 }
 
-// Not giving the goroutines back is a finding about the system, so it fails the
-// run rather than invalidating it — validity.go's own doctrine.
 func TestClassifyFailsARunWhoseTargetKeptWhatItTook(t *testing.T) {
 	t.Parallel()
 
@@ -77,8 +65,6 @@ func TestClassifyFailsARunWhoseTargetKeptWhatItTook(t *testing.T) {
 		"the reason must name the per-operation figure, or nobody can act on it")
 }
 
-// A target that gave everything back passes, which is the arm that proves the
-// gate is not simply always red.
 func TestClassifyAcceptsATargetThatGaveItBack(t *testing.T) {
 	t.Parallel()
 

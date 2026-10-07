@@ -16,10 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestResolveBaseURL covers the env-override vs. auto-provision branch without
-// Docker: an external VICTORIAMETRICS_TEST_URL is used verbatim (and skips
-// provisioning), otherwise a container is provisioned, and a provisioning
-// failure propagates instead of silently returning an empty URL.
 func TestResolveBaseURL(t *testing.T) {
 	provisionErr := errors.New("docker unavailable")
 
@@ -82,10 +78,6 @@ func TestResolveBaseURL(t *testing.T) {
 	}
 }
 
-// TestDedicated_IgnoresTheSharedURL pins the property Dedicated exists for: a
-// measurement that reads VictoriaMetrics' own memory or disk must not share the
-// instance with the rest of the suite, so an external URLEnv — which `make
-// test-go` always sets — must not be handed back here.
 func TestDedicated_IgnoresTheSharedURL(t *testing.T) {
 	t.Setenv(URLEnv, "http://shared.example:8428")
 
@@ -94,17 +86,10 @@ func TestDedicated_IgnoresTheSharedURL(t *testing.T) {
 	require.NotEqual(t, "http://shared.example:8428", base,
 		"a dedicated VictoriaMetrics must be its own container, not the shared one")
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/health", nil)
-	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	status, _ := httpGet(t, base+"/health")
+	require.Equal(t, http.StatusOK, status)
 }
 
-// TestDedicated_HoldsOnlyItsOwnData covers what a dedicated instance is for: two
-// of them, live at the same time, do not see each other's series, and neither
-// sees the shared one's.
 func TestDedicated_HoldsOnlyItsOwnData(t *testing.T) {
 	first, second := Dedicated(t), Dedicated(t)
 	require.NotEqual(t, first, second, "each call must provision its own container")
@@ -116,11 +101,6 @@ func TestDedicated_HoldsOnlyItsOwnData(t *testing.T) {
 	require.Equal(t, 0, seriesCount(t, second, "dedicated_probe"), "its neighbour holds nothing")
 }
 
-// TestDedicated_AppliesExtraArgs proves the flags a measurement pins actually
-// reach the process: a measurement that fixes VictoriaMetrics' memory budget so
-// the answer does not depend on the host is only a measurement if the flag
-// arrives. VictoriaMetrics reports its own command line, so the check is against
-// what the running process says, not against what was passed in.
 func TestDedicated_AppliesExtraArgs(t *testing.T) {
 	base := Dedicated(t, "-retentionPeriod=7d")
 
@@ -130,17 +110,21 @@ func TestDedicated_AppliesExtraArgs(t *testing.T) {
 	require.Contains(t, flag, `is_set="true"`)
 }
 
-// scrapeFlag returns the value VictoriaMetrics reports for a command-line flag
-// through its own flag gauge.
-func scrapeFlag(t *testing.T, base, name string) string {
+func httpGet(t *testing.T, target string) (int, []byte) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/metrics", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
+	body, readErr := io.ReadAll(resp.Body)
+	require.NoError(t, resp.Body.Close())
+	require.NoError(t, readErr)
+	return resp.StatusCode, body
+}
+
+func scrapeFlag(t *testing.T, base, name string) string {
+	t.Helper()
+	_, body := httpGet(t, base+"/metrics")
 
 	for line := range strings.SplitSeq(string(body), "\n") {
 		if strings.HasPrefix(line, "flag{name=\""+name+"\"") {
@@ -150,7 +134,6 @@ func scrapeFlag(t *testing.T, base, name string) string {
 	return ""
 }
 
-// importSample writes one exposition line into a VictoriaMetrics instance.
 func importSample(base, line string) error {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
 		base+"/api/v1/import/prometheus", strings.NewReader(line))
@@ -168,8 +151,6 @@ func importSample(base, line string) error {
 	return nil
 }
 
-// waitForSeries flushes and re-counts until an instance holds want series, then
-// returns the last reading so a mismatch fails on the real number.
 func waitForSeries(t *testing.T, base string, want int) int {
 	t.Helper()
 	var last int
@@ -182,54 +163,24 @@ func waitForSeries(t *testing.T, base string, want int) int {
 	return last
 }
 
-// seriesCount returns how many series named metric an instance holds, flushing
-// first so a just-written sample is visible.
 func seriesCount(t *testing.T, base, metric string) int {
 	t.Helper()
-	flush, err := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/internal/force_flush", nil)
-	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(flush)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
+	httpGet(t, base+"/internal/force_flush")
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
-		base+"/api/v1/series?match[]="+url.QueryEscape(`{__name__="`+metric+`"}`), nil)
-	require.NoError(t, err)
-	series, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	_, body := httpGet(t, base+"/api/v1/series?match[]="+url.QueryEscape(`{__name__="`+metric+`"}`))
 	var result struct {
 		Data []map[string]string `json:"data"`
 	}
-	decodeErr := json.NewDecoder(series.Body).Decode(&result)
-	require.NoError(t, series.Body.Close())
-	require.NoError(t, decodeErr)
+	require.NoError(t, json.Unmarshal(body, &result))
 	return len(result.Data)
 }
 
-// TestBaseURL_StartsHealthyVictoriaMetrics provisions a throwaway VM (or uses
-// the external one named by URLEnv) and asserts its /health endpoint is ready.
-// It never skips: a provisioning failure fails loudly via BaseURL, so a missing
-// VM is a red test rather than a false green.
 func TestBaseURL_StartsHealthyVictoriaMetrics(t *testing.T) {
-	base := BaseURL(t)
+	status, _ := httpGet(t, BaseURL(t)+"/health")
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/health", nil)
-	require.NoError(t, err)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusOK, status)
 }
 
-// TestPackageSettlesTheReaper is the regression guard for the failure this
-// package used to hand its callers: `server/tests/vmbackfill` imports testvm
-// and nothing else that provisions, so with the reaper left at its defaults the
-// process waited a fixed minute on a reaper container another process owned and
-// failed with "wait for reaper: context deadline exceeded" — a red suite about
-// a machine's load rather than about VictoriaMetrics. Settling both values at
-// package init is what makes this package safe to import on its own.
 func TestPackageSettlesTheReaper(t *testing.T) {
 	require.NotEmpty(t, os.Getenv("TESTCONTAINERS_RYUK_CONNECTION_TIMEOUT"),
 		"importing testvm must widen the reaper wait")

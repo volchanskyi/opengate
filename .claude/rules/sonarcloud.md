@@ -24,7 +24,7 @@ computed from file content rather than from blame:
 | Guard | Gate condition it stands in for |
 |---|---|
 | [`sonar-coverage-guard.sh`](../../scripts/sonar-coverage-guard.sh) | `new_coverage`, held off the 80.0 boundary by a buffer, plus every line the diff touched |
-| [`sonar-duplication-guard.sh`](../../scripts/sonar-duplication-guard.sh) | `new_duplicated_lines_density`, per changed file |
+| [`check-duplication`](../../scripts/check-duplication/) | `new_duplicated_lines_density`, widened to every production file in the codebase |
 | [`sonar-rating-guard.sh`](../../scripts/sonar-rating-guard.sh) | `new_reliability_rating`, `new_security_rating`, `new_security_hotspots_reviewed`, per changed file |
 
 - The coverage guard asks SonarCloud for the per-line hits it computed, and
@@ -36,6 +36,14 @@ computed from file content rather than from blame:
 - The rating guard fails on a bug, vulnerability or unreviewed hotspot on
   changed **main** code, and reports without failing on findings that move no
   gate condition. A finding on an untouched file does not fail the commit.
+- The duplication reader reads the repeated code the scanner computed into the
+  report it keeps (`-Dsonar.scanner.keepReport=true`), so it covers the whole
+  codebase on every commit. It refuses any production file above 3% repeated
+  lines, and a report it cannot read, holding no production files, or missing.
+  The CI `sonarcloud` job runs it after its own scan.
+- The scanner is pinned in
+  [`tool-versions.sh`](../../scripts/lib/tool-versions.sh): the image tag for
+  `make sonar` and the CI fallback, the CLI version for the scan action.
 
 ### A red local scan is not a red gate either
 

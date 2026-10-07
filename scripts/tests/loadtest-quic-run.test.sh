@@ -38,7 +38,6 @@ assert_no_file() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# A harness stand-in: prints what the case needs, exits with the code it needs.
 make_harness() {
   local exit_code="$1" body="$2"
   cat >"$WORK/harness" <<EOF
@@ -86,20 +85,14 @@ run_case() {
 
 echo "loadtest-quic-run:"
 
-# A clean run measured the fleet.
 run_case 0 "$COMPLETE_RUN"
 assert_eq "clean run exits 0" "0" "$STATUS"
 assert_file "clean run keeps its output" "$WORK/quic.txt"
 
-# A fleet that half connected is a measurement — the error rate is the finding —
-# so the exit status survives and the output is kept.
 run_case 1 "$PARTIAL_RUN"
 assert_eq "agent failures propagate 1" "1" "$STATUS"
 assert_file "agent failures keep the output" "$WORK/quic.txt"
 
-# A harness that could not start describes its own failure, not the server's
-# latency. Trending zeroes from it drags the window median down for every later
-# run, so the output is discarded.
 run_case 2 "$ABORTED"
 assert_eq "an aborted harness propagates its status" "2" "$STATUS"
 assert_no_file "an aborted harness discards its output" "$WORK/quic.txt"
@@ -109,11 +102,6 @@ else
   fail "an aborted harness says its output was discarded"
 fi
 
-# A run that finished and connected nobody is the third outcome, and it is not
-# an abort: the harness ran to completion and printed a full results block, and
-# what it measured was nothing. Its rows are zeroes, so they are discarded the
-# same way — but a message calling it an abort sends a reader looking for a crash
-# that never happened.
 MEASURED_NOTHING='Starting QUIC load test: 500 agents across 1 tenant(s) → 10.0.0.42:9090
 
 === Results ===
@@ -132,8 +120,6 @@ else
   fail "a run that measured nothing is named as one, not as an abort"
 fi
 
-# The exit code is not the only thing that can lie. Output with no results block
-# never completed a run, whatever it exited with.
 run_case 0 "$ABORTED"
 if [ "$STATUS" -ne 0 ]; then
   pass "output with no results block fails even on a zero exit"
@@ -142,8 +128,6 @@ else
 fi
 assert_no_file "output with no results block is discarded" "$WORK/quic.txt"
 
-# A results block whose agent line is malformed cannot be summarized, so it is
-# not a measurement either.
 run_case 0 '=== Results ===
 Total time:  4.9s
 Agents:      lots succeeded'
@@ -153,14 +137,11 @@ else
   fail "a malformed agent line is not a measurement"
 fi
 
-# The verdict is the runner's own exit code, and the caller waits on it, so
-# there is nothing to leave beside the output for somebody else to read.
 run_case 0 "$COMPLETE_RUN"
 assert_no_file "a clean run leaves no verdict file beside its output" "$WORK/quic.txt.status"
 run_case 2 "$ABORTED"
 assert_no_file "an aborted harness leaves no verdict file beside its output" "$WORK/quic.txt.status"
 
-# Usage errors are refused rather than silently running nothing.
 STATUS=0
 "$RUNNER" >/dev/null 2>&1 || STATUS=$?
 assert_eq "no arguments exits 2" "2" "$STATUS"
@@ -168,8 +149,6 @@ STATUS=0
 "$RUNNER" "$WORK/quic.txt" "$WORK/harness" >/dev/null 2>&1 || STATUS=$?
 assert_eq "a missing -- separator exits 2" "2" "$STATUS"
 
-# The workflow must drive the QUIC harness through this runner, or the half that
-# has no keep-or-discard rule is the half that runs.
 WORKFLOW="$REPO_ROOT/.github/workflows/load-test.yml"
 wrapped="$(grep -cE 'scripts/loadtest-quic-run\.sh' "$WORKFLOW" || true)"
 if [ "$wrapped" -ge 1 ]; then

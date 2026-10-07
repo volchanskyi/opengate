@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/assert-mutation-report.sh — the shard's own read-back of the
-# report its mutation tool was supposed to write.
-#
-# The tool step swallows the tool's exit code on purpose (a surviving mutant is
-# not a build failure), so the report is the only thing left that says the shard
-# did any work. These tests pin what the guard treats as work: a readable report
-# with content, and nothing else.
+# Tests for scripts/assert-mutation-report.sh: only a readable report with content counts as work.
 
 set -euo pipefail
 
@@ -39,14 +33,12 @@ else
   exit 1
 fi
 
-# run_guard ARGS… — runs the guard and prints "<exit>|<stderr+stdout>".
 run_guard() {
   local out status=0
   out="$("$GUARD" "$@" 2>&1)" || status=$?
   printf '%s|%s' "$status" "$out"
 }
 
-# --- a report with content is the shard's evidence of work ---------------------
 printf '%s' '{"mutants_killed":10,"mutants_lived":1}' >"$WORK/report.json"
 result="$(run_guard gremlins "$WORK/report.json")"
 if [ "${result%%|*}" = "0" ]; then
@@ -55,7 +47,6 @@ else
   fail "a report with content must pass (got: $result)"
 fi
 
-# --- an absent report is a shard that did nothing ------------------------------
 result="$(run_guard gremlins "$WORK/absent.json")"
 if [ "${result%%|*}" != "0" ]; then
   pass "an absent report fails the shard"
@@ -68,7 +59,6 @@ else
   fail "the failure must name the tool (got: ${result#*|})"
 fi
 
-# --- an empty report is not a report -------------------------------------------
 : >"$WORK/empty.json"
 result="$(run_guard gremlins "$WORK/empty.json")"
 if [ "${result%%|*}" != "0" ]; then
@@ -77,7 +67,6 @@ else
   fail "an empty report must fail the shard"
 fi
 
-# --- a directory of outcomes is accepted by naming the file inside it -----------
 mkdir -p "$WORK/mutants.out"
 printf '%s' '{"outcomes":[]}' >"$WORK/mutants.out/outcomes.json"
 result="$(run_guard cargo-mutants "$WORK/mutants.out/outcomes.json")"
@@ -87,12 +76,7 @@ else
   fail "cargo-mutants' outcomes.json must pass (got: $result)"
 fi
 
-# --- a Stryker report whose covered mutants ran no tests measured nothing ------
-#
-# A test runner whose per-test filter matches nothing runs zero tests against
-# every mutant and reports each one survived: a well-formed report, a score of
-# nought, and a regression alert about tests that were never run. The report
-# says so itself — a mutant tests cover, completed by none of them.
+# A runner whose per-test filter matches nothing runs zero tests and reports every mutant survived.
 cat >"$WORK/stryker-ran-nothing.json" <<'REPORT'
 {"files":{"src/a.ts":{"mutants":[
   {"id":"1","status":"Survived","coveredBy":["t1","t2"],"testsCompleted":0},
@@ -125,7 +109,6 @@ else
   fail "a Stryker report whose surviving mutants were tested must pass (got: $result)"
 fi
 
-# --- the guard refuses to answer without being told what to look for ------------
 result="$(run_guard)"
 if [ "${result%%|*}" = "2" ]; then
   pass "a call naming no report is a usage error, not a pass"

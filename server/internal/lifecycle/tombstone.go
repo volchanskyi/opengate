@@ -8,10 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// TombstoneStore is the persisted deny-list backing every write path's
-// resurrection check. It sits on the non-tenant deleted_ids table (no RLS, no
-// FK to tenants) so it keeps rejecting a subject after the tenant's own rows
-// are gone.
+// TombstoneStore is the persisted deny-list behind every write path's resurrection check, on the
+// non-tenant deleted_ids table (no RLS, no FK) so it outlives the tenant's rows.
 type TombstoneStore struct {
 	db *sql.DB
 }
@@ -21,9 +19,8 @@ func NewTombstoneStore(db *sql.DB) *TombstoneStore {
 	return &TombstoneStore{db: db}
 }
 
-// TombstoneDevice records a device as deleted. It is idempotent: re-recording
-// the same device (a resumed purge) is a no-op. by is the requesting user, or
-// nil for a system sweep.
+// TombstoneDevice records a device as deleted, idempotently; by is the requesting user, nil
+// for a system sweep.
 func (s *TombstoneStore) TombstoneDevice(ctx context.Context, tenantID, deviceID uuid.UUID, by *uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO deleted_ids (tenant_id, device_id, scope, deleted_by)
@@ -109,8 +106,6 @@ func (s *TombstoneStore) ListAll(ctx context.Context) ([]Tombstone, error) {
 	return out, rows.Err()
 }
 
-// nullableUUID converts an optional UUID into a driver value: nil pointer maps
-// to SQL NULL.
 func nullableUUID(id *uuid.UUID) any {
 	if id == nil {
 		return nil

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Revert a staging-only edge fault applied by ingress-apply.sh (FI4). Refuses any
-# namespace but opengate-staging and is idempotent: with no saved state it is a
-# no-op, so it is safe to run from a cleanup `trap` or workflow `always()`.
-# See deploy/fault/ingress/README.md.
+# Reverts an edge fault applied by ingress-apply.sh; with no saved state it does nothing.
+# Only the opengate-staging namespace is accepted.
 set -euo pipefail
 
 ALLOWED_NAMESPACE="opengate-staging"

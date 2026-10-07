@@ -9,11 +9,8 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-// controlMessageReflect is a defined type over ControlMessage. Defined types do
-// not inherit the methods of their underlying type, so marshalling this shape
-// goes through vmihailenco/msgpack's generic reflection-based struct encoder
-// while ControlMessage itself uses its hand-written EncodeMsgpack. That makes it
-// the reference implementation these tests diff the hand-written encoder against.
+// controlMessageReflect is a defined type that lacks ControlMessage's methods, so msgpack
+// marshals it by reflection: the reference the hand-written encoder is diffed against.
 type controlMessageReflect ControlMessage
 
 // marshalReflect encodes msg through the reflection-based struct encoder.
@@ -54,18 +51,6 @@ func nonZeroValue(t *testing.T, typ reflect.Type) reflect.Value {
 	}
 }
 
-// TestEncodeControlMatchesReflectionPerField walks every field of
-// ControlMessage and asserts the hand-written encoder emits byte-identical
-// msgpack to the reflection encoder when only that field is populated. This is
-// the wire-compatibility guard: it fails on any dropped field, wrong key name,
-// wrong field order, or wrong omitempty semantics — for every field, not just
-// the ones a hand-picked fixture happens to cover.
-//
-// It also covers the encoder's grouped dispatch: the field positions are handed
-// to one group of fields each, and a boundary drawn one place out would leave a
-// field written by nobody. That failure is silent on the wire — the map is
-// simply short one key — so it is caught here, per field, rather than by
-// whichever fixture happens to set that one.
 func TestEncodeControlMatchesReflectionPerField(t *testing.T) {
 	c := &Codec{}
 	typ := reflect.TypeOf(ControlMessage{})
@@ -85,9 +70,6 @@ func TestEncodeControlMatchesReflectionPerField(t *testing.T) {
 	}
 }
 
-// TestEncodeControlMatchesReflectionAllFieldsSet populates every field at once,
-// which pins the emitted field ordering and the map length across the whole
-// struct rather than one field at a time.
 func TestEncodeControlMatchesReflectionAllFieldsSet(t *testing.T) {
 	c := &Codec{}
 	msg := &ControlMessage{}
@@ -102,8 +84,6 @@ func TestEncodeControlMatchesReflectionAllFieldsSet(t *testing.T) {
 	assert.Equal(t, marshalReflect(t, msg), got)
 }
 
-// TestEncodeControlMatchesReflectionZeroValue covers the degenerate message:
-// only the non-omitempty Type key survives, and it is emitted even when empty.
 func TestEncodeControlMatchesReflectionZeroValue(t *testing.T) {
 	c := &Codec{}
 	msg := &ControlMessage{}
@@ -113,9 +93,6 @@ func TestEncodeControlMatchesReflectionZeroValue(t *testing.T) {
 	assert.Equal(t, marshalReflect(t, msg), got)
 }
 
-// TestEncodeControlMatchesReflectionRoundTrip asserts the hand-written encoder
-// still decodes back to an equal message through the reflection-based decoder,
-// for representative messages of several types.
 func TestEncodeControlMatchesReflectionRoundTrip(t *testing.T) {
 	tr := true
 	tests := []struct {
@@ -181,12 +158,6 @@ func TestEncodeControlMatchesReflectionRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEncodeControlAllocationBudget pins the allocation cost of encoding a
-// control message so it stays independent of how many fields ControlMessage
-// declares. The reflection encoder heap-boxes every omitempty field on every
-// call to test it for emptiness, so its cost grew with each new protocol field;
-// the hand-written encoder tests emptiness with direct typed comparisons and
-// allocates only for the output buffer and the values actually emitted.
 func TestEncodeControlAllocationBudget(t *testing.T) {
 	c := &Codec{}
 	msg := &ControlMessage{
@@ -210,10 +181,6 @@ func TestEncodeControlAllocationBudget(t *testing.T) {
 		avg, budget)
 }
 
-// TestEncodeControlAllocationsDoNotScaleWithFieldCount asserts the encoder's
-// allocation cost tracks the fields a message actually carries, not the field
-// count of the ControlMessage union: a one-field heartbeat must not pay for the
-// register message's fields.
 func TestEncodeControlAllocationsDoNotScaleWithFieldCount(t *testing.T) {
 	c := &Codec{}
 	heartbeat := &ControlMessage{Type: MsgAgentHeartbeat, Timestamp: 1700000000}

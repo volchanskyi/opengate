@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
-# Provision the pinned ShellCheck, shfmt and jq binaries that the shell-quality
-# gates and the repository's scripts run on.
-#
-# CI and the workstation both run this script, and the versions come from
-# scripts/lib/tool-versions.sh, so neither side can be on a tool the other is
-# not. jq is here for that reason rather than for the gates: 33 scripts read
-# JSON with it and the two sides had silently disagreed about which one, which
-# renders numbers differently and failed a nightly drill's test on every CI run
-# while passing on the workstation.
+# Provisions the pinned ShellCheck, shfmt and jq binaries the shell-quality gates run on.
+# jq is pinned because its versions render numbers differently.
 
 set -euo pipefail
 

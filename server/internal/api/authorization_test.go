@@ -12,9 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestDeviceFleetReadsAreTenantWide verifies that tenant membership alone
-// grants the fleet read surface: two ordinary members of the same tenant
-// see the same devices, whichever site holds them.
 func TestDeviceFleetReadsAreTenantWide(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -57,9 +54,6 @@ func TestDeviceFleetReadsAreTenantWide(t *testing.T) {
 	}
 }
 
-// TestDeviceConfigurationIsAdminOnly verifies the mutation boundary: deleting a
-// device and moving it between sites are configuration changes, refused to an
-// ordinary member and allowed to an admin.
 func TestDeviceConfigurationIsAdminOnly(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -97,10 +91,6 @@ func TestDeviceConfigurationIsAdminOnly(t *testing.T) {
 	})
 }
 
-// TestDeviceCommandsAreOpenToTenantMembers verifies that acting on a device —
-// restarting the agent, toggling maintenance — needs tenant membership
-// only. A 409 proves the request cleared authorization and reached the agent
-// broker, which has no connected agent in this server.
 func TestDeviceCommandsAreOpenToTenantMembers(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -133,9 +123,6 @@ func TestDeviceCommandsAreOpenToTenantMembers(t *testing.T) {
 	})
 }
 
-// TestDeviceReadsRejectOtherTenants verifies the visibility boundary still
-// stops at the tenant: a member of another tenant gets a 404 from
-// the tenant-scoped lookup rather than the device.
 func TestDeviceReadsRejectOtherTenants(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)

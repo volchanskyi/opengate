@@ -1,10 +1,5 @@
-# Remote state lives in an OCI Object Storage bucket accessed via the S3-compatible
-# API. Operator-specific values (the OCI namespace in the endpoint, the credentials
-# file path) are provided via `backend.tfbackend` (gitignored). See
-# docs/infrastructure/OCI-Terraform.md → "State backend" for the migration runbook.
-#
-# CI runs `terraform init -backend=false` (Makefile lint-deploy + ci.yml config-lint),
-# so the backend stanza is never resolved in CI and no OCI creds are required there.
+# Remote state lives in OCI Object Storage through the S3-compatible API; the endpoint and
+# credentials file come from the gitignored `backend.tfbackend`.
 
 terraform {
   # 1.7+ is required for `expect_failures` against variable validation blocks
@@ -23,20 +18,17 @@ terraform {
     key    = "terraform.tfstate"
     region = "us-sanjose-1"
 
-    # OCI Object Storage S3-compat is not real AWS — these checks must be skipped.
+    # OCI's S3-compatible API lacks the AWS-only services these checks call.
     skip_region_validation      = true
     skip_credentials_validation = true
     skip_metadata_api_check     = true
     skip_requesting_account_id  = true
     use_path_style              = true
 
-    # AWS SDK v2 defaults to a flexible-checksum + chunked-encoding upload that
-    # OCI S3-compat rejects with `501 NotImplemented: AWS chunked encoding not
-    # supported`. Skip it.
+    # OCI rejects the SDK's flexible-checksum chunked upload with `501 NotImplemented`.
     skip_s3_checksum = true
 
-    # `endpoints.s3` and `shared_credentials_files` are supplied at init time via
-    # `terraform init -backend-config=backend.tfbackend`. See backend.tfbackend.example.
+    # `endpoints.s3` and `shared_credentials_files` are supplied at init through -backend-config.
   }
 }
 
@@ -59,11 +51,7 @@ module "networking" {
   ssh_allowed_cidr = var.ssh_allowed_cidr
 }
 
-# OCI Bastion service — operator access plane. Its target is the OKE worker-node
-# subnet, so `make ssh` reaches the node for node-level debugging
-# (deploy/scripts/bastion-session.sh resolves the node IP from the node pool). CI
-# uses `.github/actions/oci-kube-setup` and the Kubernetes API instead of
-# SSH/Bastion. See ADR-018 for the decision rationale.
+# Operator access plane: the target is the OKE worker-node subnet, so `make ssh` reaches the node.
 module "bastion" {
   source = "./modules/bastion"
 
@@ -71,11 +59,8 @@ module "bastion" {
   target_subnet_id = module.networking.oke_node_subnet_id
 }
 
-# OKE cluster (Phase 13b cutover, ADR-030 / ADR-034). Stands up the BASIC
-# control plane + a single Always-Free A1.Flex worker node *beside* the compose
-# VM during the pilot (the 1×2 OCPU/12 GB defaults fit the remaining budget;
-# plan §5). Networking (subnets + NSGs) comes from the networking module's OKE
-# additions. node/version/image/AD are resolved live (see variables.tf defaults).
+# OKE cluster: a BASIC control plane and one Always-Free A1.Flex worker node, with subnets and
+# NSGs from the networking module; node, version, image and AD resolve live.
 module "oke" {
   source = "./modules/oke"
 
@@ -92,11 +77,8 @@ module "oke" {
   ssh_public_key_path    = var.ssh_public_key_path
 }
 
-# Off-cluster Postgres backups (ADR-035). Reconciles the bucket + retention
-# lifecycle + lifecycle IAM policy that were originally created imperatively with
-# the oci CLI. The namespace is resolved live so it is not hard-coded. These live
-# resources are brought under management by `terraform import` (see
-# modules/backups/README.md), never recreated.
+# Off-cluster Postgres backups: the bucket, retention lifecycle and lifecycle IAM policy,
+# imported into state and never recreated; the namespace resolves live.
 data "oci_objectstorage_namespace" "this" {
   compartment_id = local.compartment_id
 }
@@ -110,10 +92,7 @@ module "backups" {
   lifecycle_days   = var.backup_lifecycle_days
 }
 
-# Reconcile pre-decomposition state addresses with the new module-prefixed
-# addresses. Without these blocks Terraform would plan to destroy + recreate
-# every resource on the next apply. Data sources do not need `moved` — they
-# re-resolve at plan time.
+# These blocks map existing state addresses onto the module-prefixed ones, avoiding recreation.
 
 moved {
   from = oci_core_vcn.opengate

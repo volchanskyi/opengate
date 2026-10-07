@@ -11,13 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The bundle, not the metrics store, is what a run is. VictoriaMetrics keeps 30
-// days; a comparison against a run older than that has to read something that
-// still exists. So the bundle carries everything needed to interpret its own
-// numbers — what produced them, what was offered, what was achieved, and what
-// state the system was left in — and a bundle missing any of that fails the run
-// rather than entering the trend as a thinner version of a real one.
-
 func completeBundle() *Bundle {
 	start := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)
 	return &Bundle{
@@ -74,12 +67,20 @@ func completeBundle() *Bundle {
 	}
 }
 
+func bundleKeys(t *testing.T, b *Bundle) map[string]any {
+	t.Helper()
+	data, err := json.Marshal(b)
+	require.NoError(t, err)
+
+	var generic map[string]any
+	require.NoError(t, json.Unmarshal(data, &generic))
+	return generic
+}
+
 func TestCompleteBundleIsAccepted(t *testing.T) {
 	require.NoError(t, completeBundle().Validate())
 }
 
-// Each of these is a section whose absence changes what the numbers mean. A
-// bundle without them is not a smaller bundle; it is a run nobody can read.
 func TestBundleRefusesAMissingMandatorySection(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -114,10 +115,6 @@ func TestBundleRefusesAMissingMandatorySection(t *testing.T) {
 	}
 }
 
-// Offered load and achieved load are separate fields because they answer
-// different questions. Collapsing them hides the case the whole validity rule
-// exists for: a generator that could not produce the load reads as a system
-// that could not absorb it.
 func TestBundleKeepsOfferedAndAchievedApart(t *testing.T) {
 	b := completeBundle()
 	b.Phases[0].AchievedAgentArrivalsPerSecond = 2.0
@@ -128,10 +125,6 @@ func TestBundleKeepsOfferedAndAchievedApart(t *testing.T) {
 	assert.Less(t, b.Phases[0].AchievedFraction(), 0.5)
 }
 
-// The two sides of the arrival rate are separate because they are driven by
-// separate processes. A phase whose technician half was measured is read on
-// that half; one whose was not falls back to the machines it did drive, rather
-// than reporting an attainment nothing observed.
 func TestAttainmentReadsWhicheverSideWasMeasured(t *testing.T) {
 	b := completeBundle()
 	assert.InDelta(t, 0.98, b.Phases[0].AchievedFraction(), 0.001,
@@ -143,8 +136,6 @@ func TestAttainmentReadsWhicheverSideWasMeasured(t *testing.T) {
 		"a measured technician rate is what the phase offered and is read first")
 }
 
-// An expected rejection is the system working. Counting it as a fault makes a
-// correctly enforced limit look like a defect and buries the real ones.
 func TestExpectedRejectionsAreNotFaults(t *testing.T) {
 	b := completeBundle()
 	b.Phases[0].ExpectedRejections = 500
@@ -155,8 +146,6 @@ func TestExpectedRejectionsAreNotFaults(t *testing.T) {
 	assert.EqualValues(t, 500, b.Phases[0].ExpectedRejections)
 }
 
-// A run leaves nothing behind. The proof travels with the run rather than being
-// checked once and assumed thereafter, and it covers every kind a run creates.
 func TestBundleRefusesResidue(t *testing.T) {
 	cases := map[string]func(*CleanupProof){
 		"accounts":  func(c *CleanupProof) { c.OrphanUsers = 81 },
@@ -176,9 +165,6 @@ func TestBundleRefusesResidue(t *testing.T) {
 	}
 }
 
-// What a run left behind is counted by the step after it, so a bundle written
-// before that step says why nothing is counted in it — and is readable for
-// saying so. An absence nobody accounts for is still refused.
 func TestAnUncountedCleanupIsReadableOnlyWithItsReason(t *testing.T) {
 	b := completeBundle()
 	b.Cleanup = CleanupProof{NotCounted: "the stack is torn down with the job that built it"}
@@ -205,8 +191,6 @@ func TestBundleRoundTripsThroughDisk(t *testing.T) {
 	assert.NoError(t, read.Validate())
 }
 
-// An invalid bundle never reaches disk in the first place: writing one is how
-// it enters the trend.
 func TestBundleRefusesToWriteWhenIncomplete(t *testing.T) {
 	b := completeBundle()
 	b.Phases = nil
@@ -215,14 +199,8 @@ func TestBundleRefusesToWriteWhenIncomplete(t *testing.T) {
 	require.Error(t, err)
 }
 
-// The bundle is JSON somebody else reads, so its field names are part of the
-// contract. Renaming one silently breaks every reader.
 func TestBundleFieldNamesAreStable(t *testing.T) {
-	data, err := json.Marshal(completeBundle())
-	require.NoError(t, err)
-
-	var generic map[string]any
-	require.NoError(t, json.Unmarshal(data, &generic))
+	generic := bundleKeys(t, completeBundle())
 
 	for _, key := range []string{
 		"schema_version", "run", "target", "generator", "fixture",
@@ -242,14 +220,6 @@ func TestLoadBundleNamesAMalformedFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "decode bundle")
 }
 
-// The estate's filing is a reading of what the run managed, not a claim that it
-// tried.
-//
-// Where a run's scenarios wait for the filing before they read, the wait is what
-// gates it — but the throwaway venues have no such wait, so there the filing
-// happens with nothing standing over it. A count that travels is what lets a
-// reader ask whether the fleet a night measured was one the product could
-// actually find.
 func TestABundleCarriesWhatTheRunFiled(t *testing.T) {
 	filed := 500
 	b := completeBundle()
@@ -260,25 +230,12 @@ func TestABundleCarriesWhatTheRunFiled(t *testing.T) {
 	assert.Equal(t, 500, *b.Fixture.FiledDevices)
 }
 
-// A run that filed nothing because it had nobody to file for is not a run that
-// filed nought machines. Nought would read as a fleet the product cannot find,
-// which is the finding this field exists to report — so a run with no fixture
-// leaves it absent instead.
 func TestARunWithNoFixtureCarriesNoFilingCount(t *testing.T) {
 	b := completeBundle()
 	require.NoError(t, b.Validate())
 	assert.Nil(t, b.Fixture.FiledDevices)
 }
 
-// A night refused at the door is not a night the server was slow.
-//
-// The server counts requests per address, and a run whose presented addresses
-// are not believed spends one allowance between every virtual user: it fills
-// with refusals, reds the error-rate gate, and reports a shape indistinguishable
-// from a slow server. One is a broken test setup and one is a finding about the
-// product. The browser-side generator counts the refusals beside the requests it
-// made, and scripts/loadtest-bundle-merge.sh folds both into the evidence, so the
-// schema carries a home for them rather than a key a later reader invents.
 func TestABundleCarriesWhatTheRunWasRefused(t *testing.T) {
 	b := completeBundle()
 	b.Refusals = &RefusalCount{Requests: 115_228, Refused: 12}
@@ -292,27 +249,13 @@ func TestABundleCarriesWhatTheRunWasRefused(t *testing.T) {
 	assert.Equal(t, int64(115_228), read.Refusals.Requests)
 	assert.Equal(t, int64(12), read.Refusals.Refused)
 
-	var generic map[string]any
-	data, err := json.Marshal(read)
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, &generic))
-	assert.Contains(t, generic, "refusals", "the merge writes this key, so the schema names it")
+	assert.Contains(t, bundleKeys(t, read), "refusals", "the merge writes this key, so the schema names it")
 }
 
-// And a run nobody asked about is not a run nobody refused.
-//
-// Absent rather than nought, for the reason every other optional section of this
-// bundle is: a venue with no browser-side generator took no such reading, and a
-// nought there would read as the cleanest night ever measured.
 func TestABundleWithNoGeneratorDeclaresNoRefusalReading(t *testing.T) {
 	b := completeBundle()
 	require.Nil(t, b.Refusals)
 
-	data, err := json.Marshal(b)
-	require.NoError(t, err)
-
-	var generic map[string]any
-	require.NoError(t, json.Unmarshal(data, &generic))
-	assert.NotContains(t, generic, "refusals",
+	assert.NotContains(t, bundleKeys(t, b), "refusals",
 		"a run that took no such reading must not report nought requests refused")
 }

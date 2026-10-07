@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/k8s-quantity.sh — the cluster's notation becoming a number.
-#
-# A container's limits are stated as "250m" and "384Mi". Put straight into a
-# numeric field they become 250 processors and 384 bytes, and a bundle is read
-# years after the metrics store forgot the night — so the figure two runs are
-# compared by has to be the figure, converted once, where the conversion can be
-# run.
-#
-# The binary and decimal suffixes are the case worth pinning: 384Mi and 384M
-# differ by eighteen megabytes, and a memory ceiling is stated to the byte
-# precisely so that difference is never guessed at.
+# Tests for scripts/k8s-quantity.sh, which converts cluster quantities such as 250m and 384Mi.
+# Binary and decimal suffixes stay distinct: 384Mi is 402653184 bytes and 384M is 384000000.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

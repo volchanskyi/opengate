@@ -8,11 +8,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
-// SetDeviceMaintenance implements StrictServerInterface. Maintenance is the
-// server-authoritative desired suppression state: it is persisted and pushed to
-// the agent, but because it is a desired state rather than a live command it
-// succeeds even when the agent is offline (reconciled on the next connect), so
-// there is no "agent not connected" failure like RestartDevice has.
+// SetDeviceMaintenance implements StrictServerInterface by persisting the desired suppression
+// state and pushing it; it succeeds with the agent offline and reconciles on the next connect.
 func (s *Server) SetDeviceMaintenance(ctx context.Context, request SetDeviceMaintenanceRequestObject) (SetDeviceMaintenanceResponseObject, error) {
 	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
@@ -50,9 +47,8 @@ func (s *Server) SetDeviceMaintenance(ctx context.Context, request SetDeviceMain
 	return SetDeviceMaintenance200JSONResponse(deviceToAPI(updated)), nil
 }
 
-// pushMaintenanceToAgent delivers the new desired state to a connected agent.
-// An offline agent reconciles on its next register, so a missing agent — and a
-// best-effort push failure — are both non-fatal to the persisted toggle.
+// pushMaintenanceToAgent delivers the desired state best-effort; a missing agent or failed push
+// leaves the persisted toggle intact.
 func (s *Server) pushMaintenanceToAgent(ctx context.Context, deviceID uuid.UUID, enabled bool) {
 	ac := s.agents.GetAgent(deviceID)
 	if ac == nil {

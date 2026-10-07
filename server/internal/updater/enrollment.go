@@ -19,10 +19,8 @@ type EnrollmentToken struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// EnrollmentTokenRepository is the outbound persistence port for agent
-// enrollment tokens. GetByToken is the hot-path lookup used during agent
-// CSR submission; IncrementUseCount is called after a successful enrollment
-// and returns an error when the token no longer exists.
+// EnrollmentTokenRepository is the persistence port for agent enrollment tokens.
+// IncrementUseCount returns an error when the token does not exist.
 type EnrollmentTokenRepository interface {
 	Create(ctx context.Context, t *EnrollmentToken) error
 	GetByToken(ctx context.Context, token string) (*EnrollmentToken, error)

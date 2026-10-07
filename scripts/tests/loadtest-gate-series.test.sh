@@ -1,25 +1,5 @@
 #!/usr/bin/env bash
-# Every limit reaches a measurement, and every measurement reaches a decision.
-#
-# load/profiles/normal.yaml names its limits by source/scenario/phase. A row only
-# reaches one if scripts/loadtest-summarize.sh actually emits that triple from
-# the exports the pinned k6 and the QUIC harness write. Those files have no
-# dependency on each other, so a measurement can carry three limits while the
-# extraction never produces it — and a limit on a measurement that never arrives
-# reads as a passing limit forever.
-#
-# The other direction is the one that opens up when limits are consolidated. The
-# set this profile took over had a catch-all: anything nobody listed was held to
-# a default automatically. A profile has no catch-all, so a measurement that is
-# neither limited nor declared unlimited is one nobody ruled on — which looks
-# from the outside exactly like one deliberately left alone. Losing protection
-# that way looks like tidying up, so both directions are checked here.
-#
-# The fixtures are the **pinned k6 version's** output shape rather than a
-# hand-written schema, so a version bump that changes the export reaches this
-# file.
-#
-# Run: ./scripts/tests/loadtest-gate-series.test.sh
+# Every profile limit reaches an emitted measurement, and every emitted measurement has a decision.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,13 +33,10 @@ for f in "$SUMMARIZE" "$PROFILE" "$WORKFLOW"; do
   fi
 done
 
-# gated_series — every source/scenario/phase the profile names a limit for.
 gated_series() {
   profile_gates "$PROFILE" | jq -r '.[].series' | sort -u
 }
 
-# decided_measurements — every series|metric the profile has ruled on, either by
-# limiting it or by declaring it deliberately unlimited.
 decided_measurements() {
   {
     profile_gates "$PROFILE" | jq -r '.[] | "\(.series)|\(.metric)"'
@@ -67,9 +44,6 @@ decided_measurements() {
   } | sort -u
 }
 
-# emitted_measurements — every series|metric the extraction actually produces
-# from the fixtures below. The metric keys that carry no number are dropped by
-# the summarizer, so what is left is what a limit could ever read.
 emitted_measurements() {
   jq -r '
     .[]
@@ -80,9 +54,6 @@ emitted_measurements() {
   ' <<<"$1" | sort -u
 }
 
-# The fixtures below are the shapes the pinned toolchain writes: k6 v1.x puts a
-# metric's statistics flat on the metric object, and the QUIC harness prints its
-# own percentile lines. Both are the extraction's real inputs.
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/k6"
@@ -104,16 +75,9 @@ k6_export() {
 JSON
 }
 
-# The arrival-rate scenarios report what the generator could not offer; the
-# session scenario does not, because it holds sessions open rather than arriving
-# at a rate. Both shapes are put through, so a limit on the number is seen to be
-# reachable where it is emitted and its absence elsewhere is seen too.
 DROPPED=',
     "dropped_iterations": { "count": 0, "rate": 0.0 }'
 
-# The technician journeys are timed by api-baseline alone, and each carries its
-# own limit. They were absent from this fixture while three limits named them,
-# so nothing here had ever read one.
 k6_export "$DROPPED"',
     "journey_device_list_ms": {
       "avg": 45.0, "min": 12.0, "med": 40.0,
@@ -173,9 +137,6 @@ else
   fail "expected >= 8 gated series, found $gated_count — did the profile's gates change shape?"
 fi
 
-# The other direction. A measurement the extraction produces and the profile has
-# not ruled on is one nobody decided about, and it reads from the outside
-# exactly like one deliberately left alone.
 undecided=""
 decided="$(decided_measurements)"
 while IFS= read -r measurement; do
@@ -189,9 +150,6 @@ else
   fail "measurements nobody ruled on (limit them, or declare them ungated with a reason):$undecided"
 fi
 
-# And a decision about a measurement that never arrives is a decision about
-# nothing — the same absence the reachability check above covers, reached from
-# the metric rather than the series.
 emitted="$(emitted_measurements "$ROWS")"
 phantom=""
 while IFS= read -r measurement; do
@@ -205,9 +163,6 @@ else
   fail "decisions about measurements the extraction never produces:$phantom"
 fi
 
-# Every gated series must also carry the statistics its ceilings read. A row
-# that arrives with only a phase label satisfies the reachability check above
-# and still gates nothing.
 while IFS= read -r series; do
   [ -n "$series" ] || continue
   src="${series%%/*}"
@@ -225,8 +180,6 @@ while IFS= read -r series; do
   fi
 done < <(gated_series)
 
-# The fixtures above are only evidence if they match the k6 the workflow pins.
-# A version bump that changes the export schema must reach this file too.
 PINNED="$(grep -oE 'K6_VERSION:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+' "$WORKFLOW" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
 if [ -n "$PINNED" ]; then
   pass "workflow pins a k6 version ($PINNED)"
@@ -238,20 +191,8 @@ case "$PINNED" in
   *) fail "pinned k6 is $PINNED but the fixtures here encode the v1 flat-statistics shape" ;;
 esac
 
-# --- A registration limit sits under the histogram it is read from -----------
-#
-# Registration timing is a bucketed histogram, so a tail past its last finite
-# boundary was never kept: the harness reports that boundary, because a ceiling
-# cannot be compared against an infinity. The reading is therefore a floor, and
-# the nights prove it is reachable — the breakpoint ladder and the
-# quarter-processor scaling rung both published exactly 10,000 ms on
-# 2026-09-14, which is the boundary rather than a measurement.
-#
-# A floor fails a ceiling correctly wherever the ceiling is below it. At or
-# above it, the limit reads a number that cannot rise and passes every night,
-# however slow the system got — the limit that cannot fail this file exists to
-# refuse. The two facts live in different languages, so nothing reads both
-# unless something is made to.
+# The harness reports a registration tail past the last finite histogram bucket as that boundary.
+# A limit at or above it reads a number that cannot rise, so it can never fail.
 BUCKETS_FILE="$REPO_ROOT/server/internal/metrics/registration_pool.go"
 if [ ! -f "$BUCKETS_FILE" ]; then
   fail "the registration histogram's buckets are not where the limits are checked against them"
@@ -284,7 +225,6 @@ else
     else
       fail "registration limits at or above the last boundary, where the reading cannot rise to meet them:$over"
     fi
-    # A sweep that reached nothing proves nothing.
     if [ "$swept" -ge 3 ]; then
       pass "swept $swept registration limit(s)"
     else

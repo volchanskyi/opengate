@@ -11,14 +11,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// One rule as an operator reads it, and as one named machine is running it.
-//
-// Both are open to every member of the tenant. A technician resolving something
-// as a false alarm has to be able to see the rule that produced it, and the
-// resolved read is what answers the question the tuning exists for — why is this
-// machine at 95? — by walking the same resolution the delivery path walks.
-
-// GetRule implements StrictServerInterface.
+// GetRule implements StrictServerInterface and is open to every member of the tenant.
 func (s *Server) GetRule(ctx context.Context, request GetRuleRequestObject) (GetRuleResponseObject, error) {
 	if s.ruleCatalogue == nil {
 		return nil, errRulesUnavailable
@@ -34,10 +27,7 @@ func (s *Server) GetRule(ctx context.Context, request GetRuleRequestObject) (Get
 		return nil, err
 	}
 
-	// What a customer has set — the rollout, the tuning, the clamps — belongs to
-	// one customer, and a screen with none picked changes the tenant's own; so
-	// that is the one it shows. The fleet it is read against stays the scope
-	// that was asked for.
+	// Rollout, tuning and clamps belong to one customer; with none picked, the tenant's own shows.
 	customer, err := s.customerOrDefault(ctx, request.Params.OrganizationId)
 	if err != nil {
 		return nil, err
@@ -54,7 +44,8 @@ func (s *Server) GetRule(ctx context.Context, request GetRuleRequestObject) (Get
 	return GetRule200JSONResponse(detail), nil
 }
 
-// GetResolvedRule implements StrictServerInterface.
+// GetResolvedRule implements StrictServerInterface by walking the resolution the delivery path
+// walks, and is open to every member of the tenant.
 func (s *Server) GetResolvedRule(ctx context.Context, request GetResolvedRuleRequestObject) (GetResolvedRuleResponseObject, error) {
 	if s.ruleCatalogue == nil {
 		return nil, errRulesUnavailable
@@ -64,9 +55,7 @@ func (s *Server) GetResolvedRule(ctx context.Context, request GetResolvedRuleReq
 		return GetResolvedRule404JSONResponse{Error: msgRuleNotFound}, nil
 	}
 
-	// The machine is looked up inside the caller's tenant, which is what makes
-	// naming another tenant's machine resolve to nothing rather than to an
-	// answer about somebody else's estate.
+	// The tenant-scoped lookup makes another tenant's machine resolve to nothing.
 	target, err := s.devices.Get(ctx, request.Params.DeviceId)
 	if err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
@@ -101,11 +90,7 @@ func (s *Server) GetResolvedRule(ctx context.Context, request GetResolvedRuleReq
 	}), nil
 }
 
-// bindingsFor reads one customer's tuning for one rule.
-//
-// A read that fails leaves the rule reading as untuned rather than failing the
-// page, which is the same trade the rollout read makes: the description of the
-// rule is what somebody opened this for and it is still true.
+// bindingsFor reads one customer's tuning for one rule; a failed read leaves it untuned.
 func (s *Server) bindingsFor(ctx context.Context, organizationID uuid.UUID, ruleID string) []rules.Binding {
 	if s.ruleAdmin == nil {
 		return nil
@@ -119,9 +104,7 @@ func (s *Server) bindingsFor(ctx context.Context, organizationID uuid.UUID, rule
 	return forRule(stored, ruleID, func(b rules.Binding) string { return b.RuleID })
 }
 
-// clampsFor reads what a rule version had to move, for one rule. It reconciles
-// against the pack as it now stands first — a rule upgrade that narrowed a range
-// has to be visible on the screen that shows the tuning, not only on the wire.
+// clampsFor reads what a rule version had to move, reconciling against the current pack first.
 func (s *Server) clampsFor(ctx context.Context, organizationID uuid.UUID, ruleID string) []rules.Clamp {
 	if s.ruleAdmin == nil || s.ruleCatalogue == nil {
 		return nil
@@ -135,8 +118,7 @@ func (s *Server) clampsFor(ctx context.Context, organizationID uuid.UUID, ruleID
 	return forRule(outstanding, ruleID, func(c rules.Clamp) string { return c.RuleID })
 }
 
-// tagsFor reads the labels one machine carries, which narrow the tuning that
-// applies to it.
+// tagsFor reads the labels one machine carries, which narrow the tuning that applies to it.
 func (s *Server) tagsFor(ctx context.Context, deviceID uuid.UUID) map[string]string {
 	if s.ruleAdmin == nil {
 		return nil
@@ -149,9 +131,7 @@ func (s *Server) tagsFor(ctx context.Context, deviceID uuid.UUID) map[string]str
 	return tags
 }
 
-// forRule keeps the entries belonging to one rule. Both stores answer for a
-// whole customer, because that is the read the delivery path makes and a second
-// per-rule query would be a read per row of a list.
+// forRule keeps the entries belonging to one rule from a whole-customer read.
 func forRule[T any](all []T, ruleID string, ruleOf func(T) string) []T {
 	out := make([]T, 0, len(all))
 	for _, item := range all {

@@ -21,11 +21,8 @@ func NewPostgresHardware(db *sql.DB) *PostgresHardware {
 	return &PostgresHardware{db: db}
 }
 
-// Upsert stores an agent hardware report. It targets only the columns the agent
-// owns, so the AMT model and firmware the server reads over WSMAN survive.
-// A nil SystemUUID or AMTAvailable means the agent said nothing — the stored
-// value stands, which keeps an agent too old to report AMT from orphaning a
-// device's AMT link.
+// Upsert stores an agent hardware report and writes only agent-owned columns.
+// A nil SystemUUID or AMTAvailable keeps the stored value.
 func (p *PostgresHardware) Upsert(ctx context.Context, hw *Hardware) error {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
@@ -64,8 +61,7 @@ func (p *PostgresHardware) Get(ctx context.Context, deviceID DeviceID) (*Hardwar
 	var niJSON []byte
 	var amtAvailable bool
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		// system_uuid is deliberately absent: it is a join key the server resolves
-		// internally and never hands back to a caller.
+		// system_uuid is a server-side join key and is never selected for callers.
 		return tx.QueryRowContext(ctx,
 			`SELECT device_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces, updated_at,
 			        amt_available, amt_version, amt_model, amt_firmware
@@ -92,15 +88,12 @@ func (p *PostgresHardware) Get(ctx context.Context, deviceID DeviceID) (*Hardwar
 	return &hw, nil
 }
 
-// ResolveBySystemUUID implements [HardwareRepository]. A CIRA connection has no
-// request tenant to inherit, so this supplies an admin scope and identifies the
-// device by the globally unique SMBIOS UUID across tenants.
+// ResolveBySystemUUID implements [HardwareRepository]. A CIRA connection has no request tenant,
+// so the lookup runs under an admin scope across tenants.
 func (p *PostgresHardware) ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (DeviceID, uuid.UUID, error) {
 	ctx = dbtx.WithDefaultTenant(ctx, true)
 
-	// Exactly one row is an identity; none or several is not. LIMIT 2 is all it
-	// takes to tell those apart — cloned disk images share a system UUID, and
-	// counting past the second adds nothing.
+	// Only exactly one row identifies a device, and LIMIT 2 distinguishes that from several clones.
 	type match struct{ deviceID, tenantID uuid.UUID }
 	var matches []match
 
@@ -130,8 +123,7 @@ func (p *PostgresHardware) ResolveBySystemUUID(ctx context.Context, systemUUID u
 	return matches[0].deviceID, matches[0].tenantID, nil
 }
 
-// SetAMTDetail implements [HardwareRepository]. It writes only the two columns
-// the WSMAN query owns, so a concurrent agent report is never clobbered.
+// SetAMTDetail implements [HardwareRepository]. It writes only the two WSMAN-owned columns.
 func (p *PostgresHardware) SetAMTDetail(ctx context.Context, deviceID DeviceID, model, firmware string) error {
 	if _, ok := dbtx.TenantFromContext(ctx); !ok {
 		return dbtx.ErrTenantRequired

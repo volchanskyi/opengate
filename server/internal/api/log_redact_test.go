@@ -9,8 +9,7 @@ import (
 )
 
 func TestRedactSecrets(t *testing.T) {
-	// The connection-string case is assembled from parts rather than written as
-	// a literal DSN so the fixture is not itself a hardcoded-credential hotspot.
+	// The DSN is assembled from parts so the fixture avoids a hardcoded-credential hotspot.
 	dsnCred := "s3cr3tpw"
 	dsn := "dsn postgres://appuser:" + dsnCred + "@db.internal:5432/app opened"
 
@@ -20,9 +19,7 @@ func TestRedactSecrets(t *testing.T) {
 		wantHidden string // substring that must NOT survive; "" means unchanged
 		wantKept   string // substring that must survive
 	}{
-		// This corpus mirrors the agent-side guard's `raw_log_secret_corpus` in
-		// agent/crates/mesh-agent-core/tests/ml_test.rs — the two redactors are
-		// independent defense-in-depth layers, so both must strip every shape.
+		// The corpus mirrors raw_log_secret_corpus in agent/crates/mesh-agent-core/tests/ml_test.rs.
 		{"bearer token", "Authorization: Bearer abcDEF012345_tok", "abcDEF012345_tok", "[REDACTED]"},
 		{"basic auth", "proxy authorization: Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA==", "[REDACTED]"},
 		{"password assignment", "db password=hunter2secret ok", "hunter2secret", "password="},
@@ -81,7 +78,7 @@ func TestLogAuditDetails(t *testing.T) {
 	assert.Contains(t, got, "level=ERROR")
 	assert.Contains(t, got, "offset=20")
 	assert.Contains(t, got, "limit=50")
-	// The raw search term is never echoed — only its length.
+	// Only the search term's length is echoed.
 	assert.NotContains(t, got, "search=secret")
 	assert.Contains(t, got, "search_len=6")
 }

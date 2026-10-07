@@ -14,10 +14,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// TestRequestLogsSync_DeliversResponse pins the transient broker: a synchronous
-// request blocks until the agent's DeviceLogsResponse is delivered to the
-// in-flight waiter, and the bounded lines flow straight through — nothing is
-// persisted centrally (the AgentConn holds no log repository).
 func TestRequestLogsSync_DeliversResponse(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapDeviceLogs}
@@ -34,7 +30,6 @@ func TestRequestLogsSync_DeliversResponse(t *testing.T) {
 		resCh <- result{entries, total, units, err}
 	}()
 
-	// The read-loop side delivers once the waiter is registered.
 	require.Eventually(t, func() bool {
 		return ac.deliverLogs(logsResult{
 			entries: []device.LogEntry{
@@ -51,12 +46,9 @@ func TestRequestLogsSync_DeliversResponse(t *testing.T) {
 	assert.Equal(t, 2, got.total)
 	require.Len(t, got.entries, 2)
 	assert.Equal(t, "connection lost", got.entries[1].Message)
-	// Available units flow straight through to the caller for the unit dropdown.
 	assert.Equal(t, []string{"nginx.service", "sshd.service"}, got.units)
 }
 
-// TestRequestLogsSync_RequiresCapability keeps old agents safe: without the
-// DeviceLogs capability the broker refuses before writing anything.
 func TestRequestLogsSync_RequiresCapability(t *testing.T) {
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
@@ -65,8 +57,6 @@ func TestRequestLogsSync_RequiresCapability(t *testing.T) {
 	assert.Zero(t, buf.Len())
 }
 
-// TestRequestLogsSync_SingleFlight rejects a second concurrent pull for the
-// same connection: one raw request is in flight at a time (no wire correlation).
 func TestRequestLogsSync_SingleFlight(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapDeviceLogs}
@@ -76,8 +66,6 @@ func TestRequestLogsSync_SingleFlight(t *testing.T) {
 	assert.ErrorIs(t, err, ErrLogsBusy)
 }
 
-// TestRequestLogsSync_Timeout returns the context error when the agent never
-// responds, bounding how long a raw pull can block.
 func TestRequestLogsSync_Timeout(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapDeviceLogs}
@@ -86,19 +74,14 @@ func TestRequestLogsSync_Timeout(t *testing.T) {
 	defer cancel()
 	_, _, _, err := ac.RequestLogsSync(ctx, device.LogFilter{Limit: 10})
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	// Waiter is cleared so a subsequent pull is not reported busy.
 	assert.Nil(t, ac.logWaiter)
 }
 
-// TestHandleDeviceLogsError_DeliversError routes an agent-side error to the
-// waiting broker instead of silently dropping the request.
 func TestHandleDeviceLogsError_DeliversError(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapDeviceLogs}
 
-	// Simulate an in-flight pull, then drive the read loop over a frame that
-	// carries a DeviceLogsError. Single-goroutine so there is no data race on
-	// the shared stream field.
+	// The read loop runs on this goroutine, so the shared stream field has no data race.
 	ch := make(chan logsResult, 1)
 	ac.logWaiter = ch
 
@@ -121,18 +104,11 @@ func TestHandleDeviceLogsError_DeliversError(t *testing.T) {
 	}
 }
 
-// TestDeliverLogs_NoWaiterDrops keeps a late or unsolicited response from
-// blocking the read loop when no pull is in flight.
 func TestDeliverLogs_NoWaiterDrops(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	assert.False(t, ac.deliverLogs(logsResult{total: 1}))
 }
 
-// TestHostMetricDimsIngestScopedByConnectionTenant pins that live host-metric
-// windows ride the AgentMetricWindow path and land in the telemetry writer as
-// `opengate_edge_metric_avg{dim=...}` scoped to the connection's authoritative
-// tenant — never the agent-supplied one. Cross-tenant reads are then denied by the
-// VM scoped reader (see telemetry.ScopeSelector tests).
 func TestHostMetricDimsIngestScopedByConnectionTenant(t *testing.T) {
 	deviceID := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}

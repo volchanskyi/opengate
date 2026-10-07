@@ -9,18 +9,10 @@ import (
 )
 
 const (
-	// maxTelemetryBacklog bounds how far behind the server clock an agent-stamped
-	// live-telemetry timestamp may sit. It covers the longest backlog a bounded
-	// local queue can present after a reconnect and stays well inside central
-	// retention, so a host whose clock is days behind cannot write history the
-	// charts would read as real. Reconnect backfill carries its own, far wider
-	// bound (backfillRetentionSecs) because replaying months of pre-rolled
-	// history is exactly what that path is for.
+	// maxTelemetryBacklog bounds how far behind the server clock a live agent-stamped timestamp
+	// may sit; backfill carries its own wider bound.
 	maxTelemetryBacklog = 7 * 24 * time.Hour
-	// maxTelemetrySkew bounds how far ahead of the server clock an agent-stamped
-	// timestamp may sit. It is wider than any drift NTP corrects on its own and
-	// narrower than the vitals bucket window, so an ordinary drifting host passes
-	// through untouched while a hard jump of hours is pulled back to now.
+	// maxTelemetrySkew bounds how far ahead of the server clock an agent-stamped timestamp may sit.
 	maxTelemetrySkew = 5 * time.Minute
 	// clampFuture and clampPast are the direction labels of
 	// opengate_edge_telemetry_clock_clamped_total.
@@ -47,8 +39,7 @@ func (a *AgentConn) acceptTelemetry(msgType protocol.ControlMessageType, ts int6
 	return a.acceptedTelemetry(msgType)
 }
 
-// acceptedTelemetry records one accepted telemetry message against the ingest
-// counter and returns true, so callers can `return a.acceptedTelemetry(...)`.
+// acceptedTelemetry counts one accepted message against the ingest counter and returns true.
 func (a *AgentConn) acceptedTelemetry(msgType protocol.ControlMessageType) bool {
 	if a.metrics != nil {
 		a.metrics.ObserveEdgeTelemetryIngest(string(msgType))
@@ -56,11 +47,8 @@ func (a *AgentConn) acceptedTelemetry(msgType protocol.ControlMessageType) bool 
 	return true
 }
 
-// persistTelemetry runs fn on a bounded slot goroutine so a slow store never
-// stalls the read loop. msgs is how many ingested messages this write carries,
-// so a failure reports one drop per message and the ingest ledger stays balanced;
-// a write that is a second copy of a message already accounted for elsewhere
-// passes 0.
+// persistTelemetry runs fn on a bounded slot goroutine so a slow store never stalls the read
+// loop; msgs is the ingested messages the write carries, so a failure drops one per message.
 func (a *AgentConn) persistTelemetry(ctx context.Context, msgs int, fn func(context.Context, dbtx.Tenant) error) {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
@@ -90,9 +78,8 @@ func (a *AgentConn) dropTelemetry(reason string, args ...any) {
 	a.dropTelemetryN(1, reason, args...)
 }
 
-// dropTelemetryN records n discarded telemetry messages under one reason, so a
-// coalesced batch that never reaches its store is counted per message rather
-// than per batch. n of 0 logs nothing and counts nothing.
+// dropTelemetryN records n discarded telemetry messages under one reason, counting a batch per
+// message. An n of 0 logs nothing and counts nothing.
 func (a *AgentConn) dropTelemetryN(n int, reason string, args ...any) {
 	if n <= 0 {
 		return
@@ -107,30 +94,23 @@ func (a *AgentConn) dropTelemetryN(n int, reason string, args ...any) {
 	}
 }
 
-// telemetryTimestamp turns an agent-stamped second into the timestamp a sample
-// is written at, pulling a host clock outside the accepted window back to the
-// nearer bound and counting the correction by direction. A clamped message is
-// still persisted — only its timestamp changes.
+// telemetryTimestamp returns the time a sample is written at, pulling a stamp outside the
+// accepted window to the nearer bound and counting the correction by direction.
 func (a *AgentConn) telemetryTimestamp(ts int64) time.Time {
 	stamped, direction := clampTelemetryTimestamp(ts, time.Now().UTC())
 	a.observeClockClamp(direction)
 	return stamped
 }
 
-// observeClockClamp records a clock correction, if there was one. An empty
-// direction means the stamp was already inside the window and nothing is
-// counted.
+// observeClockClamp counts a clock correction; an empty direction counts nothing.
 func (a *AgentConn) observeClockClamp(direction string) {
 	if direction != "" && a.metrics != nil {
 		a.metrics.ObserveEdgeTelemetryClockClamp(direction)
 	}
 }
 
-// clampTelemetryTimestamp maps an agent-stamped second into
-// [now-maxTelemetryBacklog, now+maxTelemetrySkew] and reports which bound it hit
-// (clampPast, clampFuture, or empty when it was already inside). A missing
-// stamp takes the server clock. The mapping is monotone, so a batch clamped
-// sample by sample keeps the order the agent sent it in.
+// clampTelemetryTimestamp maps a stamp into [now-maxTelemetryBacklog, now+maxTelemetrySkew] and
+// reports the bound it hit; a missing stamp takes now. The mapping is monotone.
 func clampTelemetryTimestamp(ts int64, now time.Time) (time.Time, string) {
 	if ts <= 0 {
 		return now, ""

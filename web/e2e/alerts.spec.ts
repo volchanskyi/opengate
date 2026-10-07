@@ -1,22 +1,7 @@
 import { test, expect } from "./fixtures";
 
-// The alert pack, against the real stack: the real server, its own compiled
-// rule file, and the real machines that enrolled into it.
-//
-// Nothing here is stubbed, which is the point. Every other rules spec fulfils
-// the reads in the browser, so it proves the screen and never the pack behind
-// it — and the pack is what decides whether an alert a machine raises is
-// something the product can accept, place in a room, and let somebody stop.
-//
-// What is deliberately not here is watching a real machine cross a real line.
-// Every shipped rule's lowest settable boundary is 50, and nothing in this
-// stack decides what a container's own readings actually are, so a test that
-// waited for one would pass or fail on the runner's disk. That path is driven
-// where it can be driven exactly: the machine's own producer in
-// `alert_producer_test.rs`, and the crossing into a room in the integration
-// tier.
+// Runs against the real server and its compiled rule pack; nothing is stubbed.
 
-/** Rules that watch the machine's own log records rather than a reading. */
 const WORD_RULES = [
   "linux-oom-kill",
   "linux-hung-task",
@@ -25,7 +10,6 @@ const WORD_RULES = [
   "linux-service-errors",
 ];
 
-/** Rules that compare one of the machine's numbers against a line. */
 const READING_RULES = [
   "disk-critical",
   "cpu-saturated",
@@ -34,7 +18,6 @@ const READING_RULES = [
   "disk-slow",
 ];
 
-/** The session lives in the browser's storage, so an API call names it itself. */
 function auth(token: string) {
   return { headers: { Authorization: `Bearer ${token}` } };
 }
@@ -60,8 +43,6 @@ test.describe("the rules the product actually ships", () => {
 
     const ids = rules.map((r) => r.id);
     for (const id of [...READING_RULES, ...WORD_RULES]) {
-      // A rule the server has never heard of has every alert it raises
-      // refused, which is indistinguishable from a machine that raised none.
       expect(ids, `${id} must be a rule this build ships`).toContain(id);
     }
 
@@ -82,7 +63,6 @@ test.describe("the rules the product actually ships", () => {
     for (const id of WORD_RULES) {
       const rule = byId.get(id);
       expect(rule?.kind, `${id} watches the machine's own words`).toBe("event");
-      // Showing a boundary of nought would read as a setting somebody chose.
       expect(rule?.metric, `${id} names no reading`).toBeUndefined();
       expect(rule?.threshold, `${id} has no line to cross`).toBeUndefined();
       expect(Object.keys(rule?.tunable ?? {}), `${id} has nothing to retune`).toHaveLength(0);
@@ -101,13 +81,9 @@ test.describe("the rules the product actually ships", () => {
     const rows = adminPage.locator("table tbody tr");
     await expect(rows).toHaveCount(READING_RULES.length + WORD_RULES.length);
 
-    // A rule about a reading reads as the comparison it makes.
     const readingRow = rows.filter({ hasText: "disk-critical" });
     await expect(readingRow).toContainText("disk.used_percent");
 
-    // A rule about words reads as what it means, because there is no
-    // comparison to show — and "undefined at or above undefined" would read as
-    // a rule somebody left half-written.
     const wordRow = rows.filter({ hasText: "linux-oom-kill" });
     await expect(wordRow).toContainText("memory");
     await expect(wordRow).not.toContainText("undefined");
@@ -132,8 +108,7 @@ test.describe("the rules the product actually ships", () => {
       const row = adminPage.locator("table tbody tr").filter({ hasText: ruleId });
       await expect(row).toContainText("Stopped");
     } finally {
-      // Put it back, so a spec that runs after this one reads the pack as it
-      // ships rather than as this one left it.
+      // Resumes the rule so later specs read the shipped pack.
       const resumed = await request.post(`/api/v1/rules/${ruleId}/stop`, {
         ...auth(adminUser.token),
         data: { scope: "organization", stopped: false },
@@ -154,8 +129,6 @@ test.describe("the rules the product actually ships", () => {
     expect(machines.length, "the stack must hold the machines that enrolled into it").toBeGreaterThan(0);
 
     for (const machine of machines) {
-      // Telling the product this is what lets it expect an alert to arrive
-      // carrying everything behind it, rather than expecting to ask later.
       expect(machine.capabilities, `${machine.hostname} sends its own alerts`).toContain("Alerts");
     }
   });

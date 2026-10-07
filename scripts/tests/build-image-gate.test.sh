@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/build-image-gate.sh — the path-detect helper used by
-# .github/workflows/build-image.yml to decide whether the server container
-# image needs a full rebuild on a given main-branch commit. Pure bash; no
-# bats dependency. Mirrors the pattern from scripts/tests/release-agent-gate.test.sh.
-#
-# `crane` is mocked via a shim on $PATH that resolves the image-config
-# response from a fixture file the test writes (no network access required).
-#
-# Run: ./scripts/tests/build-image-gate.test.sh
+# Tests for scripts/build-image-gate.sh with crane mocked by a $PATH shim reading a fixture file.
 
 set -euo pipefail
 
@@ -33,9 +25,6 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Build a temp git repo seeded with two commits — initial baseline and one
-# follow-up. The follow-up's tree is what HEAD points at; PREV_SHA points at
-# the initial commit. Caller mutates either side before invoking the gate.
 make_repo() {
   REPO="$(mktemp -d)"
   cd "$REPO"
@@ -54,8 +43,7 @@ EOF
   git commit --quiet -m "init"
   PREV_SHA="$(git rev-parse HEAD)"
 
-  # A no-op follow-up commit so $PREV_SHA..$HEAD is non-empty by default —
-  # individual tests overwrite this with their own follow-up.
+  # The default follow-up commit keeps $PREV_SHA..$HEAD non-empty.
   echo "// touch" >>agent/src/main.rs
   git add agent/src/main.rs
   git commit --quiet -m "agent-only follow-up"
@@ -82,9 +70,6 @@ cleanup_mock() {
 
 trap 'cleanup_repo; cleanup_mock' EXIT
 
-# Install a crane shim on $PATH that prints the contents of $CRANE_FIXTURE
-# for the `crane config <ref>` subcommand and exits non-zero otherwise.
-# Mirrors how the gate consumes `crane config "$IMAGE:latest"`.
 install_crane_mock() {
   MOCK_DIR="$(mktemp -d)"
   cat >"$MOCK_DIR/crane" <<'SHIM'
@@ -116,7 +101,6 @@ SHIM
   export PATH
 }
 
-# Write a fixture whose revision label is $1.
 write_fixture_with_revision() {
   CRANE_FIXTURE="$REPO/fixture.json"
   cat >"$CRANE_FIXTURE" <<EOF
@@ -140,7 +124,6 @@ install_crane_mock
 
 echo "build-image-gate:"
 
-# --- Case 1: :latest does not exist → fall open to image_changed=true.
 make_repo
 RESULT="$(CRANE_FAIL=1 \
   IMAGE="ghcr.io/volchanskyi/opengate-server" \
@@ -154,10 +137,8 @@ else
 fi
 cleanup_repo
 
-# --- Case 2: :latest exists, only agent/ changed in range → image_changed=false.
 make_repo
 write_fixture_with_revision "$PREV_SHA"
-# Default follow-up commit from make_repo already touches agent/ only.
 if run_gate; then
   if grep -q '^image_changed=false$' <<<"$RESULT" \
     && grep -q "^prev_sha=${PREV_SHA}$" <<<"$RESULT"; then
@@ -170,7 +151,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 3: server/ changed in range → image_changed=true.
 make_repo
 write_fixture_with_revision "$PREV_SHA"
 echo "// server tweak" >>server/internal/api/handlers.go
@@ -188,7 +168,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 4: web/ changed in range → image_changed=true.
 make_repo
 write_fixture_with_revision "$PREV_SHA"
 echo "// web tweak" >>web/src/index.ts
@@ -206,7 +185,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 5: Dockerfile changed in range → image_changed=true.
 make_repo
 write_fixture_with_revision "$PREV_SHA"
 cat >>Dockerfile <<'EOF'
@@ -226,7 +204,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 6: deeply-nested server/ subdir change — pathspec must still match.
 make_repo
 write_fixture_with_revision "$PREV_SHA"
 mkdir -p server/internal/relay/inner
@@ -245,9 +222,7 @@ else
 fi
 cleanup_repo
 
-# --- Case 7: :latest exists but the revision label is missing → fall open.
-# Guards the silent-skip regression where a manually-pushed image (no metadata)
-# would otherwise return prev_sha="" + image_changed=false.
+# A manually pushed image has no revision label, and the gate falls open to image_changed=true.
 make_repo
 CRANE_FIXTURE="$REPO/fixture.json"
 cat >"$CRANE_FIXTURE" <<'EOF'
@@ -266,7 +241,6 @@ else
 fi
 cleanup_repo
 
-# --- Case 8: required env vars missing → non-zero exit, no silent default.
 make_repo
 if "$GATE" >/dev/null 2>&1; then
   fail "missing IMAGE/HEAD_SHA → expected non-zero exit, got 0"
@@ -275,9 +249,7 @@ else
 fi
 cleanup_repo
 
-# --- Case 9: prev_sha resolved but not present in the repo (force-push /
-# rebase scenario) → fall open to image_changed=true rather than diffing
-# against a phantom baseline.
+# A prev_sha absent from the repo (force-push or rebase) falls open to image_changed=true.
 make_repo
 write_fixture_with_revision "deadbeef0000000000000000000000000000dead"
 if run_gate; then

@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
-# Build the core reader the endurance run and the core-walk check use.
-#
-# viewcore has no tagged releases, so scripts/lib/tool-versions.sh pins it by
-# commit, and it is built here with scripts/patches/viewcore-gcmask-on-demand.patch
-# applied. Go reaches the pointer map of a type with more than 128 pointer words
-# through one more pointer, built by the runtime on first use; the pinned reader
-# reads the slot as the map, and the first soak dump holding such a type was
-# unreadable.
-#
-# --upstream builds the newest upstream commit, unpatched. Nothing reads a dump
-# with it: scripts/core-walk-check.sh runs it beside the patched reader and
-# fails the night it reads the probe's core too, which is when the patch can go.
-# It is the one build here that follows upstream on purpose.
+# Builds the pinned viewcore commit with the on-demand gcmask patch applied.
+# --upstream builds the newest upstream commit unpatched, for scripts/core-walk-check.sh.
 #
 # Usage: install-viewcore.sh [--upstream] <output-path>
 set -euo pipefail

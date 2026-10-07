@@ -26,14 +26,10 @@ type HandshakeResult struct {
 
 // Handshaker performs the binary mTLS handshake with a newly connected agent.
 type Handshaker struct {
-	// caCertHash is the SHA-384 of the CA certificate. A manager's CA is fixed
-	// for its lifetime, and both handshake paths need this same digest — the
-	// full path writes it into the ServerHello, the fast path compares an
-	// agent's cached copy against it — so it is taken once here rather than
-	// recomputed over the whole CA DER on every connection.
+	// caCertHash is the SHA-384 of the CA certificate, computed once because both handshake
+	// paths use it on every connection.
 	caCertHash [48]byte
-	// rand is the randomness source for the ServerHello nonce; overridable in
-	// tests to exercise the generation-failure path.
+	// rand is the randomness source for the ServerHello nonce.
 	rand io.Reader
 }
 
@@ -42,28 +38,15 @@ func NewHandshaker(cm *cert.Manager) *Handshaker {
 	return &Handshaker{caCertHash: sha512.Sum384(cm.CACert().Raw), rand: rand.Reader}
 }
 
-// PerformHandshake authenticates a newly connected agent. The agent opens the
-// stream and writes first (RFC 9000 stream-discovery: the opener must write
-// before the peer's accept/read can return), so the server reads the agent's
-// first message and branches on its type:
-//
-//   - 0x11 AgentHello → full handshake: bind the advertised cert hash to the
-//     TLS peer cert, then reply with ServerHello.
-//   - 0x14 SkipAuth   → fast-path reconnect: verify the cached CA hash is
-//     current and skip the ServerHello/AgentHello round-trip (no reply).
-//
-// mTLS is the authenticator on both paths; the message exchange binds identity
-// and advertises the CA hash. peerCerts holds the DER certs the TLS peer
-// presented.
+// PerformHandshake authenticates an agent from its first message, 0x11 AgentHello (full path)
+// or 0x14 SkipAuth (fast path, no reply); the agent writes first so the stream is discoverable.
 func (h *Handshaker) PerformHandshake(ctx context.Context, stream io.ReadWriter, peerCerts [][]byte) (*HandshakeResult, error) {
-	// Apply deadline from context if the stream supports it.
 	if deadline, ok := ctx.Deadline(); ok {
 		if conn, ok := stream.(net.Conn); ok {
 			_ = conn.SetDeadline(deadline)
 		}
 	}
 
-	// Read the 1-byte message type to choose the full or fast path.
 	var typeByte [1]byte
 	if _, err := io.ReadFull(stream, typeByte[:]); err != nil {
 		return nil, fmt.Errorf("read handshake type: %w", err)
@@ -80,9 +63,8 @@ func (h *Handshaker) PerformHandshake(ctx context.Context, stream io.ReadWriter,
 	}
 }
 
-// fullHandshake completes a cold-start handshake: read the rest of AgentHello,
-// bind the advertised cert hash to the TLS peer cert, and reply ServerHello.
-// The 1-byte type has already been consumed by the caller.
+// fullHandshake reads the rest of AgentHello, binds its cert hash to the TLS peer cert and
+// replies ServerHello; the caller has consumed the type byte.
 func (h *Handshaker) fullHandshake(stream io.ReadWriter, peerCerts [][]byte) (*HandshakeResult, error) {
 	// AgentHello body: 32-byte nonce + 48-byte agent cert hash.
 	body := make([]byte, 80)
@@ -107,10 +89,8 @@ func (h *Handshaker) fullHandshake(stream io.ReadWriter, peerCerts [][]byte) (*H
 	return &HandshakeResult{DeviceID: deviceID, AgentCertDER: peerCertDER, Skipped: false}, nil
 }
 
-// fastHandshake completes a 0x14 reconnect: read the cached CA hash, verify it
-// matches the current CA cert, and skip the ServerHello round-trip. A stale
-// hash is rejected so the agent falls back to the full handshake. The 1-byte
-// type has already been consumed by the caller.
+// fastHandshake verifies the cached CA hash of a 0x14 reconnect and sends no reply; a stale
+// hash is rejected so the agent falls back to the full handshake.
 func (h *Handshaker) fastHandshake(stream io.Reader, peerCerts [][]byte) (*HandshakeResult, error) {
 	var cachedHash [48]byte
 	if _, err := io.ReadFull(stream, cachedHash[:]); err != nil {
@@ -126,7 +106,6 @@ func (h *Handshaker) fastHandshake(stream io.Reader, peerCerts [][]byte) (*Hands
 		return nil, err
 	}
 
-	// No ServerHello reply on the fast path — the agent proceeds optimistically.
 	return &HandshakeResult{DeviceID: deviceID, AgentCertDER: peerCertDER, Skipped: true}, nil
 }
 

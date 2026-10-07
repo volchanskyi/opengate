@@ -13,8 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// budget is one customer's two ceilings, which is the only thing every case here
-// varies. Stating it once keeps each case to the number it is about.
 func budget(org uuid.UUID, customerHourly, machineHourly int) Limits {
 	return Limits{
 		OrganizationID:     org,
@@ -24,10 +22,6 @@ func budget(org uuid.UUID, customerHourly, machineHourly int) Limits {
 	}
 }
 
-// Both ceilings were chosen from an estimate of a rate nobody had measured, so
-// both move without a release. Neither moves past the maximum the code allows,
-// and neither may be set to nothing — that would silence the customer's
-// detection outright, which is never what somebody reaching for this meant.
 func TestCeilingsAreEditableUpToAHardMaximum(t *testing.T) {
 	t.Parallel()
 
@@ -44,21 +38,13 @@ func TestCeilingsAreEditableUpToAHardMaximum(t *testing.T) {
 		})
 	}
 
-	// The maximum itself is allowed: it is the ceiling on the ceiling, not the
-	// first value past it.
 	require.NoError(t, ValidateLimits(budget(org, MaxOrganizationHourlyCeiling, MaxDeviceHourlyCeiling)))
 	require.NoError(t, ValidateLimits(DefaultLimits(org)))
 
-	// And one is allowed at the other end, for the same reason: the floor is a
-	// budget of nothing, not a budget of one. A customer who wants to hear about
-	// the first firing an hour and nothing after it is asking for something the
-	// setting is for, and refusing it would push them to switch the rule off.
 	require.NoError(t, ValidateLimits(budget(org, 1, 1)),
 		"a budget of one alert an hour is the smallest budget, not an absent one")
 }
 
-// A customer with no stored row is on the shipped budget, which is not the same
-// as a budget of zero.
 func TestAnUnconfiguredCustomerIsOnTheShippedBudget(t *testing.T) {
 	t.Parallel()
 
@@ -69,8 +55,6 @@ func TestAnUnconfiguredCustomerIsOnTheShippedBudget(t *testing.T) {
 	assert.Equal(t, DefaultLimits(e.org), got)
 }
 
-// The budget round-trips, and belongs to one customer. Two customers inside one
-// tenant is what proves the second half: the isolation wall is at the tenant.
 func TestABudgetIsPerCustomer(t *testing.T) {
 	t.Parallel()
 
@@ -90,7 +74,6 @@ func TestABudgetIsPerCustomer(t *testing.T) {
 		"raising one customer's budget must not raise another's")
 }
 
-// A value past the maximum never reaches a row.
 func TestStoringABudgetPastTheMaximumIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -105,7 +88,6 @@ func TestStoringABudgetPastTheMaximumIsRefused(t *testing.T) {
 	assert.Equal(t, DefaultLimits(e.org), stored, "a refused write must leave nothing behind")
 }
 
-// A read with no tenant on the context is refused rather than answered.
 func TestLimitsRequireTenantScope(t *testing.T) {
 	t.Parallel()
 
@@ -117,9 +99,6 @@ func TestLimitsRequireTenantScope(t *testing.T) {
 	assert.ErrorIs(t, e.alerts.UpsertLimits(bare, DefaultLimits(e.org)), dbtx.ErrTenantRequired)
 }
 
-// A retuned budget is the one the next alert is counted against, and what it
-// refuses is still counted. A ceiling that went quiet when it was lowered would
-// turn a tuning decision into detection nobody can reconstruct.
 func TestALoweredBudgetTakesEffectAndStillCountsWhatItRefuses(t *testing.T) {
 	t.Parallel()
 
@@ -136,7 +115,6 @@ func TestALoweredBudgetTakesEffectAndStillCountsWhatItRefuses(t *testing.T) {
 	assert.Equal(t, 1, storm.Occurrences,
 		"what a lowered ceiling refuses is counted at whatever value it is set to")
 
-	// Raising it again lets the next alert through, without a release.
 	require.NoError(t, e.alerts.UpsertLimits(e.ctx,
 		budget(e.org, DefaultOrganizationHourlyCeiling, DefaultDeviceHourlyCeiling)))
 	e.record(t, e.variant(shifted(time.Minute)), Stored)

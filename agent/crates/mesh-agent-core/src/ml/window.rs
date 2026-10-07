@@ -19,7 +19,7 @@ pub struct AnomalyRateWindow {
 }
 
 impl AnomalyRateWindow {
-    /// Create a rolling window with a hard entry cap.
+    /// Creates a rolling window with a hard entry cap.
     pub fn new(capacity: usize) -> Result<Self, WindowError> {
         if capacity == 0 {
             return Err(WindowError::EmptyCapacity);
@@ -30,7 +30,7 @@ impl AnomalyRateWindow {
         })
     }
 
-    /// Push one timestamped bitset, evicting the oldest entry at capacity.
+    /// Pushes one timestamped bitset, evicting the oldest entry at capacity.
     pub fn push(&mut self, timestamp: i64, bits: u64) {
         if self.entries.len() == self.capacity {
             self.entries.pop_front();
@@ -38,7 +38,7 @@ impl AnomalyRateWindow {
         self.entries.push_back((timestamp, bits));
     }
 
-    /// Return the fraction of entries where `bit_index` is set.
+    /// Returns the fraction of entries where `bit_index` is set; 0.0 for an empty window.
     pub fn rate(&self, bit_index: u8) -> f32 {
         if self.entries.is_empty() || bit_index >= u64::BITS as u8 {
             return 0.0;
@@ -52,12 +52,12 @@ impl AnomalyRateWindow {
         hits as f32 / self.entries.len() as f32
     }
 
-    /// Return the number of retained entries.
+    /// Returns the number of retained entries.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// Return whether the window is empty.
+    /// Returns whether the window holds no entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

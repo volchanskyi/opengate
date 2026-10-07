@@ -1,15 +1,6 @@
 import type { APIRequestContext } from "@playwright/test";
 
-/**
- * The machines the stacks under test actually run.
- *
- * Two of them, so a spec can disturb one without breaking every other spec:
- * agent-a is what the device pages are read against, agent-b is the expendable
- * one. Both stacks that run this suite bring them up under these names —
- * deploy/docker-compose.test.yml pins them as container hostnames, and the
- * staging deploy creates two pods so named, a pod's hostname being its name.
- * scripts/tests/e2e-stack-machines.test.sh holds all three files together.
- */
+// Both stacks name their machines agent-a (read against) and agent-b (the expendable one).
 export const MACHINE_A = "agent-a";
 export const MACHINE_B = "agent-b";
 
@@ -23,11 +14,6 @@ export interface EnrolledMachine {
   organization_id: string;
 }
 
-/**
- * The bootstrap operator's credential, which global-setup.ts puts in the
- * environment. Every helper that has to look past what a spec's own user can
- * see reads it from here rather than reaching for the variable itself.
- */
 export function adminToken(): string {
   const token = process.env.BOOTSTRAP_ADMIN_TOKEN;
   if (!token) {
@@ -39,21 +25,12 @@ export function adminToken(): string {
   return token;
 }
 
-/**
- * Returns the machine with the given hostname, once it is online.
- *
- * Values differ per runner — the CPU model, the RAM, the addresses — so a spec
- * asks for the machine by the one thing that is pinned, and asserts on shape
- * rather than on what this particular host happens to be.
- */
 export async function enrolledMachine(
   request: APIRequestContext,
   hostname: string,
 ): Promise<EnrolledMachine> {
   const headers = { Authorization: `Bearer ${adminToken()}` };
-  // Below the 30s per-test timeout in playwright.config.ts, so the throw below
-  // is reached and says what the fleet held. Given the same 30s, fourteen
-  // staging runs died on a bare timeout instead.
+  // Stays below the 30s per-test timeout in playwright.config.ts so the throw below is reached.
   const deadline = Date.now() + 20_000;
 
   let lastSeen = "nothing";

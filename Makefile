@@ -1,7 +1,4 @@
-# scripts/lib/mutation-shards.sh is a Bash library (arrays, [[ ]]), and the
-# mutation targets source it. Make defaults to /bin/sh, which is dash on Debian
-# and Ubuntu, so name the interpreter rather than depending on the host's
-# /bin/sh being a Bash.
+# Recipes run under Bash because the mutation targets source a Bash-only library.
 SHELL := /bin/bash
 
 .PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e agent-binary load-test load-test-quic sonar sonar-coverage sonar-quick \
@@ -26,8 +23,6 @@ test-short:
 test-rust:
 	cd agent && cargo test --workspace
 
-# One Postgres and one VictoriaMetrics back the whole run — see scripts/test-go.sh
-# for why the per-binary fallback would otherwise start a dozen-plus containers.
 test-go:
 	./scripts/test-go.sh
 
@@ -40,28 +35,8 @@ test-integration:
 test-coverage:
 	cd server && go test -race -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out
 
-# Local Postgres for running the Go test suite. testutil.NewTestStore
-# creates one schema per test for parallel-safe isolation; with `go test`
-# at default parallelism the working set of transient connections exceeds
-# the Postgres 100-conn default, hence `-c max_connections=400`.
-#
-# The lock table is sized once at startup as max_locks_per_transaction ×
-# max_connections, so raising the connection ceiling without raising the
-# per-transaction one leaves each migration — which creates the whole schema,
-# every table and index, in a single transaction — competing for the default
-# 64. Enough of them in flight together exhausts the table and the migration
-# fails with "out of shared memory" rather than anything about the schema.
-#
-# And shared memory itself is declared, because the settings above are what make
-# the default too small: Postgres puts a parallel query's workers in /dev/shm,
-# Docker gives a container 64 MiB of it, and one worker asked for 32. Two at
-# once is the whole allowance. What that looks like is not a memory error in a
-# test but the database leaving mid-run — "could not resize shared memory
-# segment to 33554432 bytes: No space left on device", then connection refused
-# from everything after it, on a host with 189 GB free. Held level across every
-# caller by scripts/tests/postgres-test-container.test.sh.
-#
-# Mirrors the ci.yml / mutation.yml setup so CI and local behave the same.
+# Raised max_locks_per_transaction fits migrations that create the whole schema in one
+# transaction; --shm-size holds the 32 MiB parallel-query segments Postgres puts in /dev/shm.
 postgres-test-up:
 	docker rm -f opengate-pg-test 2>/dev/null || true
 	docker run -d --rm --name opengate-pg-test \
@@ -77,12 +52,7 @@ postgres-test-up:
 postgres-test-down:
 	docker rm -f opengate-pg-test 2>/dev/null || true
 
-# One VictoriaMetrics for the whole Go run. testvm memoizes per test BINARY and
-# `go test ./tests/...` builds one per package, so with the URL unset each
-# VictoriaMetrics-touching package starts its own store — several of them holding
-# a fleet's worth of series at once is enough memory pressure for the kernel to
-# kill one mid-run. Image pin matches testvm's; scripts/tests/victoriametrics-prereq.test.sh
-# fails the gauntlet if the two drift.
+# One VictoriaMetrics serves every package of the Go run; the image pin matches testvm's.
 victoriametrics-test-up:
 	docker rm -f opengate-vm-test 2>/dev/null || true
 	docker run -d --rm --name opengate-vm-test \
@@ -137,9 +107,7 @@ lint-deploy:
 	trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/ \
 	  && trivy config --severity HIGH,CRITICAL --exit-code 1 Dockerfile
 
-# Module-invariant assertions for the Terraform config (mock_provider, no OCI creds).
-# Each submodule and the root carry their own tftest suite; the umbrella target runs
-# all of them. Requires terraform >= 1.7 for `expect_failures` against variable validation.
+# Runs each module's and the root's tftest suite against mock providers; needs terraform >= 1.7.
 terraform-test:
 	terraform -chdir=deploy/terraform/modules/networking init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform/modules/networking test
@@ -152,36 +120,19 @@ terraform-test:
 	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform test
 
-# Local mirror of the .github/workflows/terraform-drift.yml plan step.
-# Uses the operator's local OCI creds (terraform.tfvars + ~/.oci/terraform-credentials)
-# and prints the refresh-only diff. Exit 2 = drift detected; exit 0 = clean.
+# Prints the refresh-only plan diff with local OCI credentials; exit 2 means drift.
 terraform-drift:
 	terraform -chdir=deploy/terraform plan -refresh-only -detailed-exitcode
 
-# ----------------------------------------------------------------------------
-# Operator access via OCI Bastion (replaces the static ssh_allowed_cidr rule).
-# Both targets shell into deploy/scripts/bastion-session.sh, which caches the
-# active session OCID + expiry at ~/.cache/opengate/bastion-session.json so
-# subsequent invocations within the 3 h TTL skip the 5–10 s session create.
-# Prerequisites and IAM setup live in docs/infrastructure/OCI-Terraform.md → "Operator
-# access via OCI Bastion".
-# ----------------------------------------------------------------------------
-
-# `make tunnel` — port-forward the in-cluster Grafana :3000
-# to localhost via kubectl. Post-OKE-cutover the monitoring UIs are ClusterIP
-# services (not host ports on the decommissioned VM), so the bastion can no
-# longer reach them. Operator browses to http://localhost:3000; Ctrl-C tears the
-# forward down.
+# Port-forwards the in-cluster Grafana to http://localhost:3000 until Ctrl-C.
 tunnel:
 	@echo "Grafana -> http://localhost:3000 (Ctrl-C to stop)"
 	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:3000
 
-# `make ssh` — Managed SSH session to the OKE worker node (interactive shell).
 ssh:
 	@deploy/scripts/bastion-session.sh ssh
 
-# TDD harness for deploy/scripts/parse-tfplan.sh (S4 of the IaC pyramid).
-# Three canned tfplan fixtures cover the gate decision matrix.
+# Runs parse-tfplan.sh over canned plan fixtures that cover each gate decision.
 test-parse-tfplan:
 	@deploy/scripts/parse-tfplan.sh deploy/tests/fixtures/tfplan/no-changes.json >/dev/null \
 	  && echo "  ok: no-changes → exit 0"
@@ -193,57 +144,39 @@ test-parse-tfplan:
 	  && echo "  ok: destroy-protected (--approve-destroy) → exit 0"
 	@echo "test-parse-tfplan: PASS"
 
-# ----------------------------------------------------------------------------
-# IaC Security Testing Pyramid (S1–S4 of iac-security-testing-pyramid plan).
-# ----------------------------------------------------------------------------
-
-# L2 — Secrets scanning. Default mode scans git history; --no-git would scan
-# the working tree but pulls in gitignored build artifacts. Pre-commit-side
-# `gitleaks protect --staged` lives in scripts/precommit-gauntlet.sh.
+# Scans git history; --no-git would also read gitignored build artifacts.
 secrets-scan:
 	@bash scripts/require-tool.sh gitleaks
 	gitleaks detect --config .gitleaks.toml --no-banner --redact
 
-# L4 — Built-in policy scanning (Checkov, 4 frameworks; secrets framework is
-# disabled because gitleaks already owns that surface — see .checkov.yaml).
+# Checkov scans only the frameworks .checkov.yaml lists; gitleaks covers secrets.
 iac-policy:
 	@bash scripts/require-tool.sh checkov
 	@# The `helm` framework renders deploy/helm/** charts before scanning.
 	@bash scripts/require-tool.sh helm
 	checkov --config-file .checkov.yaml
 
-# Triage helper: same surface, --soft-fail so the operator can review findings
-# without the gate going red. Use during baseline refresh / new-framework rollout.
+# Runs the same scan with --soft-fail so findings do not fail the target.
 iac-policy-fix:
 	checkov --config-file .checkov.yaml --soft-fail
 
-# L4 — Dockerfile policy. Hadolint is orthogonal to Checkov's Docker rule set
-# (catches BIDI smuggling, layer ordering, pin-missing). Kept as a separate
-# tool so each can be invoked / silenced independently.
+# Hadolint checks Dockerfile rules Checkov lacks, such as BIDI smuggling and layer ordering.
 lint-dockerfile:
 	@bash scripts/require-tool.sh hadolint
 	hadolint Dockerfile
 
-# L5 — Project-specific Rego policies (Conftest). Reads JSON-converted plan
-# files for terraform, raw YAML for compose + workflows. The terraform target
-# requires a plan-file (generated by `terraform plan -out=`), which in turn
-# needs the remote backend init (operator-only path); the compose/actions
-# checks run against committed files directly so they always work in CI.
+# Conftest runs the Rego policies over workflow YAML and, when present, a terraform plan JSON.
 iac-policy-custom:
 	@bash scripts/require-tool.sh conftest
 	conftest test --policy policy/github_actions .github/workflows/*.yml
-	@# Terraform policy needs a plan-file (HCL2 parser leaves ${var.X} unresolved).
-	@# Operator: terraform plan -out=/tmp/tfplan.binary && terraform show -json /tmp/tfplan.binary > /tmp/tfplan.json
+	@# The terraform policy reads a plan JSON because the HCL2 parser leaves ${var.X} unresolved.
 	@if [ -f /tmp/tfplan.json ]; then \
 	  conftest test --policy policy/terraform /tmp/tfplan.json; \
 	else \
 	  echo "(skipping terraform Rego check: /tmp/tfplan.json not present)"; \
 	fi
 
-# Helm chart validation (Phase 13b PR-B). helm lint → schema-validate the
-# rendered manifests (kubeconform, ignoring CRDs) → unit-test the k8s Rego
-# policy → run it against every overlay's rendered output. Checkov's helm
-# framework runs separately via `make iac-policy`.
+# Lints the charts, schema-validates their rendered manifests and runs the k8s Rego policy.
 lint-k8s:
 	@bash scripts/require-tool.sh helm
 	@bash scripts/require-tool.sh kubeconform
@@ -270,44 +203,25 @@ fmt:
 verify-codegen:
 	@bash scripts/require-tool.sh oapi-codegen
 	cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go && git diff --exit-code internal/api/openapi_gen.go
-	# The web client generates from the same spec. Without this the TypeScript
-	# types drift silently until the Docker web build type-checks them, which is
-	# ten minutes into the gauntlet rather than one second in.
 	cd web && npm run --silent generate:api && git diff --exit-code src/types/api.d.ts
 
 golden:
-	# Forward goldens: Rust encodes, Go verifies. Generates testdata/golden/*.bin.
 	cd agent && GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden_test
-	# Reverse goldens: Go encodes go_*.bin, Rust verifies (in the reverse_golden_test below).
-	# Also writes .meta.json sidecars for every .bin in testdata/golden/.
+	# Go encodes go_*.bin and writes .meta.json sidecars for every .bin in testdata/golden/.
 	cd server && GENERATE_GOLDEN=1 go test ./internal/protocol/ -run "TestGenerateReverseGoldens|TestGenerateForwardSidecars"
-	# Forward verification (Go side): decode and assert all Rust-side fixtures.
 	cd server && go test ./internal/protocol/ -run TestGolden
-	# Reverse verification (Rust side): decode and assert all Go-encoded fixtures.
 	cd agent && cargo test -p mesh-protocol --test reverse_golden_test
 
 ci: lint test build
 
-# DOCKER_CONFIG is sanitized by docker-credstore-guard.sh so a broken local
-# credential helper (e.g. WSL docker-credential-desktop.exe) cannot break pulls
-# of public base images. No-op in CI (no broken credsStore there).
-# Sole owner of the Compose lifecycle: bring the stack up, run Playwright, then
-# tear down in the same recipe line so the teardown also runs when the suite
-# fails, while the suite's exit code still propagates to make.
-# Smoke tests run AFTER Playwright, not before: registering the first user on a
-# fresh database auto-promotes it to administrator, and Playwright's global
-# setup asserts that its own bootstrap account got that promotion. A smoke run
-# that went first would take the slot and fail every E2E run. Both share one
-# compose lifecycle, and either failing fails the target.
-# The agent as the browser test stack runs it: one static binary, staged where
-# the Docker build context can reach it. The cargo target tree itself is
-# excluded from the context (it is tens of gigabytes), so the binary is copied
-# out rather than referenced in place.
+# Copies one static agent binary into the Docker build context, which excludes the cargo target.
 agent-binary:
 	cd agent && cargo build --release --target x86_64-unknown-linux-musl -p mesh-agent
 	mkdir -p deploy/agent-bin
 	cp agent/target/x86_64-unknown-linux-musl/release/mesh-agent deploy/agent-bin/mesh-agent
 
+# Smoke tests run after Playwright: the first user on a fresh database becomes administrator,
+# and Playwright's global setup claims that account.
 e2e: agent-binary
 	bash deploy/scripts/e2e-stack-up.sh
 	@(cd web && npx playwright test); rc=$$?; \
@@ -315,12 +229,8 @@ e2e: agent-binary
 		cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v; \
 		exit $$rc
 
-# Every scenario CI runs, so a local pass and a nightly pass mean the same
-# thing. A target that omits one leaves that scenario's thresholds discovered
-# only by the nightly.
-# LOADTEST_RUN_ID names every identity a run creates, so a local run is
-# removable by the same cleanup the nightly uses. It defaults to the clock here
-# because a workstation has no run number of its own.
+# Runs every scenario CI runs. LOADTEST_RUN_ID defaults to the clock so the nightly's
+# cleanup can remove a local run's identities.
 load-test:
 	LOADTEST_BASE_URL=http://localhost:8080 \
 	LOADTEST_RUN_ID=$${LOADTEST_RUN_ID:-local-$$(date -u +%Y%m%d%H%M%S)} \
@@ -331,12 +241,6 @@ load-test:
 load-test-quic:
 	cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 
-# The Rust ignore regex carves out code with no in-process harness:
-#   main.rs        — binary entry points: process/runtime wiring, covered by E2E
-#   webrtc.rs      — RTCPeerConnection/ICE callbacks, need a live STUN stack
-#   terminal.rs    — PTY + shell subprocess owned by the host
-#   session/relay.rs — capture/writer loops driven by a live screen source
-#   /tests/        — the test files themselves
 sonar-coverage:
 	cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
 	cd agent && cargo llvm-cov nextest --workspace --lcov --output-path lcov.info \
@@ -346,14 +250,17 @@ sonar-coverage:
 
 sonar: sonar-coverage
 	@test -n "$$SONAR_TOKEN" || { echo "ERROR: SONAR_TOKEN not set. Export it or add to .env"; exit 1; }
-	@for attempt in 1 2 3; do \
+	@rm -rf .scannerwork
+	@. scripts/lib/tool-versions.sh; for attempt in 1 2 3; do \
 		out=$$(docker run --rm \
 			-e SONAR_TOKEN="$$SONAR_TOKEN" \
 			-v "$$(pwd):/usr/src" \
 			-w /usr/src \
-			sonarsource/sonar-scanner-cli:latest \
+			sonarsource/sonar-scanner-cli:"$$TOOL_VERSION_SONAR_SCANNER_IMAGE" \
 			-Dsonar.qualitygate.wait=true \
 			-Dsonar.scanner.skipJreProvisioning=true \
+			-Dsonar.scanner.keepReport=true \
+			-Dsonar.working.directory=.scannerwork \
 			-Dsonar.branch.name=dev 2>&1); rc=$$?; \
 		printf '%s\n' "$$out"; \
 		[ $$rc -eq 0 ] && exit 0; \
@@ -367,11 +274,11 @@ sonar: sonar-coverage
 
 sonar-quick:
 	@test -n "$$SONAR_TOKEN" || { echo "ERROR: SONAR_TOKEN not set. Export it or add to .env"; exit 1; }
-	docker run --rm \
+	. scripts/lib/tool-versions.sh; docker run --rm \
 		-e SONAR_TOKEN="$$SONAR_TOKEN" \
 		-v "$$(pwd):/usr/src" \
 		-w /usr/src \
-		sonarsource/sonar-scanner-cli:latest \
+		sonarsource/sonar-scanner-cli:"$$TOOL_VERSION_SONAR_SCANNER_IMAGE" \
 		-Dsonar.qualitygate.wait=true \
 		-Dsonar.scanner.skipJreProvisioning=true \
 		-Dsonar.branch.name=dev
@@ -381,18 +288,11 @@ clean:
 	cd server && rm -rf bin/
 	cd web && rm -rf dist/ node_modules/.cache
 
-# ----------------------------------------------------------------------------
-# Structural-testing tooling (developer-facing; CI gates land in PR 9).
-# ----------------------------------------------------------------------------
-
-# Mutation testing — surfaces test-suite quality (surviving mutants = test gaps).
 mutate: mutate-rust mutate-go mutate-web
 
 mutate-rust:
 	@bash scripts/require-tool.sh cargo-mutants
-	@# Run the same scope shards as CI (scripts/lib/mutation-shards.sh): each
-	@# shard mutates one package restricted to its files, then merge into one
-	@# report — mirrors .github/workflows/mutation.yml.
+	@# Mutates the CI scope shards from mutation-shards.sh, then merges them into one report.
 	. scripts/lib/mutation-shards.sh; \
 	outcomes=""; \
 	for shard in $$(mutation_rust_shards); do \
@@ -413,10 +313,7 @@ mutate-go:
 	  echo "         Start a test Postgres (see .github/workflows/ci.yml) and set:"; \
 	  echo "         export POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\""; \
 	fi
-	@# Run the same mutation-unit shards as CI (scripts/lib/mutation-shards.sh):
-	@# each shard walks the narrowest path holding its own units, restricted to
-	@# its files/dirs via -E, then merge into one report — mirrors
-	@# .github/workflows/mutation.yml, whose path comes from the same function.
+	@# Each CI shard from mutation-shards.sh walks the narrowest path holding its units.
 	. scripts/lib/mutation-shards.sh; \
 	reports=""; \
 	for shard in $$(mutation_go_shards); do \
@@ -434,23 +331,15 @@ mutate-go:
 mutate-web:
 	cd web && npx stryker run
 
-# Coverage-guided fuzzing — libFuzzer over mesh-protocol's wire decoder.
-# Bounded (FUZZ_RUNS iterations) so it terminates; libFuzzer needs nightly.
-# The always-run regression is the stable corpus replay in
-# crates/mesh-protocol/tests/decode_corpus_test.rs (runs in plain `cargo test`).
+# libFuzzer over the wire decoder, bounded to FUZZ_RUNS iterations; needs the nightly toolchain.
 FUZZ_RUNS ?= 100000
-# cargo-fuzz defaults its build --target to the triple cargo-fuzz itself was
-# compiled for. CI installs the musl prebuilt (via cargo-binstall), which would
-# make it build the fuzz target for x86_64-unknown-linux-musl — whose std is not
-# installed — and fail with E0463. Pin the build to the running host's triple so
-# the prebuilt std is always present, regardless of how cargo-fuzz was installed.
+# The build target is the host triple; cargo-fuzz otherwise targets the triple it was built for.
 FUZZ_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
 fuzz-rust:
 	@bash scripts/require-tool.sh cargo-fuzz
 	@rustup toolchain list | grep -q '^nightly' || { echo "ERROR: nightly toolchain not found. Install with: rustup toolchain install nightly"; exit 1; }
 	cd agent/fuzz && cargo +nightly fuzz run --target $(FUZZ_TARGET) decode -- -runs=$(FUZZ_RUNS)
 
-# Static taint linting — catches data-flow paths from sources to sinks.
 taint-go:
 	@bash scripts/require-tool.sh gosec
 	cd server && gosec -conf .gosec.json ./...
@@ -458,14 +347,11 @@ taint-go:
 taint-web:
 	cd web && npx eslint --config eslint.security.config.js src/
 
-# Adversarial pen-test gate (ADR-027): custom Semgrep rules + OpenAPI
-# spec-drift over the diff. Full scan by default (no baseline → every finding
-# evaluated); the gauntlet and CI pass PENTEST_BASELINE_REF for diff-only mode.
+# Scans fully by default; PENTEST_BASELINE_REF switches it to diff-only mode.
 pentest-review:
 	@command -v semgrep >/dev/null 2>&1 || [ -x "$$HOME/.local/bin/semgrep" ] || { echo "ERROR: semgrep not found. Install with: bash scripts/install-semgrep.sh"; exit 1; }
 	bash scripts/pentest-review.sh
 
-# Dead-code & unused-symbol sweep across all three languages.
 dead-code:
 	@bash scripts/require-tool.sh staticcheck
 	cd agent && cargo clippy --workspace --all-targets -- -W dead_code

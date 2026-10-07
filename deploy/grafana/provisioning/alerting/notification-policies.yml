@@ -1,15 +1,5 @@
-# Every alert goes to the Telegram chat the nightlies report into.
-#
-# One route, no matchers: a rule that fires is a rule somebody should see, and a
-# tree of exceptions is how a destination comes to be one nothing reaches.
-# Grouping is by rule, so every series one rule fires for arrives in one
-# message, each printed with its own labels. A rule that reads no data arrives
-# under Grafana's own name for that, with the rule's title in `rulename`, so the
-# grouping reads both: every rule's no-data alert is a message of its own.
-#
-# While a test holds the staging claim, the rules labelled `watches: shared` are
-# silenced by scripts/alert-quiet-period.sh; that silence is the only one this
-# deployment creates.
+# One matcher-free route sends every alert to Telegram, grouped by alertname and rulename.
+# alert-quiet-period.sh silences `watches: shared` rules while a test holds staging.
 apiVersion: 1
 
 policies:

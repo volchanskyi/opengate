@@ -1,8 +1,4 @@
-//! Integration tests for `TerminalControlHandler`.
-//!
-//! Pins the externally-visible contract: TerminalResize delegates to
-//! `TerminalHandle::resize` when a terminal session is active; silently
-//! no-ops when no session exists.
+//! Integration tests for `TerminalControlHandler` resize delegation.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -13,7 +9,6 @@ use tokio::sync::mpsc;
 
 #[test]
 fn handle_resize_no_terminal_does_not_panic() {
-    // No active terminal session — handler must return cleanly.
     TerminalControlHandler::handle_resize(None, 80, 24);
 }
 

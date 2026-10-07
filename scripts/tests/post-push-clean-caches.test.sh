@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Tests for .claude/hooks/post-push-clean-caches.sh — the best-effort post-push
-# local cache reclaim. Plain bash; no bats dependency.
-# Run: ./scripts/tests/post-push-clean-caches.test.sh
-#
-# Each test builds a throwaway repo root with an agent/ workspace and stubs
-# cargo/go/docker on PATH so we assert which cleanup commands ran without
-# touching the real toolchain or Docker daemon.
+# Tests the post-push cache reclaim hook against stubbed cargo, go and docker on PATH.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,8 +20,7 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Build a fresh fake repo root with an agent workspace and a stub-tool bin dir.
-# Echoes the root path. Sets STUB_LOG (global) to the command-trace file.
+# Echoes the fixture root and sets the global STUB_LOG to the command-trace file.
 make_fixture() {
   local root
   root="$(mktemp -d)"
@@ -46,8 +39,7 @@ EOF
   printf '%s' "$root"
 }
 
-# Run the hook from inside the fixture root with the stub bin on PATH.
-# Args: root [env assignments...]. Sets HOOK_EXIT.
+# Takes the root and optional env assignments, and sets the global HOOK_EXIT.
 run_hook() {
   local root="$1"
   shift
@@ -58,7 +50,6 @@ run_hook() {
   HOOK_EXIT=$?
 }
 
-# --- T1: runs the documented core cleanup with all tools present -------------
 t_runs_core_cleanup() {
   local root
   root="$(make_fixture)"
@@ -80,9 +71,7 @@ t_runs_core_cleanup() {
     fail "core cleanup: docker volume prune not invoked"
     return
   }
-  # The Docker builder cache is the largest consumer on this machine: every
-  # `make e2e` / gauntlet run does `up --build`, and each run lays down a fresh
-  # set of build-cache records that nothing else ever reclaims.
+  # Each `up --build` lays down build-cache records that only a builder prune reclaims.
   grep -q '^docker builder prune -af' "$STUB_LOG" || {
     fail "core cleanup: docker builder prune -af not invoked (build cache leaks)"
     return
@@ -94,7 +83,6 @@ t_runs_core_cleanup() {
   pass "runs cargo clean + go clean -cache + docker volume/builder/image prune"
 }
 
-# --- T2: no-op under CI -------------------------------------------------------
 t_skips_in_ci() {
   local root
   root="$(make_fixture)"
@@ -111,7 +99,6 @@ t_skips_in_ci() {
   pass "skips all cleanup under CI"
 }
 
-# --- T3: explicit opt-out ----------------------------------------------------
 t_opt_out() {
   local root
   root="$(make_fixture)"
@@ -128,12 +115,11 @@ t_opt_out() {
   pass "OPENGATE_SKIP_CACHE_CLEAN disables the hook"
 }
 
-# --- T4: missing tool is non-fatal ------------------------------------------
 t_missing_tool_non_fatal() {
   local root
   root="$(make_fixture)"
   STUB_LOG="$root/trace.log"
-  rm -f "$root/bin/docker" # docker absent
+  rm -f "$root/bin/docker"
   run_hook "$root"
   if [[ "$HOOK_EXIT" -ne 0 ]]; then
     fail "missing tool: expected exit 0, got $HOOK_EXIT"
@@ -150,20 +136,15 @@ t_missing_tool_non_fatal() {
   pass "missing docker is a non-fatal skip; other cleanup still runs"
 }
 
-# --- T5: never touches the dependency caches (registry / module cache) -------
 t_never_clears_dep_caches() {
-  # Behavioral invariants (assert the commands, not explanatory comments):
-  # the Go module cache wipe flag must never appear...
   if grep -Eq 'go[[:space:]]+clean[^|&]*-modcache|[[:space:]]-modcache' "$HOOK"; then
     fail "safety: hook runs 'go clean -modcache' (wipes the module cache)"
     return
   fi
-  # ...and nothing may rm the cargo registry or the Go module cache.
   if grep -Eq 'rm[[:space:]].*(registry|pkg/mod|GOMODCACHE)' "$HOOK"; then
     fail "safety: hook rm's a dependency cache it must never clear"
     return
   fi
-  # And cargo clean must be scoped to the agent workspace, not a registry wipe.
   if ! grep -q 'agent' "$HOOK"; then
     fail "safety: cargo clean is not scoped to the agent workspace"
     return
@@ -171,13 +152,9 @@ t_never_clears_dep_caches() {
   pass "never clears cargo registry / Go module cache"
 }
 
-# --- T6: prunes only what rebuilds, never what re-downloads ------------------
-# `docker image prune -a` / `docker system prune -a` delete tagged base images
-# (postgres:17, node, golang) that are pulled from a registry, not built — that
-# is a re-download, which this hook must never force.
+# Tagged base images are pulled from a registry, so pruning them forces a re-download.
 t_never_forces_redownload() {
-  # Assert on executable lines only — the header comment names these commands
-  # precisely to document that they are off-limits.
+  # Comment lines are dropped because the hook header names these commands as off-limits.
   local code
   code="$(grep -v '^[[:space:]]*#' "$HOOK")"
   if grep -Eq 'image[[:space:]]+prune[[:space:]]+-[a-z]*a|system[[:space:]]+prune' <<<"$code"; then

@@ -2,8 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { isTokenExpired, isTokenExhausted, isTokenActive } from './token-status';
 
-// Pinned runs + seed so any counterexample reproduces deterministically in the
-// gauntlet (tests-determinism.md). No .skip / .only.
+// A pinned seed makes every counterexample reproducible.
 const RUNS = { numRuns: 500, seed: 0x0ac17a7e } as const;
 
 describe('token-status properties', () => {
@@ -18,8 +17,7 @@ describe('token-status properties', () => {
   });
 
   it('isTokenExpired treats an unparseable expiry as expired (fail-safe)', () => {
-    // A malformed expiresAt must never make a token look live. Without a NaN
-    // guard `new Date("garbage") <= new Date()` is false → fail-open.
+    // Without a NaN guard an unparseable expiry compares false and reads as live.
     fc.assert(
       fc.property(
         fc.string().filter((s) => Number.isNaN(new Date(s).getTime())),
@@ -75,7 +73,6 @@ describe('token-status properties', () => {
     );
   });
 
-  // Counterexample kept as an explicit case so it re-runs without fast-check.
   it('regression: empty / garbage expiry is inactive even with uses remaining', () => {
     expect(isTokenActive('', 0, 0)).toBe(false);
     expect(isTokenActive('not-a-date', 10, 0)).toBe(false);

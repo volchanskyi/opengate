@@ -12,9 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// A rule change is carried to the machines already connected, scoped to the
-// customer it was made for — or, for a tenant-wide stop, to every customer in
-// the tenant the request was made in.
 func TestDeliverRuleChangeReachesTheScopeItWasMadeFor(t *testing.T) {
 	t.Parallel()
 
@@ -40,8 +37,7 @@ func TestDeliverRuleChangeReachesTheScopeItWasMadeFor(t *testing.T) {
 			wantTenants: []uuid.UUID{tenant},
 		},
 		{
-			// With no tenant on the request there is no scope to deliver to, and
-			// guessing one would stop a rule on somebody else's estate.
+			// A request with no tenant has no scope to deliver to.
 			name:       "a tenant-wide stop with no tenant on the request reaches nobody",
 			ctx:        context.Background(),
 			tenantWide: true,
@@ -61,8 +57,6 @@ func TestDeliverRuleChangeReachesTheScopeItWasMadeFor(t *testing.T) {
 	}
 }
 
-// A server assembled without an agent server — the API alone — stores the
-// change and delivers it to nobody rather than failing it.
 func TestDeliverRuleChangeWithNoAgentServerDeliversNothing(t *testing.T) {
 	t.Parallel()
 

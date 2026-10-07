@@ -14,46 +14,26 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// Assembling the ruleset one machine actually gets.
-//
-// Three things decide it. The catalogue says what each rule is — its predicate,
-// its window, and the numbers it ships with — and is compiled in, so it is the
-// same everywhere. The customer's bindings retune those numbers down the tenancy
-// ladder. The rollout state says whether the customer gets the rule at all.
-//
-// Which customer a machine belongs to is the whole of the separation: the
-// bindings read are the ones filed against that customer, so Contoso's threshold
-// cannot reach a Fabrikam machine even when the two share a tenant and a
-// database read would have returned both.
-
 // RuleConfigStore is the customer-mutable half of a rule: what they retuned and
 // how far a rule has been rolled out to them.
 type RuleConfigStore interface {
 	// ListBindings returns every parameter override one customer has set.
 	ListBindings(ctx context.Context, organizationID uuid.UUID) ([]rules.Binding, error)
-	// ListRollouts returns one customer's stored rollout state, keyed by rule
-	// id. A rule absent from the result has not been configured.
+	// ListRollouts returns one customer's rollout state keyed by rule id.
 	ListRollouts(ctx context.Context, organizationID uuid.UUID) (map[string]rules.Rollout, error)
 }
 
-// DeviceTagReader supplies the tags a binding's selector picks a machine out by.
-// It is optional: a machine with no tags simply matches the bindings that name
-// none, which is every binding filed against a rung rather than a tag.
+// DeviceTagReader supplies the tags a binding's selector matches a machine by.
 type DeviceTagReader interface {
 	TagsFor(ctx context.Context, deviceID uuid.UUID) (map[string]string, error)
 }
 
-// AlertLimitReader reads a customer's alert budget, the per-machine half of
-// which travels down with the rules. It is optional: without one every machine
-// keeps the allowance it already has.
+// AlertLimitReader reads a customer's alert budget, whose per-machine half travels with the rules.
 type AlertLimitReader interface {
 	Limits(ctx context.Context, organizationID uuid.UUID) (alerts.Limits, error)
 }
 
-// FleetCounter counts a customer's estate, which is what sizes a stage: a
-// canary's floor of a handful of machines cannot be worked out from a percentage
-// alone. It is the fleet rollup the device repository already answers, so
-// nothing new is queried to size a rollout.
+// FleetCounter counts a customer's machines, which sizes a rollout stage's canary floor.
 type FleetCounter interface {
 	Counts(ctx context.Context, organizationID uuid.UUID) (device.Counts, error)
 }
@@ -69,10 +49,8 @@ type CatalogueAlertRuleProvider struct {
 	logger    *slog.Logger
 }
 
-// NewCatalogueAlertRuleProvider builds a provider over a catalogue and the
-// customer-mutable state. A nil tag source means selectors match nothing, which
-// leaves every binding filed against a rung working as it should. A nil fleet
-// source costs a staged rule its canary floor and nothing else.
+// NewCatalogueAlertRuleProvider builds a provider over a catalogue and the customer-mutable
+// state; nil tag, limit or fleet sources are optional.
 func NewCatalogueAlertRuleProvider(
 	catalogue *rules.Catalogue,
 	store RuleConfigStore,
@@ -91,18 +69,12 @@ func NewCatalogueAlertRuleProvider(
 	}
 }
 
-// RulesFor returns the ruleset for the machine at scope.
-//
-// A store that cannot be read is reported rather than replaced with the shipped
-// defaults. Substituting them would push rules that ignore whatever the customer
-// set — including a kill switch, at exactly the moment somebody reached for one.
-// The agent keeps the ruleset it already holds, so the cost of reporting is a
-// ruleset that is not refreshed, not a machine that stops being watched.
+// RulesFor returns the ruleset for the machine at scope; an unreadable store is an error, so the
+// agent keeps its current rules and never receives defaults that ignore customer settings.
 func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope settings.Scope) (RuleSet, error) {
 	definitions := p.catalogue.All()
 
-	// A machine with no customer on its ladder has nothing to resolve against.
-	// It takes the pack as it shipped rather than anyone else's numbers.
+	// A machine with no customer takes the catalogue as shipped.
 	if scope.OrganizationID == uuid.Nil {
 		return RuleSet{
 			Rules:      resolveAll(definitions, rules.Device{Scope: scope}, nil, nil),
@@ -131,10 +103,7 @@ func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope setting
 	}, nil
 }
 
-// ceilingFor reads the customer's per-machine alert allowance. A budget that
-// cannot be read leaves the machine on the allowance it already has: pushing a
-// zero would be indistinguishable from a customer who set nothing, and pushing a
-// guess would either silence a machine or uncap it, both from a failed query.
+// ceilingFor reads the customer's per-machine alert allowance; zero keeps the current one.
 func (p *CatalogueAlertRuleProvider) ceilingFor(ctx context.Context, organizationID uuid.UUID) uint32 {
 	if p.limits == nil {
 		return 0
@@ -146,9 +115,7 @@ func (p *CatalogueAlertRuleProvider) ceilingFor(ctx context.Context, organizatio
 		return 0
 	}
 
-	// Held to the maximum the code allows on the way out, not only on the way
-	// in. A row written before a maximum was tightened, or written past the API
-	// altogether, would otherwise hand a machine an allowance nobody may set.
+	// The stored value is clamped to the current maximum on the way out.
 	return clampNonNegativeUint32(min(limits.DeviceHourly, alerts.MaxDeviceHourlyCeiling))
 }
 
@@ -161,13 +128,7 @@ func resolveAll(
 ) []protocol.ThresholdRule {
 	out := make([]protocol.ThresholdRule, 0, len(definitions))
 	for _, def := range definitions {
-		// A rule that watches the machine's own words is already on the machine:
-		// the phrases it matches are what that machine's log reader is built
-		// around. Sent down this path it would reach the evaluator that compares
-		// readings, which would report a rule it cannot evaluate — and the whole
-		// estate would then read as not watching a rule that is watching all of
-		// it, which is the exact failure the coverage accounting exists to
-		// prevent.
+		// Event rules already run in the machine's log reader, so the reading evaluator skips them.
 		if def.WatchesEvents() {
 			continue
 		}
@@ -180,14 +141,8 @@ func resolveAll(
 	return out
 }
 
-// wantedEventRules names which rules about the machine's own words this
-// customer still wants.
-//
-// The staged reach a rule about a reading is subject to has no meaning here: a
-// rule the machine carries cannot be given to a tenth of an estate and withheld
-// from the rest, because it is already on every machine. What does carry over
-// is the stop — switching a rule off, or killing it — and that is what this
-// answers.
+// wantedEventRules names the event rules the customer keeps enabled; staged reach does not apply
+// because every machine already carries them.
 func wantedEventRules(
 	definitions []rules.Definition,
 	organizationID uuid.UUID,
@@ -205,15 +160,8 @@ func wantedEventRules(
 	return wanted
 }
 
-// fleetSizeFor counts the customer's estate, which sizes any stage they are
-// mid-rollout on. It is read for those customers only: every rule at full reach
-// — which is every customer who has staged nothing — needs no count, and paying
-// for one on every machine's reconnect to size a stage nobody is in is a query
-// per connection for nothing.
-//
-// A count that cannot be read costs the stage its canary floor and nothing else:
-// the rule reaches the share it declares, never the estate. Guessing upward
-// would spread a rule that is still being tried the moment a query failed.
+// fleetSizeFor counts the customer's machines only when a rollout is staged; an unreadable count
+// returns zero, so the rule reaches its declared share without a canary floor.
 func (p *CatalogueAlertRuleProvider) fleetSizeFor(ctx context.Context, organizationID uuid.UUID, rollouts map[string]rules.Rollout) int {
 	if p.fleet == nil || !rules.NeedsFleetSize(rollouts) {
 		return 0
@@ -227,9 +175,7 @@ func (p *CatalogueAlertRuleProvider) fleetSizeFor(ctx context.Context, organizat
 	return counts.Total
 }
 
-// tagsFor reads a machine's tags. Tags narrow a binding rather than carry one,
-// so a source that cannot answer costs the machine its targeted bindings and
-// nothing else — losing the whole ruleset over it would be the larger harm.
+// tagsFor reads a machine's tags; an unreadable source loses only the tag-targeted bindings.
 func (p *CatalogueAlertRuleProvider) tagsFor(ctx context.Context, deviceID uuid.UUID) map[string]string {
 	if p.tags == nil {
 		return nil

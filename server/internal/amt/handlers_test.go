@@ -27,10 +27,6 @@ func (s *stubOperator) QueryDeviceInfo(context.Context, uuid.UUID) (*wsman.Devic
 }
 func (s *stubOperator) ConnectedDeviceCount() int { return 0 }
 
-// The amt module's Handlers struct is the per-domain use-case layer. Discovery
-// is served by the device read — a device carries its AMT property in its own
-// payload — so the api package's transport handler delegates only PowerAction.
-
 func TestHandlers_PowerAction_DelegatesAllArgs(t *testing.T) {
 	id := uuid.New()
 	op := &stubOperator{}

@@ -1,8 +1,6 @@
 import { check } from "k6";
 import { Trend } from "k6/metrics";
-// The request client is the shared one rather than k6's own: it is the single
-// place that sees every request this run makes, which is what lets the run say
-// how many of them the server turned away at the door.
+// The shared request client sees every request the run makes and counts server refusals.
 import {
   anonymousHeaders,
   authHeaders,
@@ -20,51 +18,30 @@ import {
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
-// One number for the whole interface said nothing useful. Opening a fleet list
-// and opening one machine's page are different pieces of work — the second fans
-// out to inventory, history and readings — and a technician waits differently
-// for each: a list is a glance, a command is a deliberate act. So each is timed
-// on its own and each carries the mark that suits it.
+// Each journey is timed on its own: a device page fans out to inventory, history and readings.
 const deviceListLatency = new Trend("journey_device_list_ms");
 const deviceDetailLatency = new Trend("journey_device_detail_ms");
 const commandAcceptLatency = new Trend("journey_command_accept_ms");
 
-// Requests one journey makes. It is what decides how long a virtual user is
-// held, and therefore how many of them a declared arrival rate needs.
+// Requests one journey makes; it sets how long a virtual user is held and so how many a rate needs.
 const REQUESTS_PER_JOURNEY = 6;
 
 const WALK = phases();
 
 export const options = {
   scenarios: arrivalScenarios(WALK, REQUESTS_PER_JOURNEY),
-  // The run-wide marks, and the same marks over the phase the profile says the
-  // night's numbers are taken from. Naming a phase's sub-metric here is also
-  // what puts it in the summary export, which is how the stored row comes to
-  // hold the load's own figures rather than a mixture of the load, the climb to
-  // it and the wind-down away from it.
-  //
-  // 100 ms rather than 200. The wider figure had cleared every night on the
-  // retained trend including the worst one, so it distinguished nothing; the
-  // reason it had to be wide was that the generator and the target shared the
-  // same two processors, and the measurement's own spread was larger than any
-  // regression worth finding. With the two given separate allocations, this is
-  // tight enough that a real regression shows.
+  // Run-wide marks, repeated over the measured phase; naming its sub-metric puts it in the export.
   thresholds: Object.assign(
     {
       http_req_duration: ["p(95)<100"],
       http_req_failed: ["rate<0.01"],
       // A glance at the fleet.
       "journey_device_list_ms": ["p(95)<300"],
-      // One machine's page, which fans out to its inventory, its history and its
-      // readings, so it is given more room than the list it was opened from.
+      // One machine's page fans out to inventory, history and readings, so it gets more room.
       "journey_device_detail_ms": ["p(95)<500"],
-      // A deliberate act — putting a machine into maintenance — where the mark is
-      // the server accepting the instruction, not the machine carrying it out.
+      // The mark is the server accepting the maintenance instruction, not the machine acting on it.
       "journey_command_accept_ms": ["p(95)<1000"],
-      // The generator saying it could not keep the rate the profile declared.
-      // Without it, an arrival-rate run degrades quietly back into the closed
-      // loop it replaced: offered load falls, latency stays flat, and the night
-      // reports a healthy server it never finished asking.
+      // The generator could not keep the rate the profile declared.
       dropped_iterations: ["count<1"],
     },
     measuredThresholds(WALK, {
@@ -79,9 +56,7 @@ export function setup() {
   return {
     token: member.token,
     email: member.email,
-    // The site the fleet is read from is chosen for holding machines. Two of the
-    // journeys below are timed against one, so a site picked for sorting first
-    // leaves them recording nothing on every night it happens to be empty.
+    // The site holds machines, because two journeys are timed against one.
     siteId: siteWithDevices(BASE_URL, member.token),
   };
 }
@@ -108,9 +83,7 @@ export default function (data) {
   check(devices, { "devices 200": (r) => r.status === 200 });
   deviceListLatency.add(devices.timings.duration);
 
-  // One machine's page, and one instruction sent to it. Both need a machine to
-  // exist; an empty fleet is a valid shape for this environment, so the two
-  // journeys are simply not timed when there is nothing to open.
+  // The device page and command journeys need a machine and are skipped on an empty fleet.
   const fleet = devices.status === 200 ? devices.json() || [] : [];
   if (fleet.length > 0) {
     const deviceId = fleet[__ITER % fleet.length].id;
@@ -119,9 +92,7 @@ export default function (data) {
     check(detail, { "device detail 200": (r) => r.status === 200 });
     deviceDetailLatency.add(detail.timings.duration);
 
-    // Maintenance rather than a restart: it is a real instruction a technician
-    // sends, it is idempotent, and nothing physical happens at the other end —
-    // so the number is the acceptance path without a fleet-wide side effect.
+    // Maintenance is an idempotent instruction with no physical effect, so it times acceptance alone.
     const command = http.post(
       `${BASE_URL}/api/v1/devices/${deviceId}/maintenance`,
       JSON.stringify({ enabled: false, reason: "load-test acceptance path" }),

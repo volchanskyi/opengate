@@ -34,14 +34,12 @@ func TestVMClientDeleteSeriesScopesToDeviceAndVerifiesEmpty(t *testing.T) {
 	write(keep, 20)
 	require.NoError(t, client.Flush(ctx))
 
-	// The target device has series before the purge.
 	n, err := client.CountSeries(ctx, tenant, &target)
 	require.NoError(t, err)
 	assert.Positive(t, n, "target must have series before purge")
 
 	require.NoError(t, client.DeleteSeries(ctx, tenant, &target))
 
-	// Verification: the purged device is empty, the sibling device is untouched.
 	n, err = client.CountSeries(ctx, tenant, &target)
 	require.NoError(t, err)
 	assert.Zero(t, n, "purged device must have no remaining series")
@@ -83,7 +81,6 @@ func TestVMClientListSubjectsReturnsDistinctPairs(t *testing.T) {
 	tenant := uuid.New()
 	device := uuid.New()
 	ts := time.Now().UTC().Truncate(time.Second)
-	// Two metrics for one device must collapse to a single subject.
 	require.NoError(t, client.WriteSamples(ctx, tenant, device, []Sample{
 		{Name: "opengate_edge_metric_avg", Value: 1, TS: ts, Labels: map[string]string{"dim": "cpu"}},
 		{Name: "opengate_edge_node_anomaly_rate", Value: 2, TS: ts},
@@ -110,8 +107,6 @@ func TestVMClientDeleteSeriesRejectsNilTenant(t *testing.T) {
 	require.Error(t, err)
 }
 
-// The delete request always carries the server-side delete auth key when one is
-// configured, and always includes a tenant_id matcher.
 func TestVMClientDeleteSeriesSendsAuthKeyAndTenantMatcher(t *testing.T) {
 	t.Parallel()
 	var gotAuthKey string
@@ -135,8 +130,6 @@ func TestVMClientDeleteSeriesSendsAuthKeyAndTenantMatcher(t *testing.T) {
 	assert.Contains(t, gotMatch, `device_id="`+device.String()+`"`)
 }
 
-// CountSeries surfaces a non-2xx VM response as an error rather than reporting a
-// false "empty" that would let a job complete over undeleted data.
 func TestVMClientCountSeriesErrorsOnBadStatus(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -164,7 +157,6 @@ func TestSubjectSelector(t *testing.T) {
 	_, err = subjectSelector(uuid.Nil, nil)
 	require.Error(t, err)
 
-	// The selector must survive URL encoding into a match[] argument unchanged.
 	v := url.Values{}
 	v.Set("match[]", got)
 	assert.Contains(t, v.Encode(), "match")

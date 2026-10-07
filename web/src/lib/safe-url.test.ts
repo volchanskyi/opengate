@@ -31,8 +31,6 @@ describe('safeExternalUrl', () => {
     expect(safeExternalUrl(url)).toBeUndefined();
   });
 
-  // Leading whitespace and control characters are a classic way to smuggle a
-  // scheme past a naive startsWith check.
   it.each([
     ' javascript:alert(1)',
     '\njavascript:alert(1)',
@@ -41,11 +39,6 @@ describe('safeExternalUrl', () => {
     expect(safeExternalUrl(url)).toBeUndefined();
   });
 
-  // The URL parser treats a backslash as a slash for every scheme a browser
-  // follows, so "/\evil.example" in an href leaves the app origin exactly as
-  // "//evil.example" does. An administrator's manifest link is the field this
-  // guard exists for, and it is the one an attacker with that field would
-  // reach for.
   it.each([
     ['backslash after the leading slash', '/\\evil.example/agent'],
     ['two backslashes', '\\\\evil.example/agent'],
@@ -55,8 +48,6 @@ describe('safeExternalUrl', () => {
     expect(safeExternalUrl(url)).toBeUndefined();
   });
 
-  // A backslash inside the path is not a retarget — it resolves against the
-  // app's own origin — so it stays a link.
   it('allows a backslash inside a same-origin path', () => {
     expect(safeExternalUrl('/api/v1/updates/agent\\v2')).toBe('/api/v1/updates/agent\\v2');
   });

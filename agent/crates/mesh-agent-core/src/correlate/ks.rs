@@ -1,25 +1,9 @@
-//! The three co-signals a dimension is scored on.
-//!
-//! Each is a number in `[0, 1]`, each is defined for every input a real store
-//! can hand it — including a window with no readings, one reading, or a flat
-//! run of the same reading — and none of them can return a NaN. That property
-//! is load-bearing rather than incidental: a score that came out NaN would sort
-//! unpredictably and put a meaningless dimension at the top of an alert an
-//! investigator is trusting.
+//! The three co-signals a dimension is scored on, each in `[0, 1]` and never NaN so scores sort.
 
-/// The band half-width, in baseline standard deviations, beyond which a focus
-/// reading counts as anomalous.
+/// The band half-width, in baseline standard deviations, beyond which a reading is anomalous.
 const ANOMALY_STD_DEVS: f64 = 3.0;
 
-/// The two-sample Kolmogorov–Smirnov statistic *D*: the largest gap between the
-/// two windows' empirical distributions, in `[0, 1]`. It is 0 for identical
-/// windows and 1 for windows that do not overlap at all, and it is symmetric in
-/// its arguments. A window with no readings yields 0 — there is no distribution
-/// to compare against.
-///
-/// This is what answers "did this dimension *change shape*", as opposed to "did
-/// its average move": a CPU that spent the baseline flat at 20 % and the focus
-/// alternating between 0 and 40 has the same mean and a D of 1.
+/// The two-sample Kolmogorov–Smirnov statistic *D* in `[0, 1]`; an empty window yields 0.
 #[must_use]
 pub fn ks_statistic(a: &[f64], b: &[f64]) -> f64 {
     if a.is_empty() || b.is_empty() {
@@ -50,12 +34,8 @@ pub fn ks_statistic(a: &[f64], b: &[f64]) -> f64 {
     d
 }
 
-/// The share of focus readings that fall outside the baseline's mean ±
-/// [`ANOMALY_STD_DEVS`] standard deviations, in `[0, 1]`.
-///
-/// A baseline with no spread at all — a gauge that read the same number all
-/// hour — has no band, so any different reading counts. An empty focus window
-/// yields 0.
+/// The share of focus readings outside the baseline mean ± [`ANOMALY_STD_DEVS`] deviations.
+/// A zero-spread baseline has no band, so any different reading counts; an empty focus yields 0.
 #[must_use]
 pub fn anomaly_rate(baseline: &[f64], focus: &[f64]) -> f64 {
     if focus.is_empty() {
@@ -76,15 +56,8 @@ pub fn anomaly_rate(baseline: &[f64], focus: &[f64]) -> f64 {
     anomalous as f64 / focus.len() as f64
 }
 
-/// How far the mean moved from baseline to focus, measured against the
-/// baseline's own scale (`|mean| + stddev`) and clamped to `[0, 1]`.
-///
-/// The other two signals saturate on any clean separation regardless of its
-/// size: a service time that went from 0.40 ms to 0.44 ms scores the same D as
-/// one that went from 0.4 ms to 40 ms. This term is what separates the
-/// regression a technician has to act on from a drift nobody would notice. A
-/// baseline that is all zeroes has no scale, so any nonzero focus mean is a
-/// complete shift.
+/// The mean shift from baseline to focus against the baseline scale `|mean| + stddev`, in `[0, 1]`.
+/// An all-zero baseline has no scale, so any nonzero focus mean is a full shift.
 #[must_use]
 pub fn shift_magnitude(baseline: &[f64], focus: &[f64]) -> f64 {
     if baseline.is_empty() || focus.is_empty() {
@@ -99,8 +72,7 @@ pub fn shift_magnitude(baseline: &[f64], focus: &[f64]) -> f64 {
     ((focus_mean - baseline_mean).abs() / scale).min(1.0)
 }
 
-/// The population mean and standard deviation of `xs`; `(0, 0)` for an empty
-/// window.
+/// The population mean and standard deviation of `xs`; `(0, 0)` for an empty window.
 #[must_use]
 pub fn mean_std_dev(xs: &[f64]) -> (f64, f64) {
     if xs.is_empty() {
@@ -118,7 +90,6 @@ mod tests {
 
     #[test]
     fn the_statistic_reads_the_gap_between_two_distributions() {
-        // Half of one window sits below all of the other: D = 0.5.
         assert_eq!(ks_statistic(&[0.0, 0.0, 1.0, 1.0], &[1.0, 1.0]), 0.5);
     }
 
@@ -142,9 +113,7 @@ mod tests {
 
     #[test]
     fn the_shift_is_measured_against_the_baselines_own_scale() {
-        // A move of 1 against a baseline sitting at 10 with no spread.
         assert_eq!(shift_magnitude(&[10.0, 10.0], &[11.0, 11.0]), 0.1);
-        // A move larger than the scale itself saturates rather than exceeding 1.
         assert_eq!(shift_magnitude(&[10.0, 10.0], &[40.0, 40.0]), 1.0);
     }
 

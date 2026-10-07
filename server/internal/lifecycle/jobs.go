@@ -9,9 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// JobStore persists purge jobs and their per-store progress on the non-tenant
-// purge_jobs table, so a purge resumes idempotently after a server crash and
-// the completion record outlives the tenant's own data.
+// JobStore persists purge jobs and per-store progress on the non-tenant purge_jobs table,
+// so a purge resumes after a crash and its completion record outlives the tenant's data.
 type JobStore struct {
 	db *sql.DB
 }

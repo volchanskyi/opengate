@@ -10,20 +10,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
-// The labels a customer's machines are picked out by.
-//
-// Labels cut across the tenancy ladder rather than sitting on a rung of it: a
-// disk threshold is meant for the file servers, and the file servers are in four
-// offices. No rung names that set. The values come from a list rather than being
-// typed in, because a targeting dimension with free-text values is one where
-// `production`, `Production` and `prod` are three estates and a threshold
-// reaches a third of the machines it was meant for.
+// Labels pick out a customer's machines across the tenancy ladder; their values come from a
+// managed list because free-text values would split one estate into several.
 
 // errTagsNotConfigured is a deployment wired without the label store.
 var errTagsNotConfigured = errors.New("device labels are not configured on this server")
 
-// ListDeviceTags implements StrictServerInterface. Every member of the tenant
-// reads the list: it is what explains why a machine has the thresholds it has.
+// ListDeviceTags implements StrictServerInterface; every member of the tenant can read the list.
 func (s *Server) ListDeviceTags(ctx context.Context, request ListDeviceTagsRequestObject) (ListDeviceTagsResponseObject, error) {
 	if s.ruleAdmin == nil {
 		return nil, errTagsNotConfigured
@@ -79,12 +72,8 @@ func (s *Server) CreateDeviceTagLabel(ctx context.Context, request CreateDeviceT
 	return CreateDeviceTagLabel201JSONResponse(labelToAPI(label)), nil
 }
 
-// DeleteDeviceTagLabel implements StrictServerInterface.
-//
-// Refused while a rule is aimed at the label. Removing it then would take a
-// tuned value off every machine that carried it — which does not read as a
-// deletion at all, it reads as a threshold that quietly widened across an estate
-// one afternoon.
+// DeleteDeviceTagLabel implements StrictServerInterface and refuses while a rule targets the
+// label, since removal would silently widen that rule's threshold.
 func (s *Server) DeleteDeviceTagLabel(ctx context.Context, request DeleteDeviceTagLabelRequestObject) (DeleteDeviceTagLabelResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, DeleteDeviceTagLabel403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
@@ -107,9 +96,7 @@ func (s *Server) DeleteDeviceTagLabel(ctx context.Context, request DeleteDeviceT
 	return DeleteDeviceTagLabel204Response{}, nil
 }
 
-// AssignDeviceTag implements StrictServerInterface. Bulk by design: labelling an
-// estate one machine's page at a time is how a targeting dimension ends up
-// half-applied.
+// AssignDeviceTag implements StrictServerInterface and labels devices in bulk.
 func (s *Server) AssignDeviceTag(ctx context.Context, request AssignDeviceTagRequestObject) (AssignDeviceTagResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, AssignDeviceTag403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil

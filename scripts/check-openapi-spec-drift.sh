@@ -1,22 +1,10 @@
 #!/usr/bin/env bash
-# check-openapi-spec-drift.sh — Rule 6 of the pen-test gate (ADR-027).
+# Flags every mutating operation in the spec that has no `security:` block, bar an allowlist.
+# Auth is applied from each operation's security block, so a missing block ships a public write.
 #
-# Semgrep cannot span the YAML→Go boundary, so this script wraps that check.
-#
-# In OpenGate auth is applied CENTRALLY: oapiAuthMiddleware() (api.go) reads the
-# generated BearerAuthScopes context key — which oapi-codegen derives from each
-# operation's `security: [bearerAuth]` block in api/openapi.yaml — and only then
-# runs AuthMiddleware. A handler therefore cannot "forget" the middleware; the
-# spec is the single source of truth. The real drift risk is the inverse: a
-# *mutating* operation (POST/PUT/PATCH/DELETE) added to the spec WITHOUT a
-# security block, silently shipping a publicly-reachable write endpoint.
-#
-# This script flags every mutating operation that has no `security:` block,
-# minus an explicit allowlist of operations that are public BY DESIGN
-# (unauthenticated bootstrap: register, login, agent enroll).
-#
-# Pure line-scan — no PyYAML dependency (the semgrep venv and CI runners may
-# lack it). Exit 0 = no drift. Exit 1 = at least one unguarded mutating op.
+# Exit codes:
+#   0  no drift
+#   1  at least one unguarded mutating operation
 set -euo pipefail
 
 SPEC="${1:-api/openapi.yaml}"
@@ -26,14 +14,8 @@ if [ ! -f "$SPEC" ]; then
   exit 1
 fi
 
-# Operations that are intentionally public. Each MUST be justified here; adding
-# an entry is a security decision reviewed under ADR-027.
-#   register / login   — pre-auth credential exchange (no token exists yet)
-#   enroll             — agent bootstrap, authorized by a single-use enrollment
-#                        token in the URL path, not a JWT
-#   reportClientError  — browser-side crash reporting; must work before/without
-#                        auth (errors on the login page have no token). Body is
-#                        size-bounded, rate-limited, and logged only — no reads.
+# Operations that are public by design: pre-auth register and login, enroll (single-use
+# token in the path) and browser crash reporting (size-bounded, rate-limited, write-only).
 ALLOWED_PUBLIC_MUTATIONS="register login enroll reportClientError"
 
 python3 - "$SPEC" "$ALLOWED_PUBLIC_MUTATIONS" <<'PY'

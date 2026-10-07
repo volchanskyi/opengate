@@ -1,36 +1,5 @@
-//! Re-running a rule over the history the device already holds.
-//!
-//! When a rule reaches a machine for the first time, the useful question is not
-//! only "is this happening now" but "has this been happening". The answer is on
-//! the machine: the local store keeps a minute-by-minute rollup of every vital
-//! going back as far as its cap allows, so a new rule can simply be evaluated
-//! against it. Nothing is shipped anywhere to make that possible.
-//!
-//! Three things make it safe to run on a customer's endpoint.
-//!
-//! **A finding is stamped with the minute it happened.** A freeze from three
-//! weeks ago stays three weeks old, so grouping folds a whole scan into one
-//! incident instead of presenting a queue of things that all appear to be
-//! happening at once.
-//!
-//! **A scan is bounded, resumable and paced.** It walks history in chunks of a
-//! fixed number of stored readings, stands down between them for long enough to
-//! keep its share of the machine small, and records where it got to — so it can
-//! be stopped by a busy host, a filling disk, maintenance, or the agent
-//! restarting, and pick up without repeating or skipping a finding.
-//!
-//! **A minute is only asked what a minute can answer.** The store keeps one
-//! rollup per 60 s, so a rule about a shorter span cannot be re-run at all and
-//! says so ([`RetroUnsupported`]) rather than being answered at the wrong
-//! resolution. For the rest, the statistic read out of each minute is the one
-//! the rule's own question needs: a rule that has to *stay* over a line reads
-//! the minute's least favourable reading, so a finding means every second of it
-//! was over; a rule that asks whether it was *ever* crossed reads the minute's
-//! peak, which answers that exactly.
-//!
-//! This module holds what a scan is allowed to do — what history can answer
-//! ([`RetroPlan`]), what a host will lend it ([`RetroBudget`], [`retro_hold`])
-//! and where it got to ([`RetroCursor`]). The walk itself is [`RetroScan`].
+//! Re-runs a rule over the stored minute rollups: [`RetroPlan`] decides what history can answer,
+//! [`RetroBudget`] and [`retro_hold`] what a host lends, [`RetroCursor`] where a scan got to.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -50,19 +19,13 @@ mod scan;
 
 pub use scan::RetroScan;
 
-/// The width of one stored rollup, in seconds — the finest question history can
-/// answer.
+/// The width of one stored rollup, in seconds.
 pub const RETRO_BUCKET_SECS: i64 = 60;
 
-/// Host CPU, in percent, at or below which the machine counts as quiet enough to
-/// look backwards on. A retroactive scan is answering a question about the past;
-/// it can always wait for the present to calm down.
+/// Host CPU, in percent, at or below which the machine is quiet enough for a scan.
 pub const RETRO_IDLE_CPU_PERCENT: f32 = 40.0;
 
-/// How much more free disk a scan insists on than the point at which the store
-/// starts shrinking what it keeps. A scan competing for the last of a host's
-/// disk with the eviction trying to free it helps nobody, so it stands down
-/// first, with room to spare.
+/// The multiple of the store's shrink threshold in free disk a scan requires.
 const RETRO_DISK_HEADROOM: f64 = 2.0;
 
 /// Readings carried on a finding as the evidence behind it.
@@ -79,25 +42,18 @@ pub enum RetroError {
     History(String),
 }
 
-/// Why a rule cannot be re-run over stored history.
-///
-/// Every one of these is a rule that keeps working perfectly well live. Being
-/// unable to answer a question about the past is not a broken rule, and it is
-/// reported as its own answer rather than as a failed scan.
+/// Why a rule cannot be re-run over stored history; the rule still evaluates live.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RetroUnsupported {
-    /// The rule asks about a span shorter than one stored minute, which history
-    /// simply does not record.
+    /// The rule asks about a span shorter than one stored minute.
     FinerThanAMinute,
     /// The rule watches something the local store does not keep.
     MetricNotStored,
     /// Two of the rule's conditions read one series but need different
     /// reductions of it, and one minute cannot be both.
     ConflictingReadings,
-    /// The rule's shape has no reading over a minute that means what the rule
-    /// means — an unknown comparator or predicate, or more conditions than the
-    /// grammar allows.
+    /// The rule has an unknown comparator or predicate, or too many conditions.
     ShapeNotReconstructible,
 }
 
@@ -152,8 +108,7 @@ pub struct RetroBucket {
     pub last: f64,
 }
 
-/// The history a scan walks. Implemented over the local store's snapshot reads,
-/// which see a consistent view and never block the sampler's writes.
+/// The history a scan walks, read from the local store's snapshots without blocking writes.
 pub trait RetroHistory {
     /// The oldest and newest stored minute for `series`, or `None` when the
     /// store holds none.
@@ -264,10 +219,7 @@ impl RetroPlan {
             rule: rule.clone(),
             reads: by_series.into_iter().collect(),
             metric,
-            // Everything a rule remembers is bounded by how long it has to hold
-            // a breach plus how far its window reaches back, so re-reading that
-            // much rebuilds its state exactly. The extra minute covers the
-            // bucket the state was decided on.
+            // Re-reading the sustain plus window span, and one extra minute, rebuilds rule state.
             lookback_secs: i64::from(rule.sustain_secs)
                 + i64::from(widest_window)
                 + RETRO_BUCKET_SECS,
@@ -280,22 +232,14 @@ fn finer_than_a_minute(secs: u32) -> bool {
     secs > 0 && i64::from(secs) < RETRO_BUCKET_SECS
 }
 
-/// The stored minute `ts` falls in — the store keys its rollups by the start of
-/// the minute, so a read has to start on one to line up with anything.
+/// The start of the stored minute `ts` falls in, the key the store uses for its rollups.
 fn floor_to_minute(ts: i64) -> i64 {
     ts.div_euclid(RETRO_BUCKET_SECS)
         .saturating_mul(RETRO_BUCKET_SECS)
 }
 
-/// Which reading of a minute means what the condition means.
-///
-/// A windowed predicate reconstructs exactly: the largest reading in a window is
-/// the largest of its minutes' largest, and the mean of a window is the mean of
-/// its minutes' means. An instantaneous one cannot, so it is read in the
-/// direction that cannot invent a finding: a rule that has to *stay* over its
-/// line reads the minute's least favourable reading, so a finding means the
-/// whole minute was over it — while a rule with no sustain is asking whether the
-/// line was *ever* crossed, which the minute's peak answers exactly.
+/// Which stored statistic of a minute answers the condition: an instant rule reads the most
+/// breaching reading, or the least breaching when sustained; windows read max, mean or last.
 fn bucket_stat(
     predicate: RulePredicate,
     comparator: AlertComparator,
@@ -307,8 +251,7 @@ fn bucket_stat(
             (AlertComparator::Gt | AlertComparator::Gte, false) => Some(BucketStat::Max),
             (AlertComparator::Lt | AlertComparator::Lte, true) => Some(BucketStat::Max),
             (AlertComparator::Lt | AlertComparator::Lte, false) => Some(BucketStat::Min),
-            // A comparator this build does not understand has no reading that
-            // means what it means.
+            // An unrecognised comparator has no stored reading.
             _ => None,
         },
         RulePredicate::WindowMax => Some(BucketStat::Max),
@@ -328,13 +271,10 @@ pub struct RetroBudget {
 }
 
 impl RetroBudget {
-    /// The shortest stand-down between chunks. A chunk that costs almost nothing
-    /// still stands down, or a scan over an empty stretch of history becomes a
-    /// spin.
+    /// The shortest stand-down between chunks, even after a nearly free chunk.
     pub const MIN_STAND_DOWN: Duration = Duration::from_millis(250);
 
-    /// The longest stand-down, which only a chunk far larger than any budget
-    /// allows could reach.
+    /// The longest stand-down, in seconds.
     const MAX_STAND_DOWN_SECS: f64 = 3_600.0;
 
     /// A budget reading at most `chunk_points` stored readings per chunk and
@@ -358,16 +298,13 @@ impl RetroBudget {
 }
 
 impl Default for RetroBudget {
-    /// Reads about an hour of one series per chunk, at two percent of the
-    /// machine — comfortably inside the agent's own budget, with the rest of it
-    /// left for the work the customer notices.
+    /// Reads 4,096 stored minutes of one series per chunk at a two percent duty share.
     fn default() -> Self {
         Self::new(4_096, 2.0)
     }
 }
 
-/// What a scan has done. Reported so a scan that is costing a machine something
-/// shows up as a number rather than as a mystery.
+/// What a scan has done so far, reported as counters.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RetroStats {
@@ -420,8 +357,7 @@ pub enum RetroStep {
     },
     /// Every minute the store holds has been evaluated.
     Complete,
-    /// The store holds no history for this rule — which is not the same as
-    /// having looked and found nothing.
+    /// The store holds no history for this rule.
     NoHistory,
 }
 
@@ -448,17 +384,14 @@ pub enum RetroHold {
     DiskPressure,
 }
 
-/// Whether a scan has to stand down, and why. `None` means it may run.
-///
-/// The disk threshold is derived from the store's own configuration, so the scan
-/// always stands down while the store is still keeping everything it was
-/// keeping — the two cannot drift apart.
+/// Whether a scan has to stand down, and why; `None` means it may run. The disk threshold derives
+/// from the store's own configuration.
 #[must_use]
 pub fn retro_hold(conditions: &RetroConditions, store: TsdbConfig) -> Option<RetroHold> {
     if conditions.in_maintenance {
         return Some(RetroHold::Maintenance);
     }
-    // A machine that has reported no load is not assumed to be idle.
+    // A machine that has reported no load counts as busy.
     match conditions.cpu_percent {
         Some(cpu) if cpu <= RETRO_IDLE_CPU_PERCENT => {}
         _ => return Some(RetroHold::Busy),

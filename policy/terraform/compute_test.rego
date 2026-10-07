@@ -1,12 +1,6 @@
-# Unit tests for compute.rego. Run via `conftest verify --policy policy/`.
-
 package main
 
-# --- POSITIVE: clean compute config produces no violations ---------------------
-
 test_clean_compute_passes {
-	# Clean fixture must satisfy every rule in package main (compute + tags),
-	# since `deny` is a single set across all .rego files in the package.
 	count(deny) == 0 with input as {"resource": {"oci_core_instance": {"opengate": {
 		"shape": "VM.Standard.A1.Flex",
 		"shape_config": {"ocpus": 2, "memory_in_gbs": 12},
@@ -14,8 +8,6 @@ test_clean_compute_passes {
 		"freeform_tags": {"env": "prod", "component": "server"},
 	}}}}
 }
-
-# --- NEGATIVE: each rule triggers on its specific violation --------------------
 
 test_wrong_shape_denied {
 	deny[msg] with input as {"resource": {"oci_core_instance": {"opengate": {
@@ -44,9 +36,6 @@ test_too_much_memory_denied {
 	contains(msg, "exceeds Always Free A1.Flex cap of 12 GB")
 }
 
-# The two gates on this grant must agree. A plan sized to the looser figure the
-# other gate refuses is exactly the shape that passes one pipeline and fails the
-# next, so the wider pair is denied here as well.
 test_wider_grant_figures_are_denied_here_too {
 	deny[msg] with input as {"resource": {"oci_core_instance": {"opengate": {
 		"shape": "VM.Standard.A1.Flex",

@@ -43,10 +43,8 @@ func (s *Server) requestHardwareFromAgent(ctx context.Context, id device.DeviceI
 	return GetDeviceHardware202Response{}, nil
 }
 
-// GetDeviceInventory implements StrictServerInterface. It returns the device's
-// current auto-discovered footprint (ports, services, DB engines, containers,
-// packages) from the tenant-scoped inventory store. Read access is any member of
-// the tenant — a fleet read, not the elevated admin gate.
+// GetDeviceInventory implements StrictServerInterface, returning the device's discovered
+// footprint from the tenant-scoped inventory store to any tenant member.
 func (s *Server) GetDeviceInventory(ctx context.Context, request GetDeviceInventoryRequestObject) (GetDeviceInventoryResponseObject, error) {
 	if s.inventory == nil {
 		return GetDeviceInventory503JSONResponse{Error: "inventory not available"}, nil
@@ -66,15 +64,11 @@ func (s *Server) GetDeviceInventory(ctx context.Context, request GetDeviceInvent
 	return GetDeviceInventory200JSONResponse(deviceInventoryToAPI(request.Id, components)), nil
 }
 
-// logFetchTimeout bounds how long a raw-log pull may block waiting on the
-// agent. Raw lines are secret-dense, so exposure is time-bounded as well as
-// length-bounded.
+// logFetchTimeout bounds how long a raw-log pull waits on the agent.
 const logFetchTimeout = 15 * time.Second
 
-// GetDeviceLogs brokers an on-demand raw-log pull from the connected agent.
-// The response is transient — bounded, redacted, audited, and streamed straight
-// through with nothing persisted centrally. Reading raw logs is an elevated
-// action gated on admin.
+// GetDeviceLogs brokers a raw-log pull from the connected agent. The response is bounded,
+// redacted, audited and never persisted; reading raw logs requires admin.
 func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequestObject) (GetDeviceLogsResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, GetDeviceLogs403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
@@ -139,9 +133,8 @@ func logPullResult(err error) string {
 	}
 }
 
-// logsBrokerErrorResponse maps broker failures to bounded HTTP responses without
-// leaking internals: unsupported agents and busy/timeout conditions are
-// client-visible, everything else is a 500.
+// logsBrokerErrorResponse maps broker failures to HTTP responses without internals; unsupported,
+// busy and timeout conditions are client-visible and the rest are 500.
 func logsBrokerErrorResponse(err error) (GetDeviceLogsResponseObject, error) {
 	switch {
 	case agentapi.IsCapabilityError(err):

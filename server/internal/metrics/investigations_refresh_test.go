@@ -12,22 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What the refresh loop has to guarantee, as distinct from what the series it
-// writes look like.
-//
-// One property carries the rest: the database is read on the loop's own timer
-// and never on a scrape. These are counts over tables that only grow, and
-// /metrics is scraped by more than one thing, so a gauge computed inside the
-// collector puts a full aggregate on every scrape of an endpoint nobody
-// controls the rate of.
-
-// TestInvestigationsUpdaterReadsOncePerIntervalNeverPerScrape is the bound the
-// gauges need. These are counts over tables that only grow, so computing them
-// inside the collector would put a full aggregate on every Prometheus interval —
-// and on every other scrape of the same endpoint besides.
-//
-// Asserted as a read count rather than as elapsed time: a slow query and a query
-// per scrape are different defects, and only one of them is this one.
 func TestInvestigationsUpdaterReadsOncePerIntervalNeverPerScrape(t *testing.T) {
 	t.Parallel()
 
@@ -47,8 +31,6 @@ func TestInvestigationsUpdaterReadsOncePerIntervalNeverPerScrape(t *testing.T) {
 		},
 	}
 
-	// A cancelled context runs the boot refresh and returns, which is one
-	// interval's worth of work and nothing more.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	StartInvestigationsUpdater(ctx, m, src, discardLogger(), time.Hour)
@@ -62,9 +44,6 @@ func TestInvestigationsUpdaterReadsOncePerIntervalNeverPerScrape(t *testing.T) {
 	require.InDelta(t, 12, testutil.ToFloat64(m.AlertsOpen), 0, "the scrape still reads the refreshed value")
 }
 
-// TestInvestigationsUpdaterKeepsTheLastAnswerOnError prefers a stale count to a
-// zero. A database that is briefly unreachable is not an empty triage queue, and
-// the alert rule watching these gauges must not fire on the difference.
 func TestInvestigationsUpdaterKeepsTheLastAnswerOnError(t *testing.T) {
 	t.Parallel()
 
@@ -90,8 +69,6 @@ func TestInvestigationsUpdaterKeepsTheLastAnswerOnError(t *testing.T) {
 	require.InDelta(t, 40, testutil.ToFloat64(m.RuleCoverage.WithLabelValues("disk-critical", CoverageActive)), 0)
 }
 
-// TestInvestigationsUpdaterStopsOnCancel keeps the loop from outliving the
-// process's shutdown.
 func TestInvestigationsUpdaterStopsOnCancel(t *testing.T) {
 	t.Parallel()
 
@@ -115,8 +92,6 @@ func TestInvestigationsUpdaterStopsOnCancel(t *testing.T) {
 	}, time.Second, 5*time.Millisecond, "the updater returns when its context is cancelled")
 }
 
-// TestInvestigationsUpdaterToleratesAnUnwiredSource keeps a deployment without
-// an alert store from panicking the metrics goroutine.
 func TestInvestigationsUpdaterToleratesAnUnwiredSource(t *testing.T) {
 	t.Parallel()
 

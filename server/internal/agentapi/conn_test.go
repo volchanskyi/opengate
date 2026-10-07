@@ -21,9 +21,6 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-// newTestAgentConn creates an AgentConn backed by an in-memory buffer for testing.
-// Returns the conn and the buffer so callers can read back what was written.
-// Pass store=nil for tests that do not touch the device/hardware/logs repos.
 func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store *db.PostgresStore) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -40,7 +37,6 @@ func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store *db.PostgresStore)
 	return ac, &buf
 }
 
-// writeControlMsg encodes a control message and writes it as a framed payload into buf.
 func writeControlMsg(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer, msg *protocol.ControlMessage) {
 	t.Helper()
 	payload, err := codec.EncodeControl(msg)
@@ -48,28 +44,20 @@ func writeControlMsg(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer, msg
 	require.NoError(t, codec.WriteFrame(buf, protocol.FrameControl, payload))
 }
 
-// TestClampNonNegativeUint32_Boundaries pins behavior at the [0, MaxUint32]
-// edges so CONDITIONALS_BOUNDARY mutants on conn.go:123 (`v <= 0`) and
-// conn.go:126 (`uint64(v) > math.MaxUint32`) cannot survive.
 func TestClampNonNegativeUint32_Boundaries(t *testing.T) {
 	assert.Equal(t, uint32(0), clampNonNegativeUint32(-1))
 	assert.Equal(t, uint32(0), clampNonNegativeUint32(0))
 	assert.Equal(t, uint32(1), clampNonNegativeUint32(1))
 	assert.Equal(t, uint32(math.MaxUint32), clampNonNegativeUint32(int(math.MaxUint32)))
-	// Above MaxUint32 must clamp.
 	if math.MaxInt > math.MaxUint32 {
 		assert.Equal(t, uint32(math.MaxUint32), clampNonNegativeUint32(int(math.MaxUint32)+1))
 	}
 }
 
-// TestClampInt64_Boundaries pins behavior at math.MaxInt64 so the
-// CONDITIONALS_BOUNDARY mutant on conn.go:134 (`v > math.MaxInt64`)
-// cannot survive.
 func TestClampInt64_Boundaries(t *testing.T) {
 	assert.Equal(t, int64(0), clampInt64(0))
 	assert.Equal(t, int64(1), clampInt64(1))
 	assert.Equal(t, int64(math.MaxInt64), clampInt64(math.MaxInt64))
-	// One past MaxInt64 must clamp, not wrap.
 	assert.Equal(t, int64(math.MaxInt64), clampInt64(uint64(math.MaxInt64)+1))
 }
 
@@ -95,9 +83,6 @@ func TestNewAgentConn(t *testing.T) {
 	assert.NotNil(t, ac.stream)
 }
 
-// TestHandleHardwareReportStoresAMTPresence covers the agent-sourced half of the
-// AMT link: the join key and the Management Engine reading must reach the
-// hardware row, and a malformed key must not.
 func TestHandleHardwareReportStoresAMTPresence(t *testing.T) {
 	t.Parallel()
 	systemUUID := uuid.New()
@@ -135,9 +120,6 @@ func TestHandleHardwareReportStoresAMTPresence(t *testing.T) {
 	}
 }
 
-// TestHandleHardwareReportFromSilentAgent covers version skew: an agent that
-// predates AMT reporting sends none of the three fields, and the nil presence
-// flag is what lets the repository preserve what it already knows.
 func TestHandleHardwareReportFromSilentAgent(t *testing.T) {
 	t.Parallel()
 	hw := &recordingHardware{}
@@ -154,7 +136,6 @@ func TestHandleHardwareReportFromSilentAgent(t *testing.T) {
 	assert.Empty(t, hw.last.AMTVersion)
 }
 
-// recordingHardware captures the last hardware row written.
 type recordingHardware struct{ last *device.Hardware }
 
 func (r *recordingHardware) Upsert(_ context.Context, hw *device.Hardware) error {

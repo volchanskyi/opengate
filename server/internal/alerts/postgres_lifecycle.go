@@ -12,25 +12,16 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// Where a room stands, how it is allowed to move, and when the system ends one
-// on its own.
-//
-// A room in `new` *is* the triage queue, so these are the queue's rules. Its own
-// columns say where it stands; the event rows say how it got there, which is
-// what a handover between two technicians reads.
-
-// readRoomStatusSQL reads where a room stands and what it is about, and holds it
-// for the rest of the transaction so two people cannot both move it from the
-// state they each read.
+// readRoomStatusSQL reads where a room stands and locks it for the transaction.
+// The lock keeps two people from moving it from the state they each read.
 const readRoomStatusSQL = `
 	SELECT status, organization_id, rule_id, scope, scope_key
 	  FROM incidents
 	 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1
 	   FOR UPDATE`
 
-// applyTransitionSQL moves a room. Resolution stamps a time and an answer;
-// anything else clears both, which is what makes reopening withdraw the answer
-// rather than leave a closed room's reason attached to an open one.
+// applyTransitionSQL moves a room: a resolution stamps a time and an answer, any other move
+// clears both so reopening withdraws the answer.
 const applyTransitionSQL = `
 	UPDATE incidents
 	   SET status      = $2::text,
@@ -38,12 +29,8 @@ const applyTransitionSQL = `
 	       cause_code  = NULLIF($4::text, '')
 	 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-// appendRoomEventSQL adds one line to a room's history. The tenant and the
-// customer are read from the room itself rather than passed in, so an event can
-// never be filed against a customer its own room does not belong to.
-//
-// The line's own id comes from the caller, because a comment is handed back to
-// the person who wrote it and needs a name they can refer to it by.
+// appendRoomEventSQL adds one line to a room's history, taking tenant and customer from the room.
+// The caller supplies the line's id so a comment can be named back to its author.
 const appendRoomEventSQL = `
 	INSERT INTO incident_events (id, tenant_id, organization_id, incident_id, at, kind, actor_id, body)
 	SELECT $6::uuid, i.tenant_id, i.organization_id, i.id, $2::timestamptz, $3::text,
@@ -51,23 +38,8 @@ const appendRoomEventSQL = `
 	  FROM incidents i
 	 WHERE i.tenant_id = current_setting('app.current_tenant')::uuid AND i.id = $1`
 
-// resolveStaleRoomsSQL closes every room whose last alert is older than its
-// rule's hold, across every tenant at once.
-//
-// This is the one statement in the store that names no tenant, and deliberately:
-// it is asked about all of them, so there is nothing for a predicate to confine
-// it to, and a stale room in a tenant nobody happens to be serving requests for
-// still sits in that tenant's triage queue. It runs admin-scoped for the same
-// reason a purge does.
-//
-// A machine in maintenance keeps its room, and the check is part of this
-// statement rather than a decision taken beforehand: maintenance stops the agent
-// sampling, so the silence that follows is the silence the operator asked for,
-// and reading it as recovery closes the very incident the host work is happening
-// because of. The shield is only for a room about that one machine — a customer
-// or site room is still being reported into by the rest of the estate, and
-// shielding those would let one machine parked in maintenance pin an estate's
-// rooms open indefinitely.
+// resolveStaleRoomsSQL closes every room idle past its rule's hold, naming no tenant on purpose.
+// Only a device room for a machine in maintenance is shielded from closing.
 const resolveStaleRoomsSQL = `
 	WITH hold(rule_id, secs) AS (
 	    SELECT * FROM unnest($1::text[], $2::double precision[])
@@ -89,13 +61,8 @@ const resolveStaleRoomsSQL = `
 	       '{"reason": "no alert within the reopen window"}'::jsonb
 	  FROM lapsed`
 
-// Transition moves an incident to a new status and records who moved it.
-//
-// The room's own columns say where it stands; the event row says how it got
-// there, which is what a handover between two technicians reads. A resolution
-// must carry an answer for why — `false_positive` is the only channel that says
-// which curated rule needs its threshold moved, so a resolution that skips it
-// spends feedback the rule pack is tuned from.
+// Transition moves an incident to a new status and records who moved it in the room's history.
+// A resolution must carry a cause code.
 func (s *Store) Transition(ctx context.Context, incidentID uuid.UUID, change Change) error {
 	at := s.now().UTC().Truncate(time.Microsecond)
 	return dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
@@ -112,15 +79,8 @@ func (s *Store) Transition(ctx context.Context, incidentID uuid.UUID, change Cha
 	})
 }
 
-// Reopen takes a closed incident back into investigation and withdraws the
-// answer that was given for closing it.
-//
-// It is a door of its own rather than an ordinary transition because it undoes
-// something already recorded: a technician who closed an incident that was not
-// fixed has to be able to say so, and that is a different act from carrying on
-// with an open room. It fails when the same condition has already recurred and
-// opened a fresh room — there is exactly one open room per grouping key, and the
-// live one is where the alerts are landing.
+// Reopen takes a closed incident back into investigation and withdraws its cause code.
+// It fails with ErrKeyAlreadyOpen when a fresh room already holds the grouping key.
 func (s *Store) Reopen(ctx context.Context, incidentID uuid.UUID, actor uuid.UUID) error {
 	at := s.now().UTC().Truncate(time.Microsecond)
 	return dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
@@ -146,9 +106,8 @@ func (s *Store) Reopen(ctx context.Context, incidentID uuid.UUID, actor uuid.UUI
 	})
 }
 
-// roomUnderChange reads and holds a room for the rest of the transaction, so two
-// people cannot both move it from the state they each read. A room in another
-// tenant answers the same as one that does not exist.
+// roomUnderChange reads and locks a room for the transaction.
+// A room in another tenant answers the same as one that does not exist.
 func roomUnderChange(ctx context.Context, tx *sql.Tx, incidentID uuid.UUID) (Status, groupingKey, error) {
 	var (
 		status string
@@ -194,20 +153,13 @@ func actorArg(actor uuid.UUID) string {
 	return actor.String()
 }
 
-// ResolveStale closes every room whose last alert is older than its rule's hold
-// and returns how many it closed. windows maps a rule id to its grouping window,
-// which is the hold: a room stays open for exactly as long as a new alert could
-// still fold into it.
-//
-// A room raised by a rule this build no longer ships is left alone. There is
-// nothing to measure its hold against, and closing a customer's open work on a
-// guessed number is worse than leaving it for a person.
+// ResolveStale closes every room idle past its rule's hold and returns the count.
+// windows maps a rule id to its hold; a room whose rule has no window stays open.
 func (s *Store) ResolveStale(ctx context.Context, windows map[string]time.Duration) (int, error) {
 	rules, seconds := holds(windows)
 	at := s.now().UTC().Truncate(time.Microsecond)
 
-	// Admin-scoped for the same reason a purge is: the janitor acts on every
-	// tenant, including the ones nobody is currently serving requests for.
+	// The janitor acts on every tenant, so it runs admin-scoped.
 	ctx = dbtx.WithDefaultTenant(ctx, true)
 	var closed int64
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
@@ -227,9 +179,7 @@ func (s *Store) ResolveStale(ctx context.Context, windows map[string]time.Durati
 	return int(closed), nil
 }
 
-// holds turns the caller's windows into the two arrays the sweep joins on, and
-// adds the storm room's own hold — no catalogue rule can supply that one,
-// because the storm room is not a rule.
+// holds turns the caller's windows into the two arrays the sweep joins on and adds the storm hold.
 func holds(windows map[string]time.Duration) ([]string, []float64) {
 	rules := make([]string, 0, len(windows)+1)
 	seconds := make([]float64, 0, len(windows)+1)

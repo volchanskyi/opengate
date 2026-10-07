@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Merge per-shard gremlins reports into the single canonical Go report the
-# summarizer consumes. The Go mutation leg is sharded by package
-# directory/file mutation units; each shard writes its own
-# mutation-report-<shard>.json. This sums the count fields parse_go reads in
-# scripts/mutation-summarize.sh, keeping that contract unchanged.
+# Sums the count fields of per-shard gremlins reports into one Go report, the fields
+# parse_go reads in scripts/mutation-summarize.sh.
 #
 # Usage: mutation-merge-go.sh <out.json> <shard-report.json>...
 set -euo pipefail

@@ -1,10 +1,5 @@
-// Package lifecycle owns Edge Sentinel right-to-be-forgotten data erasure: a
-// persisted tombstone/deny-list, a resumable purge orchestrator that fans a
-// deletion out across every telemetry store (VictoriaMetrics series, Postgres
-// descriptive tables, optional cold-tier objects) and verifies emptiness, and a
-// reconciliation sweep that garbage-collects orphaned series. The orchestrator
-// runs server-side only: the VM delete key and object-store credentials never
-// reach the edge.
+// Package lifecycle owns data erasure: a tombstone deny-list, a resumable purge orchestrator and
+// a reconciliation sweep. It runs server-side, so delete credentials never reach the edge.
 package lifecycle
 
 import (
@@ -25,18 +20,15 @@ const (
 	ScopeTenant Scope = "tenant"
 )
 
-// PurgeState is the operator-visible deletion state machine. "Logical" completion
-// (ingest blocked and the subject no longer queryable) is distinct from
-// "physical" completion: VM delete-series is async and does not free disk until
-// later merges, and edge erasure waits for the agent to reconnect.
+// PurgeState is the operator-visible deletion state machine; logical completion (ingest blocked)
+// precedes physical completion (VM frees disk on merge, edge wipes on reconnect).
 type PurgeState string
 
 const (
 	// StateRequested is the initial state: the job row and tombstone exist, no
 	// store has been touched yet.
 	StateRequested PurgeState = "requested"
-	// StateCentralLogicalComplete means ingest is blocked and central stores no
-	// longer return the subject's data (VM delete issued, Postgres rows removed).
+	// StateCentralLogicalComplete means ingest is blocked and the VM delete is issued.
 	StateCentralLogicalComplete PurgeState = "central-logical-complete"
 	// StateCentralPhysicalPending means the central logical delete is done but VM
 	// has not yet compacted the series off disk; verification is polling.
@@ -47,9 +39,8 @@ const (
 	// StateEdgeErasePending means central erasure is verified but the agent has
 	// not yet acknowledged wiping its local store (pending reconnect).
 	StateEdgeErasePending PurgeState = "edge-erase-pending"
-	// StateComplete means every central store is verified empty. Offline-edge
-	// erasure, if still pending, is harmless: the tombstone rejects the subject at
-	// ingest regardless.
+	// StateComplete means every central store is verified empty; a pending offline-edge erasure
+	// is harmless because the tombstone rejects the subject at ingest.
 	StateComplete PurgeState = "complete"
 )
 
@@ -98,10 +89,8 @@ type ObjectPurger interface {
 	DeletePrefix(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) error
 }
 
-// EdgeDeregistrar tombstones a subject in the agent server's in-memory deny-list
-// and instructs any connected agent to wipe its local store and stop. The agent
-// server implements it; the orchestrator calls it so a deleted device is denied
-// at ingest immediately, not only after the next server restart.
+// EdgeDeregistrar tombstones a subject in the agent server's in-memory deny-list and tells any
+// connected agent to wipe its local store, so a deleted device is denied at ingest at once.
 type EdgeDeregistrar interface {
 	// DeregisterAgent tombstones one device and deregisters it if connected.
 	DeregisterAgent(ctx context.Context, deviceID uuid.UUID)

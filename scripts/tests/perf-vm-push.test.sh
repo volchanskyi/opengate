@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/perf-vm-push.sh — the performance stack's and the endurance
-# run's legs join the trend.
-#
-# Each leg wrote a bundle and nothing kept its numbers past the artifact's
-# ninety days: no trend, no comparison with the nights before. The push reads
-# each leg's rows out of its own bundle, names the leg and the workload it
-# measured, and leaves a run that did not measure the system out of the trend.
-#
-# Run: ./scripts/tests/perf-vm-push.test.sh
+# Tests for scripts/perf-vm-push.sh, which pushes each leg's bundle rows into the trend.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -109,7 +101,6 @@ else
   pass "a leg's sample names the measurement only"
 fi
 
-# A night with no leg that measured anything pushes nothing, and says so.
 if out="$(run_push "$WORK/perf-bundles/spike/bundle.json" 2>&1)"; then
   fail "a night with nothing measured is refused (out=[$out])"
 else

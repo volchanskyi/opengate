@@ -59,10 +59,8 @@ else
   fail "OpenGate server scrape must keep the 'metrics' endpoint port and no other"
 fi
 
-# The job reads the production and the staging server alike, and a series with
-# nothing naming its environment sums the two: a rule over the server read
-# staging's drill as production's rule pack running at five times its ceiling.
-# Production's rules filter on the namespace this carries.
+# The job reads the production and staging servers alike, so each series carries its namespace.
+# Production's rules filter on that namespace.
 if grep -qF 'names: [opengate, opengate-staging]' <<<"$server_block" \
   && grep -qF 'source_labels: [__meta_kubernetes_namespace]' <<<"$server_block" \
   && grep -qF 'target_label: namespace' <<<"$server_block"; then
@@ -71,10 +69,8 @@ else
   fail "the opengate-server job must copy __meta_kubernetes_namespace into a namespace label"
 fi
 
-# The kubelet's cAdvisor endpoint is the only place a container's working set
-# against its own limit exists. Nothing else in this cluster publishes it: the
-# node exporter reads the node, and a pod at 90% of its cgroup ceiling is
-# invisible in a node-wide reading — which is how one sat there for three hours.
+# The kubelet's cAdvisor endpoint is the only source of a container's working set against its
+# own limit; the node exporter reads the node as a whole.
 cadvisor_block="$(job_block kubernetes-cadvisor)"
 if grep -qF 'role: node' <<<"$cadvisor_block" \
   && grep -qF '/metrics/cadvisor' <<<"$cadvisor_block"; then
@@ -111,23 +107,14 @@ else
   fail "the node role must be used for the cAdvisor job only"
 fi
 
-# --- and the grant that scrape stands on ---------------------------------------
-#
-# Reaching each kubelet directly is authorised against one subresource. The
-# other one a reader might reach for, nodes/proxy, is what a scrape through the
-# API-server proxy would need — it also lets its holder relay arbitrary requests
-# through the kubelet, which Trivy refuses as a privilege-escalation path. The
-# grant is pinned in both directions so neither half drifts.
+# Scraping each kubelet directly is authorised against nodes/metrics; nodes/proxy would let its
+# holder relay arbitrary requests through the kubelet, a privilege-escalation path.
 RBAC_FILE="$REPO_ROOT/deploy/helm/monitoring/templates/victoriametrics.yaml"
 
-# Comments stripped first: this file explains in prose why one of these grants
-# is absent, and a gate that reads the explanation as the grant would fail on
-# the very sentence saying it was not made.
+# Comments are stripped first so a comment naming a grant is not read as the grant.
 rbac_rules() { sed 's/[[:space:]]*#.*$//' "$RBAC_FILE"; }
 
-# Read once into a variable. Piped into `grep -q` the reader stops at its first
-# match and pipefail reports the writer's failed write as an absent grant —
-# which passes the check below that asserts a grant is absent.
+# The text is read into a variable so `grep -q` cannot lose a match to a failed pipe write.
 RBAC_RULES="$(rbac_rules)"
 
 if grep -qF 'nodes/metrics' <<<"$RBAC_RULES"; then
@@ -142,13 +129,8 @@ else
   pass "the scraper holds no node-proxy grant"
 fi
 
-# --- a changed configuration restarts what reads it ---------------------------
-#
-# A chart upgrade that changes a ConfigMap and restarts nothing leaves the
-# running process on the old file. The scrape relabel that names each server
-# series' environment sat in the ConfigMap for two days that way. Each pod that
-# reads its configuration at start carries a checksum of what it mounts, so a
-# changed configuration is a changed pod template, and the upgrade rolls it.
+# Each pod that reads its configuration at start carries a checksum of what it mounts, so a
+# changed configuration changes the pod template and the upgrade rolls it.
 checksum_findings="$(
   helm template monitoring "$REPO_ROOT/deploy/helm/monitoring" \
     -f "$REPO_ROOT/deploy/helm/monitoring/values-production.yaml" --set domain=example.invalid 2>/dev/null \
@@ -180,11 +162,8 @@ else
   fail "a pod that reads its configuration at start does not restart when it changes: $checksum_findings"
 fi
 
-# --- every reading names the environment it came from -------------------------
-#
-# Production and staging share one store and one set of dashboards. A reading
-# with nothing naming its environment is summed with the other one's, so each
-# scraped target is reached through a job that copies its namespace and pod.
+# Production and staging share one store, so each scraped target is reached through a job that
+# copies its namespace and pod.
 if grep -qF 'source_labels: [__meta_kubernetes_namespace]' <<<"$pod_block" \
   && grep -qF 'source_labels: [__meta_kubernetes_pod_name]' <<<"$pod_block"; then
   pass "an annotated pod's readings name its namespace and pod"
@@ -192,9 +171,7 @@ else
   fail "the kubernetes-pods job must copy the namespace and the pod name onto every reading"
 fi
 
-# A deploy replaces the server's pod, and a reading whose only name for the pod
-# is its address starts a new line on every deploy with no way to say which
-# replica it was.
+# A deploy replaces the server's pod, so each reading carries the pod name.
 if grep -qF 'source_labels: [__meta_kubernetes_pod_name]' <<<"$server_block" \
   && grep -qF 'target_label: pod' <<<"$server_block"; then
   pass "every server reading names the pod that served it"
@@ -228,11 +205,8 @@ else
   fail "VictoriaMetrics' pod must carry prometheus.io/scrape and a prometheus.io/port it serves (scrape, ports matched: $vm_scrape)"
 fi
 
-# Each database is measured by an exporter in a pod of its own beside it, so
-# each environment's readings carry that environment's name and read that
-# environment's database. A shared exporter in the monitoring namespace watched
-# production alone, labelled its readings as the monitoring stack's, and needed a
-# copy of the production database password kept out of band.
+# Each database is measured by an exporter in a pod of its own beside it, so its readings carry
+# that environment's name.
 for overlay in values-production.yaml values-staging.yaml; do
   app_docs="$(render_json "$APP_CHART" -f "$APP_CHART/$overlay")"
   findings="$(jq -r '
@@ -267,9 +241,8 @@ for overlay in values-production.yaml values-staging.yaml; do
     fail "$overlay: $(tr '\n' ';' <<<"$findings")"
   fi
 
-  # The server stamps what it writes to the shared store with the environment
-  # it runs in, and it learns that from the cluster rather than from a value
-  # someone has to keep in step with the namespace it was installed into.
+  # The server stamps what it writes to the shared store with the environment it learns from
+  # the cluster.
   namespace_source="$(jq -r '
     [.[] | select(.kind == "Deployment" and (.metadata.name | endswith("-server")))][0].spec.template.spec.containers[]
     | select(.name == "server") | .env[] | select(.name == "OPENGATE_NAMESPACE") | .valueFrom.fieldRef.fieldPath // "a literal"

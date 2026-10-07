@@ -10,32 +10,13 @@ import (
 	"time"
 )
 
-// What the server said, and waiting for a row it has not written yet.
-//
-// A call that comes back with the wrong status used to report only the number.
-// The filing path answers 404 for two different things — no such machine, and
-// no such customer — so a run that met one of them could say that something was
-// missing and never which, and the nightly that met it spent two nights on the
-// question. The server names the missing thing in its reply; the caller simply
-// threw the reply away.
-//
-// The one that was happening is worth stating, because it is a property of the
-// transport rather than a fault: a machine's row is written when the server has
-// finished reading its register frame, and the machine's own write returns as
-// soon as the bytes are buffered locally. Nothing comes back down the stream to
-// say the row landed. So a filing that follows the arrival straight away is a
-// race the machine cannot see it is in, and it lost it on every one of the
-// first five machines of a nightly.
-
-// apiRefusal is a call the server answered with a status the caller did not
-// ask for, carrying the server's own account of why.
+// apiRefusal is a call answered with an unexpected status, carrying the server's account of why.
 type apiRefusal struct {
 	Method string
 	Path   string
 	Status int
 	Want   int
-	// Detail is what the server said about it, trimmed to a line. It is the
-	// half that names which of two identical statuses this one was.
+	// Detail is the server's explanation trimmed to a line; it tells identical statuses apart.
 	Detail string
 }
 
@@ -47,24 +28,14 @@ func (r *apiRefusal) Error() string {
 		r.Method, r.Path, r.Status, r.Detail, r.Want)
 }
 
-// saidItHasNoSuchThing reports whether err is the server saying the thing the
-// call named is not there.
+// saidItHasNoSuchThing reports whether err is the server answering 404 for what the call named.
 func saidItHasNoSuchThing(err error) bool {
 	var refusal *apiRefusal
 	return errors.As(err, &refusal) && refusal.Status == http.StatusNotFound
 }
 
-// filingWaitAttempts is how many times a filing asks for a machine the server
-// says it does not have, and filingWaitDelay is how long it waits after each.
-// Every wait is twice the one before, so six requests span fifteen and a half
-// seconds: the gap between a machine's register frame leaving and its row
-// landing is ten seconds and more on the busiest legs, and asking more often
-// would not bring the row sooner.
-//
-// The wait is bounded because the same answer covers a customer that genuinely
-// is not there, and asking again for that spends a request the arrivals need.
-// Six attempts on each of the first five machines and the run stops asking
-// altogether, which is a cost small enough to pay for telling the two apart.
+// A machine's row lands after the server reads its register frame, which the machine cannot see;
+// six attempts with doubling waits span 15.5 seconds, past the ten seconds seen on busy legs.
 const (
 	filingWaitAttempts = 6
 	filingWaitFirst    = 500 * time.Millisecond
@@ -75,9 +46,8 @@ func filingWaitDelay(attempt int) time.Duration {
 	return filingWaitFirst << (attempt - 1)
 }
 
-// waitForTheRow makes the call, and makes it again while the server says it has
-// no such thing. It hands back the last refusal, so what the run reports is the
-// server's final word rather than its first.
+// waitForTheRow repeats the call while the server answers 404 and returns the last refusal.
+// The wait is bounded because the same answer covers a customer that does not exist.
 func waitForTheRow(call func() error) error {
 	var err error
 	for attempt := 1; attempt <= filingWaitAttempts; attempt++ {
@@ -92,9 +62,7 @@ func waitForTheRow(call func() error) error {
 	return err
 }
 
-// detailMaxBytes is how much of a refused reply is read. The bodies are one
-// short JSON object; anything longer is a page nobody meant to send here, and
-// reading it into an error message would bury the message.
+// detailMaxBytes caps how much of a refused reply is read; real bodies are one short JSON object.
 const detailMaxBytes = 512
 
 // detailOf is what the server said about a refusal, as one line.
@@ -104,10 +72,7 @@ func detailOf(body io.Reader) string {
 		return ""
 	}
 
-	// The servers here answer with {"error": "..."} and nothing else, so the
-	// message alone is what a reader wants. A body in any other shape travels
-	// whole rather than being dropped: an unexpected reply is exactly the case
-	// where the text matters most.
+	// A {"error": "..."} body yields the message alone; any other shape travels whole.
 	var said struct {
 		Error string `json:"error"`
 	}

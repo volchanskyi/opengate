@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A customer who has never touched a rule has no row for it. That is not the
-// same as having switched it off, and reading it that way would leave a fresh
-// customer silently unmonitored — so the default is stated here and tested,
-// rather than falling out of Go's zero value.
 func TestDefaultRolloutDeliversTheRule(t *testing.T) {
 	t.Parallel()
 
@@ -26,8 +22,6 @@ func TestDefaultRolloutDeliversTheRule(t *testing.T) {
 	assert.Equal(t, "disk-critical", got.RuleID)
 }
 
-// The zero value is what a mistaken read of a missing row would produce. It must
-// not deliver, so that mistake is loud rather than silent.
 func TestZeroRolloutDoesNotDeliver(t *testing.T) {
 	t.Parallel()
 
@@ -57,8 +51,6 @@ func TestRolloutStopsDelivery(t *testing.T) {
 			because: "a kill stops the rule without waiting for a deploy",
 		},
 		{
-			// A kill is not undone by the rule still being enabled: it is the
-			// stop, and stopping wins.
 			name:    "killed while enabled",
 			mutate:  func(r *Rollout) { r.Enabled, r.Kill = true, true },
 			want:    false,

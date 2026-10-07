@@ -1,16 +1,5 @@
-/**
- * Frontend error reporter — ships browser crashes to the server log (Loki) so
- * production client errors are observable to operators.
- *
- * Constraints (see audit-frontend-security-perf.md):
- *  - PROD only: never beacons from dev/test builds.
- *  - PII-free: only message/source/stack/url/userAgent are sent — never tokens,
- *    credentials, or user identifiers. The URL is reduced to a path with the
- *    query, fragment, and any credential-bearing segment stripped.
- *  - Bounded: stack truncated to 500 chars, message to 1000.
- *  - Rate-limited: at most MAX_REPORTS_PER_WINDOW within RATE_WINDOW_MS.
- *  - Self-hosted: uses navigator.sendBeacon to our own endpoint, no SaaS tracker.
- */
+// Reports send only message, source, stack, url and user agent; the URL is reduced to a path
+// with the query and fragment dropped and credential-bearing segments cut to a short prefix.
 
 const ENDPOINT = '/api/v1/client-errors';
 const MAX_MESSAGE = 1000;
@@ -19,7 +8,7 @@ const MAX_FIELD = 300;
 const MAX_REPORTS_PER_WINDOW = 10;
 const RATE_WINDOW_MS = 60_000;
 
-/** Caller-supplied error context. Keep this PII-free. */
+/** Caller-supplied error context; every field must be free of personal data. */
 export interface ClientErrorInput {
   message: string;
   source?: string;
@@ -29,7 +18,7 @@ export interface ClientErrorInput {
 
 let timestamps: number[] = [];
 
-/** Reset rate-limit state. Test-only. */
+/** Clears the rate-limit window for tests. */
 export function resetReportErrorState(): void {
   timestamps = [];
 }
@@ -50,26 +39,15 @@ function clamp(value: string | undefined, max: number): string | undefined {
   return value.length > max ? value.slice(0, max) : value;
 }
 
-/**
- * Route prefixes whose next path segment is itself a bearer credential:
- * possession of the segment authenticates the holder. Mirrors the server's
- * request-log redaction, because this payload lands in the same log store.
- */
+// Route prefixes whose next path segment is a bearer credential, as in the server's log redaction.
 const CREDENTIAL_PATH_PREFIXES = ['/sessions/', '/ws/relay/', '/api/v1/enroll/'];
 
-/** Matches the server's RedactToken: first 8 characters, or *** if shorter. */
+// Matches the server's RedactToken: the first 8 characters, or *** when shorter.
 function redactToken(token: string): string {
   return token.length <= 8 ? '***' : `${token.slice(0, 8)}...`;
 }
 
-/**
- * Reduce a URL to a log-safe path.
- *
- * The query string and fragment are dropped wholesale — they are the usual
- * carriers of tokens — and any credential-bearing path segment is truncated.
- * A relative or unparseable value is treated as a path directly, so a caller
- * can never widen what gets reported by passing something unusual.
- */
+/** Reduces a URL to a log-safe path: no query or fragment, credential-bearing segments redacted. */
 export function sanitizeReportedUrl(raw: string | undefined): string | undefined {
   if (!raw) {
     return undefined;
@@ -94,11 +72,7 @@ export function sanitizeReportedUrl(raw: string | undefined): string | undefined
   return path;
 }
 
-/**
- * Report a client error. No-op outside production, when sendBeacon is
- * unavailable, or when the client-side rate limit is exceeded. Returns true
- * when a beacon was queued.
- */
+/** Queues a beacon and returns true; does nothing outside production or over the rate limit. */
 export function reportClientError(input: ClientErrorInput): boolean {
   if (!import.meta.env.PROD) {
     return false;
@@ -134,10 +108,7 @@ export function reportClientError(input: ClientErrorInput): boolean {
   return navigator.sendBeacon(ENDPOINT, blob);
 }
 
-/**
- * Install a global handler that reports otherwise-unobserved promise
- * rejections. Idempotent per call site; safe to call once at startup.
- */
+/** Reports otherwise-unobserved promise rejections through a global handler. */
 export function installGlobalErrorReporting(): void {
   window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
     const reason = event.reason;

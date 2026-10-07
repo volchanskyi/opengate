@@ -92,9 +92,7 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 	dev := seedOwnedDevice(t, srv)
 	path := "/api/v1/devices/" + dev.ID.String() + "/metrics?from=2026-07-02T00:00:00Z&to=2026-07-02T01:00:00Z"
 
-	// The handler's own grid for that window: one hour at the 60 s vitals
-	// cadence under the default 1000-point cap, so 60 buckets. The fake answers
-	// on it, the way a real store answers the query the grid is issued on.
+	// The handler's grid for one hour at the 60 s vitals cadence is 60 buckets; the fake answers on it.
 	handlerFrom := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
 	handlerGrid := buildMetricGrid(handlerFrom, handlerFrom.Add(time.Hour), chooseStep(handlerFrom, handlerFrom.Add(time.Hour), defaultMaxPoints))
 	require.Len(t, handlerGrid.ts, 60)

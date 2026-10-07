@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/pmat-precommit.sh (ADR-019 precommit TDG gate).
-# Plain bash; no bats. Stubs the pmat binary and uses throwaway git repos so
-# the test is fast and deterministic (no real grading). Run:
-#   ./scripts/tests/pmat-precommit.test.sh
+# Tests the precommit TDG gate against a stubbed pmat binary and throwaway git repos.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,7 +26,6 @@ assert_eq() {
   local name="$1" want="$2" got="$3"
   if [ "$want" = "$got" ]; then pass "$name"; else fail "$name (want=[$want] got=[$got])"; fi
 }
-# assert_ok / assert_fail run a shell FUNCTION (not external cmd) and check exit.
 assert_ok() {
   local n="$1"
   shift
@@ -41,10 +37,8 @@ assert_fail() {
   if "$@" >/dev/null 2>&1; then fail "$n (expected non-zero)"; else pass "$n"; fi
 }
 
-# --- Stub pmat ----------------------------------------------------------------
-# Reads STUB_VERSION (for --version) and STUB_FAIL_SUBSTR (a check-quality on a
-# -p path containing this substring exits 3 with a violation JSON) from env at
-# call time, so cases can vary behavior without rewriting the stub.
+# The stub reads STUB_VERSION and STUB_FAIL_SUBSTR at call time; a check-quality on a -p path
+# containing STUB_FAIL_SUBSTR exits 3 with a violation JSON.
 STUB_DIR="$(mktemp -d)"
 cat >"$STUB_DIR/pmat" <<'STUB'
 #!/usr/bin/env bash
@@ -63,10 +57,7 @@ exit 0
 STUB
 chmod +x "$STUB_DIR/pmat"
 
-# --- Stub gofmt ---------------------------------------------------------------
-# Stand-in for `gofmt`: emits its input with trailing blank lines stripped, so a
-# baseline-vs-current comparison is deterministic without a real Go toolchain.
-# Mirrors both `gofmt <file>` and `gofmt < file`.
+# The gofmt stub strips trailing blank lines from a file argument or from stdin.
 cat >"$STUB_DIR/gofmt" <<'GOFMT'
 #!/usr/bin/env bash
 if [ -n "${1:-}" ] && [ -f "${1:-}" ]; then cat -- "$1"; else cat; fi \
@@ -74,7 +65,6 @@ if [ -n "${1:-}" ] && [ -f "${1:-}" ]; then cat -- "$1"; else cat; fi \
 GOFMT
 chmod +x "$STUB_DIR/gofmt"
 
-# --- Temp git repo helpers (mirror tdd-check.test.sh) -------------------------
 make_repo() {
   REPO="$(mktemp -d)"
   cd "$REPO" || exit 1
@@ -104,7 +94,6 @@ cleanup_all() {
 }
 trap 'cleanup_all' EXIT
 
-# --- Source the wrapper with the stub wired in --------------------------------
 export PMAT_BIN="$STUB_DIR/pmat"
 export PMAT_PIN="" # disabled by default; re-enabled per case
 export PMAT_BASELINE_REF="origin/dev"
@@ -143,8 +132,7 @@ cleanup_repo
 echo
 echo "pmat_changed_code_files (gofmt-only Go *test* files excluded; ADR-019):"
 export GOFMT_BIN="$STUB_DIR/gofmt"
-# Baseline commit holds three not-yet-formatted files (trailing blank lines);
-# the branch then "formats" them. Only the gofmt-only TEST file is dropped.
+# The baseline holds three files with trailing blank lines; the branch strips them.
 REPO="$(mktemp -d)"
 cd "$REPO" || exit 1
 git init --quiet --initial-branch=dev
@@ -160,8 +148,6 @@ printf 'package x\n\nfunc TestA() {}\n' >fmtonly_test.go           # only traili
 printf 'package x\n\nfunc TestB() { _ = 1 }\n' >realchange_test.go # body changed
 printf 'package x\n\nvar A = 1\n' >src_fmtonly.go                  # only trailing blanks removed
 got="$(pmat_changed_code_files | sort | tr '\n' ' ' | sed 's/ *$//')"
-# fmtonly_test.go dropped (gofmt-only test); realchange_test.go kept (real change);
-# src_fmtonly.go kept (gofmt-only but NOT a test → source quality still enforced).
 assert_eq "drops gofmt-only test, keeps real-change test + fmt-only source" \
   "realchange_test.go src_fmtonly.go" "$got"
 cleanup_repo
@@ -172,14 +158,12 @@ echo "pmat_precommit_main (end to end with stub):"
 PMAT_PIN="3.17.0"
 export STUB_VERSION="3.17.0"
 
-# 1. Changed code all passes.
 make_repo
 echo x >good.go
 unset STUB_FAIL_SUBSTR
 assert_ok "clean changed code passes" pmat_precommit_main
 cleanup_repo
 
-# 2. A changed file below the floor fails the gate.
 make_repo
 echo x >good.go
 echo x >bad.go
@@ -188,14 +172,12 @@ assert_fail "below-floor changed file fails" pmat_precommit_main
 unset STUB_FAIL_SUBSTR
 cleanup_repo
 
-# 3. No changed code files → passes trivially (docs/CI-only commit).
 make_repo
 echo x >notes.md
 echo x >workflow.yml
 assert_ok "no changed code files passes" pmat_precommit_main
 cleanup_repo
 
-# 4. Wrong pmat version → prerequisite failure (exit 2, treated as non-zero).
 make_repo
 echo x >good.go
 PMAT_PIN="9.9.9"

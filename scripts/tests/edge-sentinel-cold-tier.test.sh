@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# Offline regression tests for the Edge Sentinel long-term (cold) tier: the
-# VictoriaMetrics stream-aggregation rollup config and its retention wiring.
-#
-# The cardinality budget ratified in server/tests/vmcardinality/spike_test.go is
-# a pure model — it computes series counts from host profiles and never reads the
-# live YAML, so it cannot catch the deployed rollup config drifting away from the
-# locked "central = avg only" decision. This test pins the config to that budget:
-# every rollup emits exactly one aggregate (avg). min/max/last are agent-local
-# (WS-14b), never central rollups, so emitting them would ~4x central active
-# series and blow the 50k budget.
+# Pins the cold-tier rollup config: central rollups emit avg only, since min/max/last stay local.
 
 set -euo pipefail
 
@@ -33,8 +24,6 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-# Extract a single stream-aggr rule block by its `- name:` value. Blocks start at
-# column 0 with `- name:` and run until the next `- name:` (or EOF).
 rule_block() {
   awk -v n="$1" '
     $0 == "- name: " n { inb = 1; print; next }
@@ -45,8 +34,6 @@ rule_block() {
 
 echo "edge sentinel cold-tier config:"
 
-# Each rollup interval must exist, target the opengate_edge_ family, and emit
-# exactly avg (the locked avg-only central decision).
 for rule in "edge-sentinel-1m:1m" "edge-sentinel-1h:1h"; do
   name="${rule%%:*}"
   interval="${rule##*:}"
@@ -76,10 +63,7 @@ for rule in "edge-sentinel-1m:1m" "edge-sentinel-1h:1h"; do
   fi
 done
 
-# Defense in depth: no rollup anywhere may emit min/max/last centrally.
-# The first match is read into a variable rather than piped: `grep -q` stops
-# there, and pipefail reports the writer's failed write as an absence — which
-# on a check written as an absence is a pass.
+# The outputs lines go to a variable, not a pipe: pipefail reads `grep -q`'s early exit as absence.
 aggr_outputs="$(grep -E '^  outputs:' "$AGGR_FILE" || true)"
 if grep -qE '\b(min|max|last)\b' <<<"$aggr_outputs"; then
   fail "no central rollup may emit min/max/last — they ~4x active series past the 50k budget"
@@ -87,7 +71,6 @@ else
   pass "no central rollup emits min/max/last"
 fi
 
-# Raw 10 s input must survive alongside the rollups: -streamAggr.keepInput.
 if grep -qF -- '-streamAggr.keepInput' "$STS_FILE"; then
   pass "VictoriaMetrics keeps raw input beside the rollups (-streamAggr.keepInput)"
 else
@@ -106,7 +89,7 @@ else
   fail "VictoriaMetrics must wire -retentionPeriod"
 fi
 
-# Single global OSS retention window (no per-series split in OSS single-node).
+# The OSS single-node build has one global retention window and no per-series split.
 if grep -qE '^  retention: [0-9]+[a-z]+$' "$VALUES_FILE"; then
   pass "monitoring values set a concrete VictoriaMetrics retention window"
 else

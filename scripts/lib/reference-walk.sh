@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
-# Walk a Go core dump from its heaviest objects back to the roots that hold
-# them, and the refusals every caller of that walk shares.
-#
-# Sourced by scripts/loadtest-reference-walk.sh, which takes the core off the
-# endurance run's server, and by scripts/core-walk-check.sh, which takes one off
-# a probe to prove the reader still reads what the pinned toolchain writes.
-#
+# Walks a Go core dump from its heaviest objects back to the roots that hold them.
+# Sourced by scripts/loadtest-reference-walk.sh and scripts/core-walk-check.sh.
 # Usage:  . scripts/lib/reference-walk.sh   then   walk <core> <binary> <out-dir>
 
-# walkedTypes is how many of the heaviest types are followed back to a root. The
-# histogram beside it lists every type, so this bounds the expensive half rather
-# than the reported half: each walk reads the whole reference graph.
+# walkedTypes is how many of the heaviest types are followed back to a root; each reads the graph.
 walkedTypes=5
 
 refuse() {
@@ -18,9 +11,8 @@ refuse() {
   exit 1
 }
 
-# elevate runs a command as root. Taking a core means attaching to a process
-# this user does not own, which the kernel's own pointer-tracing restriction
-# refuses for anybody else.
+# elevate runs a command as root, since the kernel's pointer-tracing restriction refuses attaching
+# to another user's process.
 elevate() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
@@ -33,13 +25,10 @@ need() {
   command -v "$1" >/dev/null 2>&1 || refuse "$1 is not installed, so $2"
 }
 
-# walk reads the core and writes what it found.
 walk() {
   local core="$1" exe="$2" out="$3"
 
-  # The overview is first because it is the read-back: a core viewcore cannot
-  # open fails here, where the message says so, rather than as four empty
-  # reports nobody questions.
+  # The overview runs first as the read-back: a core viewcore cannot open fails here with a message.
   viewcore "$core" --exe "$exe" overview >"$out/overview.txt" 2>"$out/viewcore.log" \
     || refuse "viewcore could not read $core; its log is $out/viewcore.log"
 
@@ -48,15 +37,13 @@ walk() {
   viewcore "$core" --exe "$exe" histogram --top 40 >"$out/type-histogram.txt" 2>>"$out/viewcore.log" \
     || refuse "viewcore read the core and could not weigh what is in it"
 
-  # Every live object, kept out of the reports on purpose: a heap this size lists
-  # millions of them, and all that is wanted is one address per type.
+  # Every live object stays out of the reports: a heap lists millions and only one per type is needed.
   local objects="$out/.objects"
   viewcore "$core" --exe "$exe" objects >"$objects" 2>>"$out/viewcore.log" \
     || refuse "viewcore could not list the live objects, so there is nothing to walk back from"
 
-  # The heaviest types, taken with awk's own counter rather than through head:
-  # a reader that exits early kills the writer behind it, and under pipefail the
-  # dead writer becomes the pipeline's verdict.
+  # awk counts the types itself, since a reader that exits early kills the writer and pipefail
+  # reports that as the pipeline's failure.
   local types
   types="$(awk -v most="$walkedTypes" \
     'NR > 1 && NF >= 4 { name = $4; for (i = 5; i <= NF; i++) name = name " " $i; print name; if (++taken == most) exit }' \

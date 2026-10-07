@@ -9,20 +9,15 @@ import (
 	"strings"
 )
 
-// The shipped pack and the digests that make a published definition immutable.
-
 //go:embed catalogue/*.yaml catalogue/catalogue.lock
 var catalogueFS embed.FS
 
 const (
-	// catalogueDir holds the shipped pack and its lock.
 	catalogueDir = "catalogue"
-	// lockPath is the committed digest of every shipped (rule_id, version).
-	lockPath = "catalogue/catalogue.lock"
+	lockPath     = "catalogue/catalogue.lock"
 )
 
-// Lock maps a definition's (id, version) key to the digest it was committed
-// with. It is what makes immutability an assertion rather than a convention.
+// Lock maps a definition's (id, version) key to the digest it was committed with.
 type Lock map[string]string
 
 // DigestCatalogue returns the lock a pack would be committed with.
@@ -55,9 +50,7 @@ func Embedded() (*Catalogue, error) {
 	return LoadCatalogue(data, lock)
 }
 
-// VerifyEmbeddedLock additionally proves every shipped definition is actually
-// locked. Embedded refuses a definition that drifted from its digest, but a rule
-// with no lock line at all would slip past it, so the gate is completed here.
+// VerifyEmbeddedLock proves every shipped definition has a lock line; Embedded alone does not.
 func VerifyEmbeddedLock() error {
 	cat, err := Embedded()
 	if err != nil {
@@ -75,7 +68,6 @@ func VerifyEmbeddedLock() error {
 	return nil
 }
 
-// embeddedPack concatenates every YAML file in the pack directory.
 func embeddedPack() ([]byte, error) {
 	entries, err := catalogueFS.ReadDir(catalogueDir)
 	if err != nil {
@@ -105,8 +97,6 @@ func embeddedPack() ([]byte, error) {
 	return merged.Bytes(), nil
 }
 
-// packBody strips a pack file's own `rules:` header so several files merge into
-// one document.
 func packBody(data []byte, name string) ([]byte, error) {
 	trimmed := bytes.TrimLeft(data, "\n")
 	header := []byte("rules:\n")
@@ -117,8 +107,7 @@ func packBody(data []byte, name string) ([]byte, error) {
 	return append(body, '\n'), nil
 }
 
-// embeddedLock parses the committed digests: `<id> <version> <sha256>` a line,
-// with `#` comments and blank lines ignored.
+// Each lock line reads `<id> <version> <sha256>`; `#` comments and blank lines are ignored.
 func embeddedLock() (Lock, error) {
 	data, err := catalogueFS.ReadFile(lockPath)
 	if err != nil {

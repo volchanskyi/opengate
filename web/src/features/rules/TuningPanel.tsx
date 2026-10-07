@@ -11,11 +11,7 @@ type RuleClamp = components['schemas']['RuleClamp'];
 const CELL = 'px-3 py-2 text-sm text-gray-300';
 const HEAD = 'px-3 py-2 text-left text-xs font-semibold text-gray-400';
 
-/**
- * How a rung reads to a person: what the code calls an organization is, to
- * whoever reads this screen, a customer. A Map rather than an object, because a
- * value off the wire indexing an object reaches the prototype chain.
- */
+// A Map, because indexing an object with a value from the wire reaches the prototype chain.
 const LEVEL_WORDING = new Map<RuleBinding['level'], string>([
   ['device', 'One machine'],
   ['site', 'One office'],
@@ -35,12 +31,8 @@ function Bounds({ rule, param }: { readonly rule: Rule; readonly param: string }
 }
 
 /**
- * What a version change had to move, and until somebody has seen it.
- *
- * A rule upgrade keeps the customer's tuning. When a new version narrows what it
- * accepts, the value moves to the nearest one it does allow and the rule keeps
- * firing at that — going quiet is the failure this guards against — but the move
- * was not the customer's decision, so it stays on the screen until acknowledged.
+ * A version that narrows what it accepts moves a tuned value to the nearest allowed one; the
+ * move stays on screen until acknowledged.
  */
 function Clamps({
   ruleId,
@@ -82,7 +74,6 @@ function Clamps({
   );
 }
 
-/** The form for filing a new value, kept to what the rule declares adjustable. */
 function NewValue({ rule, canEdit }: { readonly rule: Rule; readonly canEdit: boolean }) {
   const saveBinding = useRuleStore((s) => s.saveBinding);
   const params = Object.keys(rule.tunable).sort((a, b) => a.localeCompare(b));
@@ -151,14 +142,7 @@ function NewValue({ rule, canEdit }: { readonly rule: Rule; readonly canEdit: bo
   );
 }
 
-/**
- * The numbers a customer may retune, laid out by how narrowly each one is aimed.
- *
- * The order is the order resolution reads them in — the narrowest rung wins, and
- * two labels at one rung are settled by a precedence somebody set and can see.
- * Every invisible tie-break produces a threshold nobody can predict from the
- * screen, which is the class of question this ordering removes.
- */
+// Values appear in resolution order: the narrowest rung wins, then label precedence.
 export function TuningPanel({
   rule,
   bindings,

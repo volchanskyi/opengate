@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { apiAction, progressAdapter } from './api-action';
 
-// openapi-fetch always returns the raw Response; these tests only need ok + status.
 function fakeResponse(status: number): Response {
   return { ok: status >= 200 && status < 300, status } as unknown as Response;
 }
@@ -32,7 +31,6 @@ describe('apiAction', () => {
     const res = await apiAction(set, async () => ({ data: 'ok' }), false);
 
     expect(res).toEqual({ ok: true, data: 'ok' });
-    // Only the initial { error: null } reset; no second call (no isLoading: false)
     expect(set).toHaveBeenCalledTimes(1);
     expect(set).toHaveBeenNthCalledWith(1, { error: null });
   });
@@ -48,12 +46,9 @@ describe('apiAction', () => {
   });
 
   it('default loading parameter is true', async () => {
-    // Intentionally omit loading; default should behave like loading=true.
     const set = vi.fn();
     await apiAction(set, async () => ({ data: 1 }));
 
-    // Two calls: { isLoading: true, error: null } then { isLoading: false }
-    // Specifically: the first call MUST contain isLoading:true (kills `loading = false` default mutant).
     expect(set.mock.calls[0]?.[0]).toEqual({ isLoading: true, error: null });
     expect(set.mock.calls[1]?.[0]).toEqual({ isLoading: false });
   });
@@ -67,8 +62,7 @@ describe('apiAction', () => {
 
   it('treats a non-ok response with no JSON error body as failure', async () => {
     const set = vi.fn();
-    // openapi-fetch leaves `error` undefined for an empty-bodied 409, so a
-    // response-blind apiAction would misread this as success.
+    // openapi-fetch leaves `error` undefined for an empty-bodied 409.
     const res = await apiAction(set, async () => ({
       data: undefined,
       error: undefined,
@@ -84,7 +78,7 @@ describe('apiAction', () => {
 
   it('treats a non-ok response with an empty-string error body as failure', async () => {
     const set = vi.fn();
-    // openapi-fetch yields error: '' for an empty body with no Content-Length.
+    // openapi-fetch yields error '' for an empty body with no Content-Length.
     const res = await apiAction(set, async () => ({
       error: '',
       response: fakeResponse(500),

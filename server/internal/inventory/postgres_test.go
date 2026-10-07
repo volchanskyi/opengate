@@ -13,16 +13,12 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// seedInventoryDevice seeds a user, site, and device in the given tenant and
-// returns the device id, so tests can persist inventory against a real device.
 func seedInventoryDevice(t *testing.T, ctx context.Context, store *db.PostgresStore) uuid.UUID {
 	t.Helper()
 	site := testutil.SeedSite(t, ctx, store)
 	return testutil.SeedDevice(t, ctx, store, site.ID).ID
 }
 
-// newInventoryFixture builds a repository plus a default-tenant device, the
-// common starting point for the single-tenant cases.
 func newInventoryFixture(t *testing.T) (*PostgresInventoryRepository, context.Context, uuid.UUID) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -30,13 +26,28 @@ func newInventoryFixture(t *testing.T) (*PostgresInventoryRepository, context.Co
 	return NewPostgresInventoryRepository(store.DB()), ctx, seedInventoryDevice(t, ctx, store)
 }
 
-// byKindName indexes returned components by a stable (kind,name) key.
 func byKindName(components []Component) map[string]Component {
 	out := make(map[string]Component, len(components))
 	for _, c := range components {
 		out[c.Kind+"/"+c.Name] = c
 	}
 	return out
+}
+
+func replaceOK(t *testing.T, repo *PostgresInventoryRepository, ctx context.Context, dev uuid.UUID, ts time.Time, components []Component) {
+	t.Helper()
+	require.NoError(t, repo.Replace(ctx, dev, ts, components))
+}
+
+func listOK(t *testing.T, repo *PostgresInventoryRepository, ctx context.Context, dev uuid.UUID, limit int) []Component {
+	t.Helper()
+	got, err := repo.ListForDevice(ctx, dev, limit)
+	require.NoError(t, err)
+	return got
+}
+
+func nowSecond() time.Time {
+	return time.Now().UTC().Truncate(time.Second)
 }
 
 func TestPostgresInventoryRepositoryTenantDeny(t *testing.T) {
@@ -52,26 +63,21 @@ func TestPostgresInventoryRepositoryTenantDeny(t *testing.T) {
 	deviceA := seedInventoryDevice(t, ctxA, store)
 	deviceB := seedInventoryDevice(t, ctxB, store)
 
-	ts := time.Now().UTC().Truncate(time.Second)
-	require.NoError(t, repo.Replace(ctxA, deviceA, ts, []Component{
+	ts := nowSecond()
+	replaceOK(t, repo, ctxA, deviceA, ts, []Component{
 		{Kind: KindPort, Name: "postgres", Proto: "tcp", Port: 5432},
-	}))
-	require.NoError(t, repo.Replace(ctxB, deviceB, ts, []Component{
+	})
+	replaceOK(t, repo, ctxB, deviceB, ts, []Component{
 		{Kind: KindPort, Name: "redis-server", Proto: "tcp", Port: 6379},
-	}))
+	})
 
-	got, err := repo.ListForDevice(ctxA, deviceA, 100)
-	require.NoError(t, err)
+	got := listOK(t, repo, ctxA, deviceA, 100)
 	require.Len(t, got, 1)
 	assert.Equal(t, "postgres", got[0].Name)
 
-	// Tenant A must not read tenant B's inventory rows even by B's device id.
-	got, err = repo.ListForDevice(ctxA, deviceB, 100)
-	require.NoError(t, err)
-	assert.Empty(t, got, "tenant A must not read tenant B inventory rows")
+	assert.Empty(t, listOK(t, repo, ctxA, deviceB, 100), "tenant A must not read tenant B inventory rows")
 
-	// A missing tenant scope fails closed on both read and write.
-	_, err = repo.ListForDevice(context.Background(), deviceA, 100)
+	_, err := repo.ListForDevice(context.Background(), deviceA, 100)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 	err = repo.Replace(context.Background(), deviceA, ts, []Component{{Kind: KindPackage, Name: "x"}})
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
@@ -81,27 +87,22 @@ func TestPostgresInventoryReplaceUpsertsAndPrunes(t *testing.T) {
 	t.Parallel()
 	repo, ctx, dev := newInventoryFixture(t)
 
-	t1 := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
-	require.NoError(t, repo.Replace(ctx, dev, t1, []Component{
+	t1 := nowSecond().Add(-time.Minute)
+	replaceOK(t, repo, ctx, dev, t1, []Component{
 		{Kind: KindPort, Name: "postgres", Proto: "tcp", Port: 5432},
 		{Kind: KindDBEngine, Name: "postgres", Version: "16.1", Port: 5432},
 		{Kind: KindPackage, Name: "openssl", Version: "3.0.13"},
-	}))
+	})
+	require.Len(t, listOK(t, repo, ctx, dev, 100), 3)
 
-	first, err := repo.ListForDevice(ctx, dev, 100)
-	require.NoError(t, err)
-	require.Len(t, first, 3)
-
-	// Second scan: openssl vanished, the DB engine upgraded, nginx appeared.
 	t2 := t1.Add(time.Minute)
-	require.NoError(t, repo.Replace(ctx, dev, t2, []Component{
+	replaceOK(t, repo, ctx, dev, t2, []Component{
 		{Kind: KindPort, Name: "postgres", Proto: "tcp", Port: 5432},
 		{Kind: KindDBEngine, Name: "postgres", Version: "16.2", Port: 5432},
 		{Kind: KindService, Name: "nginx.service", State: "running"},
-	}))
+	})
 
-	got, err := repo.ListForDevice(ctx, dev, 100)
-	require.NoError(t, err)
+	got := listOK(t, repo, ctx, dev, 100)
 	idx := byKindName(got)
 	require.Len(t, got, 3, "openssl must be pruned; nginx added; postgres port kept")
 
@@ -122,16 +123,13 @@ func TestPostgresInventoryReplaceEmptyIsNoop(t *testing.T) {
 	t.Parallel()
 	repo, ctx, dev := newInventoryFixture(t)
 
-	ts := time.Now().UTC().Truncate(time.Second)
-	require.NoError(t, repo.Replace(ctx, dev, ts, []Component{
+	ts := nowSecond()
+	replaceOK(t, repo, ctx, dev, ts, []Component{
 		{Kind: KindService, Name: "sshd.service", State: "running"},
-	}))
+	})
+	replaceOK(t, repo, ctx, dev, ts.Add(time.Minute), nil)
 
-	// An empty report must not wipe the last known footprint — treat it as a
-	// no-op rather than a full prune, so a collector hiccup can't erase state.
-	require.NoError(t, repo.Replace(ctx, dev, ts.Add(time.Minute), nil))
-	got, err := repo.ListForDevice(ctx, dev, 100)
-	require.NoError(t, err)
+	got := listOK(t, repo, ctx, dev, 100)
 	require.Len(t, got, 1)
 	assert.Equal(t, "sshd.service", got[0].Name)
 }
@@ -140,53 +138,37 @@ func TestPostgresInventorySanitizesFields(t *testing.T) {
 	t.Parallel()
 	repo, ctx, dev := newInventoryFixture(t)
 
-	ts := time.Now().UTC().Truncate(time.Second)
-	// A control-char-bearing image (multiline / smuggled content) is defense-in-
-	// depth redacted on ingest even though WS-16 already forbids secrets.
-	require.NoError(t, repo.Replace(ctx, dev, ts, []Component{
+	ts := nowSecond()
+	replaceOK(t, repo, ctx, dev, ts, []Component{
 		{Kind: KindContainer, Name: "cache", Runtime: "docker", Image: "redis:7\npassword=hunter2", State: "running"},
-	}))
+	})
 
-	got, err := repo.ListForDevice(ctx, dev, 100)
-	require.NoError(t, err)
+	got := listOK(t, repo, ctx, dev, 100)
 	require.Len(t, got, 1)
 	assert.Equal(t, redactedField, got[0].Image, "a control-char-bearing field must be redacted")
 
-	// An unknown component kind is dropped rather than persisted or erroring.
-	require.NoError(t, repo.Replace(ctx, dev, ts.Add(time.Minute), []Component{
+	replaceOK(t, repo, ctx, dev, ts.Add(time.Minute), []Component{
 		{Kind: KindContainer, Name: "cache", Runtime: "docker", Image: "redis:7", State: "running"},
 		{Kind: "wat", Name: "bogus"},
-	}))
-	got, err = repo.ListForDevice(ctx, dev, 100)
-	require.NoError(t, err)
+	})
+	got = listOK(t, repo, ctx, dev, 100)
 	require.Len(t, got, 1, "unknown kinds must be dropped")
 	assert.Equal(t, KindContainer, got[0].Kind)
 }
 
-// A caller asking for no particular number of rows gets the repository's own
-// bound, not nothing. The distinction matters because the substitution happens
-// on a non-positive limit: a read that passed the caller's zero straight into
-// the query would answer "this machine has no inventory" for every machine,
-// which reads as a clean estate rather than as a missing argument.
 func TestListForDeviceSubstitutesTheDefaultLimitForANonPositiveOne(t *testing.T) {
 	t.Parallel()
 
 	repo, ctx, dev := newInventoryFixture(t)
-	ts := time.Now().UTC().Truncate(time.Second)
-	require.NoError(t, repo.Replace(ctx, dev, ts, []Component{
+	replaceOK(t, repo, ctx, dev, nowSecond(), []Component{
 		{Kind: KindPort, Name: "postgres", Proto: "tcp", Port: 5432},
 		{Kind: KindService, Name: "sshd"},
-	}))
+	})
 
 	for _, limit := range []int{0, -1} {
-		got, err := repo.ListForDevice(ctx, dev, limit)
-		require.NoError(t, err)
-		assert.Len(t, got, 2,
+		assert.Len(t, listOK(t, repo, ctx, dev, limit), 2,
 			"a limit of %d means the repository's own bound, not an empty answer", limit)
 	}
 
-	// A positive limit is the caller's, and is honoured as given.
-	got, err := repo.ListForDevice(ctx, dev, 1)
-	require.NoError(t, err)
-	assert.Len(t, got, 1, "a positive limit is the caller's own")
+	assert.Len(t, listOK(t, repo, ctx, dev, 1), 1, "a positive limit is the caller's own")
 }

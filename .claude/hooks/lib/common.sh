@@ -1,27 +1,7 @@
 #!/usr/bin/env bash
-# Shared library for Claude Code hooks.
-# Source from each hook: source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
-#
-# Provides:
-#   read_hook_input             # cache stdin JSON into HOOK_INPUT (idempotent)
-#   parse_input_fields PATH...  # extract dotted-path fields into HOOK_<NAME> vars
-#   project_root                # echo the repo top-level (falls back to $PWD)
-#   is_source_path PATH         # 0/1 via scripts/tdd-check.sh is-source
-#   branch_has_test_change      # 0/1 via scripts/tdd-check.sh has-test-change
-#   block RULE MESSAGE          # log to blocks.log, print MESSAGE to stderr, exit 2
-#   warn RULE MESSAGE           # log to blocks.log with warn tag, print to stderr, exit 0
-#   enable_fail_closed_hook     # install the ERR trap for enforcement callers
-#
-# Hook contract:
-#   - Input: JSON on stdin from the Claude Code harness.
-#   - Allow: exit 0 with no stdout (or hookSpecificOutput JSON for context injection).
-#   - Block: exit 2 with a one-line stderr message (re-shown to Claude).
-#   - Enforcement hooks call enable_fail_closed_hook so uncaught errors exit 2.
-#
-# NO BYPASS. Hooks never honor environment variables like OPENGATE_HOOK_BYPASS.
-# To change enforcement, edit .claude/settings.json.
+# Shared hook helpers: input is JSON on stdin, allow is exit 0, block is exit 2 with a message.
+# No environment variable bypasses a hook; enforcement changes only through .claude/settings.json.
 
-# Project-root-relative paths.
 _COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _HOOKS_DIR="$(cd "$_COMMON_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$_HOOKS_DIR/../.." && pwd)"
@@ -34,14 +14,13 @@ read_hook_input() {
   fi
 }
 
-# parse_input_fields field1[:default1] field2[:default2] ...
-# Field names are dotted (e.g. "tool_input.command"). Exports HOOK_<UPPER_WITH_UNDERSCORES>.
+# Each field is a dotted path with an optional :default, set as HOOK_<PATH_UPPERCASED>.
 parse_input_fields() {
   read_hook_input
   local script
   script='
-import json, os, sys
-data = os.environ.get("HOOK_INPUT", "")
+import json, sys
+data = sys.stdin.read()
 try:
     obj = json.loads(data) if data.strip() else {}
 except Exception:
@@ -67,7 +46,7 @@ for spec in sys.argv[1:]:
     print(name + "=" + chr(39) + escaped + chr(39))
 '
   local exports
-  exports="$(HOOK_INPUT="$HOOK_INPUT" python3 -c "$script" "$@")" || {
+  exports="$(python3 -c "$script" "$@" <<<"$HOOK_INPUT")" || {
     printf 'hook: failed to parse stdin JSON\n' >&2
     exit 2
   }
@@ -113,10 +92,9 @@ warn() {
   printf '%s\n' "$msg" >&2
 }
 
-# Fail-closed: any uncaught error or signal becomes a block.
+# Any uncaught error becomes a block.
 _fail_closed_handler() {
   local exit_code=$?
-  # If we already exited cleanly (0 or 2), respect that.
   case "$exit_code" in
     0 | 2) exit "$exit_code" ;;
   esac
@@ -130,18 +108,8 @@ enable_fail_closed_hook() {
   trap _fail_closed_handler ERR
 }
 
-# Whether a Bash command carries a given git verb ("commit", "push").
-#
-# Pre-verb tokens are options, each optionally followed by its own value word:
-# `-c` takes its value as a SEPARATE token, so a pattern that skips only
-# `-`-prefixed words never reaches the verb, and the guard silently no-ops on
-# exactly the form that most needs catching. Requiring an option lead keeps
-# `git log --grep=…` from matching.
-#
-# It lives here because five hooks ask this question and the answer had drifted:
-# three carried the form above while two carried one that stops at the first
-# `-c`, under a comment claiming they were the same pattern. One definition is
-# what keeps them so.
+# Pre-verb tokens are options with an optional value word, since `-c` takes a separate value token.
+# Requiring an option lead keeps `git log --grep=…` from matching.
 git_verb_re() {
   printf '\\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?)*%s\\b' "$1"
 }

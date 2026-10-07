@@ -8,8 +8,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// contosoLadder is one machine's place in the tenancy ladder: DAL-WS-012, in
-// Contoso's Dallas office, in the MSP's tenant.
 func contosoLadder() settings.Scope {
 	return settings.Scope{
 		DeviceID:       uuid.MustParse("00000000-0000-0000-0000-0000000000d1"),
@@ -19,9 +17,6 @@ func contosoLadder() settings.Scope {
 	}
 }
 
-// TestNarrowestLevelWins is the resolution order N5 asks for, worked through the
-// case the plan names: Dallas is all file servers and alarms at 95, but the one
-// workstation in it alarms at 90.
 func TestNarrowestLevelWins(t *testing.T) {
 	t.Parallel()
 	scope := contosoLadder()
@@ -93,9 +88,6 @@ func TestNarrowestLevelWins(t *testing.T) {
 	}
 }
 
-// TestAnotherMachinesValueIsIgnored proves resolution is keyed on identity, not
-// only on level: handing over a whole customer's overrides must not let the
-// Austin office's number reach a machine in Dallas.
 func TestAnotherMachinesValueIsIgnored(t *testing.T) {
 	t.Parallel()
 	scope := contosoLadder()
@@ -110,9 +102,6 @@ func TestAnotherMachinesValueIsIgnored(t *testing.T) {
 	assert.Equal(t, settings.LevelOrganization, level)
 }
 
-// TestAnUnfiledMachineSkipsTheSiteRung covers the machine nobody has filed yet:
-// the site rung is simply absent, and resolution continues to the customer
-// rather than failing.
 func TestAnUnfiledMachineSkipsTheSiteRung(t *testing.T) {
 	t.Parallel()
 	scope := contosoLadder()
@@ -127,10 +116,6 @@ func TestAnUnfiledMachineSkipsTheSiteRung(t *testing.T) {
 	assert.Equal(t, settings.LevelOrganization, level)
 }
 
-// TestAStopBeatsEveryNarrowerLevel is the exception the option run surfaced. At
-// 02:00 with a rule alarming on five thousand machines, a customer-wide stop
-// must not be undone by a value someone set on one machine — so that class of
-// setting reads the ladder the other way up.
 func TestAStopBeatsEveryNarrowerLevel(t *testing.T) {
 	t.Parallel()
 	scope := contosoLadder()
@@ -144,15 +129,11 @@ func TestAStopBeatsEveryNarrowerLevel(t *testing.T) {
 	assert.False(t, stopped, "the customer-wide stop wins")
 	assert.Equal(t, settings.LevelOrganization, level)
 
-	// The same values under the ordinary rule go the other way, which is exactly
-	// why the two cannot share one direction.
 	enabled, level := settings.Resolve(scope, overrides, true, settings.NarrowestWins)
 	assert.True(t, enabled)
 	assert.Equal(t, settings.LevelDevice, level)
 }
 
-// TestLevelNames keeps the level vocabulary printable, since a resolved value is
-// only actionable alongside where it came from.
 func TestLevelNames(t *testing.T) {
 	t.Parallel()
 	for level, want := range map[settings.Level]string{

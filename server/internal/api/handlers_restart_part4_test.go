@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-// adminToken mints an administrator token for the env's seeded user; raw-log
-// pulls are gated on admin.
 func (env *deviceTestEnv) adminToken(t *testing.T) string {
 	t.Helper()
 	token, err := env.generateToken(env.user.ID, env.user.Email, true)
@@ -18,9 +16,6 @@ func (env *deviceTestEnv) adminToken(t *testing.T) string {
 	return token
 }
 
-// TestGetDeviceLogs covers the deterministic gating paths of the raw-log broker.
-// The happy-path round trip (agent responds, redaction, audit) is exercised by
-// the integration test, since it needs a running agent read loop.
 func TestGetDeviceLogs(t *testing.T) {
 	t.Parallel()
 
@@ -50,9 +45,6 @@ func TestGetDeviceLogs(t *testing.T) {
 	})
 }
 
-// TestLogFilterFromParams_MapsSourceAndUnit pins the new host-source selector
-// and unit filter mapping: "host" and a unit reach the broker filter, and an
-// omitted source/unit default to empty (the agent's own files).
 func TestLogFilterFromParams_MapsSourceAndUnit(t *testing.T) {
 	t.Parallel()
 
@@ -69,15 +61,12 @@ func TestLogFilterFromParams_MapsSourceAndUnit(t *testing.T) {
 	assert.Empty(t, def.Unit)
 }
 
-// TestGetDeviceLogs_OnlineWithoutCapability pins that an online agent that never
-// advertised DeviceLogs is treated as unavailable rather than sent a request.
 func TestGetDeviceLogs_OnlineWithoutCapability(t *testing.T) {
 	t.Parallel()
 	env := setupDeviceTest(t, true)
 	ac := env.srv.agents.GetAgent(env.device.ID)
 	require.NotNil(t, ac)
-	// The stored value is the concrete conn; reach its field to simulate an
-	// agent that never advertised the capability.
+	// Clearing Capabilities simulates an agent that never advertised DeviceLogs.
 	ac.(*agentapi.AgentConn).Capabilities = nil
 
 	w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/"+env.device.ID.String()+"/logs", env.adminToken(t), nil)

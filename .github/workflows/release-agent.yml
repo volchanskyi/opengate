@@ -10,8 +10,7 @@ on:
         required: true
         type: string
 
-# Default-deny at the workflow level: a job without its own permissions block
-# inherits no token scopes. Each job grants exactly what it needs.
+# A job without its own permissions block inherits no token scopes.
 permissions: {}
 
 jobs:
@@ -29,12 +28,8 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           fetch-tags: true
-      # Path-gates the matrix build. When the diff against the previous v*
-      # tag contains no agent/** entries, build + release are skipped — the
-      # tag still exists as a git ref for build-image.yml + CHANGELOG, but
-      # no GitHub Release is published (so /releases/latest keeps pointing
-      # at the most recent binaries-bearing release). See
-      # .claude/plans/path-gate-agent-release.md and ADR-121.
+      # A diff against the previous v* tag with no agent/** entries skips build and release,
+      # so /releases/latest keeps pointing at the latest release that carries binaries.
       - name: Gate on agent/ diff
         id: gate
         run: ./scripts/release-agent-gate.sh "${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
@@ -73,8 +68,7 @@ jobs:
       - name: Install cross tools
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
-          # Pinned to a rev rather than a tag: the cross-build needs main, and an
-          # unpinned --git install compiles a tree nobody has tested.
+          # The rev pin gives the cross-build the main-branch tree it needs, tested at that rev.
           cargo install --locked cross \
             --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27
 
@@ -120,8 +114,7 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-24.04
-    # Scoped here (vs workflow-level) so the gate + build jobs run with the
-    # default read-only token. Only this job publishes to GitHub Releases.
+    # Write scope sits on this job alone, so the gate and build jobs keep the read-only token.
     permissions:
       contents: write
     steps:

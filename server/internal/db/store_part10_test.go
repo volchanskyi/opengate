@@ -9,26 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Rehearsal assertions for migration 015: the orders the triage queue is
-// actually read in.
-//
-// An index is easy to treat as a performance detail and skip in a rehearsal,
-// but these are the difference between a page of fifty and a scan of every open
-// incident a customer has — and the scan passes every functional test, at every
-// fixture size anybody writes by hand. So the rehearsal asserts the indexes
-// exist by name, and that the narrower one they replace is gone rather than
-// left behind alongside them.
-
-// queueIndexes is what migration 015 adds: the two orders a page is read in,
-// and the machine lookup the device page's strip is answered from.
+// queueIndexes holds the two page orders and the machine lookup that migration 015 adds.
 var queueIndexes = []string{
 	"idx_incidents_organization_id_last_seen_id",
 	"idx_incidents_tenant_id_last_seen_id",
 	"idx_alerts_incident_id_device_id",
 }
 
-// assertQueueIndexesIntroduced confirms migration 015 built the queue's orders
-// and retired the index the machine lookup subsumes.
 func assertQueueIndexesIntroduced(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	for _, index := range queueIndexes {
@@ -40,9 +27,6 @@ func assertQueueIndexesIntroduced(t *testing.T, ctx context.Context, db *sql.DB)
 			"costs every alert write a second index for no read")
 }
 
-// assertQueueIndexesDownReversal confirms the rollback took the queue's orders
-// away and put back the index it replaced — a rollback that dropped one without
-// restoring the other would leave the erasure recount without an index.
 func assertQueueIndexesDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	for _, index := range queueIndexes {
@@ -53,16 +37,12 @@ func assertQueueIndexesDownReversal(t *testing.T, ctx context.Context, db *sql.D
 		"the index 015 replaced has to come back with the rollback")
 }
 
-// retentionIndexes is what migration 017 adds: the two the age sweep reads. It
-// runs across every tenant at once, so both lead with the timestamp — an index
-// whose leading column the sweep cannot constrain is one it cannot use.
+// retentionIndexes holds the two timestamp-leading indexes the cross-tenant age sweep reads.
 var retentionIndexes = []string{
 	"idx_alerts_received_at",
 	"idx_incidents_resolved_at",
 }
 
-// assertRetentionIndexesIntroduced confirms migration 017 built the orders the
-// age sweep reads.
 func assertRetentionIndexesIntroduced(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	for _, index := range retentionIndexes {
@@ -71,8 +51,6 @@ func assertRetentionIndexesIntroduced(t *testing.T, ctx context.Context, db *sql
 	}
 }
 
-// assertRetentionIndexesDownReversal confirms the rollback took them away
-// again. Nothing is restored in their place: 017 replaced no index.
 func assertRetentionIndexesDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	for _, index := range retentionIndexes {
@@ -81,7 +59,6 @@ func assertRetentionIndexesDownReversal(t *testing.T, ctx context.Context, db *s
 	}
 }
 
-// indexExists reports whether an index of that name is defined.
 func indexExists(t *testing.T, ctx context.Context, db *sql.DB, name string) bool {
 	t.Helper()
 	var count int

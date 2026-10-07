@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-# Pins the staging Playwright config to the local one.
-#
-# The two configs run the SAME spec files against different targets, so any
-# execution setting that differs makes the local run a weaker predictor of the
-# staging run. That gap is not theoretical: the local config pins `workers: 1`
-# with a comment explaining that parallel workers contend on shared server-side
-# IAM state, while a forked staging config silently kept Playwright's default
-# worker count.
-#
-# The rule this gate encodes: the staging config DERIVES from the local one and
-# overrides only what is genuinely target-specific (base URL, retries, and the
-# absence of a webServer to bring up). Anything that changes how the suite
-# executes must be declared once, in the local config, and inherited.
+# The staging Playwright config overrides only the base URL, retries and webServer of the local one.
 
 set -euo pipefail
 
@@ -44,15 +32,12 @@ for f in "$LOCAL_CFG" "$STAGING_CFG"; do
   fi
 done
 
-# 1. The staging config must import the local one rather than restate it.
 if grep -qE '^import .* from "\./playwright\.config"' "$STAGING_CFG"; then
   pass "staging config imports ./playwright.config"
 else
   fail "staging config does not import ./playwright.config — it must derive from it, not fork it"
 fi
 
-# 2. Settings that govern how the suite EXECUTES belong to the local config
-#    alone. A staging-side redeclaration is drift by construction.
 INHERITED_KEYS=(workers globalSetup globalTeardown projects timeout fullyParallel testDir)
 for key in "${INHERITED_KEYS[@]}"; do
   if grep -qE "^[[:space:]]*${key}:" "$STAGING_CFG"; then
@@ -62,15 +47,12 @@ for key in "${INHERITED_KEYS[@]}"; do
   fi
 done
 
-# 3. The local config must actually pin the serialization the staging run now
-#    inherits. If this pin is ever dropped, both runs silently go parallel.
 if grep -qE '^[[:space:]]*workers:[[:space:]]*1,' "$LOCAL_CFG"; then
   pass "local config pins workers: 1"
 else
   fail "local config no longer pins 'workers: 1' — staging inherits it, so both runs would go parallel"
 fi
 
-# 4. The staging run targets the port-forward, not the docker-compose stack.
 if grep -qE 'baseURL:[[:space:]]*"http://127\.0\.0\.1:18080"' "$STAGING_CFG"; then
   pass "staging config targets the staging port-forward"
 else

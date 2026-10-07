@@ -1,10 +1,7 @@
 name: E2E Cross-Browser
 
-# Runs the Playwright suite against Firefox + WebKit in addition to Chromium.
-# Gated behind `workflow_dispatch` and a nightly cron, in the first batch
-# alongside mutation.yml and terraform-drift.yml, so PR CI stays Chromium-only
-# and this never blocks merges. WebKit occasionally flakes inside Docker; the
-# Playwright config bumps retries to 1 when PLAYWRIGHT_ALL_BROWSERS=1.
+# Runs the Playwright suite against Firefox and WebKit on dispatch and nightly, never on PRs.
+# Playwright retries once when PLAYWRIGHT_ALL_BROWSERS=1, because WebKit flakes inside Docker.
 
 on:
   workflow_dispatch:
@@ -39,10 +36,7 @@ jobs:
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-      # The stack runs two real machines, so it needs the agent as a static
-      # binary staged where the image build can reach it. This workflow stands
-      # alone on a cron, so it builds its own rather than taking an artifact
-      # from a job beside it.
+      # The stack's two machines need the agent as a static binary staged for the image build.
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: x86_64-unknown-linux-musl
@@ -63,15 +57,9 @@ jobs:
           set -e
           cd ../deploy
           docker compose -f docker-compose.test.yml down -v 2>/dev/null || true
-          # The same bring-up `make e2e` and the Chromium job run: database,
-          # server, an enrolment token minted through the public endpoint, and
-          # two machines installed with it.
           bash scripts/e2e-stack-up.sh
           cd ../web
-          # Tee Playwright's stdout/stderr so the next step can extract the
-          # flaky-test list. The retry policy (retries: 1 when
-          # PLAYWRIGHT_ALL_BROWSERS=1) means a flaky test exits with code 0;
-          # without this capture the flake is invisible outside the HTML report.
+          # A flaky test passes on retry and exits 0, so the captured output is the next step's source.
           set +e
           npx playwright test 2>&1 | tee /tmp/playwright-output.txt
           ec=${PIPESTATUS[0]}
@@ -91,9 +79,7 @@ jobs:
             exit 0
           fi
           FLAKY_COUNT="$(echo "$FLAKY_LINE" | awk '{print $1}')"
-          # Grab the flaky test list: every line between the `N flaky` header
-          # and the next summary line (skipped/passed). awk's range pattern
-          # makes that one-liner.
+          # Collects every line between the `N flaky` header and the next summary line.
           FLAKY_LIST="$(awk '
             /^[[:space:]]+[0-9]+[[:space:]]+flaky$/ {flag=1; next}
             /^[[:space:]]+[0-9]+[[:space:]]+(skipped|passed|did not run)/ {flag=0}
@@ -103,9 +89,7 @@ jobs:
           # Emit a per-flake warning so they show as annotations on the run.
           while IFS= read -r line; do
             [[ -z "$line" ]] && continue
-            # Trim leading whitespace via bash parameter expansion. Using
-            # this form instead of sed avoids spawning a process per line and
-            # also keeps the linter's SC2001 rule satisfied.
+            # Parameter expansion trims leading whitespace without a process per line.
             trimmed="${line#"${line%%[![:space:]]*}"}"
             echo "::warning::flaky: ${trimmed}"
           done <<< "$FLAKY_LIST"
@@ -133,16 +117,9 @@ jobs:
           path: web/playwright-report/
           retention-days: 14
 
-  # Alert if the run did not finish.
-  #
-  # Every nightly here published its verdict into its own result and nothing
-  # read it: a run that died, was cancelled, or was killed at its timeout went
-  # red on a page nobody opens. The alert path is the part that makes a red run
-  # a thing somebody knows about.
   alert:
     name: Alert if the run did not finish
-    # The browsers this covers are the ones the ordinary pipeline does not, so
-    # a night it loses is a night nothing else was watching.
+    # Firefox and WebKit run only here, so a lost night leaves them unwatched.
     needs: [e2e]
     if: always()
     runs-on: ubuntu-24.04
@@ -156,10 +133,7 @@ jobs:
       - uses: ./.github/actions/setup-pinned-tools
 
       - name: Send Telegram alert
-        # `needs.<job>.result` rather than `failure()`: the result is a fact
-        # about the job named, and it is what the repository's other gate jobs
-        # already read. It also tells a cancel from a failure, which matters —
-        # one of them is somebody's decision and the other is a lost night.
+        # `needs.<job>.result` is a fact about the named job and tells a cancel from a failure.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/lib/postgres-prereq.sh. Plain bash; no bats dependency.
-# Run: ./scripts/tests/postgres-prereq.test.sh
+# Tests the Postgres prerequisite probe in scripts/lib/postgres-prereq.sh.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,9 +28,7 @@ fail() {
 }
 
 echo "pg_probe — open port detection:"
-# The kernel chooses the port. A port picked at random can already belong to
-# another program's listener, and then the closed-port check below reads that
-# listener as this one still being open.
+# The kernel chooses the port so another listener cannot be mistaken for this one.
 PORT_FILE="$(mktemp)"
 trap 'rm -f "$PORT_FILE"' EXIT
 python3 -c "

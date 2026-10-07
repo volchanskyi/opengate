@@ -21,9 +21,7 @@ type contentsEntry struct {
 	Anchor string
 }
 
-// needsContents reports whether a page is held to the contents-list rule:
-// every page under docs/ except the decision records, which are read by number
-// rather than navigated.
+// needsContents reports whether a docs/ page other than a decision record needs a contents list.
 func needsContents(path string) bool {
 	return strings.HasPrefix(path, "docs/") &&
 		!strings.HasPrefix(path, "docs/adr/") &&
@@ -31,9 +29,7 @@ func needsContents(path string) bool {
 		strings.EqualFold(filepath.Ext(path), ".md")
 }
 
-// contentsProblems reports, at most once per page, how its opening contents
-// list disagrees with its headings. The anchors are the ones the link check
-// resolves, so an entry the rule accepts is a link that works.
+// contentsProblems reports once per page how its contents list disagrees with its headings.
 func contentsProblems(sourcePath string, content []byte) []problem {
 	if !needsContents(sourcePath) {
 		return nil

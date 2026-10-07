@@ -14,7 +14,6 @@ export interface TestUser {
   token: string;
 }
 
-/** Register a fresh user and return credentials + JWT. */
 export async function createTestUser(
   request: APIRequestContext
 ): Promise<TestUser> {
@@ -25,11 +24,6 @@ export async function createTestUser(
   return { id: me.id, email, password, token };
 }
 
-/**
- * Create a user with admin privileges.
- * If this is the first user in a fresh DB, they auto-become admin.
- * Otherwise, the bootstrap admin (from global-setup) promotes them.
- */
 export async function createAdminUser(
   request: APIRequestContext
 ): Promise<TestUser> {
@@ -39,11 +33,9 @@ export async function createAdminUser(
   const me = await getMe(request, token);
 
   if (me.is_admin) {
-    // First user — already admin via bootstrap
     return { id: me.id, email, password, token };
   }
 
-  // Use bootstrap admin to promote this user via PATCH /api/v1/users/{id}
   const bootstrapToken = await getBootstrapAdminToken(request);
   const patchResp = await request.patch(`/api/v1/users/${me.id}`, {
     data: { is_admin: true },
@@ -55,32 +47,24 @@ export async function createAdminUser(
     );
   }
 
-  // Re-login to get a fresh JWT with admin claim
+  // A fresh login returns a JWT that carries the admin claim.
   const freshToken = await login(request, email, password);
   return { id: me.id, email, password, token: freshToken };
 }
 
-/** Get a valid token for the bootstrap admin created in global-setup. */
 async function getBootstrapAdminToken(
   request: APIRequestContext
 ): Promise<string> {
-  // Try env var first (same process as global setup)
   if (process.env.BOOTSTRAP_ADMIN_TOKEN) {
     return process.env.BOOTSTRAP_ADMIN_TOKEN;
   }
 
-  // Fallback: login with bootstrap credentials
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL ?? "bootstrap-admin@test.local";
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD ?? "BootstrapPass123!";
   return login(request, email, password);
 }
 
-/**
- * Seed the JWT into localStorage before any page script runs, so the SPA boots
- * already authenticated. Init scripts re-run on every navigation, which is what
- * lets a fixture reach an authenticated page in ONE navigation — injecting after
- * a first load would require a reload to re-bootstrap the app.
- */
+// Init scripts re-run on every navigation, so the SPA boots authenticated on its first load.
 export async function seedAuth(page: Page, token: string): Promise<void> {
   await page.addInitScript((t) => {
     localStorage.setItem("token", t);

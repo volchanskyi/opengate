@@ -50,18 +50,7 @@ pub struct UpdateConfig {
     pub data_dir: PathBuf,
 }
 
-/// Downloads, verifies, and atomically replaces the current binary.
-///
-/// Returns `Ok(true)` if the update was applied, `Ok(false)` if skipped
-/// (e.g., the binary path doesn't exist), or an error.
-///
-/// # Steps
-/// 1. Download binary from `url` to `{data_dir}/.update.new`
-/// 2. Compute SHA-256 hash of the downloaded binary
-/// 3. Verify SHA-256 matches the expected hash
-/// 4. Verify the Ed25519 signature against the hash
-/// 5. Backup the current binary to `{current_binary_path}.prev`
-/// 6. Atomically replace the current binary via `rename(2)`
+/// Downloads, verifies and atomically replaces the binary; `Ok(false)` means skipped.
 pub async fn apply_update(
     config: &UpdateConfig,
     version: &str,
@@ -72,12 +61,7 @@ pub async fn apply_update(
     let new_path = config.data_dir.join(".update.new");
     let prev_path = config.current_binary_path.with_extension("prev");
 
-    // 0. Precheck: if the currently-running binary already hashes to the
-    //    manifest's expected sha256, the update is a no-op — skip download,
-    //    verify, swap, and watchdog entirely. Belt-and-suspenders for the
-    //    workflow-level gate in .github/workflows/release-agent.yml. Bypassed
-    //    when `sha256_hex` is empty (legacy manifests) or
-    //    the current binary path doesn't exist (non-standard installs).
+    // Skips the whole update when the running binary already hashes to the manifest's sha256.
     if !sha256_hex.is_empty() && config.current_binary_path.exists() {
         let current_hash = sha256_file(&config.current_binary_path).await?;
         if current_hash == sha256_hex {
@@ -90,16 +74,12 @@ pub async fn apply_update(
         }
     }
 
-    // 1. Download binary
     info!(version, url, "downloading update binary");
     download_to_file(url, &new_path).await?;
 
-    // 2. Compute SHA-256 of the downloaded binary
     let actual_hash = sha256_file(&new_path).await?;
 
-    // 3. If the server provided an expected hash, verify it matches
     if !sha256_hex.is_empty() && actual_hash != sha256_hex {
-        // Clean up on failure
         if let Err(e) = fs::remove_file(&new_path).await {
             warn!(path = %new_path.display(), error = %e, "failed to remove tampered binary on hash mismatch");
         }
@@ -110,24 +90,16 @@ pub async fn apply_update(
     }
     info!("SHA-256 computed: {actual_hash}");
 
-    // 4. Verify Ed25519 signature against the actual hash
     verify_signature(&config.signing_public_key, &actual_hash, signature_hex)?;
     info!("Ed25519 signature verified");
 
-    // 5. Backup current binary
     if config.current_binary_path.exists() {
         if let Err(e) = fs::copy(&config.current_binary_path, &prev_path).await {
             warn!(?e, "failed to backup current binary, continuing");
         }
     }
 
-    // 6. Set executable permissions and atomically replace.
-    //
-    // Owner and group only. The binary is owned by root and started by a unit
-    // that runs as root, so no other local account needs to read or run it —
-    // and every one of those accounts is somebody the agent's key and data
-    // directory are already closed to. The installer writes the same mode, so a
-    // machine that updates does not drift from one that installed.
+    // Owner and group only: the binary is owned by root and the installer writes the same mode.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -139,15 +111,13 @@ pub async fn apply_update(
     restore_selinux_context(&config.current_binary_path).await;
     info!("binary replaced successfully");
 
-    // Write sentinel so the startup watchdog can detect a pending update.
+    // The sentinel lets the startup watchdog detect a pending update.
     write_update_pending(&config.data_dir).await;
 
     Ok(true)
 }
 
-/// Restores the previous binary from `{binary_path}.prev`.
-///
-/// Returns `Ok(true)` if rollback succeeded, `Ok(false)` if no `.prev` exists.
+/// Restores the binary from `{binary_path}.prev`; `Ok(false)` means no `.prev` exists.
 pub async fn rollback(binary_path: &Path) -> Result<bool, UpdateError> {
     let prev = binary_path.with_extension("prev");
     if !prev.exists() {
@@ -219,15 +189,7 @@ async fn write_update_pending(data_dir: &Path) {
     }
 }
 
-/// Restore the SELinux security context for a file.
-///
-/// On SELinux-enabled systems (Fedora, RHEL, etc.), a `rename(2)` from a
-/// data directory to `/usr/local/bin/` preserves the source context (e.g.
-/// `var_lib_t`) instead of inheriting the target directory's context
-/// (`bin_t`), which blocks execution. Running `restorecon` fixes the label.
-///
-/// This is best-effort: on systems without SELinux or `restorecon`, the
-/// command silently fails and we proceed normally.
+/// Runs `restorecon` because `rename(2)` keeps the source SELinux context, which blocks execution.
 async fn restore_selinux_context(path: &Path) {
     match tokio::process::Command::new("restorecon")
         .arg(path)
@@ -250,7 +212,6 @@ async fn restore_selinux_context(path: &Path) {
     }
 }
 
-/// Download a file from `url` to `dest`.
 async fn download_to_file(url: &str, dest: &Path) -> Result<(), UpdateError> {
     let response = reqwest::get(url)
         .await
@@ -273,14 +234,12 @@ async fn download_to_file(url: &str, dest: &Path) -> Result<(), UpdateError> {
     Ok(())
 }
 
-/// Compute the SHA-256 hash of a file, returned as lowercase hex.
 async fn sha256_file(path: &Path) -> Result<String, UpdateError> {
     let data = fs::read(path).await?;
     let hash = Sha256::digest(&data);
     Ok(hex::encode(hash))
 }
 
-/// Verify an Ed25519 signature over a SHA-256 hash.
 fn verify_signature(
     public_key_bytes: &[u8; 32],
     sha256_hex: &str,
@@ -308,7 +267,6 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use sha2::{Digest, Sha256};
 
-    /// Generate a deterministic Ed25519 keypair seeded from `offset`.
     fn test_keypair_with_offset(offset: u8) -> (SigningKey, VerifyingKey) {
         let secret: [u8; 32] =
             core::array::from_fn(|i| (i as u8).wrapping_add(offset).wrapping_add(1));
@@ -350,7 +308,6 @@ mod tests {
         let sig = signing_key.sign(&hash);
         let sig_hex = hex::encode(sig.to_bytes());
 
-        // Verify against different data
         let wrong_hash = Sha256::digest(b"tampered data");
         let wrong_hex = hex::encode(wrong_hash);
 
@@ -388,7 +345,6 @@ mod tests {
         fs::write(&path, b"hello world").await.unwrap();
 
         let hash = sha256_file(&path).await.unwrap();
-        // Known SHA-256 of "hello world"
         assert_eq!(
             hash,
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
@@ -459,14 +415,12 @@ mod tests {
 
         let (signing_key, verifying_key) = test_keypair();
 
-        // Create fake binary content and compute its hash + signature
         let fake_binary = b"new agent binary v2.0.0";
         let hash = Sha256::digest(fake_binary);
         let hash_hex = hex::encode(hash);
         let sig = signing_key.sign(&hash);
         let sig_hex = hex::encode(sig.to_bytes());
 
-        // Start mock HTTP server that serves the fake binary
         let mut server = mockito::Server::new_async().await;
         let mock = server
             .mock("GET", "/agent-v2.0.0")
@@ -486,19 +440,15 @@ mod tests {
         assert!(result.is_ok(), "apply_update failed: {:?}", result.err());
         assert!(result.unwrap(), "apply_update should return true");
 
-        // Verify mock was called
         mock.assert_async().await;
 
-        // Verify new binary is in place
         let current = fs::read(&binary_path).await.unwrap();
         assert_eq!(current, fake_binary, "binary should be replaced");
 
-        // Verify backup exists
         let prev_path = binary_path.with_extension("prev");
         let backup = fs::read(&prev_path).await.unwrap();
         assert_eq!(backup, b"old binary", "old binary should be backed up");
 
-        // Verify update-pending sentinel exists
         assert!(
             is_update_pending(dir.path()),
             "update-pending sentinel should exist"
@@ -519,9 +469,6 @@ mod tests {
             data_dir: dir.path().to_path_buf(),
         };
 
-        // Use an HTTP test server would be ideal, but for unit tests we test
-        // the hash mismatch path by checking the error type.
-        // The download will fail since there's no server, which is expected.
         let result = apply_update(
             &config,
             "1.0.0",
@@ -539,39 +486,28 @@ mod tests {
         let binary_path = dir.path().join("agent");
         let new_path = dir.path().join(".update.new");
 
-        // Write old and new binaries
         fs::write(&binary_path, b"old binary").await.unwrap();
         fs::write(&new_path, b"new binary").await.unwrap();
 
         let (signing_key, verifying_key) = test_keypair();
 
-        // Compute hash of new binary
         let hash = Sha256::digest(b"new binary");
         let hash_hex = hex::encode(hash);
         let sig = signing_key.sign(&hash);
         let sig_hex = hex::encode(sig.to_bytes());
 
-        // Directly test the post-download steps by calling verify + replace
         verify_signature(&verifying_key.to_bytes(), &hash_hex, &sig_hex).unwrap();
 
-        // Backup and replace
         let prev_path = binary_path.with_extension("prev");
         fs::copy(&binary_path, &prev_path).await.unwrap();
         fs::rename(&new_path, &binary_path).await.unwrap();
 
-        // Verify results
         let current = fs::read(&binary_path).await.unwrap();
         assert_eq!(current, b"new binary");
 
         let backup = fs::read(&prev_path).await.unwrap();
         assert_eq!(backup, b"old binary");
     }
-
-    // ── Content-hash precheck (the workflow gate in
-    // .github/workflows/release-agent.yml is the primary defense — these
-    // tests cover the belt-and-suspenders agent-side check that protects
-    // against a server publishing a manifest whose sha256 already matches
-    // the running binary).
 
     #[tokio::test]
     async fn test_apply_update_precheck_skips_when_hash_matches() {
@@ -585,7 +521,6 @@ mod tests {
         let hash_hex = hex::encode(hash);
         let sig_hex = hex::encode(signing_key.sign(&hash).to_bytes());
 
-        // Mock server with expect(0): a request would fail the test.
         let mut server = mockito::Server::new_async().await;
         let mock = server
             .mock("GET", "/agent-vNEW")
@@ -609,7 +544,6 @@ mod tests {
 
         mock.assert_async().await;
 
-        // Binary untouched, no .prev created, no update-pending sentinel.
         assert_eq!(fs::read(&binary_path).await.unwrap(), body);
         assert!(!binary_path.with_extension("prev").exists());
         assert!(!is_update_pending(dir.path()));
@@ -617,9 +551,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_apply_update_precheck_skipped_with_empty_hash() {
-        // Empty sha256_hex preserves legacy behavior — precheck must NOT
-        // fire, and download proceeds (we'd want a download error to confirm
-        // the precheck didn't short-circuit).
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("agent");
         fs::write(&binary_path, b"current binary").await.unwrap();
@@ -635,7 +566,7 @@ mod tests {
             &config,
             "1.0.0",
             "http://127.0.0.1:1/nonexistent",
-            "", // empty hash → precheck bypassed → download attempted → fails
+            "", // An empty hash bypasses the precheck.
             "",
         )
         .await;
@@ -647,8 +578,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_apply_update_precheck_skipped_when_current_binary_missing() {
-        // If the current binary path doesn't exist (e.g. agent installed at
-        // a non-standard path), precheck must skip and let download proceed.
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("nonexistent-agent");
 
@@ -659,8 +588,6 @@ mod tests {
             data_dir: dir.path().to_path_buf(),
         };
 
-        // Use a real-looking hash so precheck would fire IF the binary
-        // existed — assert that it doesn't.
         let result = apply_update(
             &config,
             "1.0.0",
@@ -677,8 +604,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_apply_update_proceeds_when_hash_differs() {
-        // Hash on disk differs from manifest hash → precheck does NOT skip,
-        // download + swap proceeds as in the full-pipeline test.
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("agent");
         fs::write(&binary_path, b"old binary").await.unwrap();

@@ -23,8 +23,7 @@ func (p *recordingProvider) RulesFor(_ context.Context, scope settings.Scope) (R
 	return RuleSet{Rules: DefaultAlertRules()}, nil
 }
 
-// fixedReader is a settings.Reader that always answers with one ladder, or one
-// error.
+// fixedReader is a settings.Reader that answers with one ladder or one error.
 type fixedReader struct {
 	scope settings.Scope
 	err   error
@@ -34,9 +33,6 @@ func (r fixedReader) ScopeFor(context.Context, uuid.UUID) (settings.Scope, error
 	return r.scope, r.err
 }
 
-// TestAlertRulesCarryTheMachineCustomer closes the trap the tenancy plan lists:
-// alerts and vitals arrive on the agent connection, so the customer a machine
-// belongs to has to be derivable there. The rule push is where that walk happens.
 func TestAlertRulesCarryTheMachineCustomer(t *testing.T) {
 	deviceID := uuid.New()
 	ladder := settings.Scope{
@@ -64,9 +60,6 @@ func TestAlertRulesCarryTheMachineCustomer(t *testing.T) {
 	assert.NotEqual(t, uuid.Nil, provider.seen.OrganizationID, "the customer is derivable on the connection")
 }
 
-// TestAlertRulesFallBackToWhatTheConnectionKnows covers the read failing. The
-// tenant boundary is what must hold, and the connection already knows its own,
-// so a failed walk loses the narrower targeting rather than the wall.
 func TestAlertRulesFallBackToWhatTheConnectionKnows(t *testing.T) {
 	deviceID := uuid.New()
 	tenantID := uuid.New()
@@ -92,8 +85,6 @@ func TestAlertRulesFallBackToWhatTheConnectionKnows(t *testing.T) {
 	assert.Equal(t, uuid.Nil, provider.seen.OrganizationID, "and the customer is simply unknown, not guessed")
 }
 
-// TestAlertRulesWithNoReaderUseWhatTheConnectionKnows covers the optional
-// dependency being absent, which is how every test-time connection is built.
 func TestAlertRulesWithNoReaderUseWhatTheConnectionKnows(t *testing.T) {
 	tenantID := uuid.New()
 	provider := &recordingProvider{}

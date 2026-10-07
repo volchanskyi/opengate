@@ -1,20 +1,5 @@
 #!/usr/bin/env bash
 # Tests for the staging deploy job in .github/workflows/cd.yml.
-#
-# Bug history: WS-0 added security_groups.tenant_id NOT NULL. The CD staging reset
-# truncates security_groups and then reseeds Administrators; omitting tenant_id
-# makes post-migration CD fail before Playwright E2E starts.
-#
-# The same truncation also takes the load-test administrator the post-upgrade
-# hook seeded four steps earlier. Putting it back is not this job's work: the
-# nightly load run seeds that account itself, immediately before it spends it,
-# so it stands on nothing a deploy did hours earlier.
-#
-# And the two machines the suite reads its device pages against are created for
-# the run and removed after it, whatever the verdict — a machine left behind is
-# a device row the next run's fleet assertions inherit.
-#
-# Run: ./scripts/tests/cd-workflow.test.sh
 
 set -euo pipefail
 
@@ -81,8 +66,7 @@ else
   pass "staging reset preserves the migration-seeded default tenant"
 fi
 
-# The app-role password must reach psql over stdin. A --set flag would put it in
-# the Postgres pod's process list and in the API server's exec audit record.
+# The app-role password reaches psql over stdin, which keeps it out of the process list.
 if grep -qF -- '--set=app_password' "$WORKFLOW"; then
   fail "app-role password never rides the psql command line"
 else
@@ -95,20 +79,15 @@ else
   fail "both staging and production pipe the role SQL from the emitter"
 fi
 
-# --- the run's own machines, and the administrator it borrows the table from ---
-
-# The line a step's name is on, or empty. Steps in this workflow are at six
-# spaces, so a name matched at any other depth is something else.
+# Steps sit at six spaces, so a name matched at any other depth is something else.
 step_line() {
-  # Matched into a variable first: `head` stops at the first line, and pipefail
-  # reports the writer's failed write as a step that is not in the workflow.
+  # Matched into a variable first, since pipefail reports head's early exit as a missing step.
   local found
   found="$(grep -nF -- "      - name: $1" "$WORKFLOW" || true)"
   found="${found%%$'\n'*}"
   printf '%s\n' "${found%%:*}"
 }
 
-# Everything from a step's name up to the next step at the same depth.
 step_body() {
   awk -v want="      - name: $1" '
     $0 == want { in_step = 1; next }
@@ -142,10 +121,8 @@ else
   fail "'$ENROL_STEP' step exists"
 fi
 
-# The reset truncates devices, so the machines have to arrive after it; and the
-# suite reads them, so they have to arrive before it. The bootstrap operator is
-# registered in the same step, which is what makes it the first row of a table
-# the reset just emptied — and therefore an administrator.
+# The reset truncates devices, so the machines arrive after it and before the suite reads them.
+# The bootstrap operator registers in the same step, as the first row of the emptied table.
 if [ -n "$RESET_LINE" ] && [ -n "$ENROL_LINE" ] && [ -n "$E2E_LINE" ] \
   && [ "$RESET_LINE" -lt "$ENROL_LINE" ] && [ "$ENROL_LINE" -lt "$E2E_LINE" ]; then
   pass "the machines arrive after the reset and before the suite"
@@ -160,22 +137,13 @@ else
 fi
 
 assert_step_always "Remove the staging machines"
-# The account the nightly load run mints against goes down with the reset above
-# and is not put back here. The run seeds its own before it spends it, so a copy
-# issued from this job as well would be a second place the same statements are
-# written and a second place they can drift.
 if grep -qF 'loadtest-account-sql.sh' "$WORKFLOW"; then
   fail "the deploy seeds the load-test administrator, which the run that needs it does for itself"
 else
   pass "the deploy leaves the load-test administrator to the run that needs it"
 fi
 
-# --- the agent binary arrives as an artifact, not as a build ------------------
-#
-# CD's cache token carries read scope only: every save it attempts is refused
-# and the step still reports success, so a toolchain cache here is never warm
-# and nothing says so. The binary is built by the image workflow, which checks
-# out the same commit and whose token does write, and CD downloads it.
+# The CD cache token only reads, so the image workflow builds the agent binary and CD downloads it.
 
 for forbidden in \
   'Swatinem/rust-cache' \
@@ -204,7 +172,6 @@ else
   fail "the agent binary comes from an artifact"
 fi
 
-# A cross-run download resolves nothing without the run it is reaching into.
 if grep -qE '^[[:space:]]+run-id:' <<<"$DOWNLOAD_BODY"; then
   pass "the download names the run it takes the artifact from"
 else
@@ -219,8 +186,6 @@ else
   fail "'$LOCATE_STEP' step exists"
 fi
 
-# An aged-out artifact is a deploy that cannot happen, and the message has to
-# say which tag and which run, or the operator has nothing to act on.
 if grep -qF '::error::' <<<"$LOCATE_BODY" \
   && grep -qF 'IMAGE_TAG' <<<"$LOCATE_BODY" \
   && grep -qF 'RUN_ID' <<<"$LOCATE_BODY"; then
@@ -229,22 +194,14 @@ else
   fail "a missing artifact does not fail loudly with the tag and the run named"
 fi
 
-# The dispatch path resolves its own run rather than falling back to a second
-# build: one place the machines' binary comes from, or the deploy can pair one
-# commit's server with another commit's machines.
+# The dispatch path resolves its own run, so the machines' binary comes from one place.
 if grep -qF 'workflow_dispatch' <<<"$LOCATE_BODY"; then
   pass "a dispatched tag resolves the run that built its agent"
 else
   fail "a dispatched tag has no way to reach the run that built its agent"
 fi
 
-# --- the monitoring release follows its chart ---------------------------------
-#
-# The monitoring chart was installed by hand once and never again, so what it
-# gained afterwards — the permission the container scrape needs, the store's
-# aggregation argument — never reached the cluster, and the alert for that
-# scrape fired on a configuration the repository had long since fixed. The
-# production deploy upgrades it from the chart every time.
+# The production deploy upgrades the monitoring release from its chart every time.
 PROD_BLOCK="$(awk '
   /^  deploy-production-k8s:/ { inside = 1 }
   inside && /^  [a-z][a-z0-9-]*:$/ && !/deploy-production-k8s/ { exit }
@@ -263,9 +220,7 @@ else
   fail "the monitoring upgrade must apply deploy/helm/monitoring/values-production.yaml"
 fi
 
-# The dashboards, rules and scrape targets land with the deploy rather than at
-# the next nightly, and the running store is asked what it loaded. A chart
-# upgrade alone changed a ConfigMap the running store never read.
+# Dashboards, rules and scrape targets land with the deploy, then the store is asked what it loaded.
 apply_facts="$(
   python3 - "$WORKFLOW" <<'PY_APPLY'
 import sys, yaml
@@ -290,13 +245,8 @@ else
   fail "and hands it the chat the alerts are routed to (got=[$(sed -n 2p <<<"$apply_facts")])"
 fi
 
-# --- the deploy forwards the internal listener, and proves the edge does not ---
-#
-# The exposition and the profiler answer on the server's second listener. A
-# port-forward that names only the API port leaves the smoke test probing the
-# SPA fallback for an exposition — a check that passes without ever reaching
-# what it is about, which is the false green ci-cd-determinism rules against.
-# So the forwarded port is read back against the chart's own.
+# The exposition and the profiler answer on the server's second listener, so its port is forwarded.
+# The forwarded port is read back against the chart's own.
 
 VALUES="$SCRIPT_DIR/../../deploy/helm/opengate/values.yaml"
 METRICS_PORT="$(awk '/^[[:space:]]+metricsPort:/ { print $2; exit }' "$VALUES")"
@@ -309,8 +259,7 @@ else
   fail "no port-forward of the server Service found"
 fi
 
-# Every forward of that Service has to carry the internal port, not just one of
-# them: staging and production each run their own smoke test.
+# Staging and production each run their own smoke test, so every forward carries the internal port.
 PF_COUNT="$(printf '%s\n' "$PF_LINES" | grep -c . || true)"
 PF_WITH_METRICS="$(printf '%s\n' "$PF_LINES" | grep -cF ":${METRICS_PORT}" || true)"
 if [ -n "$METRICS_PORT" ] && [ "$PF_COUNT" -gt 0 ] && [ "$PF_COUNT" -eq "$PF_WITH_METRICS" ]; then
@@ -319,8 +268,7 @@ else
   fail "a port-forward omits the chart's internal port ($METRICS_PORT), so the exposition is unreachable"
 fi
 
-# The local port the forward binds for it, and the port the smoke test is told
-# to read, are two independent numbers. They have to be the same one.
+# The local port the forward binds and the port the smoke test reads are the same number.
 LOCAL_METRICS_PORT="$(printf '%s\n' "$PF_LINES" | grep -oE "[0-9]+:${METRICS_PORT}\b" | head -n 1 | cut -d: -f1)"
 SMOKE_HOST_RUNS="$(grep -F 'smoke-test.sh --host' "$WORKFLOW" || true)"
 SMOKE_HOST_COUNT="$(printf '%s\n' "$SMOKE_HOST_RUNS" | grep -c . || true)"
@@ -332,19 +280,14 @@ else
   fail "a smoke run does not name the forwarded internal port, so its metrics check reads the wrong listener"
 fi
 
-# The boundary itself is only asserted by a run that goes through the ingress.
 if grep -qF 'smoke-test.sh --domain' "$WORKFLOW"; then
   pass "a smoke run goes through the public edge, where the boundary is provable"
 else
   fail "nothing runs the smoke test through the public edge, so the boundary is a claim nothing executes"
 fi
 
-# Staging's edge is reachable on neither of the two things a bare name implies.
-# Its Ingress matches a host the public resolver does not answer for, so the run
-# has to be handed an address; and the chart terminates no TLS there, so it has
-# to be handed the scheme. Both are read back against the chart that decides
-# them, because a run that reaches nothing still answers an absence-shaped check
-# with a pass.
+# Staging's Ingress host does not resolve publicly and the chart terminates no TLS there.
+# The run is handed an address and a scheme, both read back against the chart.
 STAGING_VALUES="$SCRIPT_DIR/../../deploy/helm/opengate/values-staging.yaml"
 STAGING_TLS="$(awk '/^ingress:/ { in_block = 1; next }
                     in_block && /^[^[:space:]]/ { exit }

@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/run-summary.sh — what a run's summary page says.
-#
-# The load test dumped its rows as JSON and the performance stack's shape legs
-# wrote no summary at all, so a reader had a number and nothing to hold it
-# against. The summary is a table — Measurement, Expected, Actual, Result — with
-# every limit the profile holds the run to beside its reading, the error rate,
-# and how much of its own ceiling the server and the database used through the
-# measured phase. A reading the run could not take is "not read", never 0.
-#
-# Run: ./scripts/tests/run-summary.test.sh
+# The summary table has Measurement, Expected, Actual and Result columns; unread shows "not read".
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,7 +18,7 @@ fail() {
   FAILURES+=("$1")
   printf '  FAIL %s\n' "$1" >&2
 }
-has_line() { # description, exact line
+has_line() {
   if grep -qxF -- "$2" <<<"$OUT"; then pass "$1"; else fail "$1 (missing [$2] in [$OUT])"; fi
 }
 
@@ -126,7 +117,6 @@ for word in "Expected" "Actual" "Result" "p50" "p95" "p99" "error rate" "Service
   fi
 done
 
-# A reading the run could not take is "not read", never nought.
 jq 'del(.phases[1].target_resident_bytes)' "$WORK/bundle.json" >"$WORK/bundle-unread.json"
 OUT="$("$SUMMARY" render --title "Busy morning (peak)" --profile "$WORK/profile.yaml" \
   --rows "$WORK/rows.json" --bundle "$WORK/bundle-unread.json")"
@@ -140,15 +130,12 @@ OUT="$("$SUMMARY" render --title "t" --profile "$WORK/profile.yaml" \
 has_line "a database reading that is missing is not read, beside one that is there" \
   "| Service Level Avg CPU % (database) | — | not read | — |"
 
-# The measured phase is the one the profile marks, and the database's window is
-# that phase's own.
 if [ "$("$SUMMARY" window "$WORK/profile.yaml" "$WORK/bundle.json")" = "2026-09-29T13:45:35Z 2026-09-29T13:50:35Z" ]; then
   pass "the window is the measured phase's own"
 else
   fail "the window is the measured phase's own (got=[$("$SUMMARY" window "$WORK/profile.yaml" "$WORK/bundle.json")])"
 fi
 
-# A profile that marks no phase is measured over every phase it walked.
 grep -v 'measured: true' "$WORK/profile.yaml" >"$WORK/profile-all.yaml"
 if [ "$("$SUMMARY" window "$WORK/profile-all.yaml" "$WORK/bundle.json")" = "2026-09-29T13:44:35Z 2026-09-29T13:51:35Z" ]; then
   pass "a profile that marks no phase is measured over all of them"

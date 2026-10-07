@@ -52,8 +52,7 @@ function NoteBox({ incidentId, disabled }: { readonly incidentId: string; readon
   const addComment = useRoomStore((s) => s.addComment);
 
   const submit = async () => {
-    // A refused note stays in the box: what somebody typed is not thrown away
-    // because the server said no.
+    // A refused note stays in the box.
     if (await addComment(incidentId, note)) setNote('');
   };
 
@@ -120,18 +119,7 @@ function ResolutionForm({ incidentId, disabled, onDone }: {
   );
 }
 
-/**
- * Everything a person does to a room: move it, take it, annotate it.
- *
- * Only the moves the lifecycle permits are rendered, so an illegal transition is
- * never offered rather than offered and refused. A resolution asks for its cause
- * before it is sent, because that answer is what the curated rule pack is
- * retuned from.
- *
- * There is deliberately nothing here that acts on the machine — no restart, no
- * script, no session. The room reads a frozen snapshot; acting on a machine is
- * the machine's own page.
- */
+/** The moves, take and note controls for a room; only lifecycle-permitted moves are rendered. */
 export function IncidentActions({ incident }: { readonly incident: Incident }) {
   const [resolving, setResolving] = useState(false);
   const acting = useRoomStore((s) => s.acting);

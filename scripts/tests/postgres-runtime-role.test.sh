@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the Postgres runtime role RLS contract.
-#
-# Bug history: tenant-scoped repository tests use explicit org predicates, so
-# they do not prove production RLS is active if the app role remains a superuser.
-# The deployment must demote/verify the runtime role as NOSUPERUSER/NOBYPASSRLS.
-#
-# Run: ./scripts/tests/postgres-runtime-role.test.sh
+# The deployment demotes the runtime role to NOSUPERUSER and NOBYPASSRLS so RLS is enforced.
 
 set -euo pipefail
 
@@ -15,8 +9,7 @@ HELM_APP_ROLE="$REPO_ROOT/deploy/helm/opengate/files/zz-app-role.sh"
 POSTGRES_STATEFULSET="$REPO_ROOT/deploy/helm/opengate/templates/postgres-statefulset.yaml"
 SERVER_DEPLOYMENT="$REPO_ROOT/deploy/helm/opengate/templates/server-deployment.yaml"
 CD_WORKFLOW="$REPO_ROOT/.github/workflows/cd.yml"
-# CD pipes this emitter's output into psql in the Postgres pod, so the role
-# contract CD enforces is asserted against the emitter.
+# CD pipes the emitter's output into psql in the Postgres pod.
 ROLE_SQL="$REPO_ROOT/deploy/scripts/pg-app-role-sql.sh"
 
 PASS=0
@@ -57,8 +50,7 @@ assert_file_contains \
   "Postgres pod exposes app-role password to bootstrap" \
   "$POSTGRES_STATEFULSET" \
   "POSTGRES_APP_PASSWORD"
-# \getenv reads the password from psql's environment. A --set flag would expose
-# it to every process sharing the pod's PID namespace.
+# \getenv reads the password from psql's environment; a --set flag would expose it to the pod.
 assert_file_contains \
   "Helm bootstrap keeps the app-role password off the psql command line" \
   "$HELM_APP_ROLE" \

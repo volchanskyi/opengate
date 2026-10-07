@@ -1,10 +1,6 @@
-//! Invariants for the tier rollups that back the min/max/avg/last store.
-
 use edge_tsdb::sample::Sample;
 use edge_tsdb::tier::{rollup, stored_rollup};
 
-/// `rollup` is the avg-collapsed view of `stored_rollup`; the two must bucket
-/// identically so the presentation and stored forms can never diverge.
 #[test]
 fn rollup_agrees_with_stored_rollup() {
     let samples: Vec<Sample> = (0..500)
@@ -25,7 +21,6 @@ fn rollup_agrees_with_stored_rollup() {
     }
 }
 
-/// Unsorted input buckets the same as sorted input (both rollups floor by ts).
 #[test]
 fn rollup_is_order_independent() {
     let mut samples: Vec<Sample> = (0..300).map(|i| Sample::new(i, i as f64)).collect();

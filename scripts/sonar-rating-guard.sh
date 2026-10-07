@@ -1,51 +1,25 @@
 #!/usr/bin/env bash
-# sonar-rating-guard.sh — local guardrail against the SonarCloud
-# "new_reliability_rating / new_security_rating below A" gate failing only in CI.
+# Fails on a bug, vulnerability or unreviewed hotspot on a changed main-code file and reports other
+# findings there. It reads absolute issue lists, which carry no git-blame gap for uncommitted lines.
 #
-# The gate fails those two conditions on any bug or vulnerability among *new*
-# code. SonarCloud derives "new" from git blame, so during a pre-commit
-# `make sonar` — which runs BEFORE the commit exists — freshly added and changed
-# lines carry no commit and are not counted as new. A bug written this morning
-# therefore sits outside the new-code period locally, both ratings read A, and
-# the same analysis re-run in CI once the lines are committed reads D and C:
-# green locally, red in CI (observed: commit 2acbdbdc, new_reliability_rating 4
-# and new_security_rating 3, from two `.sort()` calls and one assembled SQL
-# statement that the local scan had reported as clean).
-#
-# This guard sidesteps the blame gap the same way the duplication guard does, by
-# reading an ABSOLUTE measure instead of a new-code one: the issues API reports
-# every unresolved finding with its file, computed from file content rather than
-# from blame, so a finding on an uncommitted line is reported like any other. The
-# guard runs AFTER `make sonar` has uploaded the working tree, keeps only the
-# findings that sit on files this change touched, and fails on the ones that can
-# drop a rating below A.
-#
-# What blocks and what only warns follows what the gate itself measures:
-#
-#   bug / vulnerability on changed MAIN code   → fails (this is the gate)
-#   unreviewed hotspot on changed MAIN code    → fails (new_security_hotspots_reviewed)
-#   anything else on a changed analyzed file   → reported, does not fail
-#
-# The warning half matters on its own: nine of the twelve findings on 2acbdbdc
-# were code smells, and the local scan showed none of them either.
-#
-# Env:
-#   SONAR_TOKEN              required (same token the scan uses).
+# Environment:
+#   SONAR_TOKEN              required, the token the scan uses
 #   SONAR_PROJECT            default volchanskyi_opengate
 #   SONAR_BRANCH             default dev
 #   SONAR_API                default https://sonarcloud.io
-#   RATING_BASE              git ref changed files are compared against, default HEAD.
-#   RATING_SETTLE_RETRIES    polls to wait for the upload to finish, default 12.
-#   RATING_SETTLE_SLEEP      seconds between polls, default 5.
-#   RATING_CHANGED_OVERRIDE  test seam: newline-separated file list (skips git).
-#   RATING_ISSUES_OVERRIDE   test seam: TSV issue lines (skips the API).
-#   RATING_HOTSPOTS_OVERRIDE test seam: TSV hotspot lines (skips the API).
-#   RATING_PENDING_OVERRIDE  test seam: queued-task count (skips the API).
-#   CURL_BIN                 curl binary (stubbed in tests).
+#   RATING_BASE              git ref changed files are compared against, default HEAD
+#   RATING_SETTLE_RETRIES    polls to wait for the upload to finish, default 12
+#   RATING_SETTLE_SLEEP      seconds between polls, default 5
+#   RATING_CHANGED_OVERRIDE  test seam: newline-separated file list, skips git
+#   RATING_ISSUES_OVERRIDE   test seam: TSV issue lines, skips the API
+#   RATING_HOTSPOTS_OVERRIDE test seam: TSV hotspot lines, skips the API
+#   RATING_PENDING_OVERRIDE  test seam: queued-task count, skips the API
+#   CURL_BIN                 curl binary (stubbed in tests)
 #
-# Exit codes: 0 = no blocking finding on a changed file (or nothing changed);
-#             1 = a blocking finding, or an analysis still being processed;
-#             2 = prerequisite missing (no SONAR_TOKEN and no override).
+# Exit codes:
+#   0  no blocking finding on a changed file, or nothing changed
+#   1  a blocking finding, or an analysis still being processed
+#   2  no SONAR_TOKEN and no override
 set -uo pipefail
 
 SONAR_PROJECT="${SONAR_PROJECT:-volchanskyi_opengate}"
@@ -56,10 +30,7 @@ RATING_SETTLE_RETRIES="${RATING_SETTLE_RETRIES:-12}"
 RATING_SETTLE_SLEEP="${RATING_SETTLE_SLEEP:-5}"
 CURL_BIN="${CURL_BIN:-curl}"
 
-# srat_is_analyzed <path> — exit 0 when SonarCloud reads the file at all: under a
-# sonar.sources or sonar.tests root, a Rust/Go/TS extension, and not generated
-# output. server/tests is one of those roots and holds Go the analysis reads, so
-# a finding can land there; leaving it out meant the guard could not see one.
+# server/tests holds Go the analysis reads, so a finding can land there.
 srat_is_analyzed() {
   local p="$1"
   case "$p" in
@@ -76,18 +47,7 @@ srat_is_analyzed() {
   esac
 }
 
-# srat_is_source <path> — exit 0 when a finding on this file can move one of the
-# two ratings the gate holds at A.
-#
-# The line is sonar.exclusions, not the shape of the path. A file that list
-# removes is never analysed, so no finding can exist on it; a file it keeps is
-# analysed and its findings count however test-like the path reads. Skipping
-# every path containing /tests/ conflated the two and let two rust:S2612
-# findings on a Rust integration test take new_security_rating to 3 in CI while
-# this guard reported the commit clean.
-#
-# The entries below mirror sonar.exclusions. server/tests holds Go that is not
-# *_test.go, which that list does not remove — so it is main code here.
+# server/tests holds Go outside *_test.go, which the exclusions keep, so it counts as main code.
 srat_is_source() {
   srat_is_analyzed "$1" || return 1
   case "$1" in
@@ -98,9 +58,6 @@ srat_is_source() {
   return 0
 }
 
-# srat_blocks <type> — exit 0 for the finding types that drop a rating below A.
-# Code smells move new_maintainability_rating, which the gate holds at A with
-# smells present, so they are reported rather than blocking.
 srat_blocks() {
   case "$1" in
     BUG | VULNERABILITY) return 0 ;;
@@ -108,7 +65,6 @@ srat_blocks() {
   esac
 }
 
-# srat_changed_files — print changed + untracked analyzed files, one per line.
 srat_changed_files() {
   if [ -n "${RATING_CHANGED_OVERRIDE+x}" ]; then
     printf '%s\n' "$RATING_CHANGED_OVERRIDE"
@@ -122,8 +78,7 @@ srat_changed_files() {
   done
 }
 
-# srat_pending — print how many analysis tasks are queued or running. A non-zero
-# count means the answers below are about an earlier upload, not this one.
+# A non-zero queued or running count means the answers below describe an earlier upload.
 srat_pending() {
   if [ -n "${RATING_PENDING_OVERRIDE:-}" ]; then
     printf '%s' "$RATING_PENDING_OVERRIDE"
@@ -134,9 +89,7 @@ srat_pending() {
     | jq -r '((.pending // 0) + (.inProgress // 0))' 2>/dev/null
 }
 
-# srat_settled — exit 0 once nothing is queued. Zero findings and "not finished
-# counting" are the same empty list, and one of them is a false green, so the
-# caller refuses the answer rather than reporting it.
+# Zero findings and unfinished counting are the same list, so the queue has to be empty first.
 srat_settled() {
   local i=0 n
   while :; do
@@ -149,8 +102,7 @@ srat_settled() {
   done
 }
 
-# srat_fetch_issues — print one TSV line per unresolved issue:
-# path, type, severity, rule, line, message. Absolute, not new-code scoped.
+# Prints one TSV line per unresolved issue: path, type, severity, rule, line, message.
 srat_fetch_issues() {
   if [ -n "${RATING_ISSUES_OVERRIDE+x}" ]; then
     printf '%s\n' "$RATING_ISSUES_OVERRIDE"
@@ -161,8 +113,7 @@ srat_fetch_issues() {
     | jq -r '.issues[]? | [(.component | sub("^[^:]*:"; "")), .type, .severity, .rule, ((.line // 0) | tostring), .message] | @tsv' 2>/dev/null
 }
 
-# srat_fetch_hotspots — print one TSV line per hotspot awaiting review:
-# path, line, rule.
+# Prints one TSV line per hotspot awaiting review: path, line, rule.
 srat_fetch_hotspots() {
   if [ -n "${RATING_HOTSPOTS_OVERRIDE+x}" ]; then
     printf '%s\n' "$RATING_HOTSPOTS_OVERRIDE"
@@ -173,9 +124,6 @@ srat_fetch_hotspots() {
     | jq -r '.hotspots[]? | [(.component | sub("^[^:]*:"; "")), ((.line // 0) | tostring), .ruleKey] | @tsv' 2>/dev/null
 }
 
-# srat_touched <path> <changed-list> — exit 0 when the finding sits on a file
-# this change touched. Scoping is what keeps somebody else's finding from
-# failing a commit that did not cause it.
 srat_touched() {
   [ -n "$2" ] && grep -qxF "$1" <<<"$2"
 }

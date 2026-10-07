@@ -21,7 +21,7 @@ pub struct EdgeMlEnsemble<const D: usize> {
 }
 
 impl<const D: usize> EdgeMlEnsemble<D> {
-    /// Build an ensemble from already trained models.
+    /// Builds an ensemble from already trained models.
     pub fn from_models(models: Vec<KMeansModel<D>>) -> Result<Self, EnsembleError> {
         if models.is_empty() {
             return Err(EnsembleError::Empty);
@@ -29,10 +29,7 @@ impl<const D: usize> EdgeMlEnsemble<D> {
         Ok(Self { models })
     }
 
-    /// Train a deterministic staggered ensemble.
-    ///
-    /// The current slice uses the same bounded sample corpus for each model;
-    /// later work can diversify windows without changing the voting contract.
+    /// Trains `model_count` deterministic models, each on the same bounded sample corpus.
     pub fn train_staggered(
         samples: &[[f32; D]],
         model_count: usize,
@@ -49,12 +46,12 @@ impl<const D: usize> EdgeMlEnsemble<D> {
         Ok(Self { models })
     }
 
-    /// Return true only when every model votes anomalous.
+    /// Reports an anomaly only when every model votes anomalous.
     pub fn is_anomaly(&self, sample: &[f32; D]) -> bool {
         self.models.iter().all(|model| model.is_anomaly(sample))
     }
 
-    /// Return the number of models in this ensemble.
+    /// Returns the number of models in this ensemble.
     pub fn model_count(&self) -> usize {
         self.models.len()
     }

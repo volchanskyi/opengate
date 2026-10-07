@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The cost of a rule is the readings it retains and may touch, which is the
-// number the agent's own evaluator charges. These cases pin that the two agree:
-// an instant reading costs one, a windowed one costs its window plus the second
-// that closes it, and a conjunction costs every side it requires.
 func TestRuleCostMatchesTheAgentsCharge(t *testing.T) {
 	t.Parallel()
 
@@ -37,8 +33,6 @@ func TestRuleCostMatchesTheAgentsCharge(t *testing.T) {
 			want: 61,
 		},
 		{
-			// An empty predicate is the plain threshold an older rule states by
-			// saying nothing, and it costs what Instant costs.
 			name: "an unstated predicate is an instant reading",
 			def:  Definition{},
 			want: 1,
@@ -64,8 +58,6 @@ func TestRuleCostMatchesTheAgentsCharge(t *testing.T) {
 	}
 }
 
-// Cost must be monotone in the window, or a budget cannot bound anything: a
-// wider window that charged less would let an unbounded rule through.
 func TestRuleCostIsMonotoneInTheWindow(t *testing.T) {
 	t.Parallel()
 
@@ -77,10 +69,6 @@ func TestRuleCostIsMonotoneInTheWindow(t *testing.T) {
 	}
 }
 
-// The CI cost gate. A rule that would make an endpoint hold more readings than
-// the per-agent budget allows must fail the build here, on the machine that is
-// free, rather than on five thousand endpoints that are not. A gate that has
-// never been seen to fail is not a gate, so this proves it fires.
 func TestLoadCatalogueRejectsARuleOverThePerRuleBudget(t *testing.T) {
 	t.Parallel()
 
@@ -92,8 +80,6 @@ func TestLoadCatalogueRejectsARuleOverThePerRuleBudget(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cost")
 
-	// The same rule just inside the budget loads, so the gate is a boundary and
-	// not a blanket refusal of windowed rules.
 	withinBudget := strings.ReplaceAll(validYAML,
 		"    predicate: Instant\n",
 		fmt.Sprintf("    predicate: WindowMean\n    window_secs: %d\n", MaxRuleCost-1))
@@ -101,15 +87,11 @@ func TestLoadCatalogueRejectsARuleOverThePerRuleBudget(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// The per-rule budget alone does not bound an endpoint: a hundred rules each
-// just inside it would still sink the agent, so the catalogue's total is
-// bounded too.
 func TestLoadCatalogueRejectsACatalogueOverTheFleetBudget(t *testing.T) {
 	t.Parallel()
 
 	var b strings.Builder
 	b.WriteString("rules:\n")
-	// Each rule is at the per-rule ceiling, so enough of them cross the total.
 	count := int(MaxCatalogueCost/(MaxRuleCost-1)) + 2
 	for i := range count {
 		fmt.Fprintf(&b, `  - id: filler-%d
@@ -133,7 +115,6 @@ func TestLoadCatalogueRejectsACatalogueOverTheFleetBudget(t *testing.T) {
 	assert.Contains(t, err.Error(), "budget")
 }
 
-// The shipped catalogue must itself be inside the budget it enforces.
 func TestEmbeddedCatalogueIsWithinTheFleetBudget(t *testing.T) {
 	t.Parallel()
 

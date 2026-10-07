@@ -10,21 +10,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// --- rules about the machine's own words ---
-//
-// Some failures never cross a line, because nothing about them is a number: a
-// process killed to reclaim memory, a disk that stopped answering its bus. The
-// machine reports each of those about itself, in words, in its own log, and a
-// curated pack of matchers reads them there. The matching stays on the machine
-// — the phrases are what the reader is built around — so what the file below
-// carries is the rest of a rule: what it is called, which revision it is, how
-// bad it is, and where its alerts belong.
-//
-// Without these rows the server has never heard of the rule, refuses every
-// alert it raises, and the machine's findings are discarded — which is exactly
-// what was happening.
-
-// eventYAML is the shape of a rule that watches words rather than a reading.
 const eventYAML = `
 rules:
   - id: linux-oom-kill
@@ -52,9 +37,6 @@ func TestARuleMayWatchTheMachinesOwnWordsInsteadOfAReading(t *testing.T) {
 	assert.Empty(t, def.Tunable, "and no number anybody could retune")
 }
 
-// The machine evaluates the whole log pack on one bounded poll a minute, so a
-// further rule in it costs nothing further. Counting each one against the
-// endpoint budget would refuse a pack the machine reads for free.
 func TestARuleAboutWordsCostsTheMachineNothingPerRule(t *testing.T) {
 	t.Parallel()
 
@@ -66,8 +48,6 @@ func TestARuleAboutWordsCostsTheMachineNothingPerRule(t *testing.T) {
 	assert.Zero(t, RuleCost(def))
 }
 
-// Each of these is a rule the fleet could not act on, so each is refused at
-// load rather than discovered by whoever opens the incident.
 func TestLoadCatalogueRefusesAMalformedRuleAboutWords(t *testing.T) {
 	t.Parallel()
 
@@ -126,9 +106,6 @@ func TestLoadCatalogueRefusesAMalformedRuleAboutWords(t *testing.T) {
 	}
 }
 
-// A rule about a reading still has to state how bad it is. Severity is what
-// orders the queue, and a rule that says nothing would file a full disk beside
-// a sluggish one.
 func TestEveryRuleAboutAReadingAlsoStatesHowBadItIs(t *testing.T) {
 	t.Parallel()
 

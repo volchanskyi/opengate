@@ -1,14 +1,9 @@
 package metrics
 
-// The counters below record outcomes from a closed set, and every value of each
-// set is published at zero from start-up. A counter created on its first
-// increment has no reading before it, so a rate over it misses the first event
-// after every start, and a rule watching for an outcome reads nothing until the
-// outcome it watches for has happened.
+// Every value of each closed outcome set below is published at zero from start-up,
+// so a rate over it counts the first event after a start.
 
-// The outcomes a raw-log pull is recorded under: the pull succeeded (the
-// audited count), the device was not connected, its agent does not offer
-// logs, another pull was in flight, it ran out of time, or it failed.
+// The outcomes a raw-log pull is recorded under; ok is the audited pull count.
 const (
 	LogPullOK          = "ok"
 	LogPullOffline     = "offline"
@@ -38,10 +33,7 @@ func AlertSuppressionReasons() []string {
 	return append([]string(nil), alertSuppressionReasons...)
 }
 
-// edgeTelemetryDropReasons are the reasons a connection discards telemetry: an
-// admission bound, an empty or unreadable payload, a device with no tenant or
-// one being removed, a store that failed or had no free slot, and each way an
-// alert is refused. The connection spells them where it drops.
+// edgeTelemetryDropReasons are the reasons a connection discards telemetry, spelled where it drops.
 var edgeTelemetryDropReasons = []string{
 	"payload_too_large", "interval_floor", "tenant_missing", "persist_failed", "persist_slots_full",
 	"tombstoned", "unknown_family", "unknown_dim",

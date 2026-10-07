@@ -1,5 +1,3 @@
-# Mock data sources for the full root plan (OKE images/availability domains,
-# object-storage namespace for backups).
 mock_provider "oci" {
   mock_data "oci_identity_availability_domains" {
     defaults = {
@@ -31,11 +29,6 @@ variables {
   ssh_public_key_path = "/dev/null"
 }
 
-# The bastion's /28 service endpoint sits in the OKE worker-node subnet, so
-# `make ssh` reaches the node. The target subnet isn't directly assertable from
-# the root scope, so we pin the display name the wrapper script
-# (deploy/scripts/bastion-session.sh) greps for. The integration runs `apply`
-# rather than `plan` because the subnet ID is computed.
 run "bastion_targets_node_subnet" {
   command = apply
 
@@ -45,9 +38,6 @@ run "bastion_targets_node_subnet" {
   }
 }
 
-# The backup bucket is wired into the root plan with the namespace resolved from
-# the (mocked) oci_objectstorage_namespace data source. Surfaced via the root
-# output so the module-internal resource is assertable from this scope.
 run "backups_bucket_is_wired" {
   command = apply
 

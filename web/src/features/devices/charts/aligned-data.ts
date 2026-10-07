@@ -4,9 +4,8 @@ import type { components } from '../../../types/api';
 type MetricSeries = components['schemas']['MetricSeries'];
 
 /**
- * Stable per-metric stroke colours (Tailwind-derived hex) used across a family
- * chart's lines. Kept as canvas colour strings — uPlot draws to a 2D context,
- * not the DOM, so Tailwind classes do not apply here.
+ * Stroke colours for a family chart's lines, as canvas colour strings because uPlot
+ * draws to a 2D context and Tailwind classes do not apply.
  */
 export const FAMILY_PALETTE = [
   '#60a5fa', // blue-400
@@ -29,35 +28,22 @@ export interface FamilyChart {
 }
 
 /**
- * Convert a nullable numeric column into a Float32Array, mapping null gaps to
- * NaN. Canvas `lineTo(x, NaN)` is a no-op, so a NaN renders as a break in the
- * line rather than a spurious zero — the typed array keeps the render path off
- * the React reconciler.
- *
- * `length`, when given, fixes the output to the grid: a short column is padded
- * with gaps and a long one is cut. uPlot reads column i against x[i], so a
- * length that disagrees with the axis would not fail — it would quietly plot
- * every later reading at the wrong time.
+ * Converts a nullable column to a Float32Array with NaN gaps, which canvas `lineTo` skips.
+ * `length` pads a short column with gaps and cuts a long one so column i stays aligned to x[i].
  */
 export function toFloat32(values: readonly (number | null)[], length = values.length): Float32Array {
-  // Padding first, then overwrite the head with however much the column has:
-  // a fresh Float32Array is zero-filled, and a zero is a reading, not a gap.
+  // A fresh Float32Array is zero-filled and a zero is a reading, so the padding is NaN.
   const out = new Float32Array(length).fill(Number.NaN);
   out.set(Float32Array.from(values.slice(0, length), (v) => (typeof v === 'number' ? v : Number.NaN)));
   return out;
 }
 
-/** Family key: the token before the first dot, or "other" for un-dotted names. */
 function familyOf(name: string): string {
   const dot = name.indexOf('.');
   return dot > 0 ? name.slice(0, dot) : 'other';
 }
 
-/**
- * Bucket numeric series by metric family (cpu.*, mem.*, disk.*, net.*, …) so
- * the ~100-dimension device firehose decomposes into a handful of readable
- * charts. Insertion order of first-seen families is preserved.
- */
+/** Buckets series by metric family (cpu.*, mem.*, …), keeping first-seen family order. */
 export function groupByFamily(series: readonly MetricSeries[]): Map<string, MetricSeries[]> {
   const sites = new Map<string, MetricSeries[]>();
   for (const s of series) {
@@ -69,9 +55,10 @@ export function groupByFamily(series: readonly MetricSeries[]): Map<string, Metr
   return sites;
 }
 
-/** Widen [lo, hi] over a column's finite samples. It reads the projected
- *  column, not the raw one, so a reading trimmed off the grid cannot stretch the
- *  scale of a window it is not drawn in. */
+/**
+ * Widens [lo, hi] over a column's finite samples; the projected column is read, so readings
+ * trimmed off the grid do not stretch the scale.
+ */
 function accumulateFinite(values: Float32Array, lo: number, hi: number): [number, number] {
   let nextLo = lo;
   let nextHi = hi;
@@ -84,12 +71,8 @@ function accumulateFinite(values: Float32Array, lo: number, hi: number): [number
 }
 
 /**
- * Build the uPlot aligned-data + series + band configuration for one family.
- *
- * Layout: `data = [x, avg₀, (min₀, max₀)?, avg₁, …]`. Each metric contributes an
- * avg line always; when it carries a non-`none` band it also contributes faint
- * min/max edge series and a fill band between them. The y-scale range is
- * computed here (ignoring NaN gaps) so a gap never poisons the auto-range.
+ * Builds the uPlot data, series and bands for one family: `[x, avg₀, (min₀, max₀)?, avg₁, …]`.
+ * The y-scale range ignores NaN gaps.
  */
 export function buildFamilyChart(
   t: readonly number[],
@@ -116,8 +99,7 @@ export function buildFamilyChart(
       data.push(minCol, maxCol);
       const minIdx = data.length - 2;
       const maxIdx = data.length - 1;
-      // spanGaps stays off on the edges too: a band that bridged a hole would
-      // fill a region the avg line inside it leaves empty.
+      // spanGaps stays off on the edges so a band never fills across a hole in the avg line.
       const faint = {
         label: `${metric.name} band`, stroke: color, width: 0, scale: 'y',
         spanGaps: false, points: { show: false },
@@ -138,7 +120,6 @@ export function buildFamilyChart(
   return { data: data as uPlot.AlignedData, series, bands, scaleRange };
 }
 
-/** Most recent finite sample in a nullable column, or null when there is none. */
 function lastFinite(values: readonly (number | null)[]): number | null {
   for (let i = values.length - 1; i >= 0; i--) {
     const v = values.at(i);
@@ -147,8 +128,7 @@ function lastFinite(values: readonly (number | null)[]): number | null {
   return null;
 }
 
-/** Compact binary-unit byte size (e.g. `1.4 MB`); the net family appends `/s`
- *  to read it as throughput. */
+/** Formats bytes in binary units (e.g. `1.4 MB`); a count under 1 KB prints as plain bytes. */
 function formatCompactBytes(bytes: number): string {
   if (bytes < 1024) return `${String(Math.round(bytes))} B`;
   const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
@@ -161,16 +141,13 @@ function formatCompactBytes(bytes: number): string {
   return `${val.toFixed(val >= 100 ? 0 : 1)} ${units.at(idx) ?? 'PB'}`;
 }
 
-/** Does this dimension carry a utilisation percentage rather than a raw count? */
 function isPercentDimension(name: string): boolean {
   return /_percent$/.test(name) || name === 'cpu.util' || name === 'cpu.total';
 }
 
 /**
- * A one-glance "current" reading for a metric family, shown beside its chart:
- * the latest utilisation percent for cpu/mem/disk families, or the combined
- * latest throughput (rx + tx, bytes/second) for the net family. Returns null
- * when the family carries no such summary dimension or has no finite sample yet.
+ * Current reading shown beside a family chart: the latest utilisation percent, or rx + tx
+ * bytes/second for net; null when the family has no such dimension or no finite sample.
  */
 export function familyCurrentLabel(series: readonly MetricSeries[]): string | null {
   const percent = series.find((s) => isPercentDimension(s.name));

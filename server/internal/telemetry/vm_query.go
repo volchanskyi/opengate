@@ -13,9 +13,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// RangeAgg selects how QueryRange collapses the raw 60 s samples in each step
-// bucket. Only avg/min/max are allowed — a chart band is honestly the min/max
-// across the 60 s averages in the bucket, never fabricated host extrema.
+// RangeAgg selects how QueryRange collapses the raw samples in each step bucket;
+// only avg, min and max are allowed.
 type RangeAgg string
 
 // Supported per-bucket aggregations for QueryRange.
@@ -75,12 +74,8 @@ type vmMatrixResponse struct {
 	} `json:"data"`
 }
 
-// QueryRange runs a bounded, tenant-scoped, step-downsampled range query for a
-// single metric filtered by non-reserved label matchers. Each step bucket is
-// collapsed with agg over the raw 10 s samples, so the returned point count per
-// series is bounded by (end-start)/step regardless of window span — the core
-// scalability lever. The authoritative tenant_id matcher is injected here; callers
-// never supply their own.
+// QueryRange runs a tenant-scoped range query for one metric, collapsing each step bucket
+// with agg so points per series stay bounded by (end-start)/step. It injects tenant_id.
 func (v *VMClient) QueryRange(ctx context.Context, tenantID uuid.UUID, rq RangeQuery) ([]RangeSeries, error) {
 	fn, ok := rq.Agg.overTimeFunc()
 	if !ok {
@@ -107,28 +102,22 @@ func (v *VMClient) QueryRange(ctx context.Context, tenantID uuid.UUID, rq RangeQ
 	return matrixToRangeSeries(resp)
 }
 
-// QueryInstant runs a tenant-scoped instant query returning the latest value per
-// series for the metric filtered by matchers. Passing no device_id matcher
-// yields one value per device in the tenant — a single query behind the fleet
-// health badge.
+// QueryInstant runs a tenant-scoped instant query returning the latest value per series;
+// without a device_id matcher it yields one value per device in the tenant.
 func (v *VMClient) QueryInstant(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]InstantValue, error) {
 	return v.scopedInstant(ctx, tenantID, metric, matchers, at, func(selector string) string { return selector })
 }
 
-// QueryInstantLookback runs a tenant-scoped instant query returning the most
-// recent value within `lookback` of `at` per series, via
-// `last_over_time(<selector>[<lookback>])`. It backs the fleet-health badge: a
-// brief gap between anomaly summaries (the summary is low-rate) never blanks the
-// badge, because the last sample inside the window still resolves.
+// QueryInstantLookback runs a tenant-scoped instant query returning the most recent value
+// per series within lookback of at, so a gap between low-rate samples still resolves.
 func (v *VMClient) QueryInstantLookback(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]InstantValue, error) {
 	return v.scopedInstant(ctx, tenantID, metric, matchers, at, func(selector string) string {
 		return fmt.Sprintf("last_over_time(%s[%ds])", selector, int64(lookback.Seconds()))
 	})
 }
 
-// BandCounts is how many devices fall in each edge-health band, as counted
-// inside VictoriaMetrics. It is the whole payload behind the dashboard's fleet
-// health rollup: three integers regardless of fleet size.
+// BandCounts is how many devices fall in each edge-health band, counted inside
+// VictoriaMetrics.
 type BandCounts struct {
 	Anomalous int
 	Watch     int
@@ -143,15 +132,8 @@ const MetricNodeAnomalyRate = "opengate_edge_node_anomaly_rate"
 // single instant query can carry all three scalars back.
 const bandLabel = "band"
 
-// CountAnomalyBands returns the number of devices in each edge-health band for
-// one tenant, in a single instant query. The counting happens inside
-// VictoriaMetrics, so no per-device sample crosses the wire however large the
-// fleet is.
-//
-// Each band is a count() over the devices whose most recent rate within
-// lookback falls in that band, tagged with a band label so the three scalars
-// travel in one vector. count() over an empty set yields no sample at all — a
-// band with no devices is simply absent from the result and reads back as 0.
+// CountAnomalyBands returns the number of devices in each edge-health band for one tenant
+// in a single instant query, with no per-device sample leaving VictoriaMetrics.
 func (v *VMClient) CountAnomalyBands(ctx context.Context, tenantID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (BandCounts, error) {
 	scoped, err := ScopeSelector(MetricNodeAnomalyRate, tenantID)
 	if err != nil {
@@ -159,9 +141,7 @@ func (v *VMClient) CountAnomalyBands(ctx context.Context, tenantID uuid.UUID, wa
 	}
 	window := withoutEnvironment(fmt.Sprintf("last_over_time(%s[%ds])", scoped, int64(lookback.Seconds())))
 
-	// One table drives both halves — it builds the query and it reads the answer
-	// back — so each band name is written once and the label the query stamps
-	// cannot drift from the field the count lands in.
+	// One table builds the query and reads the answer, so label and field stay paired.
 	var counts BandCounts
 	bands := []struct {
 		name      string
@@ -186,8 +166,7 @@ func (v *VMClient) CountAnomalyBands(ctx context.Context, tenantID uuid.UUID, wa
 		return BandCounts{}, err
 	}
 
-	// A band the query returned no sample for keeps its zero, which is the whole
-	// point: count() over an empty set yields nothing rather than a zero.
+	// count() over an empty set yields no sample, so an absent band keeps its zero.
 	for _, val := range vals {
 		if field, ok := fields[val.Labels[bandLabel]]; ok {
 			*field = int(val.Value)
@@ -202,9 +181,8 @@ func formatThreshold(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
-// scopedInstant scopes the selector for tenantID/metric/matchers, rewrites it
-// with wrap, groups the environment away, and runs it as an instant query at
-// `at`. It is the shared spine of the two instant read paths.
+// scopedInstant scopes the selector to tenantID, applies wrap, groups the environment
+// away and runs an instant query at at.
 func (v *VMClient) scopedInstant(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time, wrap func(string) string) ([]InstantValue, error) {
 	scoped, err := v.scopedSelector(tenantID, metric, matchers)
 	if err != nil {
@@ -213,17 +191,13 @@ func (v *VMClient) scopedInstant(ctx context.Context, tenantID uuid.UUID, metric
 	return v.instantQuery(ctx, withoutEnvironment(wrap(scoped)), at)
 }
 
-// withoutEnvironment groups an instant expression's series by everything but
-// the environment stamp, so a device's readings from before and after it are
-// one series. At any instant only one side carries a reading, save inside a
-// lookback that straddles the stamp, where the two are the same device.
+// withoutEnvironment groups an instant expression's series by everything but the
+// environment stamp, so one device is one series.
 func withoutEnvironment(expr string) string {
 	return fmt.Sprintf("max without (%s) (%s)", environmentLabel, expr)
 }
 
-// instantQuery evaluates a pre-built PromQL expression as an instant query at
-// `at`, returning the latest value per series. The single HTTP round-trip both
-// instant read paths share.
+// instantQuery evaluates a PromQL expression at at and returns the latest value per series.
 func (v *VMClient) instantQuery(ctx context.Context, expr string, at time.Time) ([]InstantValue, error) {
 	q := url.Values{}
 	q.Set("query", expr)
@@ -312,9 +286,8 @@ func parseVMSample(pair [2]any) (int64, float64, error) {
 	return int64(tsFloat), val, nil
 }
 
-// buildSelector composes a validated `metric{k="v",...}` selector with sorted,
-// escaped matchers. It rejects a tenant_id matcher (the scoped client owns it) and
-// invalid metric/label names.
+// buildSelector composes a `metric{k="v",...}` selector with sorted, escaped matchers,
+// rejecting a tenant_id matcher and invalid metric or label names.
 func buildSelector(metric string, matchers map[string]string) (string, error) {
 	if !metricNameRE.MatchString(metric) {
 		return "", fmt.Errorf("invalid metric name %q", metric)

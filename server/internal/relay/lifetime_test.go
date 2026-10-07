@@ -12,14 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// Teardown: who ends a session, when the two sides are told, and what a
-// shutting-down process is able to wait for. The connection-carrying tests live
-// beside the pipe in relay_test.go; these are about the session's end.
-
-// TestRelay_Unregister_TearsDownHalfOpenSession covers the side that connects
-// and leaves while its peer never arrives: no pipe ever runs, so teardown has
-// to come from Unregister — otherwise the entry, the active count and the
-// caller's session row all leak for the life of the process.
 func TestRelay_Unregister_TearsDownHalfOpenSession(t *testing.T) {
 	r := NewRelay(slog.Default())
 	var ended []protocol.SessionToken
@@ -37,12 +29,9 @@ func TestRelay_Unregister_TearsDownHalfOpenSession(t *testing.T) {
 	assert.Equal(t, []protocol.SessionToken{token}, ended)
 }
 
-// TestRelay_Unregister_LeavesPipedSessionAlone keeps Unregister off a paired
-// session: the pipe owns that teardown, and a second one would double-count.
 func TestRelay_Unregister_LeavesPipedSessionAlone(t *testing.T) {
 	r := NewRelay(slog.Default())
-	// The pipe goroutine fires OnSessionEnd, so the count is read across
-	// goroutines and has to be atomic.
+	// The pipe goroutine fires OnSessionEnd, so the count is atomic.
 	var ends atomic.Int64
 	r.OnSessionEnd = func(protocol.SessionToken) { ends.Add(1) }
 
@@ -52,7 +41,6 @@ func TestRelay_Unregister_LeavesPipedSessionAlone(t *testing.T) {
 	assert.Equal(t, 1, r.ActiveSessionCount())
 	assert.Equal(t, int64(0), ends.Load())
 
-	// The pipe still carries frames, then ends the session exactly once.
 	require.NoError(t, agentLocal.WriteMessage([]byte("still piping")))
 	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
@@ -64,8 +52,6 @@ func TestRelay_Unregister_LeavesPipedSessionAlone(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
-// TestRelay_Unregister_UnknownTokenIsNoop keeps a late or repeated call inert,
-// so it can be deferred unconditionally by the WebSocket handler.
 func TestRelay_Unregister_UnknownTokenIsNoop(t *testing.T) {
 	r := NewRelay(slog.Default())
 	var ends int
@@ -77,9 +63,6 @@ func TestRelay_Unregister_UnknownTokenIsNoop(t *testing.T) {
 	assert.Equal(t, 0, ends)
 }
 
-// TestRelay_Register_ReturnsChannelClosedWhenSessionEnds pins what the handler
-// parks on. A completed session must announce itself on the channel handed to
-// the side that registered.
 func TestRelay_Register_ReturnsChannelClosedWhenSessionEnds(t *testing.T) {
 	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
@@ -107,9 +90,6 @@ func TestRelay_Register_ReturnsChannelClosedWhenSessionEnds(t *testing.T) {
 	}
 }
 
-// TestRelay_Unregister_EndsTheSession covers the other teardown owner: a side
-// whose peer never arrived is released by Unregister, and that release is what
-// has to announce the end.
 func TestRelay_Unregister_EndsTheSession(t *testing.T) {
 	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
@@ -125,10 +105,6 @@ func TestRelay_Unregister_EndsTheSession(t *testing.T) {
 	}
 }
 
-// TestRelay_WaitForDrain covers what a shutting-down process can know.
-// Server.Shutdown cannot see a relay session — websocket.Accept hijacked the
-// connection, which untracks it — so the relay's own count is the only answer,
-// and a caller that runs out of budget gets told rather than blocked.
 func TestRelay_WaitForDrain(t *testing.T) {
 	t.Run("returns once the last session is booked out", func(t *testing.T) {
 		r, agentLocal, browserLocal := readyRelay(t)
@@ -162,9 +138,7 @@ func TestRelay_WaitForDrain(t *testing.T) {
 	})
 }
 
-// slowCloseConn is a Conn whose Close blocks until it is released, standing in
-// for the graceful WebSocket close that waits on a peer acknowledgement an
-// absent peer never sends.
+// slowCloseConn is a Conn whose Close blocks until released.
 type slowCloseConn struct {
 	*mockConn
 	entered  chan struct{}
@@ -183,8 +157,6 @@ func newSlowCloseConn(inner *mockConn, release chan struct{}, inFlight, peak *at
 	}
 }
 
-// Close records that it is in flight, blocks until released, and only then
-// unblocks the reads the way a real graceful close does.
 func (c *slowCloseConn) Close() error {
 	select {
 	case c.entered <- struct{}{}:
@@ -202,14 +174,6 @@ func (c *slowCloseConn) Close() error {
 	return c.mockConn.Close()
 }
 
-// TestRelay_Pipe_BooksOutBeforeItWaitsOnTheNetwork holds the teardown order.
-//
-// A graceful close waits on an acknowledgement, and for as long as it does a
-// finished session must not still be counted, still be named by ActiveTokens —
-// which the stale-session sweep reads as "in use", so the row cannot be
-// collected — or still sit in the registry. Unregister already does its
-// bookkeeping before its close and says why in a comment; this is the pipe held
-// to the same order.
 func TestRelay_Pipe_BooksOutBeforeItWaitsOnTheNetwork(t *testing.T) {
 	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
@@ -231,9 +195,6 @@ func TestRelay_Pipe_BooksOutBeforeItWaitsOnTheNetwork(t *testing.T) {
 
 	agentLocal.Close()
 
-	// The books are expected to be closed while the close handshake is still
-	// blocked, so this waits for the close to be entered and asserts on the
-	// bookkeeping without releasing it.
 	select {
 	case <-agentRelay.entered:
 	case <-time.After(3 * time.Second):
@@ -248,8 +209,6 @@ func TestRelay_Pipe_BooksOutBeforeItWaitsOnTheNetwork(t *testing.T) {
 		t.Fatal("OnSessionEnd must fire before the close handshake, not after it")
 	}
 
-	// Both sides must be closing at once. Sequential closes double the worst
-	// case for no gain: neither peer is going to answer.
 	require.Eventually(t, func() bool { return peak.Load() == 2 },
 		3*time.Second, 10*time.Millisecond, "the two sides must be closed concurrently, not one after the other")
 

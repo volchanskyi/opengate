@@ -11,16 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What the bundle says about the two sides of the measurement, the room the
-// generator had, and the fleet that actually existed.
-//
-// Each of these was a literal. A latency figure is a property of the pair, so a
-// target reported as one processor and one byte of memory makes every number
-// beside it uninterpretable — and four bundles from a sweep whose whole subject
-// was the processor count all said the same one.
-
-// measuredRun is a run with every reading a bundle needs, so a case can break
-// exactly one of them.
+// measuredRun is a run with every reading a bundle needs, so a case can break exactly one.
 func measuredRun() runBundleInputs {
 	return runBundleInputs{
 		Results:    harnessResults(),
@@ -46,8 +37,6 @@ func measuredRun() runBundleInputs {
 	}
 }
 
-// D8. The sweep hardcoded one processor and one byte for every leg, so four
-// bundles whose only subject was the processor count reported the same target.
 func TestTheTargetFingerprintIsTheOneTheRunWasGiven(t *testing.T) {
 	bundle := buildRunBundle(measuredRun())
 
@@ -56,8 +45,6 @@ func TestTheTargetFingerprintIsTheOneTheRunWasGiven(t *testing.T) {
 	assert.EqualValues(t, 384<<20, bundle.Target.MemoryBytes)
 }
 
-// The guard that keeps it from going back. One byte of memory is not a reading
-// any machine could produce, so a bundle carrying it is carrying a placeholder.
 func TestABundleWithAPlaceholderFingerprintFailsValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -77,8 +64,6 @@ func TestABundleWithAPlaceholderFingerprintFailsValidation(t *testing.T) {
 	}
 }
 
-// D7. Generator headroom was written unconditionally as 100% free and 0% used,
-// so the rule invalidating a run whose generator had nothing left was dead.
 func TestGeneratorHeadroomIsMeasured(t *testing.T) {
 	bundle := buildRunBundle(measuredRun())
 
@@ -87,10 +72,6 @@ func TestGeneratorHeadroomIsMeasured(t *testing.T) {
 	assert.InDelta(t, 18.0, bundle.GeneratorHeadroom.MemoryUsedPercent, 0.001)
 }
 
-// A reading nobody took is not a reading of plenty. This is what makes the
-// sweep's top rung — where the generator is squeezed onto the same four
-// processors as the stack it drives — report its own starvation rather than
-// answer wrongly.
 func TestAnUnmeasuredGeneratorInvalidatesTheRun(t *testing.T) {
 	verdict := Classify(RunInputs{
 		ExpectedScenarios: []string{"quic-agents"},
@@ -115,8 +96,6 @@ func TestAStarvedGeneratorInvalidatesTheRun(t *testing.T) {
 	assert.Contains(t, verdict.Reasons[0], "measured the generator")
 }
 
-// D21. The harness runs inside a pod, which inherits no revision, so every
-// staging bundle carried the string "unknown" and validation accepted it.
 func TestABundleWithNoRealRevisionFailsValidation(t *testing.T) {
 	b := completeBundle()
 	b.Run.Commit = unknownCommit
@@ -126,8 +105,6 @@ func TestABundleWithNoRealRevisionFailsValidation(t *testing.T) {
 	assert.Contains(t, err.Error(), "run.commit")
 }
 
-// D18. The count was the plan rather than the fleet: a bundle said 2,000
-// machines while the database, weighed in the same job, held 500.
 func TestTheFixtureCountsMachinesThatEnrolled(t *testing.T) {
 	plan, err := PlanFixture(FixtureLarge, 3)
 	require.NoError(t, err)
@@ -150,8 +127,6 @@ func TestTheFixtureCountsMachinesThatEnrolled(t *testing.T) {
 	assert.NotEqual(t, bundle.Fixture.PlannedDevices, bundle.Fixture.Devices)
 }
 
-// D31. The volume family's whole finding is the fixture's weight, and the one
-// job that measured it wrote the figure into a file the bundle never read.
 func TestTheFixtureWeightReachesTheBundle(t *testing.T) {
 	in := measuredRun()
 	in.FixtureWeight = &FixtureWeight{DatabaseBytes: 1_398_101, Counts: FixtureWeightCounts{TelemetrySeries: 4_096}}
@@ -161,19 +136,12 @@ func TestTheFixtureWeightReachesTheBundle(t *testing.T) {
 	assert.EqualValues(t, 4_096, bundle.Fixture.TelemetrySeries)
 }
 
-// What scripts/tests/fixtures/fixture-weight.json holds: the weighing script's
-// own output, taken on the performance stack after five hundred machines had
-// reported their vitals. scripts/tests/loadtest-bundle-merge.test.sh holds the
-// file to the shape the script writes today.
+// The golden values are the weighing script's output in fixtures/fixture-weight.json.
 const (
 	goldenFixtureBytes    = 1_343_488
 	goldenTelemetrySeries = 15_000
 )
 
-// The reader is held to a weighing the weighing script wrote on the performance
-// stack. Its earlier fixture was written in the shape the reader expected, with
-// the series count at the top level, while the script writes it under `counts` —
-// so every bundle carried nought and the test agreed with it.
 func TestFixtureWeightIsReadFromWhatTheWeighingScriptWrote(t *testing.T) {
 	path := filepath.Join(repoRoot(t), "scripts", "tests", "fixtures", "fixture-weight.json")
 
@@ -183,9 +151,6 @@ func TestFixtureWeightIsReadFromWhatTheWeighingScriptWrote(t *testing.T) {
 	assert.EqualValues(t, goldenTelemetrySeries, weight.Counts.TelemetrySeries)
 }
 
-// The run's own bundle never claims a cleanup: the accounts, customers and
-// machines it created are counted by the step after it. Every bundle said
-// verified with nothing left behind, on a venue where nothing ever looked.
 func TestTheHarnessNeverClaimsTheCleanupItDidNotCount(t *testing.T) {
 	bundle := buildRunBundle(measuredRun())
 
@@ -194,8 +159,6 @@ func TestTheHarnessNeverClaimsTheCleanupItDidNotCount(t *testing.T) {
 	assert.Contains(t, bundle.Cleanup.NotCounted, "cleanup step")
 }
 
-// The disposable stack runs no cleanup at all, because nothing outlives the job
-// that built it. Its bundle says that rather than reporting a count of nought.
 func TestTheDisposableStackSaysWhyNothingIsCounted(t *testing.T) {
 	in := measuredRun()
 	in.Profile = &Profile{Name: "volume-500", SchemaVersion: profileSchemaVersion, Family: FamilyVolume, Environment: EnvRunner}
@@ -205,16 +168,12 @@ func TestTheDisposableStackSaysWhyNothingIsCounted(t *testing.T) {
 	assert.Contains(t, bundle.Cleanup.NotCounted, "torn down")
 }
 
-// What the cleanup step counted reaches the bundle as it counted it. A proof of
-// residue written by the cleanup script and folded in by the merge the
-// workflows run comes out of this package's own validation as unclean.
 func TestACleanupProofWithResidueComesOutUnclean(t *testing.T) {
 	dir := t.TempDir()
 	path, err := buildRunBundle(measuredRun()).WriteTo(dir)
 	require.NoError(t, err)
 
-	// A database that still holds three accounts, two machines, a customer and
-	// four sites after the removal ran.
+	// The stub psql reports three users, two devices, one organization and four sites left behind.
 	psql := filepath.Join(dir, "psql")
 	require.NoError(t, os.WriteFile(psql, []byte(`#!/usr/bin/env bash
 query=""
@@ -235,7 +194,7 @@ esac
 	proof := filepath.Join(dir, "cleanup.json")
 	cleanup := exec.Command(filepath.Join(repoRoot(t), "scripts", "loadtest-cleanup.sh"), proof)
 	cleanup.Env = append(os.Environ(), "LOADTEST_PSQL="+psql)
-	_ = cleanup.Run() // It fails on residue, and still writes the proof the merge reads.
+	_ = cleanup.Run() // The script fails on residue and still writes the proof the merge reads.
 
 	merge := exec.Command(filepath.Join(repoRoot(t), "scripts", "loadtest-bundle-merge.sh"), path, "--cleanup", proof)
 	out, err := merge.CombinedOutput()
@@ -252,9 +211,6 @@ esac
 	assert.Contains(t, err.Error(), "residue")
 }
 
-// D22. The runner's shape was measured into the job environment and read by
-// nothing, and the one figure taken for the volume family answered the wrong
-// question — the partition's total size rather than the room a fixture has.
 func TestTheGeneratorFingerprintCarriesTheRunnerShapeAndItsFreeDisk(t *testing.T) {
 	bundle := buildRunBundle(measuredRun())
 
@@ -264,8 +220,6 @@ func TestTheGeneratorFingerprintCarriesTheRunnerShapeAndItsFreeDisk(t *testing.T
 		"the room a run has is what is free, not how big the partition is")
 }
 
-// D17. Three journeys are already timed by the technician-side generator and
-// published into the trend, while the bundle beside them carried a null.
 func TestJourneysReachTheBundle(t *testing.T) {
 	in := measuredRun()
 	in.Journeys = []JourneyResult{
@@ -278,8 +232,6 @@ func TestJourneysReachTheBundle(t *testing.T) {
 	assert.InDelta(t, 88.0, bundle.Journeys[0].LatencyP95Ms, 0.001)
 }
 
-// The journeys come out of the export the technician-side generator already
-// writes, so nothing has to be measured twice or restated.
 func TestJourneysAreReadFromTheGeneratorsOwnExport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "api-baseline.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{
@@ -300,8 +252,6 @@ func TestJourneysAreReadFromTheGeneratorsOwnExport(t *testing.T) {
 	assert.EqualValues(t, 1200, journeys[1].Requests)
 }
 
-// An export that carries no journeys is silence rather than an error: the
-// technician-side generator does not run in every venue.
 func TestAnExportWithNoJourneysCarriesNone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "quiet.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"metrics":{}}`), 0o600))
@@ -311,12 +261,6 @@ func TestAnExportWithNoJourneysCarriesNone(t *testing.T) {
 	assert.Empty(t, journeys)
 }
 
-// A generator that shares its box with the system it measures cannot have its
-// own room read off that box: what the box has left is what the two of them
-// have left together, and driving it hard is what the throwaway venue is for.
-// So the figure is carried as evidence and the floor does not fall on it —
-// whether the load was offered is answered by attainment, which is a reading of
-// the fleet rather than of the machine under it.
 func TestABusyBoxSharedWithTheTargetDoesNotInvalidateTheRun(t *testing.T) {
 	verdict := Classify(RunInputs{
 		ExpectedScenarios: []string{"quic-agents"},
@@ -328,8 +272,6 @@ func TestABusyBoxSharedWithTheTargetDoesNotInvalidateTheRun(t *testing.T) {
 	assert.Equal(t, ResultValid, verdict.Result)
 }
 
-// A generator the kernel kept waiting measured its own wait into every latency
-// it reported, so the numbers are about the generator whatever room it had left.
 func TestAGeneratorRefusedTheProcessorInvalidatesTheRun(t *testing.T) {
 	refused := 45.0
 	verdict := Classify(RunInputs{

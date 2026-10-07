@@ -1,16 +1,5 @@
-//! WS-15 reconnect-backfill replay engine — behavior tests (plan Steps 1 & 3).
-//!
-//! Drives the pure `ml::backfill` engine against an in-memory `TierReader` fake,
-//! asserting the locked decisions: resolution-tiered mapping (T0→Recent60s,
-//! T1→Rollup1m, T2→Rollup1h; 1 s never sent), recent-first-then-older ordering,
-//! in-order-within-tier + resumable-from-cursor drain, retention clamp, and
-//! clock-skew bounds. The server-side VM-bucket correctness is covered
-//! separately (Go `server/tests/vmbackfill`).
-//!
-//! covers `ml::backfill::drain` (the tier walk, its phases and its batch
-//! boundaries) and `ml::backfill` (the tier bands, the durable cursors and the
-//! 60 s fold) through one public surface, which is what lets the two live in
-//! separate files without either losing its behavior tests.
+//! Drives the `ml::backfill` engine against an in-memory `TierReader`: tier mapping, ordering,
+//! cursor resume, retention clamp and clock-skew bounds.
 
 use std::collections::BTreeMap;
 
@@ -23,9 +12,8 @@ use mesh_agent_core::ml::backfill::{
 };
 use mesh_protocol::BackfillTier;
 
-/// In-memory `TierReader` for the drain. Holds per-series T0 raw and T1/T2
-/// rollup points; range reads honor the `[start, end]` inclusive window the
-/// engine asks for so cursor-resume slicing is exercised for real.
+/// In-memory `TierReader` holding per-series T0 raw and T1/T2 rollup points; range reads are
+/// inclusive of `[start, end]`.
 #[derive(Default)]
 struct FakeReader {
     raw: BTreeMap<SeriesId, Vec<(Sample, bool)>>,
@@ -45,9 +33,7 @@ impl FakeReader {
         self.push_tier_max(series, tier, bucket, avg, avg);
     }
 
-    /// A rollup bucket whose maximum differs from its average — the shape a
-    /// stall produces, and the only shape that catches a `.max` dim quietly
-    /// carrying the average instead of the stored extremum.
+    /// A rollup bucket whose maximum differs from its average.
     fn push_tier_max(&mut self, series: SeriesId, tier: Tier, bucket: i64, avg: f64, max: f64) {
         let point = TierPoint {
             bucket,
@@ -108,8 +94,7 @@ impl TierReader for FakeReader {
     }
 }
 
-/// Compact config with tiny bands so fixtures are hand-checkable:
-/// age < 100 → Recent60s, 100..1000 → Rollup1m, 1000..10000 → Rollup1h, else skip.
+/// Tiny bands: age < 100 is Recent60s, 100..1000 Rollup1m, 1000..10000 Rollup1h.
 fn cfg(max_batch: usize) -> BackfillConfig {
     BackfillConfig {
         retention_secs: 10_000,
@@ -123,8 +108,6 @@ fn cfg(max_batch: usize) -> BackfillConfig {
 const NOW: i64 = 100_000;
 const CPU: SeriesId = 0;
 
-/// Drain every batch the engine produces from the given cursors, advancing the
-/// in-memory watermark by each batch's cursor (as the caller would on ack).
 fn drain_all<R: TierReader>(
     reader: &R,
     now: i64,
@@ -143,21 +126,16 @@ fn drain_all<R: TierReader>(
 #[test]
 fn recent_first_then_older_tiers_in_order() {
     let mut r = FakeReader::default();
-    // Recent band (age < 100): raw 1 s samples inside one 60 s window.
     for ts in (NOW - 20)..=(NOW - 1) {
         r.push_raw(CPU, ts, 50.0);
     }
-    // Mid band (100..1000): T1 1-min buckets.
     r.push_tier(CPU, Tier::T1, NOW - 900, 40.0);
     r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
-    // Old band (1000..10000): T2 1-hr buckets that lie entirely in the band
-    // (bucket + 3600 <= NOW-1000, so they never straddle into the mid tier).
     r.push_tier(CPU, Tier::T2, NOW - 9000, 30.0);
     r.push_tier(CPU, Tier::T2, NOW - 5400, 31.0);
 
     let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
 
-    // Tier order: all Recent60s first, then all Rollup1m, then all Rollup1h.
     let tiers: Vec<BackfillTier> = batches.iter().map(|b| b.tier).collect();
     let first_1m = tiers.iter().position(|t| *t == BackfillTier::Rollup1m);
     let first_1h = tiers.iter().position(|t| *t == BackfillTier::Rollup1h);
@@ -175,10 +153,6 @@ fn recent_first_then_older_tiers_in_order() {
         }
     }
 
-    // Every bucket carries the dim and its companion maximum, and the recent
-    // tier's buckets sit on the same 60 s grid the live stream emits on — never
-    // 1 s — so a backfilled point and a live point for the same second are the
-    // same point.
     for b in &batches {
         for s in &b.samples {
             assert!(
@@ -191,7 +165,6 @@ fn recent_first_then_older_tiers_in_order() {
             }
         }
     }
-    // The old T2 point at NOW-9000 and NOW-4000 both survive (inside retention).
     let ts_seen: Vec<i64> = batches
         .iter()
         .flat_map(|b| b.samples.iter().map(|s| s.ts))
@@ -207,7 +180,6 @@ fn resumes_after_cursor_without_reemitting() {
     r.push_tier(CPU, Tier::T1, NOW - 600, 41.0);
     r.push_tier(CPU, Tier::T1, NOW - 300, 42.0);
 
-    // Resume with the 1-min watermark already past the first two buckets.
     let cursors = BackfillCursors {
         rollup1m: Some(NOW - 600),
         ..Default::default()
@@ -224,14 +196,9 @@ fn resumes_after_cursor_without_reemitting() {
     );
 }
 
-/// The rollup tiers ship the bucket's *stored* maximum. Recomputing a maximum
-/// from rolled averages would give a max-of-averages — a different, smaller
-/// number that hides exactly the stall the `.max` dim exists to show — and only
-/// a bucket whose peak differs from its mean can tell the two apart.
 #[test]
 fn rollup_max_dim_carries_the_stored_extremum_not_the_average() {
     let mut r = FakeReader::default();
-    // A minute that averages 26.7 % and peaks at a full freeze.
     r.push_tier_max(CPU, Tier::T1, NOW - 300, 26.7, 100.0);
 
     let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
@@ -248,12 +215,9 @@ fn rollup_max_dim_carries_the_stored_extremum_not_the_average() {
     );
 }
 
-/// The recent tier rolls 1 s raw itself, so its maximum is the largest raw
-/// sample in the minute — not the largest of anything already averaged.
 #[test]
 fn recent_tier_max_dim_is_the_largest_raw_sample_in_the_minute() {
     let mut r = FakeReader::default();
-    // 40 samples inside one 60 s bucket: 35 quiet seconds and a 5 s pin at 100 %.
     for i in 0..40 {
         let ts = NOW - 40 + i;
         r.push_raw(CPU, ts, if (20..25).contains(&i) { 100.0 } else { 20.0 });
@@ -282,13 +246,9 @@ fn recent_tier_max_dim_is_the_largest_raw_sample_in_the_minute() {
 #[test]
 fn clamps_out_of_retention_and_bounds_wild_clocks() {
     let mut r = FakeReader::default();
-    // Out-of-retention (age > 10000): must be skipped.
     r.push_tier(CPU, Tier::T2, NOW - 20_000, 99.0);
-    // In-retention old point: kept.
     r.push_tier(CPU, Tier::T2, NOW - 5_000, 31.0);
-    // Wild-future raw sample (ts well beyond now + skew): must be skipped.
     r.push_raw(CPU, NOW + 10_000, 77.0);
-    // Legit recent raw sample.
     for ts in (NOW - 12)..=(NOW - 1) {
         r.push_raw(CPU, ts, 50.0);
     }
@@ -344,8 +304,6 @@ fn batches_respect_the_sample_cap() {
     for i in 0..10 {
         r.push_tier(CPU, Tier::T1, NOW - 900 + i * 60, 40.0 + i as f64);
     }
-    // Cap of 3 samples/batch over a series carrying an avg and a max → one
-    // bucket per batch, because the cap counts samples, not buckets.
     let batches = drain_all(&r, NOW, cfg(3), &[CPU], BackfillCursors::default());
     assert!(
         batches.len() > 1,
@@ -361,7 +319,6 @@ fn batches_respect_the_sample_cap() {
     }
 }
 
-/// In-memory `CursorStore` fake: the durable per-tier watermark table.
 #[derive(Default)]
 struct FakeCursors(BTreeMap<SeriesId, i64>);
 
@@ -378,9 +335,6 @@ impl CursorStore for FakeCursors {
 
 #[test]
 fn tier_cursor_keys_are_distinct_and_reserved() {
-    // Each shippable tier maps to its own reserved key; the three keys are
-    // distinct and sit above every real metric series id (0..) so a tier
-    // watermark never collides with a WS-14b per-series cursor.
     let keys = [
         tier_cursor_key(BackfillTier::Recent60s).unwrap(),
         tier_cursor_key(BackfillTier::Rollup1m).unwrap(),
@@ -401,8 +355,7 @@ fn tier_cursor_keys_are_distinct_and_reserved() {
     for k in keys {
         assert!(k > 1_000, "tier keys sit far above real series ids");
     }
-    // The exact keys, so a watermark written by one build is still found by the
-    // next: these are a durable on-disk address, not an internal detail.
+    // The keys are a durable on-disk address.
     assert_eq!(
         keys,
         [SeriesId::MAX, SeriesId::MAX - 1, SeriesId::MAX - 2],
@@ -413,7 +366,6 @@ fn tier_cursor_keys_are_distinct_and_reserved() {
 #[test]
 fn ack_persists_the_matching_tier_watermark_only() {
     let mut c = FakeCursors::default();
-    // A fresh store reports no watermark for any tier.
     assert_eq!(load_cursors(&c).unwrap().recent60s, None);
 
     record_ack(&mut c, BackfillTier::Rollup1m, NOW - 300).unwrap();
@@ -422,7 +374,6 @@ fn ack_persists_the_matching_tier_watermark_only() {
     assert_eq!(cursors.recent60s, None, "other tiers untouched");
     assert_eq!(cursors.rollup1h, None);
 
-    // A later ack for the same tier moves the watermark forward.
     record_ack(&mut c, BackfillTier::Rollup1m, NOW - 60).unwrap();
     assert_eq!(load_cursors(&c).unwrap().rollup1m, Some(NOW - 60));
 }
@@ -441,7 +392,6 @@ fn cursors_round_trip_through_a_real_store() {
     assert_eq!(cursors.rollup1h, Some(9_000));
     assert_eq!(cursors.rollup1m, None);
 
-    // The reserved tier keys must not shadow a real series' WS-14b cursor.
     assert_eq!(
         store.cursor(CPU).unwrap(),
         None,
@@ -464,7 +414,6 @@ fn pending_hint_counts_backlog_and_reports_oldest() {
     );
     assert_eq!(oldest, NOW - 5400, "oldest pending bucket is the T2 point");
 
-    // Nothing pending → a zeroed hint (never a bogus timestamp).
     let empty = FakeReader::default();
     let (n, ts) = pending_hint(&empty, NOW, cfg(1000), &[CPU], BackfillCursors::default()).unwrap();
     assert_eq!((n, ts), (0, 0));
@@ -473,11 +422,8 @@ fn pending_hint_counts_backlog_and_reports_oldest() {
 #[test]
 fn pace_delay_bounds_the_drain_to_the_granted_rate() {
     use std::time::Duration;
-    // 100 samples at 50/s → at least 2 s before the next batch.
     assert_eq!(pace_delay(100, 50), Duration::from_secs(2));
-    // Rate 0 means "as fast as acks allow" — no pacing.
     assert_eq!(pace_delay(100, 0), Duration::ZERO);
-    // An empty batch never waits.
     assert_eq!(pace_delay(0, 50), Duration::ZERO);
 }
 
@@ -488,15 +434,12 @@ fn drains_a_real_local_store_snapshot() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
     let now = 1_000_000i64;
-    // Recent 1 s raw inside one 60 s window; commit builds T0 + rollups.
     for ts in (now - 30)..now {
         store.append(CPU, Sample::new(ts, 25.0), false).unwrap();
     }
     store.commit(Durability::Full).unwrap();
     let snap = store.snapshot().unwrap();
 
-    // The engine reads the real MVCC snapshot through the TierReader impl. The
-    // Mid/Old phases exercise range_tier even though those bands are empty here.
     let mut drain = BackfillDrain::new(&snap, now, cfg(1000), &[CPU], BackfillCursors::default());
     let mut dims = Vec::new();
     while let Some(b) = drain.next_batch().unwrap() {
@@ -523,11 +466,9 @@ fn local_history_pull_is_bounded_and_flags_truncation() {
     for ts in (NOW - 100)..=(NOW - 1) {
         r.push_raw(CPU, ts, ts as f64);
     }
-    // Bounded pull: cap below the available point count trips truncation.
     let (points, truncated) = answer_local_history(&r, CPU, NOW - 100, NOW, 10).unwrap();
     assert_eq!(points.len(), 10);
     assert!(truncated, "a capped window reports truncation");
-    // The points are full-resolution 1 s (consecutive timestamps), ascending.
     for w in points.windows(2) {
         assert!(w[1].ts > w[0].ts);
     }
@@ -537,16 +478,10 @@ fn local_history_pull_is_bounded_and_flags_truncation() {
     assert!(!truncated, "a roomy cap does not report truncation");
 }
 
-/// The recent band's floor is what keeps an older reading out of the recent
-/// tier. Without it a raw sample from before the recent window would ship at
-/// full resolution as well as inside the minute rollup that already covers it,
-/// which is the double-count the tier walk exists to prevent.
 #[test]
 fn the_recent_floor_keeps_an_older_raw_sample_out_of_the_recent_tier() {
     let mut r = FakeReader::default();
-    // Older than recent_secs (100), so this belongs to the 1 min tier.
     r.push_raw(CPU, NOW - 150, 42.0);
-    // Inside the recent window, so this one does ship.
     r.push_raw(CPU, NOW - 30, 43.0);
 
     let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
@@ -562,15 +497,10 @@ fn the_recent_floor_keeps_an_older_raw_sample_out_of_the_recent_tier() {
     assert!(!recent.is_empty(), "and still ships what is inside it");
 }
 
-/// The 1 min band's floor hands everything older to the hour tier. Without it
-/// the minute tier would reach back across the whole retention window and ship
-/// buckets the hour tier is about to ship again.
 #[test]
 fn the_minute_floor_leaves_older_buckets_to_the_hour_tier() {
     let mut r = FakeReader::default();
-    // Older than mid_secs (1000): outside the 1 min band entirely.
     r.push_tier(CPU, Tier::T1, NOW - 5_000, 40.0);
-    // Inside it.
     r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
 
     let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
@@ -586,23 +516,14 @@ fn the_minute_floor_leaves_older_buckets_to_the_hour_tier() {
     assert!(minute.contains(&(NOW - 300)), "and ships what is inside it");
 }
 
-/// A bucket sitting exactly on a band's ceiling is inside the band, so a walk
-/// that has stepped precisely onto it must read it rather than move on. The
-/// cursor lands there only when the batch before it ended one step short of the
-/// ceiling, which is why the sample cap is set to one bucket per batch.
 #[test]
 fn a_bucket_exactly_on_the_recent_ceiling_still_ships() {
-    // A whole-minute `now` and a recent window that is a whole number of
-    // minutes put both ends of the band on a bucket boundary, which is what
-    // lets the walk step precisely onto the ceiling.
     let now = 100_020i64;
     let cfg = BackfillConfig {
         retention_secs: 10_000,
         recent_secs: 120,
         mid_secs: 1_000,
         future_skew_secs: 60,
-        // Two samples a batch is one bucket (avg + max), so the batch before the
-        // ceiling ends exactly one step short of it.
         max_batch_samples: 2,
     };
     let ceiling = now + cfg.future_skew_secs;
@@ -622,22 +543,13 @@ fn a_bucket_exactly_on_the_recent_ceiling_still_ships() {
     );
 }
 
-/// One batch reads a bounded window forward from its position, not the whole
-/// band. It matters when the data is sparse: a walk that read the entire band
-/// at once would gather buckets from the far end of it into the first batch,
-/// and the pacing the caller applies between batches would then be spread over
-/// the wrong amount of work.
 #[test]
 fn a_batch_reads_a_bounded_window_rather_than_the_whole_band() {
     let mut r = FakeReader::default();
-    // Three 1 min buckets spread across the band, two steps apart, with the
-    // first one just above the band floor at NOW - 1000.
     for i in 0..3 {
         r.push_tier(CPU, Tier::T1, NOW - 960 + i * 300, 40.0 + i as f64);
     }
 
-    // Six samples a batch is three buckets (avg + max each), so a batch that
-    // read the whole band would carry all three at once.
     let batches = drain_all(&r, NOW, cfg(6), &[CPU], BackfillCursors::default());
     let first = batches
         .iter()
@@ -661,14 +573,9 @@ fn a_batch_reads_a_bounded_window_rather_than_the_whole_band() {
     }
 }
 
-/// Each tier resumes from its own watermark. The minute tier's resume is
-/// covered above; these are the other two, and without them a stored recent or
-/// hour watermark could be read as "nothing stored" and replay the whole band.
 #[test]
 fn the_recent_and_hour_tiers_resume_from_their_own_watermarks() {
     let mut r = FakeReader::default();
-    // Two whole recent buckets inside the band, which starts at NOW - 100 and
-    // is therefore bounded below by the bucket at NOW - 100 + 40.
     for ts in 99_900..100_020 {
         r.push_raw(CPU, ts, 25.0);
     }
@@ -701,8 +608,6 @@ fn the_recent_and_hour_tiers_resume_from_their_own_watermarks() {
     );
 }
 
-/// A pull holding exactly as many points as the cap allows is complete, not
-/// truncated — the flag says a window was cut short, and nothing was.
 #[test]
 fn a_history_pull_exactly_at_the_cap_is_not_truncated() {
     let mut r = FakeReader::default();
@@ -714,26 +619,17 @@ fn a_history_pull_exactly_at_the_cap_is_not_truncated() {
     assert!(!truncated, "a window that fits the cap exactly is complete");
 }
 
-/// The rollup tiers read through the real store's own snapshot, not only
-/// through the fake. The recent tier is covered by
-/// `drains_a_real_local_store_snapshot`; this is the other half — a store
-/// holding committed 1 min and 1 hr rollups, drained through the same
-/// `TierReader` the agent uses in production.
 #[test]
 fn drains_the_rollup_tiers_from_a_real_local_store_snapshot() {
     use edge_tsdb::{Durability, LocalTsdb, TsdbConfig};
 
     let dir = tempfile::tempdir().unwrap();
     let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
-    // A whole-hour `now` so the hour buckets below are hand-checkable.
     let now = 3_600_000i64;
 
-    // Inside the 1 min band (age 100..1000).
     for ts in (now - 900)..(now - 840) {
         store.append(CPU, Sample::new(ts, 40.0), false).unwrap();
     }
-    // Inside the 1 hr band (age 1000..10000), and far enough from its ceiling
-    // that the whole 3600 s bucket lies inside it.
     let hour_bucket = now - 7_200;
     for ts in hour_bucket..(hour_bucket + 60) {
         store.append(CPU, Sample::new(ts, 30.0), false).unwrap();
@@ -762,17 +658,8 @@ fn drains_the_rollup_tiers_from_a_real_local_store_snapshot() {
     );
 }
 
-/// The seam between two tiers is a bucket boundary, and a bucket that starts
-/// before the recent window does not ship in the recent tier even when part of
-/// what it covers is inside. The recent window's floor is wall-clock — an age in
-/// seconds from now — so it lands mid-bucket most of the time, and a bucket that
-/// straddles it belongs to the minute tier's span rather than to this one.
-/// Shipping it here as well would put the same wall-clock time on the chart
-/// twice, at two resolutions.
 #[test]
 fn a_bucket_straddling_the_recent_floor_does_not_ship_at_full_resolution() {
-    // A recent window of 90 s from a whole-minute `now` puts the floor at
-    // NOW - 90, which is halfway through the bucket that starts at NOW - 120.
     let now = 100_020i64;
     let cfg = BackfillConfig {
         retention_secs: 10_000,
@@ -785,7 +672,6 @@ fn a_bucket_straddling_the_recent_floor_does_not_ship_at_full_resolution() {
     assert_ne!(floor % 60, 0, "the floor has to land inside a bucket");
 
     let mut r = FakeReader::default();
-    // Inside the window by five seconds, but in the bucket that began before it.
     r.push_raw(CPU, floor + 5, 42.0);
 
     let batches = drain_all(&r, now, cfg, &[CPU], BackfillCursors::default());

@@ -1,20 +1,12 @@
 #!/usr/bin/env node
-// CI-only Mermaid syntax validator.
-//
-// Walks the given paths (files or directories), extracts every ```mermaid
-// fenced block from Markdown, and parses each with the official Mermaid parser
-// (the same engine GitHub renders with — see package.json for the pinned
-// version). Exits non-zero on the first syntax error so CI reds the run before
-// GitHub would render an error box. No Puppeteer, no browser, no network.
-//
-// Usage: node validate-mermaid.mjs <file-or-dir> [<file-or-dir> ...]
-//        defaults to ../../docs when no path is given.
+// Parses every mermaid fence in the given Markdown files or directories; exits 1 on any failure.
+// Usage: node validate-mermaid.mjs [file-or-dir ...]; defaults to ../../docs.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
 
-// Mermaid touches the DOM even when only parsing; give it a minimal one.
+// Mermaid reads the DOM while parsing, so a minimal jsdom window stands in.
 const dom = new JSDOM("<!DOCTYPE html><body></body>", { pretendToBeVisual: true });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
@@ -22,14 +14,12 @@ globalThis.document = dom.window.document;
 const mermaid = (await import("mermaid")).default;
 mermaid.initialize({ startOnLoad: false });
 
-/** Recursively collect every *.md file under the given path. */
 function collectMarkdown(path) {
   const st = statSync(path);
   if (st.isFile()) return path.endsWith(".md") ? [path] : [];
   return readdirSync(path).flatMap((entry) => collectMarkdown(join(path, entry)));
 }
 
-/** Extract ```mermaid fences as { code, startLine } (1-based fence line). */
 function extractMermaidBlocks(text) {
   const lines = text.split("\n");
   const blocks = [];

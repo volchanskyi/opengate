@@ -11,15 +11,8 @@ import (
 
 const maxAlertRuleIDLen = 64
 
-// alertBreachSamples turns firing WS-19 breaches into VM samples, dropping any
-// whose metric is outside the rule vocabulary and sanitizing the rule id label
-// (agent-echoed, so defense-in-depth against control chars and overlong values).
-//
-// The metric label is the canonical name the reported one resolves to, so an
-// agent that predates the vitals rename and one that follows it write the same
-// series rather than two halves of one story. The vocabulary doubles as the
-// bound on that label: a breach naming anything else cannot drive central
-// cardinality because it is not recorded at all.
+// alertBreachSamples turns firing breaches into samples labelled by sanitized rule id and
+// canonical metric, and skips any metric outside the rule vocabulary to bound cardinality.
 func alertBreachSamples(breaches []protocol.AlertBreach, ts time.Time) []telemetry.Sample {
 	if len(breaches) == 0 {
 		return nil

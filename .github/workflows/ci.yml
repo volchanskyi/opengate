@@ -29,7 +29,6 @@ jobs:
           workspaces: agent
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace -- -D warnings
-      # ADR-020 — Rust architecture gates.
       - name: Cache cargo-deny + cargo-modules binaries
         uses: actions/cache@v6
         with:
@@ -70,22 +69,17 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
+      - uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
           tool: cargo-nextest@0.9.129
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov@0.8.5
-      # The instrumented run is the canonical execution of the workspace suite:
-      # it reports pass/fail AND produces lcov.info, so the workspace is compiled
-      # and executed once rather than once bare and once under instrumentation.
-      # The only files ignored are the test files themselves. Everything the
-      # workspace ships is measured here, and the same list generates the report
-      # SonarCloud reads — a wider list in one place hides files from one gate
-      # that the other still holds to 80%.
+      # One instrumented run reports pass/fail and produces lcov.info; only test files are ignored.
+      # The same ignore list generates the report SonarCloud reads, so both gates see the same files.
       - name: Tests & coverage
         id: coverage
         run: |
@@ -112,9 +106,7 @@ jobs:
               fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-          # cargo-llvm-cov only writes LCOV to the file when --lcov is set, so
-          # compute the line-coverage % from lcov.info directly. A failing suite
-          # can abort before the file is written, hence the guard.
+          # The percentage is computed from lcov.info; a failing suite can abort before it exists.
           PCT=0
           if [ -f lcov.info ]; then
             PCT=$(awk -F: '
@@ -126,12 +118,8 @@ jobs:
           echo "Rust coverage: $PCT%"
           echo "percentage=$PCT" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
-      # cargo-llvm-cov names every file by its absolute path on the machine that
-      # ran it, and every scanner that reads this report analyses the tree from
-      # inside a container mounted somewhere else — so an absolute path resolves
-      # to no indexed file and the coverage for it is dropped without a word.
-      # That is why no Rust file has ever carried a coverage figure in the
-      # project, while this job passed 80% against the very same report.
+      # Scanners read the tree from a container mounted elsewhere, so absolute paths in the report
+      # resolve to no file and their coverage is dropped silently.
       - name: Make the coverage report portable
         run: |
           "$GITHUB_WORKSPACE/scripts/rust-lcov-relativize.sh" lcov.info "$GITHUB_WORKSPACE"
@@ -166,7 +154,6 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
       - run: go vet ./...
-      # ADR-020 — Go architecture gate.
       - name: Install go-arch-lint
         run: go install github.com/fe3dback/go-arch-lint@v1.19.0
       - name: go-arch-lint check
@@ -193,15 +180,8 @@ jobs:
     defaults:
       run:
         working-directory: server
-    # Postgres is launched manually below (not as a service) so we can pass
-    # `-c max_connections=400`. The default 100-conn limit saturates when
-    # tests run in parallel — each parallel test holds its own schema via
-    # testutil.NewTestStore and the working set of transient conns exceeds
-    # 100 with `go test -p $GOMAXPROCS`. The lock table is sized at startup
-    # as max_locks_per_transaction × max_connections, so the per-transaction
-    # ceiling rises with it: a migration creates the whole schema in one
-    # transaction, and enough of those at once exhaust the default 64 and
-    # fail with "out of shared memory".
+    # Postgres starts below with `-c max_connections=400`: parallel tests, each with its own schema,
+    # exceed 100 connections, and the lock table scales with max_connections.
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
@@ -253,8 +233,7 @@ jobs:
       - name: Enforce coverage threshold
         id: coverage
         run: |
-          # Exclude test scaffolding and generated code only. Every other path
-          # is held to the threshold — see .claude/rules/coverage-exclusions.md.
+          # Only test scaffolding and generated code are excluded; see .claude/rules/coverage-exclusions.md.
           grep -v -E '/testutil/|api/openapi_gen\.go' coverage.out > coverage-prod.out
           TOTAL=$(go tool cover -func=coverage-prod.out | grep total | awk '{print $3}' | tr -d '%')
           echo "Unit test coverage: $TOTAL%"
@@ -281,15 +260,8 @@ jobs:
     defaults:
       run:
         working-directory: server
-    # The scope is the whole server/tests/ tree, so both shared services are
-    # provisioned here rather than left to testcontainers. testpg and testvm
-    # memoize per test BINARY and `go test ./tests/...` builds one binary per
-    # package: with the URLs unset, every package starts its own Postgres and
-    # its own metrics store, and several stores holding a fleet's worth of
-    # series at once is enough memory pressure for the runner to kill one
-    # mid-run — which surfaces as an unrelated package failing on a refused
-    # connection. Postgres carries the same connection and lock headroom the
-    # unit job explains, for the same reason.
+    # testpg and testvm memoize per test binary, so unset URLs start one Postgres and one metrics
+    # store per package; the shared services here keep the runner's memory in bounds.
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
       VICTORIAMETRICS_TEST_URL: http://127.0.0.1:8428
@@ -399,29 +371,9 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run lint
-      # ADR-020 — web architecture gate (cross-feature edge count).
-      - name: depcruise snapshot check
-        run: |
-          current=$(npx --no-install depcruise src --output-type json --no-progress 2>/dev/null | jq -r ".summary.warn")
-          baseline=$(jq -r ".warn" dependency-cruiser.snapshot.json)
-          if [ -f ../.claude/.markers/arch-lint-flipped/depcruise ]; then
-            if [ "$current" -gt 0 ]; then
-              echo "::error::depcruise (flipped to error mode per ADR-020) violations: current=$current"
-              exit 1
-            fi
-          else
-            if [ "$current" -gt "$baseline" ]; then
-              echo "::error::depcruise warning count grew: current=$current baseline=$baseline (ADR-020)."
-              echo "Either fix the new violation or, if intentional, update the baseline:"
-              echo "  jq \".warn = \$current\" web/dependency-cruiser.snapshot.json > /tmp/snap.json && mv /tmp/snap.json web/dependency-cruiser.snapshot.json"
-              exit 1
-            fi
-          fi
+      - name: depcruise check
+        run: ../scripts/depcruise-check.sh
       - name: Verify generated API types are in sync
-        # Mirrors the Go-side codegen drift check earlier in this workflow.
-        # Regenerate `src/types/api.d.ts` from the OpenAPI spec; if the diff
-        # is non-empty the developer forgot to run `npm run generate:api`
-        # after editing `api/openapi.yaml`.
         run: |
           npm run generate:api
           if ! git diff --exit-code -- src/types/api.d.ts; then
@@ -580,10 +532,7 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: read
-    # The browser stack runs two real machines, so the e2e job needs the agent
-    # as a static binary. Building it here once — inside the job that already
-    # carries the Rust cache — and handing it over as an artifact keeps that
-    # compile off the e2e job's critical path.
+    # The e2e stack's two real machines need the agent as a static binary, handed over as an artifact.
     defaults:
       run:
         working-directory: agent
@@ -611,11 +560,6 @@ jobs:
 
   e2e:
     name: E2E Tests
-    # No `needs:` — E2E builds its own docker-compose test stack and shares
-    # no artifacts with the unit/integration jobs, so it can run in
-    # parallel from the start of the workflow. Failures here surface
-    # alongside the unit failures instead of after them, cutting the
-    # critical path roughly in half on PRs that touch web code.
     needs: [agent-binary]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -647,11 +591,7 @@ jobs:
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start the test stack
         run: |
-          # Primary defense against Docker Hub flakes is the pull-through mirror above;
-          # the retry below is a secondary net for transient build (non-registry)
-          # failures, with a clean slate between attempts. The bring-up is the
-          # same script `make e2e` runs: database, server, an enrolment token
-          # minted through the public endpoint, and two machines installed with it.
+          # The retry covers transient build failures, with a clean slate between attempts.
           for attempt in 1 2 3; do
             if bash deploy/scripts/e2e-stack-up.sh; then
               exit 0
@@ -737,10 +677,8 @@ jobs:
           cp api/openapi.yaml gh-pages/docs/api/
           cp docs/api/index.html gh-pages/docs/api/
           cd gh-pages
-          # Serve the pre-built static site directly: .nojekyll skips GitHub's
-          # server-side Jekyll build, whose only inputs here are plain HTML/JSON.
+          # .nojekyll skips GitHub's server-side Jekyll build of the plain HTML and JSON.
           touch .nojekyll
-          # Root redirects to the API reference.
           printf '%s\n' '<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=docs/api/"></head><body><a href="docs/api/">OpenGate API reference</a></body></html>' >index.html
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -755,9 +693,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-    # The versions the action-installed linters are asked for. Left unset, each
-    # action resolves its own; each equals its row in scripts/lib/tool-versions.sh.
-    # Not TRIVY_*: trivy reads every such variable as one of its own flags.
+    # Each version equals its row in scripts/lib/tool-versions.sh; the names avoid TRIVY_*,
+    # which trivy reads as its own flags.
     env:
       PINNED_ACTIONLINT: 1.7.12
       PINNED_TFLINT: v0.64.0
@@ -771,13 +708,11 @@ jobs:
       - name: Run shell lint gates
         run: make shell-check
 
-      # GitHub Actions workflow lint
       - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
         with:
           version: ${{ env.PINNED_ACTIONLINT }}
           flags: -shellcheck=/home/runner/.local/bin/shellcheck
 
-      # L2 — Secrets scanning (S1 of iac-security-testing-pyramid plan).
       - name: Install gitleaks
         env:
           GITLEAKS_VERSION: 8.21.2
@@ -792,7 +727,6 @@ jobs:
       - name: Run gitleaks
         run: make secrets-scan
 
-      # L4 — Dockerfile policy (S2 of iac-security-testing-pyramid plan).
       - name: Install hadolint
         env:
           HADOLINT_VERSION: 2.12.0
@@ -807,9 +741,7 @@ jobs:
       - name: Hadolint Dockerfile
         run: make lint-dockerfile
 
-      # Kubernetes tooling (Phase 13b PR-B): helm renders deploy/helm/** charts
-      # (Checkov's helm framework + `make lint-k8s` both need it); kubeconform
-      # schema-validates the rendered manifests; conftest runs the k8s Rego.
+      # Helm renders the charts for Checkov and `make lint-k8s`; kubeconform and conftest read the output.
       - name: Install helm, kubeconform, conftest
         env:
           HELM_VERSION: 3.16.3
@@ -838,43 +770,41 @@ jobs:
           scripts/install-dump-tools.sh
           echo "$HOME/.local/bin" >>"$GITHUB_PATH"
 
-      # After helm, because the behavioural tests read what the charts render:
-      # a workflow that selects a pod by label is checked against the labels
-      # the chart actually gives it.
+      # The comment sweep parses TypeScript with the compiler web/ installs.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install the web dependencies
+        working-directory: web
+        run: npm ci
+
+      # Runs after helm because the behavioural tests read what the charts render.
       - name: Run shell behavioural tests
         run: make shell-test
 
-      # L4 — Built-in policy scanning across terraform/dockerfile/github_actions/helm.
-      # Baseline at .checkov.baseline pins the currently-accepted findings; see ADR-015.
+      # .checkov.baseline pins the accepted findings.
       - name: Install checkov
         run: pipx install checkov==3.3.16
       - name: Run checkov
         run: make iac-policy
 
-      # L4 — Helm chart validation: helm lint + kubeconform schema + the k8s
-      # Rego policy (policy/k8s) against every rendered overlay.
       - name: Validate Helm charts
         run: make lint-k8s
 
-      # YAML lint (deploy configs)
       - run: pip install --user yamllint==1.38.0
       - run: yamllint -c .yamllint.yml deploy/
 
-      # Terraform format + validate. Pin to 1.9.x — `expect_failures` for
-      # variable validation in `terraform test` requires 1.7+; pinning a known
-      # working line avoids surprise breaks when HashiCorp ships 2.x.
+      # `expect_failures` for variable validation in `terraform test` needs Terraform 1.7 or newer.
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
           terraform_version: 1.9.x
       - name: Terraform fmt
         run: terraform -chdir=deploy/terraform fmt -check -recursive
       - name: Terraform init (with retry)
-        # `terraform init` fetches the oracle/oci provider's SHA256SUMS from
-        # github.com to verify the lockfile hashes; that endpoint is occasionally
-        # flaky from GitHub Actions runners (observed: net/http Client.Timeout
-        # while awaiting headers, 2026-05-15 02:50). Retry with exponential
-        # backoff before failing the gate. Same retry pattern applied to the
-        # other init invocations below + in terraform-drift.yml.
+        # `terraform init` fetches the provider's SHA256SUMS from github.com, which times out
+        # intermittently on runners, so init retries with exponential backoff.
         run: |
           set -e
           for attempt in 1 2 3; do
@@ -889,13 +819,10 @@ jobs:
       - name: Terraform validate
         run: terraform -chdir=deploy/terraform validate
 
-      # Terraform linting
-      - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6
         with:
           tflint_version: ${{ env.PINNED_TFLINT }}
-          # Authenticate the tflint release download so it uses the 5000/hr token
-          # budget instead of the 60/hr anonymous limit (anonymous fetches
-          # intermittently get an HTML rate-limit page instead of the binary).
+          # The token lifts the tflint download from the 60/hr anonymous limit to 5000/hr.
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Tflint init (with retry)
         run: |
@@ -916,13 +843,10 @@ jobs:
       - name: Terraform test (module invariants)
         run: make terraform-test
 
-      # Docker Compose validation
-      # The test compose stack is the local/E2E infra; CD is Helm-only.
       - name: Validate Docker Compose (test stack)
         working-directory: deploy
         run: docker compose -f docker-compose.test.yml config --quiet
 
-      # IaC security scan
       - name: Trivy config scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -1008,12 +932,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pinned-tools
       - uses: actions/setup-go@v7
         with:
-          # Exact patch (not the '1.26' minor, whose manifest entry can lag a
-          # fresh release) so govulncheck scans the same patched standard
-          # library as the local gauntlet. Must equal server/go.mod's toolchain
-          # directive; a gauntlet shell test enforces the two stay in sync.
+          # The exact patch equals server/go.mod's toolchain, so govulncheck scans the gauntlet's stdlib.
           go-version: '1.27.1'
           cache-dependency-path: server/go.sum
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -1023,19 +945,13 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Go vulnerability check
-        # The same script the gauntlet runs. The database is fetched with
-        # retries and the scan runs once against that copy: a scan that fails
-        # is a finding or a crash, and a retry would only turn a crash into an
-        # occasional pass.
+        # The gauntlet's script fetches the database with retries and scans that copy once.
         run: |
           set -euo pipefail
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           scripts/govulncheck-scan.sh
       - name: Rust vulnerability check (with retry)
-        # `cargo audit` clones RustSec/advisory-db on each run; that clone is
-        # the typical transient point (observed: github.com IO error talking
-        # to advisory-db, 2026-05-15 02:53). Retry only the audit, not the
-        # install (which has its own caching).
+        # `cargo audit` clones the advisory database on each run, the step that fails transiently.
         run: |
           set -e
           cargo install --locked cargo-audit@0.22.1
@@ -1046,31 +962,15 @@ jobs:
           done
           echo "::error::cargo audit failed after 3 attempts"
           exit 1
-      - name: npm vulnerability check (with retry)
-        # Install once, outside the loop: a retry exists for the registry lookup
-        # `npm audit` performs, not for dependency installation, which has its own
-        # caching and is not the transient point.
-        #
-        # One pass per lockfile. `npm audit` reports on the lockfile of the
-        # directory it runs from, so a dependency set that is never named is
-        # never looked at, and its packages age out of the advisory database
-        # with the job still green.
+      - name: npm vulnerability check
+        # Each lockfile gets one audit; the script retries only an audit it could not read.
         run: |
-          set -e
+          set -euo pipefail
           for dir in web tools/mermaid-validate; do
             (cd "$dir" && npm ci)
           done
           for dir in web tools/mermaid-validate; do
-            audited=""
-            for attempt in 1 2 3; do
-              if (cd "$dir" && npm audit --audit-level=high); then audited=yes; break; fi
-              echo "::warning::npm audit ($dir) attempt $attempt/3 failed; retrying in $((attempt * 15))s"
-              sleep $((attempt * 15))
-            done
-            if [ -z "$audited" ]; then
-              echo "::error::npm audit ($dir) failed after 3 attempts"
-              exit 1
-            fi
+            scripts/npm-audit.sh "$dir"
           done
 
   pentest-review:
@@ -1089,10 +989,8 @@ jobs:
       - name: Install pinned Semgrep
         run: bash scripts/install-semgrep.sh
       - name: Run adversarial pen-test gate
-        # Diff-only: pull_request scans against the PR base SHA; push scans
-        # against the previous branch tip (github.event.before), falling back
-        # to HEAD~1 on a brand-new branch's first push. The runner blocks on
-        # any HIGH-severity finding (exit 2) — a required merge-to-main check.
+        # A pull request scans against its base SHA; a push against github.event.before, or HEAD~1.
+        # Any HIGH-severity finding exits 2.
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -1139,44 +1037,36 @@ jobs:
         with:
           name: rust-coverage
           path: agent/
-      # Primary path: the official action (fast, signature-verified). It
-      # downloads the scanner CLI from binaries.sonarsource.com, which has
-      # 403'd transiently (observed 2026-06-02). continue-on-error lets the
-      # Docker fallback below take over instead of failing the gate on a CDN
-      # blip; a real quality-gate failure still propagates (the fallback
-      # re-runs the same scan and fails too).
+      # The action downloads the scanner CLI from a CDN that can fail; continue-on-error hands over
+      # to the Docker fallback, which re-runs the scan and fails on a real gate failure.
       - name: SonarCloud Scan
         id: sonar_action
         if: env.SONAR_TOKEN != ''
         continue-on-error: true
-        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8
         with:
-          args: -Dsonar.qualitygate.wait=true
+          scannerVersion: 8.1.0.6389
+          args: >-
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.scanner.keepReport=true
+            -Dsonar.working.directory=.scannerwork
       - uses: ./.github/actions/docker-hub-mirror
         if: env.SONAR_TOKEN != '' && steps.sonar_action.outcome == 'failure'
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-      # Fallback: only when the action failed. Runs the scanner via the Docker
-      # image (pulled from the container registry, NOT binaries.sonarsource.com
-      # — the same path `make sonar` uses), with the repo's retry-with-backoff
-      # pattern on the image pull.
-      #
-      # CRITICAL: pass -Dsonar.scanner.skipJreProvisioning=true. SonarScanner CLI
-      # 8.x bootstraps by downloading a JRE from scanner.sonarcloud.io/jres/… —
-      # a SECOND SonarSource CDN, which has 403'd in CI (observed repeatedly). A
-      # fallback that re-downloads from a SonarSource CDN does not actually
-      # survive a SonarSource-CDN outage. The scanner image already bundles a
-      # compatible JRE (Corretto 21), so skipping provisioning makes the fallback
-      # fully self-contained (image from docker.io only). Without this flag the
-      # fallback fails on the JRE 403 — the recurring breakage this fixes.
+      # The scanner image bundles a JRE, so -Dsonar.scanner.skipJreProvisioning=true keeps the
+      # fallback independent of the SonarSource CDNs.
       - name: SonarCloud Scan (Docker fallback on CDN failure)
         if: env.SONAR_TOKEN != '' && steps.sonar_action.outcome == 'failure'
         run: |
           set -euo pipefail
+          . scripts/lib/tool-versions.sh
+          image="sonarsource/sonar-scanner-cli:$TOOL_VERSION_SONAR_SCANNER_IMAGE"
           echo "::warning::SonarCloud action failed (likely the binaries.sonarsource.com CDN); falling back to the Docker scanner."
+          rm -rf .scannerwork
           for attempt in 1 2 3; do
-            if docker pull sonarsource/sonar-scanner-cli:latest; then
+            if docker pull "$image"; then
               break
             fi
             if [ "$attempt" -eq 3 ]; then
@@ -1189,31 +1079,25 @@ jobs:
           docker run --rm \
             -e SONAR_TOKEN="$SONAR_TOKEN" \
             -v "$(pwd):/usr/src" -w /usr/src \
-            sonarsource/sonar-scanner-cli:latest \
+            "$image" \
             -Dsonar.host.url=https://sonarcloud.io \
             -Dsonar.qualitygate.wait=true \
             -Dsonar.scanner.skipJreProvisioning=true \
+            -Dsonar.scanner.keepReport=true \
+            -Dsonar.working.directory=.scannerwork \
             -Dsonar.branch.name=dev
+      - uses: actions/setup-go@v7
+        if: env.SONAR_TOKEN != ''
+        with:
+          go-version: '1.27'
+          cache: false
+      - name: Repeated code at most 3% per production file
+        if: env.SONAR_TOKEN != ''
+        run: GO111MODULE=off go run ./scripts/check-duplication
 
   iac-gate:
-    # Inlined from the former .github/workflows/iac-plan-preview.yml so
-    # merge-to-main can `needs:` it (cross-workflow `needs:` is not supported).
-    # Runs `terraform plan` against the remote backend whenever a commit or PR
-    # touches `deploy/terraform/**` or the parser script. The plan summary is
-    # posted as a sticky PR comment on PR events and written to
-    # GITHUB_STEP_SUMMARY on push events. A destroy of a protected resource
-    # type (VCN / subnet / security list / NSG / state bucket) fails the gate
-    # unless the PR carries the `iac:approve-destroy` label.
-    #
-    # No bypass exists for direct pushes to dev: destructive terraform changes
-    # must go through a labelled PR. Drift detection
-    # (`.github/workflows/terraform-drift.yml`) is the complementary control
-    # that catches anything the gate missed.
-    #
-    # Path filter: the job is always queued, but every terraform step is
-    # gated on `steps.changes.outputs.terraform == 'true'` so non-terraform
-    # commits complete in ~10s without paying for `terraform init`. That keeps
-    # this safe to be a `needs:` of `merge-to-main` for every push.
+    # Every terraform step is gated on `steps.changes.outputs.terraform`, so the job always
+    # completes and merge-to-main can depend on it.
     name: IaC plan + destroy-blocklist gate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1229,12 +1113,8 @@ jobs:
         id: changes
         run: |
           set -euo pipefail
-          # Pick the diff baseline based on the event:
-          #   pull_request → the PR base commit
-          #   push         → github.event.before (the previous tip of the branch)
-          #                  except on a brand-new branch first push, where
-          #                  github.event.before is all zeros; fall back to HEAD~1.
-          #   workflow_dispatch / anything else → no clear baseline; run the gate.
+          # The baseline is the PR base, or github.event.before (all zeros on a new branch: HEAD~1).
+          # Any other event has no baseline and runs the gate.
           case "${{ github.event_name }}" in
             pull_request)
               BASE_SHA="${{ github.event.pull_request.base.sha }}"
@@ -1337,10 +1217,7 @@ jobs:
         id: parse
         if: steps.changes.outputs.terraform == 'true'
         env:
-          # The destroy bypass is gated to PRs only: a PR may carry the
-          # `iac:approve-destroy` label after human review. Direct pushes
-          # have no PR and no label → no bypass → destructive terraform
-          # changes are hard-blocked on dev.
+          # Only a PR labelled `iac:approve-destroy` bypasses the destroy block; direct pushes cannot.
           HAS_APPROVE_DESTROY: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'iac:approve-destroy') }}
         run: |
           set -euo pipefail
@@ -1533,13 +1410,11 @@ jobs:
       - name: Determine version bump
         id: bump
         run: |
-          # Find latest semver tag, default to v0.0.0
           LATEST=$(git tag -l 'v*' --sort=-v:refname | head -n1)
           LATEST="${LATEST:-v0.0.0}"
           SEMVER="${LATEST#v}"
           IFS='.' read -r MAJOR MINOR PATCH <<< "$SEMVER"
 
-          # Get commits merged in the last merge commit (--no-ff merge)
           MERGE_SHA=$(git rev-parse HEAD)
           COMMITS=$(git log --format='%s' "${MERGE_SHA}^1..${MERGE_SHA}^2" 2>/dev/null || echo "")
 
@@ -1549,7 +1424,6 @@ jobs:
             exit 0
           fi
 
-          # Determine bump level (highest wins)
           BUMP=""
           if echo "$COMMITS" | grep -qiE 'BREAKING CHANGE|^[a-z]+(\(.*\))?!:'; then
             BUMP="major"
@@ -1587,14 +1461,12 @@ jobs:
           MERGE_SHA=$(git rev-parse HEAD)
           DATE=$(date -u +%Y-%m-%d)
 
-          # Collect commits by category
           ADDED=""
           FIXED=""
           CHANGED=""
 
           while IFS= read -r line; do
             [ -z "$line" ] && continue
-            # Strip type prefix, keep scope and description
             MSG=$(echo "$line" | sed -E 's/^[a-z]+(\([^)]*\))?!?:\s*//')
             SCOPE=$(echo "$line" | sed -nE 's/^[a-z]+\(([^)]*)\).*$/\1/p')
             [ -n "$SCOPE" ] && MSG="**$SCOPE:** $MSG"
@@ -1608,13 +1480,11 @@ jobs:
             fi
           done <<< "$(git log --format='%s' "${MERGE_SHA}^1..${MERGE_SHA}^2" 2>/dev/null)"
 
-          # Build the new entry
           ENTRY="## [${TAG}] - ${DATE}"
           [ -n "$ADDED" ]  && ENTRY="${ENTRY}\n\n### Added$(echo -e "$ADDED")"
           [ -n "$FIXED" ]  && ENTRY="${ENTRY}\n\n### Fixed$(echo -e "$FIXED")"
           [ -n "$CHANGED" ] && ENTRY="${ENTRY}\n\n### Changed$(echo -e "$CHANGED")"
 
-          # Insert after the header (before the first ## entry or at end)
           if [ -f CHANGELOG.md ]; then
             awk -v entry="$(echo -e "$ENTRY")" '
               /^## \[/ && !inserted { print entry; print ""; inserted=1 }
@@ -1642,7 +1512,6 @@ jobs:
         run: |
           TAG="${{ steps.bump.outputs.tag }}"
 
-          # Check if tag already exists (idempotency)
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists — skipping"
             echo "pushed=false" >> "$GITHUB_OUTPUT"

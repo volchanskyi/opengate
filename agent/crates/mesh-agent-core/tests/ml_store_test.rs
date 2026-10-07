@@ -1,9 +1,5 @@
-//! Edge-Sentinel sampler → local store sink (WS-14b).
-//!
-//! Proves the sampler path persists raw metric samples with their inline anomaly
-//! bit into the graduated `LocalTsdb`, that the rollups are queryable, and that
-//! detection can read past context from a stable MVCC snapshot while the sampler
-//! keeps writing.
+//! Sampler to local store sink: raw samples with anomaly bits, rollups and snapshot reads
+//! while the sampler keeps writing.
 
 use edge_tsdb::store::Tier;
 use edge_tsdb::Durability;
@@ -53,11 +49,10 @@ fn records_raw_and_anomaly_bits_and_rolls_up() {
         .range_raw(SERIES_CPU, i64::MIN, i64::MAX)
         .unwrap();
     assert_eq!(cpu.len(), 120);
-    // The inline anomaly bit is persisted alongside the raw sample.
     for (i, (_s, a)) in cpu.iter().enumerate() {
         assert_eq!(*a, i as i64 % 17 == 0, "anomaly bit at {i}");
     }
-    // Centi-precision percentages are recovered losslessly (fixed-point ×100).
+    // Percentages are stored as fixed-point hundredths and read back exactly.
     let mem = sink
         .store()
         .range_raw(SERIES_MEM, i64::MIN, i64::MAX)
@@ -69,7 +64,6 @@ fn records_raw_and_anomaly_bits_and_rolls_up() {
         .unwrap();
     assert!((disk[0].0.value - 30.25).abs() < 1e-6);
 
-    // Rollups are queryable (min/max/last/avg the central avg-only VM cannot give).
     let t1 = sink
         .store()
         .range_tier(SERIES_CPU, Tier::T1, i64::MIN, i64::MAX)
@@ -79,11 +73,6 @@ fn records_raw_and_anomaly_bits_and_rolls_up() {
     assert_eq!(t1[0].min, 20.0);
 }
 
-/// Every series stores its own field's reading. The sampler-to-series mapping is
-/// positional, so two entries swapped in it would file each reading under the
-/// other's name — a defect no averaging or round-trip test can see, because both
-/// sides stay self-consistent. Each field therefore carries a value no other
-/// field has, and each series is read back and matched to the one it owns.
 #[test]
 fn each_series_stores_the_field_it_names() {
     let dir = tempfile::tempdir().unwrap();
@@ -133,11 +122,6 @@ fn each_series_stores_the_field_it_names() {
     assert_eq!(stored(SERIES_DISK_QUEUE_DEPTH), Some(15.0));
 }
 
-/// The disk-performance series are stored at milli resolution, which is what
-/// makes them worth storing: a healthy NVMe serves an I/O in 0.125 ms and a
-/// queue is fractional, and the centi scale the percentage gauges use would
-/// round both to something else. The fixture values are exact at that scale, so
-/// the reading comes back out of the store as the number that went in.
 #[test]
 fn sub_millisecond_service_time_survives_the_store() {
     let dir = tempfile::tempdir().unwrap();
@@ -157,10 +141,6 @@ fn sub_millisecond_service_time_survives_the_store() {
     assert_eq!(stored(SERIES_DISK_QUEUE_DEPTH), Some(2.375));
 }
 
-/// A containerized agent, and any host without `/proc/diskstats`, leaves the two
-/// disk-performance series with no rows at all. A zero row would say the disks
-/// are instantaneous and idle — and reconnect-backfill would then ship that
-/// claim centrally as a measurement.
 #[test]
 fn a_sample_without_disk_performance_writes_no_row() {
     let dir = tempfile::tempdir().unwrap();
@@ -180,8 +160,6 @@ fn a_sample_without_disk_performance_writes_no_row() {
             "series {series} has no row without a reading"
         );
     }
-    // The capacity reading beside them is unaffected: a disk whose speed cannot
-    // be measured still reports how full it is.
     assert_eq!(
         sink.store()
             .range_raw(SERIES_DISK, i64::MIN, i64::MAX)
@@ -191,10 +169,6 @@ fn a_sample_without_disk_performance_writes_no_row() {
     );
 }
 
-/// A host whose kernel publishes no pressure leaves the five stall series with
-/// no rows at all. A zero row would be indistinguishable from a host that was
-/// measured and never stalled, and reconnect-backfill would then ship that zero
-/// centrally as a measurement.
 #[test]
 fn a_sample_without_pressure_writes_no_stall_row() {
     let dir = tempfile::tempdir().unwrap();
@@ -223,7 +197,6 @@ fn a_sample_without_pressure_writes_no_stall_row() {
             "series {series} has no row without a reading"
         );
     }
-    // The vitals the host can measure are unaffected.
     assert_eq!(
         sink.store()
             .range_raw(SERIES_CPU, i64::MIN, i64::MAX)
@@ -233,10 +206,6 @@ fn a_sample_without_pressure_writes_no_stall_row() {
     );
 }
 
-/// The critical-mount count is a whole number, and it comes back out of the
-/// store as the same whole number at every value the reduction can produce —
-/// a count quantized to something coarser would report a mount set the host
-/// never had.
 #[test]
 fn the_critical_mount_count_round_trips_exactly() {
     let dir = tempfile::tempdir().unwrap();
@@ -260,16 +229,12 @@ fn the_critical_mount_count_round_trips_exactly() {
     }
 }
 
-/// A host with no measurable mount writes no disk rows at all. A 0 would be
-/// indistinguishable from an empty volume on every later read — the rollups, the
-/// backfill drain, and the deep-history pull all read this tier.
 #[test]
 fn an_unmeasurable_disk_leaves_a_gap_rather_than_a_zero() {
     let dir = tempfile::tempdir().unwrap();
     let mut sink = LocalStoreSink::open(dir.path(), 8 * 1024 * 1024, 4).unwrap();
     for i in 0..10i64 {
         let mut s = sample(20.0, 30.0, 40.0);
-        // The middle three samples find nothing mounted.
         if (4..7).contains(&i) {
             s.disk_used_percent = None;
             s.disk_mounts_critical = None;
@@ -292,7 +257,6 @@ fn an_unmeasurable_disk_leaves_a_gap_rather_than_a_zero() {
             "series {series} skips the unmeasurable seconds"
         );
     }
-    // Every other series kept recording through the gap.
     assert_eq!(
         sink.store()
             .range_raw(SERIES_CPU, i64::MIN, i64::MAX)
@@ -312,7 +276,6 @@ fn detection_reads_past_context_from_a_stable_snapshot() {
     }
     sink.flush(Durability::Full).unwrap();
 
-    // Detection opens a snapshot of the past context...
     let snap = sink.snapshot().unwrap();
     assert_eq!(
         snap.range_raw(SERIES_CPU, i64::MIN, i64::MAX)
@@ -321,14 +284,12 @@ fn detection_reads_past_context_from_a_stable_snapshot() {
         100
     );
 
-    // ...while the sampler keeps recording and flushing.
     for i in 100..200i64 {
         sink.record(1_000 + i, &sample(30.0, 40.0, 50.0), false)
             .unwrap();
     }
     sink.flush(Durability::Full).unwrap();
 
-    // The snapshot is a stable view; a fresh read sees the new samples.
     assert_eq!(
         snap.range_raw(SERIES_CPU, i64::MIN, i64::MAX)
             .unwrap()

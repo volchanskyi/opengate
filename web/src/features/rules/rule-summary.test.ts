@@ -47,10 +47,6 @@ describe('what a rule is doing, in an operator\'s words', () => {
     expect(watchWording(rule({ comparator: 'lt', threshold: 5 }))).toBe('disk.used_percent below 5');
   });
 
-  // A rule reading the machine's own log records compares no number, so there
-  // is no reading, no comparison and no line to show. Rendering the absence as
-  // "undefined at or above undefined" would read as a rule nobody finished
-  // writing, and rendering a zero would read as a setting.
   it('says what a rule watching the machine own words watches', () => {
     const words = rule({
       id: 'linux-oom-kill', kind: 'event', severity: 'critical',
@@ -113,10 +109,6 @@ describe('what a rule is doing, in an operator\'s words', () => {
       .toBe('machines labelled env=production, role=file-server');
   });
 
-  // Label keys are typed in by each customer, so their case and their accents
-  // are whatever somebody entered. Ordering by code unit scatters every
-  // capitalised key to the front of the list and files an accented one after
-  // `z`, which reads as an arbitrary order rather than an alphabetical one.
   it('orders labels the way somebody reading them expects, not by code unit', () => {
     expect(selectorWording({ Zone: 'east', az: 'eu-west' }))
       .toBe('machines labelled az=eu-west, Zone=east');

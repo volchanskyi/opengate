@@ -5,10 +5,8 @@ export function AdminGuard() {
   const user = useAuthStore((s) => s.user);
   const hydrated = useAuthStore((s) => s.hydrated);
 
-  // Wait for hydrate() to populate the user from localStorage + /users/me.
-  // Without this, every fresh navigation to /settings/* would render once
-  // with user=null and trigger an immediate Navigate, even for valid admins
-  // — see AdminGuard.test.tsx regression case.
+  // Renders nothing until hydrate() has loaded the user, so a valid admin is not
+  // redirected on the first render.
   if (!hydrated) {
     return null;
   }

@@ -1,52 +1,42 @@
-# Rust
 /agent/target/
 **/*.rs.bk
 
-# Go
 /server/bin/
 /server/vendor/
 
-# Web
 /node_modules/
 /web/node_modules/
 /web/dist/
 
-# CI-only Mermaid validator (deps restored via `npm ci` in the docs-validate job)
 /tools/mermaid-validate/node_modules/
 
-# Database
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
 
-# Certificates (generated at runtime)
 ca.crt
 ca.key
 *.pem
 
-# Environment
 .env
 .env.*
 !.env.example
 !.env.monitoring.example
 
-# OS
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Claude Code local settings (machine-specific, may contain credentials)
+# Machine-specific settings that may hold credentials.
 .claude/settings.local.json
 
-# Test artifacts
 /testdata/golden/*.generated
 coverage/
 *.coverprofile
@@ -57,16 +47,14 @@ agent/mutants.out/
 agent/mutants.out.old/
 mutants.out/
 mutants.out.old/
-# gremlins JSON reports written locally by `make mutate-go` (per shard) and
-# merged; CI uploads them as artifacts instead of committing them.
+# Per-shard gremlins reports written by `make mutate-go`.
 server/mutation-report*.json
 
-# Coverage
 *.lcov
 lcov.info
 server/coverage*.out
+.scannerwork/
 
-# Build
 *.exe
 *.dll
 *.so
@@ -74,12 +62,9 @@ server/coverage*.out
 /server/meshserver
 /server/loadtest
 
-# Python
 __pycache__/
 
-# Local-state marker files: the tidy-up proof (.claude/hooks/lib/tidy-up.sh).
-# Tracked subdirectories under .claude/.markers/ (e.g. arch-lint-flipped/
-# per ADR-020) must NOT be ignored.
+# Tidy-up proof markers; tracked subdirectories of .claude/.markers/ stay unignored.
 /.claude/.markers/*.head
 /.claude/.markers/gauntlet.pass
 /.claude/.markers/refactor.start

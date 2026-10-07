@@ -11,17 +11,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-// The edge-first alert wire contract. An alert is the only thing that ever
-// carries the detail behind a signal: the server holds no high-resolution
-// history to go back to and has no way of asking the device later, so whatever
-// is not on the message at fire time does not exist. These fixtures are
-// Rust-encoded and decoded here, and every one of them is put back through the
-// server's own encoder, because a field the server silently drops on the way
-// through is a field the investigation never gets back.
-
-// The composition an alert's evidence is assembled at. Stated here as well as on
-// the agent so the two are asserted against each other rather than against
-// whatever the fixture happens to hold.
+// The composition an alert's evidence is assembled at, mirrored on the agent.
 const (
 	evidenceRankedDims   = 8
 	evidenceSeriesDims   = 3
@@ -55,9 +45,7 @@ func TestGoldenControlAgentAlert(t *testing.T) {
 }
 
 func TestGoldenControlAgentAlertMinimal(t *testing.T) {
-	// The smallest alert an agent can emit. Both encoders drop what is empty, so
-	// this is a three-key map — and it still has to decode, with severity read as
-	// a stated value rather than an absent one.
+	// The smallest alert is a three-key map because both encoders drop empty fields.
 	msg := decodeControlFrame(t, "control_agent_alert_min.bin")
 
 	assert.Equal(t, MsgAgentAlert, msg.Type)
@@ -74,11 +62,6 @@ func TestGoldenControlAgentAlertMinimal(t *testing.T) {
 	assertControlSurvivesReencode(t, msg)
 }
 
-// TestGoldenAlertEvidenceInflatesWithStdlib is the codec half of the contract:
-// the agent compresses evidence with pure-Rust DEFLATE and the server reads it
-// with compress/flate, so neither side pays for a compression dependency. The
-// counts are the fixed composition — not "top-N by whatever fit" — because two
-// incidents are only comparable if they were assembled the same way.
 func TestGoldenAlertEvidenceInflatesWithStdlib(t *testing.T) {
 	blob := readGolden(t, "alert_evidence.bin")
 	require.LessOrEqual(t, len(blob), MaxEvidenceBytes)
@@ -99,26 +82,15 @@ func TestGoldenAlertEvidenceInflatesWithStdlib(t *testing.T) {
 	assert.Len(t, evidence.LogSamples, evidenceLogSamples)
 	assert.False(t, evidence.Truncated, "the shipped composition fits without truncation")
 
-	// Ranked order is the ranking, not an accident of map iteration: a
-	// technician reads the first line and expects it to be the worst one.
+	// A technician reads the first line expecting the worst dimension.
 	for i := 1; i < len(evidence.Ranked); i++ {
 		assert.LessOrEqual(t, evidence.Ranked[i].Score, evidence.Ranked[i-1].Score,
 			"ranked dimensions must arrive most anomalous first")
 	}
 }
 
-// assertControlSurvivesReencode re-encodes a decoded control frame and decodes
-// it again, asserting the message is unchanged. A field the server can read but
-// cannot write — the shape that loses evidence in transit while every decode
-// assertion still passes — shows up here and nowhere else.
-//
-// Byte equality with the agent's own encoding is deliberately not the assertion:
-// the two integer policies differ on purpose. rmp-serde writes an integer in the
-// fewest bytes that hold it, while the server's encoder is width-preserving so
-// that it stays byte-identical to its own reflection encoder, which
-// codec_wire_equivalence_test.go pins. Both are valid msgpack for the same
-// value, so the contract that matters across the languages is that the value
-// survives.
+// assertControlSurvivesReencode asserts a re-encoded control frame decodes to the same message;
+// integer widths differ from rmp-serde's, so values are compared, not bytes.
 func assertControlSurvivesReencode(t *testing.T, msg *ControlMessage) {
 	t.Helper()
 	reencoded, err := msgpack.Marshal(msg)

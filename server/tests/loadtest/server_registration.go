@@ -14,32 +14,14 @@ import (
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
-// Registration has to be measured where the device row lands.
-//
-// The harness's own clock stops when the register frame has been handed to a
-// local send buffer, which is a measurement of this process and not of the
-// server: the row is written later, somewhere else, and the number the trend
-// keeps cannot move however slow that becomes. Two ceilings sat on it.
-//
-// So the number comes from the server. It publishes how long registration took
-// as it saw it, split by whether the registration was accepted or refused, and
-// it publishes the connection pool beside it — because a registration queued
-// behind a connection and one executing slowly are the same latency until the
-// pool says which.
-
-// registrationMetric is the family the server publishes registration timing in.
+// registrationMetric is the family the server publishes registration timing in, measured where
+// the device row lands.
 const registrationMetric = "opengate_agent_registration_duration_seconds"
 
 // poolMetric is the family the server publishes pool occupancy in.
 const poolMetric = "opengate_db_pool_connections"
 
-// acceptedOutcome is the label value for a registration that completed.
-//
-// It is the server's own constant rather than a copy of it. A copy read
-// "accepted" while the server published "ok", so the reading came back with
-// nothing accepted on every run that ever took it: no registration line in any
-// results block, and three limits held against a measurement nothing produced.
-// A vocabulary with two homes is the defect; one home is the fix.
+// acceptedOutcome is the label value for a registration that completed, shared with the server.
 const acceptedOutcome = appmetrics.RegistrationOK
 
 // serverMetricsTimeout bounds the read. The page is small and local; a read that
@@ -54,8 +36,8 @@ type bucketBound struct {
 
 // ServerRegistration is registration as the server measured it.
 type ServerRegistration struct {
-	// Accepted and Rejected are counts, held apart because a refused
-	// registration is the system working rather than a fault.
+	// Accepted and Rejected are counts, held apart because a refused registration is the
+	// system working as designed.
 	Accepted int64
 	Rejected int64
 
@@ -73,8 +55,7 @@ type ServerRegistration struct {
 	PoolMaxOpen float64
 }
 
-// Measured reports whether the server saw any registration at all. A run that
-// measured nothing must not read as a run that measured zero milliseconds.
+// Measured reports whether the server saw any registration, so an empty run reads as absent.
 func (r ServerRegistration) Measured() bool { return r.Accepted > 0 }
 
 // MeanMs is the average accepted registration, in milliseconds.
@@ -85,13 +66,8 @@ func (r ServerRegistration) MeanMs() float64 {
 	return r.SumSeconds / float64(r.Accepted) * 1000
 }
 
-// QuantileMs is the tail of accepted registrations, in milliseconds.
-//
-// The value is interpolated inside whichever bucket the quantile falls in,
-// which is what a bucketed histogram can honestly say: the exact figure was
-// never kept, only how many fell below each boundary. Anything past the last
-// finite boundary is reported at that boundary rather than as an infinity,
-// because a ceiling cannot be compared against one.
+// QuantileMs is the q quantile of accepted registrations in milliseconds, interpolated inside
+// its bucket and capped at the last finite boundary.
 func (r ServerRegistration) QuantileMs(q float64) float64 {
 	if r.Accepted == 0 || len(r.Buckets) == 0 {
 		return 0
@@ -120,9 +96,8 @@ func (r ServerRegistration) QuantileMs(q float64) float64 {
 	return previousBound * 1000
 }
 
-// PastTheScale reports whether the q quantile lies past the last finite bucket,
-// where QuantileMs can only give that bucket's bound: the figure is then a
-// floor, and the bundle says so.
+// PastTheScale reports whether the q quantile lies past the last finite bucket, where
+// QuantileMs gives only that bucket's bound as a floor.
 func (r ServerRegistration) PastTheScale(q float64) bool {
 	if r.Accepted == 0 || len(r.Buckets) == 0 {
 		return false
@@ -145,10 +120,8 @@ func FetchServerRegistration(baseURL string) (ServerRegistration, error) {
 	return ParseServerRegistration(page)
 }
 
-// fetchExpositionPage reads the target's exposition once. Both readers above it
-// want the same page from the same listener, so the request is made in one
-// place — including the base URL, which names the server's cluster-only
-// listener and not the one the API answers on.
+// fetchExpositionPage reads the target's exposition once, from the server's cluster-only
+// listener that baseURL names.
 func fetchExpositionPage(baseURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), serverMetricsTimeout)
 	defer cancel()
@@ -175,9 +148,8 @@ func fetchExpositionPage(baseURL string) (string, error) {
 	return string(body), nil
 }
 
-// ParseServerRegistration reads the two families this needs out of a metrics
-// page. It reads only those, rather than pulling in a parser for the whole
-// exposition format, so what the harness depends on is visible here.
+// ParseServerRegistration reads the registration and pool families out of a metrics page,
+// leaving every other family unparsed.
 func ParseServerRegistration(page string) (ServerRegistration, error) {
 	reading := ServerRegistration{}
 	buckets := map[float64]float64{}
@@ -235,8 +207,7 @@ func (r *ServerRegistration) recordPool(state string, value float64) {
 	}
 }
 
-// orderedBuckets puts the cumulative buckets in boundary order, which is the
-// order a quantile has to walk them in and not the order a map yields.
+// orderedBuckets puts the cumulative buckets in boundary order, the order a quantile walks them.
 func orderedBuckets(in map[float64]float64) []bucketBound {
 	out := make([]bucketBound, 0, len(in))
 	for le, count := range in {
@@ -246,9 +217,8 @@ func orderedBuckets(in map[float64]float64) []bucketBound {
 	return out
 }
 
-// splitSample breaks one exposition line into its name, its labels and its
-// value. A line it cannot read is skipped rather than failing the read: the page
-// carries families this does not care about and new ones arrive over time.
+// splitSample breaks one exposition line into its name, its labels and its value.
+// An unreadable line reports ok false, since the page carries families the caller ignores.
 func splitSample(line string) (name string, labels map[string]string, value float64, ok bool) {
 	labels = map[string]string{}
 

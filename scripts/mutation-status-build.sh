@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Validate every expected mutation artifact and emit an always-present run status.
-# Incomplete artifacts are data, not a script error: this script exits 0 with
-# complete=false so the workflow can upload and push the diagnostic before it
-# fails the run as incomplete.
+# Validates every expected mutation artifact and emits a run status, exiting 0 with
+# complete=false on incomplete artifacts so the workflow can push the diagnostic first.
 set -euo pipefail
 
 ARTIFACTS_DIR="${1:?Usage: $0 <artifacts-dir> <status.json>}"
@@ -112,9 +110,7 @@ else
   web_valid=0
 fi
 
-# Exercise the same merge implementations used by publish. With valid inputs
-# these should be infallible, but completeness must not claim success if the
-# canonical language merge cannot actually be formed.
+# Runs the merges that publish uses, so completeness holds only when the canonical merge forms.
 if [[ "$rust_valid" -eq 1 ]] \
   && ! "$SCRIPT_DIR/mutation-merge-rust.sh" "$work/rust.json" "${rust_inputs[@]}" >/dev/null 2>&1; then
   all_valid=0
@@ -128,16 +124,7 @@ fi
 
 complete=false
 [[ "$all_valid" -eq 1 ]] && complete=true
-# Completeness per leg, beside the whole-run boolean rather than instead of it.
-#
-# One boolean over all fifty-three shards is what destroyed the scores: on six of
-# the last ten red nights the failing leg was Go alone, and the twenty-five Rust
-# shards and the web shard had all finished. Their scores were discarded with the
-# Go leg's, which is a detection gap as well as waste — a Rust regression cannot
-# be seen on a night Go flakes.
-#
-# `complete` keeps its meaning exactly, so everything already reading it — the
-# gate, the VM status push — is unaffected by what is added next to it.
+# Completeness per leg, beside the whole-run `complete` boolean the gate and the status push read.
 by_language="$(jq -nc \
   --argjson rust "$([[ "$rust_valid" -eq 1 ]] && echo true || echo false)" \
   --argjson go "$([[ "$go_valid" -eq 1 ]] && echo true || echo false)" \

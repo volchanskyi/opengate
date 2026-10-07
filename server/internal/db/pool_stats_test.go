@@ -12,13 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// A load run that saturates the database has to be able to say so. Without a
-// pool reading, a slow run looks the same whether requests are executing or
-// queued behind a connection, and the only evidence is latency — which is the
-// symptom, not the constraint.
-
-// TestPoolStatsReportsTheLiveConnectionPool proves the reading describes the
-// pool this store actually opened, ceiling included.
 func TestPoolStatsReportsTheLiveConnectionPool(t *testing.T) {
 	store := testutil.NewTestStore(t)
 
@@ -30,8 +23,6 @@ func TestPoolStatsReportsTheLiveConnectionPool(t *testing.T) {
 	assert.LessOrEqual(t, stats.Open, stats.Max, "the pool cannot hold more connections than its ceiling")
 }
 
-// TestPoolStatsSeesConnectionsInUse proves the active count moves when work is
-// in flight, which is what makes it a saturation signal rather than a constant.
 func TestPoolStatsSeesConnectionsInUse(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := context.Background()
@@ -43,9 +34,6 @@ func TestPoolStatsSeesConnectionsInUse(t *testing.T) {
 	assert.GreaterOrEqual(t, store.PoolStats().InUse, 1, "an open transaction holds a connection out of the pool")
 }
 
-// TestPoolStatsCountsWaitsWhenThePoolIsTheConstraint proves the wait account
-// rises when callers queue. It is the one reading that separates a pool that is
-// merely busy from one that is the bottleneck.
 func TestPoolStatsCountsWaitsWhenThePoolIsTheConstraint(t *testing.T) {
 	store := testutil.NewTestStoreWithPool(t, 1)
 	ctx := context.Background()
@@ -68,9 +56,6 @@ func TestPoolStatsCountsWaitsWhenThePoolIsTheConstraint(t *testing.T) {
 	assert.Positive(t, after.WaitDuration, "a queued caller spent time waiting")
 }
 
-// TestPoolStatsSatisfiesTheMetricsStatter keeps the seam honest: the metrics
-// package declares what it needs and adapts the pool's own statistics, so the
-// dependency runs one way and the database layer never imports metrics.
 func TestPoolStatsSatisfiesTheMetricsStatter(t *testing.T) {
 	store := testutil.NewTestStore(t)
 

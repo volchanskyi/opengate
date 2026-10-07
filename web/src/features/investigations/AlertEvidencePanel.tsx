@@ -23,14 +23,8 @@ function Section({ title, children }: { readonly title: string; readonly childre
 }
 
 /**
- * Everything the machine knew about why one alert fired, frozen at write time.
- *
- * Nothing here is fetched from the machine: what is not in this snapshot about
- * an event is not recorded anywhere, which is why an absence is stated rather
- * than left as a blank somebody might read as "still loading".
- *
- * Every value on this panel is host-supplied — log lines, process names — so it
- * is rendered as text throughout, and nothing in it becomes a link.
+ * One alert's evidence snapshot, frozen at write time; every host-supplied value is rendered as
+ * text and none becomes a link.
  */
 export function AlertEvidencePanel({ evidence, loading, error }: Props) {
   if (error !== undefined) {

@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Convert canonical network-drill rows to Prometheus text and push them to
-# VictoriaMetrics.
-#
-# The scenario and the victim ride with every sample, because the same metric
-# means different things on different scenarios: a reconnect after a three
-# minute outage and a reconnect after a re-addressing are not one series.
+# Converts network-drill rows to Prometheus text and pushes them to VictoriaMetrics.
+# Scenario and victim labels ride with every sample, as one metric differs per scenario.
 set -euo pipefail
 
 SUMMARY_FILE="${1:-netdrill-summary.json}"

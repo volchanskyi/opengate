@@ -12,23 +12,11 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testpg"
 )
 
-// Fixed identifiers for the probe role and schema. Keeping them compile-time
-// literals means every statement below is static SQL.
 const (
 	rlsProbeRole   = "opengate_rls_probe"
 	rlsProbeSchema = "opengate_rls_test"
 )
 
-// TestMigrationsApplyUnderForcedRowLevelSecurity runs the whole migration chain
-// under the privilege model the deployed environments use: the migrating role
-// is NOSUPERUSER and NOBYPASSRLS, and it owns tables that carry FORCE ROW LEVEL
-// SECURITY. The tenant policies read app.current_tenant with no missing_ok
-// fallback, so any migration statement that touches rows aborts the migration
-// unless the connection carries cross-tenant scope.
-//
-// The test container's default role is a superuser, which bypasses row-level
-// security outright — so without this test a migration can be green across the
-// entire suite and still fail on deploy.
 func TestMigrationsApplyUnderForcedRowLevelSecurity(t *testing.T) {
 	baseURL := testpg.BaseURL(t)
 
@@ -46,12 +34,7 @@ func TestMigrationsApplyUnderForcedRowLevelSecurity(t *testing.T) {
 	require.NoError(t, err, "migrations must apply as a NOBYPASSRLS role under FORCE ROW LEVEL SECURITY")
 	t.Cleanup(func() { _ = store.Close() })
 
-	// The cross-tenant scope belongs to the migration connection alone. If it
-	// ever reached the pool that serves requests, every tenant policy in the
-	// schema would evaluate true and row-level isolation would be gone.
-	// The migration connection carries both scope settings the chain needs —
-	// app.current_org through the early steps and app.current_tenant from the
-	// tenancy rename onward — and neither may reach the request pool.
+	// The cross-tenant scope settings stay on the migration connection, off the request pool.
 	var isAdmin, currentTenant, currentOrg string
 	require.NoError(t, store.DB().QueryRowContext(ctx,
 		`SELECT coalesce(current_setting('app.is_admin', true), ''),
@@ -63,10 +46,7 @@ func TestMigrationsApplyUnderForcedRowLevelSecurity(t *testing.T) {
 	require.Empty(t, currentOrg, "application pool must not inherit a migration tenant scope")
 }
 
-// setupRLSProbe creates the unprivileged probe role and a schema it owns, and
-// registers teardown. The role has no LOGIN: the connection authenticates as
-// the superuser and drops into the role via the startup `role` parameter, so
-// no test credential is needed.
+// The probe role has no LOGIN; connections drop into it through the startup role parameter.
 func setupRLSProbe(ctx context.Context, t *testing.T, admin *sql.DB) {
 	t.Helper()
 
@@ -101,10 +81,7 @@ func setupRLSProbe(ctx context.Context, t *testing.T, admin *sql.DB) {
 	})
 }
 
-// rlsProbeURL pins the connection to the probe schema and switches it into the
-// probe role at startup. The `options` parameter is already populated here, so
-// this also covers the migration connection merging its own scope in rather
-// than replacing what the caller asked for.
+// The options parameter is pre-populated so the migration connection merges its own scope in.
 func rlsProbeURL(baseURL string) string {
 	sep := "?"
 	if strings.Contains(baseURL, "?") {
@@ -114,11 +91,6 @@ func rlsProbeURL(baseURL string) string {
 	params.Set("search_path", rlsProbeSchema)
 	params.Set("options", "-c role="+rlsProbeRole)
 
-	// A space is written %20 rather than +. Spelling it + is an HTML form
-	// convention, and a reader that follows the URL standard keeps it as a
-	// literal plus — the driver then hands Postgres the option name "+role" and
-	// the connection is refused with "unrecognized configuration parameter".
-	// Every + this encoder emits stands for a space, because a literal one
-	// comes back as %2B.
+	// A space is written %20 because a literal + reaches Postgres as the option name "+role".
 	return baseURL + sep + strings.ReplaceAll(params.Encode(), "+", "%20")
 }

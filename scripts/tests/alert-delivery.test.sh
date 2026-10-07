@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# An alert path is proven by a delivered message, not by a configuration that
-# mentions one — swept over every workflow that runs on a schedule.
-#
-# Two independent channels were dead at once and neither said so. Grafana routed
-# every firing rule to a placeholder address, including one that was firing at
-# the moment of the check. And across the nightlies, every Telegram step was
-# gated on a flag an earlier step in the same job produced, so a night that died
-# before that step reported nothing: the louder the failure, the more certain the
-# silence. Verified on a publish job that failed at cloud login — the step list
-# reads `failure  OCI + kubeconfig setup` then `skipped  Telegram alert`.
-#
-# Underneath both sat the same shape. Every one of those steps ended its failure
-# paths with `exit 0`, so a step that tried to deliver and could not was green.
-# The step's conclusion and the delivery were different facts and only one of
-# them was ever read.
-#
-# So this file demonstrates that shape first, and then sweeps for it, counting
-# what it reached so a sweep that matched nothing fails instead of passing.
+# Sweeps every scheduled workflow for an alert path that survives its own failure.
+# Demonstrates the swallowed-status defect first and counts what the sweep reached.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,12 +27,6 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "alert delivery:"
 
-# --- the defect, demonstrated -------------------------------------------------
-#
-# Both shapes are handed the same refused send. The one that swallows its own
-# status reports success, which is the whole finding; the one that does not
-# reports the refusal. A guard that has stopped reproducing anything fails here
-# rather than quietly policing a non-problem.
 cat >"$WORK/swallowed.sh" <<'SH'
 set -uo pipefail
 if ! false; then
@@ -74,11 +52,6 @@ else
   pass "demonstrated: a send that reports its status fails on a refusal"
 fi
 
-# --- the sweep ----------------------------------------------------------------
-#
-# Reads each workflow as YAML rather than as lines: a step's condition and the
-# condition of the job holding it are both structure, and the shape that hid
-# this was a condition, not a string.
 python3 - "$WORKFLOWS" "$REPO_ROOT" >"$WORK/sweep.out" 2>"$WORK/sweep.err" <<'PY'
 import pathlib
 import sys
@@ -242,7 +215,6 @@ else
   done <<<"$FINDINGS"
 fi
 
-# --- the one send, present and executable -------------------------------------
 if [ -x "$REPO_ROOT/scripts/telegram-alert.sh" ]; then
   pass "the single alert send exists and is executable"
 else

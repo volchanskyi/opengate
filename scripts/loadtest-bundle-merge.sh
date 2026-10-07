@@ -1,57 +1,17 @@
 #!/usr/bin/env bash
-# Fold the readings taken beside a run into the run's own evidence.
-#
-# Three of the things a bundle declares are measured by steps other than the
-# harness. The fleet's weight on disk is read from the database after the fleet
-# exists, which is after the harness has finished; the technician journeys are
-# timed by the browser-side generator, which runs in a different pod; and what
-# the run left behind is counted by the cleanup step, which runs after the
-# harness has written its bundle. Each writes its figures into a file of its
-# own, and this puts them in the bundle — the one artifact that outlives the
-# metrics store's thirty days.
-#
-# This is not a later query of the system under test. The doctrine the bundle is
-# built on refuses those, because a bundle assembled from a query describes the
-# system at the time of the query rather than the moment being reported. These
-# are measurements of this run, taken by this run, arriving at the only place a
-# reader can find them.
-#
-# A merge that found nothing to merge fails. The alternative is the shape this
-# exists to close: a step that produced nothing, exited zero, and left the gap
-# to surface later as a field nobody can explain.
+# Folds the weight, cleanup and journey readings taken beside a run into its evidence bundle.
+# A merge that finds nothing to merge fails, so a step that produced nothing cannot pass.
 #
 # Usage:
-#   loadtest-bundle-merge.sh <bundle.json> [--weight <fixture-weight.json>]
-#     [--cleanup <cleanup-proof.json>] [--journeys <k6-export.json>]...
+#   loadtest-bundle-merge.sh <bundle.json> [--weight FILE] [--cleanup FILE] [--journeys FILE]...
 set -euo pipefail
 
 usage() {
   echo "usage: $0 <bundle.json> [--weight <fixture-weight.json>] [--cleanup <cleanup-proof.json>] [--journeys <k6-export.json>]..." >&2
 }
 
-# journeys_from turns a browser-side export into the bundle's own journey shape.
-# Only the named journeys are carried: every other series in that export belongs
-# to the request path rather than to a screen somebody opens.
-#
-# A session's round trip is one of them. The endurance family's whole subject is
-# what a finished session costs, so the generator that opens one has to reach
-# the bundle the same way the screens do — and the metric keeps the name the
-# trend already knows it by, because renaming it would make five nights of
-# stored work incomparable to answer a question about where it is written down.
-#
-# The statistics are read whichever way the exporter nests them. k6 v1.x writes
-# them flat on the metric and v0.x nested them under "values", and reading only
-# the nested shape is not a wrong number — it is three zeros. Every field falls
-# back to nought, so a bundle produced by the pinned exporter declared that
-# opening a fleet list, opening a machine and sending an instruction each took
-# no time at all, which is the healthiest figure a server can report. The
-# canonical row extraction had already been bitten by this exact nesting and
-# repaired; this reader was not, and its fixtures were written in the shape it
-# reads rather than in the shape the exporter writes.
-#
-# A phase-tagged copy wins where there is one, for the reason the extraction
-# gives: a percentile over the whole run is a mixture of the climb to the load,
-# the load, and the wind-down away from it.
+# journeys_from reads statistics flat (k6 v1) or nested under "values", and prefers a phase-tagged
+# copy, since a whole-run percentile mixes the ramp, the load and the wind-down.
 journeys_from() {
   jq '
     def windowed($name):
@@ -82,20 +42,8 @@ journeys_from() {
     | sort_by(.name)' "$1"
 }
 
-# refusals_from prints one export's request count and how many of those requests
-# the server turned away at the door, as two numbers on one line.
-#
-# The server counts requests per address and answers over the allowance with a
-# refusal, so a night whose presented addresses were not believed fills with
-# them — and it looks exactly like a night where the server was slow, because
-# both red the same error-rate gate. The count is what separates a broken test
-# setup from a finding about the product, and nothing was carrying it: what k6
-# publishes about failures is one pass/fail rate with no breakdown by status, so
-# the scenarios count the refusals themselves.
-#
-# The statistics are read whichever way the exporter nests them, for the reason
-# journeys_from gives. The whole run rather than the measured phase: a request
-# refused during the ramp was still refused.
+# refusals_from prints one export's request count and its refused-request count over the whole run.
+# A count the export lacks reads -1.
 refusals_from() {
   jq -r '
     def stats($name): (.metrics[$name] // {}) | (.values // .);
@@ -105,10 +53,8 @@ refusals_from() {
 
 main() {
   local bundle="" weight="" cleanup="" merged=0
-  # Every export named, because two generators run beside one walk and each
-  # writes a file of its own. A second fold that replaced the first would report
-  # success while throwing the earlier scenario's numbers away, which is this
-  # script's own defect arrived at by overwriting rather than by never writing.
+  # Each export is named, since two generators write files of their own and a fold that
+  # replaced the first would discard its numbers.
   local -a journeys=()
   if [ "$#" -lt 1 ]; then
     usage
@@ -165,10 +111,8 @@ main() {
     merged=$((merged + 1))
   fi
 
-  # The cleanup step's own proof replaces the harness's statement that nothing
-  # was counted. It is carried as the step counted it, residue and all: a bundle
-  # whose run left something behind says so, and the bundle's own validation
-  # refuses it as unclean.
+  # The cleanup step's proof is carried as counted, residue included, so the bundle's own
+  # validation refuses an unclean run.
   if [ -n "$cleanup" ]; then
     if [ ! -s "$cleanup" ]; then
       echo "::error::$cleanup holds no cleanup proof, so what the run left behind would reach the evidence uncounted." >&2
@@ -202,15 +146,8 @@ main() {
       fi
       all="$(jq -c --argjson rows "$rows" '. + $rows' <<<"$all")"
 
-      # What this scenario was answered with, beside what it asked.
-      #
-      # A counter nobody incremented is left out of the export entirely, so its
-      # absence would mean "nobody was refused" and "this scenario never counted"
-      # at once — the false green the reading exists to close. The scenarios add
-      # a nought on every answered request so the series always exists, and an
-      # export that made requests without one did not count them.
-      # An export jq cannot read leaves both empty, which the two checks below
-      # name; ending the merge here instead would say nothing about why.
+      # A counter nobody incremented is absent from the export, so the scenarios add a zero per
+      # answered request; an export with requests but no such counter did not count refusals.
       asked=""
       turned_away=""
       IFS=$'\t' read -r asked turned_away < <(refusals_from "$exported" 2>/dev/null) || true

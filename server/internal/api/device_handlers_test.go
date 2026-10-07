@@ -140,9 +140,6 @@ func TestDeviceHandlers(t *testing.T) {
 	})
 }
 
-// TestDeviceAMTProperty covers the shape of the amt object across the three
-// states a device can be in. The badge reads it straight off this payload, so
-// the device detail page issues no AMT request at all.
 func TestDeviceAMTProperty(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -206,8 +203,6 @@ func TestDeviceAMTProperty(t *testing.T) {
 	})
 }
 
-// TestDeviceResponseNeverLeaksSystemUUID guards the locked decision that the
-// join key is stored but never returned.
 func TestDeviceResponseNeverLeaksSystemUUID(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)

@@ -1,10 +1,6 @@
 rules:
-  # The curated pack. Every rule here is pushed to the fleet, so each one is
-  # cost-bounded at load and locked against its committed digest: editing a
-  # published definition is refused, and a change of meaning is a new version.
-  #
-  # Thresholds are the shipped defaults. A customer retunes them through a
-  # binding, within the bounds each rule declares below.
+  # Reading rules are pushed to the fleet and cost-bounded at load; every rule is digest-locked.
+  # Thresholds are shipped defaults a customer retunes through a binding within bounds.
 
   - id: disk-critical
     version: 1
@@ -16,8 +12,7 @@ rules:
     clear: 85
     sustain_secs: 300
     predicate: Instant
-    # Grouped by the mount as well as the machine: a full data volume and a full
-    # system volume on one server are two problems, not one.
+    # Grouped by mount too: a full data volume and a full system volume are two problems.
     group_by: [device, mount]
     group_window_secs: 900
     evidence: [vitals, top_processes, inventory]
@@ -66,16 +61,13 @@ rules:
     version: 1
     severity: warning
     summary: Work on this machine is spending its time waiting for storage.
-    # Read from the kernel's own pressure accounting, which is per-host. A
-    # containerized agent cannot take this reading at all, so it reports the rule
-    # unsupported rather than sitting there never firing.
+    # Kernel pressure reading: a host or cgroup that publishes no pressure files reports it unsupported.
     metric: stall.io.some
     comparator: gte
     threshold: 40
     clear: 20
     sustain_secs: 300
-    # A mean over the window rather than an instant reading: storage stalls in
-    # bursts, and one busy second is not a machine in trouble.
+    # A mean over the window, since storage stalls in bursts and one busy second is no trouble.
     predicate: WindowMean
     window_secs: 300
     group_by: [device]
@@ -109,31 +101,15 @@ rules:
       sustain_secs: {min: 60, max: 3600}
       window_secs: {min: 60, max: 1800}
 
-  # Rules about what the machine says about itself.
-  #
-  # Some failures cross no line because nothing about them is a number: a
-  # process killed to reclaim memory, a task stuck for two minutes, a disk that
-  # stopped answering its bus. The machine reports every one of those about
-  # itself, in words, in its own log.
-  #
-  # The phrases each rule matches on — and the exclusions that keep a recovery
-  # from reading as a failure — are what the machine's log reader is built
-  # around, so they live on the machine. What is here is the rest of the rule:
-  # what it is called, which revision it is, how bad it is, and where its alerts
-  # belong. Without these rows the server has never heard of the rule and
-  # refuses everything it raises.
-  #
-  # There is nothing to retune, because there is no number. An administrator can
-  # still stop one, which is the control that matters for a rule that turns out
-  # to be noisy on a particular estate.
+  # Event rules: the matching phrases live in the machine's log reader, so only the name, revision,
+  # severity and grouping are here; with no number to retune, an administrator can still stop one.
 
   - id: linux-oom-kill
     version: 1
     kind: event
     severity: critical
     summary: The kernel killed a process to reclaim memory.
-    # Grouped on the machine: one host reclaiming memory repeatedly is one
-    # problem, and the processes it picks are a symptom rather than the story.
+    # Grouped on the machine: one host reclaiming memory repeatedly is one problem.
     group_by: [device]
     group_window_secs: 900
     evidence: [recent_logs]
@@ -152,8 +128,7 @@ rules:
     kind: event
     severity: warning
     summary: A disk stopped responding and its bus was reset.
-    # A failing disk link resets again and again over hours, so the room stays
-    # open longer than one that is about a single moment.
+    # A failing disk link resets again and again over hours, so the room stays open longer.
     group_by: [device]
     group_window_secs: 1800
     evidence: [recent_logs]
@@ -172,9 +147,7 @@ rules:
     kind: event
     severity: warning
     summary: One service has been logging errors repeatedly.
-    # A service failing steadily for a day is one thing nobody has noticed, and
-    # the count behind it already spans a day, so firings an hour apart are the
-    # same thing rather than two.
+    # The error count already spans a day, so firings an hour apart are one problem.
     group_by: [device]
     group_window_secs: 3600
     evidence: [recent_logs]

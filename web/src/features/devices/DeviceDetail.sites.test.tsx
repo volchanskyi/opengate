@@ -14,18 +14,12 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-// The incidents strip owns its own read and is exercised in
-// DeviceIncidentsStrip.test.tsx; stub it here so these tests assert only that
-// the device page carries it, keyed to the device on screen.
 vi.mock('../investigations', () => ({
   DeviceIncidentsStrip: ({ deviceId }: { deviceId: string }) => (
     <div data-testid="incidents-strip">{deviceId}</div>
   ),
 }));
 
-// The telemetry panel is exercised in DeviceMetrics.test.tsx; stub it here so
-// these tests stay isolated from uPlot/canvas and the metrics fetch. The stub
-// exposes onViewLogs so the correlation-jump glue can be driven.
 vi.mock('./DeviceMetrics', () => ({
   DeviceMetrics: ({ deviceId, onViewLogs }: { deviceId: string; onViewLogs?: (f: number, t: number) => void }) => (
     <div data-testid="device-metrics">
@@ -57,7 +51,6 @@ describe('DeviceDetail — sites and customers', () => {
 
     renderDetail();
 
-    // Select new site from the "Move to Site" dropdown (not the logs filter dropdown)
     const groupSelect = screen.getByDisplayValue('Select site...');
     await user.selectOptions(groupSelect, 'g2');
     await user.click(screen.getByText('Move'));
@@ -191,8 +184,6 @@ describe('DeviceDetail — sites and customers', () => {
 
     await user.click(moveBtn);
 
-    // After a successful move, selectedSiteId is reset to '' — so the Move button is disabled again.
-    // (A mutation that swaps `setSelectedSiteId('')` for any truthy literal leaves the button enabled.)
     const moveBtnAfter = screen.getByText('Move') as HTMLButtonElement;
     expect(moveBtnAfter.disabled).toBe(true);
   });

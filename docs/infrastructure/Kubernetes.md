@@ -76,9 +76,33 @@ provisioned by the [`oke` Terraform module](../../deploy/terraform/modules/oke).
 ### Secrets
 
 The chart never embeds secret material — it references an `existingSecret`
-(`server.existingSecret`) created out-of-band. See
-[`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml) for the
-`kubectl create secret` recipe.
+(`server.existingSecret`) created out-of-band, so no secret value lands in git
+or in the Helm release history.
+[`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml) lists
+every key the secret carries, and the chart's
+[`NOTES.txt`](../../deploy/helm/opengate/templates/NOTES.txt) prints the create
+command for the release. The passwords and the token-signing secret are
+generated:
+
+```bash
+kubectl create secret generic opengate-secrets \
+  --namespace opengate \
+  --from-literal=JWT_SECRET="$(openssl rand -base64 48)" \
+  --from-literal=POSTGRES_PASSWORD="$(openssl rand -base64 32)" \
+  --from-literal=POSTGRES_APP_PASSWORD="$(openssl rand -base64 32)" \
+  --from-literal=AMT_PASS="<intel-amt-admin-password>" \
+  --from-literal=VAPID_CONTACT="mailto:ops@example.com" \
+  --from-literal=BACKUP_PAR_URL="<par-base-url-ending-in-/o/>"
+```
+
+`BACKUP_PAR_URL` is needed only when `postgres.backup.enabled`. It is the base
+URL of a write-only OCI Object Storage pre-authenticated request, ending in
+`/o/`: the
+[backup CronJob](../../deploy/helm/opengate/templates/postgres-backup-cronjob.yaml)
+appends a timestamped object name and uploads the dump there. The request
+allows writes only, so a leaked URL cannot read the backups back. `NOTES.txt`
+prints the commands that create the bucket, the request and its retention
+policy.
 
 ### QUIC and MPS traffic
 
@@ -93,8 +117,23 @@ rationale.
   `/data` from the per-replica RWO PVC to an `emptyDir` and mounts the enrollment
   CA, VAPID, and agent-update signing keypairs read-only from `existingSecret`, so
   every replica serves identical key material (the server loads keys if present —
-  no code change). Generate the four key files once and fold them into the secret;
-  recipe in [`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml).
+  no code change).
+
+The four key files are generated once: the server runs as a single replica on
+its volume and writes them to `/data`, they are copied out, and the secret is
+recreated with them under the keys `ca.crt`, `ca.key`, `vapid.json` and
+`update-signing.json`, beside the values from [Secrets](#secrets):
+
+```bash
+mkdir keys && for f in ca.crt ca.key vapid.json update-signing.json; do
+  kubectl exec --namespace opengate deploy/opengate-server -- cat "/data/$f" > "keys/$f"
+done
+kubectl create secret generic opengate-secrets --namespace opengate \
+  --from-literal=JWT_SECRET=... \
+  --from-file=ca.crt=keys/ca.crt --from-file=ca.key=keys/ca.key \
+  --from-file=vapid.json=keys/vapid.json \
+  --from-file=update-signing.json=keys/update-signing.json
+```
 
 The production overlay enables shared keys. The chart contains only the current
 single-replica path: one server replica, in-process relay pairing, and shared key

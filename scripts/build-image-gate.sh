@@ -1,30 +1,11 @@
 #!/usr/bin/env bash
-# Decides whether `.github/workflows/build-image.yml` should run its full
-# multi-arch build for a given main-branch commit. Prints two key=value
-# lines suitable for appending to $GITHUB_OUTPUT:
+# Prints image_changed=true|false and prev_sha=<sha|empty>, ready for $GITHUB_OUTPUT.
+# The result is a function of git state and one registry read.
 #
-#     image_changed=true|false
-#     prev_sha=<full-sha|empty>
-#
-# Returns 0 on a clean decision, non-zero on usage / git errors. The
-# workflow skips `build-and-push` and instead `crane copy`s :latest onto
-# the new sha- tag when the diff against the SHA that built :latest
-# contains no entries under server/**, web/**, or Dockerfile. CD's
-# digest-equality gate then short-circuits a no-op redeploy. See:
-#   - .claude/plans/path-gate-build-image.md
-#   - .claude/plans/archive/path-gate-agent-release.md (precedent)
-#
-# Inputs (env vars):
-#   IMAGE       Required. Full image ref minus tag, e.g.
-#               "ghcr.io/volchanskyi/opengate-server".
-#   HEAD_SHA    Required. Commit being built (workflow_run.head_sha,
-#               github.sha, etc.).
-#   CRANE       Optional. Path to the crane binary. Defaults to `crane`.
-#
-# Idempotent: pure function of git state + a single registry read. Manual
-# workflow_dispatch re-runs produce the same decision.
-#
-# Tested by scripts/tests/build-image-gate.test.sh.
+# Environment:
+#   IMAGE     full image ref minus the tag
+#   HEAD_SHA  commit being built
+#   CRANE     path to the crane binary, default `crane`
 
 set -euo pipefail
 
@@ -37,15 +18,8 @@ if [ -z "$IMAGE" ] || [ -z "$HEAD_SHA" ]; then
   exit 2
 fi
 
-# Resolve the commit SHA used to build :latest via the OCI image config.
-# docker/metadata-action@v6 stamps `org.opencontainers.image.revision`
-# automatically — we don't need any extra workflow plumbing.
-#
-# Fail-open: if the registry read fails (no :latest yet, transient blip
-# while the gate runs but `set -e` not yet tripping the workflow) OR the
-# label is absent (image pushed by hand without metadata), force a
-# rebuild rather than silently skipping. Safer than skipping a real
-# image change against a phantom baseline.
+# The commit that built :latest is the OCI revision label on its config.
+# A failed registry read or a missing label forces a rebuild.
 PREV_SHA=""
 if config="$("$CRANE" config "${IMAGE}:latest" 2>/dev/null)"; then
   PREV_SHA="$(printf '%s' "$config" \
@@ -60,20 +34,14 @@ if [ -z "$PREV_SHA" ]; then
   exit 0
 fi
 
-# Force-push / rebase guard: the label can point at a commit no longer
-# reachable in this repo. Treat unknown commit as "rebuild" rather than
-# diffing against a phantom baseline (which silently reports nothing).
+# A label naming a commit missing from this repo forces a rebuild; a diff against it is empty.
 if ! git rev-parse --verify --quiet "${PREV_SHA}^{commit}" >/dev/null 2>&1; then
   echo "image_changed=true"
   echo "prev_sha ${PREV_SHA} not reachable in this repo — building." >&2
   exit 0
 fi
 
-# Image-input pathspec — keep in sync with the Dockerfile's COPY layers.
-# - server/** and web/** cover the build stages' inputs.
-# - top-level Dockerfile rebuilds the final stage on its own changes.
-# - agent/**, deploy/**, docs/**, .github/** are intentionally NOT image
-#   inputs and must not appear here.
+# The pathspec lists the Dockerfile's COPY inputs: server/**, web/** and the Dockerfile itself.
 if [ -n "$(git diff --name-only "$PREV_SHA" "$HEAD_SHA" -- \
   'server/**' 'web/**' 'Dockerfile')" ]; then
   echo "image_changed=true"

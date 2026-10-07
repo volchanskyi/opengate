@@ -5,19 +5,7 @@ interface Site {
   name: string;
 }
 
-/**
- * Fails the run if a spec left a site behind in the shared organization.
- *
- * The organization is the visibility boundary for sites and devices, and every
- * e2e user registers into the same one, so a site a spec forgets to delete is
- * visible to every spec that runs after it. The damage does not land on the
- * spec that leaked: it lands on whichever later spec asserts that the fleet is
- * empty, which reads as an unrelated regression and moves with run order.
- *
- * Failing here keeps the leak attributable to the run that caused it. The
- * leftovers are also deleted, so the next run against the same database starts
- * from the state it expects instead of inheriting the previous run's failure.
- */
+// Fails the run when a spec leaves a site in the shared organization, then deletes the leftovers.
 export default async function globalTeardown(config: FullConfig) {
   const baseURL = config.projects[0]?.use?.baseURL ?? "http://localhost:8080";
   const token = process.env.BOOTSTRAP_ADMIN_TOKEN;

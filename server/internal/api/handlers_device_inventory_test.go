@@ -104,10 +104,6 @@ func TestGetDeviceInventoryHandler(t *testing.T) {
 	})
 }
 
-// TestTheLogPullClassificationIsThePublishedVocabulary holds the handler's own
-// classification of a pull to the outcomes the metrics publish at zero from
-// start-up. An outcome added here without a zero series there would be
-// invisible to a rate until its first occurrence after every start.
 func TestTheLogPullClassificationIsThePublishedVocabulary(t *testing.T) {
 	t.Parallel()
 

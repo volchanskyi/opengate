@@ -1,18 +1,12 @@
-//! Fault-injection harness: the failure modes a storage engine exists to
-//! survive, applied to substrate A's on-disk segments.
-//!
-//! These functions manipulate raw segment bytes to simulate a `kill -9` torn
-//! write (tail truncation), silent bit-rot (a flipped payload byte), and are
-//! paired with the byte-cap disk-full path exercised directly in the gate
-//! tests. Every injected fault must leave the store openable — the recovery
-//! path may drop or quarantine data, but must never panic the agent.
+//! Fault injection on substrate A's segment files: torn tails and flipped payload bytes.
+//! A faulted store stays openable, and recovery may drop data but never panics.
 
 use std::io::{Read, Write};
 use std::path::Path;
 
 use crate::error::{Result, TsdbError};
 
-/// Return the path of the highest-indexed `seg-*.tsdb` file in `dir`.
+/// The path of the highest-indexed `seg-*.tsdb` file in `dir`.
 fn newest_segment(dir: &Path) -> Result<std::path::PathBuf> {
     let mut best: Option<(u64, std::path::PathBuf)> = None;
     for entry in std::fs::read_dir(dir)? {
@@ -34,7 +28,7 @@ fn newest_segment(dir: &Path) -> Result<std::path::PathBuf> {
         .ok_or(TsdbError::CorruptBlock("no segment to fault-inject"))
 }
 
-/// Simulate a torn write by shearing `bytes` off the end of the newest segment.
+/// Shears `bytes` off the end of the newest segment, as a torn write leaves it.
 pub fn truncate_newest_segment(dir: &Path, bytes: u64) -> Result<()> {
     let path = newest_segment(dir)?;
     let f = std::fs::OpenOptions::new().write(true).open(&path)?;
@@ -44,9 +38,8 @@ pub fn truncate_newest_segment(dir: &Path, bytes: u64) -> Result<()> {
     Ok(())
 }
 
-/// Flip one payload byte of the middle data chunk in the newest segment,
-/// simulating silent bit-rot. `frac` selects the position within that chunk's
-/// Gorilla payload (`0.0`..`1.0`).
+/// Flips one byte of the middle data chunk's payload in the newest segment.
+/// `frac` in `0.0..1.0` picks the position within that payload.
 pub fn flip_byte_in_newest_segment(dir: &Path, frac: f64) -> Result<()> {
     let path = newest_segment(dir)?;
     let mut bytes = Vec::new();
@@ -58,7 +51,7 @@ pub fn flip_byte_in_newest_segment(dir: &Path, frac: f64) -> Result<()> {
             let offset = ((span as f64 * frac.clamp(0.0, 0.999)) as usize).min(span - 1);
             range.start + offset
         }
-        // No frameable payload: flip the middle byte so the fault still lands.
+        // Without a frameable payload the middle byte is flipped so the fault still lands.
         None if !bytes.is_empty() => bytes.len() / 2,
         None => return Err(TsdbError::CorruptBlock("empty segment to fault-inject")),
     };

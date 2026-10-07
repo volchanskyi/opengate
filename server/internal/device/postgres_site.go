@@ -26,13 +26,8 @@ func NewPostgresSites(db *sql.DB) *PostgresSites {
 	return &PostgresSites{db: db}
 }
 
-// Create stores a new site under the named customer. The customer is looked up
-// in the caller's tenant first: a foreign-key check runs past row-level
-// security, so the constraint alone would accept another tenant's customer.
-//
-// A site written without a customer takes the tenant's own, the same no-orphan
-// rule a device write follows — every level below the tenant always has a
-// parent.
+// Create stores a site under the named customer, checked against the caller's tenant first
+// because foreign-key checks bypass row-level security. No customer means the tenant's own.
 func (p *PostgresSites) Create(ctx context.Context, s *Site) error {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
@@ -59,8 +54,7 @@ func (p *PostgresSites) Create(ctx context.Context, s *Site) error {
 	})
 }
 
-// tenantOwnOrganization returns the caller's tenant's oldest customer, which is
-// the one a write that names none lands in.
+// tenantOwnOrganization returns the caller's tenant's oldest customer.
 func tenantOwnOrganization(ctx context.Context, tx *sql.Tx) (OrganizationID, error) {
 	var id OrganizationID
 	err := tx.QueryRowContext(ctx,
@@ -92,9 +86,7 @@ func (p *PostgresSites) Get(ctx context.Context, id SiteID) (*Site, error) {
 	return &s, nil
 }
 
-// List returns the caller's sites by name. A named customer narrows to that
-// customer; the zero value returns every site in the tenant, which is what a
-// technician sees with no customer picked.
+// List returns the caller's sites by name, narrowed to one customer unless organizationID is zero.
 func (p *PostgresSites) List(ctx context.Context, organizationID OrganizationID) ([]*Site, error) {
 	var sites []*Site
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
@@ -121,8 +113,7 @@ func (p *PostgresSites) List(ctx context.Context, organizationID OrganizationID)
 	return sites, err
 }
 
-// Delete removes a site. Its devices stay with their customer and are simply
-// unfiled — closing an office does not decommission the machines in it.
+// Delete removes a site; its devices stay with their customer, unfiled.
 func (p *PostgresSites) Delete(ctx context.Context, id SiteID) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
@@ -131,8 +122,7 @@ func (p *PostgresSites) Delete(ctx context.Context, id SiteID) error {
 	})
 }
 
-// organizationInTenant returns ErrOrganizationNotFound unless the customer
-// exists inside the caller's tenant.
+// organizationInTenant returns ErrOrganizationNotFound for a customer outside the caller's tenant.
 func organizationInTenant(ctx context.Context, tx *sql.Tx, organizationID OrganizationID) error {
 	var exists bool
 	err := tx.QueryRowContext(ctx,
@@ -154,9 +144,7 @@ func isUniqueViolation(err error) bool {
 	return hasSQLState(err, uniqueViolation)
 }
 
-// isForeignKeyViolation reports whether err is Postgres refusing a reference to
-// a row that is not there — for a device's site, the pair that says the site
-// belongs to a different customer.
+// isForeignKeyViolation reports whether err is Postgres refusing a reference to a missing row.
 func isForeignKeyViolation(err error) bool {
 	return hasSQLState(err, foreignKeyViolation)
 }

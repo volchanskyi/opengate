@@ -1,14 +1,7 @@
 package transport_test
 
-// This file lives in the external test package on purpose. Registration is
-// exactly where the tenancy defect hid: mps_test.go substituted a writer that
-// bypassed dbtx.Scoped, so the production path — amt.PostgresAMTDevices, which
-// refuses a context with no tenant — was never exercised. Package transport
-// cannot import amt (amt.Service holds a *transport.Server), but transport_test
-// can, so these tests drive the real repositories end to end.
-//
-// The CIRA client side is written out here rather than shared with mps_test.go:
-// an independent encoder is what makes a wire-protocol test worth having.
+// The external test package can import amt, which package transport cannot, so the real
+// repositories run here.
 
 import (
 	"context"
@@ -43,7 +36,6 @@ type linkEnv struct {
 	amtRepo  amt.Repository
 }
 
-// newLinkEnv starts an MPS server wired to the production Postgres adapters.
 func newLinkEnv(t *testing.T) *linkEnv {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -69,8 +61,6 @@ func newLinkEnv(t *testing.T) *linkEnv {
 	}
 }
 
-// seedDeviceWithSystemUUID creates a device in tenantCtx's tenant whose hardware
-// row reports systemUUID — the state a registered agent leaves behind.
 func seedDeviceWithSystemUUID(t *testing.T, tenantCtx context.Context, env *linkEnv, systemUUID uuid.UUID) *device.Device {
 	t.Helper()
 	site := testutil.SeedSite(t, tenantCtx, env.store)
@@ -86,8 +76,6 @@ func seedDeviceWithSystemUUID(t *testing.T, tenantCtx context.Context, env *link
 	return dev
 }
 
-// amtRow reads the persisted connection state for amtUUID inside tenantCtx's
-// tenant, or nil when no row exists there.
 func amtRow(t *testing.T, tenantCtx context.Context, env *linkEnv, amtUUID uuid.UUID) *db.AMTDevice {
 	t.Helper()
 	tenant, ok := dbtx.TenantFromContext(tenantCtx)
@@ -103,9 +91,6 @@ func amtRow(t *testing.T, tenantCtx context.Context, env *linkEnv, amtUUID uuid.
 	return &row
 }
 
-// TestCIRAConnectPersistsUnderTheDeviceTenant is the repair this change exists for:
-// a CIRA connect whose system UUID matches a managed device must write a row
-// carrying that device's tenant, through the real repository.
 func TestCIRAConnectPersistsUnderTheDeviceTenant(t *testing.T) {
 	env := newLinkEnv(t)
 	tenantB := uuid.New()
@@ -129,7 +114,6 @@ func TestCIRAConnectPersistsUnderTheDeviceTenant(t *testing.T) {
 	require.NotNil(t, row)
 	assert.Equal(t, dev.ID, row.DeviceID, "the row should point at the device that reported this system UUID")
 
-	// Disconnect marks it offline — which also needs the resolved tenant.
 	require.NoError(t, conn.Close())
 	require.Eventually(t, func() bool {
 		row := amtRow(t, tenantCtx, env, amtUUID)
@@ -137,9 +121,6 @@ func TestCIRAConnectPersistsUnderTheDeviceTenant(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "disconnect should mark the row offline in the device's tenant")
 }
 
-// TestCIRAConnectWithNoDevicePersistsNothing covers the locked decision: an AMT
-// box with no managed device has no tenant to live in, so the connection
-// is held in memory and nothing is written.
 func TestCIRAConnectWithNoDevicePersistsNothing(t *testing.T) {
 	env := newLinkEnv(t)
 	tenantCtx := dbtx.WithDefaultTenant(context.Background(), true)
@@ -151,18 +132,11 @@ func TestCIRAConnectWithNoDevicePersistsNothing(t *testing.T) {
 	require.Eventually(t, func() bool { return env.srv.GetConn(amtUUID) != nil },
 		5*time.Second, 10*time.Millisecond, "the unmatched connection should still be held in memory")
 
-	// Give registration room to have written something it should not have.
 	assert.Never(t, func() bool { return amtRow(t, tenantCtx, env, amtUUID) != nil },
 		time.Second, 50*time.Millisecond, "an unmatched CIRA connection must persist nothing")
 	assert.Equal(t, 1, env.srv.ConnectedDeviceCount(), "the connection stays live for a later keepalive to adopt")
 }
 
-// dialCIRA opens a TLS connection and walks the full CIRA handshake from the AMT
-// device side, returning once the server has sent its keepalive options.
-//
-// The MPS certificate is CA-signed with a localhost SAN, so the client verifies
-// it against the server's own CA rather than skipping verification — the
-// handshake under test is the one a real AMT device performs.
 func dialCIRA(t *testing.T, env *linkEnv, amtUUID uuid.UUID) net.Conn {
 	t.Helper()
 	roots := x509.NewCertPool()
@@ -175,8 +149,6 @@ func dialCIRA(t *testing.T, env *linkEnv, amtUUID uuid.UUID) net.Conn {
 	)
 	require.NoError(t, err)
 
-	// ProtocolVersion: type, major/minor/trigger, then the UUID in Intel's
-	// mixed-endian layout.
 	pv := make([]byte, 29)
 	pv[0] = transport.APFProtocolVersion
 	pv[4] = 1
@@ -199,7 +171,7 @@ func dialCIRA(t *testing.T, env *linkEnv, amtUUID uuid.UUID) net.Conn {
 
 	fwd := []byte{transport.APFGlobalRequest}
 	fwd = append(fwd, apfString("tcpip-forward")...)
-	fwd = append(fwd, 1) // want_reply
+	fwd = append(fwd, 1)
 	fwd = append(fwd, apfString("")...)
 	fwd = append(fwd, apfUint32(16992)...)
 	writeAll(t, conn, fwd)
@@ -224,7 +196,6 @@ func expect(t *testing.T, conn net.Conn, want uint8) {
 	require.Equal(t, want, msgType)
 }
 
-// apfString encodes one APF string: 4-byte big-endian length, then the bytes.
 func apfString(s string) []byte {
 	return append(apfUint32(uint32(len(s))), s...)
 }
@@ -239,8 +210,7 @@ func apfUint32(v uint32) []byte {
 	return b[:]
 }
 
-// intelGUID renders a UUID in the mixed-endian layout AMT puts on the wire: the
-// first three sites little-endian, the rest as-is.
+// intelGUID renders u as the wire GUID: the first three fields little-endian, the rest as-is.
 func intelGUID(u uuid.UUID) []byte {
 	return []byte{
 		u[3], u[2], u[1], u[0],

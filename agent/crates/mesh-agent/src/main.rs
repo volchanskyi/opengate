@@ -1,8 +1,5 @@
-//! OpenGate mesh-agent binary.
-//!
-//! Connects to the server via QUIC, registers capabilities,
-//! handles session requests, and applies binary updates.
-//! Exit code 42 signals the service manager to restart after an update.
+//! Agent binary: connects to the server over QUIC, registers capabilities, serves sessions and
+//! applies updates; exit code 42 asks the service manager to restart.
 
 mod backfill_loop;
 mod clock;
@@ -39,9 +36,7 @@ struct Args {
     #[arg(long, default_value = "/var/lib/mesh-agent", env = "OPENGATE_DATA_DIR")]
     data_dir: PathBuf,
 
-    /// Directory for the agent's own rotated log files, and the directory the
-    /// server reads them back from. A host that cannot write here logs to
-    /// stdout alone.
+    /// Directory for the agent's rotated log files, which the server reads back.
     #[arg(long, default_value = LOG_DIR, env = "OPENGATE_LOG_DIR")]
     log_dir: PathBuf,
 
@@ -124,19 +119,15 @@ async fn enroll(
         .cert_pem
         .ok_or_else(|| anyhow::anyhow!("server did not return a signed certificate"))?;
 
-    // Decode the PEM certificate to DER.
     let cert_der = pem::parse(cert_pem.as_bytes()).context("decode cert PEM from server")?;
 
-    // Save the CA-signed cert.
     mesh_agent_core::AgentIdentity::save_signed_cert(data_dir, cert_der.contents())
         .context("save signed certificate")?;
 
-    // Save the CA PEM for future connections.
     tokio::fs::write(server_ca_path, &enroll_resp.ca_pem)
         .await
         .context("save server CA certificate")?;
 
-    // Save the update signing key if the server provided one.
     if let Some(ref key_hex) = enroll_resp.update_signing_key {
         let key_path = data_dir.join("update-signing-key.hex");
         tokio::fs::write(&key_path, key_hex)
@@ -147,7 +138,6 @@ async fn enroll(
 
     info!(server_addr = %enroll_resp.server_addr, "enrollment complete");
 
-    // Now load the full identity (device_id + signed cert + key).
     let identity = mesh_agent_core::AgentIdentity::load_or_create(data_dir)
         .context("load identity after enrollment")?;
 
@@ -205,24 +195,18 @@ fn build_quic_config(
     Ok(quinn_config)
 }
 
-/// Perform the full binary handshake: send AgentHello, read ServerHello.
-/// The agent opens the stream and writes first (RFC 9000 stream-discovery:
-/// the opener must write before the peer's accept/read can return). Returns
-/// the server's CA cert hash from ServerHello, which the agent caches to drive
-/// the 0x14 fast path on subsequent reconnects.
+/// Sends AgentHello first, since the stream opener must write before the peer can accept it.
+/// Returns the server CA cert hash from ServerHello, which drives the 0x14 fast path.
 async fn perform_full_handshake(
     send: &mut quinn::SendStream,
     recv: &mut quinn::RecvStream,
     cert_der: &[u8],
 ) -> Result<[u8; 48]> {
-    // Compute agent cert SHA-384 hash
     let agent_cert_hash: [u8; 48] = Sha384::digest(cert_der).into();
 
-    // Generate random nonce
     let mut nonce = [0u8; 32];
     getrandom::fill(&mut nonce).context("generate nonce")?;
 
-    // Build and send AgentHello first.
     let agent_hello = mesh_protocol::HandshakeMessage::AgentHello {
         nonce,
         agent_cert_hash,
@@ -251,10 +235,8 @@ async fn perform_full_handshake(
     }
 }
 
-/// Perform the 0x14 fast-path handshake on reconnect: send SkipAuth carrying
-/// the cached CA cert hash and proceed optimistically. The server replies only
-/// on rejection (stale hash) by tearing the connection down, which surfaces as
-/// a failure during registration so the caller falls back to a full handshake.
+/// Sends SkipAuth with the cached CA cert hash; the server answers only a stale hash, by closing
+/// the connection, which fails registration and sends the caller to a full handshake.
 async fn perform_fast_handshake(
     send: &mut quinn::SendStream,
     cached_ca_hash: &[u8; 48],
@@ -273,36 +255,20 @@ async fn perform_fast_handshake(
 /// Default log directory for persistent log files.
 const LOG_DIR: &str = "/var/log/mesh-agent";
 
-/// Bounded backlog of discovery reports awaiting the control loop. Reports are
-/// change-triggered and infrequent, so a small buffer suffices; reports beyond
-/// it are dropped rather than backpressuring control.
+/// Backlog of discovery reports awaiting the control loop; reports beyond it are dropped.
 const DISCOVERY_TELEMETRY_CAP: usize = 4;
 
-/// Bounded backlog of WS-19 threshold-alert health summaries awaiting the control
-/// loop. Emission is throttled and breach-driven, so a small buffer suffices;
-/// summaries beyond it are dropped rather than backpressuring control.
+/// Backlog of threshold-alert health summaries awaiting the control loop; extras are dropped.
 const HEALTH_TELEMETRY_CAP: usize = 8;
 
-/// Bounded backlog of live host-metric windows awaiting the control loop. One
-/// window closes per 10 s, drained on the 60 s heartbeat, so a handful in flight
-/// covers a heartbeat; windows beyond it are dropped rather than backpressuring
-/// control.
+/// Backlog of host-metric windows (one per 60 s, drained every 60 s); extras are dropped.
 const HOST_METRIC_TELEMETRY_CAP: usize = 16;
 
-/// Hard footprint cap for the Edge-Sentinel local store, in MiB. The store
-/// enforces it with coarsest-first eviction and host-free backoff, so it is a
-/// coarse fleet-wide safety limit rather than a per-host tuning knob.
+/// Footprint cap for the local store in MiB, enforced by coarsest-first eviction.
 const EDGE_STORE_CAP_MB: u64 = 512;
 
-/// Set up tracing on stdout, and on a daily-rotated file beside it when the log
-/// directory can carry one. Returns the guard that must be held for the
-/// lifetime of the program, or `None` when logging is stdout-only.
-///
-/// A file sink is a diagnostic, not a precondition for running a machine. A
-/// directory the agent cannot create or write — a read-only mount, an image
-/// that does not pre-create it, a container user with no write access under
-/// `/var/log` — costs it the file and nothing else, because stdout still
-/// carries every line, which is what `kubectl logs` and `journalctl` read.
+/// Sets up tracing on stdout plus a daily-rotated file when the log directory is writable.
+/// Returns the file guard to hold for the program lifetime, or `None` for stdout-only logging.
 fn setup_logging(log_dir: &Path) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
@@ -311,12 +277,8 @@ fn setup_logging(log_dir: &Path) -> Option<tracing_appender::non_blocking::Worke
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
 
-    // `agent.log` is the prefix the device-log collector discovers files by, and
-    // daily rotation names them `agent.log.YYYY-MM-DD`. Built through the
-    // builder rather than the `rolling::daily` shorthand because the builder
-    // reports a directory it cannot use and the shorthand panics on one — and
-    // both halves can fail independently, a directory that cannot be created
-    // and a directory that exists but takes no file.
+    // The `agent.log` prefix is how the device-log collector finds files; the builder reports an
+    // unusable directory where `rolling::daily` panics.
     let appender = std::fs::create_dir_all(log_dir)
         .map_err(|e| format!("create it: {e}"))
         .and_then(|()| {
@@ -346,8 +308,6 @@ fn setup_logging(log_dir: &Path) -> Option<tracing_appender::non_blocking::Worke
                 .with(env_filter)
                 .with(stdout_layer)
                 .init();
-            // Installed by the line above, so this reaches stdout as an ordinary
-            // event and names the directory a technician would go looking in.
             warn!(
                 log_dir = %log_dir.display(),
                 "logging to stdout only: could not {why}"
@@ -359,9 +319,8 @@ fn setup_logging(log_dir: &Path) -> Option<tracing_appender::non_blocking::Worke
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Parse args before initialising logging so `--help` / `--version` / a bad
-    // argument exit via clap without creating the log directory or spawning the
-    // appender thread.
+    // Parsing before logging setup lets `--help`, `--version` and bad arguments exit without
+    // creating the log directory.
     let args = Args::parse();
 
     let _log_guard = setup_logging(&args.log_dir);
@@ -373,13 +332,10 @@ async fn main() -> Result<()> {
         "mesh-agent starting"
     );
 
-    // Ensure the data directory exists and is owner-only — it holds the
-    // device's mTLS private key.
+    // The data directory is owner-only because it holds the device's mTLS private key.
     mesh_agent_core::ensure_private_dir(&args.data_dir).context("create data directory")?;
 
-    // Load existing identity, or enroll to get a CA-signed certificate.
-    // Enrollment also writes the CA PEM to --server-ca and the update signing
-    // key, so it must happen before we read those files.
+    // Enrollment writes the CA PEM and update signing key, so it runs before they are read.
     let identity = if needs_enrollment(&args.data_dir) {
         match (&args.enroll_url, &args.enroll_token) {
             (Some(url), Some(token)) => enroll(url, token, &args.data_dir, &args.server_ca).await?,
@@ -396,8 +352,7 @@ async fn main() -> Result<()> {
             .context("load agent identity")?
     };
 
-    // Parse update public key: CLI flag takes precedence, then saved file from enrollment.
-    // This runs AFTER enrollment so the signing key file exists on first boot.
+    // The CLI flag takes precedence over the key file enrollment saves, so this follows enrollment.
     let update_public_key: Option<[u8; 32]> = match &args.update_public_key {
         Some(hex_str) => Some(parse_ed25519_pubkey(hex_str)?),
         None => {
@@ -422,12 +377,11 @@ async fn main() -> Result<()> {
 
     info!(device_id = %identity.device_id.0, "agent identity loaded");
 
-    // Read server CA (written by enrollment on first boot, or pre-existing).
     let ca_pem = tokio::fs::read_to_string(&args.server_ca)
         .await
         .context("read server CA certificate")?;
 
-    // Build QUIC client config (needs ca_pem reference before it moves into AgentConfig)
+    // The QUIC config borrows `ca_pem`, so it is built before `ca_pem` moves into `AgentConfig`.
     let quinn_config = build_quic_config(&ca_pem, &identity)?;
 
     let config = mesh_agent_core::AgentConfig {
@@ -436,7 +390,6 @@ async fn main() -> Result<()> {
         data_dir: args.data_dir.clone(),
     };
 
-    // Build update config
     let update_config = update_public_key.map(|key| mesh_agent_core::UpdateConfig {
         signing_public_key: key,
         current_binary_path: std::env::current_exe()
@@ -444,9 +397,8 @@ async fn main() -> Result<()> {
         data_dir: args.data_dir.clone(),
     });
 
-    // Rollback guard: if a previous update left a sentinel, start a watchdog.
-    // The watchdog is cancelled once we successfully register with the server.
-    // If registration doesn't happen within 60 seconds, rollback and restart.
+    // An update sentinel starts a watchdog that rolls back and restarts unless registration
+    // succeeds within 60 seconds.
     let pending_update = mesh_agent_core::update::is_update_pending(&args.data_dir);
     let watchdog_cancel = Arc::new(tokio::sync::Notify::new());
     if pending_update {
@@ -467,23 +419,15 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Platform lifecycle
     let lifecycle = platform_linux::create_service_lifecycle();
 
-    // QUIC endpoint
     let endpoint = quinn::Endpoint::client("0.0.0.0:0".parse::<SocketAddr>()?)?;
 
-    // Notify systemd we're ready
     lifecycle.notify_ready();
     info!("agent ready, connecting to server");
 
-    // Edge-Sentinel collectors run unconditionally — every agent samples host
-    // metrics, persists them to the local store, and auto-discovers its
-    // footprint from the start. The sampler-owned local store
-    // is the sovereign copy of min/max/last + 1 s raw that central avg-only
-    // VictoriaMetrics does not keep; it is shared with the WS-15 reconnect-backfill
-    // coordinator on the control loop, and it opens on every start (recreating a
-    // corrupt cache), degrading to log-only sampling only if even that fails.
+    // The local store holds min/max/last and 1 s raw, which central keeps only as averages; the
+    // backfill coordinator shares it, and sampling continues without persistence if it cannot open.
     let shared_sink: Option<edge_sentinel::SharedSink> = {
         let path = args.data_dir.join("edge-tsdb");
         info!(path = %path.display(), cap_mb = EDGE_STORE_CAP_MB, "edge-sentinel local store");
@@ -494,36 +438,25 @@ async fn main() -> Result<()> {
         edge_sentinel::open_sink(&cfg).map(|s| std::sync::Arc::new(std::sync::Mutex::new(s)))
     };
 
-    // Maintenance-mode gate: server-authoritative desired state, cleared to
-    // Active on every registration and flipped by `SetMaintenanceMode`. Each
-    // collector holds a clone and suppresses its work while in maintenance; the
-    // control channel and remote-management paths stay live.
+    // Collectors hold clones of this gate and pause while it reads maintenance; the control
+    // channel stays live.
     let maintenance = mesh_agent_core::maintenance::MaintenanceGate::new();
 
-    // WS-19 threshold alerts: the sampler owns the evaluator; the control loop
-    // pushes each tenant ruleset into `alert_rules_mailbox` and drains
-    // breach-carrying summaries from `health_rx`.
+    // The sampler owns the evaluator; the control loop installs rulesets through this mailbox.
     let alert_rules_mailbox: edge_sentinel::AlertRulesMailbox =
         std::sync::Arc::new(std::sync::Mutex::new(None));
-    // Where every producer on this machine puts what it raises: the sampler
-    // when a reading crosses a line, the system-event watch when the machine
-    // says something about itself, and the retroactive scan when a new rule
-    // finds what it would have caught. One queue, so one bound and one hourly
-    // allowance cover the machine rather than each producer separately.
+    // The sampler, event watch and retro scan share one queue, so one bound and one hourly
+    // allowance cover the machine.
     let alert_sink = mesh_agent_core::alerts::AlertSink::default();
-    // What the rules reading this machine's own log can answer for. The watch
-    // publishes it once, and the sampler carries it to the server beside the
-    // rules it evaluates itself.
+    // The event watch publishes which rules its log reader can answer; the sampler reports them.
     let event_coverage: event_watch::EventCoverage =
         std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let (health_tx, health_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HEALTH_TELEMETRY_CAP);
-    // Live host-metric windows produced by the sampler reach the control loop
-    // over a bounded channel, drained on the heartbeat alongside discovery/health.
+    // Host-metric windows reach the control loop over a bounded channel drained on the heartbeat.
     let (host_metric_tx, host_metric_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HOST_METRIC_TELEMETRY_CAP);
-    // How busy the host is, published by the sampler each second and read by the
-    // background work that must only run on an idle machine.
+    // The sampler publishes host load each second for background work that needs an idle machine.
     let host_load = edge_sentinel::LoadSignal::new();
     let _edge_sentinel_sampler = {
         info!("edge-sentinel sampler starting");
@@ -544,27 +477,21 @@ async fn main() -> Result<()> {
         )
     };
 
-    // WS-15 reconnect-backfill coordinator: present only when the local store
-    // opened, and its presence gates advertising the `Backfill` capability to
-    // the server (there is nothing to drain without a store).
+    // The backfill coordinator exists only when the local store opened, and gates the `Backfill`
+    // capability.
     let mut backfill = shared_sink
         .clone()
         .map(backfill_loop::BackfillCoordinator::new);
 
-    // Auto-discovery reports produced by the discovery task reach the control
-    // loop over a bounded channel, drained on the heartbeat below.
     let (discovery_tx, discovery_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(DISCOVERY_TELEMETRY_CAP);
     let _edge_discovery = edge_sentinel::spawn_discovery(discovery_tx, maintenance.clone());
 
-    // System-event rules: the curated pack reads the host log on a bounded
-    // poll and raises into the shared alert sink.
     let _event_watch =
         event_watch::spawn_event_watch(alert_sink.clone(), maintenance.clone(), event_coverage);
 
-    // Re-running a newly arrived rule over the history this device already
-    // holds. The ruleset it compares against is what the control loop last
-    // installed, so a scan stops the moment its own rule version is replaced.
+    // Retro scans compare against the ruleset the control loop last installed, so a scan stops
+    // when its own rule version is replaced.
     let installed_rules: retro_job::InstalledRules =
         std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let _retro_scans = {
@@ -583,35 +510,26 @@ async fn main() -> Result<()> {
         })
     };
 
-    // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
-    // Fast-path (0x14) reconnect state. cached_ca_hash is learned from the
-    // first full handshake's ServerHello; once set, reconnects send SkipAuth
-    // instead of the full exchange. force_full_next forces one full handshake
-    // after an early fast-path failure (e.g. the server rotated its CA and
-    // rejected the stale hash), re-validating and re-caching before the agent
-    // resumes the fast path.
+    // `cached_ca_hash` comes from the first ServerHello and switches reconnects to SkipAuth;
+    // `force_full_next` forces one full handshake after a fast-path failure such as a rotated CA.
     let mut cached_ca_hash: Option<[u8; 48]> = None;
     let mut force_full_next = false;
 
-    // Flap-guard: bounds the self-inflicted reconnect rate when a registered
-    // connection drops shortly after registering. An accept-then-drop condition
-    // would otherwise respin at the dial rate; jitter also de-synchronises a
-    // reconnecting herd after a node restart.
+    // The flap guard bounds the reconnect rate after a session drops right after registering,
+    // and jitter de-synchronises a reconnecting herd.
     let mut governor = mesh_agent_core::ReconnectGovernor::new();
     let mut reconnect_rng = rand::rng();
 
-    // Main reconnect loop
     'outer: loop {
-        // Connect with exponential backoff
         let connect_result = mesh_agent_core::reconnect_with_backoff(
             || {
                 let addr_str = config.server_addr.clone();
                 let qc = quinn_config.clone();
                 let ep = endpoint.clone();
                 async move {
-                    // Extract hostname for TLS SNI verification.
+                    // The host part of the address is the TLS server name.
                     let sni_host = addr_str
                         .rsplit_once(':')
                         .map(|(h, _)| h)
@@ -651,8 +569,7 @@ async fn main() -> Result<()> {
             }
         };
 
-        // Choose the fast path (0x14) when we hold a cached CA hash and the
-        // last attempt wasn't an early fast-path rejection.
+        // The fast path needs a cached CA hash and no early fast-path rejection on the last try.
         let used_fast_path = cached_ca_hash.is_some() && !force_full_next;
         let handshake = if used_fast_path {
             perform_fast_handshake(&mut send, &cached_ca_hash.unwrap())
@@ -665,8 +582,7 @@ async fn main() -> Result<()> {
         };
         match handshake {
             Ok(Some(ca_hash)) => {
-                // Full handshake succeeded — (re)cache the CA hash and clear
-                // any prior fast-path failure.
+                // A full handshake refreshes the cached CA hash and clears a fast-path failure.
                 cached_ca_hash = Some(ca_hash);
                 force_full_next = false;
             }
@@ -680,13 +596,10 @@ async fn main() -> Result<()> {
             }
         }
 
-        // Wrap QUIC streams into AsyncControlStream
         let stream = mesh_agent_core::AsyncControlStream::new(tokio::io::join(recv, send));
         let mut conn = mesh_agent_core::AgentConnection::new(stream);
 
-        // Register with server. Discovery and threshold alerts are always-on, so
-        // they are advertised on every registration; Backfill is advertised only
-        // when the local store opened (see `agent_capabilities`).
+        // Backfill is advertised only when the local store opened (see `agent_capabilities`).
         let capabilities = agent_capabilities(backfill.is_some());
         if let Err(e) = conn
             .send_control(mesh_protocol::ControlMessage::AgentRegister {
@@ -698,8 +611,7 @@ async fn main() -> Result<()> {
             })
             .await
         {
-            // A fast-path connection that fails at registration was likely
-            // rejected (stale CA hash); fall back to a full handshake next time.
+            // A fast-path registration failure suggests a stale CA hash, so the next try is full.
             warn!(error = %e, "failed to send AgentRegister, will reconnect");
             if used_fast_path {
                 force_full_next = true;
@@ -707,22 +619,17 @@ async fn main() -> Result<()> {
             continue;
         }
 
-        // Registration succeeded: the fast path (if used) is validated.
         force_full_next = false;
-        // Reset maintenance to Active on every registration. The server pushes
-        // `SetMaintenanceMode(true)` right after register only for a device that
-        // is currently in maintenance; an Active device gets no message and must
-        // therefore default to Active here.
+        // The server pushes `SetMaintenanceMode(true)` only for a device in maintenance, so every
+        // registration starts Active.
         maintenance.set(false);
-        // Stamp when this session became registered so the flap-guard at the
-        // bottom of the loop can tell a stable session from an instant drop.
+        // The flap guard at the loop's end compares against this to tell a stable session.
         let connected_at = std::time::Instant::now();
         info!(
             fast_path = used_fast_path,
             "registered with server, entering control loop"
         );
 
-        // Registration succeeded — cancel watchdog and clear sentinel.
         if pending_update {
             watchdog_cancel.notify_one();
             mesh_agent_core::update::clear_update_pending(&args.data_dir).await;
@@ -730,11 +637,8 @@ async fn main() -> Result<()> {
             info!("post-update verification passed, sentinel cleared");
         }
 
-        // WS-15: start a reconnect-backfill cycle for this session. `bf_send_at`
-        // paces the drain to the granted rate; `bf_retry_at` schedules a
-        // deferred re-request. Both stay `None` until a grant/defer arrives. A
-        // send failure here surfaces again on the next control send and drives a
-        // reconnect, so it is only logged.
+        // `bf_send_at` paces the drain to the granted rate and `bf_retry_at` schedules a deferred
+        // re-request; both stay `None` until a grant or defer arrives.
         let mut bf_send_at: Option<tokio::time::Instant> = None;
         let mut bf_retry_at: Option<tokio::time::Instant> = None;
         if let Some(bf) = backfill.as_mut() {
@@ -746,9 +650,8 @@ async fn main() -> Result<()> {
             }
         }
 
-        // Control loop — dispatch messages until disconnect
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(60));
-        heartbeat.tick().await; // consume immediate first tick
+        heartbeat.tick().await;
         loop {
             tokio::select! {
                 biased;
@@ -776,11 +679,7 @@ async fn main() -> Result<()> {
                         tracing::debug!("backfill: reconnect drain in progress");
                     }
 
-                    // Forward any queued host-metric windows, discovery reports,
-                    // and health summaries. Drain into a Vec first so no receiver
-                    // is held across the send await; the bounded channels already
-                    // dropped anything beyond capacity, so none can backpressure
-                    // the control stream.
+                    // Draining into a Vec first keeps every receiver out of the send await.
                     let mut windows: Vec<mesh_protocol::ControlMessage> =
                         std::iter::from_fn(|| host_metric_rx.try_recv().ok()).collect();
                     windows.extend(std::iter::from_fn(|| discovery_rx.try_recv().ok()));
@@ -797,19 +696,13 @@ async fn main() -> Result<()> {
                         break;
                     }
 
-                    // Then the alerts every producer on this machine raised.
-                    // They go last because an alert is the one thing here that
-                    // cannot be taken again later: there is no path for asking
-                    // the machine afterwards, so what is on the message is the
-                    // whole of what will ever be known about that moment.
+                    // Alerts go last: a failed telemetry send leaves them queued in the sink.
                     if !send_queued_alerts(&mut conn, &alert_sink).await {
                         break;
                     }
                 }
                 _ = sleep_until_opt(bf_send_at) => {
-                    // Paced backfill send: one batch (or a re-slot request when the
-                    // grant expired mid-drain). The next send is re-armed on the
-                    // matching ack; a send failure drives a reconnect.
+                    // Sends one batch, or a re-slot request when the grant expired mid-drain.
                     bf_send_at = None;
                     if let Some(bf) = backfill.as_mut() {
                         if let Some(msg) = bf.next_batch().await {
@@ -852,7 +745,6 @@ async fn main() -> Result<()> {
                             version, url, sha256, signature,
                         }) => {
                             if let Some(ref uc) = update_config {
-                                // Version comparison: skip if incoming <= current
                                 if should_skip_version(&version) {
                                     info!(version, "update skipped: already up to date");
                                     send_update_ack(&mut conn, version, true, "already up to date".into()).await;
@@ -925,11 +817,8 @@ async fn main() -> Result<()> {
                                 offset: log_offset,
                                 limit: log_limit,
                             };
-                            // "self"/"" returns the agent's own rotated files;
-                            // any other source names a host log source, which
-                            // carries the unit filter + available-unit
-                            // enumeration and is refused by name where this host
-                            // has no reader for it.
+                            // "self" or "" reads the agent's own files; any other source
+                            // is a host log source, refused by name where the host has no reader.
                             let outcome = if source.is_empty() || source == "self" {
                                 logs::LogCollector::new(args.log_dir.clone())
                                     .collect(&filter)
@@ -995,9 +884,7 @@ async fn main() -> Result<()> {
                             }
                         }
                         Ok(mesh_protocol::ControlMessage::SetMaintenanceMode { enabled }) => {
-                            // Server-authoritative desired state. Flip the gate the
-                            // collectors consult, then echo the applied state so the
-                            // server can track applied vs. desired convergence.
+                            // The applied state is echoed so the server can track convergence.
                             maintenance.set(enabled);
                             info!(enabled, "maintenance mode set by server");
                             if let Err(e) = conn.send_control(
@@ -1008,14 +895,9 @@ async fn main() -> Result<()> {
                             }
                         }
                         Ok(mesh_protocol::ControlMessage::PushAlertRules { rules, device_hourly_ceiling }) => {
-                            // WS-19: hand the tenant ruleset to the sampler's
-                            // evaluator via the shared mailbox (next tick installs it).
+                            // The sampler installs the mailbox ruleset on its next tick.
                             debug!(count = rules.len(), ceiling = device_hourly_ceiling, "edge-sentinel: threshold-alert ruleset received");
-                            // The customer's per-machine alert allowance rides
-                            // with the rules and applies here, where alerts are
-                            // raised. Applied on arrival rather than on the next
-                            // restart: somebody changing it is generally looking
-                            // at a machine that is drowning them right now.
+                            // The per-machine alert allowance applies on arrival, not at restart.
                             alert_sink.set_ceiling(device_hourly_ceiling);
                             if let Ok(mut installed) = installed_rules.lock() {
                                 installed.clone_from(&rules);
@@ -1031,7 +913,7 @@ async fn main() -> Result<()> {
                         }
                         Err(mesh_agent_core::ConnectionError::Io(_)) => {
                             warn!("connection lost, will reconnect");
-                            break; // break inner loop, outer loop reconnects
+                            break;
                         }
                         Err(e) => {
                             warn!(error = %e, "control error, will reconnect");
@@ -1042,10 +924,8 @@ async fn main() -> Result<()> {
             }
         }
 
-        // The control loop broke (connection lost). If the session dropped
-        // within the stability window, back off before reconnecting so an
-        // accept-then-drop condition cannot respin at the dial rate; a session
-        // that stayed up resets the backoff and reconnects immediately.
+        // A drop within the stability window backs off before reconnecting; a long session
+        // resets the backoff.
         if let Some(delay) = governor.record_disconnect(connected_at.elapsed(), &mut reconnect_rng)
         {
             warn!(
@@ -1062,9 +942,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Sleep until `at`, or never (pend forever) when `at` is `None`. Lets a
-/// `tokio::select!` arm hold an optional backfill pacing/retry deadline without a
-/// dedicated always-armed timer.
+/// Sleeps until `at`, or forever when `at` is `None`, so a `select!` arm can hold an optional
+/// deadline.
 async fn sleep_until_opt(at: Option<tokio::time::Instant>) {
     match at {
         Some(t) => tokio::time::sleep_until(t).await,
@@ -1259,10 +1138,7 @@ fn parse_ed25519_pubkey(hex_str: &str) -> Result<[u8; 32]> {
     })
 }
 
-/// Parses both `AGENT_VERSION` and `incoming` as semver. If the incoming version
-/// is less than or equal to the current version, the update is skipped.
-/// If either version fails to parse, the function returns `false` (fail-open)
-/// to allow the update to proceed.
+/// Skips an incoming semver at or below `AGENT_VERSION`; a version that fails to parse proceeds.
 fn should_skip_version(incoming: &str) -> bool {
     let current = env!("AGENT_VERSION");
     match (
@@ -1270,19 +1146,12 @@ fn should_skip_version(incoming: &str) -> bool {
         semver::Version::parse(incoming),
     ) {
         (Ok(cur), Ok(inc)) => inc <= cur,
-        _ => false, // fail-open: if either version is invalid, proceed with update
+        _ => false,
     }
 }
 
-/// Hands over every alert this machine has queued, and answers whether the
-/// connection is still usable.
-///
-/// An alert is the only thing on this channel that cannot be taken again later:
-/// there is no path for asking the machine afterwards, so what does not get
-/// through is gone unless it is kept. So a send that fails hands the rest back
-/// — including the one that failed — and the reconnect delivers them into the
-/// far end's duplicate check, which resolves a re-delivery to the row already
-/// written rather than to a second one.
+/// Sends every queued alert and returns whether the connection is still usable; a failed send
+/// returns the rest to the sink for the server's duplicate check to resolve after reconnect.
 async fn send_queued_alerts<S: mesh_agent_core::ControlStream>(
     conn: &mut mesh_agent_core::AgentConnection<S>,
     sink: &mesh_agent_core::alerts::AlertSink,
@@ -1314,9 +1183,7 @@ async fn send_queued_alerts<S: mesh_agent_core::ControlStream>(
         sent += 1;
     }
 
-    // What either limit cost this machine is carried beside what it delivered,
-    // so a queue that lost entries says so rather than reading as a quiet
-    // machine.
+    // Alerts lost to either limit are reported beside what was delivered.
     let stats = sink.stats();
     if stats.dropped_oldest > 0 || stats.suppressed_by_ceiling > 0 {
         warn!(
@@ -1348,8 +1215,7 @@ async fn send_update_ack<S: mesh_agent_core::ControlStream>(
     }
 }
 
-/// Spawns the post-update watchdog task. If registration doesn't succeed
-/// within 60 seconds, the watchdog rolls back to the previous binary and restarts.
+/// Spawns the post-update watchdog, which rolls back and restarts if registration takes over 60s.
 fn spawn_update_watchdog(
     data_dir: &Path,
     update_config: &Option<mesh_agent_core::UpdateConfig>,
@@ -1375,15 +1241,13 @@ fn spawn_update_watchdog(
                 }
             }
             _ = cancel.notified() => {
-                // Registration succeeded — watchdog cancelled.
+                // A successful registration stands the watchdog down.
             }
         }
     });
 }
 
-/// Returns a human-readable OS name by parsing `/etc/os-release` on Linux.
-/// Falls back to `std::env::consts::OS` (e.g. "linux") on other platforms or
-/// if the file cannot be read.
+/// Returns `PRETTY_NAME` from `/etc/os-release`, or `std::env::consts::OS` when it is unreadable.
 fn os_pretty_name() -> String {
     #[cfg(target_os = "linux")]
     {
@@ -1398,11 +1262,7 @@ fn os_pretty_name() -> String {
     std::env::consts::OS.to_string()
 }
 
-/// Capabilities the agent advertises on registration. Terminal, file management,
-/// hardware inventory, device logs, discovery, and threshold alerts are always-on
-/// capabilities of every agent. `Backfill` is advertised only when the local
-/// store opened (`has_local_store`), since the reconnect-backfill coordinator has
-/// nothing to drain without it.
+/// Capabilities advertised on registration; `Backfill` needs the local store (`has_local_store`).
 fn agent_capabilities(has_local_store: bool) -> Vec<mesh_protocol::AgentCapability> {
     use mesh_protocol::AgentCapability;
     let mut caps = vec![
@@ -1412,9 +1272,6 @@ fn agent_capabilities(has_local_store: bool) -> Vec<mesh_protocol::AgentCapabili
         AgentCapability::DeviceLogs,
         AgentCapability::Discovery,
         AgentCapability::ThresholdAlerts,
-        // Every machine composes an alert's evidence where it fires and sends
-        // the alert with that evidence attached, so nothing is ever asked of it
-        // afterwards.
         AgentCapability::Alerts,
     ];
     if has_local_store {
@@ -1482,8 +1339,6 @@ mod tests {
 
     #[test]
     fn agent_capabilities_always_advertise_edge_sentinel() {
-        // Discovery and threshold alerts are always-on — no opt-in gate — and
-        // the baseline capabilities are always present.
         let caps = agent_capabilities(false);
         assert!(caps.contains(&mesh_protocol::AgentCapability::Discovery));
         assert!(caps.contains(&mesh_protocol::AgentCapability::ThresholdAlerts));
@@ -1491,7 +1346,6 @@ mod tests {
         assert!(caps.contains(&mesh_protocol::AgentCapability::FileManager));
         assert!(caps.contains(&mesh_protocol::AgentCapability::HardwareInventory));
         assert!(caps.contains(&mesh_protocol::AgentCapability::DeviceLogs));
-        // Backfill is withheld when the local store did not open.
         assert!(!caps.contains(&mesh_protocol::AgentCapability::Backfill));
     }
 
@@ -1541,7 +1395,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let identity = mesh_agent_core::AgentIdentity::load_or_create(dir.path()).unwrap();
 
-        // Empty PEM yields empty root store — config still builds but would fail at handshake
         let result = build_quic_config("", &identity);
         assert!(result.is_ok());
     }
@@ -1576,7 +1429,6 @@ mod tests {
     #[test]
     fn test_needs_enrollment_complete_identity() {
         let dir = tempfile::tempdir().unwrap();
-        // Create all three identity files.
         std::fs::write(dir.path().join("device_id.txt"), "test-id").unwrap();
         std::fs::write(dir.path().join("agent.crt"), b"cert").unwrap();
         std::fs::write(dir.path().join("agent.key"), b"key").unwrap();
@@ -1586,7 +1438,6 @@ mod tests {
     #[test]
     fn test_needs_enrollment_partial_identity() {
         let dir = tempfile::tempdir().unwrap();
-        // Only device_id and key (pending enrollment).
         std::fs::write(dir.path().join("device_id.txt"), "test-id").unwrap();
         std::fs::write(dir.path().join("agent.key"), b"key").unwrap();
         assert!(needs_enrollment(dir.path()));
@@ -1594,7 +1445,6 @@ mod tests {
 
     #[test]
     fn test_should_skip_version_older() {
-        // Anything older than current AGENT_VERSION should be skipped.
         assert!(should_skip_version("0.7.0"));
         assert!(should_skip_version("0.13.0"));
     }
@@ -1612,27 +1462,25 @@ mod tests {
 
     #[test]
     fn test_should_skip_version_invalid_semver_proceeds() {
-        // Invalid semver should fail-open (proceed with update).
         assert!(!should_skip_version("not-a-version"));
         assert!(!should_skip_version(""));
     }
 
     #[test]
     fn test_should_skip_version_prerelease() {
-        // Pre-release of a future version should not be skipped.
         assert!(!should_skip_version("99.0.0-rc.1"));
     }
 
     #[test]
     fn test_parse_ed25519_pubkey_valid() {
-        let hex = "a".repeat(64); // 32 bytes as hex
+        let hex = "a".repeat(64);
         let key = parse_ed25519_pubkey(&hex).unwrap();
         assert_eq!(key, [0xaa; 32]);
     }
 
     #[test]
     fn test_parse_ed25519_pubkey_wrong_length() {
-        let hex = "aa".repeat(16); // 16 bytes, not 32
+        let hex = "aa".repeat(16);
         let err = parse_ed25519_pubkey(&hex).unwrap_err();
         assert!(err.to_string().contains("32 bytes"));
     }
@@ -1648,8 +1496,6 @@ mod tests {
         let key = parse_ed25519_pubkey("").unwrap_err();
         assert!(key.to_string().contains("32 bytes"));
     }
-
-    // --- delivering what the machine raised -------------------------------
 
     fn queued_alert(rule_id: &str, window_start_secs: i64) -> mesh_agent_core::alerts::EdgeAlert {
         mesh_agent_core::alerts::EdgeAlert {
@@ -1677,8 +1523,6 @@ mod tests {
         mesh_agent_core::AgentConnection::new(mesh_agent_core::AsyncControlStream::new(stream))
     }
 
-    /// Everything the machine raised goes out on the heartbeat, oldest first,
-    /// and the queue is empty afterwards.
     #[tokio::test]
     async fn queued_alerts_go_out_in_the_order_they_were_raised() {
         let sink = mesh_agent_core::alerts::AlertSink::default();
@@ -1707,7 +1551,6 @@ mod tests {
         assert!(sink.drain().is_empty(), "nothing is left to send");
     }
 
-    /// An empty queue sends nothing and reports the link as fine.
     #[tokio::test]
     async fn an_empty_queue_sends_nothing() {
         let sink = mesh_agent_core::alerts::AlertSink::default();
@@ -1716,8 +1559,6 @@ mod tests {
         assert!(send_queued_alerts(&mut agent, &sink).await);
     }
 
-    /// A link that breaks mid-send hands back every alert that did not go,
-    /// including the one that failed, so the reconnect offers them again.
     #[tokio::test]
     async fn a_broken_link_hands_back_what_did_not_go() {
         let sink = mesh_agent_core::alerts::AlertSink::default();

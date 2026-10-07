@@ -26,10 +26,17 @@ func gaveOut() *GaveOut {
 	return &GaveOut{ErrorRateAbove: 0.05, LatencyP95MsAbove: 2000, TargetBusyPercentAbove: 95}
 }
 
-// The breakpoint family exists to say where the system gives out, and until the
-// profile writes down what that means the answer is whatever the run happened to
-// survive. The 2026-09-09 ladder reached four thousand machines with no errors
-// at all and established nothing except that the answer is higher.
+func classifyLadder(profile *Profile, phases []PhaseResult) Verdict {
+	return Classify(RunInputs{
+		Profile:           profile,
+		BreakingPoint:     FindBreakingPoint(profile.GaveOut, phases),
+		ExpectedScenarios: []string{"quic-agents"},
+		ProducedScenarios: []string{"quic-agents"},
+		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
+		Phases:            phases,
+	})
+}
+
 func TestTheLadderNamesTheRungThatHeldAndTheRungThatGave(t *testing.T) {
 	answer := FindBreakingPoint(gaveOut(), []PhaseResult{
 		rung("step-500", 500, 0, 40, busy(20)),
@@ -37,8 +44,6 @@ func TestTheLadderNamesTheRungThatHeldAndTheRungThatGave(t *testing.T) {
 		rung("step-2000", 2000, 0.01, 120, busy(70)),
 		rung("step-4000", 4000, 0.48, 380, busy(88)),
 		rung("step-8000", 8000, 0.77, 900, busy(92)),
-		// The ladder ends where it started, so the report can say whether the
-		// system came back. It is not a rung and is not searched.
 		rung("recovery", 500, 0, 45, busy(21)),
 	})
 
@@ -51,12 +56,6 @@ func TestTheLadderNamesTheRungThatHeldAndTheRungThatGave(t *testing.T) {
 	assert.Equal(t, 4, answer.RungsRead)
 }
 
-// Where it gave says what moved, not only which term crossed its line. The
-// 2026-09-26 ladder held eight thousand machines and gave at sixteen thousand
-// on its error rate, and nothing in the bundle said which resource had run out
-// on the way there — the generator's processor, a receive buffer at either end,
-// or the target's allowance. Every resource reading the two rungs both carry is
-// laid side by side, and one that did not move is left out.
 func TestWhereItGaveNamesWhatMovedBetweenTheLastTwoRungs(t *testing.T) {
 	held := rung("step-8000", 8000, 0, 14, busy(45))
 	held.GeneratorCPUHeadroomPercent = float64Of(80)
@@ -80,8 +79,6 @@ func TestWhereItGaveNamesWhatMovedBetweenTheLastTwoRungs(t *testing.T) {
 	}, answer.Moved, "the target's buffers dropped nothing at either rung, so they are not named")
 }
 
-// A reading one of the two rungs could not take is no comparison, and a ladder
-// with no rung that held has nothing to compare the one that gave against.
 func TestOnlyReadingsBothRungsTookAreCompared(t *testing.T) {
 	held := rung("step-8000", 8000, 0, 14, nil)
 	gave := rung("step-16000", 16000, 0.3, 6553, busy(60))
@@ -96,8 +93,6 @@ func TestOnlyReadingsBothRungsTookAreCompared(t *testing.T) {
 	assert.Empty(t, first.Moved, "the first rung gave, so there is no rung that held to compare it with")
 }
 
-// The run's log says what moved as well as where the ladder gave, so the
-// answer reads without opening the bundle.
 func TestTheLogNamesWhatMovedWhereTheLadderGave(t *testing.T) {
 	out := captureStdout(t, func() {
 		printBreakingPoint(&BreakingPoint{
@@ -114,8 +109,6 @@ func TestTheLogNamesWhatMovedWhereTheLadderGave(t *testing.T) {
 func float64Of(v float64) *float64 { return &v }
 func int64Of(v int64) *int64       { return &v }
 
-// Each term stands on its own, so a ladder that gives out slowly rather than by
-// refusing work is still answered.
 func TestEachTermCanBeTheOneThatGives(t *testing.T) {
 	t.Run("the wait times", func(t *testing.T) {
 		answer := FindBreakingPoint(gaveOut(), []PhaseResult{
@@ -137,8 +130,6 @@ func TestEachTermCanBeTheOneThatGives(t *testing.T) {
 		assert.Contains(t, answer.Reason, "processor allowance")
 	})
 
-	// A busy-ness that could not be read is not a target at rest, so a rung it
-	// is absent from is judged on the terms that were read.
 	t.Run("a reading nobody took decides nothing", func(t *testing.T) {
 		answer := FindBreakingPoint(gaveOut(), []PhaseResult{
 			rung("step-500", 500, 0, 40, nil),
@@ -150,8 +141,6 @@ func TestEachTermCanBeTheOneThatGives(t *testing.T) {
 	})
 }
 
-// A ladder that reached its top without giving out has an answer too, and it is
-// "higher than this" rather than a breaking point.
 func TestALadderThatHeldThroughoutSaysSo(t *testing.T) {
 	answer := FindBreakingPoint(gaveOut(), []PhaseResult{
 		rung("step-500", 500, 0, 40, busy(20)),
@@ -164,26 +153,20 @@ func TestALadderThatHeldThroughoutSaysSo(t *testing.T) {
 	assert.Equal(t, 2, answer.RungsRead)
 }
 
-// An answer shaped as an absence — nothing gave out — is satisfied by the
-// absence of the whole conversation, so it has to prove it read a rung first.
 func TestALadderThatReadNoRungCountsNone(t *testing.T) {
 	answer := FindBreakingPoint(gaveOut(), nil)
 	require.NotNil(t, answer)
 	assert.Zero(t, answer.RungsRead)
 
-	// And a bundle carrying such an answer is not a run anyone can read.
 	bundle := completeBundle()
 	bundle.BreakingPoint = answer
 	require.Error(t, bundle.Validate())
 }
 
-// A profile that declares nothing is asking no question, and gets no answer
-// rather than an empty one.
 func TestAProfileThatDeclaresNoDefinitionGetsNoAnswer(t *testing.T) {
 	assert.Nil(t, FindBreakingPoint(nil, []PhaseResult{rung("step-500", 500, 0.9, 9000, busy(99))}))
 }
 
-// The family whose whole subject is the breaking point has to say what one is.
 func TestTheBreakpointFamilyMustDeclareWhatGivingOutMeans(t *testing.T) {
 	profile := breakpointShapedProfile()
 	profile.GaveOut = nil
@@ -208,8 +191,6 @@ func TestADefinitionWithANegativeTermIsRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), "error_rate_above")
 }
 
-// The committed ladder carries one, so the family's answer is a reading against
-// numbers somebody wrote down rather than whatever the run survived.
 func TestTheCommittedBreakpointProfileDeclaresWhatGivingOutMeans(t *testing.T) {
 	profiles, err := LoadProfileDir(profileDir())
 	require.NoError(t, err)
@@ -240,56 +221,29 @@ func breakpointShapedProfile() *Profile {
 	}
 }
 
-// A ladder that finds its answer is a ladder that worked.
-//
-// Every other family reads a phase whose error rate is past the profile's
-// ceiling as a run that stopped measuring the system: the numbers describe the
-// error path rather than the product. On a capacity ladder that phase is the
-// whole point. The nightly that climbed to sixteen thousand machines lost
-// fifteen thousand of them, which is the answer it was sent to find, and the
-// run was then thrown away for having found it.
-//
-// So a rung at or above the one the ladder reports as giving out is what the
-// run measured, and everything below it is still held to the ceiling — a rung
-// that was meant to hold and did not is a run that measured the error path,
-// and so is a recovery phase that never recovered.
 func TestALadderIsNotInvalidatedByTheRungItWasSentToFind(t *testing.T) {
 	profile := &Profile{
 		Safety:  Safety{MaxErrorRate: 0.25},
 		GaveOut: &GaveOut{ErrorRateAbove: 0.05},
 	}
-	phases := []PhaseResult{
+
+	verdict := classifyLadder(profile, []PhaseResult{
 		{Name: "step-500", OfferedConnectedAgents: 500, ErrorRate: 0},
 		{Name: "step-1000", OfferedConnectedAgents: 1000, ErrorRate: 0.99},
 		{Name: "recovery", OfferedConnectedAgents: 500, ErrorRate: 0},
-	}
-
-	verdict := Classify(RunInputs{
-		Profile:           profile,
-		BreakingPoint:     FindBreakingPoint(profile.GaveOut, phases),
-		ExpectedScenarios: []string{"quic-agents"},
-		ProducedScenarios: []string{"quic-agents"},
-		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
-		Phases:            phases,
 	})
 
 	assert.Equal(t, ResultValid, verdict.Result,
 		"the rung that gave out is the finding: %v", verdict.Reasons)
 }
 
-// A rung below the one that gave out is a rung that was meant to hold, and a
-// recovery phase that never recovered is the defect the family reports.
-//
-// The recovery phase offers its machines afresh — the ladder stands the fleet
-// down to nothing first — so the error rate here is taken over machines this
-// phase reached for, against a system that was crushed a moment ago. That is
-// the reading the family exists to produce.
 func TestARecoveryThatNeverRecoveredStillInvalidatesTheLadder(t *testing.T) {
 	profile := &Profile{
 		Safety:  Safety{MaxErrorRate: 0.25},
 		GaveOut: &GaveOut{ErrorRateAbove: 0.05},
 	}
-	phases := []PhaseResult{
+
+	verdict := classifyLadder(profile, []PhaseResult{
 		{Name: "step-500", OfferedConnectedAgents: 500, ErrorRate: 0},
 		{Name: "step-1000", OfferedConnectedAgents: 1000, ErrorRate: 0.99},
 		{Name: "drain", OfferedConnectedAgents: 0, ErrorRate: 0},
@@ -300,91 +254,42 @@ func TestARecoveryThatNeverRecoveredStillInvalidatesTheLadder(t *testing.T) {
 			AchievedAgentArrivalsPerSecond: 1.6,
 			ErrorRate:                      0.9,
 		},
-	}
-
-	verdict := Classify(RunInputs{
-		Profile:           profile,
-		BreakingPoint:     FindBreakingPoint(profile.GaveOut, phases),
-		ExpectedScenarios: []string{"quic-agents"},
-		ProducedScenarios: []string{"quic-agents"},
-		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
-		Phases:            phases,
 	})
 
 	assert.Equal(t, ResultInvalid, verdict.Result)
 }
 
-// A phase that offered no arrivals has no arrival error rate.
-//
-// A wind-down asks for fewer machines than the phase before it, so it reaches
-// for nobody: every outcome inside its window belongs to a machine some earlier
-// phase reached for, and a machine's outcome is known when its life ends rather
-// than when it began. The night of 2026-09-13 is what that cost. The ladder
-// found its answer at sixteen thousand machines, and the phase behind that rung
-// recorded seven arrivals and ten failures — seventeen stragglers out of sixteen
-// thousand — for an error rate of 0.588. That reading of the crush was the only
-// thing standing between the run and a verdict, and it discarded the first
-// answer this family has ever produced.
 func TestAPhaseThatOfferedNoArrivalsIsNotHeldToTheirErrorRate(t *testing.T) {
 	profile := &Profile{
 		Safety:  Safety{MaxErrorRate: 0.25},
 		GaveOut: &GaveOut{ErrorRateAbove: 0.05},
 	}
-	// The night's own numbers.
-	phases := []PhaseResult{
+
+	verdict := classifyLadder(profile, []PhaseResult{
 		{Name: "step-8000", OfferedConnectedAgents: 8000, OfferedAgentArrivalsPerSecond: 13.33, AchievedAgentArrivalsPerSecond: 13.33, ErrorRate: 0},
 		{Name: "step-16000", OfferedConnectedAgents: 16000, OfferedAgentArrivalsPerSecond: 23.16, AchievedAgentArrivalsPerSecond: 9.89, ErrorRate: 0.5318624092092641},
 		{Name: "recovery", OfferedConnectedAgents: 500, OfferedAgentArrivalsPerSecond: 0, AchievedAgentArrivalsPerSecond: 0.023, ErrorRate: 0.5882352941176471},
-	}
-
-	verdict := Classify(RunInputs{
-		Profile:           profile,
-		BreakingPoint:     FindBreakingPoint(profile.GaveOut, phases),
-		ExpectedScenarios: []string{"quic-agents"},
-		ProducedScenarios: []string{"quic-agents"},
-		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
-		Phases:            phases,
 	})
 
 	assert.Equal(t, ResultValid, verdict.Result,
 		"the wind-down's stragglers are the rung before it: %v", verdict.Reasons)
 }
 
-// And the exemption is the wind-down's alone. A phase that reached for machines
-// and lost them is the run measuring the error path, whatever else it offered.
 func TestAPhaseThatOfferedArrivalsIsStillHeldToItsErrorRate(t *testing.T) {
 	profile := &Profile{Safety: Safety{MaxErrorRate: 0.25}}
-	phases := []PhaseResult{{
+
+	verdict := classifyLadder(profile, []PhaseResult{{
 		Name:                           "steady",
 		OfferedConnectedAgents:         500,
 		OfferedAgentArrivalsPerSecond:  5,
 		AchievedAgentArrivalsPerSecond: 4.9,
 		ErrorRate:                      0.4,
-	}}
-
-	verdict := Classify(RunInputs{
-		Profile:           profile,
-		ExpectedScenarios: []string{"quic-agents"},
-		ProducedScenarios: []string{"quic-agents"},
-		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
-		Phases:            phases,
-	})
+	}})
 
 	assert.Equal(t, ResultInvalid, verdict.Result)
 	assert.Contains(t, strings.Join(verdict.Reasons, "\n"), "error rate")
 }
 
-// The committed ladder's recovery phase reaches for its machines rather than
-// keeping what is left of the crush.
-//
-// The fleet never replaces a machine it lost — the gap between the level asked
-// for and the level connected is a finding, and topping it up would be the
-// harness closing it quietly. After a rung that severs most of the fleet, that
-// leaves a recovery phase holding corpses: the 2026-09-13 ladder's recovery
-// declared five hundred machines and had seven connected, and offered no
-// arrival with which to find out whether the server had come back. So the
-// ladder empties the fleet before it asks again, and the recovery phase's
-// machines are all new.
 func TestTheCommittedLadderRecoversWithMachinesItReachedFor(t *testing.T) {
 	profiles, err := LoadProfileDir(profileDir())
 	require.NoError(t, err)
@@ -405,25 +310,16 @@ func TestTheCommittedLadderRecoversWithMachinesItReachedFor(t *testing.T) {
 	require.Positive(t, found, "the sweep read no breakpoint profile at all")
 }
 
-// A profile that declares no breaking point is asking no such question, and
-// every phase of it is held to the ceiling exactly as before.
 func TestAProfileThatAsksNoCapacityQuestionKeepsItsCeiling(t *testing.T) {
 	profile := &Profile{Safety: Safety{MaxErrorRate: 0.25}}
-	phases := []PhaseResult{{
+
+	verdict := classifyLadder(profile, []PhaseResult{{
 		Name:                           "steady",
 		OfferedConnectedAgents:         500,
 		OfferedAgentArrivalsPerSecond:  5,
 		AchievedAgentArrivalsPerSecond: 4.9,
 		ErrorRate:                      0.99,
-	}}
-
-	verdict := Classify(RunInputs{
-		Profile:           profile,
-		ExpectedScenarios: []string{"quic-agents"},
-		ProducedScenarios: []string{"quic-agents"},
-		Headroom:          Headroom{Measured: true, Scope: headroomScopeGenerator, CPUHeadroomPercent: 90},
-		Phases:            phases,
-	})
+	}})
 
 	assert.Equal(t, ResultInvalid, verdict.Result)
 }

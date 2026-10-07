@@ -10,29 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What the age sweep may and may not take.
-//
-// Erasure already cascades off a machine or a customer. These cases are about
-// the other axis — how long a record has been held — and about the two bounds
-// that keep an age sweep from taking work somebody is still doing: an open room
-// is never a candidate, and a room outlives every alert that points at it.
-
-// remaining is what the three tables hold once a sweep has run. Stating the
-// whole shape rather than the one table a case is about is what catches a sweep
-// that took the right rows from one place and the wrong rows from another.
 type remaining struct {
 	alerts, incidents, events int
 }
 
-// sweepCase is one arrangement, one pass, and what is left.
 type sweepCase struct {
-	name string
-	// arrange seeds the estate. It runs with the store's clock at e.now.
+	name    string
 	arrange func(t *testing.T, e estate)
-	// sweeps is how many passes run; more than one states idempotence.
-	sweeps int
-	// removed is what the first pass reclaims. Every later pass must reclaim
-	// nothing, which is the whole of what a second pass proves.
+	sweeps  int
 	removed int
 	left    remaining
 }
@@ -106,8 +91,6 @@ func TestSweepExpired(t *testing.T) {
 	}
 }
 
-// TestSweepExpiredKeepsTheAlertThatIsStillInsideTheHorizon states which of two
-// alerts survives, which the counts above cannot say on their own.
 func TestSweepExpiredKeepsTheAlertThatIsStillInsideTheHorizon(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -123,10 +106,6 @@ func TestSweepExpiredKeepsTheAlertThatIsStillInsideTheHorizon(t *testing.T) {
 	assert.Equal(t, kept, surviving)
 }
 
-// TestSweepExpiredReachesEveryTenant states the sweep against two tenants rather
-// than one customer. A record past the horizon in a tenant nobody is currently
-// serving requests for is exactly as expired as one in the tenant under test,
-// and a sweep confined to the caller's scope would keep the first forever.
 func TestSweepExpiredReachesEveryTenant(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
@@ -135,8 +114,6 @@ func TestSweepExpiredReachesEveryTenant(t *testing.T) {
 	other := e.neighbour(t, "Fabrikam")
 	theirs := e.openRoomIn(t, other, StatusResolved, e.now.Add(-year-time.Hour))
 
-	// Two rows: this tenant's aged alert, and the neighbour's closed room that
-	// nothing points at.
 	e.expireAt(t, e.now, year, 2)
 
 	assert.Zero(t, e.countIn(t, "alerts"))
@@ -144,10 +121,6 @@ func TestSweepExpiredReachesEveryTenant(t *testing.T) {
 		"a tenant with nobody logged in still has its records aged out")
 }
 
-// TestSweepExpiredRefuses covers the two ways a caller can ask for something the
-// sweep must not do. A horizon of zero puts the cutoff at the present instant,
-// which would delete every record on the first pass; a cancelled context is a
-// process being asked to stop mid-drain. Neither removes anything.
 func TestSweepExpiredRefuses(t *testing.T) {
 	t.Parallel()
 

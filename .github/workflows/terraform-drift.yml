@@ -1,20 +1,11 @@
 name: terraform-drift
 
-# Nightly drift detection — catches out-of-band changes to OCI resources
-# (operator clicks in the console, cd.yml runtime NSG mutations, manual
-# security-list edits) by running `terraform plan -refresh-only -detailed-exitcode`
-# against the remote backend.
-#
-# Plan: .claude/plans/terraform-test-and-remote-state.md (PR T4)
-# Same pattern as .github/workflows/mutation.yml — observability, not auto-remediation.
-#
-# Authentication: a separate read-only IAM user `tf-drift-reader` (inspect-only
-# on the compartment + read-only on the tfstate bucket). The new OCI_DRIFT_*
-# secrets gate this — distinct from the CD deploy user.
+# Nightly refresh-only plan against the remote backend reports out-of-band changes to OCI resources.
+# The OCI_DRIFT_* secrets belong to the read-only IAM user `tf-drift-reader`.
 
 on:
   schedule:
-    - cron: '0 3 * * *'  # nightly 03:00 UTC (same slot as mutation.yml; both are observability)
+    - cron: '0 3 * * *'  # nightly 03:00 UTC
   workflow_dispatch: {}
 
 concurrency:
@@ -31,18 +22,12 @@ jobs:
     name: Refresh-only plan + alert
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # See mutation.yml for the rationale on the `observability` environment.
-    # This job needs DEPLOY_TELEGRAM_BOT_TOKEN / DEPLOY_TELEGRAM_CHAT_ID to
-    # fire the drift alert and must run unattended on the nightly cron;
-    # `observability` provides the secrets without the required_reviewers
-    # gate that `staging` / `production` have.
+    # `observability` provides the Telegram secrets without the reviewer gate that would stall the cron.
     environment: observability
     outputs:
       drift: ${{ steps.plan.outputs.exitcode }}
     steps:
-      # The night's date. Every sample the night writes carries this time, so a
-      # run is one point on one date however long it takes, and a re-run writes
-      # the same point.
+      # Every sample of the night carries this time, so a re-run writes the same point.
       - name: Record when the run started
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
@@ -67,10 +52,7 @@ jobs:
           OCI_TFSTATE_NAMESPACE: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
           OCI_REGION: ${{ secrets.OCI_REGION }}
         run: |
-          # The S3 bucket lives in the same region as the rest of the infra;
-          # the endpoint is reconstructed from the OCI namespace + region.
-          # Credentials env vars (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
-          # are passed at init/plan time below.
+          # The endpoint is built from the OCI namespace and region.
           cat > /tmp/backend.tfbackend <<EOF
           endpoints = {
             s3 = "https://${OCI_TFSTATE_NAMESPACE}.compat.objectstorage.${OCI_REGION}.oraclecloud.com"
@@ -93,19 +75,9 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
-          # AWS SDK v2 defaults to a flexible-checksum chunked upload that OCI's
-          # S3-compat rejects with `501 NotImplemented: AWS chunked encoding not
-          # supported`. Forcing `when_required` skips it. Required on every
-          # terraform invocation against this backend.
+          # OCI's S3-compat backend rejects the SDK's default chunked checksum upload with a 501.
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-        # init reaches two flaky externals: the S3-compat backend endpoint
-        # `<ns>.compat.objectstorage.<region>.oraclecloud.com` (occasional GHA DNS
-        # miss — `dial tcp: lookup …: no such host`, 2026-05-15) and the Terraform
-        # provider registry, which redirects to github.com for the oracle/oci
-        # provider and can return `504 Gateway Timeout` during a GitHub blip
-        # (2026-06-08 — outlasted the old 3-attempt/~90s window and false-failed
-        # the nightly). Widen to 5 attempts with longer backoff (~5 min total) so a
-        # transient registry/DNS outage rides through instead of red-flagging drift.
+        # Five attempts with growing backoff ride out transient DNS and provider-registry outages.
         run: |
           set -e
           for attempt in 1 2 3 4 5; do
@@ -129,9 +101,7 @@ jobs:
           TF_VAR_fingerprint: ${{ secrets.OCI_DRIFT_FINGERPRINT }}
           TF_VAR_private_key_path: /home/runner/.oci/drift.pem
           TF_VAR_region: ${{ secrets.OCI_REGION }}
-          # refresh-only does not compare config to state, but variables still
-          # have to satisfy their validation blocks. Any non-`0.0.0.0/0` CIDR
-          # satisfies the ssh_allowed_cidr validation.
+          # Variables satisfy their validation blocks; any CIDR other than `0.0.0.0/0` passes here.
           TF_VAR_ssh_allowed_cidr: 203.0.113.0/24
           TF_VAR_ssh_public_key_path: /dev/null
         run: |
@@ -141,7 +111,7 @@ jobs:
             -out=drift.tfplan 2>&1 | tee drift.txt
           ec=${PIPESTATUS[0]}
           echo "exitcode=$ec" >> "$GITHUB_OUTPUT"
-          # 0 = no drift, 2 = drift, anything else = real error
+          # Exit 0 is no drift, 2 is drift, and any other status is an error.
           if [ "$ec" != "0" ] && [ "$ec" != "2" ]; then exit "$ec"; fi
 
       - name: Drift summary JSON
@@ -162,8 +132,7 @@ jobs:
             drift-summary.json
           retention-days: 30
 
-      # Trend pushes run against in-cluster Services via kubectl (the cluster API
-      # endpoint is reachable without a JIT NSG rule, so no firewall teardown).
+      # The cluster API endpoint is reachable without a JIT NSG rule, so no firewall teardown follows.
       - name: OCI + kubeconfig setup
         if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
         id: infra
@@ -183,14 +152,8 @@ jobs:
         run: ./scripts/terraform-drift-vm-push.sh drift-summary.json
 
       - name: Send Telegram alert
-        # Runs whatever happened above it, and the message names which of the
-        # three it was. The shape this replaces was gated on the plan's own exit
-        # code, so a night that died before the plan ran said nothing at all:
-        # the louder the failure, the more certain the silence.
-        #
-        # And the send below reports a refused delivery rather than swallowing
-        # it. It can afford to — the verdict is read by a job of its own now, so
-        # a Telegram outage reddens this job and hides nothing.
+        # Runs whatever happened above it, and the message names which of the three it was.
+        # A refused delivery fails the step; the gate job reads the verdict.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
@@ -218,19 +181,7 @@ jobs:
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
-  # What the cluster was actually given, against what this repository declares.
-  #
-  # The monitoring stack's ConfigMaps carry every alert rule, every dashboard and
-  # every scrape target. Two of them were created once by hand and re-created by
-  # nothing, and the third belongs to a chart that had not been upgraded in over
-  # a hundred days. So the cluster evaluated seven of the thirteen rules declared
-  # here, served nine of thirteen dashboards, and scraped none of the
-  # per-container series — including the ones the rule written to detect exactly
-  # that gap reads. A rule could be added, pinned by a gate, reviewed, merged,
-  # and never exist.
-  #
-  # This job is that comparison, in the workflow whose subject is already the
-  # deployed state drifting from the declared one.
+  # Compares the alert rules, dashboards and scrape targets the cluster holds with the declared ones.
   monitoring-config:
     name: The configuration the cluster holds
     runs-on: ubuntu-24.04
@@ -259,15 +210,8 @@ jobs:
           MONITORING_NAMESPACE: monitoring
         run: deploy/scripts/monitoring-config-apply.sh
 
-      # The destination is provisioned from a file, so it survives a pod being
-      # rescheduled. Whether a message actually arrives is a different fact, and
-      # it is the only one worth trusting: the configuration above can be right
-      # in every particular and still reach nobody.
-      #
-      # It runs whatever happened above it, because proving the channel does not
-      # depend on the configuration being current — the send goes to Telegram
-      # directly. And this job cannot alert through the channel it is testing, so
-      # the workflow's own result is the signal that survives a send nobody got.
+      # The send goes to Telegram directly, so it runs whatever happened above it.
+      # This job's own result is the signal when the message never arrives.
       - name: Send a message through the channel the alerts use
         if: always()
         env:
@@ -289,8 +233,7 @@ jobs:
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
-  # Separate from the job that sends, so a refused delivery cannot take the
-  # night's verdict with it.
+  # A job of its own keeps a refused delivery from taking the night's verdict with it.
   gate:
     name: Infrastructure drift gate
     needs: [drift, monitoring-config]

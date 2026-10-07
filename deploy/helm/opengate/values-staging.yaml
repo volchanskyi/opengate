@@ -1,5 +1,4 @@
-# Staging overlay — coexists with production (separate release + namespace).
-# Mirrors docker-compose.staging.yml: smaller footprint, no HSTS, ACME staging.
+# Staging overlay: a separate release and namespace beside production.
 
 domain: staging.opengate.example.com
 
@@ -12,29 +11,15 @@ certManager:
   server: https://acme-staging-v02.api.letsencrypt.org/directory
 
 server:
-  # Staging shares the single-node pilot cluster with production, which already
-  # binds the QUIC/MPS hostPorts (9090/udp, 4433/tcp) on the node. A second pod
-  # can't duplicate them, so staging would hang Pending and time out `helm --wait`.
-  # Staging E2E reaches the app via kubectl port-forward, not L4, so disable
-  # hostPort here (the server still serves HTTP on :8080).
+  # Production already binds the QUIC and MPS hostPorts on the shared node, so a second
+  # pod would stay Pending; staging is reached by port-forward instead.
   hostPortL4: false
-  # The edge, and the generators a load run creates here. The second entry is
-  # what lets a night offer the request load a fleet of technicians would offer
-  # rather than the single allowance one pod is entitled to; it names the
-  # service the run's pods join, which exists in this environment alone.
+  # The edge, and the load-run generator service, which exists in this environment alone.
   trustedProxies:
     - ingress-nginx-controller.ingress-nginx
     - opengate-staging-loadtest-generators.opengate-staging
-  # Production's own shape, exactly. A load run against a server sized
-  # differently from the one customers use answers a question about a machine
-  # nobody has, and staging is the only venue on the hardware production
-  # actually runs on — so it is the one leg of the sweep that can state an
-  # absolute rather than a comparison.
-  #
-  # Reserving what it is capped at is the other half. A pod that reserves less
-  # than it uses is evicted before the pods that reserved properly, so a night
-  # spent bursting to twice its reservation was measuring a server the cluster
-  # considered expendable.
+  # Production's own shape, with requests equal to limits so the pod is not evicted early
+  # during a load run.
   resources:
     requests:
       cpu: 250m
@@ -43,22 +28,12 @@ server:
       cpu: 250m
       memory: 384Mi
   dataVolume:
-    # Staging is a throwaway deploy-test env: /data (CA + VAPID + update-signing
-    # keys) rides an emptyDir to avoid a 50 GB OCI block volume (ADR-035, free-tier
-    # cap). E2E/smoke re-enroll against the fresh CA each run, so the reset is fine.
+    # /data rides an emptyDir; e2e and smoke re-enroll against the fresh CA each run.
     persistent: false
     size: 1Gi
 
 postgres:
-  # Production's processor shape exactly, reservation and ceiling, so the venue a
-  # night is measured on is the one its history was measured on. A ceiling is
-  # enforced per tenth of a second: capped at 250m this database was paused in a
-  # fifth of its busy tenths of a second through a load run and in a third to
-  # nearly half of them idle before it, and the run's registration tail went from
-  # tens of milliseconds to over a second with the median unchanged. A load run
-  # uses 40–80m of it, so 175m covers that twice over. Memory keeps the chart's
-  # smaller reservation: this database holds a night's fixture rather than
-  # anything a customer depends on.
+  # Production's processor shape: a 250m ceiling throttled this database during load runs.
   resources:
     requests:
       cpu: 175m
@@ -66,18 +41,13 @@ postgres:
       cpu: "1"
       memory: 384Mi
   storage:
-    # Same as the server /data above — staging DB rides an emptyDir, not a block
-    # volume (ADR-035). E2E/smoke seed their own fixtures, so the reset is fine.
+    # The database rides an emptyDir; e2e and smoke seed their own fixtures.
     persistent: false
     size: 5Gi
   backup:
-    # Staging is ephemeral E2E state; no scheduled backups needed.
     enabled: false
 
-# Staging is the environment a nightly load run fills and empties, so it is the
-# one that needs an administrator outside that cycle. The database here rides an
-# emptyDir and starts empty on every pod restart, so the account is re-seeded on
-# every deployment rather than created once.
+# The database starts empty on every pod restart, so the account is re-seeded on each deployment.
 loadTest:
   generators:
     enabled: true

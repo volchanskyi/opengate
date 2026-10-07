@@ -1,11 +1,4 @@
-//! System-event rule pack: what the curated rules match, what they refuse, and
-//! what a bounded poll with an overlapping window is allowed to fire twice.
-//!
-//! The host log reader is a bounded on-demand read, not a stream, so successive
-//! polls overlap and re-present the same records. Every test here is written
-//! against that fact: matching is only half the pack, and the half that decides
-//! whether an operator trusts it is what happens on the second look at the same
-//! record.
+//! System-event rule pack tests: matching, near-miss refusal and dedup across overlapping polls.
 
 use mesh_agent_core::alerts::{
     AlertSeverity, EdgeAlert, EventLevel, EventMatcher, EventPack, EventRule, HostEvent,
@@ -13,20 +6,14 @@ use mesh_agent_core::alerts::{
 };
 use mesh_protocol::{AlertEvidence, RuleCoverageState};
 
-/// The log lines an alert actually ships, read back out of the packed evidence
-/// rather than off the struct that produced it. What the far end stores is this
-/// blob, so this is the only reading that says what a technician will see.
 fn shipped_lines(alert: &EdgeAlert) -> Vec<String> {
     AlertEvidence::decode(&alert.evidence, &alert.evidence_codec)
         .expect("an alert's evidence must read back")
         .log_samples
 }
 
-/// One second in the microsecond scale the pack orders records on.
 const SECOND: i64 = 1_000_000;
 
-/// The pack starts watching at this instant; anything older than it belongs to
-/// the log's history rather than to this process's watch.
 const START: i64 = 1_000 * SECOND;
 
 fn event<'a>(ts: i64, level: &'a str, unit: &'a str, message: &'a str) -> HostEvent<'a> {
@@ -38,8 +25,6 @@ fn event<'a>(ts: i64, level: &'a str, unit: &'a str, message: &'a str) -> HostEv
     }
 }
 
-/// The shipped pack with the rolling per-service counter turned down to three
-/// errors so a test corpus stays readable. The window stays at its real 24 h.
 fn pack() -> EventPack {
     EventPack::new(
         EventRule::linux_pack(),
@@ -55,19 +40,10 @@ fn rule_ids(alerts: &[mesh_agent_core::alerts::EdgeAlert]) -> Vec<String> {
     alerts.iter().map(|a| a.rule_id.clone()).collect()
 }
 
-/// One record as a reader hands it over: its level and its text.
 type Record = (&'static str, &'static str);
 
-/// A rule, the record that must fire it, and the near-miss that must not.
 type Case = (&'static str, Record, Record);
 
-/// A matching record for each rule in the pack, paired with the near-miss that
-/// must not fire it. The near-miss is the half that earns the pack its keep: a
-/// rule matching on a substring alone looks perfectly green until the day a
-/// recovery message pages someone at 03:00.
-///
-/// Each pair is `(rule id, matching record, near-miss record)`, both at the
-/// level the kernel actually emits them at.
 fn corpus() -> Vec<Case> {
     vec![
         (
@@ -76,8 +52,6 @@ fn corpus() -> Vec<Case> {
                 "ERROR",
                 "INFO: task nfsd:1234 blocked for more than 120 seconds.",
             ),
-            // The same shape the kernel prints for information rather than for a
-            // stall. Substring matching alone cannot tell these apart.
             (
                 "INFO",
                 "INFO: task systemd:1 blocked for more than 120 seconds.",
@@ -89,8 +63,6 @@ fn corpus() -> Vec<Case> {
                 "ERROR",
                 "Out of memory: Killed process 4242 (mysqld) total-vm:8192kB",
             ),
-            // An application complaining about its own memory budget is not the
-            // kernel reclaiming memory by killing something.
             (
                 "WARN",
                 "cache is out of memory budget, evicting cold entries",
@@ -102,7 +74,6 @@ fn corpus() -> Vec<Case> {
                 "ERROR",
                 "ata3.00: exception Emask 0x0 SAct 0x0 SErr 0x0 action 0x6 frozen",
             ),
-            // A link coming up is the healthy half of the same subsystem.
             (
                 "INFO",
                 "ata3: SATA link up 6.0 Gbps (SStatus 133 SControl 300)",
@@ -114,13 +85,11 @@ fn corpus() -> Vec<Case> {
                 "ERROR",
                 "CPU2: Core temperature above threshold, cpu clock throttled (total events = 12)",
             ),
-            // The recovery message names the same subsystem and the same core.
             ("INFO", "CPU2: Core temperature/speed normal"),
         ),
     ]
 }
 
-/// Every rule fires exactly once for one matching record.
 #[test]
 fn each_rule_fires_once_for_its_own_record() {
     for (rule_id, (level, message), _) in corpus() {
@@ -143,8 +112,6 @@ fn each_rule_fires_once_for_its_own_record() {
     }
 }
 
-/// The negative half: a near-miss per rule fires nothing at all. Not "fires
-/// something else" — nothing.
 #[test]
 fn near_misses_fire_nothing() {
     for (rule_id, _, (level, message)) in corpus() {
@@ -158,9 +125,6 @@ fn near_misses_fire_nothing() {
     }
 }
 
-/// The whole corpus at once fires each rule once and nothing else — a rule
-/// whose matcher is loose enough to catch a neighbour's record shows up here
-/// even when each rule looks correct in isolation.
 #[test]
 fn the_whole_corpus_fires_each_rule_once_and_nothing_more() {
     let mut pack = pack();
@@ -184,7 +148,6 @@ fn the_whole_corpus_fires_each_rule_once_and_nothing_more() {
     );
 }
 
-/// Two overlapping polls present the same record twice. It fires once.
 #[test]
 fn a_record_re_presented_by_an_overlapping_poll_fires_once() {
     let mut pack = pack();
@@ -210,9 +173,6 @@ fn a_record_re_presented_by_an_overlapping_poll_fires_once() {
     );
 }
 
-/// Several records share the boundary instant the cursor lands on. All of them
-/// fire on first sight, and none of them fires again — a cursor that dedups by
-/// timestamp alone would swallow every record after the first.
 #[test]
 fn records_sharing_the_cursor_instant_each_fire_once() {
     let mut pack = pack();
@@ -243,9 +203,6 @@ fn records_sharing_the_cursor_instant_each_fire_once() {
     );
 }
 
-/// Once the cursor has advanced past a record, that record fires not at all —
-/// including a record the pack never saw, which is what a poll that lost the
-/// oldest end of its window looks like on the next look.
 #[test]
 fn a_record_behind_the_cursor_never_fires() {
     let mut pack = pack();
@@ -273,9 +230,6 @@ fn a_record_behind_the_cursor_never_fires() {
     );
 }
 
-/// History predating the watch is not this process's to fire. An agent that
-/// started a minute ago must not page anyone for yesterday's OOM kill just
-/// because the reader's window reaches back past its own start.
 #[test]
 fn records_older_than_the_start_of_the_watch_never_fire() {
     let mut pack = pack();
@@ -294,10 +248,6 @@ fn records_older_than_the_start_of_the_watch_never_fire() {
     );
 }
 
-/// A poll that came back at the reader's line cap saw only the newest end of
-/// its window. How many records fell off the old end is unknowable, so the pack
-/// counts the poll rather than inventing a number for it — and the records it
-/// did get still fire.
 #[test]
 fn a_saturated_poll_is_counted_and_still_fires_what_it_saw() {
     let mut pack = pack();
@@ -327,8 +277,6 @@ fn a_saturated_poll_is_counted_and_still_fires_what_it_saw() {
     );
 }
 
-/// The rolling counter fires once when a service crosses the threshold inside
-/// the window, and does not fire again while it stays above it.
 #[test]
 fn repeated_service_errors_fire_once_on_crossing() {
     let mut pack = pack();
@@ -369,18 +317,13 @@ fn repeated_service_errors_fire_once_on_crossing() {
     );
 }
 
-/// The window slides: errors ageing out of it lower the count, so a service
-/// that trickles errors slower than the window never fires.
 #[test]
 fn errors_ageing_out_of_the_window_lower_the_count() {
     let day = 24 * 60 * 60 * SECOND;
     let mut pack = pack();
 
     for i in 0..6 {
-        // A shade over twelve hours apart, so any three of them span more than
-        // the window and the oldest has always aged out by the time the newest
-        // arrives. Exactly twelve would not do: three errors twenty-four hours
-        // apart end to end are three errors inside a twenty-four-hour window.
+        // A spacing just over twelve hours puts any three errors wider than the 24 h window.
         let alerts = pack.poll(
             &[event(
                 START + SECOND + i * (day / 2 + SECOND),
@@ -397,8 +340,6 @@ fn errors_ageing_out_of_the_window_lower_the_count() {
     }
 }
 
-/// Services are counted separately: two services with two errors each is not
-/// one service with four.
 #[test]
 fn services_are_counted_separately() {
     let mut pack = pack();
@@ -426,8 +367,6 @@ fn services_are_counted_separately() {
     assert_eq!(third[0].subject, "nginx.service");
 }
 
-/// The tracked service set is capped, and a service the cap turned away is
-/// counted rather than silently untracked.
 #[test]
 fn the_tracked_service_set_is_capped_and_the_overflow_counted() {
     let mut pack = EventPack::new(
@@ -451,8 +390,6 @@ fn the_tracked_service_set_is_capped_and_the_overflow_counted() {
     );
 }
 
-/// Only errors feed the counter. A service logging warnings all day is not a
-/// service failing all day.
 #[test]
 fn warnings_do_not_feed_the_error_counter() {
     let mut pack = pack();
@@ -471,9 +408,6 @@ fn warnings_do_not_feed_the_error_counter() {
     assert!(alerts.is_empty(), "warnings are not errors");
 }
 
-/// Kernel records carry no service, so they cannot be attributed to one. They
-/// must not all pile into a single unnamed bucket that then fires as though one
-/// service were failing.
 #[test]
 fn records_without_a_service_do_not_feed_the_counter() {
     let mut pack = pack();
@@ -490,10 +424,6 @@ fn records_without_a_service_do_not_feed_the_counter() {
     );
 }
 
-/// Maintenance mode suppresses the window rather than deferring it. An admin
-/// rebooting a host at 02:00 produces exactly the records this pack matches;
-/// holding them until maintenance ends would page someone for the maintenance
-/// itself, which is what maintenance mode exists to prevent.
 #[test]
 fn skipping_a_maintenance_window_fires_nothing_from_it() {
     let mut pack = pack();
@@ -527,10 +457,6 @@ fn skipping_a_maintenance_window_fires_nothing_from_it() {
     assert_eq!(after.len(), 1, "the watch resumes after the skipped window");
 }
 
-/// Every log-derived field an alert carries is redacted before the alert
-/// exists. The corpus is hostile on purpose: each shape here is one the edge
-/// redactor is expected to catch, and an alert is the one path that lifts a raw
-/// log line off the host outside the Logs pane.
 #[test]
 fn alert_evidence_is_redacted() {
     let mut pack = pack();
@@ -562,8 +488,6 @@ fn alert_evidence_is_redacted() {
     );
 }
 
-/// The matcher's own decisions, without the pack around it: a level floor, the
-/// alternatives, and the exclusions.
 #[test]
 fn matcher_honours_level_floor_alternatives_and_exclusions() {
     let matcher = EventMatcher {
@@ -588,10 +512,6 @@ fn matcher_honours_level_floor_alternatives_and_exclusions() {
     assert!(!matcher.matches("ERROR", "ata1: nothing to see"));
 }
 
-/// The pack states the least severe record any of its rules could act on, so
-/// the reader can bound what it reads from the rules themselves. A hardcoded
-/// floor at the call site would be a trap: the first rule added with a lower
-/// one would match nothing, and match nothing silently.
 #[test]
 fn the_pack_states_the_lowest_level_any_rule_can_act_on() {
     let pack = EventPack::new(EventRule::linux_pack(), ServiceErrorRule::default(), START);
@@ -630,9 +550,6 @@ fn the_pack_states_the_lowest_level_any_rule_can_act_on() {
     );
 }
 
-/// The shipped pack is the four Linux rules, each with a distinct id and a
-/// severity that says how bad it is. A duplicate id would make one rule
-/// unreachable through a binding.
 #[test]
 fn the_linux_pack_is_four_distinctly_identified_rules() {
     let pack = EventRule::linux_pack();
@@ -667,15 +584,6 @@ fn the_linux_pack_is_four_distinctly_identified_rules() {
     }
 }
 
-// --- what the estate is told about these rules ---
-//
-// Per rule, every machine in the fleet is exactly one thing, and the states add
-// up to the fleet. A rule quietly watching nobody while reading as healthy is
-// the failure the whole accounting exists to prevent — so a machine that cannot
-// read its own log at all says exactly that, rather than saying nothing and
-// being counted as a machine nobody has heard from.
-
-/// Every rule in the pack reports itself on a machine whose log it can read.
 #[test]
 fn a_machine_that_can_read_its_log_reports_every_rule_as_watching() {
     let reported =
@@ -697,10 +605,6 @@ fn a_machine_that_can_read_its_log_reports_every_rule_as_watching() {
     );
 }
 
-/// A machine with no host log reader — a container, or a platform this build
-/// has no reader for — cannot answer these rules at all. That is a standing
-/// hole in the estate's monitoring, and it reads completely differently from a
-/// machine that is merely quiet.
 #[test]
 fn a_machine_that_cannot_read_its_log_says_so_rather_than_going_silent() {
     let reported = EventPack::coverage(

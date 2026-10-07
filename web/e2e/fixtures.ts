@@ -19,9 +19,7 @@ export const test = base.extend<Fixtures>({
     await use(user);
   },
 
-  // Both page fixtures seed the token as an init script, so the SPA boots
-  // authenticated on the FIRST navigation. Injecting after a load would need a
-  // second navigation to re-bootstrap the app — one wasted page load per test.
+  // Both page fixtures seed the token as an init script, so the SPA boots authenticated.
   authedPage: async ({ page, testUser }, use) => {
     await seedAuth(page, testUser.token);
     await Promise.all([
@@ -33,7 +31,6 @@ export const test = base.extend<Fixtures>({
 
   adminPage: async ({ page, adminUser }, use) => {
     await seedAuth(page, adminUser.token);
-    // Wait for /users/me to confirm the admin claim before handing over.
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/api/v1/users/me") && r.status() === 200),
       page.goto("/"),

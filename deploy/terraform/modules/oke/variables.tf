@@ -21,8 +21,6 @@ variable "environment" {
   default     = "production"
 }
 
-# --- Networking (provided by the root/networking module) --------------------
-
 variable "vcn_id" {
   description = "OCID of the VCN hosting the cluster."
   type        = string
@@ -73,8 +71,6 @@ variable "services_cidr" {
   type        = string
   default     = "10.96.0.0/16"
 }
-
-# --- Node pool (Always-Free A1.Flex) ----------------------------------------
 
 variable "availability_domain" {
   description = "Availability domain name the node pool places workers in."

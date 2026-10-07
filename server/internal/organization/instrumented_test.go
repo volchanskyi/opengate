@@ -13,15 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/organization"
 )
 
-// The instrumented wrapper's whole job is to report, per call, how long the
-// repository took and whether it worked. The second half is the one worth
-// pinning: a wrapper that reported every call as a success would leave the
-// repository-error rate reading zero while customers saw failures, and no
-// dashboard built on it would ever go red.
-//
-// So every method is driven twice — once over a repository that answers, once
-// over one that refuses — and the recorded verdict is asserted both ways.
-
 type observedCall struct {
 	op string
 	ok bool
@@ -69,8 +60,6 @@ func (s stubRepo) EnsureDefault(context.Context) (organization.ID, error) {
 	return uuid.New(), nil
 }
 
-// call drives one method of the wrapper and reports the error it returned, so
-// the table below states each method once rather than per outcome.
 func call(t *testing.T, repo *organization.Instrumented, method string) error {
 	t.Helper()
 	ctx, id := context.Background(), uuid.New()
@@ -97,7 +86,6 @@ func call(t *testing.T, repo *organization.Instrumented, method string) error {
 	return nil
 }
 
-// Every method names itself and reports true when the repository answered.
 func TestInstrumentedObservesEveryCallAsASuccess(t *testing.T) {
 	t.Parallel()
 
@@ -125,10 +113,6 @@ func TestInstrumentedObservesEveryCallAsASuccess(t *testing.T) {
 	}
 }
 
-// And reports false when it refused. This is the half that keeps the error rate
-// honest: the failure reaches the caller either way, so only the recorded
-// verdict distinguishes a wrapper that observes the outcome from one that
-// observes the attempt.
 func TestInstrumentedObservesEveryCallAsAFailure(t *testing.T) {
 	t.Parallel()
 

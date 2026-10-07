@@ -1,20 +1,8 @@
-# cargo-mutants configuration for the agent workspace.
-#
-# Run `make mutate-rust` from the repo root, or `cargo mutants --package <crate>`
-# from `agent/` with the env var `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden`
-# set so golden file tests resolve their fixtures inside the temp tree.
-#
-# cargo-mutants runs the mutated package's whole test suite once per mutant, so
-# the suite's slowest test is paid by every mutant in its package. In
-# mesh-agent-core that is the reach measurement in `tests/reach_test.rs`, which
-# drives three stores to eviction through the production write path and takes
-# ~25 seconds — roughly 90% of the package's test time, multiplied by its ~1400
-# mutants. Its assertions are about storage density, not about code the mutation
-# score tracks, and the behavior it touches is covered by `ml_store_test`, so it
-# is skipped here and runs at full strength under a plain `cargo test`.
-# Build with the workspace's `mutants` profile (agent/Cargo.toml): the same
-# `test` build without debug info, which nothing here reads and which dominates
-# the per-mutant rebuild.
+# cargo-mutants configuration for the agent workspace, run by `make mutate-rust`.
+# OPENGATE_GOLDEN_DIR=<repo>/testdata/golden resolves golden fixtures inside the temp tree.
+
+# The `mutants` profile is the `test` build without debug info, which dominates the rebuild.
+# The reach measurement is skipped below; it costs ~25 s a mutant.
 profile = "mutants"
 
 additional_cargo_test_args = [
@@ -22,42 +10,9 @@ additional_cargo_test_args = [
     "--skip",
     "the_minute_tier_reaches_back_far_enough_to_be_worth_scanning",
 ]
-#
-# exclude_globs carves out genuinely-untestable code:
-#   * platform shims (Wayland/X11 bridges with no in-tree harness)
-#   * the agent binary entry point (`mesh-agent/src/main.rs`) — async wiring
-#     and process lifecycle exercised only by E2E
-#   * SELinux restorecon match guards in `update.rs` — depend on a privileged
-#     subprocess (system integration, not unit-testable)
-#   * WebRTC peer connection (`mesh-agent-core/src/webrtc.rs`) — peer-connection
-#     driver / ICE agent / data-channel event handling; webrtc-rs only exercises
-#     this against a live STUN/network stack. The web side carves out the same class
-#     of code in `use-remote-desktop.ts` and `use-terminal.ts`, where the logic
-#     runs only against a real DOM (see `web/stryker.config.json`).
 
-#   * WebRTC handler (`mesh-agent-core/src/session/handlers/webrtc.rs`) owns the
-#     SwitchToWebRTC offer/answer + IceCandidate forwarding logic. It is the same
-#     live-STUN/network-stack class as `webrtc.rs` above: `handle_offer` needs a
-#     valid SDP offer + ICE gathering, and `handle_candidate`'s peer-present path
-#     needs a remote description set (only `handle_offer` does that). The
-#     no-peer branches are unit-tested (webrtc_handler_test.rs) for regression;
-#     mutation tracking is excluded for the same reason webrtc.rs is.
-
-
-#   * the edge-tsdb bake-off substrates — a different carve-out from the four
-#     above, and the reason it is worth naming separately: those are code with
-#     no in-tree harness, these are code no customer runs. The nine modules
-#     below sit behind edge-tsdb's `bakeoff` feature, which `mesh-agent` and
-#     `mesh-agent-core` both disable, so none of them is in the shipped binary —
-#     they are the measured off-ramp reference the on-device store was chosen
-#     against, plus the harness that corrupts a store on purpose to test the
-#     others, plus the bench corpus. cargo-mutants builds with default features,
-#     where `bakeoff` is on, so without this it mutates all nine: 61 missed and
-#     243 caught, a fifth of the Rust leg's unnoticed breakages, in a bake-off
-#     reference. Writing tests for them would be testing the reference.
-#     mesh-agent/tests/noship_test.rs holds the premise — that every consumer
-#     keeps the feature off — so the carve-out cannot outlive it.
-
+# exclude_globs holds code with no in-tree harness: Wayland/X11 bridges, E2E-only process wiring
+# and live-ICE peer code; and code no customer runs: the substrates behind the `bakeoff` feature.
 exclude_globs = [
     "crates/platform-linux/**",
     "crates/mesh-agent/src/main.rs",
@@ -74,33 +29,8 @@ exclude_globs = [
     "crates/edge-tsdb/src/substrate.rs",
 ]
 
-# Two subprocess boundaries, each named by the function that owns it:
-#
-#   * `restore_selinux_context` — the only mutants here are guards on
-#     `restorecon` exit status / error kinds, which require a real privileged
-#     subprocess to test. Verified manually on Fedora during the migration.
-#   * the journald reader in `mesh-agent/src/host_logs.rs`, and the poll that
-#     drives it. `run_journalctl` spawns a subprocess, so everything that goes
-#     through it — `collect_journald`, `list_journald_units`, the two dispatchers
-#     `collect_host_logs` and `list_units` above them, and `poll_once`, which is
-#     the watch's one call into the reader — answers with whatever the host's
-#     journal holds. A container has no journalctl at all and every one of these
-#     returns empty there, which is what the replacement mutants also return; a
-#     developer machine with systemd answers with that machine's real log, which
-#     no assertion can name. What the reader does with a completed invocation is
-#     a different question and is tested: `entries_from_exit`, `units_from_exit`,
-#     `read_journald_lines`, `build_journald_args`, `parse_journald_json` and
-#     `batch_saturated` are all pure and all held.
-#   * the /proc reader in `mesh-agent-core/src/discovery/ports.rs`.
-#     `collect_ports` and its Linux arm read `/proc/net/{tcp,tcp6,udp,udp6}`,
-#     and `build_inode_proc_map` walks `/proc/[pid]/fd` to name the process
-#     behind each socket. All three answer with whatever that machine is
-#     listening on: a container answers with nothing, which is what the
-#     replacement mutants answer too, and a developer box answers with that
-#     machine's real sockets, which no assertion can name. `collect_ports`
-#     covers `collect_ports_linux` as a substring. What the module does with
-#     *parsed* rows is pure and is held — `parse_proc_net`, `resolve_ports`,
-#     `hex_local_port`, `hex_remote_port` and `parse_socket_inode`.
+# exclude_re holds functions that cross a privileged `restorecon`, the host journal or /proc,
+# so they answer with whatever the host holds.
 exclude_re = [
     "restore_selinux_context",
     "collect_host_logs",
@@ -113,80 +43,22 @@ exclude_re = [
     "build_inode_proc_map",
 ]
 
-# Equivalent mutant, deferred — NOT excluded (no per-match-arm exclusion
-# exists): the `FileUploadRequest` arm in session/handler.rs dispatches to
-# FileHandler::handle_upload, which today only logs "not yet implemented".
-# Deleting the arm is observationally identical to the `_ => debug!`
-# fallthrough, so its match-arm-deletion mutant cannot be killed until upload
-# gains an observable effect (an ack frame). The companion SwitchToWebRTC /
-# IceCandidate arm mutants ARE killed: those arms route through the
-# WebRtcDispatch seam, which a recording mock observes in session/handler.rs
-# tests (the live delegation lives in the excluded handlers/webrtc.rs).
+# The `FileUploadRequest` arm in session/handler.rs only logs, so deleting it matches the
+# `_ => debug!` fallthrough and its mutant survives until upload has an observable effect.
 
-# Equivalent mutant, not excluded (cargo-mutants has no per-expression
-# exclusion): `evidence.ranked.len() > 1` in evidence.rs's shrink ladder reads
-# the same as `>= 1`. The two differ only when the ranking is already down to
-# one dimension and the evidence still will not fit — and there the mutant
-# empties the ranking and re-encodes, while the real code falls out of the loop
-# and resets the evidence to the same empty, flagged value. Both hand back an
-# identical AlertEvidence and identical bytes, so no assertion can separate
-# them. The rest of that ladder is held by the order-of-sacrifice tests in
-# mesh-agent-core/tests/alert_evidence_test.rs.
+# compact.rs `bytes.len() < 21` and `< 8` equal `<=`: both fail with CorruptBlock.
 
-# Equivalent mutants in the on-device store, not excluded (cargo-mutants has no
-# per-expression exclusion). Each is a boundary where both answers are the same
-# answer, and the run that found them is the run that closed the eleven real
-# gaps beside them — the store's missed count went 33 → 11 and every survivor is
-# on this list:
-#
-#   * compact.rs `bytes.len() < 21` widened to `<=`. Twenty-one bytes is the
-#     header and nothing else, so the varint read immediately after it fails and
-#     hands back the same CorruptBlock either way. Its `< 8` sibling in
-#     `decode_fixed_dod` is the same story — eight bytes is the scale with no
-#     values behind it. The `< 8` → `== 8` mutant beside it IS killed: below
-#     eight the store must refuse a truncated block rather than index past its
-#     end and take the agent down.
-#   * compact.rs `s.value.abs() < INT_SAFE` widened to `<=`. Two to the
-#     fifty-third exactly is still an integer an i64 holds, so the lossless
-#     integer codec encodes it correctly under either comparison.
-#   * compact.rs `fixed.len() < best.len()` widened to `<=`. On a tie the two
-#     candidates are the same size and the fixed-point one is exact to the scale
-#     the caller asked for, so nothing a reader can see changes.
-#   * compact.rs `b | 0x80` replaced with `b ^ 0x80` in `put_uvarint`. `b` is
-#     masked to seven bits a line earlier, so its top bit is already clear and
-#     the two operators agree on every input.
-#   * store/mod.rs `format_version` replaced with the constant `1`.
-#     CURRENT_FORMAT is 1 and `open` sets the field from it, so the constant and
-#     the field are the same number until a second format exists.
-#   * store/mod.rs `v < CURRENT_FORMAT` widened to `<=` in `open`. Re-stamping a
-#     store already at the current format writes the number it already carries.
-#     The `==` and `>` mutants on that comparison ARE killed, by the store left
-#     carrying the format it holds.
-#   * store/mod.rs the second `||` in `commit`'s retain guard replaced with
-#     `&&`. It separates the sealed blocks from the unrolled samples, and
-#     `write_all` empties both before the guard runs, so the two terms are never
-#     unequal when it is evaluated. The first `||` separates the tail from those
-#     two and IS killed, by the store that packs one block across many commits.
-#   * store/blocks.rs `newv.len() < val.len()` widened to `<=` in `deflate_one`.
-#     Writing a block back at exactly its own length reclaims nothing and
-#     changes no read.
-#   * store/blocks.rs `decode_tier_deflate`, two return replacements. They land
-#     on the `#[cfg(not(feature = "cold-deflate"))]` arm, which the build
-#     cargo-mutants runs does not compile, so nothing links them. The compiled
-#     arm's own mutants are killed by the cold-tier read-back.
+# compact.rs `s.value.abs() < INT_SAFE` and `fixed.len() < best.len()` give equal output at `<=`.
 
-# Two mutants in `reconnect_with_backoff`, not excluded (cargo-mutants has no
-# per-expression exclusion) and deliberately not tested: `attempt - 1` read as
-# `attempt + 1` or `attempt / 1`. Both change only the *distribution* of a
-# delay drawn from `rand::rng()` inside the function, and the distributions
-# overlap heavily — over eight attempts the real sum averages 45s against the
-# mutant's 74s with an 18s spread either side, so a bound tight enough to
-# separate them fails roughly one honest run in six. The only way to pin them
-# is an RNG the production signature does not take, which .claude/rules/
-# test-value.md forbids adding for a test's sake. What *is* behaviour is
-# asserted where the RNG is already injected: `full_jitter` proves the ceiling
-# doubles with the exponent and that draws reach across the whole window, and
-# `ReconnectGovernor` proves a first flap is drawn against the base delay. The
-# rest of that loop is held — `attempt < max_attempts` is pinned from both
-# sides, by the single-attempt run that must not wait and the eight-attempt run
-# that must.
+# compact.rs `b | 0x80` equals `b ^ 0x80` in `put_uvarint` because `b` is masked to seven bits.
+
+# store/mod.rs `format_version` equals the constant `1`, and `v < CURRENT_FORMAT` equals `<=`.
+
+# store/mod.rs the second `||` in `commit`'s retain guard sees equal terms after `write_all`.
+
+# store/blocks.rs `newv.len() < val.len()` equals `<=`: an equal-length rewrite changes no read.
+
+# store/blocks.rs `decode_tier_deflate` mutants sit on the `cold-deflate`-off arm the build skips.
+
+# `attempt - 1` read as `attempt + 1` or `attempt / 1` in `reconnect_with_backoff` only shifts a
+# delay drawn from `rand::rng()`, and the two distributions overlap too much to assert on.

@@ -7,7 +7,6 @@ import { useConnectionStore } from '../session';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-/** Hook that wires xterm.js to the relay transport's terminal frames. */
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const transport = useConnectionStore((s) => s.transport);
   const setOnTerminalFrame = useConnectionStore((s) => s.setOnTerminalFrame);
@@ -30,10 +29,8 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     fitAddon.fit();
     termRef.current = term;
 
-    // Intercept Ctrl+letter so the browser does not consume them for
-    // clipboard operations. We send the control character directly and
-    // block both browser and xterm.js default handling.
-    // Ctrl+Shift+C/V are left for clipboard copy/paste.
+    // Ctrl+letter goes to the relay as a control character and skips browser and xterm handling;
+    // Ctrl+Shift+C/V keep their clipboard behaviour.
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== 'keydown') return true;
       if (ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey) {
@@ -48,22 +45,18 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       return true;
     });
 
-    // Terminal input → send to relay
     term.onData((data) => {
       transport.sendTerminalData(textEncoder.encode(data));
     });
 
-    // Terminal resize → send control message
     term.onResize(({ cols, rows }) => {
       transport.sendControl({ type: 'TerminalResize', cols, rows });
     });
 
-    // Incoming terminal data → write to terminal
     setOnTerminalFrame((frame) => {
       term.write(textDecoder.decode(frame.data));
     });
 
-    // Handle window resize
     const handleResize = () => fitAddon.fit();
     window.addEventListener('resize', handleResize);
 

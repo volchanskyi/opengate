@@ -1,10 +1,5 @@
-//! The walk: one rule re-run over one device's stored history, in paced chunks.
-//!
-//! A scan reads history a bounded number of stored readings at a time, stands
-//! down between chunks, and records where it got to, so a busy host, a filling
-//! disk, maintenance or a restart can stop it and it resumes without repeating
-//! or skipping a finding. Each finding is stamped with the minute it happened
-//! and carries the readings around it as evidence.
+//! The walk: one rule re-run over one device's stored history in paced chunks, recording a cursor
+//! so a stopped scan resumes without repeating or skipping a finding.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Instant;
@@ -93,20 +88,14 @@ impl RetroScan {
         self.scope
     }
 
-    /// Whether the exact rule version this scan started against is no longer
-    /// installed. A scan that keeps going against a definition nobody is using
-    /// any more delivers findings for a rule that does not exist.
+    /// Whether the rule version this scan started against has been replaced or removed.
     #[must_use]
     pub fn superseded_by(&self, installed: &[ThresholdRule]) -> bool {
         !installed.contains(&self.plan.rule)
     }
 
-    /// Evaluate one budgeted chunk of history, raising whatever it finds into
-    /// `sink` as of `now_micros`.
-    ///
-    /// The findings carry the minute they happened; `now_micros` is when the
-    /// device is *raising* them, which is what the sink's hourly ceiling counts
-    /// against — a scan spends the same allowance as any other producer.
+    /// Evaluates one budgeted chunk, raising findings into `sink` at `now_micros`, the instant
+    /// the sink's hourly ceiling counts against.
     pub fn run_chunk<H: RetroHistory>(
         &mut self,
         history: &H,
@@ -142,10 +131,7 @@ impl RetroScan {
         };
         self.scope = Some((oldest, newest));
 
-        // Onto the grid the store keeps: the window a resume re-reads is as long
-        // as the rule's own memory, and a rule may remember a number of seconds
-        // that is not a whole number of minutes. A read starting between two
-        // stored minutes lines up with none of them and quietly finds nothing.
+        // Reads start on a stored minute boundary; one between two minutes finds nothing.
         let from = floor_to_minute(self.next_read.unwrap_or(oldest).max(oldest));
         if from > newest {
             return Ok(Progress::Done);
@@ -158,10 +144,8 @@ impl RetroScan {
         for bucket in (from..to).step_by(RETRO_BUCKET_SECS as usize) {
             match rows.get(&bucket) {
                 Some(readings) => self.step(*readings, bucket, sink, now_micros),
-                // A minute missing any reading the rule needs is a minute nobody
-                // can say anything about — the device was off, or the vital was
-                // not being produced. Whatever the rule was carrying is dropped
-                // with it, so a breach is never read across a hole.
+                // A minute missing a reading the rule needs drops the rule's carried state, so a
+                // breach is never read across a hole.
                 None => self.restart(),
             }
         }
@@ -175,9 +159,7 @@ impl RetroScan {
         })
     }
 
-    /// The stretch of history covering every series the rule reads. A rule with
-    /// one side missing from the store has no history to be re-run over, rather
-    /// than a shorter one.
+    /// The stretch of history covering every series the rule reads; a missing series gives none.
     fn history_span<H: RetroHistory>(&self, history: &H) -> Result<Option<(i64, i64)>, RetroError> {
         let mut span: Option<(i64, i64)> = None;
         for &(series, _) in &self.plan.reads {
@@ -259,20 +241,14 @@ impl RetroScan {
         i64::try_from(per_series).unwrap_or(i64::MAX / RETRO_BUCKET_SECS) * RETRO_BUCKET_SECS
     }
 
-    /// The finding for a rule that started firing at `bucket`.
-    ///
-    /// The window is the stretch the rule required, ending at the minute it
-    /// finally fired: that is what the rule looked at, and its start is the
-    /// identity the far end resolves a re-delivery by, so it has to be worked
-    /// out from the rule rather than from when the scan happened to reach it.
+    /// The finding for a rule that started firing at `bucket`; its window is the stretch the rule
+    /// required, and its start identifies a re-delivery.
     fn finding(&self, bucket: i64) -> EdgeAlert {
         let packed = pack_metric_evidence(self.plan.metric, &self.readings(), bucket);
         EdgeAlert {
             rule_id: self.plan.rule.id.clone(),
             rule_version: self.plan.rule.version,
-            // As bad as the rule that found it says it is. A finding out of
-            // history is the same failure as a live one — it simply happened
-            // before anybody was watching for it.
+            // The severity is the rule's own.
             severity: edge_severity(self.plan.rule.severity),
             ts_micros: bucket.saturating_mul(MICROS_PER_SEC),
             window_start_micros: bucket
@@ -308,10 +284,7 @@ impl RetroScan {
         )
     }
 
-    /// The readings behind a finding, oldest first. They are the rule's own
-    /// dimension over the minutes leading up to the moment it fired — the only
-    /// thing a scan over history has to show, since nothing was running to
-    /// observe and no other dimension was read.
+    /// The readings behind a finding, oldest first: the rule's own dimension up to its firing.
     fn readings(&self) -> Vec<HistoryPoint> {
         self.recent
             .iter()

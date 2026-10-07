@@ -1,20 +1,9 @@
-//! The alert-rule grammar and its metric vocabulary.
-//!
-//! Rules are data in a bounded grammar — never shipped code — so everything a
-//! rule can say must be expressible in these types and analysable from them
-//! alone. Two properties are pinned here: a rule's declared metric name resolves
-//! to exactly one canonical vitals name (so the fleet's already-pushed rules keep
-//! firing across the rename and nothing downstream sees two names for one
-//! thing), and every new grammar field is additive, so a ruleset written before
-//! the extension still decodes.
-
 use mesh_protocol::{
     canonical_rule_metric, AlertComparator, AlertSeverity, ControlMessage, Frame, RuleCoverage,
     RuleCoverageState, RulePredicate, RuleTerm, ThresholdRule, MAX_RULE_TERMS,
     MAX_RULE_WINDOW_SECS, RULE_METRICS, RULE_METRIC_ALIASES,
 };
 
-/// A minimal instant rule on a canonical metric.
 fn rule(metric: &str) -> ThresholdRule {
     ThresholdRule {
         id: "r".to_string(),
@@ -31,7 +20,6 @@ fn rule(metric: &str) -> ThresholdRule {
     }
 }
 
-/// Round-trip a control message through the frame codec.
 fn round_trip(msg: &ControlMessage) -> ControlMessage {
     let encoded = Frame::Control(msg.clone()).encode().expect("encode frame");
     let (frame, _) = Frame::decode(&encoded).expect("decode frame");
@@ -88,15 +76,12 @@ fn vocabulary_has_no_duplicates() {
 fn unknown_metric_resolves_to_nothing() {
     assert_eq!(canonical_rule_metric("not.a.metric"), None);
     assert_eq!(canonical_rule_metric(""), None);
-    // A per-window maximum is a reduction central telemetry publishes, not a
-    // reading the evaluator ever holds, so it is outside the rule vocabulary.
+    // A per-window maximum is a reduction, not a reading the evaluator holds.
     assert_eq!(canonical_rule_metric("cpu.total.max"), None);
 }
 
 #[test]
 fn a_rule_at_the_grammar_bounds_survives_the_wire() {
-    // The bounds themselves are checked where they are declared; what matters
-    // here is that a rule sitting on both of them still encodes and decodes.
     let term = RuleTerm {
         metric: "cpu.total".to_string(),
         comparator: AlertComparator::Gt,
@@ -170,10 +155,7 @@ fn every_predicate_kind_round_trips() {
 
 #[test]
 fn rule_written_before_the_grammar_extension_still_decodes() {
-    // The shape a server that predates the extension pushes: the six original
-    // fields and nothing else. It must decode as an instant rule with no window
-    // and no extra terms, or every rule already on the fleet stops being
-    // understood the moment an agent upgrades.
+    // Only the six original fields; the rule decodes as instant with no window or extra terms.
     let legacy = serde_json::json!({
         "type": "PushAlertRules",
         "rules": [{
@@ -237,9 +219,7 @@ fn coverage_rides_a_health_summary_and_round_trips() {
 
 #[test]
 fn summary_without_coverage_decodes_as_no_coverage_reported() {
-    // An agent that predates coverage sends the summary without the key. It must
-    // decode as "this device reported nothing", which is what the server counts
-    // as unknown — not as a decode failure that drops the whole control stream.
+    // A summary without the coverage key decodes as the device reporting nothing.
     let legacy = serde_json::json!({
         "type": "AgentHealthSummary",
         "ts": 1_700_000_100_i64,

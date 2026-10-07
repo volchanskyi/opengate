@@ -6,7 +6,7 @@ use mesh_protocol::HandshakeMessage;
 use sha2::{Digest, Sha384};
 
 /// Certificate set for mTLS testing.
-#[allow(dead_code)] // Rust integration tests compile each file as a separate crate — fields unused by some binaries trigger dead_code
+#[allow(dead_code)] // each test binary compiles this file separately, leaving some fields unused
 pub struct TestCerts {
     pub ca_pem: String,
     pub ca_cert_der: Vec<u8>,
@@ -18,7 +18,6 @@ pub struct TestCerts {
 
 /// Generate CA, server cert, and agent cert for mTLS testing.
 pub fn generate_test_certs() -> TestCerts {
-    // CA
     let ca_key =
         rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).expect("generate CA keypair");
     let mut ca_params =
@@ -45,7 +44,6 @@ pub fn generate_test_certs() -> TestCerts {
         .signed_by(&server_key, &issuer)
         .expect("sign server cert with CA");
 
-    // Agent cert signed by CA
     let agent_key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
         .expect("generate agent keypair");
     let mut agent_params =

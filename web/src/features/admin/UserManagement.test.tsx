@@ -63,7 +63,6 @@ describe('UserManagement', () => {
   it('disables toggle admin for current user', () => {
     render(<UserManagement />);
     const buttons = screen.getAllByRole('button', { name: /yes|no/i });
-    // First button is for admin (current user) — should be disabled
     expect(buttons[0]).toBeDisabled();
   });
 
@@ -71,7 +70,6 @@ describe('UserManagement', () => {
     render(<UserManagement />);
 
     const deleteButtons = screen.getAllByText('Delete');
-    // Second delete button is for regular user — should be enabled
     expect(deleteButtons[1]).not.toBeDisabled();
   });
 
@@ -84,7 +82,6 @@ describe('UserManagement', () => {
   it('admin toggle button label is "Yes" when is_admin and "No" otherwise', () => {
     render(<UserManagement />);
     const rows = screen.getAllByRole('row');
-    // First data row (after header) is adminUser → Yes; second is regular → No.
     const adminRow = rows[1];
     const regularRow = rows[2];
     expect(within(adminRow!).getByRole('button', { name: 'Yes' })).toBeInTheDocument();
@@ -113,7 +110,6 @@ describe('UserManagement', () => {
 
   it('clicking admin Yes flips to is_admin: false', () => {
     const updateUserFn = vi.fn().mockResolvedValue(undefined);
-    // Make the second (regular) user the current user so we can click the admin's button.
     useAuthStore.setState({ user: regularUser, token: 'tok' });
     useAdminStore.setState({ updateUser: updateUserFn });
     render(<UserManagement />);

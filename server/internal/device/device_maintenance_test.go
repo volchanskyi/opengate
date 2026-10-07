@@ -82,7 +82,6 @@ func TestPostgresDevices_Maintenance(t *testing.T) {
 		d := newDevice("mnt-upsert")
 		require.NoError(t, devices.SetMaintenance(ctx, d.ID, true, owner, "reboot"))
 
-		// A re-registration (Upsert) must never clobber the operator-set state.
 		d.Hostname = "mnt-upsert-renamed"
 		require.NoError(t, devices.Upsert(ctx, d))
 
@@ -119,9 +118,6 @@ func TestPostgresDevices_Maintenance(t *testing.T) {
 	})
 }
 
-// TestInstrumentedDevices_Maintenance covers the maintenance methods on the
-// observation decorator (success + error), asserting each is timed under its
-// operation name.
 func TestInstrumentedDevices_Maintenance(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

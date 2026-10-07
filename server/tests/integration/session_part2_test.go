@@ -19,10 +19,8 @@ import (
 	"time"
 )
 
-// serverAgentGetter bridges the concrete *agentapi.AgentServer to api.AgentGetter
-// for this integration composition root — the same conversion main.go's
-// production adapter performs, including turning a missing agent's typed-nil
-// *AgentConn into an interface nil so handler `ac == nil` checks still fire.
+// serverAgentGetter adapts *agentapi.AgentServer to api.AgentGetter, turning a missing agent's
+// typed-nil *AgentConn into an interface nil so handler nil checks fire.
 type serverAgentGetter struct{ srv *agentapi.AgentServer }
 
 func (g serverAgentGetter) GetAgent(deviceID uuid.UUID) api.AgentControl {
@@ -42,9 +40,6 @@ func (g serverAgentGetter) ListConnectedAgents() []api.AgentControl {
 	return out
 }
 
-// An administrator's rule change riding out to the machines already holding the
-// old one. It is the real path here, because these cases run a real agent
-// server: a change made in one of them reaches the connections it is holding.
 func (g serverAgentGetter) RefreshAlertRules(ctx context.Context, organizationID uuid.UUID) int {
 	return g.srv.RefreshAlertRules(ctx, organizationID)
 }
@@ -58,9 +53,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	return newSessionTestEnvWithAPITimeout(t, 0)
 }
 
-// newSessionTestEnvWithAPITimeout builds the env with an explicit per-request
-// timeout on the API middleware site. A zero duration keeps the production
-// default, so only tests that assert timeout behavior pay attention to it.
+// newSessionTestEnvWithAPITimeout sets the API request timeout; zero keeps the production default.
 func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *sessionTestEnv {
 	t.Helper()
 
@@ -88,7 +81,7 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 		defer close(listenDone)
 		agentSrv.ListenAndServe(ctx, "127.0.0.1:0")
 	}()
-	agentAddr := agentSrv.Addr() // wait for QUIC to be ready
+	agentAddr := agentSrv.Addr()
 
 	jwtCfg := &auth.JWTConfig{
 		Secret:   "integration-test-secret-32-bytes!",
@@ -128,7 +121,6 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 	t.Cleanup(func() {
 		ts.Close()
 		cancel()
-		// Wait for the QUIC server goroutine to exit instead of a blind sleep.
 		select {
 		case <-listenDone:
 		case <-time.After(2 * time.Second):

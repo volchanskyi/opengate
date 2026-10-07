@@ -4,30 +4,9 @@ import type { WebSocketRoute } from "@playwright/test";
 import { decode, encode } from "@msgpack/msgpack";
 import { enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
 
-// Phase B / B2: File Manager E2E.
-//
-// The FileManagerView reads from a Zustand store fed by msgpack-encoded
-// control messages over the relay WebSocket. This spec mocks the relay
-// at the wire level: routeWebSocket intercepts the browser's connection,
-// the test handler decodes the FileListRequest frames the browser sends,
-// and pushes back FileListResponse / FileListError frames. The full
-// browser-side decode path (codec → connection-store → file-store →
-// FileManagerView render) runs against real bytes — there is no
-// component-level shortcut.
-//
-// The machine and the session are real — the stack carries two enrolled
-// agents — so the session this opens is one the server minted against a
-// machine that is actually connected. What is supplied is the far side of the
-// relay: a directory tree the test can name, so the assertions can be about
-// what the browser renders rather than about whatever happens to be on the
-// runner's filesystem.
-//
-// FileManagerView component behavior (entry rendering, button states,
-// breadcrumb, viewer) is also covered by the unit suite at
-// web/src/features/file-manager/FileManagerView.test.tsx.
+// The relay WebSocket is mocked at the wire level, so the browser decodes real msgpack frames.
 
-
-// Mirrors web/src/lib/protocol/types.ts
+// Control frame type byte, as in web/src/lib/protocol/types.ts.
 const FRAME_CONTROL = 0x01;
 
 interface FileEntry {
@@ -37,7 +16,7 @@ interface FileEntry {
   modified: number;
 }
 
-/** Encode a ControlMessage into a wire frame: [type=0x01][4-byte BE length][msgpack]. */
+/** Encodes a wire frame: [type=0x01][4-byte BE length][msgpack]. */
 function encodeControlFrame(message: object): Buffer {
   const payload = encode(message);
   const buf = Buffer.alloc(5 + payload.length);
@@ -47,7 +26,6 @@ function encodeControlFrame(message: object): Buffer {
   return buf;
 }
 
-/** Decode a wire-format control frame; returns the inner ControlMessage. */
 function decodeControlFrame(data: Buffer): { type: string; [key: string]: unknown } | null {
   if (data.length < 5 || data[0] !== FRAME_CONTROL) return null;
   const len = data.readUInt32BE(1);
@@ -57,11 +35,6 @@ function decodeControlFrame(data: Buffer): { type: string; [key: string]: unknow
 
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 
-/**
- * Install a relay handler that responds to FileListRequest frames with
- * caller-supplied entries (keyed by requested path). Tracks every
- * request the browser sent so tests can assert on the sequence.
- */
 async function mockRelay(
   page: AuthedPage,
   listings: Record<string, FileEntry[]>,
@@ -73,7 +46,7 @@ async function mockRelay(
     (url: URL) => url.pathname.includes("/relay"),
     (ws: WebSocketRoute) => {
       ws.onMessage((raw) => {
-        if (typeof raw === "string") return; // Wire frames are binary.
+        if (typeof raw === "string") return;
         const msg = decodeControlFrame(raw);
         if (!msg || msg.type !== "FileListRequest") return;
         const path = msg.path as string;
@@ -139,10 +112,9 @@ test.describe("File Manager flow", () => {
     await authedPage.getByRole("button", { name: "docs" }).click();
 
     await expect(authedPage.getByText("guide.txt")).toBeVisible();
-    await expect(authedPage.getByText("/docs")).toBeVisible(); // breadcrumb path
+    await expect(authedPage.getByText("/docs")).toBeVisible();
     expect(tracker.requestedPaths).toEqual(["/", "/docs"]);
 
-    // ".." button returns to root.
     await authedPage.getByRole("button", { name: ".." }).click();
     await expect(authedPage.getByRole("button", { name: "docs" })).toBeVisible();
     expect(tracker.requestedPaths).toEqual(["/", "/docs", "/"]);

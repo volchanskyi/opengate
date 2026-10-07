@@ -15,8 +15,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// A window carrying an unlisted dim persists the listed ones and nothing else,
-// and says so through the drop counter rather than silently.
 func TestMetricWindowDropsUnlistedDims(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
@@ -47,9 +45,6 @@ func TestMetricWindowDropsUnlistedDims(t *testing.T) {
 		testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("unknown_dim")), 0)
 }
 
-// The cardinality argument in one test: a window of a thousand invented dims
-// creates no series at all, so a misbehaving agent cannot enlarge the central
-// store. Without the allowlist every one of these would have become a label.
 func TestMetricWindowOfJunkDimsWritesNothing(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
@@ -74,9 +69,6 @@ func TestMetricWindowOfJunkDimsWritesNothing(t *testing.T) {
 		testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("unknown_dim")), 0)
 }
 
-// Backfill writes the same central series, so it answers to the same
-// vocabulary — otherwise the allowlist would close the live path and leave the
-// replay path open.
 func TestBackfillBatchDropsUnlistedDims(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}

@@ -14,11 +14,7 @@ type MetricRangeResponse = components['schemas']['MetricRangeResponse'];
 type DeviceSummary = components['schemas']['DeviceSummary'];
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 
-/**
- * Which log pane a fetch targets: `agent` reads the agent's own rotated files;
- * `system` reads the platform host log (journald on Linux). The two panes hold
- * independent state so one never clobbers the other.
- */
+/** The log pane a fetch targets: the agent's own files or the platform host log. */
 export type LogPaneSource = 'agent' | 'system';
 
 /** Filters accepted by a log fetch; `unit` applies to the system pane only. */
@@ -49,8 +45,7 @@ interface DeviceState {
   hardware: DeviceHardware | null;
   /** Per-pane log responses, keyed by source so the two panes stay independent. */
   logs: Record<LogPaneSource, DeviceLogsResponse | null>;
-  /** Which device each pane's payload belongs to — the cache key that lets a
-   *  re-opened device page render its logs without pulling them again. */
+  /** The device each pane's payload belongs to, which lets a re-opened page reuse its logs. */
   logsDeviceId: Record<LogPaneSource, string | null>;
   /** Per-pane in-flight flags, keyed by source. */
   logsLoading: Record<LogPaneSource, boolean>;
@@ -72,8 +67,7 @@ interface DeviceState {
   deleteDevice: (id: string) => Promise<void>;
   updateDeviceSite: (id: string, siteId: string) => Promise<boolean>;
   restartAgent: (id: string) => Promise<boolean>;
-  /** Sends an out-of-band power command over the device's Intel AMT connection.
-   *  Addressed by the AMT uuid the device payload carries, not the device id. */
+  /** Sends a power command over Intel AMT, addressed by the AMT uuid the device payload carries. */
   sendPowerAction: (amtUuid: string, action: PowerAction) => Promise<boolean>;
   fetchHardware: (id: string) => Promise<void>;
   fetchLogs: (source: LogPaneSource, id: string, params?: LogFetchParams) => Promise<void>;
@@ -97,16 +91,12 @@ async function retryHardwareFetch(set: (partial: Partial<DeviceState>) => void, 
   }
 }
 
-/**
- * Tail of the in-flight log-pull chain per device. The server brokers exactly
- * one raw-log request per agent at a time and answers a second one with 409, so
- * the Agent Logs and System Logs panes take turns rather than racing.
- */
+/** The in-flight log-pull chain per device; a second concurrent pull gets a 409. */
 const logFetchQueue = new Map<string, Promise<void>>();
 
 async function queueLogFetch(id: string, run: () => Promise<void>): Promise<void> {
   const turn = (logFetchQueue.get(id) ?? Promise.resolve()).then(run);
-  // Failures must not poison the queue for the next pull.
+  // A failed pull still lets the next one run.
   logFetchQueue.set(id, turn.catch(() => undefined));
   try {
     await turn;
@@ -128,8 +118,6 @@ async function pullLogs(
   id: string,
   params?: LogFetchParams,
 ): Promise<void> {
-  // The agent pane reads the agent's own files ("self"); the system pane reads
-  // the platform host log ("host"). The unit filter applies to the host source.
   const query: Record<string, string | number> = { source: source === 'system' ? 'host' : 'self' };
   if (params?.level) query.level = params.level;
   if (params?.from) query.from = params.from;
@@ -139,8 +127,6 @@ async function pullLogs(
   if (params?.offset !== undefined) query.offset = params.offset;
   if (params?.limit !== undefined) query.limit = params.limit;
 
-  // The server brokers the pull straight from the agent and blocks until it
-  // responds, so a single request returns the logs (or a bounded failure).
   const { data, response } = await api.GET('/api/v1/devices/{id}/logs', {
     params: { path: { id }, query },
   });
@@ -174,8 +160,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   error: null,
 
   fetchSites: async () => {
-    // The sidebar describes the picked customer's locations, so a technician
-    // looking at Contoso never sees Fabrikam's offices in the filter.
+    // The sidebar lists only the picked customer's sites.
     const organizationId = selectedOrganizationQuery();
     const res = await apiAction(set, () =>
       api.GET('/api/v1/sites', {
@@ -186,8 +171,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchDevices: async (siteId?) => {
-    // Both narrowings travel together: the picked customer scopes the fleet, the
-    // site narrows within it, and an absent value simply does not narrow.
+    // The picked customer scopes the fleet and the site narrows within it.
     const query = {
       ...(siteId ? { site_id: siteId } : {}),
       ...(selectedOrganizationQuery() ? { organization_id: selectedOrganizationQuery() } : {}),
@@ -199,11 +183,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchDevice: async (id) => {
-    // Reset per-device fields so stale data from a previously viewed device
-    // does not leak into this one while we wait for the fetch to complete.
-    // Log panes are the exception: a pane already holding this device's logs
-    // keeps them, so re-opening a device page renders from cache and issues no
-    // pull (the agent broker serves one log request at a time).
+    // A log pane already holding this device's logs keeps them, so a re-opened page issues no pull.
     set((s) => ({
       selectedDevice: null,
       hardware: null,
@@ -236,8 +216,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   createSite: async (name) => {
-    // A new site belongs to the customer being looked at; with none picked the
-    // server files it under the tenant's own.
+    // A new site belongs to the picked customer; with none picked the server uses the tenant's own.
     const organizationId = selectedOrganizationQuery();
     const res = await apiAction(set, () =>
       api.POST('/api/v1/sites', {
@@ -294,8 +273,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       }), false,
     );
     if (res.ok) {
-      // Keep both views in step: the detail pane (when it is this device) and
-      // the card the user dragged out of the list.
       set((state) => ({
         selectedDevice: state.selectedDevice?.id === id ? res.data : state.selectedDevice,
         devices: state.devices.map((d) => (d.id === id ? res.data : d)),
@@ -325,10 +302,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchHardware: async (id) => {
-    // The inventory is replaced only by a successful pull. A device switch is
-    // already blanked by fetchDevice, so holding the last known values through
-    // a failed refresh keeps the card useful — its Last Updated stamp shows how
-    // old they are.
+    // A failed refresh keeps the last known inventory; fetchDevice blanks it on a device switch.
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}/hardware', {
         params: { path: { id } },
@@ -337,14 +311,13 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     if (res.ok) {
       set({ hardware: res.data });
     } else {
-      // 202 (report requested) or 404 — retry once after 2s in case the agent responds
+      // A failed read retries once after 2s for the agent's response.
       setTimeout(() => { fireAndForget(retryHardwareFetch(set, id)); }, 2000);
     }
   },
 
   fetchLogs: async (source, id, params) => {
-    // The flag is raised before the queue so both panes show "Fetching…" the
-    // moment they ask, even while one waits its turn behind the other.
+    // The flag is raised before queueing so a waiting pane already shows as loading.
     set((s) => ({ logsLoading: { ...s.logsLoading, [source]: true } }));
     await queueLogFetch(id, () => pullLogs(set, source, id, params));
   },
@@ -379,10 +352,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   setMaintenance: async (id, enabled, reason) => {
-    // Maintenance is a desired state, not a live command — the server persists
-    // it and reconciles to the agent over the control channel, so this succeeds
-    // even when the device is offline. An empty reason is omitted so an exit
-    // never records a stray note.
+    // The server persists maintenance and reconciles it to the agent, so this works offline.
     const res = await apiAction(set, () =>
       api.POST('/api/v1/devices/{id}/maintenance', {
         params: { path: { id } },
@@ -399,10 +369,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchSummary: async () => {
-    // One fixed-size request drives every dashboard tile, so the dashboard
-    // never downloads the device list to count it.
-    // The rollup narrows to the same customer as the list, so the tiles and the
-    // fleet below them always describe one set.
+    // The rollup narrows to the same customer as the device list.
     const organizationId = selectedOrganizationQuery();
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/summary', {

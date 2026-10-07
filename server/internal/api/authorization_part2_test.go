@@ -11,8 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestGroupReadsAreTenantWide verifies that the site list and site detail are
-// fleet reads: every member of the tenant sees every site in it.
 func TestGroupReadsAreTenantWide(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -46,8 +44,6 @@ func TestGroupReadsAreTenantWide(t *testing.T) {
 	}
 }
 
-// TestGroupWritesAreAdminOnly verifies that creating and deleting a site are
-// configuration changes behind the admin gate.
 func TestGroupWritesAreAdminOnly(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -81,9 +77,6 @@ func TestGroupWritesAreAdminOnly(t *testing.T) {
 	})
 }
 
-// TestSessionCommandsAreTenantWide verifies that ending a session is a device
-// command: any member of the tenant may end any session on a device in
-// that tenant, and the session list is a plain fleet read.
 func TestSessionCommandsAreTenantWide(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)

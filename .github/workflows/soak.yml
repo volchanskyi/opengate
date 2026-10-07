@@ -1,35 +1,11 @@
 name: Endurance Soak
 
-# The run that exists to find what leaks.
-#
-# The defect this family is written for stranded two goroutines per finished
-# session, forever. Staging walked 29 to 334 MiB across four nightly load runs
-# and was killed against its memory limit, and every liveness number the server
-# published read healthy the whole time — because the code that decrements those
-# numbers ran. Nothing shorter than hours can see a slope like that.
-#
-# Five hours with the fleet coming and going, rather than eight holding still.
-# Holding a connection is not work: an unchanging fleet finishes one operation
-# per machine for the whole run, which leaves a leak detector almost nothing to
-# divide by. The profile's ten cycles end and restart two hundred and fifty
-# machines each, so five hours finish ten times what eight idle ones would.
-#
-# It runs on a runner rather than on the cluster. Five hours of a cluster node is
-# five hours of production's neighbour being driven, and the run owns this
-# machine and destroys it — which is what makes following a held object with a
-# debugger possible at all, where the staging pod drops every capability, runs as
-# a non-root user and has a read-only filesystem.
+# Five-hour leak hunt: the fleet churns so the run completes many operations per machine.
+# It runs on a runner the job owns and destroys, so a debugger can follow a held object.
 
 on:
   schedule:
-    # Weekly, not nightly. Five hours of one is worth more than a fifth of five
-    # nightly hours, because a slope needs an unbroken run to be a slope; and an
-    # endurance run repeated every night would be five hours of a shared job
-    # pool for a question that changes slowly.
-    #
-    # The hour buys a place in the order rather than a start time — every
-    # scheduled run begins four and a half to six and a half hours after the
-    # time it names — and Sunday is what keeps it clear of the weekday batch.
+    # Weekly on Sunday: a slope needs an unbroken run, and the hour only sets the queue position.
     - cron: '0 7 * * 0'
   workflow_dispatch:
 
@@ -43,32 +19,18 @@ permissions:
 env:
   COMPOSE_FILE: deploy/docker-compose.perf.yml
   SOAK_BUNDLE_DIR: soak-bundle
-  # Production's own memory ceiling, so the eviction case is reproduced rather
-  # than lost. A leak that would kill the real server has to be able to kill
-  # this one.
+  # Production's memory ceiling, so a leak that kills the real server kills this one.
   PERF_SERVER_MEMORY: 384m
   PERF_SERVER_MEMORY_BYTES: '402653184'
   PERF_SERVER_CPUS: '0.25'
-  # The target keeps its symbol table and its debugging information here, and
-  # nowhere else. A core dump is addresses until something can resolve them back
-  # to types and frames, and the release link drops exactly the tables that do
-  # it. No generated code changes.
+  # An empty value keeps the symbol table and debug info so a core dump resolves to types.
   PERF_SERVER_GO_LDFLAGS: ''
-  # How often both profiles are taken, and where the walk writes what it found.
-  # Five minutes over a four-hour-forty-four-minute walk is about sixty readings
-  # of each, roughly fifteen megabytes, which is an artifact rather than a
-  # problem.
+  # Interval between the two profile readings, and where the walk writes its findings.
   SOAK_SNAPSHOT_EVERY: 5m
   SOAK_WALK_DIR: soak-bundle/reference-walk
-  # Where the encrypted core dump goes: beside the bundle, never inside it, and
-  # uploaded as an artifact of its own. The plain core is taken in the runner's
-  # temp directory and removed on every exit.
+  # The encrypted core dump sits beside the bundle and is uploaded as its own artifact.
   SOAK_DUMP_DIR: soak-dump
-  # The browser-side generator, and everything it refuses to run without. The
-  # exports land inside the bundle directory so the raw readings travel with the
-  # evidence they were folded into, rather than in a temp directory the job
-  # destroys. Two steps read these — the one that starts the generator and the
-  # one that folds what it wrote — so they are declared once here.
+  # The browser-side generator's inputs; its exports land inside the bundle directory.
   K6_VERSION: v1.6.1
   K6_BIN: /tmp/k6
   LOADTEST_BASE_URL: http://127.0.0.1:8080
@@ -80,19 +42,14 @@ jobs:
     name: Five hours with churn
     runs-on: ubuntu-24.04
     env:
-      # The maintainer's age public key. The private half never leaves the
-      # maintainer's laptop, so no workflow can open a dump it wrote.
+      # The private half stays on the maintainer's laptop, so no workflow can open a dump it wrote.
       SOAK_DUMP_AGE_RECIPIENT: ${{ secrets.SOAK_DUMP_AGE_RECIPIENT }}
-    # The walk is four hours and forty-four minutes; the stack build, the fixture
-    # and the teardown are the rest. A scheduled job is killed at six hours, so
-    # the slack is stated here rather than discovered as a run cut off inside its
-    # last cycle.
+    # The walk takes 4h44m; the stack build, fixture and teardown fit under the six-hour kill.
     timeout-minutes: 340
     outputs:
       started_at: ${{ steps.started.outputs.at }}
     steps:
-      # The night's date. Every sample the night writes carries this time, so a
-      # five-hour run is one point on one date.
+      # Every sample of the run carries this time, so the run is one point on one date.
       - name: Record when the run started
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
@@ -104,21 +61,14 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
 
-      # Docker Hub's anonymous pull rate is shared across a runner's whole
-      # network, so a pull here goes through the mirror the rest of the
-      # pipelines use.
+      # Docker Hub's anonymous pull rate is shared across the runner's network, so pulls use the mirror.
       - uses: ./.github/actions/docker-hub-mirror
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # gdb brings gcore, which takes a core off the running server without
-      # stopping it; viewcore reads that core as a Go heap, built from the
-      # manifest's pin with the patch that follows pointer maps built on demand;
-      # zstd and age compress and encrypt it. All of them are installed, and the
-      # key the dump is encrypted to is checked, before the five-hour walk rather
-      # than after it, so a run whose dump nobody could read says so now instead
-      # of at the end of an afternoon.
+      # gdb provides gcore, viewcore reads the core as a Go heap, and zstd and age pack it.
+      # Installing them and checking the key before the walk surfaces an unreadable dump early.
       - name: Install what takes, reads and encrypts a core dump
         run: |
           set -euo pipefail
@@ -132,8 +82,7 @@ jobs:
       - name: Refuse a dump nobody could open
         run: scripts/loadtest-reference-walk.sh --check-recipient
 
-      # The technician load runs beside the fleet, so the generator that offers
-      # it is fetched before the five-hour walk rather than after it.
+      # The generator for the technician load is fetched before the five-hour walk.
       - name: Install k6
         run: |
           set -euo pipefail
@@ -149,9 +98,8 @@ jobs:
           printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
           printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
 
-      # The transport asks the kernel for more receive buffer than a runner
-      # allows a socket. The ceilings are production's, and host-wide, so the
-      # server's container gets them as well as the generator.
+      # The transport asks for more receive buffer than a runner allows a socket; the ceilings
+      # are production's and host-wide, so the server's container gets them too.
       - name: Give the machine-facing path production's buffers
         run: scripts/perf-stack-quic.sh raise-buffers
 
@@ -163,63 +111,20 @@ jobs:
           export DOCKER_CONFIG
           scripts/perf-stack-pull.sh "$COMPOSE_FILE"
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
-          # The database's own accounting, sampled for as long as the job runs,
-          # so the leg's summary can say how much of its caps it used through
-          # the measured phase.
+          # The database's own accounting is sampled for the whole job for the leg's summary.
           DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
           nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
 
-      # Past Docker's userland proxy: the generator dials the name on the
-      # server's certificate, mapped to the container's own address, and the
-      # harness is told where the server's network counters are.
+      # The generator dials the name on the server's certificate, mapped to the container's address.
       - name: Dial the server by its certificate's name
         run: scripts/perf-stack-quic.sh map-server
 
-      # The estate is five hundred machines and the profile never asks for more,
-      # so every cycle brings the same machines back rather than enrolling new
-      # ones over them. A run that grew its own fleet for five hours would be
-      # answering the volume question and the endurance one at once, and neither
-      # of them cleanly.
-      #
-      # The technician load the profile declares runs beside the fleet: three
-      # journeys a second and three sessions held open through each busy phase.
-      # It used to run nowhere, so those numbers described an intention rather
-      # than a fact — and the sessions are the half that matters here, because
-      # the leak this family exists for stranded two goroutines on a *finished*
-      # relay session. Five hours of churn that opens no session never performs
-      # the operation the leak attaches to.
-      #
-      # The generator picks the machines it will open sessions against once, from
-      # the fleet as it stands when the estate is filed — which is the first
-      # phase's level — and a wind-down takes the machines asked for last, so
-      # what it picked is what stays connected for the whole walk. The handful
-      # that arrive in the seconds between the estate being filed and the
-      # generator reading it are wound down at the first quiet phase, and a
-      # session asked for against one of those is refused; it moves nothing this
-      # run is judged on. The order that rests on is held by
-      # server/tests/loadtest/quic_fleet_test.go rather than assumed.
-      #
-      # It is also the denominator. The harness counts the machine sides it
-      # answers as completed operations beside the machine-lives, so the
-      # conservation reading the whole family is judged by goes from dividing by
-      # a few thousand arrivals to dividing by those plus every session opened
-      # and closed across the walk.
-      #
-      # The generator is not given a processor allowance of its own. The stack's
-      # three services declare well under half the runner's processors between
-      # them, the load offered here is three journeys a second and three
-      # sessions, and the harness holding this fleet is the same one that holds
-      # sixteen times as many inside a single processor on the sweep venue.
-      # What the run reports about its own room is in the bundle's headroom
-      # either way, so a generator that did run short says so rather than being
-      # assumed not to have.
+      # Every cycle reconnects the same five hundred machines; relay sessions opened beside them
+      # are the operation the leak attaches to, and they add to the completed-operation count.
       - name: Walk the soak profile, building its fleet first
         env:
           LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-soak
-          # The stack is created by this job and thrown away at the end of it, is
-          # reachable only from inside the runner, and holds nothing but the
-          # fleet this run invented. The password is generated per run all the
-          # same, so nothing fixed is ever written down.
+          # The stack is reachable only inside the runner and holds invented data; the password is per run.
           SOAK_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Soak!
         run: |
           set -euo pipefail
@@ -227,11 +132,8 @@ jobs:
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-k6-alongside.sh /tmp/soak-quic.txt api-baseline relay-throughput &
           K6_LEG=$!
-          # The harness's own exit code, read rather than acted on: 1 is a fleet
-          # that half arrived, which is a measurement. What judges it is the
-          # verdict step below, and failing here on the count is a second
-          # verdict nobody wrote down. Errexit is turned off around it because a
-          # status read after an unguarded command is a branch nothing reaches.
+          # Exit 1 is a partial fleet, a measurement the verdict step below judges.
+          # Errexit is off around the harness so its status can be read.
           set +e
           scripts/loadtest-quic-run.sh /tmp/soak-quic.txt -- \
             /tmp/loadtest \
@@ -262,10 +164,8 @@ jobs:
             exit "$walk"
           fi
 
-      # The technician numbers are timed by generators in other processes and
-      # written to files of their own. Folding them in is what gives them a
-      # reader: the bundle is the artifact that outlives this machine, and a
-      # measurement nobody reads is a run that happens to share a profile.
+      # Other processes time the technician numbers into files of their own; the merge puts them
+      # in the bundle, which outlives the runner.
       - name: Fold the technician numbers into the run's evidence
         run: |
           set -euo pipefail
@@ -274,8 +174,7 @@ jobs:
             --journeys "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json" \
             --journeys "$LOADTEST_K6_SUMMARY_DIR/relay-throughput.json"
 
-      # Either end asking for more buffer than the kernel gave is a run whose
-      # datagrams were lost before either process saw them.
+      # Either end asking for more receive buffer than the kernel gave loses datagrams unseen.
       - name: Refuse a run whose ends ran short of receive buffer
         run: scripts/perf-stack-quic.sh check /tmp/soak-quic.txt
 
@@ -283,10 +182,8 @@ jobs:
         if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$SOAK_BUNDLE_DIR/soak/bundle.json"
 
-      # And the numbers the profile says this run is judged by, read off its own
-      # evidence. The rows that reader builds are the machine side, which is
-      # what the limits below are held against; the technician numbers beside
-      # them are folded into the bundle and reported rather than gated.
+      # The rows are the machine side the limits are held against; technician numbers are
+      # folded into the bundle and reported without a gate.
       - name: Read the profile's limits against the run's own rows
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -294,9 +191,6 @@ jobs:
           scripts/perf-bundle-limits.sh load/profiles/soak.yaml \
             "$SOAK_BUNDLE_DIR/soak/bundle.json" /tmp/soak-rows.json
 
-      # Every measurement beside the limit the profile holds it to, the error
-      # rate, and how much of its own ceiling the server and the database used
-      # through the measured phase.
       - name: Write the leg's summary
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -311,16 +205,8 @@ jobs:
           scripts/run-summary.sh render --title "Endurance soak" --profile "load/profiles/soak.yaml" \
             --rows "/tmp/soak-rows.json" --bundle "$BUNDLE" --database /tmp/db-levels.json >>"$GITHUB_STEP_SUMMARY"
 
-      # What holds what the profiles say grew. The heap profiles name where an
-      # object was born; this names what is still pointing at it, which is the
-      # half no profiler can answer.
-      #
-      # It runs whenever the stack came up, including after a failed walk — a run
-      # that went red is the run whose heap is most worth reading — and before
-      # the teardown, because it needs the server alive. The core is encrypted
-      # before it is read, so a reader that fails on it tonight still leaves a
-      # dump the maintainer can open at the desk; the plain copy never leaves
-      # the runner's temp directory.
+      # Names what still points at the heaviest objects; runs after a failed walk, before teardown.
+      # The core is encrypted before it is read, and the plain copy stays in the runner's temp dir.
       - name: Follow what holds the heaviest objects
         id: walk
         if: always() && steps.stack.outcome == 'success'
@@ -353,11 +239,8 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # The run's rows, into the trend, and against the weeks before it.
-  #
-  # The endurance run was held to its profile's fixed limits alone, and its
-  # numbers lived in an artifact. This job's result says whether the trend was
-  # published; what it found is read by the gate below.
+  # Publishes the run's rows into the trend and compares them with the weeks before.
+  # This job's result says whether the trend was published; the gate below reads what it found.
   publish:
     name: Publish the endurance trend
     needs: [soak]
@@ -370,7 +253,7 @@ jobs:
     outputs:
       regression: ${{ steps.check.outputs.regression }}
     env:
-      # When the run started, which every sample of the night carries.
+      # Every sample of the run carries its start time.
       VM_RUN_STARTED_AT: ${{ needs.soak.outputs.started_at }}
     steps:
       - uses: actions/checkout@v7
@@ -469,18 +352,10 @@ jobs:
           fi
           echo "The endurance run is not past the weeks before it."
 
-  # Alert if the run did not finish.
-  #
-  # Every nightly here published its verdict into its own result and nothing
-  # read it: a run that died, was cancelled, or was killed at its timeout went
-  # red on a page nobody opens. The alert path is the part that makes a red run
-  # a thing somebody knows about.
+  # Alerts on a run that died, was cancelled or was killed at its timeout.
   alert:
     name: Alert if the run did not finish
-    # The run is one job with a timeout barely over what it takes, and a job
-    # killed at its timeout may run no step at all — which is precisely the
-    # night worth alerting on. So the alert is a job of its own, on a runner of
-    # its own, reading the result rather than sitting inside it.
+    # A job killed at its timeout may run no step, so the alert is a job of its own.
     needs: [soak]
     if: always()
     runs-on: ubuntu-24.04
@@ -494,10 +369,7 @@ jobs:
       - uses: ./.github/actions/setup-pinned-tools
 
       - name: Send Telegram alert
-        # `needs.<job>.result` rather than `failure()`: the result is a fact
-        # about the job named, and it is what the repository's other gate jobs
-        # already read. It also tells a cancel from a failure, which matters —
-        # one of them is somebody's decision and the other is a lost night.
+        # `needs.<job>.result` is a fact about the named job and tells a cancel from a failure.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}

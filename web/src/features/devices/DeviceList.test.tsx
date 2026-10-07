@@ -106,14 +106,11 @@ describe('DeviceList', () => {
     useDeviceStore.setState({ fetchDevices: fetchDevicesFn });
     renderDeviceList();
 
-    // Initial fetch on mount
     expect(fetchDevicesFn).toHaveBeenCalledTimes(1);
 
-    // Advance 15s — should trigger second fetch
     vi.advanceTimersByTime(15_000);
     expect(fetchDevicesFn).toHaveBeenCalledTimes(2);
 
-    // Advance another 15s — third fetch
     vi.advanceTimersByTime(15_000);
     expect(fetchDevicesFn).toHaveBeenCalledTimes(3);
 
@@ -133,14 +130,11 @@ describe('DeviceList', () => {
 
     it('filters by hostname substring (case-insensitive)', async () => {
       renderDeviceList();
-      // Initially all three rendered.
       expect(screen.getByText('web-01')).toBeInTheDocument();
       expect(screen.getByText('db-01')).toBeInTheDocument();
       expect(screen.getByText('cache-01')).toBeInTheDocument();
 
       const search = screen.getByPlaceholderText(/search/i);
-      // Type uppercase to prove case insensitivity (kills toLowerCase → toUpperCase mutant).
-      // The bar debounces by 300ms, so we waitFor the filter to settle.
       await userEvent.type(search, 'WEB');
 
       await waitFor(() => {
@@ -153,8 +147,6 @@ describe('DeviceList', () => {
     it('filters by os (matches when hostname does not)', async () => {
       renderDeviceList();
       const search = screen.getByPlaceholderText(/search/i);
-      // 'linux' matches d1.os but no hostname — kills the OR-arm collapse mutants
-      // (ConditionalExpression: 'false', LogicalOperator: '&&').
       await userEvent.type(search, 'linux');
       await waitFor(() => {
         expect(screen.queryByText('db-01')).toBeNull();
@@ -176,7 +168,6 @@ describe('DeviceList', () => {
   describe('upgrade-all flow', () => {
     beforeEach(() => {
       useToastStore.setState({ toasts: [] });
-      // Two devices: one outdated online (will upgrade), one current (will not).
       useDeviceStore.setState({
         devices: [
           { id: 'old', organization_id: 'org-1', site_id: 'g1', hostname: 'outdated', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
@@ -195,14 +186,10 @@ describe('DeviceList', () => {
 
     it('shows Upgrade-All button only when there are outdated online devices', () => {
       renderDeviceList();
-      // Only one device (id=old) is outdated AND online — kills:
-      // - status `===` → `!==` mutant (would include offline-old, count=2)
-      // - localeCompare `<` → `>=` / `<=` mutant (would zero count)
       expect(screen.getByText(/Upgrade All Agents \(1\)/)).toBeInTheDocument();
     });
 
     it('hides Upgrade-All button when no outdated online devices', () => {
-      // Wipe the manifests list — nothing to upgrade to.
       useUpdateStore.setState({ manifests: [] });
       renderDeviceList();
       expect(screen.queryByText(/Upgrade All/)).toBeNull();
@@ -216,8 +203,6 @@ describe('DeviceList', () => {
       const button = screen.getByText(/Upgrade All Agents/);
       await userEvent.click(button);
 
-      // Exactly one call — for the single outdated device.
-      // Args: (deviceId, version, os, arch). Pins the manifest fields.
       expect(upgradeAgentFn).toHaveBeenCalledTimes(1);
       expect(upgradeAgentFn).toHaveBeenCalledWith('old', '2.0.0', 'linux', 'amd64');
     });
@@ -228,7 +213,6 @@ describe('DeviceList', () => {
       renderDeviceList();
       const button = screen.getByText(/Upgrade All Agents/);
       await userEvent.click(button);
-      // Pins the success path's toast level → kills the level-mutant on 'success'/'error'.
       expect(addToastFn).toHaveBeenCalledWith(expect.stringContaining('Upgrade pushed to 1'), 'success');
     });
 
@@ -240,7 +224,6 @@ describe('DeviceList', () => {
       renderDeviceList();
       const button = screen.getByText(/Upgrade All Agents/);
       await userEvent.click(button);
-      // Branch: failed > 0 → 'error' toast — kills `if (failed === 0)` flip mutants.
       expect(addToastFn).toHaveBeenCalledWith(expect.stringMatching(/Upgraded 0, failed 1/), 'error');
     });
 
@@ -256,7 +239,6 @@ describe('DeviceList', () => {
       });
       renderDeviceList();
       await userEvent.click(screen.getByText(/Upgrade All Agents/));
-      // Kills the `succeeded !== 1 ? 's' : ''` plural-suffix mutant: must say "2 devices", not "2 device".
       expect(addToastFn).toHaveBeenCalledWith('Upgrade pushed to 2 devices', 'success');
     });
 
@@ -265,13 +247,10 @@ describe('DeviceList', () => {
       useToastStore.setState({ addToast: addToastFn });
       renderDeviceList();
       await userEvent.click(screen.getByText(/Upgrade All Agents/));
-      // succeeded === 1 → no plural suffix; mutant `succeeded !== 1` becomes `succeeded === 1` → wrong branch.
       expect(addToastFn).toHaveBeenCalledWith('Upgrade pushed to 1 device', 'success');
     });
 
     it('Upgrade All button label shows the outdated count', () => {
-      // The button text includes the literal count and the literal "Upgrade All Agents" string —
-      // pins the StringLiteral mutant on the label template.
       renderDeviceList();
       expect(screen.getByRole('button', { name: 'Upgrade All Agents (1)' })).toBeInTheDocument();
     });
@@ -283,7 +262,6 @@ describe('DeviceList', () => {
       });
       renderDeviceList();
       await userEvent.click(screen.getByText(/Upgrade All Agents/));
-      // Kills the `isUpgradingAll ? 'Upgrading...' : ...` ConditionalExpression mutant on both branches.
       expect(await screen.findByText('Upgrading...')).toBeInTheDocument();
       const btn = screen.getByText('Upgrading...').closest('button') as HTMLButtonElement;
       expect(btn.disabled).toBe(true);
@@ -294,9 +272,6 @@ describe('DeviceList', () => {
       const upgradeAgentFn = vi.fn().mockResolvedValue(true);
       useDeviceStore.setState({
         devices: [
-          // device.agent_version = "2.0.0" but latest = "10.0.0" — lexicographic compare would say
-          // "2.0.0" >= "10.0.0" (since '2' > '1') and treat the device as up to date. Numeric
-          // comparison correctly returns -1, so the device is outdated and gets upgraded.
           { id: 'd', organization_id: 'org-1', site_id: 'g1', hostname: 'h', os: 'linux', agent_version: '2.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
         ],
         upgradeAgent: upgradeAgentFn,
@@ -326,8 +301,6 @@ describe('DeviceList', () => {
         fetchManifests: vi.fn(),
       });
       renderDeviceList();
-      // Manifest does not match windows → no outdated devices → button hidden.
-      // Kills the `manifests.filter(m => m.os === d.os)` → `manifests` MethodExpression mutant.
       expect(screen.queryByText(/Upgrade All/)).toBeNull();
     });
 
@@ -339,7 +312,6 @@ describe('DeviceList', () => {
         ],
       });
       renderDeviceList();
-      // Only the online outdated device counts. Kills `d.status === 'online'` → `d.status !== 'online'`.
       expect(screen.getByText(/Upgrade All Agents \(1\)/)).toBeInTheDocument();
     });
 
@@ -348,8 +320,6 @@ describe('DeviceList', () => {
       useUpdateStore.setState({ manifests: [], fetchManifests: vi.fn() });
       useDeviceStore.setState({ upgradeAgent: upgradeAgentFn });
       renderDeviceList();
-      // Button is hidden when outdatedDevices.length === 0 — but even if it were called the body
-      // bails out. We verify the no-op by asserting no upgrade calls fire on render.
       expect(upgradeAgentFn).not.toHaveBeenCalled();
     });
   });
@@ -362,7 +332,6 @@ describe('DeviceList', () => {
         ],
       });
       renderDeviceList();
-      // Type a search term that matches nothing → "Try a different search term."
       const search = screen.getByPlaceholderText(/search/i);
       await userEvent.type(search, 'zzznomatch');
       await waitFor(() => {
@@ -375,7 +344,6 @@ describe('DeviceList', () => {
       useDeviceStore.setState({ selectedSiteId: 'g1', devices: [] });
       renderDeviceList();
       expect(screen.getByText('No devices in this site')).toBeInTheDocument();
-      // Kills the StringLiteral mutant on the site-empty body text.
       expect(screen.getByText('Download and install the agent to add devices.')).toBeInTheDocument();
     });
 
@@ -464,11 +432,8 @@ describe('DeviceList', () => {
       useDeviceStore.setState({ devices: many });
       renderDeviceList();
 
-      // The first card is in the rendered window...
       expect(screen.getByText('host-0')).toBeInTheDocument();
-      // ...but a far-off card is virtualized away (not in the DOM).
       expect(screen.queryByText('host-299')).toBeNull();
-      // Only a windowed subset of the 300 cards is mounted.
       const renderedHostnames = document.querySelectorAll('h3');
       expect(renderedHostnames.length).toBeGreaterThan(0);
       expect(renderedHostnames.length).toBeLessThan(300);
@@ -483,8 +448,6 @@ describe('DeviceList', () => {
       ],
     });
     renderDeviceList();
-    // The DeviceCard for 'visible-host' must NOT render while loading — kills the
-    // `!isLoading && filteredDevices.length > 0` LogicalOperator mutants that flip || ↔ &&.
     expect(screen.queryByText('visible-host')).toBeNull();
   });
 
@@ -505,24 +468,16 @@ describe('DeviceList', () => {
     }
 
     it('lays out cards in 3 responsive columns and ceil(n/columns) rows at desktop width', () => {
-      // vitest.setup mocks every element to 1200px wide → the >= 1024 breakpoint → 3 columns.
       useDeviceStore.setState({ devices: makeDevices(6) });
       renderDeviceList();
 
       const firstRow = screen.getByText('host-0').closest('div.grid.gap-4') as HTMLElement;
       expect(firstRow).not.toBeNull();
-      // 3 columns: kills the useColumnCount effect/update BlockStatement removals (which leave
-      // the default 1 column), the COLUMN_BREAKPOINTS.find predicate mutants, and the
-      // gridTemplateColumns StringLiteral on the row style.
       expect(firstRow).toHaveStyle({ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' });
-      // Row 0 holds the first 3 devices (slice [0,3)); row 1 holds the next 3 — validates the
-      // `index * columns` slice offset and the column count together.
       expect(within(firstRow).getByText('host-0')).toBeInTheDocument();
       expect(within(firstRow).getByText('host-2')).toBeInTheDocument();
       expect(within(firstRow).queryByText('host-3')).toBeNull();
 
-      // 6 devices / 3 columns = 2 virtual rows. The `length / columns` → `length * columns`
-      // ArithmeticOperator mutant inflates rowCount and renders extra (empty) row elements.
       const container = firstRow.parentElement as HTMLElement;
       const rows = container.querySelectorAll(':scope > div.grid.gap-4');
       expect(rows).toHaveLength(2);
@@ -535,13 +490,9 @@ describe('DeviceList', () => {
       const firstRow = screen.getByText('host-0').closest('div.grid.gap-4') as HTMLElement;
       const container = firstRow.parentElement as HTMLElement;
 
-      // Wrapper: position relative + full width + non-zero height (the virtualizer total
-      // size). Kills the ObjectLiteral→{} and the position/width StringLiteral mutants.
       expect(container).toHaveStyle({ position: 'relative', width: '100%' });
       expect(Number.parseFloat(container.style.height)).toBeGreaterThan(0);
 
-      // Row: absolutely positioned, full width, transformed to its virtual offset (0px for the
-      // first row). Kills the transform/position/width StringLiteral and ObjectLiteral mutants.
       expect(firstRow).toHaveStyle({
         position: 'absolute',
         width: '100%',
@@ -552,9 +503,6 @@ describe('DeviceList', () => {
     it('drops to 2 columns at the md breakpoint (>= is inclusive; > would fall through to 1)', () => {
       const originalRect = Element.prototype.getBoundingClientRect;
       try {
-        // Exactly 768px → matches the 768 breakpoint via `>=` (2 columns). The
-        // `width > b.minWidth` EqualityOperator mutant fails 768 > 768 and falls to 1 column;
-        // the `(b) => true` ConditionalExpression mutant would match the first (1024 → 3) entry.
         Element.prototype.getBoundingClientRect = () =>
           ({ width: 768, height: 800, top: 0, left: 0, right: 768, bottom: 800, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
         useDeviceStore.setState({ devices: makeDevices(2) });
@@ -566,10 +514,6 @@ describe('DeviceList', () => {
       }
     });
 
-    // The shared observer reports every element it is handed at once, which
-    // hides whether the grid measures itself and whether it watches at all:
-    // either alone gives the same column count. This one records what it is
-    // asked and reports a resize only for what it was told to watch.
     describe('sizing the grid', () => {
       class RecordingObserver {
         static instances: RecordingObserver[] = [];

@@ -1,28 +1,6 @@
 #!/usr/bin/env bash
-# Guards the hand-written API callers against spec drift.
-#
-# Three callers spell OpenGate API URLs as string literals rather than through a
-# generated client: deploy/scripts/smoke-test.sh (cd.yml, after a merge to main,
-# against staging and production), deploy/scripts/e2e-stack-up.sh (the browser
-# stack's bring-up, which signs in and mints an enrolment token so the machines
-# can install), and the k6 scenarios under load/ (the nightly load-test
-# workflow). Nothing before those runs reads the URL strings — not the
-# OpenAPI spec-drift check (it scans the spec for unguarded mutating ops), not
-# check-doc-links (Markdown links under docs/ and .claude/), not the Go or web
-# suites. So renaming a route in api/openapi.yaml leaves both probing a path
-# that no longer exists, and the first thing that notices is a failed deploy or
-# a failed nightly — which is how the /api/v1/groups -> /api/v1/sites rename
-# broke CD and then, a day later, the load-test run.
-#
-# Query parameter names drift the same way and fail more quietly: an unknown
-# query key is ignored, so the caller silently measures a different workload
-# instead of erroring. Those are checked against the spec too.
-#
-# Fix by construction: api/openapi.yaml is the single source of truth. Every
-# OpenGate API path and query parameter these callers spell must be declared
-# there.
-#
-# Run: ./scripts/tests/api-endpoint-drift.test.sh
+# Holds every API path and query key the hand-written callers spell to api/openapi.yaml.
+# The callers are smoke-test.sh, e2e-stack-up.sh and the k6 scenarios under load/.
 
 set -euo pipefail
 
@@ -54,13 +32,8 @@ summarize() {
 
 echo "api-endpoint-drift:"
 
-# Callers that spell API URLs by hand, relative to the repo root.
 CALLERS=(deploy/scripts/smoke-test.sh deploy/scripts/e2e-stack-up.sh)
-# Under load/, a caller is a file that makes requests — one that imports k6's
-# HTTP module. The others are what a generator is built out of rather than what
-# it asks for: the projection that turns a profile's walk into executors makes
-# no request at all, and holding it to "probes at least one declared path" would
-# fail it for being a library.
+# Under load/, a caller is a file that imports k6's HTTP module.
 found_js=0
 while IFS= read -r js; do
   found_js=$((found_js + 1))
@@ -69,8 +42,7 @@ while IFS= read -r js; do
   fi
 done < <(cd "$ROOT" && find load -type f -name '*.js' | sort)
 
-# A selection that reached nothing would pass every check below vacuously, which
-# is the shape this file exists to refuse one level down.
+# A selection that reaches nothing fails here, since every later check would pass vacuously.
 if [ "$found_js" -eq 0 ]; then
   echo "FAIL: no JavaScript under load/ — the caller selection reached nothing" >&2
   exit 1
@@ -83,8 +55,7 @@ for f in "$SPEC" "${CALLERS[@]/#/$ROOT/}"; do
   fi
 done
 
-# Paths the spec declares, as two-space-indented top-level keys, with each
-# {param} name flattened so a placeholder compares by position, not by spelling.
+# Spec paths are the two-space-indented top-level keys, with each {param} name flattened.
 declared="$(grep -oE '^  (/[^ :]+):' "$SPEC" | tr -d ' :' \
   | awk '{ gsub(/[{][A-Za-z0-9_]*[}]/, "{param}"); print }' | sort -u)"
 if [ -z "$declared" ]; then
@@ -93,9 +64,7 @@ if [ -z "$declared" ]; then
 fi
 pass "api/openapi.yaml declares $(wc -l <<<"$declared") paths"
 
-# Query parameter names the spec declares, anywhere. A parameter block names the
-# parameter and then says where it lives; only the ones living in the query
-# string are comparable to a URL's `?key=`.
+# Only spec parameters living in the query string compare to a URL's `?key=`.
 declared_params="$(awk '
   /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ { n = $NF; next }
   /^[[:space:]]*in:[[:space:]]*query[[:space:]]*$/ { if (n != "") { print n; n = "" } }
@@ -106,10 +75,7 @@ if [ -z "$declared_params" ]; then
 fi
 pass "api/openapi.yaml declares $(wc -l <<<"$declared_params") query parameters"
 
-# Strip comments, then collapse every shell expansion and JS template
-# substitution to the same {param} placeholder, so a URL built from a variable
-# compares against the templated declaration. A path only counts when it is
-# requested, never when it is described.
+# Comments are stripped, then every shell expansion and JS template substitution becomes {param}.
 normalize() {
   grep -vE '^[[:space:]]*(#|//)' "$1" \
     | awk '{
@@ -141,8 +107,7 @@ for caller in "${CALLERS[@]}"; do
     fi
   done <<<"$probed"
 
-  # Query keys sent against those paths. Absent keys are fine — most requests
-  # carry none — so an empty extraction is not a vacuous pass here.
+  # Most requests carry no query keys, so an empty extraction passes.
   sent_params="$(grep -oE '/api/v1/[-A-Za-z0-9_./{}]*\?[^"'"'"' ]*' <<<"$normalized" \
     | grep -oE '[?&][A-Za-z_][A-Za-z0-9_]*=' \
     | tr -d '?&=' | sort -u || true)"

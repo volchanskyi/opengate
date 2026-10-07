@@ -12,31 +12,12 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// The Postgres home of alerts and the rooms they fold into.
-//
-// Every read and write goes through a tenant-scoped transaction, so row-level
-// security is what separates customers rather than a WHERE clause somebody has
-// to remember. Each statement also names the tenant itself: the policy is the
-// wall, and the predicate is a second lock on the same door — and it is the lock
-// that still holds when a purge runs admin-scoped in order to act on a tenant it
-// is not.
-
-// tenantPredicate is the second lock, written out in full inside every statement
-// below rather than concatenated in from a shared constant. A query assembled
-// from pieces is indistinguishable, to anything reading this file, from one
-// assembled from input — so each statement here is a single literal that can be
-// read start to finish, and TestEveryStatementNamesItsTenant is what keeps the
-// predicate on all of them.
+// tenantPredicate is the tenant clause the tenant-scoped statements name beside the row policy.
+// It is spelled out in each statement so every query stays one readable literal.
 const tenantPredicate = `tenant_id = current_setting('app.current_tenant')::uuid`
 
-// storeAlertSQL writes one alert, with the customer's hourly budget as a
-// condition of the write rather than a check taken beforehand: the count and the
-// insert have to see the same rows or a storm arriving on several connections at
-// once would each read a budget that is still free.
-//
-// It returns no row for two different reasons — a spent budget and an identity
-// already stored — which the caller then tells apart. Rolled into one statement
-// they would be indistinguishable, and one of them means an alert was lost.
+// storeAlertSQL writes one alert with the customer's hourly budget as a condition of the write.
+// It returns no row for a spent budget and for a stored identity, which the caller tells apart.
 const storeAlertSQL = `
 	INSERT INTO alerts (id, tenant_id, organization_id, device_id, rule_id, rule_version,
 	                    severity, metric, value, window_start, window_end, observed_at,
@@ -51,23 +32,15 @@ const storeAlertSQL = `
 	ON CONFLICT (device_id, rule_id, rule_version, window_start) DO NOTHING
 	RETURNING id`
 
-// alertByIdentitySQL resolves the identity a reconnect replay carries. It is
-// deliberately not the id the device chose: an agent that lost its local store
-// picks a new one and would duplicate every alert it still had to send.
+// alertByIdentitySQL resolves the identity a reconnect replay carries.
+// The identity is the window key, since an agent that lost its store picks fresh alert ids.
 const alertByIdentitySQL = `
 	SELECT id FROM alerts
 	 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 	   AND device_id = $1 AND rule_id = $2 AND rule_version = $3 AND window_start = $4`
 
-// foldIntoStormSQL opens the room a customer's suppressed alerts fold into, or
-// adds one to the count it already carries. Suppression is never silent — what a
-// ceiling refuses is detection nobody can reconstruct afterwards, so the number
-// lost is the room's whole substance.
-//
-// device_count stays at zero and means what it says everywhere else: how many
-// machines have alerts in this room. A suppressed alert never became one, so
-// there are none — the machines still visible are the ones on the alerts that
-// were stored before the budget ran out.
+// foldIntoStormSQL opens the room a customer's suppressed alerts fold into, or counts one more.
+// device_count stays zero because a suppressed alert never became a stored one.
 const foldIntoStormSQL = `
 	INSERT INTO incidents (id, tenant_id, organization_id, rule_id, scope, scope_key,
 	                       severity, status, opened_at, first_seen, last_seen,
@@ -78,11 +51,8 @@ const foldIntoStormSQL = `
 	DO UPDATE SET occurrences = incidents.occurrences + 1,
 	              last_seen   = EXCLUDED.last_seen`
 
-// openIncidentSQL resolves a grouping key to the room holding it, if one is
-// open. A grouping key is guessable — a rule id is compiled into every build and
-// a customer id travels in URLs — so this read is exactly where a caller would
-// try to name someone else's room, and the tenant predicate plus the policy are
-// what make that resolve to nothing.
+// openIncidentSQL resolves a grouping key to its open room.
+// Grouping keys are guessable, so the tenant predicate resolves another tenant's key to nothing.
 const openIncidentSQL = `
 	SELECT id, organization_id, rule_id, scope, scope_key, severity, status,
 	       assignee_id, opened_at, first_seen, last_seen, resolved_at, cause_code,
@@ -92,12 +62,8 @@ const openIncidentSQL = `
 	   AND organization_id = $1 AND rule_id = $2 AND scope = $3 AND scope_key = $4
 	   AND status <> 'resolved'`
 
-// recountRoomsLosingADeviceSQL restates what is left in every room the machine
-// contributed to, from the rows that survive it. Recomputing rather than
-// subtracting is what makes a resumed purge safe to run twice.
-//
-// It runs while the machine's alerts are still there, since afterwards there is
-// nothing left to say which rooms it was ever in.
+// recountRoomsLosingADeviceSQL restates each room the machine fed from the surviving rows.
+// It runs before the alerts are deleted, and recomputing keeps a resumed purge idempotent.
 const recountRoomsLosingADeviceSQL = `
 	UPDATE incidents i
 	   SET occurrences  = (SELECT COUNT(*) FROM alerts a
@@ -107,14 +73,8 @@ const recountRoomsLosingADeviceSQL = `
 	 WHERE i.tenant_id = $1
 	   AND EXISTS (SELECT 1 FROM alerts a WHERE a.incident_id = i.id AND a.device_id = $2)`
 
-// closeEmptiedRoomsSQL closes the rooms the erasure emptied and records why. A
-// room whose every alert has gone describes nothing, and left open it sits in a
-// customer's triage queue forever with no way to close it.
-//
-// No cause code is set. Those are a person's answer to why an incident ended,
-// and inventing one here would put a technician's vocabulary in the system's
-// mouth — including false_positive, which is the channel that decides whether a
-// rule gets retuned.
+// closeEmptiedRoomsSQL closes the rooms the erasure emptied and records why, with no cause code.
+// A cause code is a person's answer, and an invented one would feed rule retuning.
 const closeEmptiedRoomsSQL = `
 	WITH closed AS (
 	    UPDATE incidents i
@@ -140,10 +100,7 @@ const (
 // Store is the Postgres home of a customer's alerts and incidents.
 type Store struct {
 	db *sql.DB
-	// now stamps receipt and bounds the rolling ceiling window. A single clock
-	// for both means the budget is measured against the same instant the alert
-	// is filed under, rather than against whatever the database thought the time
-	// was a round trip later.
+	// now stamps receipt and bounds the rolling ceiling window, so both share one instant.
 	now func() time.Time
 }
 
@@ -152,19 +109,8 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// Record files one alert, folds it into the room it belongs to, and reports what
-// became of it.
-//
-// The three outcomes are all ordinary. An alert is stored, or its identity was
-// already stored and a reconnect simply replayed it, or the customer's hourly
-// budget is spent and the count of what was refused went into the storm room. An
-// error means none of those happened — nothing was written, and the caller must
-// not report the alert as held.
-//
-// The alert and its room are one write. An alert stored outside the room it
-// belongs to is invisible to the only surface a technician looks at, which is a
-// worse failure than the alert never arriving, because nothing says it is
-// missing.
+// Record files one alert and folds it into its room in one write, reporting Stored, Duplicate or
+// CeilingSuppressed. An error means nothing was written.
 func (s *Store) Record(ctx context.Context, a Alert, g Grouping) (Outcome, error) {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
@@ -178,9 +124,7 @@ func (s *Store) Record(ctx context.Context, a Alert, g Grouping) (Outcome, error
 
 	outcome := Stored
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
-		// The budget is read on the connection that is about to spend it, so an
-		// alert is counted against the ceiling in force at that moment rather
-		// than one a caller cached before the storm started.
+		// The budget is read on the connection about to spend it.
 		limits, err := limitsIn(ctx, tx, a.OrganizationID)
 		if err != nil {
 			return err
@@ -199,9 +143,7 @@ func (s *Store) Record(ctx context.Context, a Alert, g Grouping) (Outcome, error
 			return fmt.Errorf("store alert: %w", err)
 		}
 
-		// Nothing was written. Either this alert is already here, or the budget
-		// is spent — one of which means an alert was lost, so they are told
-		// apart rather than reported as one thing.
+		// No row means a stored identity or a spent budget, and only the budget loses an alert.
 		if _, found, err := identity(ctx, tx, a); err != nil {
 			return err
 		} else if found {
@@ -242,7 +184,6 @@ func (s *Store) AlertByIdentity(
 	return id, found, nil
 }
 
-// identity reads the alert stored under a's identity inside an open transaction.
 func identity(ctx context.Context, tx *sql.Tx, a Alert) (uuid.UUID, bool, error) {
 	var id uuid.UUID
 	switch err := tx.QueryRowContext(ctx, alertByIdentitySQL,
@@ -256,7 +197,6 @@ func identity(ctx context.Context, tx *sql.Tx, a Alert) (uuid.UUID, bool, error)
 	}
 }
 
-// foldIntoStorm records one suppressed alert against the customer's storm room.
 func foldIntoStorm(ctx context.Context, tx *sql.Tx, tenantID, organizationID uuid.UUID, at time.Time) error {
 	if _, err := tx.ExecContext(ctx, foldIntoStormSQL,
 		uuid.New(), tenantID, organizationID, StormRuleID, string(StormSeverity), at); err != nil {
@@ -265,9 +205,8 @@ func foldIntoStorm(ctx context.Context, tx *sql.Tx, tenantID, organizationID uui
 	return nil
 }
 
-// OpenIncident returns the open room holding a grouping key, and whether there
-// is one. A key naming another tenant's room resolves to no room at all, which
-// is the same answer a key naming nothing gets.
+// OpenIncident returns the open room holding a grouping key, and whether there is one.
+// A key naming another tenant's room resolves to no room, the same answer as a key naming nothing.
 func (s *Store) OpenIncident(
 	ctx context.Context, organizationID uuid.UUID, ruleID string, scope Scope, scopeKey uuid.UUID,
 ) (Incident, bool, error) {
@@ -294,12 +233,8 @@ func (s *Store) OpenIncident(
 	return incident, found, nil
 }
 
-// EraseDeviceAlerts removes one machine's alerts and their evidence, and repairs
-// what the foreign key cannot: the counts on the rooms it was in, and a room
-// that ends up holding nothing at all.
-//
-// It runs admin-scoped, like every other stage of a purge — the server acts on a
-// tenant it is not. The tenant predicate on each statement is what confines it.
+// EraseDeviceAlerts repairs the room counts, closes any room the erasure empties, then removes
+// one machine's alerts and their evidence. It runs admin-scoped; the tenant predicate confines it.
 func (s *Store) EraseDeviceAlerts(ctx context.Context, tenantID, deviceID uuid.UUID) error {
 	ctx = dbtx.WithTenant(ctx, tenantID, true)
 	at := s.now().UTC().Truncate(time.Microsecond)
@@ -317,9 +252,8 @@ func (s *Store) EraseDeviceAlerts(ctx context.Context, tenantID, deviceID uuid.U
 	})
 }
 
-// EraseTenantInvestigations removes a tenant's alerts, rooms and room history
-// outright. A tenant purge keeps the tenant row as the anchor for the retained
-// audit trail, so nothing cascades from it — these have to be erased by name.
+// EraseTenantInvestigations removes a tenant's alerts, rooms and room history by name.
+// A tenant purge keeps the tenant row as the audit anchor, so nothing cascades from it.
 func (s *Store) EraseTenantInvestigations(ctx context.Context, tenantID uuid.UUID) error {
 	ctx = dbtx.WithTenant(ctx, tenantID, true)
 	return dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {

@@ -13,17 +13,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// newFixture returns a repository over a fresh store plus a default-tenant
-// context, the starting point for the single-tenant cases.
 func newFixture(t *testing.T) (*organization.PostgresOrganizations, *db.PostgresStore, context.Context) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 	return organization.NewPostgresOrganizations(store.DB()), store, dbtx.WithDefaultTenant(context.Background(), false)
 }
 
-// seedBareTenant inserts a tenant with no organization at all, which no
-// production path produces — the migration gives every tenant one — so the
-// no-orphan floor has something to be proven against.
+// seedBareTenant inserts a tenant with no organization, a state the migration never leaves.
 func seedBareTenant(t *testing.T, store *db.PostgresStore) (uuid.UUID, context.Context) {
 	t.Helper()
 	tenantID := uuid.New()
@@ -33,10 +29,6 @@ func seedBareTenant(t *testing.T, store *db.PostgresStore) (uuid.UUID, context.C
 	return tenantID, dbtx.WithTenant(context.Background(), tenantID, false)
 }
 
-// TestOrganizationBelongsToExactlyOneTenant is the tenancy contract: an
-// organization is created inside the caller's tenant and is invisible, unwritable
-// and undeletable from any other. The isolation boundary stays at the tenant, so
-// this is the same policy every tenant table carries — proven here for the new one.
 func TestOrganizationBelongsToExactlyOneTenant(t *testing.T) {
 	t.Parallel()
 	repo, store, ctxA := newFixture(t)
@@ -86,9 +78,6 @@ func TestOrganizationBelongsToExactlyOneTenant(t *testing.T) {
 	})
 }
 
-// TestCreateRejectsDuplicateNameWithinTenant covers the negative half of the
-// uniqueness rule: two customers with the same name inside one tenant would be
-// indistinguishable in the picker.
 func TestCreateRejectsDuplicateNameWithinTenant(t *testing.T) {
 	t.Parallel()
 	repo, _, ctx := newFixture(t)
@@ -98,9 +87,6 @@ func TestCreateRejectsDuplicateNameWithinTenant(t *testing.T) {
 	assert.ErrorIs(t, err, organization.ErrNameTaken)
 }
 
-// TestEnsureDefaultGivesATenantSomewhereToPutDevices proves the no-orphan rule:
-// a tenant that has no organization gets one, and asking again returns the same
-// one rather than accumulating duplicates.
 func TestEnsureDefaultGivesATenantSomewhereToPutDevices(t *testing.T) {
 	t.Parallel()
 	repo, store, _ := newFixture(t)
@@ -120,8 +106,6 @@ func TestEnsureDefaultGivesATenantSomewhereToPutDevices(t *testing.T) {
 	assert.Equal(t, organization.DefaultName, listed[0].Name)
 }
 
-// TestEnsureDefaultKeepsAnExistingOrganization proves the default is a floor and
-// not a fixture: a tenant that already has a customer keeps it.
 func TestEnsureDefaultKeepsAnExistingOrganization(t *testing.T) {
 	t.Parallel()
 	repo, store, _ := newFixture(t)

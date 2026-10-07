@@ -11,8 +11,7 @@ import {
 } from './types';
 import type { Frame, FrameEncoding } from './types';
 
-// Pinned runs + seed so any counterexample reproduces deterministically in the
-// gauntlet (tests-determinism.md). No .skip / .only.
+// A pinned seed makes every counterexample reproducible.
 const RUNS = { numRuns: 500, seed: 0x0ac17a7e } as const;
 
 describe('decodeFrame robustness properties', () => {
@@ -21,12 +20,10 @@ describe('decodeFrame robustness properties', () => {
       fc.property(fc.uint8Array({ maxLength: 256 }), (bytes) => {
         try {
           const { frame, bytesConsumed } = decodeFrame(bytes);
-          // A successful decode must report a sane consumed-byte count.
           expect(bytesConsumed).toBeGreaterThanOrEqual(1);
           expect(bytesConsumed).toBeLessThanOrEqual(bytes.length);
           expect(typeof frame.type).toBe('number');
         } catch (err) {
-          // The only acceptable failure mode is a thrown Error.
           expect(err).toBeInstanceOf(Error);
         }
       }),
@@ -35,8 +32,6 @@ describe('decodeFrame robustness properties', () => {
   });
 
   it('decodes correctly when the frame is embedded in a larger byte-offset buffer', () => {
-    // Guards the DataView byteOffset handling: a subarray view must decode the
-    // same as a standalone buffer.
     fc.assert(
       fc.property(
         fc.uint8Array({ maxLength: 32 }),

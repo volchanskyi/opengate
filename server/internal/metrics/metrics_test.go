@@ -11,9 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestObserveDeviceLogPull records raw-log broker pulls against the pull-count
-// and pull-duration metrics, keyed by outcome. The ok count is the audited
-// pull count (each ok pull writes exactly one device.logs.read audit event).
 func TestObserveDeviceLogPull(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
@@ -24,18 +21,10 @@ func TestObserveDeviceLogPull(t *testing.T) {
 
 	require.InDelta(t, 2, testutil.ToFloat64(m.DeviceLogPullsTotal.WithLabelValues("ok")), 0)
 	require.InDelta(t, 1, testutil.ToFloat64(m.DeviceLogPullsTotal.WithLabelValues("timeout")), 0)
-	// A distinct result label that was never observed stays at zero.
 	require.InDelta(t, 0, testutil.ToFloat64(m.DeviceLogPullsTotal.WithLabelValues("busy")), 0)
-	// The duration histogram has one series per observed outcome (ok, timeout).
 	require.Equal(t, 2, testutil.CollectAndCount(m.DeviceLogPullDuration))
 }
 
-// TestEveryLogPullOutcomeStartsAtZero keeps the pull panels answering before
-// the first pull. A counter created on its first increment has no reading
-// before it, so the first pull after every start was invisible to a rate: the
-// store's first reading was already 1, and a rate over it read 0 for every
-// bucket while the pull had happened. The duration histogram is not seeded: a
-// latency of no pulls is not a latency, and the panel says so in words.
 func TestEveryLogPullOutcomeStartsAtZero(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
@@ -48,11 +37,6 @@ func TestEveryLogPullOutcomeStartsAtZero(t *testing.T) {
 	require.Zero(t, testutil.CollectAndCount(m.DeviceLogPullDuration), "no pull, no latency")
 }
 
-// TestEveryEdgeTelemetryOutcomeStartsAtZero keeps the production drop-ratio rule
-// and the soak panels reading a series from start-up. Each counter here was
-// created on its first event, so after a deploy the rule over drops and ingest
-// read nothing until a machine sent something and something was dropped, and
-// the first drop of each reason after a start was invisible to a rate.
 func TestEveryEdgeTelemetryOutcomeStartsAtZero(t *testing.T) {
 	t.Parallel()
 
@@ -77,11 +61,6 @@ func TestEveryEdgeTelemetryOutcomeStartsAtZero(t *testing.T) {
 	}
 }
 
-// TestObserveAgentTLSHandshake counts every agent QUIC connection that reached
-// the application handshake, split by whether TLS resumed. Both series exist
-// from start-up: the resumption ratio divides one by their sum, and a missing
-// denominator reads as "no data" exactly when somebody is checking whether
-// reconnects are resuming at all.
 func TestObserveAgentTLSHandshake(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
@@ -99,8 +78,6 @@ func TestObserveAgentTLSHandshake(t *testing.T) {
 	require.InDelta(t, 1, testutil.ToFloat64(m.AgentTLSHandshakesTotal.WithLabelValues("false")), 0)
 }
 
-// TestObserveEdgeTelemetryIngest counts accepted Edge-Sentinel telemetry
-// messages by control type, so the soak dashboard can chart ingest rate.
 func TestObserveEdgeTelemetryIngest(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
@@ -114,10 +91,6 @@ func TestObserveEdgeTelemetryIngest(t *testing.T) {
 	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues("ProcessReport")), 0)
 }
 
-// TestObserveEdgeTelemetryDrop counts dropped telemetry by reason so the soak
-// dashboard can chart drop count and break it down by cause. A discarded
-// coalesced batch reports every message it carried in one call, so the drop
-// count stays comparable with the ingest count.
 func TestObserveEdgeTelemetryDrop(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
@@ -133,9 +106,6 @@ func TestObserveEdgeTelemetryDrop(t *testing.T) {
 	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("payload_too_large")), 0)
 }
 
-// TestObserveEdgeTelemetryClockClamp counts corrected agent clocks by direction.
-// It is a separate counter from drops because a clamped message is still
-// persisted; folding it into drops would break the ingest ledger.
 func TestObserveEdgeTelemetryClockClamp(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
@@ -149,9 +119,6 @@ func TestObserveEdgeTelemetryClockClamp(t *testing.T) {
 	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("clock_skew_clamped")), 0)
 }
 
-// TestObserveBackfillDecision records the reconnect-backfill scheduler's
-// grant/defer decisions, the granted per-slot rate, and the live active-slot
-// count, so the soak dashboard can chart scheduler state during a storm.
 func TestObserveBackfillDecision(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
@@ -162,10 +129,7 @@ func TestObserveBackfillDecision(t *testing.T) {
 
 	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeBackfillDecisionsTotal.WithLabelValues("grant")), 0)
 	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillDecisionsTotal.WithLabelValues("defer")), 0)
-	// Active slots reflect the most recent observation.
 	require.InDelta(t, 4, testutil.ToFloat64(m.EdgeBackfillActiveSlots), 0)
-	// The granted-rate gauge reflects the most recent grant's rate; a defer
-	// leaves it unchanged.
 	require.InDelta(t, 1800, testutil.ToFloat64(m.EdgeBackfillGrantRate), 0)
 }
 

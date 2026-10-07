@@ -41,8 +41,7 @@ beforeEach(() => {
 describe('DeviceLabels', () => {
   it('counts the machines carrying each label', () => {
     show(false);
-    // The label list is the first table; the second is the machine-by-machine
-    // view, whose rows name the same label.
+    // The first table is the label list; the second is the per-machine view.
     const labelList = screen.getAllByRole('table')[0];
     const row = within(labelList!).getByRole('row', { name: /role=file-server/ });
     expect(within(row).getByText('2')).toBeInTheDocument();
@@ -119,8 +118,6 @@ describe('DeviceLabels', () => {
 });
 
 describe('DeviceLabels — what it refuses and what it clears', () => {
-  // A label is a key and a value together. Sending half of one would file a
-  // label no rule can be aimed at, and the row would read as a broken entry.
   it('will not add a label that is missing half of itself', async () => {
     const createLabel = vi.fn().mockResolvedValue(true);
     show(true);
@@ -136,9 +133,6 @@ describe('DeviceLabels — what it refuses and what it clears', () => {
     expect(createLabel).not.toHaveBeenCalled();
   });
 
-  // Adding role=file-server is usually followed by role=workstation, so the key
-  // stays and only the value clears — retyping the key every time is the cost
-  // of clearing both.
   it('keeps the key and clears the value once a label is added', async () => {
     show(true);
     useDeviceTagsStore.setState({ createLabel: vi.fn().mockResolvedValue(true) });
@@ -162,8 +156,6 @@ describe('DeviceLabels — what it refuses and what it clears', () => {
     expect(assignLabel).not.toHaveBeenCalled();
   });
 
-  // A pasted list of machines arrives however the operator had it — commas,
-  // spaces, newlines, or several at once. All of them name the same machines.
   it('takes a pasted list however it was separated', async () => {
     const assignLabel = vi.fn().mockResolvedValue(true);
     show(true);
@@ -178,7 +170,6 @@ describe('DeviceLabels — what it refuses and what it clears', () => {
 });
 
 describe('DeviceLabels — counting and waiting', () => {
-  /** Renders with the store set exactly as given, which the spinner cases need. */
   function showState(over: Partial<ReturnType<typeof useDeviceTagsStore.getState>>) {
     useAuthStore.setState({
       user: { id: 'u1', email: 'x@example.com', display_name: 'X', is_admin: true },
@@ -200,17 +191,12 @@ describe('DeviceLabels — counting and waiting', () => {
     expect(screen.queryByText('This customer has no labels yet.')).not.toBeInTheDocument();
   });
 
-  // A refresh over a list already on screen keeps it there; swapping a good
-  // list for a spinner on every poll would make the page flicker.
   it('keeps the list on screen while a refresh is in flight', () => {
     showState({ isLoading: true, labels: [fileServer] });
     const labelList = screen.getAllByRole('table')[0];
     expect(within(labelList!).getByRole('row', { name: /role=file-server/ })).toBeInTheDocument();
   });
 
-  // A label is a key and a value together, so role=workstation is not
-  // role=file-server. Counting by the key alone would report the whole estate
-  // as carrying whichever value happened to be listed first.
   it('counts only the machines carrying that exact key and value', () => {
     showState({
       labels: [fileServer],

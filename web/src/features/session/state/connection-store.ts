@@ -14,7 +14,6 @@ function notifyWebRTCFallback(reason: string): void {
   );
 }
 
-/** Signaling state for the relay-to-WebRTC upgrade. */
 type SignalingState = 'relay-only' | 'upgrading' | 'webrtc' | 'fallback';
 
 interface ConnectionStore {
@@ -23,7 +22,6 @@ interface ConnectionStore {
   error: string | null;
   transport: WSTransport | null;
 
-  // WebRTC upgrade state
   webrtcTransport: WebRTCTransport | null;
   signalingState: SignalingState;
   iceServers: RTCIceServer[];
@@ -32,7 +30,6 @@ interface ConnectionStore {
   disconnect: () => void;
   initiateWebRTCUpgrade: () => void;
 
-  // Frame event subscriptions
   onControlMessage: ((msg: ControlMessage) => void) | null;
   onDesktopFrame: ((frame: DesktopFrame) => void) | null;
   onTerminalFrame: ((frame: TerminalFrame) => void) | null;
@@ -44,13 +41,11 @@ interface ConnectionStore {
   setOnFileFrame: (cb: ((frame: FileFrame) => void) | null) => void;
 }
 
-/** Handle signaling control messages arriving via the relay. */
 function handleSignalingMessage(msg: ControlMessage, get: () => ConnectionStore, set: (state: Partial<ConnectionStore>) => void): boolean {
   const { webrtcTransport, transport } = get();
 
   switch (msg.type) {
     case 'SwitchToWebRTC': {
-      // Agent's SDP answer
       if (webrtcTransport && get().signalingState === 'upgrading') {
         webrtcTransport.handleAnswer(msg.sdp_offer).catch((err: unknown) => {
           console.warn('[webrtc] handleAnswer failed:', err);
@@ -63,7 +58,7 @@ function handleSignalingMessage(msg: ControlMessage, get: () => ConnectionStore,
     case 'IceCandidate': {
       if (webrtcTransport) {
         webrtcTransport.addIceCandidate(msg.candidate, msg.mid).catch((err: unknown) => {
-          // ICE candidate failures are common and recoverable; log only.
+          // A failed ICE candidate is recoverable, so it is only logged.
           console.warn('[webrtc] addIceCandidate failed:', err);
         });
       }
@@ -71,7 +66,6 @@ function handleSignalingMessage(msg: ControlMessage, get: () => ConnectionStore,
     }
     case 'SwitchAck': {
       if (webrtcTransport && get().signalingState === 'upgrading') {
-        // Agent acknowledged — send our own ack and switch
         transport?.sendControl({ type: 'SwitchAck' });
         set({ signalingState: 'webrtc' });
       }
@@ -114,7 +108,6 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     const events: TransportEvents = {
       onStateChange: (state) => set({ state }),
       onControlMessage: (msg) => {
-        // Intercept signaling messages
         if (!handleSignalingMessage(msg, get, set)) {
           get().onControlMessage?.(msg);
         }
@@ -143,7 +136,6 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       return;
     }
 
-    // Create WebRTC transport with same event dispatch
     const webrtcEvents: TransportEvents = {
       onStateChange: () => {},
       onControlMessage: (msg) => get().onControlMessage?.(msg),
@@ -158,7 +150,6 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
 
     const webrtc = new WebRTCTransport(webrtcEvents);
 
-    // Set up ICE candidate forwarding via relay
     webrtc.onLocalIceCandidate = (candidate, mid) => {
       transport.sendControl({ type: 'IceCandidate', candidate, mid });
     };

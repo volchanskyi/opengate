@@ -1,33 +1,10 @@
-//! The in-process alert sink every edge alert producer writes to.
-//!
-//! An alert is raised where it is detected and delivered somewhere else, so the
-//! two are decoupled by a queue the producers share. That queue holds two
-//! limits, and both of them lose alerts on purpose:
-//!
-//! The queue is **bounded**, because an agent offline for days would otherwise
-//! grow a backlog without limit. When it is full the **oldest** entry goes: the
-//! newest alert describes what the device is doing now, and dropping it to keep
-//! one from three days ago would answer the wrong question on reconnect.
-//!
-//! A device may raise at most [`DEVICE_HOURLY_CEILING`] alerts an hour, because
-//! one host stuck in a loop must not drown the detection of every other host.
-//! The window rolls rather than buckets, so a device that spends its allowance
-//! in one minute is not deaf for the other fifty-nine.
-//!
-//! Every loss under either limit is counted and reported in the next summary.
-//! A suppressed alert that nobody counts is indistinguishable from a quiet
-//! device, which is the failure this whole program exists to remove.
-//!
-//! Both limits apply to every producer, including a retroactive scan raising
-//! findings out of history: a scan that learned a new failure mode and found
-//! five thousand instances of it is exactly the flood the ceiling exists for,
-//! and "but they are old" is not a reason to let it through.
+//! The bounded in-process alert queue shared by every edge alert producer.
+//! Overflow drops the oldest alert and a rolling hourly ceiling suppresses the excess.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-/// Alerts one device may raise in a rolling hour before the excess is
-/// suppressed and counted.
+/// Alerts one device may raise in a rolling hour before the excess is suppressed.
 pub const DEVICE_HOURLY_CEILING: u32 = 20;
 
 /// Alerts the sink holds while delivery is unavailable.
@@ -36,9 +13,7 @@ pub const DEFAULT_CAPACITY: usize = 256;
 /// The width of the ceiling's rolling window, in microseconds.
 const CEILING_WINDOW_MICROS: i64 = 3_600 * 1_000_000;
 
-/// How bad an alert is. A closed set: severity drives how an incident is
-/// presented, and an open scale invites a per-rule argument about numbers that
-/// no two rule authors would settle the same way.
+/// How bad an alert is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AlertSeverity {
@@ -50,14 +25,7 @@ pub enum AlertSeverity {
     Critical,
 }
 
-/// Whether an alert describes something happening now or something the device
-/// has been carrying in its own history.
-///
-/// The two read completely differently to whoever picks up the queue: one is a
-/// machine in trouble, the other is a newly installed rule reporting what it
-/// would have caught. They also group differently — a whole retroactive scan
-/// folds into one incident — so the distinction travels with the alert rather
-/// than being inferred from how old its timestamp is.
+/// Whether an alert describes something happening now or something found in the device's history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum AlertOrigin {
@@ -68,50 +36,32 @@ pub enum AlertOrigin {
     Backfilled,
 }
 
-/// One alert as the edge raises it, before any transport gets hold of it.
-///
-/// Every free-text field here is derived from a host log line, so all of them
-/// are redacted by the producer before the alert is constructed. The sink does
-/// not redact: an alert that reaches it is already safe to leave the device.
+/// One alert as the edge raises it; free-text fields are redacted by the producer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EdgeAlert {
     /// Which rule fired, as the catalogue identifies it.
     pub rule_id: String,
-    /// Which revision of that rule fired. Part of the alert's identity at the
-    /// far end, which refuses a revision of nothing: a rule edited after this
-    /// was raised does not retroactively change what fired.
+    /// Which revision of the rule fired; part of the alert's identity at the receiving end.
     pub rule_version: u32,
     /// How bad the rule says this is.
     pub severity: AlertSeverity,
-    /// When the record that fired the rule was written, in microseconds since
-    /// the Unix epoch. For a backfilled finding this is when the thing
-    /// *happened*, which is generally nowhere near when it was found — the
-    /// incident sorts by this, so a freeze from three weeks ago belongs three
-    /// weeks back rather than at the top of today's queue.
+    /// When the triggering record was written, in microseconds since the Unix epoch.
     pub ts_micros: i64,
-    /// Start of the stretch the rule decided on, in microseconds. Part of the
-    /// alert's identity, so a replay after a failed send resolves to the row
-    /// already written rather than to a second one.
+    /// Start of the stretch the rule decided on, in microseconds; part of the alert's identity.
     pub window_start_micros: i64,
-    /// End of that stretch, in microseconds. Never before its start.
+    /// End of that stretch, in microseconds; never before its start.
     pub window_end_micros: i64,
-    /// The dimension the rule watched, under the name the fleet collects it by.
-    /// Empty for a rule that watches the machine's own words rather than a
-    /// reading.
+    /// The dimension the rule watched; empty for a rule that watches log text.
     pub metric: String,
-    /// The reading that crossed the line, absent for the same reason `metric`
-    /// can be empty.
+    /// The reading that crossed the line; absent when `metric` is empty.
     pub value: Option<f64>,
-    /// What the alert is about — the service or subsystem the record came from.
+    /// The service or subsystem the record came from.
     pub subject: String,
     /// What the rule means, in words a technician reads first.
     pub summary: String,
-    /// Everything this machine knew about why the rule fired, composed and
-    /// packed at the moment it fired. Empty is a legal alert: a machine that
-    /// had nothing to attach still says it is in trouble.
+    /// Packed context for why the rule fired; may be empty.
     pub evidence: Vec<u8>,
-    /// How `evidence` was packed. Empty exactly when `evidence` is, because a
-    /// codec naming an empty blob reads as evidence that exists.
+    /// How `evidence` was packed; empty exactly when `evidence` is.
     pub evidence_codec: String,
     /// Whether this happened now or is being reported out of history.
     pub origin: AlertOrigin,
@@ -129,10 +79,7 @@ pub enum PushOutcome {
     SuppressedByCeiling,
 }
 
-/// What the sink has done since the process started. The two loss counts are
-/// cumulative and survive a drain, because the drain is the moment they become
-/// reportable — a backlog that lost entries has to be able to say so after it
-/// has been handed over.
+/// What the sink has done since the process started; loss counts survive a drain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub struct SinkStats {
@@ -148,16 +95,13 @@ struct Inner {
     queue: VecDeque<EdgeAlert>,
     capacity: usize,
     ceiling: u32,
-    /// When each alert admitted inside the current window was raised, oldest
-    /// first. Never longer than `ceiling`.
+    /// Raise times of alerts admitted inside the current window, oldest first.
     admitted: VecDeque<i64>,
     dropped_oldest: u64,
     suppressed_by_ceiling: u64,
 }
 
-/// The shared alert queue. Cloning yields the *same* sink, not a copy of it:
-/// the ceiling is per device, so four producers holding four clones share one
-/// allowance rather than four.
+/// The shared alert queue; clones share one queue and one per-device ceiling.
 #[derive(Clone)]
 pub struct AlertSink {
     inner: Arc<Mutex<Inner>>,
@@ -194,19 +138,12 @@ impl AlertSink {
         }
     }
 
-    /// Takes the lock, treating a poisoned mutex as a usable one. A producer
-    /// that panicked mid-push leaves the queue structurally intact, and losing
-    /// every later alert on this device because of it would turn one failed
-    /// alert into total silence.
+    /// Takes the lock, treating a poisoned mutex as usable since a panic leaves the queue intact.
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Offers an alert raised at `now_micros`.
-    ///
-    /// The ceiling is checked first: it governs what the device *raises*, so an
-    /// alert refused by it is gone rather than deferred — holding it would
-    /// deliver a storm late instead of not delivering it.
+    /// Offers an alert raised at `now_micros`; an alert over the ceiling is dropped, not deferred.
     pub fn push(&self, alert: EdgeAlert, now_micros: i64) -> PushOutcome {
         let mut inner = self.lock();
 
@@ -225,24 +162,12 @@ impl AlertSink {
         }
     }
 
-    /// Hands over every queued alert, oldest first, and empties the queue. The
-    /// loss counts are deliberately left standing: they describe the whole run,
-    /// not the batch.
+    /// Hands over every queued alert, oldest first, and empties the queue; loss counts stay.
     pub fn drain(&self) -> Vec<EdgeAlert> {
         self.lock().queue.drain(..).collect()
     }
 
-    /// Takes back alerts a delivery attempt could not hand over.
-    ///
-    /// They go in front of whatever arrived while the attempt was in flight,
-    /// because they are older and an incident reads forwards. The ceiling is
-    /// **not** charged again: these alerts were admitted when they were raised,
-    /// and charging a machine for them on every failed attempt would let a
-    /// flapping link spend its whole allowance on alerts nobody ever received.
-    ///
-    /// The bound still applies. A hand-back bigger than the room left drops the
-    /// oldest and counts it, exactly as a push does — losing an alert quietly is
-    /// the one thing this queue may never do.
+    /// Puts undelivered alerts back at the front of the queue without charging the ceiling again.
     pub fn return_unsent(&self, alerts: Vec<EdgeAlert>) {
         if alerts.is_empty() {
             return;
@@ -254,17 +179,7 @@ impl AlertSink {
         inner.trim_to_capacity();
     }
 
-    /// Sets how many alerts this device may raise in a rolling hour.
-    ///
-    /// The customer chooses this number and it arrives with the ruleset, so it
-    /// has to land on a sink that is already running — a limit that only applies
-    /// after a restart is not a control anybody can use while a machine is
-    /// drowning them. It takes effect on the very next alert, counting the ones
-    /// already admitted inside the current window, so lowering it silences the
-    /// excess immediately rather than at the top of the next hour.
-    ///
-    /// A ceiling of nothing is ignored. It would stop the device raising
-    /// anything at all, which is never what somebody reaching for this meant.
+    /// Sets the hourly ceiling, effective on the next alert; a ceiling of zero is ignored.
     pub fn set_ceiling(&self, ceiling: u32) {
         if ceiling == 0 {
             return;
@@ -285,9 +200,7 @@ impl AlertSink {
 }
 
 impl Inner {
-    /// Drops the oldest until the queue is inside its bound, and answers how
-    /// many that cost. Every loss is counted, whichever end the overflow
-    /// entered from.
+    /// Drops the oldest until the queue is inside its bound, counts each loss and returns how many.
     fn trim_to_capacity(&mut self) -> u64 {
         let mut dropped = 0;
         while self.queue.len() > self.capacity {

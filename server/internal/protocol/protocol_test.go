@@ -9,7 +9,6 @@ import (
 )
 
 func TestFrameTypeByteValues(t *testing.T) {
-	// Must match Rust constants exactly
 	assert.Equal(t, byte(0x01), FrameControl)
 	assert.Equal(t, byte(0x02), FrameDesktop)
 	assert.Equal(t, byte(0x03), FrameTerminal)
@@ -159,19 +158,16 @@ func TestHandshakeMessageBinaryLayout(t *testing.T) {
 		certHash[i] = 0xBB
 	}
 
-	// ServerHello: [0x10][32 nonce bytes][48 cert_hash bytes] = 81 bytes total
 	encoded := EncodeServerHello(nonce, certHash)
 	assert.Len(t, encoded, 81)
 	assert.Equal(t, byte(0x10), encoded[0])
 	assert.Equal(t, nonce[:], encoded[1:33])
 	assert.Equal(t, certHash[:], encoded[33:81])
 
-	// AgentHello: same structure, different type byte
 	encoded = EncodeAgentHello(nonce, certHash)
 	assert.Len(t, encoded, 81)
 	assert.Equal(t, byte(0x11), encoded[0])
 
-	// Decode roundtrip
 	decodedNonce, decodedHash, err := DecodeServerHello(EncodeServerHello(nonce, certHash))
 	require.NoError(t, err)
 	assert.Equal(t, nonce, decodedNonce)
@@ -214,11 +210,9 @@ func TestReadFrameUnknownType(t *testing.T) {
 
 func TestReadFrameOversized(t *testing.T) {
 	codec := &Codec{}
-	// Craft a frame header claiming a payload larger than MaxFrameSize
 	var buf bytes.Buffer
-	_ = codec.WriteFrame(&buf, FrameControl, []byte{}) // valid empty frame
-	// Manually craft an oversized frame header
-	oversized := []byte{FrameControl, 0x7F, 0xFF, 0xFF, 0xFF} // ~2GB
+	_ = codec.WriteFrame(&buf, FrameControl, []byte{})
+	oversized := []byte{FrameControl, 0x7F, 0xFF, 0xFF, 0xFF}
 	_, _, err := codec.ReadFrame(bytes.NewReader(oversized))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrFrameTooLarge)
@@ -227,7 +221,6 @@ func TestReadFrameOversized(t *testing.T) {
 func TestPingPongSingleByte(t *testing.T) {
 	codec := &Codec{}
 
-	// Ping
 	var buf bytes.Buffer
 	require.NoError(t, codec.WriteFrame(&buf, FramePing, nil))
 	assert.Equal(t, []byte{FramePing}, buf.Bytes())
@@ -237,7 +230,6 @@ func TestPingPongSingleByte(t *testing.T) {
 	assert.Equal(t, FramePing, ft)
 	assert.Nil(t, payload)
 
-	// Pong
 	buf.Reset()
 	require.NoError(t, codec.WriteFrame(&buf, FramePong, nil))
 	assert.Equal(t, []byte{FramePong}, buf.Bytes())
@@ -262,10 +254,6 @@ func TestRedactToken(t *testing.T) {
 	}
 }
 
-// TestMaxFrameSizeValue pins the literal value of MaxFrameSize. Without
-// this assertion, ARITHMETIC_BASE mutations on `16 * 1024 * 1024` survive
-// because callers that compute thresholds relative to the constant itself
-// (e.g. `> MaxFrameSize`) still pass under any non-zero value.
 func TestMaxFrameSizeValue(t *testing.T) {
 	const want = 16 * 1024 * 1024
 	if MaxFrameSize != want {

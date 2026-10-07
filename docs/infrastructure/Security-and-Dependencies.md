@@ -56,7 +56,15 @@ Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries
   database once, retrying only the fetch, and scans once against that copy —
   the same script in CI and in the gauntlet.
 - `cargo audit` (Rust) — checks against RustSec advisory database
-- `npm audit` (Web) — checks against the npm advisory database
+- `npm audit` (Web) — checks each lockfile against the npm advisory database
+  through [`npm-audit.sh`](../../scripts/npm-audit.sh), the same script in CI
+  and in the gauntlet. It fails on any high or critical advisory except one
+  named in
+  [`npm-audit-exceptions.json`](../../scripts/lib/npm-audit-exceptions.json),
+  which holds only advisories with no fixed release. An exception carries a
+  reason and a review date, and fails the audit once that date passes, once
+  its package publishes another release, or once the audit stops reporting it
+  ([ADR-126](../adr/ADR-126-advisory-exceptions-lapse.md)).
 
 ### Secrets
 

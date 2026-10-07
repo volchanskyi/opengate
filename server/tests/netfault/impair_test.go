@@ -1,5 +1,3 @@
-// What the shaper decides about one datagram: whether it is carried, dropped,
-// or held — and whether two nights with the same seed decide it the same way.
 package main
 
 import (
@@ -34,9 +32,6 @@ func TestBlackholeDropsBothDirections(t *testing.T) {
 	}
 }
 
-// A one-way loss must leave the other way alone. A symmetric fault would hide
-// which side the recovery machinery is coping with, which is the whole point of
-// stating the direction.
 func TestLossIsOneDirectionOnly(t *testing.T) {
 	t.Parallel()
 	imp := NewImpairer(1)
@@ -48,9 +43,6 @@ func TestLossIsOneDirectionOnly(t *testing.T) {
 		"a loss fraction toward the server dropped a datagram toward the machine")
 }
 
-// The fraction has to be the fraction. A generator that drops a fifth of the
-// datagrams somewhere between a tenth and a third produces a scenario nobody
-// can compare against last night's.
 func TestLossFractionIsTheFractionAsked(t *testing.T) {
 	t.Parallel()
 	const (
@@ -73,9 +65,6 @@ func TestLossFractionIsTheFractionAsked(t *testing.T) {
 		"asked for %.0f%% loss and got %.2f%%", asked*100, got*100)
 }
 
-// Two nights with the same seed drop the same datagrams. Without this the trend
-// compares a run against a differently-unlucky one and calls the difference a
-// regression.
 func TestSameSeedDropsTheSameDatagrams(t *testing.T) {
 	t.Parallel()
 	decisions := func(seed uint64) []bool {
@@ -94,10 +83,6 @@ func TestSameSeedDropsTheSameDatagrams(t *testing.T) {
 	assert.NotEqual(t, decisions(42), decisions(43), "two different seeds produced identical drops")
 }
 
-// Each direction draws from its own generator, so a datagram arriving one way
-// cannot change which datagram is dropped the other way. Sharing one generator
-// would make every measurement depend on the interleaving of two independent
-// arrival streams, which is the one thing a drill cannot reproduce.
 func TestDirectionsDrawIndependently(t *testing.T) {
 	t.Parallel()
 	withInterference := NewImpairer(11)

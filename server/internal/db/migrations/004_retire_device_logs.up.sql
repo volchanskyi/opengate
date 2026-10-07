@@ -1,4 +1,2 @@
--- Retire the central device-log cache. Raw logs are brokered on demand and
--- streamed straight through to the caller, so nothing backs them centrally;
--- isolation is the connection scope, not an RLS row.
+-- Raw device logs stream on demand to the caller, so no central table holds them.
 DROP TABLE IF EXISTS device_logs;

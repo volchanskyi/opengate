@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
-# Render a run's summary page: every measurement beside the limit its profile
-# holds it to, the error rate, and how much of its own ceiling the server and
-# the database used through the measured phase.
-#
-# One renderer for every run with an evidence bundle — the nightly load test,
-# each leg of the performance stack, and the endurance run. The limits are read
-# from the profile by scripts/lib/loadtest-profile.sh, the same reader the gate
-# uses, so the page and the verdict cannot disagree about a number.
+# Renders a run's summary: each measurement beside its profile limit, the error rate, and the
+# share of its ceiling the server and database used in the measured phase.
 #
 # Usage:
-#   run-summary.sh window <profile.yaml> <bundle.json>
-#       prints "<from> <to>", the measured phases' span (every phase's, where
-#       the profile marks none)
+#   run-summary.sh window <profile.yaml> <bundle.json>  prints "<from> <to>", the measured span
 #   run-summary.sh render --title T --profile P --rows R [--bundle B] [--database D]
-#       R: the run's canonical rows; B: its bundle, for the server's readings;
-#       D: {cpu_percent, cpu_cap, memory_percent, memory_cap} for the database,
-#       from scripts/database-levels.sh
+#   rows R         the run's canonical rows
+#   bundle B       the bundle holding the server's readings
+#   database D     {cpu_percent, cpu_cap, memory_percent, memory_cap} from database-levels.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,8 +16,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/summary-table.sh
 . "$HERE/lib/summary-table.sh"
 
-# measured_phases PROFILE — the names of the phases the profile measures, as a
-# JSON array; every phase's where it marks none.
+# measured_phases prints the measured phase names as a JSON array, or all phases if none is marked.
 measured_phases() {
   profile_phases "$1" | jq -c 'if any(.[]; .measured) then [.[] | select(.measured) | .name] else [.[].name] end'
 }

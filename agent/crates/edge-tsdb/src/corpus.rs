@@ -1,10 +1,5 @@
-//! Deterministic fixture corpus of realistic host telemetry.
-//!
-//! One seed reproduces the exact same multi-series stream on every machine, so
-//! the bake-off measures substrates against identical input in CI. Series model
-//! the WS-2 metric families: bounded percentages that drift and occasionally
-//! spike, and monotonically-rising counters. Samples are emitted interleaved by
-//! second (all series at t, then t+1), the order a real 1 Hz sampler produces.
+//! Deterministic fixture corpus: one seed reproduces the same multi-series stream, emitted
+//! interleaved by second, with bounded drifting percentages and rising counters.
 
 use crate::sample::{Sample, SeriesId};
 #[cfg(feature = "bakeoff")]
@@ -36,8 +31,7 @@ impl Default for CorpusConfig {
 
 /// A generated, replayable corpus with its expected per-series read-back.
 pub struct Corpus {
-    // Read by the bake-off `assert_readback` range bounds; the production tests
-    // drive the store from `series()` directly.
+    // Read only by the bake-off `assert_readback` range bounds.
     #[cfg_attr(not(feature = "bakeoff"), allow(dead_code))]
     config: CorpusConfig,
     events: Vec<(SeriesId, Sample)>,
@@ -69,25 +63,19 @@ impl Corpus {
         let mut rng = SplitMix64(config.seed);
         let series = config.series as usize;
 
-        // Per-series state. Real host telemetry at 1 Hz is *sticky*: idle CPU,
-        // flat disk %, and steady memory hold the same value for many samples,
-        // which is exactly what the XOR codec collapses to one bit. `volatility`
-        // is the per-sample probability the gauge actually moves; counters rise
-        // monotonically (byte/packet counters), which XOR compresses poorly — a
-        // finding the spike reports rather than hides.
+        // `volatility` is the per-sample probability a gauge moves, so gauges hold plateaus.
         let mut value = vec![0.0f64; series];
         let mut is_counter = vec![false; series];
         let mut drift = vec![0.0f64; series];
         let mut volatility = vec![0.0f64; series];
         for i in 0..series {
-            is_counter[i] = i % 4 == 3; // one in four series is a rising counter
+            is_counter[i] = i % 4 == 3;
             value[i] = if is_counter[i] {
                 0.0
             } else {
                 rng.unit() * 80.0
             };
             drift[i] = 0.2 + rng.unit() * 2.0;
-            // A spread of stability: some series barely move, some churn.
             volatility[i] = 0.05 + rng.unit() * 0.5;
         }
 
@@ -98,16 +86,14 @@ impl Corpus {
             let ts = config.start_ts + step;
             for s in 0..series {
                 if is_counter[s] {
-                    value[s] += (rng.unit() * 1_000.0).round(); // bytes/sec-ish
+                    value[s] += (rng.unit() * 1_000.0).round();
                 } else if rng.unit() < volatility[s] {
-                    // Move: small random walk within [0, 100], rare spikes.
                     let delta = (rng.unit() - 0.5) * 2.0 * drift[s];
                     value[s] = round_centi((value[s] + delta).clamp(0.0, 100.0));
                     if rng.unit() < 0.01 {
                         value[s] = round_centi((value[s] + rng.unit() * 40.0).min(100.0));
                     }
                 }
-                // else: hold the previous value (idle plateau) — XOR == 0.
                 let sample = Sample::new(ts, value[s]);
                 events.push((s as SeriesId, sample));
                 expected[s].push(sample);
@@ -127,8 +113,7 @@ impl Corpus {
         self.events.len()
     }
 
-    /// The per-series expected sample streams (index = `SeriesId`). Used by the
-    /// codec bake-off to encode identical input through each codec.
+    /// The expected sample stream per series, indexed by `SeriesId`.
     #[must_use]
     pub fn series(&self) -> &[Vec<Sample>] {
         &self.expected
@@ -182,8 +167,7 @@ impl Corpus {
         }
     }
 
-    /// A short non-monotonic series (NTP steps back and far forward) for the
-    /// clock-jump gate. Timestamps are deliberately out of order.
+    /// A short series whose timestamps step back and far forward, for the clock-jump gate.
     #[must_use]
     pub fn jumpy_series() -> Vec<Sample> {
         let mut out = Vec::new();
@@ -202,8 +186,7 @@ impl Corpus {
     }
 }
 
-/// Round to two decimals so values are realistic (percentages) yet compress via
-/// XOR window reuse.
+/// Rounds to two decimals, which keeps percentages realistic and XOR-compressible.
 fn round_centi(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }

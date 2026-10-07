@@ -23,9 +23,7 @@ interface KindMeta {
 const dash = (v: string) => (v === '' ? '—' : v);
 const lastSeen: Column = { label: 'Last seen', get: (it) => it.last_seen, date: true };
 
-// Display order + per-kind table shape. Column accessors avoid dynamic property
-// indexing, and only the columns meaningful to a kind are shown, so a ports
-// table reads differently from a packages table.
+// Display order, and per kind only the columns meaningful to it.
 const KIND_ORDER: readonly Kind[] = ['port', 'service', 'db_engine', 'container', 'package'];
 
 const KIND_META = new Map<Kind, KindMeta>([
@@ -81,8 +79,6 @@ function InventoryTable({ meta, items }: { readonly meta: KindMeta; readonly ite
   const firstCol = columns.at(0);
   const [sortLabel, setSortLabel] = useState(firstCol?.label ?? '');
   const [asc, setAsc] = useState(true);
-  // Collapsed by default: the header count keeps every kind legible at a glance
-  // while the tables stay out of the way until the operator opens one.
   const [open, setOpen] = useState(false);
 
   const sortCol = columns.find((c) => c.label === sortLabel) ?? firstCol;
@@ -147,8 +143,7 @@ function InventoryTable({ meta, items }: { readonly meta: KindMeta; readonly ite
 
 export function DeviceInventory({ deviceId, maintenanceSince }: {
   readonly deviceId: string;
-  /** When set, discovery is paused for maintenance; the empty state says so
-   *  rather than the misleading "no footprint discovered yet". */
+  /** When set, discovery is paused for maintenance and the empty state says so. */
   readonly maintenanceSince?: string | null;
 }) {
   const items = useInventoryStore((s) => s.byDevice.get(deviceId));
@@ -186,7 +181,6 @@ export function DeviceInventory({ deviceId, maintenanceSince }: {
     </div>
   );
 
-  // Not yet loaded: distinguish an in-flight fetch from a failed one.
   if (items === undefined) {
     return (
       <div>
@@ -217,7 +211,6 @@ export function DeviceInventory({ deviceId, maintenanceSince }: {
   }
 
   const kinds = KIND_ORDER.filter((k) => grouped.has(k));
-  // Freshly-enrolled summary: at-a-glance counts so a new host is instantly legible.
   const summary = kinds
     .map((k) => `${String(grouped.get(k)?.length ?? 0)} ${(KIND_META.get(k)?.label ?? k).toLowerCase()}`)
     .join(' · ');

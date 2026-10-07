@@ -1,16 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 
-/**
- * Serve an empty fleet to the page under test.
- *
- * The organization is the visibility boundary for sites and devices, and every
- * e2e user registers into the same one. "The fleet is empty" is therefore a
- * property of the entire suite, not of one test: any spec that seeds a site
- * changes what every later spec's device page renders. A test that asserts an
- * empty-fleet UI must supply that emptiness itself, so it asserts on the
- * rendering it is actually about rather than on the order the suite happened to
- * run in.
- */
+// All e2e users share one organization, so a test asserting an empty fleet stubs it itself.
 export async function stubEmptyFleet(page: Page): Promise<void> {
   const empty = (route: Route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: "[]" });

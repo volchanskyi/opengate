@@ -7,14 +7,7 @@ import type { components } from '../../../types/api';
 type DeviceTagLabel = components['schemas']['DeviceTagLabel'];
 type DeviceTagAssignment = components['schemas']['DeviceTagAssignment'];
 
-/**
- * A customer's label list and who carries what.
- *
- * Deleting a label is not a free action: a rule aimed at it loses a tuned value
- * on every machine that carried it, which widens a threshold across an estate
- * without anything saying so. The server refuses that, and the message it
- * refuses with is what this surfaces.
- */
+/** A customer's label list and who carries what; the server refuses deleting a targeted label. */
 interface DeviceTagsState {
   labels: DeviceTagLabel[];
   assignments: DeviceTagAssignment[];

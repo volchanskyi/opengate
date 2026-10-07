@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-doc-link-check.sh — validate proposed Markdown against repo links.
-#
-# Triggers on PreToolUse Write|Edit|MultiEdit. Only docs/** and .claude/**/*.md
-# are in scope. The checker applies the proposed edit in memory, then validates
-# the full scoped tree so heading edits cannot silently break inbound links.
-#
-# NO BYPASS.
+# Applies the proposed edit to docs/** and .claude/**/*.md in memory, then validates the whole tree.
+# Validating the whole tree catches a heading edit that breaks inbound links.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"

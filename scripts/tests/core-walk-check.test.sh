@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/core-walk-check.sh — the pinned core reader still reads a
-# core the pinned Go toolchain writes, and walks a live object back to its root.
-#
-# go, gcore, viewcore and sudo are stand-ins on PATH. The go stand-in records
-# the toolchain it was asked for and builds a probe that only says it is ready,
-# so what is exercised is the script's own sequence and refusals; the real
-# reader against a real core is what the workflow that calls it runs.
+# Tests scripts/core-walk-check.sh with go, gcore, viewcore and sudo stubbed on PATH.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,9 +54,7 @@ cat >"$STUB/readelf" <<'STUB_READELF'
 #!/usr/bin/env bash
 echo "  [28] .debug_info      PROGBITS"
 STUB_READELF
-# One reader script, two installs: the patched one on PATH and the newest
-# upstream one the check is handed. STUB_READER names which is answering, so a
-# case can break one without the other.
+# STUB_READER selects the patched or the upstream reader, so a case can break one alone.
 cat >"$WORK/reader" <<'STUB_VIEWCORE'
 #!/usr/bin/env bash
 reader="$STUB_READER"
@@ -165,9 +157,7 @@ else
   fail "a core the reader cannot open fails the check (status=$STATUS: $(cat "$WORK/out.txt"))"
 fi
 
-# Reading the core is half of it. The walk back to a root is the half that
-# reads the runtime's own heap structures, and it can fail on a core the
-# overview reads without complaint.
+# The walk back to a root reads heap structures and can fail on a core the overview reads.
 STUB_NO_ROOT=1 run_check
 if [ "$STATUS" -ne 0 ] && grep -qF 'main.root' "$WORK/out.txt"; then
   pass "a walk that does not reach the probe's root fails the check"
@@ -175,13 +165,7 @@ else
   fail "a walk that does not reach the probe's root fails the check (status=$STATUS: $(cat "$WORK/out.txt"))"
 fi
 
-# --- a type whose pointer map the runtime builds on demand ---------------------
-#
-# Go describes the pointers of a type with more than 128 pointer words through
-# one more indirection, built by the runtime the first time it needs it. The
-# reader the soak pinned read the slot as the map and walked off the end of the
-# binary's memory on the first dump that held one; the probe held nothing that
-# large, so this check passed while every soak failed.
+# Go describes a type over 128 pointer words through an indirection the runtime builds on demand.
 if grep -qE '\[1 << 20\]\*leaf' "$STUB_PROBE_SOURCE" && grep -qF 'runtime.GC()' "$STUB_PROBE_SOURCE"; then
   pass "the probe holds a type whose pointer map is built on demand, and has it built"
 else
@@ -195,10 +179,7 @@ else
   fail "a walk that loses the edge only that pointer map describes fails the check (status=$STATUS: $(cat "$WORK/out.txt"))"
 fi
 
-# --- the patch retires itself --------------------------------------------------
-#
-# The same core goes through the newest upstream reader, unpatched. While it
-# still fails, the patch is still earning its place and the check says so.
+# The same core goes through the unpatched upstream reader; while it fails the patch is kept.
 run_check
 if [ "$STATUS" -eq 0 ] && grep -qx "viewcore(upstream) overview" "$STUB_LOG" \
   && grep -qi 'patch is still needed' "$WORK/out.txt"; then
@@ -207,7 +188,7 @@ else
   fail "an upstream reader that still cannot walk the core keeps the patch (status=$STATUS: $(cat "$WORK/out.txt"))"
 fi
 
-# The night upstream reads it unpatched, the job goes red and says what to swap.
+# An upstream reader that walks the core turns the job red and names the patch to drop.
 STUB_UPSTREAM_READS=1 run_check
 if [ "$STATUS" -ne 0 ] && grep -qF 'viewcore-gcmask-on-demand.patch' "$WORK/out.txt"; then
   pass "an upstream reader that walks the core fails the check and names the patch to drop"
@@ -215,8 +196,7 @@ else
   fail "an upstream reader that walks the core fails the check and names the patch to drop (status=$STATUS: $(cat "$WORK/out.txt"))"
 fi
 
-# Without the upstream reader there is no way to know whether the patch is
-# still needed, so the check refuses to run rather than passing on half of it.
+# Without the upstream reader the patch's need is unknowable, so the check refuses.
 STATUS=0
 PATH="$STUB:$PATH" "$CHECK" "$WORK/out" >"$WORK/out.txt" 2>&1 || STATUS=$?
 if [ "$STATUS" -ne 0 ] && grep -qF 'VIEWCORE_UPSTREAM' "$WORK/out.txt"; then

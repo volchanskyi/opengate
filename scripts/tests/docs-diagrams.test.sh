@@ -46,9 +46,7 @@ assert_mermaid_count_at_least() {
   fi
 }
 
-# Sum every ```mermaid fence under docs/ and assert a floor. This guards the
-# diagram corpus as a whole: a per-doc count can stay flat while a diagram is
-# silently dropped from a doc not individually pinned below.
+# The floor over every mermaid fence catches a diagram dropped from a doc not pinned below.
 assert_total_mermaid_at_least() {
   local minimum="$1"
   local total
@@ -63,8 +61,7 @@ assert_total_mermaid_at_least() {
 
 echo "docs-diagrams:"
 
-# Pin every diagram-bearing doc so a removed diagram reds this step. The
-# README block is the convention example, asserted separately below.
+# Every diagram-bearing doc is pinned, so a removed diagram fails this step.
 assert_mermaid_count_at_least "$REPO_ROOT/docs/architecture/System-Architecture.md" 5
 assert_mermaid_count_at_least "$REPO_ROOT/docs/architecture/Wire-Protocol.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/infrastructure/Monitoring.md" 1
@@ -114,9 +111,9 @@ assert_contains \
   "$REPO_ROOT/.github/workflows/ci.yml" \
   "cargo modules snapshot diff"
 assert_contains \
-  "CI runs dependency-cruiser snapshot" \
+  "CI runs the dependency-cruiser check" \
   "$REPO_ROOT/.github/workflows/ci.yml" \
-  "depcruise snapshot check"
+  "scripts/depcruise-check.sh"
 
 assert_contains \
   "CI validates Mermaid syntax under docs" \

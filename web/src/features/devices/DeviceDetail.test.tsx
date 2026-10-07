@@ -18,18 +18,12 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-// The incidents strip owns its own read and is exercised in
-// DeviceIncidentsStrip.test.tsx; stub it here so these tests assert only that
-// the device page carries it, keyed to the device on screen.
 vi.mock('../investigations', () => ({
   DeviceIncidentsStrip: ({ deviceId }: { deviceId: string }) => (
     <div data-testid="incidents-strip">{deviceId}</div>
   ),
 }));
 
-// The telemetry panel is exercised in DeviceMetrics.test.tsx; stub it here so
-// these tests stay isolated from uPlot/canvas and the metrics fetch. The stub
-// exposes onViewLogs so the correlation-jump glue can be driven.
 vi.mock('./DeviceMetrics', () => ({
   DeviceMetrics: ({ deviceId, onViewLogs }: { deviceId: string; onViewLogs?: (f: number, t: number) => void }) => (
     <div data-testid="device-metrics">
@@ -75,7 +69,6 @@ describe('DeviceDetail — the page', () => {
     useDeviceStore.setState({ fetchLogs });
     renderDetail();
     fireEvent.click(screen.getByText('mock-view-logs'));
-    // The drill focuses the System Logs pane (source=system), not Agent Logs.
     expect(fetchLogs).toHaveBeenCalledWith('system', 'd1', expect.objectContaining({
       from: new Date(1000 * 1000).toISOString(),
       to: new Date(4600 * 1000).toISOString(),
@@ -131,11 +124,9 @@ describe('DeviceDetail — the page', () => {
     );
     render(<RouterProvider router={router} />);
 
-    // First click shows confirm
     await user.click(screen.getByRole('button', { name: 'Delete Device' }));
     expect(screen.getByRole('button', { name: 'Confirm Delete' })).toBeInTheDocument();
 
-    // Second click deletes and navigates
     await user.click(screen.getByRole('button', { name: 'Confirm Delete' }));
     expect(deleteFn).toHaveBeenCalledWith('d1');
     expect(await screen.findByText('Device List')).toBeInTheDocument();
@@ -153,7 +144,6 @@ describe('DeviceDetail — the page', () => {
     unmount();
 
     vi.advanceTimersByTime(60_000);
-    // After unmount the interval must be cleared; the call count stays at 1.
     expect(refreshFn).toHaveBeenCalledTimes(1);
   });
 
@@ -185,7 +175,6 @@ describe('DeviceDetail — the page', () => {
       selectedDevice: { ...mockDevice, maintenance_on: true, maintenance_since: '2026-07-19T00:00:00Z' },
     });
     renderDetail();
-    // The badge carries a title beginning "In maintenance"; the panel copy has no title.
     expect(document.querySelector('[title^="In maintenance"]')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /exit maintenance/i })).toBeInTheDocument();
   });

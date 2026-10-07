@@ -12,20 +12,9 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// A relay session has two ends and neither one measures it alone. The operator's
-// browser opens one; the machine opens the other; the server pipes between
-// them. A scenario that opens only one end has nothing to time, which is how a
-// relay latency metric came to be filled from an unauthenticated health check —
-// the request went nowhere near the relay, and the three ceilings named after
-// it could never fire.
-//
-// This is the machine's end. The load generator holds the browser's end and
-// times its own frame coming back, so what it measures is the whole path.
-
 // RelayRequest is where to join and which session to join.
 type RelayRequest struct {
-	// BaseURL is the server, as an HTTP origin. The scheme is switched to
-	// WebSocket when dialling.
+	// BaseURL is the server as an HTTP origin; the scheme switches to WebSocket when dialling.
 	BaseURL string
 	Token   string
 }
@@ -36,8 +25,7 @@ type RelayJoin struct {
 	token string
 }
 
-// Close ends the machine's side of the session deliberately, so a connection
-// the run closed is not counted as one the server dropped.
+// Close ends the machine's side of the session deliberately, so the server is not charged a drop.
 func (j *RelayJoin) Close() error {
 	if j == nil || j.conn == nil {
 		return nil
@@ -48,14 +36,8 @@ func (j *RelayJoin) Close() error {
 // Token is the session this join belongs to.
 func (j *RelayJoin) Token() string { return j.token }
 
-// RelayRequestFrom reads a session request the server sent over the control
-// stream. The relay URL names the server, so the origin is derived from it
-// rather than configured separately — one address cannot then disagree with
-// the other.
-//
-// The address is put through the same allowlist a configured target is. A relay
-// URL arrives on the wire, and a field on the wire must not be able to send the
-// generator somewhere the run is forbidden to go.
+// RelayRequestFrom reads a session request the server sent over the control stream.
+// The relay URL is wire data, so its origin is checked against the target allowlist.
 func RelayRequestFrom(msg *protocol.ControlMessage) (RelayRequest, error) {
 	if msg == nil || msg.Type != protocol.MsgSessionRequest {
 		return RelayRequest{}, fmt.Errorf("not a session request")
@@ -107,12 +89,8 @@ func JoinRelay(ctx context.Context, req RelayRequest) (*RelayJoin, error) {
 	return &RelayJoin{conn: conn, token: req.Token}, nil
 }
 
-// Echo returns every frame it receives, which is what makes the round trip
-// measurable from the browser side: the generator times its own frame coming
-// back, so the number is the whole relay path rather than an unrelated request.
-//
-// It returns when ctx is cancelled or the peer goes away. Neither is a fault:
-// the run ending and the operator closing the tab are both ordinary.
+// Echo returns every frame it receives so the browser side can time the whole relay path.
+// It returns when ctx is cancelled or the peer goes away, both ordinary ends.
 func (j *RelayJoin) Echo(ctx context.Context) error {
 	for {
 		kind, payload, err := j.conn.Read(ctx)

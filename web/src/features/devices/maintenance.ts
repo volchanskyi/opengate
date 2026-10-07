@@ -1,10 +1,6 @@
 /**
- * Maintenance-mode presentation helpers. A device in maintenance suppresses
- * telemetry and alerting while remote management stays live. Because the state
- * is manual-only (no auto-expiry), a forgotten device would otherwise stay blind
- * indefinitely, so the UI compensates by surfacing the window prominently and
- * escalating a warning the longer the device stays quiet — visibility stands in
- * for the missing auto-revert safety net.
+ * Maintenance never expires on its own, so the escalation grows with the days a device has sat
+ * in it.
  */
 
 export type MaintenanceSeverity = 'normal' | 'warn' | 'stale';

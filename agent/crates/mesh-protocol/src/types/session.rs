@@ -23,9 +23,8 @@ impl SessionToken {
         &self.0
     }
 
-    /// Return a redacted form safe for logging: the first 8 characters followed
-    /// by `...`, or `***` when the token is 8 characters or shorter. Mirrors the
-    /// server-side `protocol.RedactToken` so neither end leaks a full token.
+    /// Returns the first 8 characters plus `...`, or `***` for a token of 8 or fewer, so logs
+    /// never carry a full token.
     pub fn redacted(&self) -> String {
         redact_token(&self.0)
     }

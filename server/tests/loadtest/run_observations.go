@@ -5,21 +5,8 @@ import (
 	"time"
 )
 
-// What a run publishes about itself, as series a limit or a trend can read.
-//
-// It is separated from the assembly of the bundle around it because the two
-// answer different questions: that file decides what a finished run *was*, and
-// this one decides which of it is worth a number somebody downstream compares
-// against last night's.
-
-// latencyObservations records each phase's tail separately. Folding them into
-// one aggregate hides which of the three a slow run was slow in, and they are
-// three different pieces of work.
-//
-// The aggregate error rate travels beside them because it is the third of the
-// three series the profiles hold their machine-side limits to, and it was the
-// one a bundle did not carry — so on the venues whose only output is a bundle,
-// every limit named a measurement nothing there could produce.
+// latencyObservations lists the series a run publishes, keeping each stage's tail apart
+// and carrying the aggregate error rate beside them.
 func latencyObservations(at time.Time, connect, handshake []time.Duration, errorRate float64,
 	in runBundleInputs,
 ) []Observation {
@@ -32,29 +19,16 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, error
 	observations = append(observations,
 		Observation{At: at, Series: "agents_severed_mid_hold", Value: float64(severedMidHold(in.Results))})
 
-	// What a declared ceiling turned away. It reached one field of one phase and
-	// travelled no further, so a run refused at a limit and a run that was not
-	// looked identical in everything a night prints — and now that a refusal is
-	// out of the error rate, the two are the same zero as well.
-	//
-	// Recorded even when it is nought, because nought is the finding: it is what
-	// says the zero beside it is a reading rather than an empty denominator.
+	// Refusals are recorded even at zero, which marks the zero as a reading of an actual run.
 	observations = append(observations,
 		Observation{At: at, Series: "aggregate_rejected", Value: float64(refusedAgents(in.Results))})
 	observations = append(observations, targetObservations(at, in.Conservation)...)
 
-	// Registration is reported only when the server was asked. Its own clock
-	// stops at a local send buffer, and a number that cannot move is worse than
-	// an absent one: two ceilings sat on it for months.
+	// Registration is reported only when the server was asked; the harness clock stops at a buffer.
 	if in.Registration != nil && in.Registration.Measured() {
 		observations = append(observations,
 			registrationQuantile(at, "register_p95_ms", *in.Registration, 0.95),
-			// The middle case beside the tail. They answer different questions
-			// about the same queue, and where the venue is driven to what it
-			// has been shown to hold only one of them reproduces: two runs an
-			// hour apart under identical load read tails of 5,773 and 9,443 ms
-			// with middle cases of 239 and 255. The tail there is the queue;
-			// the middle case is the write.
+			// Under heavy load the tail reflects the queue and the median reflects the write.
 			registrationQuantile(at, "register_p50_ms", *in.Registration, 0.50),
 			Observation{At: at, Series: "register_mean_ms", Value: in.Registration.MeanMs()},
 			Observation{At: at, Series: "register_rejected", Value: float64(in.Registration.Rejected)},
@@ -65,12 +39,11 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, error
 	return observations
 }
 
-// pastTheScale is the mark a registration figure carries when it lies past the
-// widest bucket the server publishes, so a reader sees a floor as a floor.
+// pastTheScale marks a registration figure beyond the widest bucket the server publishes.
 const pastTheScale = "past the scale"
 
-// registrationQuantile is one registration quantile as an observation, marked
-// when the server's scale ended below it.
+// registrationQuantile is one registration quantile as an observation, marked when the server's
+// scale ended below it.
 func registrationQuantile(at time.Time, series string, reading ServerRegistration, q float64) Observation {
 	observation := Observation{At: at, Series: series, Value: reading.QuantileMs(q)}
 	if reading.PastTheScale(q) {
@@ -90,13 +63,8 @@ func refusedAgents(results []agentResult) int {
 	return refused
 }
 
-// severedMidHold counts the machines whose connection went away while they were
-// being held.
-//
-// It is recorded even when it is zero, because zero is the finding: a run that
-// held a hundred machines for eight minutes and severed none of them says so,
-// and the same run reporting a hundred successes while its fleet was gone is
-// what this number exists to make impossible.
+// severedMidHold counts the machines whose connection went away while they were held.
+// It is recorded even at zero, which is the finding for a fleet that held.
 func severedMidHold(results []agentResult) int {
 	severed := 0
 	for _, result := range results {
@@ -107,17 +75,8 @@ func severedMidHold(results []agentResult) int {
 	return severed
 }
 
-// targetObservations records what the target was holding either side of the
-// run, so the bundle carries the question as well as the verdict.
-//
-// Both readings travel rather than the difference alone: a bundle is read years
-// after the metrics store forgot the night, and a delta cannot be re-divided by
-// a denominator a later reader wants to change. Open file descriptors travel
-// with them because they are what separates a goroutine leak from a socket
-// leak — their flatness through a 344 MiB climb is what ruled sockets out.
-//
-// Resident memory is recorded and not gated, for the reason
-// maxRetainedGoroutinesPerOperation states.
+// targetObservations records what the target held either side of the run, as both readings so
+// a later reader can re-divide them. Resident memory is recorded and ungated.
 func targetObservations(at time.Time, target TargetConservation) []Observation {
 	if !target.Start.Read && !target.End.Read {
 		return nil

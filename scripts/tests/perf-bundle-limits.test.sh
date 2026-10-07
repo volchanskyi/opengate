@@ -1,27 +1,5 @@
 #!/usr/bin/env bash
-# A limit is read off a run that measured something.
-#
-# Every profile but the staging night's runs where there is no export to join, so
-# what their limits are read against is the run's own evidence bundle. That bundle also
-# carries the run's verdict about itself, and where the verdict is invalid the
-# numbers beside it are readings of something else — the run says so itself, in
-# the sentence the verdict step prints.
-#
-# What it cost: a leg whose fleet count had been refused reported, as its
-# headline error, a registration tail of 4.6 seconds against a limit of 500 ms.
-# The verdict two steps earlier had already said the run did not measure the
-# system. The night before, the same leg on the same profile read 396 ms. So the
-# number that named the leg was one the run had already disowned, and the reason
-# it went red was two errors further up.
-#
-# A breach on an invalid run is still printed — every finding stays visible, and
-# an invalid run is red on the verdict's account anyway — but it does not decide
-# anything. A breach on a run that did measure the system fails, exactly as
-# before, and a bundle that cannot be read fails hardest of all: a reader that
-# answers yes when it could not ask is the false green this repository rules
-# against.
-#
-# Run: ./scripts/tests/perf-bundle-limits.test.sh
+# A limit breach decides the outcome only on a run whose verdict says it measured the system.
 
 set -euo pipefail
 
@@ -53,8 +31,6 @@ assert_eq() {
   fi
 }
 
-# A profile holding one machine-side limit, which is the shape every venue
-# without a browser-side generator declares.
 cat >"$WORK/profile.yaml" <<'EOF'
 schema_version: 1
 name: fixture
@@ -81,7 +57,6 @@ gates:
     blocking: true
 EOF
 
-# bundle writes an evidence bundle carrying a verdict and a registration tail.
 bundle() {
   local verdict="$1" tail="$2"
   jq -n --arg verdict "$verdict" --argjson tail "$tail" '{
@@ -104,13 +79,10 @@ run_reader() {
 
 echo "perf-bundle-limits:"
 
-# A run that measured the system and stayed inside its limits.
 bundle valid 396
 run_reader
 assert_eq "a valid run inside its limits exits 0" "0" "$STATUS"
 
-# A run that measured the system and crossed a limit. This is the case the
-# whole thing exists for, and it must stay exactly as it was.
 bundle valid 4642
 run_reader
 assert_eq "a valid run past its limit exits 1" "1" "$STATUS"
@@ -120,8 +92,6 @@ else
   fail "and the breach names the reading"
 fi
 
-# The defect. A run the verdict has already disowned still has its numbers
-# printed, because a reader who can see them should, but they decide nothing.
 bundle invalid 4642
 run_reader
 assert_eq "an invalid run past its limit exits 0" "0" "$STATUS"
@@ -136,7 +106,6 @@ else
   fail "and says why they decide nothing"
 fi
 
-# A bundle nobody wrote is silence, and silence is not a pass.
 rm -f "$WORK/bundle.json"
 run_reader
 if [ "$STATUS" -ge 2 ]; then
@@ -145,8 +114,6 @@ else
   fail "a bundle that cannot be read fails loudly (got=[$STATUS])"
 fi
 
-# A bundle carrying no verdict at all is the same thing: whether the run
-# measured anything is unknown, and unknown is not permission to judge it.
 jq -n '{schema_version: 11, run: {}, observations: []}' >"$WORK/bundle.json"
 run_reader
 if [ "$STATUS" -ge 2 ]; then

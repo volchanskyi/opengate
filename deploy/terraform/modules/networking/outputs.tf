@@ -3,9 +3,6 @@ output "vcn_id" {
   value       = oci_core_vcn.opengate.id
 }
 
-
-# --- OKE networking (Phase 13b cutover) — consumed by the root `oke` module ---
-
 output "oke_api_endpoint_subnet_id" {
   description = "OCID of the OKE API-endpoint subnet"
   value       = oci_core_subnet.oke_api.id

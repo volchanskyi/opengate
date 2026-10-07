@@ -16,24 +16,17 @@ use tracing::debug;
 use super::SharedSink;
 use crate::event_watch::EventCoverage;
 
-/// How far either side of the firing instant the evidence's readings reach.
-/// Matches the span the composition contracts for, so what a technician opens
-/// looks the same whichever producer raised it.
+/// Seconds either side of the firing instant that the evidence's readings reach.
 const EVIDENCE_SPAN_SECS: i64 = SERIES_SPAN_SECS;
 
-/// How much history the ranking compares the event against. Long enough to say
-/// what normal looked like on this machine, short enough that a slow drift over
-/// a week is not mistaken for the machine's baseline.
+/// Seconds of history the ranking compares the event against.
 const EVIDENCE_BASELINE_SECS: i64 = 1_800;
 
-/// Microseconds in a second: the sampler works in one, the alert queue in the
-/// other.
+/// Microseconds in a second; the sampler works in seconds and the alert queue in microseconds.
 pub(super) const MICROS_PER_SEC: i64 = 1_000_000;
 
-/// What every rule is doing on this machine: the ones this sampler evaluates,
-/// and the ones the log watch answers for. The estate counts every rule against
-/// the whole fleet, so a rule reported by neither would read as a rule nobody
-/// pushed rather than one watching every machine.
+/// Coverage of every rule on this machine: those the sampler evaluates plus those the log
+/// watch answers for.
 pub(super) fn all_coverage(
     evaluator: &AlertEvaluator,
     events: &EventCoverage,
@@ -45,15 +38,8 @@ pub(super) fn all_coverage(
     coverage
 }
 
-/// Raise one alert for a rule that has just started firing.
-///
-/// The evidence is assembled here rather than at delivery, because this is the
-/// only moment it exists: central keeps a sixty-second average per dimension
-/// and there is no path for asking the machine later, so a ten-second collapse
-/// that explains the incident is on this message or it is nowhere.
-///
-/// The window is the stretch the rule actually held over, so a re-delivery
-/// after a broken link resolves to the row already written.
+/// Raises one alert for a rule that just started firing, assembling its evidence at this
+/// moment and windowing it over the stretch the rule held so a re-delivery maps to one row.
 pub(super) fn raise_alert(
     alerts: &AlertSink,
     store: Option<&SharedSink>,
@@ -72,8 +58,6 @@ pub(super) fn raise_alert(
     let outcome = alerts.push(
         EdgeAlert {
             rule_id: firing.rule_id.clone(),
-            // The revision the machine is actually running, which is the one
-            // the server sent with the rule.
             rule_version: firing.rule_version,
             severity: edge_severity(firing.severity),
             ts_micros: firing.at.saturating_mul(MICROS_PER_SEC),
@@ -95,8 +79,7 @@ pub(super) fn raise_alert(
     );
 }
 
-/// How this machine spells a severity the server sent it. The set is closed on
-/// both sides, so this is a spelling rather than a decision.
+/// Maps the server's severity to the local alert severity; unknown values become warning.
 fn edge_severity(severity: mesh_protocol::AlertSeverity) -> AlertSeverity {
     match severity {
         mesh_protocol::AlertSeverity::Info => AlertSeverity::Info,
@@ -105,9 +88,7 @@ fn edge_severity(severity: mesh_protocol::AlertSeverity) -> AlertSeverity {
     }
 }
 
-/// Which of this machine's readings broke pattern around the event, ranked by
-/// the machine itself. A machine with no local store answers with nothing
-/// rather than with a ranking of one dimension it happened to have.
+/// Ranks the readings that broke pattern around the event; empty when there is no local store.
 fn ranked_dimensions(store: Option<&SharedSink>, at: i64) -> Vec<Ranked> {
     let Some(window) = CorrelationWindow::new(
         at.saturating_sub(EVIDENCE_BASELINE_SECS),
@@ -125,9 +106,7 @@ fn ranked_dimensions(store: Option<&SharedSink>, at: i64) -> Vec<Ranked> {
         .unwrap_or_default()
 }
 
-/// The readings behind the dimensions that ranked highest. A dimension whose
-/// readings the store has already evicted costs the alert its series and
-/// nothing else.
+/// The readings behind the highest-ranked dimensions, skipping any dimension with no stored series.
 fn readings_behind(store: Option<&SharedSink>, ranked: &[Ranked], at: i64) -> Vec<DimSeries> {
     let Some(snapshot) = store.and_then(|s| s.lock().ok()?.snapshot().ok()) else {
         return Vec::new();
@@ -158,9 +137,8 @@ fn readings_behind(store: Option<&SharedSink>, ranked: &[Ranked], at: i64) -> Ve
         .collect()
 }
 
-/// What was running at the instant the rule fired, busiest first. The basenames
-/// are redacted by the composer on their way in, because a process name is a
-/// free-text field a host chose.
+/// The processes running when the rule fired, busiest first; the composer redacts the
+/// basenames because a process name is host-chosen free text.
 fn running_now(sample: &MetricSample) -> Vec<ProcessReportEntry> {
     sample
         .processes
@@ -188,16 +166,12 @@ mod tests {
     use mesh_protocol::{RuleCoverage, RuleCoverageState};
     use std::sync::{Arc, Mutex};
 
-    /// With no store the evidence has no ranking and no readings, rather than a
-    /// ranking of whatever one dimension happened to be at hand.
     #[test]
     fn a_machine_without_a_store_attaches_no_ranking() {
         assert!(ranked_dimensions(None, T0).is_empty());
         assert!(readings_behind(None, &[], T0).is_empty());
     }
 
-    /// With a store, the dimension that broke pattern ranks, and the readings
-    /// behind it travel with the alert.
     #[test]
     fn a_store_ranks_what_moved_and_hands_over_its_readings() {
         let dir = tempfile::tempdir().unwrap();

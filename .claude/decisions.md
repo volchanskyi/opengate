@@ -20,7 +20,7 @@
 | 008 | The agent cross-compiles to static aarch64 musl | [log](../docs/Architecture-Decision-Records.md) |
 | 009 | Container images are signed without keys, through the pipeline's own identity | [log](../docs/Architecture-Decision-Records.md) |
 | 010 | Hardware inventory is its own table, collected when asked for rather than on a schedule | [log](../docs/Architecture-Decision-Records.md) |
-| 012 | The SonarCloud gate blocks the merge, on new code only, with per-language coverage held separately | [log](../docs/Architecture-Decision-Records.md) |
+| 012 | The SonarCloud gate blocks the merge on new code; per-language coverage and per-file repeated code are held across the whole codebase | [log](../docs/Architecture-Decision-Records.md) |
 | 014 | PostgreSQL 17 through pgx, native column types, running in the cluster | [ADR-014](../docs/adr/ADR-014-postgresql.md) |
 | 015 | Infrastructure code is scanned by Checkov, Hadolint and Trivy; one baseline is the only suppression | [ADR-015](../docs/adr/ADR-015-iac-scanning.md) |
 | 018 | Operators reach nodes through OCI Bastion; automation uses the cluster API instead | [ADR-018](../docs/adr/ADR-018-operator-node-access.md) |
@@ -75,3 +75,5 @@
 | 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |
 | 123 | An alert channel is proven by a delivered message; the cluster's monitoring configuration is rendered, applied and read back | [ADR-123](../docs/adr/ADR-123-alert-delivery.md) |
 | 124 | An alert a machine raises reaches the queue: drained on the heartbeat, re-offered after a failed send, and a rule change reaching machines already connected | [ADR-124](../docs/adr/ADR-124-an-alert-reaches-the-queue.md) |
+| 125 | A comment is a short positive statement about its code, checked at write time and on every commit; repeated code is read from the scanner's report for every file | [ADR-125](../docs/adr/ADR-125-comments-and-repeated-code.md) |
+| 126 | An npm advisory with no fixed release may be excepted by ID with a reason and a review date; the exception lapses on that date, on a new release, or once unreported | [ADR-126](../docs/adr/ADR-126-advisory-exceptions-lapse.md) |

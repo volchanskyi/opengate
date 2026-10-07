@@ -24,15 +24,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-// testDim is the dimension name every accounting fixture reports under.
 const testDim = "cpu.total"
 
-// countedIngestByIdent pins the control types whose handlers increment
-// opengate_edge_telemetry_ingested_total, keyed by the protocol identifier the
-// source uses. Every entry needs at least one row in accountingCases; every
-// counted-ingest call site in the package must appear here. Both directions are
-// asserted by TestCountedIngestTypesMatchDispatch, so a new telemetry message
-// type cannot join the pipeline without joining the ledger.
 var countedIngestByIdent = map[string]protocol.ControlMessageType{
 	"MsgAgentHealthSummary":   protocol.MsgAgentHealthSummary,
 	"MsgAgentMetricWindow":    protocol.MsgAgentMetricWindow,
@@ -42,10 +35,6 @@ var countedIngestByIdent = map[string]protocol.ControlMessageType{
 	"MsgAgentAlert":           protocol.MsgAgentAlert,
 }
 
-// dispatchNonIngestIdents pins the control types handleControl dispatches that
-// carry no counted telemetry: session/update signalling, hardware and log
-// responses, and the backfill path (which keeps its own 90 d retention bound and
-// never touches the ingest counter).
 var dispatchNonIngestIdents = []string{
 	"MsgAgentRegister",
 	"MsgAgentHeartbeat",
@@ -62,9 +51,8 @@ var dispatchNonIngestIdents = []string{
 	"MsgMaintenanceApplied",
 }
 
-// preIngestDropReasons are the bounds applied before the ingest counter fires.
-// A message dropped for one of these was never ingested, so it belongs on
-// neither side of the ingest ledger.
+// preIngestDropReasons are the bounds applied before the ingest counter fires, so their drops
+// sit on neither side of the ledger.
 var preIngestDropReasons = map[string]bool{
 	"payload_too_large":           true,
 	"interval_floor":              true,
@@ -74,16 +62,11 @@ var preIngestDropReasons = map[string]bool{
 	"tombstoned":                  true,
 }
 
-// accountingSinks counts every persist a driven message produced, across the
-// three stores telemetry can land in.
 type accountingSinks struct {
 	writes  atomic.Int64
 	failErr error
 }
 
-// accept counts one persist, or reports the failure a failing-store case wants
-// every sink to return. One body rather than one per port, so a case that makes
-// the stores fail makes all of them fail the same way.
 func (s *accountingSinks) accept() error {
 	if s.failErr != nil {
 		return s.failErr
@@ -92,33 +75,26 @@ func (s *accountingSinks) accept() error {
 	return nil
 }
 
-// WriteSamples stands in for the numeric time-series store.
 func (s *accountingSinks) WriteSamples(context.Context, uuid.UUID, uuid.UUID, []telemetry.Sample) error {
 	return s.accept()
 }
 
-// UpsertReport stands in for the process-table store.
 func (s *accountingSinks) UpsertReport(context.Context, uuid.UUID, time.Time, []telemetry.ProcessSample) error {
 	return s.accept()
 }
 
-// ListLatest is unused by the ledger; the port requires it.
 func (s *accountingSinks) ListLatest(context.Context, uuid.UUID, int) ([]telemetry.ProcessSample, error) {
 	return nil, nil
 }
 
-// Replace stands in for the discovery-footprint store.
 func (s *accountingSinks) Replace(context.Context, uuid.UUID, time.Time, []inventory.Component) error {
 	return s.accept()
 }
 
-// ListForDevice is unused by the ledger; the port requires it.
 func (s *accountingSinks) ListForDevice(context.Context, uuid.UUID, int) ([]inventory.Component, error) {
 	return nil, nil
 }
 
-// Record stands in for the alert store, always answering that the alert was
-// stored — the outcomes that are not are driven in conn_alerts_store_test.go.
 func (s *accountingSinks) Record(context.Context, alerts.Alert, alerts.Grouping) (alerts.Outcome, error) {
 	if err := s.accept(); err != nil {
 		return "", err
@@ -126,10 +102,6 @@ func (s *accountingSinks) Record(context.Context, alerts.Alert, alerts.Grouping)
 	return alerts.Stored, nil
 }
 
-// accountingCase drives one or more control messages through a real AgentConn
-// and pins the whole ledger they produce: how many were counted as ingested, how
-// many produced at least one persist, how many persists happened, and which
-// typed drops fired.
 type accountingCase struct {
 	name string
 	msgs []*protocol.ControlMessage
@@ -148,18 +120,15 @@ type accountingCase struct {
 	drops     map[string]int
 }
 
-// metricWindowMsg is one host-metric window carrying the given dimensions.
 func metricWindowMsg(ts int64, dims ...protocol.MetricDim) *protocol.ControlMessage {
 	return &protocol.ControlMessage{Type: protocol.MsgAgentMetricWindow, TS: ts, Dims: dims}
 }
 
-// discoveryMsg is one discovery report carrying the given packages.
 func discoveryMsg(ts int64, packages ...protocol.DiscoveredPackage) *protocol.ControlMessage {
 	return &protocol.ControlMessage{Type: protocol.MsgDiscoveryReport, TS: ts, Packages: packages}
 }
 
-// alertMsg is a well-formed alert stamped inside the live clock window, since
-// the ledger cases are about counting rather than about admission.
+// alertMsg builds a well-formed alert stamped inside the live clock window.
 func alertMsg(ts int64, severityValue protocol.AlertSeverity) *protocol.ControlMessage {
 	return &protocol.ControlMessage{
 		Type:          protocol.MsgAgentAlert,
@@ -174,15 +143,33 @@ func alertMsg(ts int64, severityValue protocol.AlertSeverity) *protocol.ControlM
 	}
 }
 
-// accountingCases covers every branch of every counted-ingest control type:
-// the persisting branch, the empty-payload branch that used to return silently,
-// the two admission bounds, and the three persist-path failures that discard a
-// whole coalesced batch.
+func typedDrop(kind string, msg *protocol.ControlMessage, reason string) accountingCase {
+	return accountingCase{
+		name:     kind + " is a typed drop",
+		msgs:     []*protocol.ControlMessage{msg},
+		ingested: 1,
+		drops:    map[string]int{reason: 1},
+	}
+}
+
+func overCap(kind string, msg *protocol.ControlMessage) accountingCase {
+	return accountingCase{
+		name:  kind + " over the payload cap never reaches the ingest counter",
+		msgs:  []*protocol.ControlMessage{msg},
+		pad:   maxTelemetryPayloadBytes + 1,
+		drops: map[string]int{"payload_too_large": 1},
+	}
+}
+
 func accountingCases(now int64) []accountingCase {
 	pkg := protocol.DiscoveredPackage{Name: "openssl", Version: "3.0.13"}
 	dim := protocol.MetricDim{Name: testDim, Avg: 12.5}
 	summary := protocol.HealthSummary{TS: now, NodeAnomalyRate: 0.4, SamplerVersion: "s1"}
 	entry := protocol.ProcessReportEntry{Rank: 1, Basename: "postgres", PID: 222, CPU: 12.5, Mem: 3.25}
+	coalesced := []*protocol.ControlMessage{
+		metricWindowMsg(now, dim),
+		metricWindowMsg(now+minTelemetryIntervalSeconds, dim),
+	}
 
 	return []accountingCase{
 		{
@@ -192,18 +179,8 @@ func accountingCases(now int64) []accountingCase {
 			persisted: 1,
 			writes:    1,
 		},
-		{
-			name:     "metric window with no dims is a typed drop",
-			msgs:     []*protocol.ControlMessage{metricWindowMsg(now)},
-			ingested: 1,
-			drops:    map[string]int{"empty_dims": 1},
-		},
-		{
-			name:  "metric window over the payload cap never reaches the ingest counter",
-			msgs:  []*protocol.ControlMessage{metricWindowMsg(now, dim)},
-			pad:   maxTelemetryPayloadBytes + 1,
-			drops: map[string]int{"payload_too_large": 1},
-		},
+		typedDrop("metric window with no dims", metricWindowMsg(now), "empty_dims"),
+		overCap("metric window", metricWindowMsg(now, dim)),
 		{
 			name: "metric window inside the interval floor is dropped",
 			msgs: []*protocol.ControlMessage{
@@ -225,17 +202,10 @@ func accountingCases(now int64) []accountingCase {
 			persisted: 1,
 			writes:    1,
 		},
+		typedDrop("health summary with nothing to record",
+			&protocol.ControlMessage{Type: protocol.MsgAgentHealthSummary, TS: now}, "empty_summary"),
 		{
-			name:     "health summary with nothing to record is a typed drop",
-			msgs:     []*protocol.ControlMessage{{Type: protocol.MsgAgentHealthSummary, TS: now}},
-			ingested: 1,
-			drops:    map[string]int{"empty_summary": 1},
-		},
-		{
-			// A calm machine's summary says what every rule is doing on it and
-			// nothing else. That is state the server now holds, so the message
-			// belongs on the produced-state side of the ledger rather than being
-			// filed as a discard it plainly is not.
+			// A coverage-only summary is state the server holds, so it counts as produced.
 			name: "health summary carrying only rule coverage produces state, not a drop",
 			msgs: []*protocol.ControlMessage{{
 				Type: protocol.MsgAgentHealthSummary, TS: now,
@@ -246,14 +216,9 @@ func accountingCases(now int64) []accountingCase {
 			ingested:  1,
 			persisted: 1,
 		},
-		{
-			name: "health summary over the payload cap never reaches the ingest counter",
-			msgs: []*protocol.ControlMessage{{
-				Type: protocol.MsgAgentHealthSummary, TS: now, SamplerVersion: "s1",
-			}},
-			pad:   maxTelemetryPayloadBytes + 1,
-			drops: map[string]int{"payload_too_large": 1},
-		},
+		overCap("health summary", &protocol.ControlMessage{
+			Type: protocol.MsgAgentHealthSummary, TS: now, SamplerVersion: "s1",
+		}),
 		{
 			name: "process report persists rows and rank numerics",
 			msgs: []*protocol.ControlMessage{{
@@ -263,20 +228,11 @@ func accountingCases(now int64) []accountingCase {
 			persisted: 1,
 			writes:    2,
 		},
-		{
-			name:     "process report with no processes is a typed drop",
-			msgs:     []*protocol.ControlMessage{{Type: protocol.MsgProcessReport, TS: now}},
-			ingested: 1,
-			drops:    map[string]int{"empty_processes": 1},
-		},
-		{
-			name: "process report over the payload cap never reaches the ingest counter",
-			msgs: []*protocol.ControlMessage{{
-				Type: protocol.MsgProcessReport, TS: now, TopN: []protocol.ProcessReportEntry{entry},
-			}},
-			pad:   maxTelemetryPayloadBytes + 1,
-			drops: map[string]int{"payload_too_large": 1},
-		},
+		typedDrop("process report with no processes",
+			&protocol.ControlMessage{Type: protocol.MsgProcessReport, TS: now}, "empty_processes"),
+		overCap("process report", &protocol.ControlMessage{
+			Type: protocol.MsgProcessReport, TS: now, TopN: []protocol.ProcessReportEntry{entry},
+		}),
 		{
 			name: "health window response persists its summaries",
 			msgs: []*protocol.ControlMessage{{
@@ -287,21 +243,12 @@ func accountingCases(now int64) []accountingCase {
 			persisted: 1,
 			writes:    1,
 		},
-		{
-			name:     "health window response with no summaries is a typed drop",
-			msgs:     []*protocol.ControlMessage{{Type: protocol.MsgHealthWindowResponse, TS: now}},
-			ingested: 1,
-			drops:    map[string]int{"empty_summaries": 1},
-		},
-		{
-			name: "health window response over the payload cap never reaches the ingest counter",
-			msgs: []*protocol.ControlMessage{{
-				Type: protocol.MsgHealthWindowResponse, TS: now,
-				Summaries: []protocol.HealthSummary{summary},
-			}},
-			pad:   maxTelemetryPayloadBytes + 1,
-			drops: map[string]int{"payload_too_large": 1},
-		},
+		typedDrop("health window response with no summaries",
+			&protocol.ControlMessage{Type: protocol.MsgHealthWindowResponse, TS: now}, "empty_summaries"),
+		overCap("health window response", &protocol.ControlMessage{
+			Type: protocol.MsgHealthWindowResponse, TS: now,
+			Summaries: []protocol.HealthSummary{summary},
+		}),
 		{
 			name:      "discovery report persists its footprint",
 			msgs:      []*protocol.ControlMessage{discoveryMsg(now, pkg)},
@@ -309,12 +256,7 @@ func accountingCases(now int64) []accountingCase {
 			persisted: 1,
 			writes:    1,
 		},
-		{
-			name:     "discovery report with no components is a typed drop",
-			msgs:     []*protocol.ControlMessage{discoveryMsg(now)},
-			ingested: 1,
-			drops:    map[string]int{"empty_discovery": 1},
-		},
+		typedDrop("discovery report with no components", discoveryMsg(now), "empty_discovery"),
 		{
 			name:  "discovery report over the payload cap never reaches the ingest counter",
 			msgs:  []*protocol.ControlMessage{discoveryMsg(now, pkg)},
@@ -340,48 +282,36 @@ func accountingCases(now int64) []accountingCase {
 			writes:    1,
 		},
 		{
-			// The alert path's refusals are content checks, so they sit after
-			// the ingest counter — the message was taken in and then filed under
-			// a reason, which is the only shape the ledger can balance.
+			// Alert refusals are content checks after the ingest counter, so the ledger balances.
 			name:     "an alert whose severity is outside the set is a typed drop",
 			msgs:     []*protocol.ControlMessage{alertMsg(now, protocol.AlertSeverity("Catastrophic"))},
 			ingested: 1,
 			drops:    map[string]int{alertDropSeverityUnknown: 1},
 		},
 		{
-			name: "a coalesced batch flushed without a tenant drops every message it carried",
-			msgs: []*protocol.ControlMessage{
-				metricWindowMsg(now, dim),
-				metricWindowMsg(now+minTelemetryIntervalSeconds, dim),
-			},
+			name:               "a coalesced batch flushed without a tenant drops every message it carried",
+			msgs:               coalesced,
 			flushWithoutTenant: true,
 			ingested:           2,
 			drops:              map[string]int{"tenant_missing": 2},
 		},
 		{
-			name: "a coalesced batch shed by full persist slots drops every message it carried",
-			msgs: []*protocol.ControlMessage{
-				metricWindowMsg(now, dim),
-				metricWindowMsg(now+minTelemetryIntervalSeconds, dim),
-			},
+			name:      "a coalesced batch shed by full persist slots drops every message it carried",
+			msgs:      coalesced,
 			fillSlots: true,
 			ingested:  2,
 			drops:     map[string]int{"persist_slots_full": 2},
 		},
 		{
-			name: "a coalesced batch whose write fails drops every message it carried",
-			msgs: []*protocol.ControlMessage{
-				metricWindowMsg(now, dim),
-				metricWindowMsg(now+minTelemetryIntervalSeconds, dim),
-			},
+			name:       "a coalesced batch whose write fails drops every message it carried",
+			msgs:       coalesced,
 			failWrites: true,
 			ingested:   2,
 			drops:      map[string]int{"persist_failed": 2},
 		},
 		{
-			// E19 in the ledger: an alert the store could not take is counted as
-			// lost, never as held. The endpoint drops its copy once it believes
-			// the alert landed, so a swallowed failure is a permanent loss.
+			// The endpoint drops its copy once it believes an alert landed, so a store failure
+			// counts as a loss.
 			name:       "an alert the store cannot take is counted as lost",
 			msgs:       []*protocol.ControlMessage{alertMsg(now, protocol.AlertSeverityWarning)},
 			failWrites: true,
@@ -391,13 +321,10 @@ func accountingCases(now int64) []accountingCase {
 	}
 }
 
-// errAccountingWrite is the sentinel the failing-store cases return.
 var errAccountingWrite = errors.New("accounting write failed")
 
-// runAccountingCase drives one case through a real AgentConn on a fresh
-// connection sharing the caller's metrics registry, and returns the persists it
-// produced. Cases run on their own connection so the interval floor of one never
-// leaks into the next, while the shared registry keeps the ledger cumulative.
+// runAccountingCase runs a case on a fresh connection that shares the caller's metrics registry,
+// so the interval floor never leaks between cases while the ledger stays cumulative.
 func runAccountingCase(t *testing.T, m *appmetrics.Metrics, tc accountingCase) int64 {
 	t.Helper()
 	sinks := &accountingSinks{}
@@ -415,8 +342,7 @@ func runAccountingCase(t *testing.T, m *appmetrics.Metrics, tc accountingCase) i
 		telemetry: sinks,
 		processes: sinks,
 		inventory: sinks,
-		// An alert is filed against the customer the machine belongs to, so the
-		// ledger's alert rows need that rung resolvable like production's do.
+		// An alert is filed against the machine's customer, so that rung must resolve.
 		settings: fixedReader{scope: settings.Scope{
 			DeviceID: deviceID, OrganizationID: uuid.New(), TenantID: tenant,
 		}},
@@ -456,9 +382,6 @@ func runAccountingCase(t *testing.T, m *appmetrics.Metrics, tc accountingCase) i
 	return sinks.writes.Load()
 }
 
-// TestTelemetryAccountingInvariant is the durable fix for the silent-loss class:
-// every counted-ingest branch either persists or files exactly one typed drop
-// per message, and the two sides of the ledger balance.
 func TestTelemetryAccountingInvariant(t *testing.T) {
 	now := time.Now().Unix()
 	cases := accountingCases(now)
@@ -505,9 +428,7 @@ func TestTelemetryAccountingInvariant(t *testing.T) {
 	}
 
 	assert.InDelta(t, wantIngested, gotIngested, 0, "cumulative ingested")
-	// The invariant: everything counted as ingested either produced state — a
-	// persisted write, or a rule-coverage report the server now holds — or was
-	// filed under exactly one drop reason. Nothing vanishes in between.
+	// Every ingested message either produced state or was filed under exactly one drop reason.
 	assert.Equal(t, wantIngested, wantPersisted+wantPostIngestDrops,
 		"the case table itself must balance")
 	assert.InDelta(t, float64(wantPersisted+wantPostIngestDrops), gotIngested, 0,

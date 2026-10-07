@@ -10,12 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAuthMiddlewareRejectsTokenWithoutTenant covers the token a caller still
-// holds from before the tenancy rename: correctly signed and unexpired, but
-// naming its tenant under a key this build does not read. The middleware must
-// answer 401 — the response the web client turns into a fresh login — rather
-// than admitting a request that would then fail without tenant scope deep
-// inside a handler.
 func TestAuthMiddlewareRejectsTokenWithoutTenant(t *testing.T) {
 	t.Parallel()
 	h := newAuthMiddlewareHarness()

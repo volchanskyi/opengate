@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/alert-quiet-period.sh — the shared-infrastructure alerts are
-# held back while a test holds the staging claim, and only while it does.
-#
-# The kubectl stand-in answers the way Grafana's own Alertmanager does, over one
-# JSON file, so a silence opened twice or closed for the wrong holder shows up
-# as the wrong silences afterwards rather than as a fake that answered the same
-# way regardless.
+# Covers alert-quiet-period.sh against a kubectl stand-in that keeps silences in one JSON file.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,7 +130,6 @@ run_quiet() {
     "$QUIET" "$@"
 }
 
-# The holder's silences that have not ended, one line each.
 live_for() {
   jq -r --arg h "$1" \
     '.[] | select(.status.state != "expired" and (.comment | contains($h))) | .id' "$STATE"
@@ -147,7 +140,6 @@ epoch() { date -u -d "$1" +%s; }
 
 echo "alert-quiet-period:"
 
-# Opening a quiet period holds back the shared rules, for as long as asked.
 rm -f "$STATE" "$FAKE_CALLS"
 if run_quiet open load-test-1-1 >/dev/null 2>&1; then
   assert_eq "opening creates one silence for the holder" "1" "$(live_count load-test-1-1)"
@@ -167,16 +159,13 @@ else
   fail "it lasts the claim's duration from now (ends=$ends wanted~$wanted)"
 fi
 
-# The password is expanded by the pod's own shell and never crosses to the
-# runner: what reaches the pod names the variable, not its value.
+# The pod's own shell expands the password, so what reaches the pod names the variable only.
 if grep -qF "\$GF_SECURITY_ADMIN_PASSWORD" "$FAKE_CALLS"; then
   pass "the administrator password stays inside the pod"
 else
   fail "the call must name \$GF_SECURITY_ADMIN_PASSWORD for the pod to expand (got=[$(cat "$FAKE_CALLS")])"
 fi
 
-# A step retried, or a claim taken again by the run already holding it, does
-# not stack a second silence on the first.
 first_id="$(live_for load-test-1-1)"
 if run_quiet open load-test-1-1 >/dev/null 2>&1; then
   assert_eq "a second open reuses the holder's silence" "$first_id" "$(live_for load-test-1-1)"
@@ -184,7 +173,6 @@ else
   fail "a second open reuses the holder's silence"
 fi
 
-# Each renewal of the claim carries the quiet period forward with it.
 before="$(epoch "$(ends_of load-test-1-1)")"
 if SECONDS_OVERRIDE=5400 run_quiet extend load-test-1-1 >/dev/null 2>&1; then
   after="$(epoch "$(ends_of load-test-1-1)")"
@@ -197,9 +185,7 @@ else
   fail "extending moves the holder's silence forward"
 fi
 
-# Grafana's own state is not durable: a pod restart forgets every silence. An
-# extension that finds none puts one back rather than leaving the rest of the
-# run loud.
+# A Grafana pod restart forgets every silence, so an extension that finds none recreates one.
 jq 'map(.status.state = "expired")' "$STATE" >"$STATE.new" && mv "$STATE.new" "$STATE"
 if run_quiet extend load-test-1-1 >/dev/null 2>&1; then
   assert_eq "extending with none left opens a new one" "1" "$(live_count load-test-1-1)"
@@ -207,7 +193,6 @@ else
   fail "extending with none left opens a new one"
 fi
 
-# Closing ends this holder's quiet period and nobody else's.
 run_quiet open network-drill-2-1 >/dev/null 2>&1 || true
 if run_quiet close load-test-1-1 >/dev/null 2>&1; then
   assert_eq "closing ends the holder's silence" "0" "$(live_count load-test-1-1)"
@@ -216,15 +201,12 @@ else
   fail "closing ends the holder's silence"
 fi
 
-# Closing when there is nothing to close is not a failure: the release runs on
-# every path, including one where the open was refused.
 if run_quiet close load-test-1-1 >/dev/null 2>&1; then
   pass "closing nothing succeeds"
 else
   fail "closing nothing succeeds"
 fi
 
-# A noisy credential plugin is not part of the answer.
 rm -f "$STATE"
 if out="$(FAKE_NOISY_STDERR=1 run_quiet open cd-3-1 2>&1)" \
   && [ "$(live_count cd-3-1)" = "1" ]; then
@@ -233,7 +215,6 @@ else
   fail "a warning on stderr does not become part of Grafana's answer (got=[$out])"
 fi
 
-# A refusal is reported with Grafana's own reason, and the step says it failed.
 rm -f "$STATE"
 if out="$(FAKE_REFUSE=1 run_quiet open cd-4-1 2>&1)"; then
   fail "a refused call fails"
@@ -243,9 +224,7 @@ else
   fail "a refused call fails with Grafana's reason (got=[$out])"
 fi
 
-# The cluster dropping the connection before the command reached Grafana is not
-# Grafana refusing anything, and the release of a claim — the one path that
-# closes the quiet period — died on exactly that. It is asked again.
+# A connection dropped before the command reaches Grafana is retried.
 rm -f "$STATE" "$FAKE_DROP_COUNT"
 if out="$(FAKE_DROPS=1 FAKE_NOISY_STDERR=1 run_quiet open cd-9-1 2>&1)" \
   && [ "$(live_count cd-9-1)" = "1" ]; then
@@ -254,8 +233,6 @@ else
   fail "a connection dropped before reaching Grafana is asked again (got=[$out])"
 fi
 
-# One that never comes back says so, in one line that names what happened, and
-# the credential plugin's warning is not that line.
 rm -f "$STATE" "$FAKE_DROP_COUNT"
 if err="$(FAKE_DROPS=99 FAKE_NOISY_STDERR=1 run_quiet open cd-10-1 2>&1 >/dev/null)"; then
   fail "a connection that never reaches Grafana fails"
@@ -269,13 +246,10 @@ else
   fi
 fi
 
-# A refusal by Grafana itself is asked once: asking again cannot change it.
 rm -f "$STATE" "$FAKE_CALLS"
 if err="$(FAKE_REFUSE=1 run_quiet open cd-11-1 2>&1 >/dev/null)"; then
   fail "a refusal by Grafana fails"
 else
-  # Each call is recorded whole, and the request script inside it spans lines;
-  # the method and path end the last of them.
   assert_eq "a refusal by Grafana is asked once" "1" "$(grep -cE ' (GET|POST|DELETE) /' "$FAKE_CALLS")"
   if grep -qF 'Grafana refused' <<<"$(tail -n 1 <<<"$err")"; then
     pass "a refusal by Grafana is named as one"
@@ -284,7 +258,6 @@ else
   fi
 fi
 
-# An answer shaped like success that names no silence opened nothing.
 rm -f "$STATE"
 if out="$(FAKE_NO_ID=1 run_quiet open cd-5-1 2>&1)"; then
   fail "an answer naming no silence is refused (got=[$out])"
@@ -294,7 +267,6 @@ else
   fail "an answer naming no silence is refused (got=[$out])"
 fi
 
-# How long a quiet period lasts is the caller's to say, every time.
 if ALERT_QUIET_KUBECTL="$FAKE" "$QUIET" open cd-6-1 >/dev/null 2>&1; then
   fail "a quiet period with no duration is refused"
 else
@@ -310,10 +282,7 @@ for bad in "open" "hold cd-7-1"; do
   fi
 done
 
-# --- the silence and the rules agree ------------------------------------------
-#
-# The matcher is a label value written in two files. A rule renamed on one side
-# is a silence that matches nothing, which reads exactly like a quiet night.
+# The silence matcher is a label value written in both the script and the alert rules file.
 rm -f "$STATE"
 run_quiet open cd-8-1 >/dev/null 2>&1 || true
 label="$(jq -r '.[0].matchers[0].name' "$STATE")"

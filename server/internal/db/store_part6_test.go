@@ -13,9 +13,7 @@ import (
 	"testing"
 )
 
-// assertAllRowsBackfilledToDefaultTenant runs immediately after the migration
-// that introduces tenancy, where the scope table and column still carry their
-// introduced names — the rename step is several migrations further along.
+// assertAllRowsBackfilledToDefaultTenant runs right after the tenancy migration, before the rename.
 func assertAllRowsBackfilledToDefaultTenant(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	var tenantCount int
@@ -51,7 +49,7 @@ func insertSecondTenantRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
-	defer tx.Rollback() //nolint:errcheck // harmless after Commit
+	defer tx.Rollback()
 	rehearsalExec(t, ctx, tx, `INSERT INTO organizations (id, name) VALUES ('00000000-0000-0000-0000-000000000202', 'Rehearsal Tenant B')`)
 	rehearsalExec(t, ctx, tx, `INSERT INTO users (id, org_id, email, password_hash) VALUES ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000202', 'rehearsal-b@example.com', 'hash')`)
 	rehearsalExec(t, ctx, tx, `INSERT INTO groups_ (id, org_id, name, owner_id) VALUES ('00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000202', 'rehearsal-b', '00000000-0000-0000-0000-000000000201')`)
@@ -59,10 +57,7 @@ func insertSecondTenantRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	require.NoError(t, tx.Commit())
 }
 
-// seedTelemetryProcessRows gives each rehearsal tenant one process row. It runs
-// at the migration that creates the table, where the scope column still carries
-// its introduced name; the rows survive into every later step, so the assertion
-// that reads them never names the column.
+// seedTelemetryProcessRows gives each rehearsal tenant one process row, at the table's creation.
 func seedTelemetryProcessRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	rehearsalExecNoTx(t, ctx, db,
@@ -79,20 +74,19 @@ func assertTelemetryProcessRLS(t *testing.T, ctx context.Context, db *sql.DB, sc
 	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
 
 	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), false)
-	defer txA.Rollback() //nolint:errcheck // harmless after assertions
+	defer txA.Rollback()
 	var visibleToA int
 	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_processes`).Scan(&visibleToA))
 	assert.Equal(t, 1, visibleToA)
 
 	adminTx := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), true)
-	defer adminTx.Rollback() //nolint:errcheck // harmless after assertions
+	defer adminTx.Rollback()
 	var visibleToAdmin int
 	require.NoError(t, adminTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_processes`).Scan(&visibleToAdmin))
 	assert.Equal(t, 2, visibleToAdmin)
 }
 
-// seedInventoryRows is the discovery-inventory counterpart of
-// seedTelemetryProcessRows and runs at the migration that creates the table.
+// seedInventoryRows seeds discovery-inventory rows at the migration that creates the table.
 func seedInventoryRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	rehearsalExecNoTx(t, ctx, db,
@@ -109,13 +103,13 @@ func assertInventoryRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaNam
 	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
 
 	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), false)
-	defer txA.Rollback() //nolint:errcheck // harmless after assertions
+	defer txA.Rollback()
 	var visibleToA int
 	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_inventory`).Scan(&visibleToA))
 	assert.Equal(t, 1, visibleToA)
 
 	adminTx := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), true)
-	defer adminTx.Rollback() //nolint:errcheck // harmless after assertions
+	defer adminTx.Rollback()
 	var visibleToAdmin int
 	require.NoError(t, adminTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_inventory`).Scan(&visibleToAdmin))
 	assert.Equal(t, 2, visibleToAdmin)
@@ -139,7 +133,7 @@ func assertRehearsalRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaNam
 	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
 
 	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), false)
-	defer txA.Rollback() //nolint:errcheck // harmless after assertions
+	defer txA.Rollback()
 	var visibleToA int
 	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices`).Scan(&visibleToA))
 	assert.Equal(t, 1, visibleToA)
@@ -149,7 +143,7 @@ func assertRehearsalRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaNam
 	assert.Zero(t, tenantBVisible)
 
 	adminTx := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), true)
-	defer adminTx.Rollback() //nolint:errcheck // harmless after assertions
+	defer adminTx.Rollback()
 	var visibleToAdmin int
 	require.NoError(t, adminTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices`).Scan(&visibleToAdmin))
 	assert.Equal(t, 2, visibleToAdmin)

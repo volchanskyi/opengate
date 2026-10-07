@@ -1,10 +1,3 @@
-// The fixtures every test in this package shares: a fixed instant to measure
-// from, one datagram's worth of bytes, and a stand-in server that echoes.
-//
-// They live together because the impairment tests and the forwarding tests
-// measure the same shaper from two sides — one through pure decisions, one
-// through real sockets — and duplicating the scaffolding would let the two
-// drift into testing subtly different things.
 package main
 
 import (
@@ -16,29 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// base is a fixed instant every test below measures from. The impairments take
-// the time as an argument rather than reading a clock, so a test states the
-// passage of time instead of sleeping through it.
+// base is the fixed instant tests measure from; impairments take the time as an argument.
 var base = time.Date(2026, 9, 4, 6, 0, 0, 0, time.UTC)
 
-// datagramBits is one QUIC datagram's worth of bits at the 1200-byte size the
-// agent's transport settles on, so the rate tests read in the units the link
-// is described in rather than in bytes.
 const datagramBytes = 1200
 
-// readDeadline bounds every read a test does against a real socket. It is a
-// test's patience, not a property of the shaper: nothing here waits for a
-// timer, so a read that has not answered inside it is a hang rather than a
-// slow machine.
 const readDeadline = 5 * time.Second
 
-// echoServer is a stand-in for the real server: a UDP socket that sends back
-// whatever it is given, from the address it was given it at. It is what makes
-// the forwarding tests in-process — no cluster, no agent, no certificates.
+// echoServer is a UDP stand-in for the server that sends back whatever it receives.
 type echoServer struct {
 	conn *net.UDPConn
-	// seen records every source address the echo answered, which is how a test
-	// asserts the shaper opened one server-facing socket per machine.
 	mu   sync.Mutex
 	seen map[string]int
 }
@@ -75,8 +55,6 @@ func (e *echoServer) sources() int {
 
 func (e *echoServer) addr() *net.UDPAddr { return e.conn.LocalAddr().(*net.UDPAddr) }
 
-// startShaper stands a shaper up in front of an echo server and returns it
-// alongside the address a machine dials.
 func startShaper(t *testing.T, seed uint64) (*Shaper, *net.UDPAddr, *echoServer) {
 	t.Helper()
 	server := newEchoServer(t)
@@ -92,7 +70,6 @@ func startShaper(t *testing.T, seed uint64) (*Shaper, *net.UDPAddr, *echoServer)
 	return shaper, shaper.ListenAddr(), server
 }
 
-// machine dials the shaper the way an agent's transport would.
 func machine(t *testing.T, to *net.UDPAddr) *net.UDPConn {
 	t.Helper()
 	conn, err := net.DialUDP("udp", nil, to)
@@ -114,16 +91,8 @@ func exchange(t *testing.T, conn *net.UDPConn, payload string) (string, error) {
 	return string(buf[:n]), nil
 }
 
-// awaitForwarded is the assertion that the shaper counted what it forwarded,
-// each way, and it returns the settled counters so the caller can go on to read
-// the rest of them.
-//
-// It waits rather than reading once because the forwarded count is recorded
-// after the write that forwarded the datagram. A test holding the reply is
-// downstream of both of those writes, so it can reach the counters before the
-// shaper has written them down — the counts are not wrong, they are not there
-// yet. Reading once asserts which goroutine the scheduler ran next; waiting
-// asserts the shaper.
+// awaitForwarded waits for the counters because the forwarded count is recorded after the write,
+// so a test holding the reply can read them first.
 func awaitForwarded(t *testing.T, shaper *Shaper, toServer, toMachine int64) Counters {
 	t.Helper()
 	require.Eventually(t, func() bool {

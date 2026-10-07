@@ -1,15 +1,5 @@
-// Package faulttest provides fault-decorating implementations of the server's
-// consumer ports — the session/device repositories, the agent-control seam, and
-// the relay session registry — so tests can exercise the server's internal
-// failure-handling behavior by substituting a faulting port around an in-process
-// server.
-//
-// It is a test-support package. It is imported only from _test.go files and is
-// never reachable from any production build; TestFaulttestNotShipped inspects
-// the real dependency graph of cmd/meshserver and proves it excludes this
-// package, which is the binding "no fault code in the shipped binary" guarantee.
-// Fault selection is pure test wiring — there is no header, environment
-// variable, or HTTP surface that could select a fault in a deployed server.
+// Package faulttest wraps the server's consumer ports with injectable faults for tests.
+// Only test files import it, so no fault code reaches the shipped binary.
 package faulttest
 
 import (
@@ -60,7 +50,6 @@ type Spec struct {
 	Once bool
 }
 
-// errValue is the error ActionError returns.
 func (s Spec) errValue() error {
 	if s.Err != nil {
 		return s.Err
@@ -68,7 +57,6 @@ func (s Spec) errValue() error {
 	return ErrInjected
 }
 
-// panicValue is the value ActionPanic panics with.
 func (s Spec) panicValue() any {
 	if s.PanicValue != nil {
 		return s.PanicValue
@@ -76,10 +64,8 @@ func (s Spec) panicValue() any {
 	return ErrInjected
 }
 
-// apply runs the fault. delegate reports whether the caller should proceed to
-// the real implementation afterward; when delegate is false, err is returned to
-// the caller. Every waiting action exits on ctx cancellation, so a faulted call
-// can never outlive its request.
+// apply runs the fault; delegate reports whether the caller proceeds to the real call, else
+// err is returned. Waiting actions exit on ctx cancellation.
 func (s Spec) apply(ctx context.Context) (delegate bool, err error) {
 	switch s.Action {
 	case ActionNone:
@@ -105,9 +91,8 @@ func (s Spec) apply(ctx context.Context) (delegate bool, err error) {
 	}
 }
 
-// faultSet holds the armed fault per method name for one decorator. It is safe
-// for concurrent use: a test arms faults from its own goroutine while request
-// goroutines read them.
+// faultSet holds the armed fault per method name for one decorator, safe for concurrent use
+// by the arming test goroutine and request goroutines.
 type faultSet struct {
 	mu     sync.Mutex
 	byName map[string]Spec

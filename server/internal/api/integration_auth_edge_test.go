@@ -17,10 +17,8 @@ func TestAuthExpiredJWTAllEndpoints(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
 
-	// Register a real user so endpoints would succeed with a valid token
 	env.register(t, "auth-edge@example.com", "pass1234")
 
-	// Generate an already-expired token
 	expiredCfg := &auth.JWTConfig{
 		Secret:   env.jwt.Secret,
 		Issuer:   env.jwt.Issuer,
@@ -55,10 +53,8 @@ func TestAuthDeletedUser(t *testing.T) {
 	env := newTestEnv(t)
 	ctx := defaultTenantContext()
 
-	// Register user and get token
 	token := env.register(t, "tobedeleted@example.com", "pass1234")
 
-	// Get user ID
 	resp := env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)
 	var user struct {
 		ID uuid.UUID `json:"id"`
@@ -66,10 +62,9 @@ func TestAuthDeletedUser(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&user))
 	resp.Body.Close()
 
-	// Delete user from store directly via the extracted UserRepository.
 	require.NoError(t, testutil.NewTestUsers(t, env.store).Delete(ctx, user.ID))
 
-	// Token is still valid (JWT is stateless) but /me returns 404
+	// The JWT is stateless and still validates; /me returns 404.
 	resp = env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -102,7 +97,6 @@ func TestAuthWrongSecret(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
 
-	// Generate a token with a different secret
 	wrongCfg := &auth.JWTConfig{
 		Secret:   "completely-different-secret-32b!x",
 		Issuer:   env.jwt.Issuer,
@@ -120,13 +114,9 @@ func TestAuthDuplicateRegistration(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
 
-	// Register first time — should succeed
 	token1 := env.register(t, "unique@example.com", "pass1234")
 	assert.NotEmpty(t, token1)
 
-	// Register same email again — UpsertUser is an upsert so it succeeds,
-	// but login with the old password should still work (upsert keeps the
-	// first password hash since it's an INSERT OR IGNORE on the ID column).
 	token2 := env.login(t, "unique@example.com", "pass1234")
 	assert.NotEmpty(t, token2)
 }

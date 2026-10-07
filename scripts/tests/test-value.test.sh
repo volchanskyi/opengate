@@ -1,20 +1,5 @@
 #!/usr/bin/env bash
-# Behavioural tests for the test-value analyser and the hook that fronts it,
-# plus the repo-wide sweep that holds the same line on every tracked web test.
-#
-# The two patterns under test are the two the census could show had each cost
-# something real, and neither of which fires on a working test:
-#
-#   1. A test file that never binds the primary export of the module it is
-#      named for. web/src/lib/api.test.ts copied the production auth middleware
-#      into the test and asserted on the copy, so removing api.use(...) left
-#      every browser request unauthenticated with both tests still green.
-#
-#   2. A global or prototype reassignment with no restore, which makes a test
-#      pass or fail on what ran before it. The layout override in
-#      DeviceList.test.tsx restores inside a finally and is correct code.
-#
-# Run: ./scripts/tests/test-value.test.sh
+# Tests the test-value analyser, its write-time hook and the sweep over every tracked web test.
 
 set -euo pipefail
 
@@ -46,10 +31,6 @@ for required in "$CHECK" "$HOOK"; do
   fi
 done
 
-# ------------------------------------------------------------------
-# A fixture tree, so the analyser is exercised against files that are
-# not in the repository and cannot drift with it.
-# ------------------------------------------------------------------
 FIXTURES="$(mktemp -d)"
 trap 'rm -rf "$FIXTURES"' EXIT
 
@@ -73,7 +54,6 @@ export function Panel() {
 }
 EOF
 
-# Analyse one fixture file. Sets CHECK_EXIT and CHECK_STDERR.
 run_check() {
   local label="$1"
   local stderr_file
@@ -107,13 +87,9 @@ assert_check_stderr() {
   fi
 }
 
-# ------------------------------------------------------------------
-# 1. The primary export the module is named for
-# ------------------------------------------------------------------
 echo
 echo "## primary export"
 
-# The api.test.ts shape: imports a secondary export, copies the rest.
 cat >"$FIXTURES/web/src/lib/client.test.ts" <<'EOF'
 import { describe, it, expect } from 'vitest';
 import { QUERY_SERIALIZER } from './client';
@@ -129,7 +105,6 @@ EOF
 assert_check "test importing only a secondary export: refused" web/src/lib/client.test.ts 1
 assert_check_stderr "refusal names the unbound primary export" "client"
 
-# Binding the primary export clears it.
 cat >"$FIXTURES/web/src/lib/client.test.ts" <<'EOF'
 import { describe, it, expect } from 'vitest';
 import { client, QUERY_SERIALIZER } from './client';
@@ -143,7 +118,6 @@ describe('client', () => {
 EOF
 assert_check "test binding the primary export: allowed" web/src/lib/client.test.ts 0
 
-# A namespace import reaches every export, including the primary one.
 cat >"$FIXTURES/web/src/lib/client.test.ts" <<'EOF'
 import { describe, it, expect } from 'vitest';
 import * as mod from './client';
@@ -157,7 +131,6 @@ EOF
 assert_check "namespace import: allowed" web/src/lib/client.test.ts 0
 rm -f "$FIXTURES/web/src/lib/client.test.ts"
 
-# A hyphenated module name resolves to its camel-case export.
 cat >"$FIXTURES/web/src/lib/format-one.ts" <<'EOF'
 export function formatOne(n: number): string {
   return String(n);
@@ -187,7 +160,6 @@ EOF
 assert_check "hyphenated module, export copied into the test: refused" web/src/lib/format-one.test.ts 1
 rm -f "$FIXTURES/web/src/lib/format-one.ts" "$FIXTURES/web/src/lib/format-one.test.ts"
 
-# A component module: the export carries the file's own name.
 cat >"$FIXTURES/web/src/features/Panel.test.tsx" <<'EOF'
 import { it, expect } from 'vitest';
 import { render } from '@testing-library/react';
@@ -200,7 +172,6 @@ EOF
 assert_check "component test binding its component: allowed" web/src/features/Panel.test.tsx 0
 rm -f "$FIXTURES/web/src/features/Panel.test.tsx"
 
-# No sibling module of that name: nothing to assert, so nothing is refused.
 cat >"$FIXTURES/web/src/lib/nothing-beside-it.test.ts" <<'EOF'
 import { it, expect } from 'vitest';
 
@@ -211,7 +182,6 @@ EOF
 assert_check "test with no sibling module: allowed" web/src/lib/nothing-beside-it.test.ts 0
 rm -f "$FIXTURES/web/src/lib/nothing-beside-it.test.ts"
 
-# A module whose exports are all named something else: no primary export to bind.
 cat >"$FIXTURES/web/src/lib/helpers.test.ts" <<'EOF'
 import { it, expect } from 'vitest';
 import { formatOne } from './helpers';
@@ -223,9 +193,6 @@ EOF
 assert_check "module with no same-named export: allowed" web/src/lib/helpers.test.ts 0
 rm -f "$FIXTURES/web/src/lib/helpers.test.ts"
 
-# ------------------------------------------------------------------
-# 2. Global and prototype reassignment
-# ------------------------------------------------------------------
 echo
 echo "## un-restored global and prototype reassignment"
 
@@ -281,7 +248,6 @@ it('answers from the stub', async () => {
 EOF
 assert_check "global reassignment with no restore: refused" web/src/lib/layout.test.ts 1
 
-# Comparison is not assignment.
 cat >"$FIXTURES/web/src/lib/layout.test.ts" <<'EOF'
 import { it, expect } from 'vitest';
 
@@ -293,16 +259,12 @@ EOF
 assert_check "reading a global: allowed" web/src/lib/layout.test.ts 0
 rm -f "$FIXTURES/web/src/lib/layout.test.ts"
 
-# A non-test file is out of scope even when it assigns a global.
 cat >"$FIXTURES/web/src/lib/setup.ts" <<'EOF'
 globalThis.fetch = async () => new Response('{}');
 EOF
 assert_check "non-test file assigning a global: out of scope" web/src/lib/setup.ts 0
 rm -f "$FIXTURES/web/src/lib/setup.ts"
 
-# ------------------------------------------------------------------
-# 3. The hook in front of the analyser
-# ------------------------------------------------------------------
 echo
 echo "## pretooluse-test-value-guard.sh"
 
@@ -365,7 +327,6 @@ print(json.dumps({"file_path": "web/src/lib/client.test.ts", "content": sys.argv
 run_hook "$envelope"
 assert_hook "Write of a test binding the primary export: allow" 0
 
-# An Edit is judged on the file the edit produces, not on the fragment.
 cat >"$FIXTURES/web/src/lib/client.test.ts" <<'EOF'
 import { it, expect } from 'vitest';
 import { client } from './client';
@@ -391,9 +352,6 @@ envelope="$(build_envelope Write '{"file_path":"docs/infrastructure/Testing.md",
 run_hook "$envelope"
 assert_hook "Markdown describing the patterns: allow" 0
 
-# ------------------------------------------------------------------
-# 4. The repo-wide sweep
-# ------------------------------------------------------------------
 echo
 echo "## repo sweep"
 

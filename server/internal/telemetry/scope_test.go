@@ -23,8 +23,7 @@ func TestVictoriaMetricsReadsStayBehindScopedClient(t *testing.T) {
 	}
 }
 
-// skipTelemetryScanDirs prunes packages that legitimately hold the scoped VM
-// client itself (telemetry) or the test harness (testvm).
+// skipTelemetryScanDirs prunes the telemetry and testvm packages from the scan.
 func skipTelemetryScanDirs(d os.DirEntry) error {
 	if d.Name() == "telemetry" || d.Name() == "testvm" {
 		return filepath.SkipDir
@@ -32,8 +31,8 @@ func skipTelemetryScanDirs(d os.DirEntry) error {
 	return nil
 }
 
-// assertNoDirectVMQuery fails if a production Go file reaches VictoriaMetrics'
-// export/query endpoints directly instead of through telemetry.VMClient.
+// assertNoDirectVMQuery fails when a production Go file reaches the export or query
+// endpoints without telemetry.VMClient.
 func assertNoDirectVMQuery(t *testing.T, path string) error {
 	t.Helper()
 	if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {

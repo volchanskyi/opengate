@@ -7,17 +7,8 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Each engine that loads on one lazy route gets a stable chunk name, so
-        // it is budgeted and regression-gated on its own rather than inside the
-        // total the application's own routes are measured by. Both are large,
-        // both are a single dependency, and neither is on the first-paint path:
-        // uPlot loads on the device-detail route, xterm on the session route.
-        //
-        // Splitting is not an exemption — a named chunk carries its own limit in
-        // .size-limit.json, which scripts/tests/bundle-budget-coverage.test.sh
-        // holds it to. What it buys is attribution: a regression in the routes
-        // stops being hidden under a dependency nobody changed, and a dependency
-        // that grew stops spending the routes' headroom.
+        // uPlot and xterm each load on one lazy route; named chunks give each its own size limit
+        // in .size-limit.json, so route regressions are not hidden under an unchanged dependency.
         manualChunks(id: string) {
           if (id.includes('node_modules/uplot')) return 'charts'
           if (id.includes('node_modules/@xterm')) return 'terminal'

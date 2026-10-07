@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-// seedOwner inserts a user we can use as Site.OwnerID without exercising
-// auth-aggregate-specific helpers.
 func seedOwner(t *testing.T, ctx context.Context, store *db.PostgresStore) uuid.UUID {
 	t.Helper()
 	u := testutil.SeedUser(t, ctx, store)

@@ -1,27 +1,5 @@
 #!/usr/bin/env bash
-# Read every leg of the scaling sweep together, publish the curve, and fail when
-# the sweep did not measure its own variable.
-#
-# The sweep runs the same profile against a server given a different processor
-# share each time. Four bundles a night were produced and nothing had ever
-# compared them: the workflow's two jobs read none of each other's output, there
-# was no publish step, no trend and no gate, and the uploads were set to warn on
-# an empty file set. A sweep nobody reads is four runs that happen to share a
-# profile.
-#
-# What it refuses is the shape the 2026-09-05 sweep actually had. All four legs
-# came back with identical phase results — offered equal to achieved, latency
-# absent, no errors, no faults — and a target fingerprint of one processor and
-# one byte on every rung. A comparison between processor counts whose legs
-# report the same processor count, or the same numbers, is not a comparison.
-#
-# What it deliberately does not refuse is a curve that fails to rise. One night
-# is one sample per rung, and the two nights on record disagreed about the shape
-# from the same code and the same profile — so a gate asserting the curve moves
-# with the variable would have failed one of them and passed the other. The
-# shape is published for a reader; only the sweep's ability to measure at all is
-# enforced.
-#
+# Reads every leg of the scaling sweep, publishes the curve, and fails when the legs are identical.
 # Usage: perf-scaling-curve.sh <directory holding the legs>
 set -euo pipefail
 
@@ -29,9 +7,7 @@ usage() {
   echo "usage: $0 <directory holding the legs' bundles>" >&2
 }
 
-# minimumLegs is what a curve needs to be one. Two points is the fewest that can
-# differ; a single leg is a run, and reporting it as a sweep is how a sweep
-# comes to be missing three of its rungs without anything saying so.
+# Two points is the fewest a curve needs to differ.
 MINIMUM_LEGS=2
 
 main() {
@@ -75,10 +51,7 @@ main() {
   return 0
 }
 
-# read_leg turns one bundle into a row of the curve: the processor share the
-# server was given, what the machines waited, and what the server did with the
-# allowance. A leg that measured nothing is refused here rather than averaged
-# into a shape it says nothing about.
+# read_leg turns one bundle into a tab-separated curve row and refuses a leg that measured nothing.
 read_leg() {
   local path="$1" row
 
@@ -109,10 +82,7 @@ read_leg() {
     return 1
   fi
 
-  # The technician half. The sweep holds the technician load constant and varies
-  # the processors, so a rung with no technician reading is a rung where the
-  # thing being held constant was not offered at all — which is how the curve
-  # came to be flat from one processor upwards while every leg looked fine.
+  # The sweep holds technician load constant, so a rung without a technician reading is refused.
   local journey
   journey="$(cut -f6 <<<"$row")"
   if [ "$journey" = "absent" ]; then
@@ -123,9 +93,7 @@ read_leg() {
   printf '%s\n' "$row"
 }
 
-# publish_curve prints the shape for a reader. It is the whole point of the
-# aggregation: the enforcement below only says the sweep could measure, and what
-# the sweep is for is the shape.
+# publish_curve prints the curve as a Markdown table.
 publish_curve() {
   local rows="$1"
   echo "### Scaling sweep"
@@ -136,11 +104,7 @@ publish_curve() {
   echo
 }
 
-# check_rungs_are_distinct refuses a sweep whose legs report the same processor
-# share. Every latency figure is a property of the pair that produced it, so
-# four bundles naming one processor each are four runs of the same rung however
-# the matrix was written — which is exactly what a fingerprint of one processor
-# and one byte on every leg produced.
+# check_rungs_are_distinct refuses a sweep in which two legs report the same processor share.
 check_rungs_are_distinct() {
   local rows="$1" rungs unique total
   rungs="$(awk -F'\t' 'NF == 6 { print $1 }' <<<"$rows")"
@@ -153,9 +117,7 @@ check_rungs_are_distinct() {
   fi
 }
 
-# check_legs_are_not_identical refuses a sweep whose legs all came back saying
-# the same thing. A comparison between rungs that produced one answer measured
-# something other than the rungs.
+# check_legs_are_not_identical refuses a sweep whose legs all report the same readings.
 check_legs_are_not_identical() {
   local rows="$1" readings unique
   readings="$(awk -F'\t' 'NF == 6 { print $3 "\t" $4 "\t" $5 "\t" $6 }' <<<"$rows")"

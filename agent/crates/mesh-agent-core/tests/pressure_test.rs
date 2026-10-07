@@ -1,10 +1,5 @@
-//! Kernel pressure-stall (PSI) reader — the five Linux-only stall vitals.
-//!
-//! Every test drives the reader against a fixture filesystem root it builds
-//! itself. None of them reads the host's `/proc`: the reference host has PSI, so
-//! a host-reading test would pass here and prove nothing about a host without
-//! it — and the whole point of this reader is what it answers on a host that
-//! cannot supply the reading.
+//! Kernel pressure-stall (PSI) reader tests.
+//! Every test reads a fixture filesystem root, never the host's `/proc`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,22 +7,16 @@ use std::path::{Path, PathBuf};
 use mesh_agent_core::ml::pressure::{PressureReader, PressureSupport};
 use tempfile::TempDir;
 
-/// A `/proc/pressure/cpu` in the kernel's own text. The `full` line carries a
-/// value no other line has, so a reader that mistakenly took it is caught by
-/// value: the kernel defines CPU `full` as always zero and the contract omits
-/// it.
+/// The kernel defines CPU `full` as zero, so a distinct value here catches a reader taking it.
 const CPU_PRESSURE: &str = "some avg10=0.00 avg60=0.18 avg300=0.48 total=3735977\n\
                             full avg10=9.99 avg60=9.99 avg300=9.99 total=999\n";
 
-/// A `/proc/pressure/memory` under real reclaim pressure.
 const MEMORY_PRESSURE: &str = "some avg10=0.11 avg60=1.23 avg300=0.45 total=12345678\n\
                                full avg10=0.05 avg60=0.67 avg300=0.12 total=7654321\n";
 
-/// A `/proc/pressure/io` from a device that is stalling readers.
 const IO_PRESSURE: &str = "some avg10=0.46 avg60=5.31 avg300=2.48 total=10161629\n\
                            full avg10=0.46 avg60=5.29 avg300=2.45 total=9929348\n";
 
-/// Write `contents` to `rel` under `root`, creating the intermediate directories.
 fn put(root: &Path, rel: &str, contents: &str) {
     let path = root.join(rel);
     fs::create_dir_all(path.parent().expect("a fixture file has a parent"))
@@ -35,8 +24,6 @@ fn put(root: &Path, rel: &str, contents: &str) {
     fs::write(&path, contents).expect("write the fixture file");
 }
 
-/// A fixture root shaped like a PSI-capable host outside any container: a root
-/// cgroup and the three `/proc/pressure` files.
 fn host_root() -> TempDir {
     let dir = tempfile::tempdir().expect("a temp fixture root");
     put(dir.path(), "proc/self/cgroup", "0::/\n");
@@ -46,7 +33,6 @@ fn host_root() -> TempDir {
     dir
 }
 
-/// The three host pressure paths under a fixture root.
 fn host_paths(root: &Path) -> [PathBuf; 3] {
     [
         root.join("proc/pressure/cpu"),
@@ -55,9 +41,6 @@ fn host_paths(root: &Path) -> [PathBuf; 3] {
     ]
 }
 
-/// B5: each of the five vitals is the `avg60` field of its own line — the
-/// kernel has already averaged over exactly the 60 s the vitals cadence
-/// publishes, so the reading needs no further reduction.
 #[test]
 fn reads_avg60_for_every_stall_vital() {
     let root = host_root();
@@ -73,9 +56,6 @@ fn reads_avg60_for_every_stall_vital() {
     assert_eq!(reading.io_full, Some(5.29));
 }
 
-/// The contract carries no `stall.cpu.full`: the kernel defines it as always
-/// zero, so publishing it would spend a central series on a constant. The
-/// fixture's CPU `full` line reads 9.99, a value no vital may take.
 #[test]
 fn the_cpu_full_line_is_never_read() {
     let root = host_root();
@@ -93,9 +73,6 @@ fn the_cpu_full_line_is_never_read() {
     }
 }
 
-/// B11: a host whose kernel publishes no pressure information reports
-/// `Unsupported` and no readings at all. A zero here would read as "never
-/// stalled" — a claim about a measurement the host cannot make.
 #[test]
 fn a_host_without_psi_is_unsupported_and_reports_nothing() {
     let root = tempfile::tempdir().expect("a temp fixture root");
@@ -113,9 +90,6 @@ fn a_host_without_psi_is_unsupported_and_reports_nothing() {
     assert_eq!(reading.io_full, None);
 }
 
-/// An empty root has neither the pressure files nor `/proc/self/cgroup`; the
-/// missing cgroup file must not be mistaken for a container, and the absent
-/// pressure files must not panic the reader.
 #[test]
 fn a_root_with_no_proc_at_all_is_unsupported() {
     let root = tempfile::tempdir().expect("a temp fixture root");
@@ -126,9 +100,6 @@ fn a_root_with_no_proc_at_all_is_unsupported() {
     assert_eq!(reader.read().cpu_some, None);
 }
 
-/// I5: every malformed shape a pressure file can take yields no reading rather
-/// than a panic or a half-parsed number — and it costs only its own vital, so a
-/// truncated CPU file never silences memory and I/O.
 #[test]
 fn malformed_pressure_costs_only_its_own_vital() {
     let cases = [
@@ -169,10 +140,6 @@ fn malformed_pressure_costs_only_its_own_vital() {
     }
 }
 
-/// A stall vital is a percentage of time. A value outside `[0, 100]` is not one,
-/// so it is no reading at all — clamping it would publish a number the kernel
-/// never measured, and 0 in particular is the "never stalled" answer this
-/// reader must never invent.
 #[test]
 fn a_value_outside_the_percentage_range_is_not_a_reading() {
     for text in [
@@ -186,8 +153,6 @@ fn a_value_outside_the_percentage_range_is_not_a_reading() {
     }
 }
 
-/// The ends of the range are real readings: a host that never stalled reads 0
-/// and a host that stalled throughout reads 100.
 #[test]
 fn the_ends_of_the_percentage_range_are_real_readings() {
     let root = host_root();
@@ -210,8 +175,6 @@ fn the_ends_of_the_percentage_range_are_real_readings() {
     assert_eq!(reading.io_full, Some(100.0));
 }
 
-/// Some kernels publish only the `some` line for a resource. That is a present
-/// `some` vital and an absent `full` one, not a failed read of the file.
 #[test]
 fn a_kernel_that_omits_the_full_line_still_reports_some() {
     let root = host_root();
@@ -227,8 +190,6 @@ fn a_kernel_that_omits_the_full_line_still_reports_some() {
     assert_eq!(reading.mem_full, None, "an absent line is an absent vital");
 }
 
-/// One unreadable file costs only the vitals it carries. A kernel exposing CPU
-/// and memory pressure but not I/O still reports four of the five.
 #[test]
 fn a_missing_file_leaves_only_its_own_vitals_absent() {
     let root = host_root();
@@ -243,10 +204,6 @@ fn a_missing_file_leaves_only_its_own_vitals_absent() {
     assert_eq!(reading.io_full, None);
 }
 
-/// E26: an agent inside a container measures its **own** pressure. The chosen
-/// paths are asserted, not just the values — a containerized agent reporting the
-/// host's stall figures as its own is the silent-wrong-answer class this
-/// program exists to remove, and identical values would hide it.
 #[test]
 fn a_containerized_agent_reads_its_own_cgroup() {
     let root = host_root();
@@ -288,8 +245,6 @@ fn a_containerized_agent_reads_its_own_cgroup() {
     assert_eq!(reading.io_full, Some(55.0));
 }
 
-/// An agent at the root cgroup is not containerized: it reads the host's
-/// pressure files, which are its own.
 #[test]
 fn an_agent_at_the_root_cgroup_reads_the_host() {
     let root = host_root();
@@ -304,9 +259,6 @@ fn an_agent_at_the_root_cgroup_reads_the_host() {
     assert_eq!(reader.read().cpu_some, Some(0.18));
 }
 
-/// A container whose cgroup publishes no pressure files reports `Unsupported`.
-/// Falling back to `/proc/pressure` would attribute the host's stalls — every
-/// neighbouring container's included — to this agent.
 #[test]
 fn a_container_without_cgroup_pressure_never_falls_back_to_the_host() {
     let root = host_root();
@@ -328,9 +280,6 @@ fn a_container_without_cgroup_pressure_never_falls_back_to_the_host() {
     assert_eq!(reading.io_some, None, "the host's 5.31 is not this agent's");
 }
 
-/// A cgroup v1 hierarchy has no unified `0::` line and no per-cgroup pressure
-/// files. Such a host is not a container for this purpose and reads the host's
-/// pressure.
 #[test]
 fn a_cgroup_v1_hierarchy_reads_the_host() {
     let root = host_root();
@@ -347,8 +296,6 @@ fn a_cgroup_v1_hierarchy_reads_the_host() {
     assert_eq!(reader.read().cpu_some, Some(0.18));
 }
 
-/// A kernel that publishes no `/proc/self/cgroup` at all is not a container
-/// either — an unreadable cgroup file must not silence the host's vitals.
 #[test]
 fn a_host_without_a_cgroup_file_reads_the_host() {
     let root = host_root();

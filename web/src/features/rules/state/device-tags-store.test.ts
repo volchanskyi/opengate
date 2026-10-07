@@ -85,8 +85,6 @@ describe('device-tags-store', () => {
 });
 
 describe('device-tags-store refusals and scoping', () => {
-  // A label list that could not be read stays empty rather than half-written:
-  // a partial catalogue would show machines carrying labels that are not there.
   it('leaves the catalogue alone when it cannot be read', async () => {
     useDeviceTagsStore.setState({ labels: catalogue().data.labels });
     mockedGet.mockResolvedValue(inUse() as never);
@@ -97,8 +95,6 @@ describe('device-tags-store refusals and scoping', () => {
     expect(useDeviceTagsStore.getState().error).toContain('aimed at');
   });
 
-  // Every write re-reads the list, so a refused write must not re-read: the
-  // refetch is what tells the screen the change landed.
   it('does not re-read the list when a label is refused', async () => {
     mockedPost.mockResolvedValue(inUse() as never);
 
@@ -128,9 +124,6 @@ describe('device-tags-store refusals and scoping', () => {
     expect(mockedGet).toHaveBeenCalledTimes(1);
   });
 
-  // Labels belong to a customer. With one on screen the reads and writes have
-  // to name it, or an operator holding several customers would file Contoso's
-  // label against whichever one the server picked.
   it('names the customer on screen in the reads and writes that carry one', async () => {
     useOrganizationStore.setState({ selectedOrganizationId: 'org-9' });
     mockedGet.mockResolvedValue(catalogue() as never);

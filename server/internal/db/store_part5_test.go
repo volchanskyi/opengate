@@ -25,10 +25,8 @@ func beginTenantTxAsRole(t *testing.T, ctx context.Context, db *sql.DB, roleName
 	return tx
 }
 
-// setRehearsalTenantScopeSQL sets both tenant scope settings the migration chain
-// uses: the policies read app.current_org through the early steps and
-// app.current_tenant from the tenancy rename onward, and the rehearsal probes
-// the same schema on both sides of that step.
+// setRehearsalTenantScopeSQL sets app.current_org, read before the tenancy rename, and
+// app.current_tenant, read after it.
 const setRehearsalTenantScopeSQL = `SELECT set_config('app.current_org', $1, true),
 	                                       set_config('app.current_tenant', $1, true),
 	                                       set_config('app.is_admin', $2, true)`
@@ -48,7 +46,7 @@ func runMigrationSteps(t *testing.T, dbURL string, steps int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	db := openRehearsalDB(t, ctx, dbURL)
-	defer db.Close() //nolint:errcheck // test cleanup
+	defer db.Close()
 
 	migration := newTestMigrator(t, db)
 	require.NoError(t, migration.Steps(steps))
@@ -59,7 +57,7 @@ func assertMigrationNoChange(t *testing.T, dbURL string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	db := openRehearsalDB(t, ctx, dbURL)
-	defer db.Close() //nolint:errcheck // test cleanup
+	defer db.Close()
 
 	migration := newTestMigrator(t, db)
 	err := migration.Up()
@@ -86,7 +84,7 @@ func seedPreTenancyRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	enrollmentTokenID := uuid.MustParse("00000000-0000-0000-0000-000000000105")
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
-	defer tx.Rollback() //nolint:errcheck // harmless after Commit
+	defer tx.Rollback()
 	rehearsalExec(t, ctx, tx, `INSERT INTO users (id, email, password_hash) VALUES ($1, 'rehearsal-a@example.com', 'hash')`, defaultUserID)
 	rehearsalExec(t, ctx, tx, `INSERT INTO groups_ (id, name, owner_id) VALUES ($1, 'rehearsal-a', $2)`, defaultSiteID, defaultUserID)
 	rehearsalExec(t, ctx, tx, `INSERT INTO devices (id, group_id, hostname) VALUES ($1, $2, 'rehearsal-a')`, defaultDeviceID, defaultSiteID)

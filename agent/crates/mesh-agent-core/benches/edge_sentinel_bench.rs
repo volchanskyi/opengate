@@ -43,9 +43,7 @@ fn bench_sysinfo_sampler_capture(c: &mut Criterion) {
     });
 }
 
-/// Edge redaction hot path: the per-line secret scrub applied to every raw log
-/// line before a response leaves the device. Benchmarked over a secret-dense
-/// mix so the recorded cost reflects the worst realistic case.
+/// Measures the per-line secret scrub over a secret-dense mix of log lines.
 fn bench_log_line_redaction(c: &mut Criterion) {
     let lines = [
         "level=info msg=\"request\" auth=\"Bearer abcDEF012345_tok\"",
@@ -101,14 +99,11 @@ fn current_rss_kib() -> usize {
     resident_pages * 4
 }
 
-/// Assembling and packing what an alert carries, at the moment it fires.
-///
-/// This runs on a machine that is already in trouble — a rule only fires
-/// because something is wrong — so its cost is the one number that matters
-/// about the alert path on the endpoint. It is measured over the composition
-/// the contract states rather than a small one: eight ranked dimensions, three
-/// of them carrying their readings, ten processes and twenty log lines, all of
-/// which are redacted on the way in and then compressed.
+/// The second the benchmarked alert fires at.
+const FIRE_TS: i64 = 1_763_000_000;
+
+/// Measures assembling and packing a full alert: eight ranked dimensions (three with readings),
+/// ten processes and twenty log lines.
 fn bench_alert_evidence_at_fire_time(c: &mut Criterion) {
     let ranked: Vec<Ranked> = (0..RANKED_DIMS)
         .map(|i| Ranked {
@@ -122,8 +117,7 @@ fn bench_alert_evidence_at_fire_time(c: &mut Criterion) {
         })
         .collect();
 
-    // Each series carries the whole span the contract allows, so the recorded
-    // cost is the composition's ceiling rather than a quiet machine's floor.
+    // Each series carries its full allowance, one reading a second centred on the event.
     let readings: Vec<DimSeries> = ranked
         .iter()
         .take(SERIES_DIMS)
@@ -131,7 +125,7 @@ fn bench_alert_evidence_at_fire_time(c: &mut Criterion) {
             dim: r.dim.clone(),
             points: (0..SERIES_MAX_POINTS)
                 .map(|i| HistoryPoint {
-                    ts: i as i64,
+                    ts: FIRE_TS - SERIES_MAX_POINTS as i64 / 2 + i as i64,
                     value: 40.0 + (i as f64 % 17.0),
                 })
                 .collect(),
@@ -149,8 +143,7 @@ fn bench_alert_evidence_at_fire_time(c: &mut Criterion) {
         })
         .collect();
 
-    // Secret-dense, because redaction is the expensive half and a host in
-    // trouble is exactly the host writing lines like these.
+    // Each line carries a bearer token, a URL credential and an AWS key.
     let log_lines: Vec<String> = (0..LOG_SAMPLES)
         .map(|i| {
             format!(
@@ -167,18 +160,14 @@ fn bench_alert_evidence_at_fire_time(c: &mut Criterion) {
                 readings: &readings,
                 processes: &processes,
                 log_lines: &log_lines,
-                event_ts: 1_763_000_000,
+                event_ts: FIRE_TS,
             }));
             black_box(packed.bytes.len())
         })
     });
 }
 
-/// The same job for a finding raised over stored history, which carries one
-/// dimension's readings and nothing else. It is the cheaper of the two and runs
-/// far more often — a first scan over months of history raises everything the
-/// rule would have caught — so it gets its own reading rather than being
-/// inferred from the one above.
+/// Measures packing a finding raised over stored history, which carries one dimension's readings.
 fn bench_finding_evidence_over_history(c: &mut Criterion) {
     let points: Vec<HistoryPoint> = (0..SERIES_MAX_POINTS)
         .map(|i| HistoryPoint {

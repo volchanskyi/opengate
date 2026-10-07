@@ -20,12 +20,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// How far a rule has been rolled out, and the stop that ends it — through the
-// path a machine actually gets its rules on.
-
-// countingFleet answers with a fixed estate size and records how often it was
-// asked, so a case can prove the count is read for a customer mid-rollout and
-// for nobody else.
+// countingFleet answers with a fixed estate size and records how often it was asked.
 type countingFleet struct {
 	size  int
 	calls int
@@ -47,8 +42,7 @@ func stagedAt(org uuid.UUID, percent int) map[uuid.UUID]map[string]rules.Rollout
 	return map[uuid.UUID]map[string]rules.Rollout{org: {"disk-critical": r}}
 }
 
-// machinesWithTheDiskRule counts how many of an estate the staged rule reached,
-// asking the provider once per machine exactly as a reconnect would.
+// machinesWithTheDiskRule counts the machines of an estate that receive the disk rule.
 func machinesWithTheDiskRule(t *testing.T, p *CatalogueAlertRuleProvider, org uuid.UUID, estate int) int {
 	t.Helper()
 	count := 0
@@ -65,39 +59,23 @@ func machinesWithTheDiskRule(t *testing.T, p *CatalogueAlertRuleProvider, org uu
 	return count
 }
 
-// The pace a rule reaches an estate at, written out rather than read back from
-// the code under test. Asking rules.StagePopulation what to expect makes the
-// assertion agree with whatever that function returns, including "everyone" —
-// which is the one answer this test exists to refuse.
 const (
-	// A two-hundred-machine estate: large enough that a tenth of it is well
-	// clear of the floor, small enough that a hundredth of it is not.
+	// A tenth of this estate is well above the canary floor and a hundredth is below it.
 	rolloutEstate = 200
-	// rules.DefaultRollout's shipped pace.
 	canaryPercent = 1
 	stagedPercent = 10
-	// The fewest machines a partial stage runs on. A hundredth of two hundred
-	// is two, and two machines proving a rule proves nothing.
+	// The fewest machines a partial stage runs on.
 	canaryFloorMachines = 5
-	// Membership is decided by hashing each machine against the rule, so the
-	// count a stage realises sits near the population it aims at rather than
-	// exactly on it. These widths keep both assertions meaningful: a canary
-	// must still be a handful, and the staged step must still be a tenth
-	// rather than the estate.
+	// Stage membership is hashed per machine, so the realised count varies around its target.
 	canarySlack = 3.0
 	stagedSlack = 6.0
 )
 
-// A rule being tried reaches the machines its stage covers and no others. The
-// whole mitigation for a bad curated rule is that the first hour of it costs a
-// handful of endpoints rather than the estate.
 func TestStagedRuleReachesOnlyItsStage(t *testing.T) {
 	t.Parallel()
 
 	org := uuid.New()
 
-	// A canary on this estate is the floor rather than the percentage: a
-	// hundredth of two hundred machines is two, and the floor is five.
 	canary := newRolloutProvider(t,
 		&fakeRuleConfig{rollouts: stagedAt(org, canaryPercent)}, &countingFleet{size: rolloutEstate})
 	got := machinesWithTheDiskRule(t, canary, org, rolloutEstate)
@@ -105,8 +83,6 @@ func TestStagedRuleReachesOnlyItsStage(t *testing.T) {
 		"a canary aims at the %d-machine floor of %d and reached %d",
 		canaryFloorMachines, rolloutEstate, got)
 
-	// The staged step is a tenth of the estate — more than the canary, and
-	// nowhere near everybody.
 	staged := newRolloutProvider(t,
 		&fakeRuleConfig{rollouts: stagedAt(org, stagedPercent)}, &countingFleet{size: rolloutEstate})
 	gotStaged := machinesWithTheDiskRule(t, staged, org, rolloutEstate)
@@ -115,16 +91,12 @@ func TestStagedRuleReachesOnlyItsStage(t *testing.T) {
 	assert.Greater(t, gotStaged, got, "the staged step reaches more machines than the canary")
 	assert.Less(t, gotStaged, rolloutEstate, "a staged rule is not the estate")
 
-	// And full reach is everyone, so a stage short of it is a real distinction
-	// rather than the same answer under three names.
 	full := newRolloutProvider(t,
 		&fakeRuleConfig{rollouts: stagedAt(org, 100)}, &countingFleet{size: rolloutEstate})
 	assert.Equal(t, rolloutEstate, machinesWithTheDiskRule(t, full, org, rolloutEstate),
 		"a rule at full reach is on every machine")
 }
 
-// The rest of the pack is untouched by one rule being staged: a machine outside
-// the canary is still watched by everything else.
 func TestStagingOneRuleLeavesTheRestOfThePack(t *testing.T) {
 	t.Parallel()
 
@@ -141,9 +113,6 @@ func TestStagingOneRuleLeavesTheRestOfThePack(t *testing.T) {
 	assert.Contains(t, got, "cpu-saturated", "and is still watched by the rest of the pack")
 }
 
-// Sizing a stage costs a count of the customer's estate, so it is read for the
-// customers who are mid-rollout and for nobody else — which is every customer,
-// on every reconnect, until somebody stages something.
 func TestTheEstateIsCountedOnlyForACustomerMidRollout(t *testing.T) {
 	t.Parallel()
 
@@ -159,9 +128,6 @@ func TestTheEstateIsCountedOnlyForACustomerMidRollout(t *testing.T) {
 	assert.Equal(t, 1, partial.calls, "a customer mid-rollout is what the count is for")
 }
 
-// An estate that cannot be counted loses the canary floor and nothing else. The
-// staged rule reaches the share it declares — never the estate, which is what
-// guessing upward on a failed count would do.
 func TestAnUncountableEstateStillGetsItsRules(t *testing.T) {
 	t.Parallel()
 
@@ -179,8 +145,6 @@ func TestAnUncountableEstateStillGetsItsRules(t *testing.T) {
 		"a failed count costs the stage its floor, not the machine its rules")
 }
 
-// A provider with no way to count an estate behaves the same way: the stage is
-// sized from the share alone rather than the rollout being abandoned.
 func TestAProviderWithoutAFleetSourceStillStages(t *testing.T) {
 	t.Parallel()
 
@@ -189,9 +153,6 @@ func TestAProviderWithoutAFleetSourceStillStages(t *testing.T) {
 	assert.Less(t, machinesWithTheDiskRule(t, p, org, 500), 500/10)
 }
 
-// The kill switch, proven on the path that makes it need no deploy: an agent
-// that was offline when the switch was flipped stops the rule as it reconnects,
-// because reconnecting re-resolves what it should be running.
 func TestReconnectStopsAKilledRuleWithoutADeploy(t *testing.T) {
 	t.Parallel()
 
@@ -203,12 +164,9 @@ func TestReconnectStopsAKilledRuleWithoutADeploy(t *testing.T) {
 	config := &fakeRuleConfig{}
 	ac, buf := newRuleConn(t, store, machine.ID, site.ID, config)
 
-	// It connects and is given the whole pack.
 	require.NoError(t, ac.handleRegister(ctx, ruleRegisterMsg()))
 	assert.Contains(t, pushedRules(t, ac, buf), "disk-critical")
 
-	// The rule starts degrading machines and is killed while this one is
-	// offline. No deploy, no restart — one row.
 	killed := rules.DefaultRollout(site.OrganizationID, "disk-critical")
 	killed.Kill = true
 	config.rollouts = map[uuid.UUID]map[string]rules.Rollout{
@@ -222,8 +180,6 @@ func TestReconnectStopsAKilledRuleWithoutADeploy(t *testing.T) {
 	assert.Contains(t, got, "cpu-saturated", "and keeps everything that was not killed")
 }
 
-// The other half of "whichever is sooner": a machine that is already connected
-// stops the rule at the next push of its ruleset, without waiting to reconnect.
 func TestAConnectedAgentStopsAKilledRuleAtTheNextPush(t *testing.T) {
 	t.Parallel()
 
@@ -245,7 +201,7 @@ func TestAConnectedAgentStopsAKilledRuleAtTheNextPush(t *testing.T) {
 	assert.Contains(t, got, "cpu-saturated")
 }
 
-// mustCatalogue is the shipped pack, which every case here resolves against.
+// mustCatalogue returns the shipped rule catalogue.
 func mustCatalogue(t *testing.T) *rules.Catalogue {
 	t.Helper()
 	cat, err := rules.Embedded()
@@ -258,9 +214,7 @@ func newRolloutProvider(t *testing.T, store RuleConfigStore, fleet FleetCounter)
 	return NewCatalogueAlertRuleProvider(mustCatalogue(t), store, nil, fleet, nil, testLogger())
 }
 
-// newRuleConn is a connection carrying everything the rule push reads: the
-// machine's own place in the tenancy ladder, read from the database exactly as a
-// live connection reads it.
+// newRuleConn builds a connection whose tenancy ladder is read from the database.
 func newRuleConn(t *testing.T, store *db.PostgresStore, deviceID, siteID uuid.UUID, config RuleConfigStore) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	buf := &bytes.Buffer{}
@@ -278,8 +232,7 @@ func newRuleConn(t *testing.T, store *db.PostgresStore, deviceID, siteID uuid.UU
 	}, buf
 }
 
-// ruleRegisterMsg registers an agent that evaluates threshold rules and collects
-// no inventory, so the ruleset is the only thing the push writes.
+// ruleRegisterMsg registers an agent that evaluates threshold rules and collects no inventory.
 func ruleRegisterMsg() *protocol.ControlMessage {
 	return &protocol.ControlMessage{
 		Type:         protocol.MsgAgentRegister,
@@ -299,17 +252,6 @@ func pushedRules(t *testing.T, ac *AgentConn, buf *bytes.Buffer) map[string]prot
 	return byRuleID(msg.AlertRules)
 }
 
-// --- a rule change reaching machines that are already connected ---
-//
-// A rule runs on a customer's own machines, on processor time they pay for, so
-// a rule that turns out to be wrong has to be stoppable without waiting for
-// anything. That is only true if the change reaches a machine that is already
-// connected: a healthy link is held open indefinitely, so "when it next
-// registers" can be weeks on a stable estate — long enough for an administrator
-// to switch a rule off, watch the screen say Stopped, and have it go on firing
-// every night.
-
-// TestARuleChangeReachesMachinesAlreadyConnected is the switch doing something.
 func TestARuleChangeReachesMachinesAlreadyConnected(t *testing.T) {
 	t.Parallel()
 
@@ -329,8 +271,6 @@ func TestARuleChangeReachesMachinesAlreadyConnected(t *testing.T) {
 	}
 }
 
-// A customer with nobody connected is not an error: every machine picks the
-// change up as it arrives, which is what the offline half has always done.
 func TestARuleChangeWithNobodyConnectedReachesNobody(t *testing.T) {
 	t.Parallel()
 
@@ -340,9 +280,6 @@ func TestARuleChangeWithNobodyConnectedReachesNobody(t *testing.T) {
 		"a customer with no machines on the wire is reached by nobody, and that is not a failure")
 }
 
-// A rule wrong everywhere is stopped everywhere at once, which is the reason
-// the tenant-wide scope exists. It must reach every machine in the tenant and
-// no machine outside it.
 func TestATenantWideChangeReachesEveryMachineInTheTenant(t *testing.T) {
 	t.Parallel()
 
@@ -362,9 +299,6 @@ func TestATenantWideChangeReachesEveryMachineInTheTenant(t *testing.T) {
 		"and a stop in one tenant reaches nobody in another")
 }
 
-// One machine that cannot be written to does not cost the rest their change. A
-// connection breaking mid-push is ordinary, and that machine picks the rule up
-// as it reconnects.
 func TestOneUnreachableMachineDoesNotStopTheOthers(t *testing.T) {
 	t.Parallel()
 
@@ -378,12 +312,10 @@ func TestOneUnreachableMachineDoesNotStopTheOthers(t *testing.T) {
 	assert.False(t, machines[contoso][0].received(protocol.MsgPushAlertRules))
 }
 
-// theTenant is the tenant every machine in the refresh cases belongs to, so a
-// tenant-wide case has something to be wide across.
+// theTenant is the tenant every machine in the refresh cases belongs to.
 var theTenant = uuid.New()
 
-// wiredMachine is one machine on the wire: a connection registered with the
-// server, and the frames written to it.
+// wiredMachine is a connection registered with the server plus the frames written to it.
 type wiredMachine struct {
 	name string
 	conn *AgentConn
@@ -413,9 +345,7 @@ func (m *wiredMachine) received(msgType protocol.ControlMessageType) bool {
 	}
 }
 
-// refusingWriter is a machine's stream, which the case can break. A connection
-// dying mid-push is ordinary, and what matters is that it costs that machine
-// and nobody else.
+// refusingWriter is a machine's stream that a case can break.
 type refusingWriter struct {
 	written bytes.Buffer
 	machine *wiredMachine
@@ -431,9 +361,8 @@ func (w *refusingWriter) Write(p []byte) (int, error) {
 func (w *refusingWriter) Read([]byte) (int, error) { return 0, errors.New("nothing to read") }
 func (w *refusingWriter) Close() error             { return nil }
 
-// connectedFleet brings up a server holding one connection per machine, spread
-// across the customers named. Every machine is in one tenant, because that is
-// what a tenant-wide case is about.
+// connectedFleet brings up a server holding one connection per machine across the named customers,
+// all in one tenant.
 func connectedFleet(t *testing.T, estates map[uuid.UUID]int) (*AgentServer, map[uuid.UUID][]*wiredMachine) {
 	t.Helper()
 
@@ -459,8 +388,6 @@ func connectedFleet(t *testing.T, estates map[uuid.UUID]int) (*AgentServer, map[
 				alertRules: newRolloutProvider(t, &fakeRuleConfig{}, nil),
 				logger:     testLogger(),
 			}
-			// The machine has been given a ruleset once, which is what a
-			// connected machine always has: it is registered.
 			require.NoError(t, machine.conn.pushAlertRules(context.Background()))
 			machine.out.written.Reset()
 

@@ -1,57 +1,5 @@
-# A steady load held long enough for what leaks to show, with the fleet coming
-# and going throughout. Nothing here is meant to be hard; the finding is a trend
-# line that does not flatten — memory, goroutines, open files, pool occupancy,
-# dead rows, series count.
-#
-# Five hours, not eight, and the difference is made up by churn rather than by
-# length. Holding a connection is not work: eight hours of an unchanging fleet
-# finishes five hundred operations, which is a fifth of what an ordinary eight
-# minute night completes, and a leak detector dividing what the target failed to
-# give back by the operations between two readings has almost no denominator to
-# divide by. The ten cycles below end and restart two hundred and fifty machines
-# each, so the same five hours finish two thousand seven hundred and fifty.
-#
-# That figure is measured rather than projected, from soak run 35066887837 of
-# 2026-09-16 — the first of this family to reach its end: 4h44m01s, 2,750
-# machine-lives arriving over an arrival window of 4h30m01s, which is 10.2 a
-# minute, with nothing failing and the target's goroutines going 30 to 28 across
-# the whole of it. A projection had it at five thousand by counting each cycle's
-# whole level rather than what the cycle actually replaces: a cycle climbs from
-# two hundred and fifty to five hundred and falls back, so it offers two hundred
-# and fifty arrivals and not five hundred.
-#
-# What the denominator buys is what it divides. At 2,750 the run read nought
-# retained goroutines per operation, and a handful of goroutines of runtime
-# noise is worth under 0.002 each — three hundred times under the half that
-# fails a run, which is the margin the leak this family exists for would have
-# to cross.
-#
-# The sessions below add to that count, and they are the operation the leak was
-# actually attached to: the defect stranded two goroutines on a session that had
-# finished, not on a machine that had arrived. One to three are held open
-# through every phase and each is opened and closed again about once a second,
-# so the walk finishes tens of thousands of them beside the machine-lives. The
-# harness counts each machine side it answers, so they reach the denominator on
-# their own.
-#
-# The machines that come back are the machines that left. An estate does not
-# grow when a site's link flaps, so neither does this one: a machine enrols when
-# it is first installed and reconnects afterwards with the certificate it
-# already holds. A run that enrolled afresh every time would confound its own
-# endurance question with the volume dimension, and would spend a burst of
-# reconnections against the enrolment ceiling the server enforces on purpose.
-#
-# Five hours also fits inside one job with an hour to spare, where eight does
-# not: a scheduled job is killed at six.
-#
-# It runs on a disposable runner stack rather than on staging. The run owns the
-# whole machine and destroys it, which is what makes the deepest memory
-# technique available — following what actually holds a leaked object needs a
-# debugger attached to the process, and the staging pod drops every capability,
-# runs as a non-root user and has a read-only filesystem.
-#
-# A runner is x86_64 and production is ARM64, so what this produces is a
-# comparison and never an absolute capacity claim about production hardware.
+# A steady load held five hours with the fleet coming and going, so a leak shows as a rising trend.
+# It runs on a disposable x86_64 runner stack, so results compare runs and claim no ARM64 capacity.
 schema_version: 1
 name: soak
 family: soak
@@ -164,55 +112,27 @@ phases:
     operator_arrivals_per_second: 1
     connected_agents: 250
     sessions: 1
-  # A declared wind-down, so a connection torn down by the run ending is not
-  # counted as one the server dropped.
+  # A declared wind-down, so a connection the run ends is not counted as one the server dropped.
   - name: drain
     duration: 2m
     operator_arrivals_per_second: 0
     connected_agents: 0
     sessions: 0
 
-# No processor ceiling. This stack is created by the job and thrown away with
-# it, so there is no neighbour to protect. What is declared is the room the run
-# can still exhaust: past it the machine has nowhere to put what the run
-# produces, which for an endurance run is the failure mode itself.
+# No processor ceiling, since the stack is thrown away with the job.
+# The declared limits keep the room the machine needs to store what the run produces.
 safety:
   max_node_memory_percent: 85
   max_error_rate: 0.01
 
 gates:
-  # What judges this run is its own evidence bundle, and a bundle states the
-  # machine side: a limit naming a browser-side measurement would be held
-  # against a row the reader does not produce. The technician load that runs
-  # beside the fleet is folded into the bundle all the same, and reported there.
-  #
-  # An endurance run is judged on whether the load it applied was the load it
-  # declared, for the whole of the time it claimed. A leak shows as a slope in
-  # the readings rather than as a limit crossed, so nothing here is trying to
-  # catch one — these say the run was real.
-  #
-  # The machines arriving is what this still fails on, and it survives the load
-  # beside it: the volume family made the same change at a harder venue — eight
-  # thousand machines on a whole processor — and its aggregate stayed at nought
-  # across five nights while everything timed beside it moved tenfold. What a
-  # technician load costs is the wait for an operation, not the operation being
-  # refused.
+  # The evidence bundle judges the run, so these limits confirm the declared load was applied.
+  # A leak shows as a slope in the readings, so no limit here tries to catch one.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0.01
     blocking: true
-  # The night that settles this one has now run. The 2,000 ms was bracketed by
-  # nights with nothing beside the fleet at all, and the same change on the
-  # volume family took its comparable figure from about 400 ms to between 4,510
-  # and 9,443 — so the ceiling was reported rather than enforced until nights of
-  # the load this leg now offers existed.
-  #
-  # One does: a valid run of 4h44m with the technician load beside the fleet,
-  # 38,481 completed operations against 2,750 before sessions were added, no
-  # errors, no goroutine growth, and machines connecting in 2 ms. Three orders of
-  # magnitude clear. What that says is that the technician load is not what moves
-  # the connect path, so the figure carries across unchanged and stops being a
-  # number nothing consults.
+  # The ceiling holds under the technician load, which does not move the connect path.
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
     max: 2000

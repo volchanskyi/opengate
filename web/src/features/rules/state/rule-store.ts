@@ -10,19 +10,9 @@ type RuleRolloutInput = components['schemas']['RuleRolloutInput'];
 type RuleStopScope = components['schemas']['RuleStopScope'];
 type ResolvedRule = components['schemas']['ResolvedRule'];
 
-/**
- * One rule's page: what it does, what a customer has tuned, and everything an
- * administrator may change about it.
- *
- * Every write re-reads the rule rather than patching what is on screen. A rule's
- * page shows resolved state — how far it has reached, what it covers, what a
- * version change moved — and none of that can be worked out from the request
- * that was just sent, so a locally-patched page would quietly disagree with the
- * fleet.
- */
+/** One rule's page; every write re-reads the rule because the page shows server-resolved state. */
 interface RuleState {
   detail: RuleDetail | null;
-  /** The rule as one named machine is running it, when somebody has asked. */
   resolved: ResolvedRule | null;
   isLoading: boolean;
   error: string | null;
@@ -38,7 +28,6 @@ interface RuleState {
   acknowledgeClamp: (ruleId: string, clampId: string) => Promise<boolean>;
 }
 
-/** The customer the screen is showing, as a query the server narrows by. */
 function customerQuery(): { organization_id?: string } {
   const organizationId = selectedOrganizationQuery();
   return organizationId ? { organization_id: organizationId } : {};

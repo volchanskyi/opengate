@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
-# Run the Go test suite against ONE shared Postgres and ONE shared
-# VictoriaMetrics.
-#
-# testpg and testvm memoize their container per test BINARY, and `go test ./...`
-# builds one binary per package. With the URLs unset, every Postgres-touching
-# package therefore starts its own throwaway Postgres, and each VictoriaMetrics
-# package its own VM — a dozen-plus containers and their reapers for one run.
-# Provisioning once here and exporting both URLs collapses that to two.
-#
-# Externally-supplied URLs win: CI sets both, and a developer with a long-lived
-# local stack (`make postgres-test-up`) pays no container cost at all.
+# Runs the Go test suite against one shared Postgres and one shared VictoriaMetrics.
+# Externally supplied URLs win, so CI and a long-lived local stack start no containers here.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,26 +8,19 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PG_CONTAINER="opengate-pg-test"
 VM_CONTAINER="opengate-vm-test"
-# Keep these in lockstep with testpg.PostgresImage and testvm's image pin —
-# scripts/tests/test-go-provision.test.sh fails the gauntlet if they drift, so a
-# developer running `make test-go` and one running a bare `go test` never
-# exercise different versions.
+# These equal testpg.PostgresImage and testvm's image pin, which test-go-provision.test.sh holds.
 PG_IMAGE="postgres:17-alpine"
 VM_IMAGE="victoriametrics/victoria-metrics:v1.114.0"
 
 PG_PORT="${OPENGATE_TEST_PG_PORT:-5432}"
 VM_PORT="${OPENGATE_TEST_VM_PORT:-8428}"
 
-# testutil.NewTestStore creates one schema per test for parallel-safe isolation;
-# at default `go test` parallelism the working set of transient connections
-# exceeds the Postgres 100-conn default. Mirrors the ci.yml / mutation.yml setup.
+# testutil.NewTestStore creates one schema per test, and default `go test` parallelism opens more
+# connections than the Postgres default of 100.
 PG_MAX_CONNECTIONS=400
 
-# The lock table is sized once at startup as max_locks_per_transaction ×
-# max_connections, so the per-transaction ceiling has to rise with the
-# connection one: a migration builds the whole schema in a single transaction,
-# and enough of those in flight together exhaust the default 64 and fail with
-# "out of shared memory" rather than anything about the schema.
+# The lock table holds max_locks_per_transaction × max_connections entries, and concurrent
+# migrations, one schema per transaction, exhaust the default 64 with "out of shared memory".
 PG_MAX_LOCKS_PER_TRANSACTION=256
 
 # Containers this run started, and therefore owns the teardown of.

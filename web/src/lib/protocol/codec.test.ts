@@ -27,14 +27,13 @@ describe('encodeFrame', () => {
     const msg: ControlMessage = { type: 'RelayReady' };
     const result = encodeFrame({ type: FRAME_CONTROL, message: msg });
 
-    // [0x01][4-byte BE len][msgpack payload]
+    // Frame layout: [0x01][4-byte BE len][msgpack payload].
     expect(result[0]).toBe(0x01);
 
     const view = new DataView(result.buffer, result.byteOffset);
     const length = view.getUint32(1, false);
     expect(result.length).toBe(5 + length);
 
-    // Payload should be msgpack encoding of {type: "RelayReady"}
     const expectedPayload = encode({ type: 'RelayReady' });
     expect(result.subarray(5)).toEqual(new Uint8Array(expectedPayload));
   });
@@ -68,7 +67,6 @@ describe('encodeFrame', () => {
   it('rejects a payload that encodes larger than MAX_FRAME_SIZE', () => {
     const frame: DesktopFrame = {
       sequence: 1, x: 0, y: 0, width: 1, height: 1, encoding: 'Raw',
-      // A bin just past the cap: msgpack framing pushes the payload over MAX.
       data: new Uint8Array(MAX_FRAME_SIZE + 16),
     };
     expect(() => encodeFrame({ type: FRAME_DESKTOP, frame })).toThrow('frame payload too large');
@@ -113,21 +111,15 @@ describe('decodeFrame', () => {
   });
 
   it('accepts a header that declares exactly MAX_FRAME_SIZE bytes', () => {
-    // Boundary: the limit is `length > MAX_FRAME_SIZE`, so length === MAX_FRAME_SIZE
-    // must NOT throw "frame too large". Constructing the full payload would
-    // allocate ~10MB; instead we let it fail later with "incomplete frame:"
-    // — that proves the size check accepted the boundary.
+    // A header-only buffer passes the size check and fails later as an incomplete frame.
     const data = new Uint8Array(5);
     data[0] = 0x01;
     const view = new DataView(data.buffer);
     view.setUint32(1, MAX_FRAME_SIZE, false);
-    // Should NOT throw "frame too large" — kills the `>` → `>=` boundary mutant.
     expect(() => decodeFrame(data)).toThrow(/incomplete frame/);
   });
 
   it('error message on unknown frame type is hex-padded with leading zero', () => {
-    // typeByte = 0x07 → "07" via padStart(2, '0'). Mutating the pad-char to ""
-    // would yield "7" instead. Pin the exact string.
     expect(() => decodeFrame(new Uint8Array([0x07]))).toThrow('unknown frame type: 0x07');
   });
 
@@ -135,7 +127,7 @@ describe('decodeFrame', () => {
     const data = new Uint8Array(5);
     data[0] = 0x01;
     const view = new DataView(data.buffer);
-    view.setUint32(1, 100, false); // says 100 bytes but only 0 follow
+    view.setUint32(1, 100, false);
     expect(() => decodeFrame(data)).toThrow(/incomplete frame/);
   });
 });

@@ -15,62 +15,23 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// Alert admission. An alert is the only thing that carries the detail behind a
-// signal: the server keeps no high-resolution history to go back to and never
-// asks the device for more. So every alert refused here is an incident that
-// cannot be reconstructed afterwards, and every refusal is counted under its own
-// reason rather than dropped quietly.
-//
-// What the endpoint sends is untrusted input, so the shape is checked before
-// anything is believed: a bounded payload, a severity from the closed set, a
-// complete identity, a rule this build actually ships, timestamps inside the
-// window its own kind of alert is allowed, and evidence that reads back.
-
 const (
-	// alertEnvelopeHeadroomBytes is what the alert's own fields are allowed to
-	// weigh around its evidence — ids, a rule name, a metric label, four
-	// timestamps, and the msgpack keys naming them. Eight kilobytes is far more
-	// than that costs, which is the point: the bound must never be what refuses
-	// an alert carrying the largest evidence the contract allows.
+	// alertEnvelopeHeadroomBytes covers the alert's own fields around its evidence.
 	alertEnvelopeHeadroomBytes = 8 * 1024
 
-	// maxAlertPayloadBytes is the alert path's own bound, sized from the evidence
-	// cap rather than borrowed from the telemetry path. The two happen to name
-	// the same number today (64 KiB), so an alert measured against the telemetry
-	// bound would be refused for carrying exactly the evidence it is supposed to
-	// carry — and "truncate, never reject" would be quietly defeated by a bound
-	// nobody had looked at. Different paths, different risk, different budget.
+	// maxAlertPayloadBytes is sized from the evidence cap so the largest evidence fits.
 	maxAlertPayloadBytes = protocol.MaxEvidenceBytes + alertEnvelopeHeadroomBytes
 
-	// maxEvidenceInflatedBytes bounds what compressed evidence is allowed to
-	// expand to while it is being checked. It is the bound the read path applies
-	// too: a blob admitted here is one somebody opens an incident to read, and
-	// two numbers for one contract would let a blob be storable and unreadable.
+	// maxEvidenceInflatedBytes is the same inflated bound the read path applies.
 	maxEvidenceInflatedBytes = protocol.MaxEvidenceInflatedBytes
 
-	// maxBackfilledAlertBacklog is how far back a finding out of history may
-	// reach. It is how long an alert is kept, not how long a metric sample is:
-	// the two are different facts with different homes, and borrowing the
-	// sample's ninety days here refused most of what a machine's own store can
-	// answer. A device holds months of minute-by-minute history and the whole
-	// point of re-running a new rule over it is to find what it would have
-	// caught, so a finding from five months ago is one a technician can still
-	// open — the retention sweep ages a row from the day it *arrived*, exactly
-	// so that a legitimately old finding gets a full year of somebody's
-	// attention rather than being deleted on the day it lands.
-	//
-	// Past this the alert is refused rather than clamped: the window start is
-	// the alert's identity, and pulling it to a bound would make the same alert
-	// resolve to a different row on every reconnect.
+	// maxBackfilledAlertBacklog is how far back a retroactive finding may reach.
 	maxBackfilledAlertBacklog = 365 * 24 * time.Hour
 
-	// fallbackGroupWindow is how long two firings stay one room when the rule
-	// that raised them cannot be resolved. A quarter of an hour is the shortest
-	// hold any shipped rule declares, so it can only ever under-group.
+	// fallbackGroupWindow is the shortest hold any shipped rule declares, so it only under-groups.
 	fallbackGroupWindow = 15 * time.Minute
 
-	// Why an alert was refused. Each cause is its own label, so a fleet-wide
-	// rollout bug and one misbehaving device never look like the same number.
+	// Each refusal cause is its own label.
 	alertDropPayloadTooLarge      = "alert_payload_too_large"
 	alertDropSeverityUnknown      = "alert_severity_unknown"
 	alertDropIdentityIncomplete   = "alert_identity_incomplete"
@@ -84,27 +45,18 @@ const (
 	alertDropDuplicate            = "alert_duplicate"
 )
 
-// AlertRecorder files one alert into the room its rule groups it into, and
-// reports what became of it. Three outcomes rather than an error and a success:
-// a reconnect replay and a customer's spent budget are both ordinary, and only
-// telling them apart lets each be counted under the reason it deserves.
+// AlertRecorder files one alert into the room its rule groups it into and reports the outcome.
 type AlertRecorder interface {
 	Record(ctx context.Context, alert alerts.Alert, grouping alerts.Grouping) (alerts.Outcome, error)
 }
 
-// handleAgentAlert admits one alert from the device.
-//
-// It returns nil for a refused alert as well as an admitted one: a malformed
-// alert is a fact about that message, not a reason to tear down a control
-// channel that also carries this device's remote-management paths.
+// handleAgentAlert admits one alert and returns nil for a refused one, keeping the channel open.
 func (a *AgentConn) handleAgentAlert(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
 	if payloadLen > maxAlertPayloadBytes {
 		a.dropTelemetry(alertDropPayloadTooLarge, "bytes", payloadLen, "max", maxAlertPayloadBytes)
 		return nil
 	}
-	// Counted as ingested from here on. Everything below either produces a
-	// stored alert or files exactly one typed drop, which is the whole of the
-	// ledger's invariant.
+	// Everything below either stores the alert or files exactly one typed drop.
 	a.acceptedTelemetry(protocol.MsgAgentAlert)
 
 	alert, ok := a.validatedAlert(msg)
@@ -112,24 +64,15 @@ func (a *AgentConn) handleAgentAlert(ctx context.Context, msg *protocol.ControlM
 		return nil
 	}
 
-	// Alerts arrive on the read loop like every other control message, so the
-	// write goes to a bounded slot. A synchronous store write here would stall
-	// the channel that also carries this device's remote-management paths — and
-	// a storm is exactly when that channel matters most.
+	// The write goes to a bounded slot so the read loop never waits on the store.
 	a.persistTelemetry(ctx, 1, func(jobCtx context.Context, _ dbtx.Tenant) error {
 		return a.storeAlert(jobCtx, alert)
 	})
 	return nil
 }
 
-// validatedAlert turns a control message into the alert that would be stored,
-// or refuses it under exactly one typed reason. The customer it belongs to is
-// filled in later, on the slot goroutine, because resolving it reads the
-// database and the read loop must not wait for that.
+// validatedAlert turns a control message into the alert to store, or files one typed drop.
 func (a *AgentConn) validatedAlert(msg *protocol.ControlMessage) (alerts.Alert, bool) {
-	// Severity is always stated on the wire, so an absent one is a broken sender
-	// rather than a quiet device. Reading it as Info would turn a critical alert
-	// into a line nobody looks at.
 	severity, ok := storedSeverity(msg.Severity)
 	if !ok {
 		a.dropTelemetry(alertDropSeverityUnknown, "severity", severityLabel(msg.Severity))
@@ -141,19 +84,11 @@ func (a *AgentConn) validatedAlert(msg *protocol.ControlMessage) (alerts.Alert, 
 			"window_start_ts", msg.WindowStartTS, "window_end_ts", msg.WindowEndTS)
 		return alerts.Alert{}, false
 	}
-	// A rule this build has no definition for cannot be rendered, grouped or
-	// retuned by anything downstream. Stored, it would be a row a technician
-	// can see and nobody can act on.
 	if !a.shipsRule(msg.RuleID) {
 		a.dropTelemetry(alertDropRuleUnknown, "rule_id", msg.RuleID)
 		return alerts.Alert{}, false
 	}
-	// A rule the customer stopped raises nothing in their queue. For a rule
-	// about a reading that is already true, because a stopped rule never
-	// reaches the machine. A rule about the machine's own words is carried by
-	// the machine's own log reader and goes on matching whatever anybody set,
-	// so the stop is applied here — under its own reason, because a customer
-	// switching a rule off and a machine inventing one are different facts.
+	// The machine's log reader keeps matching a stopped rule, so the stop is applied here.
 	if !a.customerWants(msg.RuleID) {
 		a.dropTelemetry(alertDropRuleStopped, "rule_id", msg.RuleID)
 		return alerts.Alert{}, false
@@ -164,10 +99,7 @@ func (a *AgentConn) validatedAlert(msg *protocol.ControlMessage) (alerts.Alert, 
 			"backfilled", isBackfilled(msg))
 		return alerts.Alert{}, false
 	}
-	// Evidence is optional — a device that had nothing to attach still says the
-	// machine is in trouble. Evidence under a codec this build cannot read is
-	// not: storing an unreadable blob beside an alert is worse than storing
-	// none, because it reads as evidence that exists.
+	// Evidence is optional, but a blob this build cannot read is refused.
 	if len(msg.Evidence) > 0 {
 		if msg.EvidenceCodec != protocol.EvidenceCodec {
 			a.dropTelemetry(alertDropEvidenceCodecUnknown, "codec", msg.EvidenceCodec)
@@ -180,9 +112,7 @@ func (a *AgentConn) validatedAlert(msg *protocol.ControlMessage) (alerts.Alert, 
 	}
 
 	return alerts.Alert{
-		// The device's own id, kept so an operator can line a row up against
-		// the agent log that produced it. It is not the alert's identity, so an
-		// unreadable one costs nothing and a server-side id takes its place.
+		// The device's id is for cross-referencing the agent log and takes no part in identity.
 		ID:            alertRowID(msg.AlertID),
 		DeviceID:      a.DeviceID,
 		RuleID:        msg.RuleID,
@@ -199,19 +129,14 @@ func (a *AgentConn) validatedAlert(msg *protocol.ControlMessage) (alerts.Alert, 
 	}, true
 }
 
-// storeAlert resolves the customer the machine belongs to and files the alert,
-// counting whatever became of it. Returning an error hands the accounting back
-// to the persist path, which counts the message as lost — which is exactly what
-// it is, and what makes the endpoint's retry on the next reconnect safe.
+// storeAlert resolves the machine's customer and files the alert, counting the outcome.
+// A returned error hands the accounting back to the persist path, which counts the message as lost.
 func (a *AgentConn) storeAlert(ctx context.Context, alert alerts.Alert) error {
-	// Nowhere to put the alert is the same fact as a store that refused it, and
-	// it is counted the same way: a deployment missing its store must not read
-	// as a fleet whose alerts are all landing.
+	// A missing store is counted as a lost message, like a store that refused.
 	if a.alertStore == nil {
 		return errNoAlertStore
 	}
-	// Every scoping key an incident is built on is the customer's, so an alert
-	// filed under a guess would land in another customer's room.
+	// Incident scoping keys are the customer's, so an unresolved customer drops the alert.
 	alert.OrganizationID = a.settingsScope(ctx).OrganizationID
 	if alert.OrganizationID == uuid.Nil {
 		a.dropTelemetry(alertDropOrganizationUnknown, "device_id", a.DeviceID)
@@ -226,16 +151,8 @@ func (a *AgentConn) storeAlert(ctx context.Context, alert alerts.Alert) error {
 	return nil
 }
 
-// groupingFor reads how a rule's alerts fold from the rule's own definition:
-// which rung of the tenancy ladder its room is about, and how far apart two
-// firings can be and still be the same thing.
-//
-// A connection wired without a catalogue, or a rule this build has no definition
-// for, gets the narrowest room and the shortest hold. Both directions of a guess
-// are wrong, but they are not equally wrong: too wide merges two customers'
-// unrelated events into one room, and too long holds a room open on a number
-// nobody chose. The narrow, short guess can only ever under-group, which shows
-// up as more rooms rather than as a wrong one.
+// groupingFor reads a rule's room scope and hold from its definition; an unknown rule gets the
+// narrowest scope and shortest hold, which can only under-group.
 func (a *AgentConn) groupingFor(ruleID string) alerts.Grouping {
 	def, ok := a.ruleCatalog.Lookup(ruleID)
 	if !ok {
@@ -247,18 +164,8 @@ func (a *AgentConn) groupingFor(ruleID string) alerts.Grouping {
 	}
 }
 
-// incidentScope picks how wide a room is from what a rule says its alerts are
-// about.
-//
-// A rule's grouping keys are not all rungs of the tenancy ladder: `mount` and
-// `metric` say which volume or dimension a firing was about, which is a property
-// of the alert rather than of the room. A machine with a full data volume and a
-// full system volume has two problems and two alerts, and one room about that
-// machine's disks — the schema has no narrower room to offer, and inventing one
-// would give a technician two rooms to work with one machine to visit.
-//
-// So the room is the narrowest rung the rule actually names, and a rule that
-// names none is about the machine that raised it.
+// incidentScope is the narrowest tenancy rung the grouping keys name, defaulting to the device.
+// Keys such as `mount` and `metric` describe the alert and leave the room unchanged.
 func incidentScope(groupBy []string) alerts.Scope {
 	scope := alerts.ScopeDevice
 	for _, key := range groupBy {
@@ -276,15 +183,8 @@ func incidentScope(groupBy []string) alerts.Scope {
 	return scope
 }
 
-// observeAlertOutcome counts what became of an alert the store accepted.
-//
-// A stored alert is new detection and is counted under the rule that raised it —
-// that count, divided by the fleet, is the alerts-per-device-per-day figure the
-// customer ceiling and the evidence projection are both sized against, so it has
-// to be stored rows and nothing else. The other two produced no row, so each
-// files a typed drop to keep the ingest ledger balanced — and a spent budget is
-// additionally counted as suppression, because unlike a replay it cost the
-// customer an incident nobody can reconstruct.
+// observeAlertOutcome counts stored rows per rule and files a typed drop for the outcomes that
+// stored none; a spent budget also counts as suppression.
 func (a *AgentConn) observeAlertOutcome(outcome alerts.Outcome, alert alerts.Alert) {
 	switch outcome {
 	case alerts.Stored:
@@ -308,15 +208,8 @@ func (a *AgentConn) observeAlertOutcome(outcome alerts.Outcome, alert alerts.Ale
 	}
 }
 
-// customerWants reports whether this customer still receives alerts from the
-// rule an alert names.
-//
-// Only rules about the machine's own words are answered here; everything else
-// is stopped by never reaching the machine. A connection that has not been told
-// which rules the customer wants admits them all: refusing a fleet's alerts
-// over a wiring detail is a far larger harm than filing one for a rule somebody
-// stopped, and the stop takes effect on the machine's next reconnect either
-// way.
+// customerWants reports whether the customer still receives alerts from the rule; only event
+// rules are decided here, and a connection without the wanted set admits every rule.
 func (a *AgentConn) customerWants(ruleID string) bool {
 	if a.wantedEventRules == nil || !a.watchesEvents(ruleID) {
 		return true
@@ -334,9 +227,7 @@ func (a *AgentConn) watchesEvents(ruleID string) bool {
 	return ok && def.WatchesEvents()
 }
 
-// shipsRule reports whether this build has a definition for the rule an alert
-// names. A connection wired without a catalogue cannot answer, and refusing
-// every alert on that basis would silence a fleet over a wiring detail.
+// shipsRule reports whether this build defines the rule; no catalogue admits every rule.
 func (a *AgentConn) shipsRule(ruleID string) bool {
 	if a.ruleCatalog == nil {
 		return true
@@ -345,15 +236,8 @@ func (a *AgentConn) shipsRule(ruleID string) bool {
 	return ok
 }
 
-// hasAlertIdentity reports whether the alert carries the parts that identify it
-// independently of the id the device chose.
-//
-// (device, rule, version, window start) is what lets a reconnect replay resolve
-// to the row it already wrote. An alert missing any part of it cannot be
-// deduplicated, so it is refused rather than stored under a null that would
-// duplicate itself on the next reconnect. The window is required to run forwards
-// for the same reason: a window whose end precedes its start describes no
-// interval, and every later read of it would have to invent one.
+// hasAlertIdentity reports whether rule, version and a forward-running window are present.
+// With the device they identify the row a reconnect replay resolves to.
 func hasAlertIdentity(msg *protocol.ControlMessage) bool {
 	return msg.RuleID != "" &&
 		msg.RuleVersion != 0 &&
@@ -361,18 +245,8 @@ func hasAlertIdentity(msg *protocol.ControlMessage) bool {
 		msg.WindowEndTS >= msg.WindowStartTS
 }
 
-// alertTimestampsInRange reports whether every timestamp on the alert falls
-// inside the window its own kind of alert is allowed.
-//
-// Nothing is clamped here, and that is deliberate: the window start is part of
-// the alert's identity, so pulling it to a bound would make the same alert
-// resolve to a different row on every reconnect — the replay would duplicate
-// itself instead of deduplicating. A telemetry sample has no identity to lose,
-// which is why that path clamps and this one refuses.
-//
-// A retroactive finding is legitimately old — answering "has this happened
-// before?" over months of local history is the whole point of it — so the
-// backward bound widens to how long an alert is kept.
+// alertTimestampsInRange reports whether every timestamp is inside its window. The window start is
+// part of the identity, so a bad one is refused; retroactive alerts reach back further.
 func alertTimestampsInRange(msg *protocol.ControlMessage, now time.Time) bool {
 	backlog := maxTelemetryBacklog
 	if isBackfilled(msg) {
@@ -408,15 +282,12 @@ func checkEvidenceReadable(blob []byte) error {
 	return nil
 }
 
-// isBackfilled reports whether the alert is a retroactive finding. Absent means
-// live, which is the safer reading: it keeps the narrow clock window.
+// isBackfilled reports whether the alert is a retroactive finding; absent means live.
 func isBackfilled(msg *protocol.ControlMessage) bool {
 	return msg.Backfilled != nil && *msg.Backfilled
 }
 
-// storedSeverity maps a wire severity to the spelling the store keeps. The wire
-// vocabulary is the closed set — there is one, and this is only how it is
-// written in the database.
+// storedSeverity maps a wire severity to the spelling the store keeps.
 func storedSeverity(severity *protocol.AlertSeverity) (alerts.Severity, bool) {
 	if severity == nil || !protocol.ValidAlertSeverity(*severity) {
 		return "", false
@@ -424,8 +295,7 @@ func storedSeverity(severity *protocol.AlertSeverity) (alerts.Severity, bool) {
 	return alerts.Severity(strings.ToLower(string(*severity))), true
 }
 
-// severityLabel renders a severity for a log line, naming the absent case rather
-// than logging an empty string that reads like a value.
+// severityLabel renders a severity for a log line, naming the absent case.
 func severityLabel(severity *protocol.AlertSeverity) string {
 	if severity == nil {
 		return "(absent)"
@@ -433,9 +303,7 @@ func severityLabel(severity *protocol.AlertSeverity) string {
 	return string(*severity)
 }
 
-// alertRowID uses the id the device chose when it is one, and mints one when it
-// is not. The device's id never decides whether a replay is a duplicate, so an
-// unreadable one is a cosmetic loss rather than a reason to refuse the alert.
+// alertRowID uses the device's id when it parses as a UUID and mints one otherwise.
 func alertRowID(deviceChosen string) uuid.UUID {
 	if id, err := uuid.Parse(deviceChosen); err == nil {
 		return id

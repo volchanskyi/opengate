@@ -17,7 +17,6 @@ func TestLoadOrGenerateVAPID_GeneratesOnFirstCall(t *testing.T) {
 	assert.NotEmpty(t, priv)
 	assert.NotEmpty(t, pub)
 
-	// File should exist.
 	_, err = os.Stat(filepath.Join(dir, "vapid.json"))
 	assert.NoError(t, err)
 }
@@ -25,11 +24,9 @@ func TestLoadOrGenerateVAPID_GeneratesOnFirstCall(t *testing.T) {
 func TestLoadOrGenerateVAPID_LoadsExistingKeys(t *testing.T) {
 	dir := t.TempDir()
 
-	// First call generates.
 	priv1, pub1, err := LoadOrGenerateVAPID(dir)
 	require.NoError(t, err)
 
-	// Second call loads the same keys.
 	priv2, pub2, err := LoadOrGenerateVAPID(dir)
 	require.NoError(t, err)
 
@@ -37,33 +34,26 @@ func TestLoadOrGenerateVAPID_LoadsExistingKeys(t *testing.T) {
 	assert.Equal(t, pub1, pub2)
 }
 
-func TestLoadOrGenerateVAPID_CorruptFileReturnsError(t *testing.T) {
+func assertVAPIDFileRejected(t *testing.T, content, wantErr string) {
+	t.Helper()
 	dir := t.TempDir()
-	err := os.WriteFile(filepath.Join(dir, "vapid.json"), []byte("not json"), 0600)
-	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "vapid.json"), []byte(content), 0600))
 
-	_, _, err = LoadOrGenerateVAPID(dir)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "parse vapid.json")
+	_, _, err := LoadOrGenerateVAPID(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), wantErr)
+}
+
+func TestLoadOrGenerateVAPID_CorruptFileReturnsError(t *testing.T) {
+	assertVAPIDFileRejected(t, "not json", "parse vapid.json")
 }
 
 func TestLoadOrGenerateVAPID_EmptyKeysReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	err := os.WriteFile(filepath.Join(dir, "vapid.json"), []byte(`{"private_key":"","public_key":""}`), 0600)
-	require.NoError(t, err)
-
-	_, _, err = LoadOrGenerateVAPID(dir)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "empty keys")
+	assertVAPIDFileRejected(t, `{"private_key":"","public_key":""}`, "empty keys")
 }
 
-// TestLoadOrGenerateVAPID_PrivateKeyExactly32Bytes pins the padding loop in
-// vapid.go (`for len(privBytes) < 32`). RFC 8292 requires the VAPID private
-// key to be exactly 32 bytes (P-256 scalar). Without this assertion, the
-// CONDITIONALS_BOUNDARY mutation `<` → `<=` survives because shorter D
-// values are rare and the existing tests don't decode the key.
 func TestLoadOrGenerateVAPID_PrivateKeyExactly32Bytes(t *testing.T) {
-	for range 10 { // exercise multiple keys to surface the rare D.Bytes() < 32 case.
+	for range 10 { // multiple keys surface the rare scalar shorter than 32 bytes
 		dir := t.TempDir()
 		priv, _, err := LoadOrGenerateVAPID(dir)
 		require.NoError(t, err)

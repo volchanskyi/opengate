@@ -8,24 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The two counts of the fleet are comparable only while they describe one
-// instant, so the run brackets the target's answer with its own: it counts, it
-// asks, and it counts again. What the two may then differ by is what the fleet
-// itself recorded leaving in between.
-
-// The target's answer is bracketed by the run's own counts, and what leaves in
-// between is recorded. Without both terms the only way to allow for a fleet that
-// changed under the question is a percentage — and a percentage of the fleet
-// cannot express a quantity that has nothing to do with fleet size.
 func TestAPhaseRecordsWhatItWasHoldingEitherSideOfTheQuestion(t *testing.T) {
 	profile := threePhaseProfile()
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	// One machine leaves while the question is in flight, which is the soak's
-	// ordinary condition: it replaces every machine it loses. The target then
-	// accounts for the rest, so the phase asks once and the departure is the
-	// whole of what the two counts differ by.
+	// One machine leaves while the question is in flight, so the departure is the whole difference.
 	asked := 0
 	census := TargetCensus{Read: func() (TargetHealth, bool) {
 		asked++
@@ -55,19 +43,12 @@ func TestAPhaseRecordsWhatItWasHoldingEitherSideOfTheQuestion(t *testing.T) {
 		"a target that accounts for the fleet the run still has is asked once per phase")
 }
 
-// A target still admitting machines it has already accepted is waited out, and
-// the phase says how long for. The wait is the third delay between the two
-// counts — the first two were the run counting dials and the target copying its
-// count in on a timer — and it is the only one neither end can remove: a
-// machine has handshaken and asked to register before the target has put it in
-// the map it counts.
 func TestAPhaseSaysHowLongItHeldStillForTheTarget(t *testing.T) {
 	profile := threePhaseProfile()
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	// The target is two readings behind the fleet each time it is asked, which
-	// is a target working through the machines it has accepted.
+	// The target is two readings behind the fleet, as if still admitting accepted machines.
 	behind := 2
 	census := TargetCensus{Read: func() (TargetHealth, bool) {
 		held := float64(fleet.Connected())
@@ -91,19 +72,13 @@ func TestAPhaseSaysHowLongItHeldStillForTheTarget(t *testing.T) {
 		"a target already accounting for the fleet is not waited on")
 }
 
-// The wait belongs to neither phase, so neither pays for it. A phase's
-// busy-ness is the target's own processor counter over the phase's own clock,
-// and charging a wait to one side of that division reports a figure nobody
-// measured — on the leg where the wait is longest, which is the leg already
-// working hardest.
 func TestTheBusyReadingDoesNotCountTheTimeSpentWaitingForTheTarget(t *testing.T) {
 	profile := threePhaseProfile()
 
 	busyOver := func(census TargetCensus) *float64 {
 		fleet := &recordingFleet{}
 		clock := &testClock{now: time.Unix(1_800_000_000, 0)}
-		// A target spending half of every second of wall clock, so the share it
-		// used is whatever window the reading is divided by.
+		// The target spends half of every second of wall clock.
 		origin := clock.now
 		busy := TargetBusy{
 			Allowance:      1,
@@ -133,8 +108,6 @@ func TestTheBusyReadingDoesNotCountTheTimeSpentWaitingForTheTarget(t *testing.T)
 		"and the same phase reads the same whether or not the target had to be waited on")
 }
 
-// fleetCountingCensus is a target whose answer is whatever the case says, given
-// the level the phase is holding.
 func fleetCountingCensus(answer func(held int) float64) TargetCensus {
 	return TargetCensus{Read: func() (TargetHealth, bool) {
 		held := answer(250)
@@ -142,12 +115,6 @@ func fleetCountingCensus(answer func(held int) float64) TargetCensus {
 	}}
 }
 
-// The night of 2026-09-16, walked. A steady phase climbing to eight thousand
-// machines against a target with one processor: the run held 7,946 and the
-// target's first answer was 7,883, which the rule reads — correctly, on the
-// numbers it is given — as a level the system was not carrying. Waiting the
-// target out is what makes those the same number, and the run is a measurement
-// again.
 func TestAPhaseTheTargetCaughtUpWithIsARunThatMeasuredTheSystem(t *testing.T) {
 	profile := &Profile{
 		SchemaVersion: profileSchemaVersion,
@@ -164,9 +131,8 @@ func TestAPhaseTheTargetCaughtUpWithIsARunThatMeasuredTheSystem(t *testing.T) {
 	fleet := &recordingFleet{}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
 
-	// At every phase close the target is behind by the machines it has accepted
-	// and not yet admitted, and it works through them once the run stops
-	// offering arrivals.
+	// At each phase close the target owes the machines it accepted and not yet admitted,
+	// and works through them once the run stops offering arrivals.
 	level, owed := -1, 0
 	census := TargetCensus{Read: func() (TargetHealth, bool) {
 		if fleet.Connected() != level {

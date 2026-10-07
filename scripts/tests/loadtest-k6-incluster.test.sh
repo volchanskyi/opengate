@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/loadtest-k6-incluster.sh — the shim that runs a k6 scenario
-# inside the staging cluster and brings its summary export back to the runner.
-#
-# Why the shim exists: k6 driven from a GitHub runner reached staging through
-# `kubectl port-forward`, which multiplexes every forwarded connection over one
-# stream to the API server. Run 31775187300 shows what that costs — 29 requests
-# in the first scenario hung to k6's 60s ceiling, and by the second scenario the
-# tunnel was gone, so setup's register POST timed out and the whole job aborted.
-# The tunnel was also inside the measurement: every latency number in the trend
-# carried the runner→API-server→pod hop. Running k6 next to the server removes
-# both problems, and this shim is the seam that keeps the keep/discard rule in
-# scripts/loadtest-k6-run.sh as the single decision point.
+# Tests for scripts/loadtest-k6-incluster.sh, which runs k6 in the staging cluster.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,19 +28,13 @@ assert_eq() {
   if [ "$want" = "$got" ]; then pass "$name"; else fail "$name (want=[$want] got=[$got])"; fi
 }
 
-# The staging server's in-cluster listener is plaintext — TLS terminates at the
-# ingress, in front of the service — so the scenarios address it over http. Named
-# once here, and everywhere below by this name.
+# The in-cluster listener is plaintext because TLS terminates at the ingress.
 STAGING_URL="http://opengate-staging-server:8080"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/summaries" "$WORK/pod"
 
-# A kubectl stand-in. `exec` records its argv and writes the export the way real
-# k6 does — into the pod, not onto the runner — so the copy-back is the only
-# thing that can put a summary where the runner will look. `cp` moves files
-# between the fake pod directory and the runner.
 cat >"$WORK/bin/kubectl" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -122,8 +105,6 @@ run_shim() {
 
 echo "loadtest-k6-incluster:"
 
-# A clean run: k6 ran in the pod and its export reached the runner, which is the
-# only place scripts/loadtest-k6-run.sh looks for it.
 run_shim 0
 assert_eq "clean run exits 0" "0" "$STATUS"
 if [ -s "$WORK/summaries/api-baseline.json" ]; then
@@ -142,8 +123,6 @@ else
   fail "scenario arguments reach k6 unchanged"
 fi
 
-# A threshold failure measured the fleet. The export must still come back, or
-# the runner would discard a real measurement for want of a file.
 run_shim 99
 assert_eq "threshold failure propagates 99" "99" "$STATUS"
 if [ -s "$WORK/summaries/api-baseline.json" ]; then
@@ -152,9 +131,6 @@ else
   fail "threshold failure still copies the export back"
 fi
 
-# A script exception aborts the scenario. The shim propagates the status and
-# still copies whatever k6 wrote, because deciding what to do with a partial
-# export belongs to the runner, not here.
 run_shim 107
 assert_eq "script exception propagates 107" "107" "$STATUS"
 if [ -s "$WORK/summaries/api-baseline.json" ]; then
@@ -163,12 +139,6 @@ else
   fail "aborted run still copies the export back for the runner to judge"
 fi
 
-# A summary that never reaches the runner has two causes, and they call for
-# opposite responses: a k6 that wrote nothing is a scenario to re-run, and a
-# copy that failed is a measurement sitting in a pod that is about to be
-# deleted. The shim used to announce the first without checking, which is an
-# absence asserted by something that never asked — run 34443201348 reported that
-# k6 wrote no export after k6 had run 7,256 requests with every threshold green.
 run_shim 0
 : >"$WORK/cp-refuses"
 STATUS=0
@@ -192,7 +162,6 @@ else
   pass "a refused copy is not reported as k6 writing nothing"
 fi
 
-# The other cause, stated only after the pod has been asked.
 run_shim 0
 rm -f "$WORK/pod"/*.json "$WORK/summaries"/*.json
 : >"$WORK/k6-writes-nothing"
@@ -210,8 +179,6 @@ else
   fail "an export the pod does not hold is reported as k6 writing none"
 fi
 
-# Composed with the runner, an aborted scenario must end with no row on disk:
-# the shim brings the partial export back and the runner throws it away.
 echo 107 >"$WORK/k6-exit"
 rm -f "$WORK/summaries"/*.json "$WORK/pod"/*.json
 STATUS=0
@@ -232,8 +199,6 @@ else
   pass "runner over the shim discards an aborted scenario's export"
 fi
 
-# Without a pod there is nothing to exec into; failing here names the cause
-# instead of leaving every scenario to fail as a k6 error.
 STATUS=0
 PATH="$WORK/bin:$PATH" NAMESPACE=opengate-staging \
   "$SHIM" run --summary-export "$WORK/summaries/x.json" /tmp/load/k6/scenarios/api-baseline.js \
@@ -244,8 +209,6 @@ else
   fail "an unset pod name fails with the reason"
 fi
 
-# The workflow must not reintroduce the tunnel: no port-forward, and the base
-# URL k6 is given has to be the in-cluster service rather than a local port.
 WORKFLOW="$REPO_ROOT/.github/workflows/load-test.yml"
 pf="$(grep -cE 'port-forward' "$WORKFLOW" || true)"
 assert_eq "load-test.yml no longer tunnels to staging" "0" "$pf"

@@ -4,9 +4,8 @@ import (
 	"io"
 )
 
-// ChannelConn adapts an MPS APF channel into an io.ReadWriteCloser.
-// The message loop calls Feed() to push received data; the WSMAN client reads it.
-// Writes are sent as channel data via the writeFn callback.
+// ChannelConn adapts an MPS APF channel into an io.ReadWriteCloser: Feed supplies the
+// read side and writeFn carries writes.
 type ChannelConn struct {
 	pr      *io.PipeReader
 	pw      *io.PipeWriter

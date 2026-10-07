@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-# Guards the JS budget against being cleared by exclusion rather than by weight.
-#
-# The whole-app budget is a glob with holes in it: a vendor engine that loads on
-# one lazy route is pulled into a named chunk and subtracted from the app total,
-# so a regression in the routes is not hidden under one dependency's size. That
-# is only honest while every subtracted chunk carries a budget of its own.
-# Without this check the cheapest way to pass the gate is to name a chunk and
-# take it out of the glob, which is the same as deleting the budget for it.
-#
-# So: every chunk vite splits out by name is budgeted, and every hole in the
-# app-total glob names a chunk that is. Neither list may grow without the other.
-#
-# Run: ./scripts/tests/bundle-budget-coverage.test.sh
+# Every chunk vite splits out by name has a budget, and every hole in the app-total glob names one.
 
 set -euo pipefail
 
@@ -49,22 +37,18 @@ if ! jq empty "$BUDGET" 2>/dev/null; then
   exit 1
 fi
 
-# Chunk names vite splits out by hand: the string each manualChunks branch
-# returns. Comment lines are stripped so the prose explaining a split does not
-# read as one.
+# Comment lines are stripped so the prose explaining a split does not read as one.
 named_chunks="$(
   sed -e 's#//.*##' "$VITE" \
     | grep -oE "return '[a-z0-9-]+'" \
     | sed -E "s/return '([a-z0-9-]+)'/\1/" | sort -u
 )"
 
-# Chunks the app-total entry subtracts from its glob: the `!…/<name>-*.js` holes.
 excluded="$(
   jq -r '.[] | select((.path | type) == "array") | .path[] | select(startswith("!"))' "$BUDGET" \
     | sed -E 's#^!dist/assets/([a-z0-9-]+)-\*\.js$#\1#' | sort -u
 )"
 
-# Chunks that carry a budget of their own: an entry whose single path names one.
 budgeted="$(
   jq -r '.[] | select((.path | type) == "string") | .path' "$BUDGET" \
     | sed -nE 's#^dist/assets/([a-z0-9-]+)-\*\.js$#\1#p' | sort -u
@@ -99,7 +83,6 @@ if [ -n "$excluded" ]; then
   pass "every hole in the app-total glob names a chunk vite actually creates"
 fi
 
-# A budget with no number is not a budget.
 missing_limit="$(jq -r '.[] | select(has("limit") | not) | .name' "$BUDGET")"
 if [ -z "$missing_limit" ]; then
   pass "every budget entry states a limit"

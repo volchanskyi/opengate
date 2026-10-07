@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
-# Offline tests for the nightly QUIC network drill:
-#   scripts/fault/network-drill.sh          the scenario runner
-#   deploy/scripts/netfault-shaper-pod.sh   the shaper's pod manifest
-#   .github/workflows/network-drill.yml     the nightly that drives them
-#
-# No live cluster: kubectl is stubbed on PATH and records its argv, and the
-# stub answers the probe pod's curl calls from canned fixtures. That covers the
-# namespace guard, the order the impairments are commanded in, the rule that a
-# scenario which measured nothing emits no row at all, the counter agreement
-# that proves a scenario ran, and teardown on every path.
-#
-# Run: ./scripts/tests/network-drill.test.sh
+# Offline tests for the nightly QUIC network drill runner, shaper pod manifest and workflow.
+# A stub kubectl on PATH records its argv and answers the probe pod's curl calls from fixtures.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,11 +28,7 @@ assert_eq() {
   local name="$1" want="$2" got="$3"
   if [ "$want" = "$got" ]; then pass "$name"; else fail "$name (want=[$want] got=[$got])"; fi
 }
-# A measurement is a number, and how a number is rendered depends on the jq that
-# rendered it: 1.6 canonicalises the 17.700 the drill wrote down to 17.7, and
-# 1.7 keeps the literal. Comparing the rendering asserts on whichever jq the
-# machine happens to carry — green on a workstation, red on a runner. Comparing
-# the value asserts on the drill, which is what these cases are about.
+# jq 1.6 renders 17.700 as 17.7 and jq 1.7 keeps the literal, so comparisons are by value.
 assert_num_eq() {
   local name="$1" want="$2" got="$3"
   if [ -n "$got" ] && awk -v a="$want" -v b="$got" 'BEGIN { exit !(a + 0 == b + 0) }'; then
@@ -72,31 +58,24 @@ trap 'rm -rf "$WORK"' EXIT
 BIN_DIR="$WORK/bin"
 mkdir -p "$BIN_DIR"
 
-# The stub answers as the cluster would. Each canned answer is a file the test
-# writes before the run, so a case states the world it is putting the runner in
-# rather than threading flags through the stub.
+# Each canned answer is a file the test writes before the run.
 cat >"$BIN_DIR/kubectl" <<'SH'
 #!/usr/bin/env bash
 set -uo pipefail
 printf '%s\n' "$*" >>"${KUBECTL_ARGS:-/dev/null}"
-# The push transport hands its payload to kubectl on standard input, so a test
-# that wants to read what would have been sent asks for it here.
+# The push transport hands its payload to kubectl on standard input.
 if [ -n "${KUBECTL_STDIN:-}" ]; then
   cat >"$KUBECTL_STDIN"
   exit 0
 fi
 
-# Everything the runner asks the cluster goes through `exec <pod> -- curl …`.
-# The last argument is the URL, which is what decides the answer.
+# Every runner request goes through `exec <pod> -- curl …`; the last argument is the URL.
 url=""
 for arg in "$@"; do
   case "$arg" in http://*) url="$arg" ;; esac
 done
 
-# The shaper's counters answer one line of the fixture per read, in order, so
-# a case can put the runner in front of a link whose totals move — or fail to
-# move — between one phase boundary and the next. A read past the end of the
-# fixture answers its last line.
+# The shaper's counters answer one fixture line per read; a read past the end repeats the last.
 counters_line() {
   local n=1 file="${MOCK_COUNTERS_FILE:-/dev/null}" line
   if [ -n "${MOCK_COUNTERS_READS:-}" ]; then
@@ -108,9 +87,7 @@ counters_line() {
   printf '%s\n' "$line"
 }
 
-# An instruction the cluster never delivered: the first MOCK_IMPAIR_DROPS calls
-# to the shaper's instruction endpoint die the way the API server reports its
-# own request to the node's kubelet dying, and nothing inside the pod runs.
+# The first MOCK_IMPAIR_DROPS calls to the shaper's instruction endpoint fail before the pod runs.
 impair_answer() {
   local n
   if [ -n "${MOCK_IMPAIR_DROPS:-}" ]; then
@@ -122,8 +99,7 @@ impair_answer() {
     fi
   fi
   tail -1 "${MOCK_COUNTERS_FILE:-/dev/null}" 2>/dev/null
-  # The shaper refusing is curl's own failure inside the pod, which kubectl
-  # reports as the command's exit.
+  # A refusing shaper is curl's own failure inside the pod, reported as kubectl's exit.
   if [ "${MOCK_IMPAIR_RC:-0}" -ne 0 ]; then
     echo "command terminated with exit code ${MOCK_IMPAIR_RC}" >&2
   fi
@@ -139,32 +115,26 @@ case "$url" in
   *"/metrics?"*) cat "${MOCK_METRICS_FILE:-/dev/null}"; exit "${MOCK_METRICS_RC:-0}" ;;
   # The triage queue, narrowed to this machine and the rule the drill armed.
   *"/investigations"*) cat "${MOCK_INCIDENTS_FILE:-/dev/null}"; exit "${MOCK_INCIDENTS_RC:-0}" ;;
-  # Arming and disarming the rule. Neither answers with anything the runner
-  # reads; what matters is whether they were refused.
+  # Arming and disarming the rule answer with nothing the runner reads except a refusal.
   *"/rules/"*"/bindings"*) exit "${MOCK_BINDING_RC:-0}" ;;
   *"/devices"*) cat "${MOCK_DEVICES_FILE:-/dev/null}"; exit "${MOCK_DEVICES_RC:-0}" ;;
 esac
 
-# The machine's own disk, read from the machine rather than assumed. The rule
-# the replay is measured with is aimed at this number.
+# The machine's own disk reading, which the replay's rule is aimed at.
 for arg in "$@"; do
   case "$arg" in
     *"df -P"*) printf '%s\n' "${MOCK_MACHINE_DISK:-0}"; exit "${MOCK_MACHINE_DISK_RC:-0}" ;;
   esac
 done
 
-# The machine's own account of its reconnect. A drill that takes the figure from
-# a five-second poll of a status the server writes publishes the poll's
-# granularity and the server's write lag; the machine's log is where the event
-# actually is.
+# The machine's own log of its reconnect, where the event is timestamped.
 for arg in "$@"; do
   case "$arg" in
     logs) cat "${MOCK_MACHINE_LOG:-/dev/null}"; exit "${MOCK_MACHINE_LOG_RC:-0}" ;;
   esac
 done
 
-# A reading of the machine's own clock, so both ends of the reconnect figure are
-# on one clock rather than one on the runner's and one on the node's.
+# A reading of the machine's own clock, so both ends of the reconnect figure share one clock.
 for arg in "$@"; do
   case "$arg" in
     +%s.%N | +%s) printf '%s\n' "${MOCK_MACHINE_CLOCK:-0}"; exit "${MOCK_MACHINE_CLOCK_RC:-0}" ;;
@@ -181,9 +151,7 @@ SH
 chmod +x "$BIN_DIR/kubectl"
 export PATH="$BIN_DIR:$PATH"
 
-# The device list is a bare array, which is the shape GET /api/v1/devices
-# answers with. A fixture shaped like the endpoint is what makes these tests
-# say anything about the runner reading the real one.
+# The device list is a bare array, the shape GET /api/v1/devices answers with.
 online_device() {
   cat >"$WORK/devices-online.json" <<JSON
 [{"id":"11111111-1111-1111-1111-111111111111","hostname":"drill-machine","status":"online","organization_id":"99999999-9999-4999-8999-999999999999","last_seen":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}]
@@ -191,8 +159,7 @@ JSON
   printf '%s\n' "$WORK/devices-online.json"
 }
 
-# The triage queue holding the room the replayed alert opened. Shaped like the
-# endpoint a technician's queue reads, because that is where the drill asks.
+# The triage queue holding the room the replayed alert opened, shaped like the queue endpoint.
 incidents_holding_one() {
   cat >"$WORK/incidents-one.json" <<'JSON'
 {"items":[{"id":"aaaaaaaa-1111-4111-8111-222222222222","rule_id":"disk-critical","status":"new","severity":"critical","occurrences":1}]}
@@ -200,15 +167,13 @@ JSON
   printf '%s\n' "$WORK/incidents-one.json"
 }
 
-# A queue the alert never reached, which is the outage having swallowed it.
+# A queue the alert never reached.
 no_incidents() {
   printf '{"items":[]}\n' >"$WORK/incidents-none.json"
   printf '%s\n' "$WORK/incidents-none.json"
 }
 
-# The drill's machine plus a herd of simulated ones behind the same link. The
-# herd carries the run's own name, which is what lets the scenario count its own
-# twenty rather than whatever else is in the tenant.
+# The drill's machine plus a herd of twenty simulated ones named after the run.
 device_list_with_herd() {
   local online="$1" name total i status
   {
@@ -226,9 +191,7 @@ device_list_with_herd() {
   printf '%s\n' "$WORK/devices-herd-$online.json"
 }
 
-# What a machine writes while it loses a link and gets it back. The shape is the
-# shipped agent's own: it notices at its idle timeout, spends one whole doomed
-# establish, and connects in a fraction of a second once the path is there.
+# The agent's log shape: it notices the loss at its idle timeout, then reconnects.
 machine_log() {
   cat >"$WORK/machine.log" <<'LOG'
 2026-09-06T09:51:58.036481Z  WARN mesh_agent: connection lost, will reconnect
@@ -239,9 +202,7 @@ LOG
   printf '%s\n' "$WORK/machine.log"
 }
 
-# A machine whose first try after the outage worked. It logs the loss and then
-# the success, with no failed attempt between them, which is the ordinary shape
-# whenever the link comes back while the machine is still in its first backoff.
+# A machine whose first try after the outage worked logs no failed attempt.
 machine_log_first_try_worked() {
   cat >"$WORK/machine-first-try.log" <<'LOG'
 2026-09-06T09:51:58.036481Z  WARN mesh_agent: connection lost, will reconnect
@@ -261,10 +222,7 @@ LOG
   printf '%s\n' "$WORK/machine-away.log"
 }
 
-# The instant the link was handed back, on the machine's clock: 17.7 seconds
-# before the machine reconnected in the fixture above, and 17.4 before the
-# doomed attempt it was sitting inside expired. Those two gaps are the whole
-# point — a site waits through the first and the product only spends the second.
+# The instant the link was handed back, on the machine's clock.
 MACHINE_RESTORE_CLOCK=1788688390.653822
 
 offline_device() {
@@ -274,10 +232,7 @@ JSON
   printf '%s\n' "$WORK/devices-offline.json"
 }
 
-# A chart window whose buckets are all present is a filled gap; one with nulls
-# in it is the hole the outage left. The shape is the chart endpoint's own:
-# every bucket of the requested window is there, and one the machine did not
-# report for is null.
+# The chart endpoint returns every bucket of the window, null where the machine did not report.
 full_window() {
   printf '{"t":[1,2,3,4,5,6,7,8,9,10],"bucket_s":60,"downsampled":true,"series":[{"name":"cpu.util","min_max_source":"none","avg":[1,2,3,4,5,6,7,8,9,10]}]}\n' >"$WORK/metrics-full.json"
   printf '%s\n' "$WORK/metrics-full.json"
@@ -287,16 +242,9 @@ holed_window() {
   printf '%s\n' "$WORK/metrics-holed.json"
 }
 
-# The shaper counts for the life of its process and its control endpoint offers
-# no reset, so a scenario never opens on zero — it opens wherever the scenarios
-# before it left the totals. Every fixture therefore starts from a total this
-# scenario did not earn, which is what makes the whole suite say something
-# about the figure the runner publishes: the number a case names is what this
-# scenario's own fault dropped, and nothing else.
+# The shaper counts for its process's life with no reset, so every fixture opens on a nonzero total.
 COUNTERS_INHERITED_DROPS=400
-# The direction toward the machine inherits a total of its own and never moves
-# in these fixtures, so a subtraction missing on that side is visible: it would
-# publish this number instead of nothing.
+# The direction toward the machine never moves in these fixtures.
 COUNTERS_INHERITED_DROPS_TO_MACHINE=387
 
 counters_json() {
@@ -321,10 +269,7 @@ counters_file() {
   printf '%s\n' "$WORK/counters.json"
 }
 
-# One run of the runner, with every phase collapsed so a scenario that takes
-# seven minutes on staging takes no time here. The durations are the scenario's
-# own parameters, not a seam a test reaches through: the nightly leaves them at
-# the values section 5 of the plan calibrates.
+# One run of the runner with every phase duration collapsed through the scenario's parameters.
 run_drill() {
   local scenario="$1"
   shift
@@ -405,15 +350,11 @@ assert_contains "a refused impairment is inconclusive, not a failed product" "in
 assert_eq "a refused impairment emits no row" "0" \
   "$(row_count)"
 assert_contains "a refused impairment is named as the shaper refusing" "the shaper refused" "$out"
-# Asking the shaper again cannot change its answer. The scenario's opening
-# instruction is the one refused; the link handed back clear at exit is sent
-# without a content type, so it is not counted here.
+# The scenario's opening instruction is the one refused; the clear sent at exit has no content type.
 assert_eq "a refused impairment is sent once" "1" \
   "$(grep -cF -- 'application/json --data {} http://10.244.0.9:9091/impair' "$WORK/kubectl-args.txt" || true)"
 
-# The instruction that never reached the shaper, because the cluster dropped the
-# connection to the probe pod before the command ran. Nothing was measured and
-# nothing was refused, so it is asked again — and the scenario goes on.
+# An instruction dropped before the command ran was neither measured nor refused, so it is retried.
 reset_run
 out="$(run_drill s1 \
   MOCK_IMPAIR_DROPS=1 \
@@ -422,8 +363,7 @@ out="$(run_drill s1 \
 assert_lacks "an instruction whose connection dropped once is asked again" "inconclusive" "$out"
 assert_contains "and the scenario measures" '"netdrill_reconnected"' "$(cat "$WORK/measurements.jsonl" 2>/dev/null)"
 
-# One that never arrives is inconclusive, and says the shaper never heard it
-# rather than that it refused.
+# One that never arrives is inconclusive and says the shaper never heard it.
 reset_run
 out="$(run_drill s1 \
   MOCK_IMPAIR_DROPS=99 \
@@ -454,16 +394,8 @@ out="$(run_drill s1 \
 rows="$(cat "$WORK/measurements.jsonl")"
 args="$(cat "$WORK/kubectl-args.txt")"
 
-# Whether the machine came back is read from the status the server writes, and
-# is published whether the answer is yes or no. How long it took is a different
-# reading taken from the machine's own log, which has its own cases below — a
-# scenario whose log could not be read still answers the first question.
 assert_contains "S1 says whether the machine came back at all" '"netdrill_reconnected"' "$rows"
 assert_contains "S1 measures how much of the hole was filled" '"netdrill_gap_fill_ratio"' "$rows"
-# An alert is the one thing on this channel that cannot be taken again later.
-# The machine raises it while nobody can hear, holds it, and offers it when the
-# link returns — and a run that never asked would report an outage as clean
-# while the incident inside it was lost.
 assert_contains "S1 says whether the alert raised in the dark came back" \
   '"netdrill_alerts_replayed"' "$rows"
 assert_contains "S1 measures how long the replayed alert took to arrive" \
@@ -480,12 +412,7 @@ assert_contains "the link's own drops are attributed to the link" '"victim":"lin
 assert_contains "every row names the scenario" '"scenario":"s1"' "$rows"
 assert_contains "every row names the victim it measured" '"victim":"real"' "$rows"
 
-# The phases have to happen in the order the scenario declares. A recovery
-# commanded before the outage measures the baseline twice.
-#
-# Only what was said to the link counts. The scenario also tunes a rule through
-# the product on its way past, and reading that as an impairment would make the
-# order depend on what else the scenario happens to write.
+# The phases happen in the declared order; only instructions sent to the link count.
 instructions() {
   grep -oE -- '--data \{[^}]*\} [^ ]*/impair' "$WORK/kubectl-args.txt" \
     | sed -E 's/^--data //; s/ [^ ]*\/impair$//'
@@ -534,9 +461,7 @@ assert_contains "S4 holds each datagram for a third of a second each way" '"dela
 assert_contains "S4 moves the shaper to a new server-facing port" "/rebind" "$args"
 assert_contains "S4 records whether the session survived the new address" \
   '"netdrill_session_survived"' "$rows"
-# A failed migration and a broken link look identical from the outside: both
-# end at the idle timeout. Recording the reconnect beside the survival is what
-# tells them apart.
+# A failed migration and a broken link both end at the idle timeout, so the reconnect is recorded.
 assert_contains "S4 records whether the machine reconnected instead" \
   '"netdrill_reconnected_after_rebind"' "$rows"
 
@@ -555,9 +480,6 @@ assert_contains "S2 recovers over a 2 Mbit/s uplink" '"rate_bits_per_sec":200000
 assert_contains "S2 states the depth the link buffers to" '"max_queue_ms"' "$args"
 assert_contains "S2 measures the worst staleness of the live readings" \
   '"netdrill_live_staleness_max_seconds"' "$rows"
-# Staleness measured from the restore would be the outage's own three minutes
-# every night. It is measured from when the machine is back, so the scenario
-# records that moment too.
 assert_contains "S2 measures when the machine came back before watching it" \
   '"netdrill_reconnect_seconds"' "$rows"
 assert_contains "S2 measures whether a machine went offline while catching up" \
@@ -565,9 +487,6 @@ assert_contains "S2 measures whether a machine went offline while catching up" \
 
 echo "== network-drill.sh: a reading the drill could not take =="
 
-# A request that did not land is the drill failing to observe the machine. It
-# is not a machine that went offline, and a scenario that never once read the
-# status has found out nothing about where the machine was.
 reset_run
 out="$(run_drill s3 \
   MOCK_DEVICES_RC=1 \
@@ -579,10 +498,7 @@ assert_contains "the unreadable run exits 2, as any inconclusive one does" "EXIT
 assert_eq "a scenario that never read the machine's status emits no row" "0" \
   "$(row_count)"
 
-# The same failure wearing different clothes: the request lands and the reply
-# has nothing in it. jq answers empty input with no output and a zero exit, so
-# nothing in the pipeline fails — and an empty status must still not read as a
-# machine that went dark.
+# An empty reply makes jq print nothing and exit zero; it still reads as an unobserved machine.
 reset_run
 : >"$WORK/devices-empty.json"
 out="$(run_drill s3 \
@@ -591,9 +507,6 @@ out="$(run_drill s3 \
 assert_contains "a reply with nothing in it is inconclusive too" "inconclusive" "$out"
 assert_eq "an empty reply emits no row" "0" "$(row_count)"
 
-# S4 decides whether the session survived from the status either side of the
-# address change, so a reading it could not take must not be published as a
-# migration that failed.
 reset_run
 out="$(run_drill s4 \
   MOCK_DEVICES_RC=1 \
@@ -606,9 +519,7 @@ assert_eq "S4 publishes no survival verdict it could not observe" "0" \
 
 echo "== network-drill.sh: the drop count is this scenario's own =="
 
-# What each scenario publishes about the link is what changed while it held it.
-# Publishing the running total puts an earlier scenario's outage into this
-# one's row, under this one's name.
+# Each scenario publishes the change in the shaper's totals while it held the link.
 reset_run
 out="$(run_drill s1 \
   MOCK_DEVICES_FILE="$(online_device)" MOCK_METRICS_FILE="$(full_window)" \
@@ -619,9 +530,6 @@ dropped_to_machine="$(jq -r 'select(.metric == "netdrill_shaper_dropped_to_machi
   "$WORK/measurements.jsonl")"
 assert_num_eq "the drops toward the server are this scenario's own, not the running total" \
   "40" "$dropped_to_server"
-# Nothing was dropped toward the machine while this scenario held the link, and
-# a scenario that dropped nothing in a direction says so rather than repeating
-# what the clock stood at.
 assert_num_eq "a direction this scenario did not disturb publishes nothing dropped" \
   "0" "$dropped_to_machine"
 
@@ -677,9 +585,7 @@ if [ -f "$WORKFLOW" ]; then
     "staging-lease.sh acquire" "$wf"
   assert_contains "the drill gives the namespace back on every path" \
     "staging-lease.sh release" "$wf"
-  # The workflow names the release and the namespace through its own variables,
-  # so what is matched is the literal text in the file rather than the host it
-  # expands to. The dollars are escaped so this shell leaves them alone.
+  # The workflow spells the release and namespace as variables, so the literal text is matched.
   assert_contains "the machines enrol through the fully-qualified service name" \
     "\${RELEASE}-server.\${NAMESPACE}.svc.cluster.local:8080" "$wf"
   assert_contains "the drill resolves an agent binary rather than building one" \
@@ -702,9 +608,6 @@ assert_contains "the summary carries every measurement it was given" "netdrill_r
 assert_eq "the summary carries no measurement it was not given" "3" "$(jq -r 'length' <<<"$summary")"
 assert_contains "every row is stamped with when the run summarised it" '"timestamp"' "$summary"
 
-# A night whose scenarios were all inconclusive has an empty file. That is a
-# real outcome, and reporting it as an array of nothing would push a night that
-# measured zero into a trend that cannot tell the two apart.
 : >"$WORK/empty.jsonl"
 if "$SUMMARIZE" "$WORK/empty.jsonl" >/dev/null 2>&1; then
   fail "a run that measured nothing was summarised as a run that measured zero"
@@ -755,8 +658,6 @@ reconnect_value() {
 }
 
 # 17.7 seconds is what the site waited through; 0.315 is what the product spent.
-# The drill used to publish neither: it published a five-second poll of a status
-# the server writes, which read 18 and was gated against a floor of 120.
 assert_num_eq "the figure a site waits through comes from the machine's own clock" \
   "17.7" "$(reconnect_value netdrill_reconnect_seconds s1)"
 assert_num_eq "the reconnect itself is published beside it" \
@@ -769,11 +670,6 @@ assert_num_eq "and that reading is one" "1" "$(reconnect_value netdrill_reconnec
 assert_contains "the outage records the length it actually ran for" \
   '"netdrill_outage_seconds"' "$rows"
 
-# A machine whose first try worked spent nothing on a failed attempt, because it
-# made none. Measuring from the moment it noticed the loss measures the outage
-# instead — the very luck this figure exists to exclude, and the figure beside it
-# already carries. A night where the link returned inside the first backoff
-# published 62.945s against a floor of 35 and called a healthy machine slow.
 reset_run
 out="$(run_drill s1 \
   MOCK_DEVICES_FILE="$(device_list_with_herd 20)" MOCK_METRICS_FILE="$(full_window)" \
@@ -832,9 +728,6 @@ out="$(run_drill s2 \
   MOCK_COUNTERS_FILE="$(counters_file 40)" \
   MOCK_MACHINE_LOG="$(machine_log)" \
   MOCK_MACHINE_CLOCK="$MACHINE_RESTORE_CLOCK" || echo "EXIT=$?")"
-# This is the defect the whole change exists to close: for two nights the
-# scenario published a staleness figure taken on an uncontended link, and it
-# became the baseline a night with a real herd would have been measured against.
 assert_contains "a herd that is gone is inconclusive" "inconclusive" "$out"
 assert_contains "and the run says what was missing" "herd" "$out"
 assert_eq "a scenario without its herd publishes nothing at all" "0" "$(row_count)"
@@ -914,8 +807,7 @@ JSON
 out="$("$REGRESSION" "$WORK/regression-churn.json" 2>&1)" && rc=0 || rc=$?
 assert_eq "a machine that churned on a lossy link is a regression" "1" "${rc:-0}"
 
-# S1's outage is meant to take the machine offline, so crossing the line there
-# is the scenario working rather than the product failing.
+# S1's outage takes the machine offline, so crossing the line there is the scenario working.
 cat >"$WORK/regression-s1-offline.json" <<'JSON'
 [{"metric":"netdrill_offline_transitions","scenario":"s1","victim":"real","commit":"abc123","env":"ci","value":1}]
 JSON
@@ -942,10 +834,7 @@ JSON
 out="$("$REGRESSION" "$WORK/regression-came-back.json" 2>&1)" && rc=0 || rc=$?
 assert_eq "a machine that came back is not" "0" "${rc:-0}"
 
-# The figure the site waits through is dominated by where in its own cycle the
-# machine met the restored link, so its floor is the worst healthy behaviour can
-# produce. This one is not: it is what the machine spent once it tried again,
-# and it is floored at the backoff cap plus an establish margin.
+# The time spent once the machine tried again is floored at the backoff cap plus a margin.
 cat >"$WORK/regression-slow-attempt.json" <<'JSON'
 [{"metric":"netdrill_reconnect_attempt_seconds","scenario":"s1","victim":"real","commit":"abc123","env":"ci","value":95}]
 JSON
@@ -958,9 +847,6 @@ JSON
 out="$("$REGRESSION" "$WORK/regression-quick-attempt.json" 2>&1)" && rc=0 || rc=$?
 assert_eq "the reconnect this drill actually measures is not" "0" "${rc:-0}"
 
-# The herd row explains the figures beside it; it is not itself a floor, because
-# a scenario that could not find its herd publishes nothing at all — so a floor
-# here could never fire, which is the defect this whole change pays down.
 cat >"$WORK/regression-herd.json" <<'JSON'
 [{"metric":"netdrill_fleet_online","scenario":"s2","victim":"fleet","commit":"abc123","env":"ci","value":19},
  {"metric":"netdrill_outage_seconds","scenario":"s1","victim":"link","commit":"abc123","env":"ci","value":163}]
@@ -974,11 +860,6 @@ else
   pass "a missing summary is refused rather than passed"
 fi
 
-# --- the run's summary page ----------------------------------------------------
-#
-# The drill printed its readings with nothing to hold them against. The check
-# that judges them writes the page: each reading beside the floor it is held
-# to, what the check made of it, and a legend.
 cat >"$WORK/regression-table.json" <<'JSON'
 [{"metric":"netdrill_reconnect_seconds","scenario":"s1","victim":"real","value":18},
  {"metric":"netdrill_gap_fill_ratio","scenario":"s1","victim":"real","value":0.4},
@@ -993,14 +874,7 @@ assert_contains "a reading past its floor fails" "| s1 real: share of the gap fi
 assert_contains "a reading the drill records without a floor says so" "| s1 real: times the machine went offline | no limit | 1 | — |" "$table"
 assert_contains "the legend says what each column means" "- **Expected**" "$table"
 
-# --- the window is nights, not commits ----------------------------------------
-#
-# Once the bands are calibrated, tonight is judged against the median of the
-# nights before it. Twelve nights on eight commits: eight nights at 20 s on four
-# commits, then four at 45–80 s on four more. Folded to one point per commit the
-# median was 32.5 and a 70 s night passed under a threshold of 97.5; over the
-# nights it is 20, and 70 is past the band. None of those nights is thrown out
-# for having run tonight's code.
+# Tonight is judged against the median of the preceding nights, one point per night.
 DRILL_STORE="$WORK/drill-store"
 mkdir -p "$DRILL_STORE/bin"
 DRILL_TONIGHT="$(date -u -d '2026-09-29 11:41' +%s)"
@@ -1028,14 +902,7 @@ assert_eq "twelve nights on eight commits are judged against the twelve-night me
 assert_contains "and the median is the nights'" "20 -> 70" "$out"
 assert_lacks "and the window asks nothing about commits" "commit" "$(cat "$DRILL_STORE/args")"
 
-# --- the kernel record reads the node, or the step fails ----------------------
-#
-# The drill rests on the node shipping no kernel network emulator, and it
-# re-reads that every night through the node exporter. The step looked the
-# exporter up by a label the chart never sets, found no pod, wrote "no
-# node-exporter pod" into the evidence and exited green, night after night. The
-# selector is read against the labels the monitoring chart renders, under the
-# release name the production deploy installs it as.
+# The node-exporter selector is read against the labels the monitoring chart renders.
 kernel_step="$(
   python3 - "$WORKFLOW" <<'PY'
 import sys, yaml
@@ -1077,8 +944,7 @@ PY
     "DaemonSet/${monitoring_release}-node-exporter" "$selected"
 fi
 
-# A record that could not be taken is not a record. No path through the step
-# ends green without the kernel's release and its reading.
+# Every path through the step that ends green carries the kernel's release and its reading.
 assert_lacks "the kernel step has no path that exits green without a reading" "exit 0" "$kernel_step"
 assert_contains "the kernel's configuration is read from the node's boot directory" \
   '/host/root/boot/config-' "$kernel_step"

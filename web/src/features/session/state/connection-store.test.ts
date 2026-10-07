@@ -2,16 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useConnectionStore } from './connection-store';
 import { useToastStore } from '../../../lib/feedback/toast-store';
 
-// Captured transport events for testing dispatch
 let capturedEvents: Record<string, (...args: unknown[]) => void> = {};
 
-// The WebRTC half of the store: the events it hands the transport, and the
-// transport instance itself, so a test can drive the signaling round trip.
 let capturedWebrtcEvents: Record<string, (...args: unknown[]) => void> = {};
 let mockWebrtc: MockWebRTCTransport | null = null;
 
-/** When set, the next createOffer rejects with it — the SDP negotiation failing
- * before an upgrade ever gets off the ground. */
 let offerRejection: Error | null = null;
 
 class MockWebRTCTransport {
@@ -29,9 +24,8 @@ class MockWebRTCTransport {
   }
 }
 
-// The factory runs while the mocked module is imported — before this file's
-// class declaration has been evaluated — so it hands back a shim that defers the
-// reference to construction time and returns the real double from there.
+// The mock factory runs before this file's class declaration is evaluated, so the shim
+// defers the reference to construction time.
 vi.mock('../../../lib/transport/webrtc-transport', () => ({
   WebRTCTransport: class {
     constructor(events: Record<string, (...args: unknown[]) => void>) {
@@ -43,7 +37,6 @@ vi.mock('../../../lib/transport/webrtc-transport', () => ({
 
 const iceServers: RTCIceServer[] = [{ urls: 'stun:stun.example.com:3478' }];
 
-/** Connect, then take the relay-to-WebRTC upgrade as far as `upgrading`. */
 function startUpgrade(): MockWebRTCTransport {
   const { connect } = useConnectionStore.getState();
   connect('token', 'ws://host/relay', 'jwt', iceServers);
@@ -52,12 +45,10 @@ function startUpgrade(): MockWebRTCTransport {
   return mockWebrtc;
 }
 
-/** Messages of every toast currently raised. */
 function toastMessages(): string[] {
   return useToastStore.getState().toasts.map((t) => t.message);
 }
 
-// Mock WSTransport
 vi.mock('../../../lib/transport/ws-transport', () => {
   class MockWSTransport {
     state = 'disconnected';
@@ -90,9 +81,8 @@ describe('connection-store', () => {
     capturedWebrtcEvents = {};
     offerRejection = null;
     useToastStore.setState({ toasts: [] });
-    // The store's fallback toast fires once per session; disconnect resets it.
+    // The fallback toast fires once per session; disconnect resets it.
     useConnectionStore.getState().disconnect();
-    // Reset store state between tests
     useConnectionStore.setState({
       state: 'disconnected',
       token: null,
@@ -127,7 +117,6 @@ describe('connection-store', () => {
     const { connect } = useConnectionStore.getState();
     connect('test-token', 'ws://host/relay', 'jwt');
 
-    // Wait for simulated async connection
     await new Promise((r) => setTimeout(r, 10));
 
     const state = useConnectionStore.getState();
@@ -142,8 +131,6 @@ describe('connection-store', () => {
     const { disconnect } = useConnectionStore.getState();
     disconnect();
 
-    // The socket has to be told, not just forgotten: dropping the reference
-    // without disconnecting leaves it open.
     expect(transport?.disconnect).toHaveBeenCalledTimes(1);
     const state = useConnectionStore.getState();
     expect(state.transport).toBeNull();
@@ -270,7 +257,6 @@ describe('connection-store', () => {
     expect(webrtc.addIceCandidate).toHaveBeenCalledWith('cand', '0');
     expect(cb).not.toHaveBeenCalled();
 
-    // A non-signaling message still reaches the application.
     capturedEvents['onControlMessage']?.({ type: 'RelayReady' });
     expect(cb).toHaveBeenCalledWith({ type: 'RelayReady' });
   });
@@ -283,7 +269,6 @@ describe('connection-store', () => {
 
     capturedEvents['onControlMessage']?.({ type: 'IceCandidate', candidate: 'cand', mid: '0' });
 
-    // Consumed as signaling even with no transport to hand it to.
     expect(cb).not.toHaveBeenCalled();
     expect(mockWebrtc).toBeNull();
   });
@@ -441,7 +426,6 @@ describe('connection-store', () => {
       await vi.waitFor(() => {
         expect(console.warn).toHaveBeenCalledWith('[webrtc] addIceCandidate failed:', failure);
       });
-      // Recoverable: the session stays on its upgrade path, with no fallback.
       expect(useConnectionStore.getState().signalingState).toBe('upgrading');
       expect(toastMessages()).toEqual([]);
     });
@@ -480,7 +464,7 @@ describe('connection-store', () => {
       expect(onDesktop).toHaveBeenCalledWith({ sequence: 3 });
       expect(onTerminal).toHaveBeenCalledWith({ data: new Uint8Array([1]) });
       expect(onFile).toHaveBeenCalledWith({ offset: 0 });
-      // onStateChange is deliberately inert: the relay owns connection state.
+      // onStateChange is inert: the relay owns connection state.
       expect(useConnectionStore.getState().state).not.toBe('connected');
     });
 
@@ -493,7 +477,6 @@ describe('connection-store', () => {
       const state = useConnectionStore.getState();
       expect(state.signalingState).toBe('fallback');
       expect(state.error).toBe('ICE failed again');
-      // One session, one fallback notice.
       expect(toastMessages()).toEqual(['WebRTC unavailable, using WebSocket fallback (ICE failed)']);
     });
 
@@ -532,7 +515,6 @@ describe('connection-store', () => {
     const { connect, disconnect } = useConnectionStore.getState();
     connect('token', 'ws://host/relay', 'jwt');
 
-    // Trigger error to set signalingState
     capturedEvents['onError']?.(new Error('connection lost'));
     expect(useConnectionStore.getState().error).toBe('connection lost');
 

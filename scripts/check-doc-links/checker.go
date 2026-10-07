@@ -130,11 +130,7 @@ func (c *checker) resolveTarget(sourcePath, destinationPath string) (string, err
 	return target, nil
 }
 
-// planLinkIssue enforces the plan-link doctrine. A plan is a working document
-// and is deleted in the commit that lands its work, so nothing durable may
-// depend on one: no source under docs/ — ADRs included — and no source under
-// .claude/ may link a plan. A plan linking a sibling plan is the working area
-// referring to itself. See .claude/rules/plans-and-adrs.md.
+// planLinkIssue reports a link from a durable source to a plan; plans may link each other.
 func planLinkIssue(sourcePath, targetPath, destination string) string {
 	if !isPlanLink(targetPath) || targetPath == sourcePath {
 		return ""

@@ -6,9 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestGoldenHandshakeSkipAuth verifies the cross-language wire format of the
-// 0x14 SkipAuth fast-path message: the Rust agent encodes it on reconnect and
-// the Go server decodes it. The fixture carries a 0xCC-filled cached CA hash.
 func TestGoldenHandshakeSkipAuth(t *testing.T) {
 	data := readGolden(t, "handshake_skip_auth.bin")
 	assert.Len(t, data, 49)

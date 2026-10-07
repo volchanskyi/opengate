@@ -6,14 +6,7 @@ type Rule = components['schemas']['Rule'];
 const TERM = 'text-xs uppercase text-gray-500 font-semibold';
 const VALUE = 'text-sm text-gray-200';
 
-/**
- * What the rule is for, rendered as description and never as a form.
- *
- * A rule's logic is compiled into the server and cost-bounded before it can
- * reach a machine, so there is nothing to edit here. Rendering it as disabled
- * inputs would say the opposite — that this is a form somebody has locked — and
- * invite the question of who can unlock it.
- */
+// A rule's logic is compiled into the server, so it is described here and never rendered as a form.
 export function WhatItDoes({ rule }: { readonly rule: Rule }) {
   const facts: readonly (readonly [string, string])[] = [
     ['Watches', watchWording(rule)],

@@ -35,8 +35,6 @@ beforeEach(() => {
 });
 
 describe('TuningPanel', () => {
-  // A rule adjustable in more than one way files the value against the setting
-  // the operator picked, not the first one in the list.
   it('files the value against the setting that was picked', async () => {
     const saveBinding = vi.fn().mockResolvedValue(true);
     useRuleStore.setState({ saveBinding });

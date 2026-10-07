@@ -58,8 +58,6 @@ describe('inventory-store', () => {
     expect(useInventoryStore.getState().loading.get('d1')).toBe(false);
   });
 
-  // A retry that succeeds is shown as the inventory it read, not as the error
-  // the attempt before it left behind.
   it('a successful fetch clears that machine\'s earlier error, and no other machine\'s', async () => {
     useInventoryStore.setState({
       errors: new Map([['d1', 'Failed to load inventory.'], ['d2', 'Failed to load inventory.']]),

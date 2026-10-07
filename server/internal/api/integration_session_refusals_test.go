@@ -12,15 +12,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// The three refusals a technician meets when they ask for a session they
-// cannot have. None of them needs a machine on the other end — the request is
-// turned away before anything is asked of one — so they live beside the
-// handler rather than in the transport tier.
-
 const pathSessionsAPI = "/api/v1/sessions"
 
-// TestCreateSessionForAnOfflineDeviceIsRefused pins the 409: the device is
-// known, but nothing is connected to carry the session.
 func TestCreateSessionForAnOfflineDeviceIsRefused(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
@@ -39,8 +32,6 @@ func TestCreateSessionForAnOfflineDeviceIsRefused(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
 
-// TestCreateSessionForAnUnknownDeviceIsNotFound pins the 404, which is also
-// what a device in another tenant answers.
 func TestCreateSessionForAnUnknownDeviceIsNotFound(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
@@ -55,8 +46,6 @@ func TestCreateSessionForAnUnknownDeviceIsNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-// TestDeleteAnUnknownSessionIsNotFound pins the last one: a token nothing was
-// ever issued against.
 func TestDeleteAnUnknownSessionIsNotFound(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)

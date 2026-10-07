@@ -25,8 +25,6 @@ func TestRestartDevice(t *testing.T) {
 		{"online agent", true, true, true, http.StatusOK},
 		{"agent not connected", false, true, true, http.StatusConflict},
 		{"device not found", false, false, true, http.StatusNotFound},
-		// Restarting an agent is a device command: any member of the
-		// tenant may issue it, not only the device's original operator.
 		{"peer in the same tenant", true, true, false, http.StatusOK},
 	}
 
@@ -54,7 +52,6 @@ func TestRestartDevice(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, w.Code)
 
 			if tt.wantStatus == http.StatusOK && tt.online {
-				// Verify the RestartAgent message was written to the agent stream
 				codec := &protocol.Codec{}
 				frameType, payload, err := codec.ReadFrame(env.agentStream)
 				require.NoError(t, err)
@@ -88,10 +85,7 @@ func TestRestartDevice(t *testing.T) {
 		assert.Equal(t, "restart requested from web UI", msg.Reason)
 	})
 
-	// A reason that bottoms out empty encodes a frame with no `reason` key,
-	// which the agent cannot decode — the device never restarts. Returning 200
-	// for that is a lie, so every such request is refused before a frame is
-	// written.
+	// An empty reason encodes a frame without a `reason` key, which the agent cannot decode.
 	t.Run("empty reason is refused", func(t *testing.T) {
 		tests := []struct {
 			name   string
@@ -159,7 +153,7 @@ func TestRestartDevice(t *testing.T) {
 		w := doRequest(env.srv, http.MethodPost, "/api/v1/devices/"+env.device.ID.String()+"/restart", env.ownerToken, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		// auditLog is async (fire-and-forget goroutine) — poll until it lands.
+		// auditLog runs in a goroutine, so the test polls until the event lands.
 		var events []*audit.Event
 		require.Eventually(t, func() bool {
 			var err error

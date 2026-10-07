@@ -21,7 +21,7 @@ func Scoped(ctx context.Context, db *sql.DB, fn func(*sql.Tx) error) error {
 	if err != nil {
 		return fmt.Errorf("begin tenant tx: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck // harmless after Commit
+	defer tx.Rollback()
 
 	if err := SetLocal(ctx, tx, tenant); err != nil {
 		return err

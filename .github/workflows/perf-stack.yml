@@ -1,32 +1,11 @@
 name: Performance Stack (volume + scaling + shapes)
 
-# The families that cannot honestly run on the shared cluster.
-#
-# The volume family varies how much data is already there, and staging's
-# database writes into the same node root production depends on. The scaling
-# family varies how many processors the server has, and the cluster offers one
-# figure. The three shape families — a busy morning, a site's link coming back,
-# and the load raised until something gives — ask for two and four thousand
-# machines, and the cluster node has 150 millicores left to reserve. A runner
-# brings its own disk and its own processors, is thrown away at the end of the
-# job, and is the only place the generator and the target hold genuinely
-# separate boundaries.
-#
-# A runner is x86_64 and production is ARM64, so what this produces is a
-# comparison — between fixture sizes, or between processor counts — and never an
-# absolute capacity claim about production hardware.
+# Runs the volume, scaling and shape families on a runner that brings its own disk and processors.
+# A runner is x86_64 and production is ARM64, so results compare legs and give no absolute capacity.
 
 on:
   schedule:
-    # Last of the night's runs, which is what this cron buys: a scheduled run
-    # starts four and a half to six and a half hours after the time it names, so
-    # the hour here decides the order and nothing else. The mutation matrix, the
-    # browser suite, the benchmark and the load test all sit in front of it, and
-    # a run scheduled beside them queues behind the whole batch on a twenty-job
-    # pool rather than running.
-    #
-    # Nothing here needs the staging namespace, so nothing serialises this
-    # against the runs that do. It brings its own stack on the runner.
+    # The hour decides queue order: a scheduled run starts hours after the time it names.
     - cron: '0 7 * * *'
   workflow_dispatch:
 
@@ -42,31 +21,18 @@ env:
   K6_VERSION: v1.6.1
   K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max,count
   PERF_BUNDLE_DIR: perf-bundles
-  # What the system under test is capped at. It is declared here rather than
-  # left to the compose file's own default because the harness records it as the
-  # target's fingerprint, and a fingerprint that disagrees with the container it
-  # describes is worse than no fingerprint: every latency figure in the bundle
-  # is a property of that pair.
+  # The harness records these caps as the target's fingerprint, so they match the container.
   PERF_SERVER_MEMORY: 1g
   PERF_SERVER_MEMORY_BYTES: '1073741824'
-  # The processor share the volume family holds constant while it varies the
-  # data. The scaling family overrides it per leg — that is its whole subject.
+  # The volume family holds this processor share constant; the scaling family overrides it per leg.
   PERF_SERVER_CPUS: '1.0'
-  # What the generator itself may use. It declared nothing and took whatever the
-  # stack's own services left, so at the top of the sweep the server claimed the
-  # runner and the generator ran unbounded beside it — and the two measured each
-  # other. Declaring it is also what lets the harness measure its room against
-  # an allowance rather than against the box, which is the only reading that can
-  # say a run measured the generator.
+  # An explicit generator allowance lets the harness measure its room against the allowance.
   PERF_GENERATOR_CPUS: '1.0'
-  # Enough for the largest fleet any leg offers: sixteen thousand machines cost
-  # about 400 KB each over a 1.25 GiB baseline, measured on the peak and
-  # breakpoint bundles at two and four thousand.
+  # Sixteen thousand machines cost about 400 KB each over a 1.25 GiB baseline.
   PERF_GENERATOR_MEMORY: '10G'
 
 jobs:
-  # The night's date, taken once for every sample the night writes: the legs run
-  # side by side and none of them is first.
+  # The start time is taken once so every sample of the night carries the same date.
   started:
     name: Record when the run started
     runs-on: ubuntu-24.04
@@ -78,21 +44,13 @@ jobs:
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
 
-  # The sweep's points are stated rather than assumed: a comparison between
-  # processor counts is only a comparison if the counts are recorded beside the
-  # numbers they produced.
   scaling:
     name: Scaling sweep (${{ matrix.cpus }} processors)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      # The rungs sit below what the rest of the stack leaves. The runner has
-      # four processors, the database holds one and the metrics store half, and
-      # the generator now holds one of its own — so a server given four took
-      # everything and left the generator less than nothing, and the generator's
-      # share shrank as the server's grew. Two things that move together cannot
-      # be told apart, and a flat curve was attributable to neither.
+      # The rungs sit below what the runner leaves after the database, metrics store and generator.
       matrix:
         cpus: ["0.25", "0.5", "1", "2"]
     steps:
@@ -103,20 +61,13 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
 
-      # Docker Hub's anonymous pull rate is shared across a runner's whole
-      # network, so a pull here goes through the mirror the rest of the
-      # pipelines use.
+      # Docker Hub's anonymous pull rate is shared across a runner's network, so pulls use the mirror.
       - uses: ./.github/actions/docker-hub-mirror
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # The disk column is the free one, not the partition's size. A runner's
-      # root filesystem is 144 GiB and roughly 14 GB of that is room a job can
-      # use, the rest being the preinstalled toolchain — so the one figure ever
-      # taken to answer "does this fixture fit" reported ten times the number
-      # that binds. The harness reads all three itself and puts them in the
-      # bundle; these are printed so a run's log says what it was measured on.
+      # The free disk column is what binds; the harness reads all three figures itself.
       - name: Record what this runner actually is
         run: |
           set -euo pipefail
@@ -124,9 +75,7 @@ jobs:
           printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
           printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
 
-      # The transport asks the kernel for more receive buffer than a runner
-      # allows a socket. The ceilings are production's, and host-wide, so the
-      # server's container gets them as well as the generator.
+      # The transport asks for more receive buffer than a runner allows a socket.
       - name: Give the machine-facing path production's buffers
         run: scripts/perf-stack-quic.sh raise-buffers
 
@@ -140,33 +89,14 @@ jobs:
           export DOCKER_CONFIG
           scripts/perf-stack-pull.sh "$COMPOSE_FILE"
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
-          # The database's own accounting, sampled for as long as the job runs,
-          # so the leg's summary can say how much of its caps it used through
-          # the measured phase.
+          # The database's cgroup is sampled for the job's duration for the leg's summary.
           DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
           nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
 
-      # Past Docker's userland proxy: the generator dials the name on the
-      # server's certificate, mapped to the container's own address, and the
-      # harness is told where the server's network counters are.
+      # The generator dials the name on the server's certificate, mapped to the container's address.
       - name: Dial the server by its certificate's name
         run: scripts/perf-stack-quic.sh map-server
 
-      # Every path below is named from the repository root, and the build is
-      # pointed at server/ with -C. A step that changes directory instead cannot
-      # see the scripts and profiles it names, and fails after the stack is
-      # already up.
-      #
-      # The machines enrol the way an installer does, through the server's own
-      # endpoint: they keep their private keys and send signing requests, and
-      # what comes back is a certificate plus the authority to verify the server
-      # with. A harness signing for itself owns a different authority from the
-      # one the server created in its container, and every dial is then refused
-      # at the handshake against an authority of the same name.
-      #
-      # Building the fleet is also what makes this a scaling sweep: the family
-      # holds the load and the data constant and varies the processors, and its
-      # profile names the fixture it holds constant.
       - name: Install k6
         run: |
           set -euo pipefail
@@ -175,24 +105,7 @@ jobs:
             | tar -xz -C /tmp
           install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
 
-      # The technician load runs beside the fleet, from the profile, so the sweep
-      # holds it constant while it varies the processors. It used to hold none:
-      # no browser-side generator ran on this venue at all, so what the sweep
-      # varied processors against was five hundred machines arriving, which is
-      # the cheapest thing the server does — and that is why its curve was flat
-      # from one processor upwards.
-      #
-      # Both halves of that load, because the profile declares both. The journeys
-      # are a rate of screens opened; the sessions are a count held open, and
-      # they are the half this family's finding most depends on. What this sweep
-      # answers is how many machines a processor holds, which is a claim a reader
-      # acts on — and a technician remoted into a machine is the expensive thing
-      # the product does. A ceiling read with nobody watching a screen is a
-      # ceiling for a load that never happens.
-      #
-      # The harness answers the machine side of those sessions and echoes on it,
-      # which is what makes the browser side's round trip a measurement rather
-      # than a wait for a frame nobody sends back.
+      # Paths are named from the repository root and the build uses -C, so no step changes directory.
       - name: Run the scaling profile, building its fleet first
         env:
           LOADTEST_BASE_URL: http://127.0.0.1:8080
@@ -200,10 +113,7 @@ jobs:
           LOADTEST_PROFILE: load/profiles/scaling.yaml
           LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
           K6_BIN: /tmp/k6
-          # The stack is created by this job and thrown away at the end of it, is
-          # reachable only from inside the runner, and holds nothing but the
-          # fleet this run invented. The password is generated per run all the
-          # same, so nothing fixed is ever written down.
+          # The stack is per-run and reachable only from the runner; the password is generated per run.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
         run: |
           set -euo pipefail
@@ -211,10 +121,7 @@ jobs:
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
           K6_LEG=$!
-          # The harness's own exit code, read rather than acted on: 1 is a fleet
-          # that half arrived, which is a measurement. What judges it is the
-          # verdict step below, and failing here on the count is a second
-          # verdict nobody wrote down.
+          # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
           set +e
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
@@ -245,10 +152,7 @@ jobs:
             exit "$walk"
           fi
 
-      # The technician numbers are timed by a generator in another process and
-      # written to a file of its own. Folding them into the leg is what gives
-      # them a reader: the curve is built from the bundles, and a measurement
-      # nobody reads is a run that happens to share a profile.
+      # The technician numbers are timed by a separate generator and merged into the leg's bundle.
       - name: Fold the technician journeys into the leg
         run: |
           set -euo pipefail
@@ -257,8 +161,7 @@ jobs:
             --journeys /tmp/perf-k6/api-baseline.json \
             --journeys /tmp/perf-k6/relay-throughput.json
 
-      # Either end asking for more buffer than the kernel gave is a run whose
-      # datagrams were lost before either process saw them.
+      # A short receive buffer on either end means datagrams were lost before either process saw them.
       - name: Refuse a run whose ends ran short of receive buffer
         run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
 
@@ -266,12 +169,7 @@ jobs:
         if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json"
 
-      # And the numbers the profile says this leg is judged by. The verdict
-      # above answers whether the run measured the system; these answer whether
-      # the system was fast enough, which is the question the limits were
-      # written to ask and which nothing on this venue had ever asked — the one
-      # evaluator reads canonical rows, and the only night that produces those
-      # is the staging one.
+      # The verdict says whether the run measured the system; the limits say whether it was fast enough.
       - name: Read the profile's limits against the run's own rows
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -279,9 +177,6 @@ jobs:
           scripts/perf-bundle-limits.sh load/profiles/scaling.yaml \
             "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json" /tmp/scaling-rows.json
 
-      # Every measurement beside the limit the profile holds it to, the error
-      # rate, and how much of its own ceiling the server and the database used
-      # through the measured phase.
       - name: Write the leg's summary
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -312,23 +207,13 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # Nobody has weighed a fixture. Production's database holds 66 MB after seven
-  # weeks with four real machines, and the cluster node has around nine gigabytes
-  # of margin before the kubelet starts evicting — so whether a two-thousand
-  # machine fixture fits inside that margin is a fact one measurement settles.
-  # Until it exists, no storage decision is made either way.
   volume:
     name: Volume family (${{ matrix.agents }} machines)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      # The sweep varies machines that actually enrolled, not fixture names. The
-      # large and lopsided fixtures plan the same count and differ only in how
-      # the fleet is distributed, so a sweep over the three names was two points
-      # and a broken third. The paths are spelled out rather than assembled from
-      # the count above, because every sweep that asks which profiles a workflow
-      # runs reads the workflow as text.
+      # Each leg varies the count of machines that actually enrolled, with the profile path spelled out.
       matrix:
         include:
           - agents: '500'
@@ -345,17 +230,13 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
 
-      # Docker Hub's anonymous pull rate is shared across a runner's whole
-      # network, so a pull here goes through the mirror the rest of the
-      # pipelines use.
+      # Docker Hub's anonymous pull rate is shared across a runner's network, so pulls use the mirror.
       - uses: ./.github/actions/docker-hub-mirror
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # The transport asks the kernel for more receive buffer than a runner
-      # allows a socket. The ceilings are production's, and host-wide, so the
-      # server's container gets them as well as the generator.
+      # The transport asks for more receive buffer than a runner allows a socket.
       - name: Give the machine-facing path production's buffers
         run: scripts/perf-stack-quic.sh raise-buffers
 
@@ -367,22 +248,15 @@ jobs:
           export DOCKER_CONFIG
           scripts/perf-stack-pull.sh "$COMPOSE_FILE"
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
-          # The database's own accounting, sampled for as long as the job runs,
-          # so the leg's summary can say how much of its caps it used through
-          # the measured phase.
+          # The database's cgroup is sampled for the job's duration for the leg's summary.
           DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
           nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
 
-      # Past Docker's userland proxy: the generator dials the name on the
-      # server's certificate, mapped to the container's own address, and the
-      # harness is told where the server's network counters are.
+      # The generator dials the name on the server's certificate, mapped to the container's address.
       - name: Dial the server by its certificate's name
         run: scripts/perf-stack-quic.sh map-server
 
-      # The empty stack's database size and series count, before anything is
-      # built. The fixture's own weight is the difference between these and the
-      # readings after — two readings taken back to back always differ by
-      # nothing, which is a measurement that cannot fail and cannot inform.
+      # The fixture's weight is the difference between this baseline and the reading taken afterwards.
       - name: Read the empty stack's size
         run: |
           set -euo pipefail
@@ -397,26 +271,7 @@ jobs:
             | tar -xz -C /tmp
           install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
 
-      # Everything a fleet is made of goes through the same interface a
-      # technician uses. The stack starts empty, so the first account the server
-      # sees becomes its administrator — which is how a fresh install bootstraps.
-      #
-      # The technician load runs beside the fleet, from the profile, so the
-      # sweep holds it constant while it varies how much data is already there.
-      # Reading is what more data slows, and the only reader this family had was
-      # machines arriving — whose cost barely moves with the size of the fleet
-      # already in the database. So the sweep varied its own variable against a
-      # load that could not feel it, which is why three legs a night differing
-      # by sixteen times the machines returned registration tails inside a
-      # hundred milliseconds of each other.
-      #
-      # Both halves of that load, because the profiles declare both. The
-      # journeys are a rate of screens opened; the sessions are a count held
-      # open, and the harness answers the machine side of each and echoes. This
-      # family states how much a fleet of a given size costs, which is a claim a
-      # reader acts on, and a technician remoted into a machine is the expensive
-      # thing the product does — so a figure read with nobody watching a screen
-      # describes a load that never happens.
+      # On an empty stack the first account the server sees becomes its administrator.
       - name: Run the volume profile, building its fleet first
         run: |
           set -euo pipefail
@@ -424,10 +279,7 @@ jobs:
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
           K6_LEG=$!
-          # The harness's own exit code, read rather than acted on: 1 is a fleet
-          # that half arrived, which is a measurement. What judges it is the
-          # verdict step below, and failing here on the count is a second
-          # verdict nobody wrote down.
+          # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
           set +e
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
@@ -463,16 +315,10 @@ jobs:
           LOADTEST_PROFILE: ${{ matrix.path }}
           LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
           K6_BIN: /tmp/k6
-          # The stack is created by this job and thrown away at the end of it, is
-          # reachable only from inside the runner, and holds nothing but the
-          # fleet this run invented. The password is generated per run all the
-          # same, so nothing fixed is ever written down.
+          # The stack is per-run and reachable only from the runner; the password is generated per run.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
 
-      # The technician numbers are timed by a generator in another process and
-      # written to a file of its own. Folding them into the leg is what gives
-      # them a reader: the curve is built from the bundles, and a measurement
-      # nobody reads is a run that happens to share a profile.
+      # The technician numbers are timed by a separate generator and merged into the leg's bundle.
       - name: Fold the technician journeys into the leg
         run: |
           set -euo pipefail
@@ -481,8 +327,7 @@ jobs:
             --journeys /tmp/perf-k6/api-baseline.json \
             --journeys /tmp/perf-k6/relay-throughput.json
 
-      # Either end asking for more buffer than the kernel gave is a run whose
-      # datagrams were lost before either process saw them.
+      # A short receive buffer on either end means datagrams were lost before either process saw them.
       - name: Refuse a run whose ends ran short of receive buffer
         run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
 
@@ -490,8 +335,6 @@ jobs:
         if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json"
 
-      # And the numbers the profile says this leg is judged by, read off the run's
-      # own evidence.
       - name: Read the profile's limits against the run's own rows
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -499,9 +342,6 @@ jobs:
           scripts/perf-bundle-limits.sh "${{ matrix.path }}" \
             "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" /tmp/volume-rows.json
 
-      # Every measurement beside the limit the profile holds it to, the error
-      # rate, and how much of its own ceiling the server and the database used
-      # through the measured phase.
       - name: Write the leg's summary
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -516,10 +356,7 @@ jobs:
           scripts/run-summary.sh render --title "Volume family (${{ matrix.agents }} machines)" --profile "${{ matrix.path }}" \
             --rows "/tmp/volume-rows.json" --bundle "$BUNDLE" --database /tmp/db-levels.json >>"$GITHUB_STEP_SUMMARY"
 
-      # The volume family's whole finding is this number, and it was written into
-      # a file beside the bundle that nothing downstream opened. Folding it in is
-      # what puts it where a reader looks after the metrics store has forgotten
-      # the night.
+      # The fixture weight is folded into the bundle so it outlives the metrics store.
       - name: Weigh what the fleet actually cost, and fold it into the evidence
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -546,24 +383,14 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # The volume family's legs, read together.
-  #
-  # Whether the system slows down as an estate grows is a comparison between the
-  # legs and is nowhere inside any one of them, so three bundles a night with no
-  # step reading them together is three runs that happen to share a profile.
-  #
-  # What it enforces is the sweep's ability to answer that question: legs that
-  # held different amounts of data, each weighed, each offered the technician
-  # load the family holds constant. The shape itself is published rather than
-  # gated — one night is one sample per leg, and a larger estate coming back
-  # faster is a reading worth having rather than a fault.
+  # Compares the volume legs, which hold different data under the same technician load.
+  # The curve is published and not gated, since one night is one sample per leg.
   volume-curve:
     name: Volume family, read together
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: volume
-    # Every leg that ran is worth reading, including on a night one of them
-    # failed — a hole in the curve is itself the finding, and the script says so.
+    # A leg that failed leaves a hole in the curve, which the script reports.
     if: always()
     steps:
       - uses: actions/checkout@v7
@@ -579,14 +406,7 @@ jobs:
           set -euo pipefail
           scripts/perf-volume-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # The three shapes an estate actually takes, none of which the everyday run
-  # produces: the busiest ordinary morning, a site whose link came back, and the
-  # load raised until something gives.
-  #
-  # They are one job over a matrix rather than three jobs, because they differ
-  # only in the profile they walk and the size of the estate that profile draws
-  # from. The stack around them is identical, and three copies of it is three
-  # places for it to drift.
+  # One job over a matrix: the legs differ only in the profile and the estate size it draws from.
   shapes:
     name: ${{ matrix.title }}
     runs-on: ubuntu-24.04
@@ -596,23 +416,12 @@ jobs:
       matrix:
         include:
           - profile: peak
-            # The path is spelled out rather than built from the name above.
-            # Every sweep that asks which profiles a workflow runs — whether a
-            # limit names a measurement this venue can produce, whether a
-            # profile is scheduled anywhere at all — reads the workflow as text,
-            # and a path assembled at run time is invisible to all of them.
+            # The path is literal so sweeps that read the workflow as text can see it.
             path: load/profiles/peak.yaml
             title: Busy morning (peak)
-            # The profile declares held technician sessions and a rate of screens
-            # opened, and until now this venue offered neither — so what the leg
-            # measured was a busy morning with nobody watching a screen, which is
-            # a load nobody runs. A technician remoted into a machine is the
-            # expensive thing the product does.
+            # Declares held technician sessions and a rate of screens opened.
             journeys: true
-            # The estate the profile draws from. It has to cover the profile's
-            # own highest level: a machine that cannot be given an identity has
-            # not arrived, and a run short of the level it declared is a
-            # mis-sized run rather than a finding about the system.
+            # The estate covers the profile's highest level.
             agents: '2000'
             hold: 8m
             minutes: 45
@@ -626,21 +435,11 @@ jobs:
           - profile: breakpoint
             path: load/profiles/breakpoint.yaml
             title: Raise it until it gives (breakpoint)
-            # Alone in still declaring sessions nobody opens. This leg raises the
-            # fleet until the server gives out — sixteen thousand machines on a
-            # shared runner, with a hundred and sixty held sessions on top — so
-            # what that generator needs of the runner is a reading to take before
-            # the leg offers it. Each rung now reads the generator's own room, so
-            # a night on this path says what it had at a rung that held.
+            # The breakpoint ladder holds sessions without journeys, so no k6 leg runs.
             journeys: false
-            # The ladder now reaches sixteen thousand, so the estate has to. At
-            # about 400 KB of generator memory a machine over a 1.25 GiB
-            # baseline — measured on the peak and breakpoint bundles — that is
-            # roughly 7.7 GB, inside the allowance the generator is given.
+            # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 7.7 GB.
             agents: '16000'
-            # Six rungs of five minutes, one to empty the fleet, and five more
-            # to ask a crushed server for its opening load again. A machine is
-            # held from the rung that dialled it to the end of the walk.
+            # The ladder runs six five-minute steps, a one-minute drain and a five-minute recovery.
             hold: 40m
             minutes: 90
     steps:
@@ -651,9 +450,7 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
 
-      # Docker Hub's anonymous pull rate is shared across a runner's whole
-      # network, so a pull here goes through the mirror the rest of the
-      # pipelines use.
+      # Docker Hub's anonymous pull rate is shared across a runner's network, so pulls use the mirror.
       - uses: ./.github/actions/docker-hub-mirror
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -666,9 +463,7 @@ jobs:
           printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
           printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
 
-      # The transport asks the kernel for more receive buffer than a runner
-      # allows a socket. The ceilings are production's, and host-wide, so the
-      # server's container gets them as well as the generator.
+      # The transport asks for more receive buffer than a runner allows a socket.
       - name: Give the machine-facing path production's buffers
         run: scripts/perf-stack-quic.sh raise-buffers
 
@@ -680,29 +475,15 @@ jobs:
           export DOCKER_CONFIG
           scripts/perf-stack-pull.sh "$COMPOSE_FILE"
           docker compose -f "$COMPOSE_FILE" up --build --wait --wait-timeout 300
-          # The database's own accounting, sampled for as long as the job runs,
-          # so the leg's summary can say how much of its caps it used through
-          # the measured phase.
+          # The database's cgroup is sampled for the job's duration for the leg's summary.
           DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
           nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
 
-      # Past Docker's userland proxy: the generator dials the name on the
-      # server's certificate, mapped to the container's own address, and the
-      # harness is told where the server's network counters are.
+      # The generator dials the name on the server's certificate, mapped to the container's address.
       - name: Dial the server by its certificate's name
         run: scripts/perf-stack-quic.sh map-server
 
-      # The generator and the target share this box on purpose — it is the only
-      # venue with enough processors to offer four thousand machines at all — so
-      # the figure that says whether the load was actually offered is the
-      # fleet's own account of what arrived, and the harness reads its own
-      # headroom beside it. A leg whose generator ran out reports that and is
-      # marked invalid rather than answering wrongly.
-      # The browser-side half of the load the profile declares. It runs beside
-      # the fleet, from the same profile, and the harness answers the machine
-      # side of those sessions and echoes on them — which is what makes the
-      # browser side's round trip a measurement rather than a wait for a frame
-      # nobody sends back.
+      # The k6 leg is the browser-side half of the load; the harness answers and echoes its sessions.
       - name: Install k6
         if: matrix.journeys
         run: |
@@ -722,10 +503,7 @@ jobs:
             scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
             K6_LEG=$!
           fi
-          # The harness's own exit code, read rather than acted on: 1 is a fleet
-          # that half arrived, which is a measurement. What judges it is the
-          # verdict step below, and failing here on the count is a second
-          # verdict nobody wrote down.
+          # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
           set +e
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
             scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
@@ -756,29 +534,17 @@ jobs:
             exit "$walk"
           fi
         env:
-          # The stack is created by this job and thrown away at the end of it, is
-          # reachable only from inside the runner, and holds nothing but the
-          # fleet this run invented. The password is generated per run all the
-          # same, so nothing fixed is ever written down.
+          # The stack is per-run and reachable only from the runner; the password is generated per run.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
-          # What the browser-side generator is handed: the walk it joins, the
-          # address it presents at, and a name for the identities it creates.
-          # The profile is the same one the harness walks, because the two
-          # halves of a leg offering different shapes is a load nobody runs.
+          # The browser-side generator joins the same profile the harness walks.
           LOADTEST_PROFILE: ${{ matrix.path }}
           LOADTEST_BASE_URL: http://127.0.0.1:8080
           LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.profile }}
           LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
           K6_BIN: /tmp/k6
-          # Both halves of what the profile declares: the journeys are a rate of
-          # screens opened, the sessions are a count held open, and a leg that
-          # offers one of them is still measuring a load nobody runs.
           JOURNEYS: ${{ matrix.journeys }}
 
-      # The technician numbers are timed by a generator in another process and
-      # written to a file of its own. Folding them into the leg is what gives
-      # them a reader: the verdict and the limits below are read from the bundle,
-      # and a measurement nobody reads is a run that happens to share a profile.
+      # The technician numbers are timed by a separate generator and merged into the leg's bundle.
       - name: Fold the technician journeys into the leg
         if: matrix.journeys
         run: |
@@ -788,8 +554,7 @@ jobs:
             --journeys /tmp/perf-k6/api-baseline.json \
             --journeys /tmp/perf-k6/relay-throughput.json
 
-      # Either end asking for more buffer than the kernel gave is a run whose
-      # datagrams were lost before either process saw them.
+      # A short receive buffer on either end means datagrams were lost before either process saw them.
       - name: Refuse a run whose ends ran short of receive buffer
         run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
 
@@ -797,9 +562,6 @@ jobs:
         if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json"
 
-      # And the numbers the profile says this leg is judged by, read off the run's
-      # own evidence — this venue produces no browser-side export to join, which
-      # is why every limit these profiles declare had gone unread.
       - name: Read the profile's limits against the run's own rows
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -807,9 +569,6 @@ jobs:
           scripts/perf-bundle-limits.sh "${{ matrix.path }}" \
             "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json" /tmp/${{ matrix.profile }}-rows.json
 
-      # Every measurement beside the limit the profile holds it to, the error
-      # rate, and how much of its own ceiling the server and the database used
-      # through the measured phase.
       - name: Write the leg's summary
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -840,26 +599,13 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # The sweep's legs, read together.
-  #
-  # Four bundles a night were produced and nothing had ever compared them: the
-  # jobs above read none of each other's output, there was no publish step, no
-  # trend and no gate. A sweep nobody reads is four runs that happen to share a
-  # profile, and the 2026-09-05 night — four legs with identical phase results
-  # and a target fingerprint of one processor on every rung — passed in exactly
-  # that state.
-  #
-  # What it enforces is the sweep's ability to measure at all, and what it
-  # publishes is the shape. A curve that fails to rise is not failed here: one
-  # night is one sample per rung, and the two nights on record disagreed about
-  # the shape from the same code and the same profile.
+  # Compares the scaling legs. The curve is published and not gated: one night is one sample per rung.
   scaling-curve:
     name: Scaling sweep, read together
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: scaling
-    # Every leg that ran is worth reading, including on a night one of them
-    # failed — a hole in the curve is itself the finding, and the script says so.
+    # A leg that failed leaves a hole in the curve, which the script reports.
     if: always()
     steps:
       - uses: actions/checkout@v7
@@ -875,11 +621,7 @@ jobs:
           set -euo pipefail
           scripts/perf-scaling-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # Every leg's rows, into the trend, and each leg against the nights before it.
-  #
-  # The legs were held to their profiles' fixed limits and to nothing else, and
-  # their numbers lived in an artifact alone. This job's result says whether the
-  # trend was published; what it found is read by the gate below.
+  # Pushes every leg's rows into the trend and compares each leg with the nights before it.
   publish:
     name: Publish the performance trend
     needs: [started, scaling, volume, shapes]
@@ -915,8 +657,7 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      # A leg is named by its bundle's directory, and a leg whose bundle says it
-      # did not measure the system is compared with nothing and pushed nowhere.
+      # A leg is named by its bundle's directory; a leg that did not measure the system is pushed nowhere.
       - name: Compare each leg with the nights before it
         id: check
         run: |
@@ -1001,17 +742,10 @@ jobs:
           fi
           echo "No leg is past the nights before it."
 
-  # Alert if the run did not finish.
-  #
-  # Every nightly here published its verdict into its own result and nothing
-  # read it: a run that died, was cancelled, or was killed at its timeout went
-  # red on a page nobody opens. The alert path is the part that makes a red run
-  # a thing somebody knows about.
+  # Alerts when a job in the run dies, is cancelled, or is killed at its timeout.
   alert:
     name: Alert if the run did not finish
-    # Five jobs and no gate job, so the alert is a job rather than a step
-    # pasted five times. It runs on a fresh runner whatever happened upstream,
-    # which is what a step inside a job killed at its own timeout cannot do.
+    # A job on a fresh runner still runs when an upstream job was killed at its own timeout.
     needs: [scaling, scaling-curve, shapes, volume, volume-curve]
     if: always()
     runs-on: ubuntu-24.04
@@ -1025,10 +759,7 @@ jobs:
       - uses: ./.github/actions/setup-pinned-tools
 
       - name: Send Telegram alert
-        # `needs.<job>.result` rather than `failure()`: the result is a fact
-        # about the job named, and it is what the repository's other gate jobs
-        # already read. It also tells a cancel from a failure, which matters —
-        # one of them is somebody's decision and the other is a lost night.
+        # The needs result is a fact about the named job and distinguishes a cancel from a failure.
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}

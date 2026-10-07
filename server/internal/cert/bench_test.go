@@ -1,49 +1,49 @@
 package cert
 
 import (
-	"fmt"
 	"testing"
 )
 
-func BenchmarkManager_SignAgent(b *testing.B) {
+func benchManager(b *testing.B) *Manager {
+	b.Helper()
 	mgr, err := NewManager(b.TempDir())
 	if err != nil {
 		b.Fatal(err)
 	}
+	return mgr
+}
 
+func runSigning(b *testing.B, sign func(*Manager) error) {
+	b.Helper()
+	mgr := benchManager(b)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		_, err := mgr.SignAgent("device-001", "test-host")
-		if err != nil {
+		if err := sign(mgr); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkManager_SignServer(b *testing.B) {
-	mgr, err := NewManager(b.TempDir())
-	if err != nil {
-		b.Fatal(err)
-	}
+func BenchmarkManager_SignAgent(b *testing.B) {
+	runSigning(b, func(m *Manager) error {
+		_, err := m.SignAgent("device-001", "test-host")
+		return err
+	})
+}
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		_, err := mgr.SignServer()
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
+func BenchmarkManager_SignServer(b *testing.B) {
+	runSigning(b, func(m *Manager) error {
+		_, err := m.SignServer()
+		return err
+	})
 }
 
 func BenchmarkNewManager_Generate(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		dir := b.TempDir()
-		_, err := NewManager(dir)
-		if err != nil {
+		if _, err := NewManager(b.TempDir()); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -51,17 +51,15 @@ func BenchmarkNewManager_Generate(b *testing.B) {
 
 func BenchmarkNewManager_Load(b *testing.B) {
 	dir := b.TempDir()
-	_, err := NewManager(dir) // generate once
-	if err != nil {
+	if _, err := NewManager(dir); err != nil {
 		b.Fatal(err)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := NewManager(dir) // load from disk
-		if err != nil {
-			b.Fatal(fmt.Sprintf("iteration %d: %v", i, err))
+		if _, err := NewManager(dir); err != nil {
+			b.Fatalf("iteration %d: %v", i, err)
 		}
 	}
 }

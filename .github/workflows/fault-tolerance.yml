@@ -1,19 +1,7 @@
 name: Fault Tolerance Drills
 
-# Deployed fault-tolerance drills against the opengate-staging namespace.
-# The shipped server binary carries no fault code: every fault here is injected
-# out-of-band by the staging-only runner scripts in scripts/fault/. The
-# in-process app-fault suite gates separately as an ordinary Go test in CI
-# (make test) — this workflow owns only the deployed drills.
-#
-# Reached one way: workflow_call from cd.yml after staging E2E, gated by the
-# STAGING_FAULT_TESTS repo variable, so activation is config-only and every
-# drill is tied to a deploy that is about to be promoted.
-#
-# The scenario is always one of an enumerated allow-list; a runtime guard
-# re-validates it so the workflow_call string path (a repo variable) can never
-# smuggle a free-form scenario into staging. Deeper on-demand network drills are
-# run from their own tooling, never wired into this gating path.
+# Deployed fault drills against opengate-staging, injected out-of-band by scripts/fault/.
+# Called from cd.yml after staging E2E when the STAGING_FAULT_TESTS repo variable is set.
 
 on:
   workflow_call:
@@ -36,8 +24,7 @@ on:
       OKE_CLUSTER_ID:
         required: true
 
-# Only one staging fault run at a time — overlapping drills would fight over the
-# shared single worker and corrupt each other's evidence/cleanup.
+# One staging fault run at a time: overlapping drills share one worker and its cleanup.
 concurrency:
   group: fault-tolerance-staging
   cancel-in-progress: false
@@ -50,8 +37,7 @@ jobs:
     name: Staging fault drill
     runs-on: ubuntu-24.04
     environment: staging
-    # Longer than the longest bounded scenario: bad-rollout is a failing helm
-    # upgrade (90s) + rollback + rollout verify (2x180s SLO) plus image pulls.
+    # Exceeds the longest scenario: bad-rollout runs a 90s failing upgrade, a rollback and a verify.
     timeout-minutes: 20
     env:
       NAMESPACE: opengate-staging
@@ -64,9 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Defence-in-depth over the choice-typed dispatch input: workflow_call
-      # receives scenario as a free string (a repo variable), so re-validate it
-      # here against the enumerated allow-list before touching the cluster.
+      # workflow_call passes scenario as a free string, so it is checked against the allow-list.
       - name: Guard enumerated scenario
         run: |
           case "$SCENARIO" in
@@ -104,11 +88,7 @@ jobs:
             ingress-502) scripts/fault/ingress-apply.sh edge-502 ;;
           esac
 
-      # Every failure path removes fault resources and verifies no residue.
-      # pod-delete and bad-rollout self-clean via their own traps; the ingress
-      # scenarios are reverted here (restore is idempotent — a no-op with no
-      # saved state), then the staging Ingress is asserted free of any fault
-      # annotation so a partial apply can never leave staging degraded.
+      # Reverts the ingress scenarios (idempotent) and asserts the Ingress carries no fault annotation.
       - name: Restore fault + verify no residue
         if: always()
         run: |

@@ -12,16 +12,11 @@ describe('SessionToolbar', () => {
   ] as const)('shows "%s" label and %s indicator for %s state', (state, expected, expectedColor) => {
     const { container } = render(<SessionToolbar connectionState={state} onDisconnect={vi.fn()} />);
     expect(screen.getByText(expected)).toBeInTheDocument();
-    // Pin the color class on the indicator dot — kills StringLiteral mutants
-    // on each color value (`'bg-yellow-500'` → `""`).
     const dot = container.querySelector('.rounded-full');
     expect(dot?.className).toContain(expectedColor);
   });
 
   it('shows "Unknown" label for an unrecognized state value', () => {
-    // Cast through unknown to bypass typing — the switch's `default` arm must
-    // hit, kills the `'Unknown'` → `""` and `'bg-gray-500'` → `""` mutants
-    // that NoCoverage flagged.
     const { container } = render(
       <SessionToolbar connectionState={'totally-bogus' as unknown as 'connected'} onDisconnect={vi.fn()} />,
     );

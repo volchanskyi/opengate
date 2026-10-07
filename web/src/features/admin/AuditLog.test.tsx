@@ -75,8 +75,6 @@ describe('AuditLog', () => {
     const fetchFn = vi.fn();
     useAdminStore.setState({ fetchAuditEvents: fetchFn });
     render(<AuditLog />);
-    // Pin the literal { limit: 50, offset: 0 } — kills mutants on the limit/offset
-    // payload and the `actionFilter ? {...} : {}` ternary's false branch.
     expect(fetchFn).toHaveBeenCalledWith({ limit: 50, offset: 0 });
   });
 
@@ -89,14 +87,11 @@ describe('AuditLog', () => {
     const input = screen.getByPlaceholderText('Filter by action...');
     await userEvent.type(input, 'login');
 
-    // Last call must include the action filter — kills the
-    // `actionFilter ? {...} : {}` ternary's true branch when collapsed to false/{}.
     const lastCall = fetchFn.mock.calls.at(-1)?.[0];
     expect(lastCall).toMatchObject({ limit: 50, offset: 0, action: 'login' });
   });
 
   it('Next button advances offset by limit', async () => {
-    // Provide exactly limit (50) events so Next is enabled.
     const events = Array.from({ length: 50 }, (_, i) => ({
       id: i + 1,
       user_id: 'u' + String(i),
@@ -111,7 +106,6 @@ describe('AuditLog', () => {
     fetchFn.mockClear();
 
     await userEvent.click(screen.getByText('Next'));
-    // Pins offset advancing by exactly 50 — kills `offset + limit` arithmetic mutants.
     const lastCall = fetchFn.mock.calls.at(-1)?.[0];
     expect(lastCall).toMatchObject({ limit: 50, offset: 50 });
   });
@@ -137,7 +131,6 @@ describe('AuditLog', () => {
   });
 
   it('Next button disabled when fewer events than limit', () => {
-    // 2 events < 50 → Next disabled.
     render(<AuditLog />);
     expect(screen.getByText('Next')).toBeDisabled();
   });
@@ -154,11 +147,8 @@ describe('AuditLog', () => {
     useAdminStore.setState({ auditEvents: many });
     render(<AuditLog />);
 
-    // First row is in the rendered window...
     expect(screen.getByText('act-0')).toBeInTheDocument();
-    // ...but a far-off row is virtualized away (not in the DOM).
     expect(screen.queryByText('act-499')).toBeNull();
-    // Only a windowed subset of the 500 rows is mounted.
     const actionCells = screen.queryAllByText(/^act-\d+$/);
     expect(actionCells.length).toBeGreaterThan(0);
     expect(actionCells.length).toBeLessThan(500);
@@ -166,17 +156,11 @@ describe('AuditLog', () => {
 
   it('user_id is rendered as 8-char prefix', () => {
     render(<AuditLog />);
-    // 'u1-abcd-1234-5678-0000'.slice(0, 8) === 'u1-abcd-' — kills `slice(0, 8)`
-    // → `slice()` (no args) mutant which would render the full id.
     expect(screen.getByText('u1-abcd-')).toBeInTheDocument();
     expect(screen.getByText('u2-abcd-')).toBeInTheDocument();
   });
 
   it('renders no spacer rows when every event fits the viewport', () => {
-    // beforeEach seeds 2 events × 41px ≪ the 800px mocked viewport → all rows fit, so both
-    // paddingTop and paddingBottom are 0 and no spacer <tr> is emitted. Asserting their
-    // absence kills the `paddingTop > 0` / `paddingBottom > 0` guard mutants that would
-    // otherwise always (>= 0, <= 0, true, &&→||) render a spacer cell.
     render(<AuditLog />);
     expect(document.querySelectorAll('td[colspan="5"]')).toHaveLength(0);
   });
@@ -195,14 +179,9 @@ describe('AuditLog', () => {
     render(<AuditLog />);
 
     const spacers = document.querySelectorAll('td[colspan="5"]');
-    // Not scrolled → paddingTop is 0 (no top spacer); only the bottom spacer reserves the
-    // off-screen height. A second spacer would mean a `paddingTop > 0` mutant fired.
     expect(spacers).toHaveLength(1);
 
     const height = Number.parseFloat((spacers[0] as HTMLElement).style.height);
-    // paddingBottom = getTotalSize() - lastRow.end ∈ (0, totalSize). The `-`→`+`
-    // ArithmeticOperator mutant exceeds totalSize (= count × AUDIT_ROW_HEIGHT = 41); the
-    // `> 0`→`<= 0`/`false` mutants drop the spacer entirely.
     expect(height).toBeGreaterThan(0);
     expect(height).toBeLessThan(count * 41);
   });

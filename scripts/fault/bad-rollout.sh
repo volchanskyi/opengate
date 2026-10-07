@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Bad-rollout drill: deploy a deliberately-failing revision to staging, assert
-# the rollout fails readiness, then `helm rollback` and assert the prior image
-# is healthy. Refuses any namespace but opengate-staging and ALWAYS rolls back
-# (a trap safety net rolls back even on interruption), so staging never lingers
-# on the bad revision. Captures evidence; idempotent. See docs/infrastructure/Fault-Injection.md.
+# Deploys a failing revision to staging, asserts it fails readiness, then rolls back.
+# A trap rolls back on interruption; only the opengate-staging namespace is accepted.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

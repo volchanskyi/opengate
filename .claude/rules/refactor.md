@@ -67,15 +67,19 @@ In order, with elapsed time printed per step:
    `make victoriametrics-test-up`, then exported as `VICTORIAMETRICS_TEST_URL`
    so every Go package shares one store), `SONAR_TOKEN` set.
 2. **Lints** — `cargo fmt --check`, `cargo clippy -D warnings`, `go vet`,
-   `eslint`, `actionlint`, `make taint-go`, `make taint-web`, `make dead-code`,
+   `eslint`, `tsc -b` in `web/`, the dependency check
+   ([`depcruise-check.sh`](../../scripts/depcruise-check.sh)), `actionlint`,
+   `make taint-go`, `make taint-web`, `make dead-code`,
    `gitleaks protect --staged`, `make lint-deploy`.
 3. **Codegen sync** — `make verify-codegen`.
 4. **Tests** — Go unit + integration with `-race`, Rust workspace, Vitest with
    coverage.
 5. **Coverage thresholds** — Go, Web and Rust each ≥ 80%, per the exclusion
    lists in [`coverage-exclusions.md`](coverage-exclusions.md).
-6. **Security audits** — `govulncheck`, `npm audit --audit-level=high`,
-   `cargo audit`.
+6. **Security audits** — `govulncheck`, `cargo audit`, and
+   [`npm-audit.sh`](../../scripts/npm-audit.sh) per lockfile: high and above,
+   minus the expiring exceptions in
+   [`npm-audit-exceptions.json`](../../scripts/lib/npm-audit-exceptions.json).
 7. **Benchmarks** — Go `go test -bench` and Rust `cargo bench -p mesh-protocol`.
    Skip with `PRECOMMIT_SKIP_BENCH=1` only for clearly non-perf-touching
    iterations.

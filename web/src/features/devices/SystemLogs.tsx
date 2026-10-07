@@ -12,12 +12,8 @@ interface SystemLogsProps {
 }
 
 /**
- * System Logs pane: the platform host log (`source=host` → journald on Linux),
- * with an auto-detected unit dropdown and a clickable `target` column.
- *
- * The pane starts closed and pulls once, on its first open per device: a host
- * log pull is a live round trip to the agent, so it happens when an operator
- * asks for it rather than on every visit to a device page.
+ * SystemLogs shows the platform host log (journald on Linux). It starts closed because a pull
+ * is a live round trip to the agent, and pulls once on the first open per device.
  */
 export function SystemLogs({ deviceId, focusWindow = null }: SystemLogsProps) {
   return (

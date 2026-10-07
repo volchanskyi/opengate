@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
-# govulncheck-scan.sh — one scan of the Go module against the vulnerability
-# database, the same way on the workstation and in CI.
-#
-# The database is fetched first, as one file, with retries on the fetch alone.
-# The scan then runs once against that local copy. A scan that fails is a
-# finding or a crash, and neither is something to retry: a loop retrying the
-# whole scan let a scanner that crashed under the module's Go pass on whichever
-# attempt happened not to, and the network fetch it existed for is the only
-# part that is ever transient.
+# Scans the Go module once against a vulnerability database fetched first, with retries on
+# the fetch alone; a failed scan is a finding or a crash and is never retried.
 #
 # Environment:
 #   GOVULN_DB_URL   the database archive (default https://vuln.go.dev/vulndb.zip)

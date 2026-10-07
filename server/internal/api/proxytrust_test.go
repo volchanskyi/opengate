@@ -10,9 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeNamer stands in for the cluster's resolver. It is the one boundary this
-// decision has: what a peer address is called is a fact only DNS holds, and no
-// test host can be made to hold it.
 type fakeNamer struct {
 	mu    sync.Mutex
 	names map[string][]string
@@ -98,9 +95,6 @@ func TestParseTrustedProxies(t *testing.T) {
 	}
 }
 
-// newTestTrust builds a configured decision pointed at a resolver that answers
-// from a table. Only the resolver is substituted: the parsing, the matching and
-// the remembering are the shipped ones.
 func newTestTrust(t *testing.T, entries []string, namer *fakeNamer) *TrustedProxies {
 	t.Helper()
 	trust, err := ParseTrustedProxies(entries)

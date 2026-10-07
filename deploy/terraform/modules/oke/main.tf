@@ -1,8 +1,3 @@
-# OKE BASIC cluster — the control plane is free on BASIC; workers are the
-# Always-Free A1.Flex node pool. See ADR-030. This module is provisioned at
-# cutover (docs/Kubernetes-Migration.md), not wired into the root stack that
-# still manages the single-VM compose deployment.
-
 resource "oci_containerengine_cluster" "opengate" {
   compartment_id     = var.compartment_id
   kubernetes_version = var.kubernetes_version

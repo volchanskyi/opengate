@@ -6,36 +6,7 @@ import (
 	"time"
 )
 
-// What the target was holding, read off the page the harness already fetches.
-//
-// A run reports what it drove and what came back. It did not report what state
-// it left the system in, and a night where the target was replaced underneath
-// the generator produced a bundle that looked like every other night: the
-// scenarios ran, the rows arrived, and the verdict was computed over numbers
-// measured against two different processes.
-//
-// The four process families below are the ones that answer it, and every one of
-// them is already on the page this harness reads registration timing from — the
-// registry registers the client library's Go and process collectors. Nothing
-// here needs a kubeconfig, a pod UID or a restart count, which is what lets the
-// same reading work for the volume and scaling families, whose target runs in a
-// compose stack on a runner where there is no cluster to ask.
-//
-// They are also the only numbers in the exposition that are readings rather
-// than bookkeeping. Every opengate_* series is maintained by the code path it
-// describes, so it says the teardown ran; these say whether the resource came
-// back. The one opengate_* series read here is read for a different purpose,
-// which the constant block states.
-
-// The four series a run brackets itself with, and the server's own count of the
-// fleet it is holding.
-//
-// That fifth one is not a process family and is not a reading: the server
-// maintains it, refreshed on an interval by
-// server/internal/metrics's gauge updater. It is here because the
-// harness is counting the same population from the other end, and two counts
-// kept independently are the only way a level either of them publishes can be
-// disagreed with. What bounds them below is the goroutine count beside it.
+// The four process series a run brackets itself with, and the server's own fleet count.
 const (
 	goroutinesMetric      = "go_goroutines"
 	residentMetric        = "process_resident_memory_bytes"
@@ -46,27 +17,17 @@ const (
 
 // TargetHealth is one reading of the target process.
 type TargetHealth struct {
-	// Read says the page answered and carried the families. An unread page is
-	// not a reading of zero: zero goroutines and zero bytes is the healthiest
-	// figure a process could report, so recording an unanswered probe as one
-	// would turn a target nobody could reach into the best target ever measured.
+	// Read says the page answered and carried the process families.
 	Read bool `json:"read"`
 
 	Goroutines    float64 `json:"goroutines"`
 	ResidentBytes float64 `json:"resident_bytes"`
 	OpenFDs       float64 `json:"open_fds"`
 
-	// StartTimeSeconds is when this process started. It is the only field that
-	// says whether two readings came from the same process, which is what makes
-	// every other number between them comparable.
+	// StartTimeSeconds is when this process started; equal values mean the same process.
 	StartTimeSeconds float64 `json:"start_time_seconds"`
 
-	// AgentsConnected is the fleet the target says it is holding.
-	//
-	// It is a pointer because a target that publishes no such count is an
-	// absence and not a fleet of nought — and nought is precisely the reading
-	// the rule beside this one acts on, so filling an unasked question in with
-	// it would invalidate every run against a target that keeps no count.
+	// AgentsConnected is the fleet the target reports holding; nil when it publishes no count.
 	AgentsConnected *float64 `json:"agents_connected,omitempty"`
 }
 
@@ -93,17 +54,8 @@ func (c TargetConservation) Restarted() bool {
 	return c.Start.StartTimeSeconds != c.End.StartTimeSeconds
 }
 
-// RetainedGoroutinesPerOperation is what one completed operation cost the
-// target and never gave back.
-//
-// Per operation rather than absolute, because an absolute figure has to guess
-// at a floor: the server, its store and its pool start goroutines that take no
-// context and never stop, and the number of them changes whenever anything else
-// in the process does. Dividing by the work removes that constant and states
-// the property directly — a completed operation gives back what it took.
-//
-// A target that ended lighter than it started retained nothing. It is not a
-// credit against a later run.
+// RetainedGoroutinesPerOperation is the goroutine growth one completed operation left behind.
+// Subtracting the start reading drops the constant start-up goroutines; a lighter end reads zero.
 func (c TargetConservation) RetainedGoroutinesPerOperation() float64 {
 	return perOperation(c, c.End.Goroutines-c.Start.Goroutines)
 }
@@ -121,10 +73,6 @@ func perOperation(c TargetConservation, delta float64) float64 {
 }
 
 // ParseTargetHealth reads the five families out of an exposition page.
-//
-// It reads only those, the way the registration reader beside it does, so what
-// the harness depends on is visible in one place rather than behind a parser
-// for the whole format.
 func ParseTargetHealth(page string) TargetHealth {
 	var health TargetHealth
 
@@ -151,10 +99,7 @@ func ParseTargetHealth(page string) TargetHealth {
 			health.StartTimeSeconds = value
 			health.Read = true
 		case agentsConnectedMetric:
-			// Deliberately not a reason to call the page read. The four above
-			// are what every target this repository points a run at publishes;
-			// this one is the product's own, and a page carrying it alone is
-			// not the exposition the bracket needs.
+			// Only the four process families mark the page read; this one is the product's own.
 			held := value
 			health.AgentsConnected = &held
 		}
@@ -176,9 +121,7 @@ func FetchTargetHealth(baseURL string) (TargetHealth, error) {
 	return health, nil
 }
 
-// readTargetHealth takes one reading, reporting an unread target rather than
-// failing the run. A harness that could not reach the page has measured
-// nothing about the target, and says so in the bundle.
+// readTargetHealth takes one reading; an unreachable page yields an unread TargetHealth.
 func readTargetHealth(metricsURL, when string) TargetHealth {
 	if metricsURL == "" {
 		return TargetHealth{}
@@ -191,24 +134,14 @@ func readTargetHealth(metricsURL, when string) TargetHealth {
 	return health
 }
 
-// settleBudget bounds how long the end reading waits for the target to finish
-// putting things back.
+// settleBudget bounds how long the end reading waits for the target to finish teardown.
 const settleBudget = 30 * time.Second
 
 // settleInterval is how often the target is asked during that wait.
 const settleInterval = 2 * time.Second
 
-// readSettledTargetHealth takes the end reading once the target has stopped
-// giving things back.
-//
-// Teardown is not instantaneous on the far side of a network. A reading taken
-// the moment the last machine hangs up counts connections that are still
-// closing, and would report them as retained — a red run about the harness's
-// own impatience rather than about the system. So the target is asked until its
-// goroutine count stops falling, or until the budget runs out, and the last
-// reading is the one recorded. A target that is still shedding at the deadline
-// is reported as it is: waiting longer for a number to improve is how a gate
-// stops being one.
+// readSettledTargetHealth takes the end reading once the goroutine count stops falling.
+// Connections still closing after the last machine hangs up are waited out for settleBudget.
 func readSettledTargetHealth(metricsURL string) TargetHealth {
 	if metricsURL == "" {
 		return TargetHealth{}

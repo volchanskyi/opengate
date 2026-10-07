@@ -31,9 +31,6 @@ assert_eq() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# A k6 stand-in that writes the summary export it was asked for and then exits
-# with the code the case under test needs. Real k6 writes the export for an
-# aborted run too, which is the whole reason the runner has a decision to make.
 make_fake_k6() {
   local exit_code="$1"
   cat >"$WORK/k6" <<EOF
@@ -56,8 +53,7 @@ run_case() {
   rm -rf "$WORK/summaries"
   mkdir -p "$WORK/summaries"
   STATUS=0
-  # A summary of the case's own, always: the job running this test has a
-  # summary of its own, and a case that inherits it writes into it.
+  # Each case writes its own step summary file, so the CI job's summary stays untouched.
   GITHUB_STEP_SUMMARY="${CASE_SUMMARY:-$WORK/case-summary.md}" \
     K6_BIN="$WORK/k6" \
     LOADTEST_K6_SUMMARY_DIR="$WORK/summaries" \
@@ -70,11 +66,6 @@ run_case() {
 
 echo "loadtest-k6-run:"
 
-# The generator builds every identity it creates from the run id, and it reads
-# that id from its own environment rather than the runner's — k6 runs in a pod
-# on the cluster, which inherits nothing from the machine that started it. An id
-# that does not reach k6 leaves it on its fallback, every night asks for the
-# same addresses, and the second night is refused as a duplicate.
 run_case 0
 if grep -q 'LOADTEST_RUN_ID=99-1' "$WORK/k6-args.txt"; then
   pass "the run id is handed to k6 rather than assumed to be inherited"
@@ -82,7 +73,6 @@ else
   fail "the runner must pass LOADTEST_RUN_ID through to k6"
 fi
 
-# A clean run measured the fleet: keep the export, succeed.
 run_case 0
 assert_eq "clean run exits 0" "0" "$STATUS"
 if [ -f "$WORK/summaries/api-baseline.json" ]; then
@@ -91,10 +81,6 @@ else
   fail "clean run keeps the summary export"
 fi
 
-# A threshold failure is a measurement — a slow fleet is exactly what the trend
-# exists to record — so the row survives. Whether the breach fails the run is a
-# decision the profile's gates make against the stored rows, not one k6's exit
-# code makes on its own, so the scenario reports success and says what breached.
 run_case 99
 assert_eq "threshold failure is reported as a measurement" "0" "$STATUS"
 if [ -f "$WORK/summaries/api-baseline.json" ]; then
@@ -112,9 +98,6 @@ if [ -f "$WORK/summaries/api-baseline.thresholds" ]; then
 else
   fail "threshold failure is recorded for the gate to read"
 fi
-# It is a notice rather than a warning: the saturated legs breach k6's own marks
-# every night by design, and a warning printed every night is one nobody reads.
-# The run's summary carries it in a line of its own.
 if grep -q '::notice::' "$WORK/out.txt" && ! grep -q '::warning::' "$WORK/out.txt"; then
   pass "threshold failure is a notice, not a warning"
 else
@@ -128,9 +111,6 @@ else
   fail "and the run's summary says which scenario crossed k6's own marks (summary=[$(cat "$WORK/step-summary.md")])"
 fi
 
-# A script exception aborts before the workload runs. Its export holds the two
-# or three requests setup managed, and trending those numbers drags the window
-# median down for every later run, so the export is discarded.
 run_case 107
 assert_eq "script exception propagates 107" "107" "$STATUS"
 if [ -f "$WORK/summaries/api-baseline.json" ]; then
@@ -144,8 +124,6 @@ else
   fail "aborted run names the scenario it discarded"
 fi
 
-# A clean run records no threshold breach, so the gate can tell a scenario that
-# cleared its marks from one that was never asked.
 run_case 0
 if [ -f "$WORK/summaries/api-baseline.thresholds" ]; then
   fail "a clean run records no threshold breach"
@@ -153,8 +131,6 @@ else
   pass "a clean run records no threshold breach"
 fi
 
-# An export that never appeared after a clean run means the runner and the
-# workflow disagree about where summaries land — a silent no-row otherwise.
 cat >"$WORK/k6" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -174,18 +150,12 @@ else
   fail "a clean run that wrote no export fails"
 fi
 
-# The workflow must drive every k6 scenario through the runner, or a crashed
-# scenario goes on trending its setup requests.
 WORKFLOW="$REPO_ROOT/.github/workflows/load-test.yml"
 direct="$(grep -cE '^\s+/tmp/k6 run' "$WORKFLOW" || true)"
 assert_eq "load-test.yml invokes k6 only through the runner" "0" "$direct"
 wrapped="$(grep -cE 'scripts/loadtest-k6-run\.sh' "$WORKFLOW" || true)"
 assert_eq "load-test.yml invokes the runner" "1" "$wrapped"
 
-# The three of them, named where the runner is driven. They run at the same time
-# because the profile describes one night rather than one scenario's night, so
-# the count is read off the list the loop walks rather than off three separate
-# steps.
 named="$(grep -oE 'for scenario in api-baseline concurrent-agents relay-throughput' "$WORKFLOW" || true)"
 if [ -n "$named" ]; then
   pass "load-test.yml drives all three scenarios through the runner, together"

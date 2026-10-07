@@ -21,7 +21,6 @@ import { formatBytes } from '../../lib/format-bytes';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
 import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
 
-/** How often the detail page re-reads the device and its sessions while visible. */
 const DEVICE_DETAIL_POLL_MS = 30_000;
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
@@ -33,12 +32,7 @@ interface AmtSectionProps {
   readonly onPowerAction: (action: PowerAction) => void;
 }
 
-/**
- * Out-of-band power controls. They need a live CIRA tunnel, so they appear only
- * once the device's AMT connection is linked *and* online — the badge beside the
- * hostname is what tells an operator AMT exists at all. Setup instructions are
- * static BIOS/MEBx documentation and live on the /setup page.
- */
+/** Out-of-band power controls, shown only once the AMT connection is linked and online. */
 function AmtSection({ amt, confirmPowerAction, onPowerAction }: AmtSectionProps) {
   if (!amt?.uuid || amt.status !== 'online') return null;
 
@@ -65,7 +59,6 @@ function AmtSection({ amt, confirmPowerAction, onPowerAction }: AmtSectionProps)
 
 const UNASSIGNED_SITE_ID = '00000000-0000-0000-0000-000000000000';
 
-/** A device with no real site: an empty id or the all-zeros placeholder UUID. */
 function isUnassignedSite(id: string | undefined | null): boolean {
   const trimmed = id?.trim();
   return !trimmed || trimmed === UNASSIGNED_SITE_ID;
@@ -84,9 +77,7 @@ export function DeviceDetail() {
   const sendPowerAction = useDeviceStore((s) => s.sendPowerAction);
   const addToast = useToastStore((s) => s.addToast);
   const sites = useDeviceStore((s) => s.sites);
-  // Deleting a device and moving it between sites are configuration changes:
-  // the server refuses them for a non-admin, so the controls are absent rather
-  // than present-and-failing.
+  // The server refuses device deletion and site moves for a non-admin, so only admins see them.
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const fetchSites = useDeviceStore((s) => s.fetchSites);
   const updateDeviceSite = useDeviceStore((s) => s.updateDeviceSite);
@@ -108,11 +99,8 @@ export function DeviceDetail() {
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedSiteId, setSelectedSiteId] = useState('');
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
-  // Collapsed on open: the inventory is reference detail, so the host card
-  // stays scannable until an operator asks for it.
   const [showHardware, setShowHardware] = useState(false);
-  // Correlation jump target: the metrics panel hands up a unix-second window,
-  // which the logs explorer consumes (as ISO) to pre-filter and fetch.
+  // The metrics panel's unix-second window is held as ISO strings for the logs explorer.
   const [logWindow, setLogWindow] = useState<{ from: string; to: string } | null>(null);
 
   useEffect(() => {
@@ -125,20 +113,15 @@ export function DeviceDetail() {
     fireAndForget(fetchManifests());
   }, [id, fetchDevice, fetchSessions, fetchSites, fetchOrganizations, fetchManifests]);
 
-  // Poll device data every 30s so agent_version and status stay in sync, and
-  // re-read the session list on the same beat so a session that ended anywhere
-  // — tab closed, agent restarted, relay torn down — leaves the card.
-  // Uses refreshDevice (not fetchDevice) to preserve hardware/logs state.
+  // refreshDevice keeps hardware and logs state; the session re-read drops sessions ended elsewhere.
   useVisibleInterval(() => {
     if (!id) return;
     fireAndForget(refreshDevice(id));
     fireAndForget(fetchSessions(id));
   }, DEVICE_DETAIL_POLL_MS);
 
-  // Pull the hardware inventory once whenever the agent first appears online and
-  // on each offline→online transition (a reboot refreshes it) — but never on a
-  // steady-state poll. The agent reports fresh hardware as it registers, so the
-  // row this reads is the one the reconnect just wrote.
+  // Hardware is fetched on the first online sighting and each offline-to-online transition,
+  // since the agent reports fresh hardware as it registers; a steady-state poll skips it.
   const prevStatusRef = useRef<string | null>(null);
   useEffect(() => {
     const status = device?.status;
@@ -149,7 +132,6 @@ export function DeviceDetail() {
     }
   }, [id, device?.status, fetchHardware]);
 
-  // Find the latest manifest matching this device's OS.
   const latestManifest = device
     ? manifests
         .filter((m) => m.os === device.os)
@@ -275,10 +257,8 @@ export function DeviceDetail() {
 
   return (
     <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-      {/* Open incidents this machine is caught up in — the way into the room */}
       <DeviceIncidentsStrip deviceId={device.id} className="lg:col-span-2" />
 
-      {/* Device Detail Card */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 flex-wrap">
@@ -505,17 +485,14 @@ export function DeviceDetail() {
         </div>
       </div>
 
-      {/* Agent Logs Card (the agent's own files; browsable, no correlation jump) */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
         <DeviceLogs deviceId={device.id} />
       </div>
 
-      {/* System Logs (the platform host log, journald on Linux; drill target), full width */}
       <div className="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-lg p-6">
         <SystemLogs deviceId={device.id} focusWindow={logWindow} />
       </div>
 
-      {/* Discovered footprint (ports / services / DB engines / containers / packages), full width */}
       <div className="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-lg p-6">
         <DeviceInventory
           deviceId={device.id}
@@ -523,7 +500,6 @@ export function DeviceDetail() {
         />
       </div>
 
-      {/* Telemetry (metrics timelines + anomaly correlation), full width */}
       <div className="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-lg p-6">
         <h3 className="text-sm font-semibold text-gray-300 mb-3">Telemetry</h3>
         <DeviceMetrics

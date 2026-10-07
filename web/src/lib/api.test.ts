@@ -2,18 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import createClient, { type Middleware } from 'openapi-fetch';
 import { api, QUERY_SERIALIZER } from './api';
 
-/**
- * What the module hands to openapi-fetch when it is loaded.
- *
- * The credential is attached by a middleware the module registers on the shared
- * client, so the only thing worth asserting is that *that* middleware, on *that*
- * client, does it — a copy of the same code in this file would pass whatever
- * production did. openapi-fetch is a genuine third-party boundary, so the mock
- * sits there: it delegates to the real implementation and records the options
- * and the middleware the shipped client is built with. Only the first client is
- * recorded, which is the one `api.ts` builds at module load; the serializer
- * cases below build their own and are none of its business.
- */
+// Records the options and middleware of the first client built, which is the one api.ts builds.
 const shipped = vi.hoisted(() => ({
   options: null as Record<string, unknown> | null,
   client: null as unknown,
@@ -38,18 +27,11 @@ vi.mock('openapi-fetch', async (importOriginal) => {
   return { ...actual, default: record };
 });
 
-/** The base a browser resolves the module's relative base against. */
 const ORIGIN = 'https://opengate.example';
 
 type OnRequestParams = Parameters<NonNullable<Extract<Middleware, { onRequest: unknown }>['onRequest']>>[0];
 
-/**
- * Run the middleware the shipped client actually registered, against a request
- * carrying the absolute URL a browser would have resolved. Node's Request
- * constructor rejects the relative base the module is built with, which is what
- * makes driving the client itself impossible here — the middleware, though, is
- * the whole of the behaviour, and it is reachable as the module registered it.
- */
+// Node's Request rejects the client's relative base, so the registered middleware runs directly.
 async function attachCredentialTo(request: Request): Promise<Request> {
   expect(shipped.middleware).toHaveLength(1);
   const entry = (shipped.middleware as Middleware[])[0];
@@ -105,11 +87,7 @@ describe('the shared api client', () => {
 });
 
 describe('api client — repeated query parameters', () => {
-  /**
-   * The shared client is built against a relative base, which the browser
-   * resolves and node's Request constructor rejects, so the serializer is
-   * exercised through a client carrying the very same setting.
-   */
+  // Node's Request rejects the shared client's relative base, so this client uses an absolute one.
   async function requestUrl(
     call: (client: ReturnType<typeof createClient>) => Promise<unknown>,
   ): Promise<URL> {

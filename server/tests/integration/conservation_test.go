@@ -18,65 +18,18 @@ import (
 	"nhooyr.io/websocket"
 )
 
-// Conservation: a completed operation gives back what it took.
-//
-// Every liveness number this server publishes is bookkeeping its teardown path
-// maintains, not a reading of the resource. The relay's active-session gauge
-// returned to zero correctly while the process held 7,455 goroutines, because
-// the code that decrements the gauge ran. Coverage counted the leaking line as
-// covered because it executed; the benchmark trend measures allocations per
-// operation, which are identical for a leak because only retention differs; and
-// a statement-level mutant of it is equivalent under every other assertion.
-//
-// So this file measures the resource itself, against the count of completed
-// operations, and asserts the line through those points is flat.
-
-// conservationPoints are the completed-session counts the slope is fitted
-// through, cumulative against one server and one connected machine.
-//
-// They are spread wide and spaced evenly, and both of those are load-bearing.
-// A least-squares fit answers a one-off allocation the same way it answers a
-// per-session one, and how loudly it does so is (x_last - x_mean) / Σ(x - x_mean)²
-// — the leverage the furthest point carries. Through 4, 8 and 16 that is 0.089
-// per byte, so a single 90 KB allocation arriving late in the run — one pool
-// connection, one map resize, one goroutine stack — is reported as 8 KB
-// retained per session, which is most of the budget below spent on something no
-// session owns. Through 10 to 50 by tens it is 0.020, so the same 90 KB reads
-// as 1.8 KB per session.
-//
-// Widening costs almost nothing: a session is an API call, a control-stream
-// round trip and two real WebSocket dials, and going from 16 sessions to 50
-// adds under a second. It costs no detection either — a real leak is a slope,
-// and a slope is what it stays at any spacing.
+// conservationPoints are the completed-session counts the slope is fitted through; wide, even
+// spacing keeps a one-off late allocation from reading as per-session retention.
 var conservationPoints = []int{10, 20, 30, 40, 50}
 
-// goroutineSlopeTolerance is the goroutines-per-completed-session the fit may
-// carry. The defect that motivated this file retained two per session — one
-// handler per side — so half a goroutine is far below a regression and far
-// above what a loaded machine invents between two readings.
+// goroutineSlopeTolerance is the goroutines per completed session the fit may carry; the leak
+// read 2 per session, and half a goroutine clears what a loaded machine adds between readings.
 const goroutineSlopeTolerance = 0.5
 
-// heapSlopeTolerance is the retained bytes per completed session the fit may
-// carry. Driven through this harness, the same defect retained 34 KiB per
-// session; a fixed server reads between 1.2 and 2.0 KiB over repeated runs,
-// which is the connection pool and the query cache growing rather than anything
-// a session owns. 8 KiB sits between them with room on both sides.
-//
-// The spread is the number to watch rather than the mean, because it is what a
-// loaded machine widens. It is the point spacing above that holds it: through
-// 4, 8 and 16 the same server read 1.2 to 2.9 KiB on an idle workstation and
-// 8.8 KiB on a CI runner carrying twenty-six other jobs.
+// heapSlopeTolerance is the retained bytes per completed session the fit may carry; the leak
+// read 34 KiB per session and a fixed server reads 1.2 to 2.0 KiB.
 const heapSlopeTolerance = 8 << 10
 
-// TestRelaySessionsConserveGoroutinesAndHeap drives complete relay sessions
-// against one assembled server and requires that neither goroutines nor heap
-// grow with the number of them that have finished.
-//
-// A slope rather than a fixed baseline: the server, its store and its pool start
-// goroutines that take no context and never stop, and a baseline would have to
-// guess at that constant. A slope removes it. The method is the one
-// server/tests/vmramseries uses, for the reason its own comment gives — a single
-// reading divided by what is present answers a different question.
 func TestRelaySessionsConserveGoroutinesAndHeap(t *testing.T) {
 	env := newSessionTestEnv(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -87,17 +40,14 @@ func TestRelaySessionsConserveGoroutinesAndHeap(t *testing.T) {
 	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	require.NoError(t, err)
 
-	// One machine for every session in the run. A fresh QUIC peer per session
-	// would put its own retention into the fit, and the relay session is what
-	// is being measured.
+	// One machine serves every session so a fresh QUIC peer's retention stays out of the fit.
 	stream, deviceID := env.connectAgent(t, site.ID)
 	require.Eventually(t, func() bool {
 		d, err := device.NewPostgresDevices(env.store.DB()).Get(defaultTenantContext(), deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 10*time.Second, 50*time.Millisecond, "the machine must be online before sessions are opened to it")
 
-	// Warm every path a session shares. The first one grows the pool and
-	// compiles its queries, and charging that to session one would tilt the fit.
+	// The first session grows the pool and compiles queries, so it runs before measurement.
 	env.runCompleteRelaySession(t, ctx, stream, jwtToken, deviceID)
 	env.settle(t)
 
@@ -124,9 +74,6 @@ func TestRelaySessionsConserveGoroutinesAndHeap(t *testing.T) {
 		"a completed relay session must give back its heap: %.0f bytes retained per session", heapSlope)
 }
 
-// runCompleteRelaySession opens one session to an already-connected machine,
-// proves the pipe carries a frame, and hangs both sides up. One completed
-// session — the unit the slopes above are measured per.
 func (e *sessionTestEnv) runCompleteRelaySession(t *testing.T, ctx context.Context, stream io.ReadWriter, jwtToken string, deviceID uuid.UUID) {
 	t.Helper()
 
@@ -155,11 +102,8 @@ func (e *sessionTestEnv) runCompleteRelaySession(t *testing.T, ctx context.Conte
 	browserConn.Close(websocket.StatusNormalClosure, "done")
 }
 
-// settle waits for the relay to book every session out and for the goroutine
-// count to stop falling, then returns the live goroutine count and heap.
-// Teardown is asynchronous on both sides, so a reading taken the instant a
-// client hangs up measures the tail of the last session rather than what the
-// process is holding.
+// Teardown is asynchronous on both sides, so settle waits for the goroutine count to stop
+// falling before it reads.
 func (e *sessionTestEnv) settle(t *testing.T) (goroutines int, heapBytes uint64) {
 	t.Helper()
 	require.Eventually(t, func() bool { return e.relay.ActiveSessionCount() == 0 },
@@ -182,8 +126,7 @@ func (e *sessionTestEnv) settle(t *testing.T) (goroutines int, heapBytes uint64)
 		last = now
 	}
 
-	// Two collections: the first runs finalizers that the second can then
-	// reclaim, so what remains is retained rather than merely uncollected.
+	// The first collection runs finalizers that the second reclaims, so what remains is retained.
 	runtime.GC()
 	runtime.GC()
 	var stats runtime.MemStats
@@ -191,9 +134,7 @@ func (e *sessionTestEnv) settle(t *testing.T) (goroutines int, heapBytes uint64)
 	return runtime.NumGoroutine(), stats.HeapAlloc
 }
 
-// slopeThrough fits y = a + bx and returns b. Fewer than two distinct x values
-// describe no line; the caller's points are compile-time constants, so that
-// case returns zero rather than reporting a slope it cannot know.
+// slopeThrough fits y = a + bx and returns b; fewer than two distinct x values give zero.
 func slopeThrough(xs, ys []float64) float64 {
 	n := float64(len(xs))
 	if n < 2 {

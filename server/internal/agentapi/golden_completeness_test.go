@@ -12,20 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Every server → agent control variant must have a reverse golden: a Go-encoded
-// fixture the Rust harness decodes
-// (agent/crates/mesh-protocol/tests/reverse_golden_test.rs). Without one, a
-// variant whose wire shape the agent's decoder rejects ships unnoticed — the
-// forward goldens only cover Rust-encode → Go-decode, the opposite direction.
-//
-// reverseGoldenBySendMethod is what the reflection guard checks: a Send* method
-// this table does not name fails the test, so adding a server → agent write
-// forces a golden alongside it.
+// reverseGoldenBySendMethod maps each Send* method to the Go-encoded fixtures the Rust
+// harness decodes; the reflection guard fails on a Send* method it does not name.
 var reverseGoldenBySendMethod = map[string][]string{
 	"SendSessionRequest": {"go_control_session_request.bin"},
 	"SendAgentUpdate":    {"go_control_agent_update.bin"},
-	// Both informational-reason variants carry a _min fixture: the reason field
-	// is dropped from the wire map when empty, and that shape must still decode.
+	// The _min fixtures cover an empty reason, which the encoder drops from the wire map.
 	"SendAgentDeregistered":     {"go_control_agent_deregistered.bin", "go_control_agent_deregistered_min.bin"},
 	"SendRestartAgent":          {"go_control_restart_agent.bin", "go_control_restart_agent_min.bin"},
 	"SendRequestHardwareReport": {"go_control_request_hardware_report.bin"},
@@ -36,10 +28,8 @@ var reverseGoldenBySendMethod = map[string][]string{
 	"SendSetMaintenanceMode":    {"go_control_set_maintenance_mode.bin"},
 }
 
-// reverseGoldenByInlineWrite covers the variants the backfill response handlers
-// write through sendControl directly rather than through a Send* method, so
-// reflection does not reach them. They are named here to keep their goldens
-// under the same file-existence guard.
+// reverseGoldenByInlineWrite names the goldens of variants written through sendControl
+// directly, which reflection does not reach.
 var reverseGoldenByInlineWrite = map[string][]string{
 	"handleMetricBackfillBatch/ack": {"go_control_metric_backfill_ack.bin"},
 	"handleRequestBackfillSlot/grant": {
@@ -48,14 +38,11 @@ var reverseGoldenByInlineWrite = map[string][]string{
 	},
 }
 
-// goldenDir resolves the shared testdata/golden tree from this package.
 func goldenDir() string {
 	_, filename, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(filename), "..", "..", "..", "testdata", "golden")
 }
 
-// TestEveryAgentWriteHasReverseGolden fails when a server → agent write is added
-// without a reverse golden that proves the agent decodes its wire shape.
 func TestEveryAgentWriteHasReverseGolden(t *testing.T) {
 	t.Parallel()
 
@@ -75,8 +62,6 @@ func TestEveryAgentWriteHasReverseGolden(t *testing.T) {
 	}
 }
 
-// TestReverseGoldenTableResolvesToFiles fails when a golden either table names
-// has been renamed or deleted, so neither can silently point at nothing.
 func TestReverseGoldenTableResolvesToFiles(t *testing.T) {
 	t.Parallel()
 

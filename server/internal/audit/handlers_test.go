@@ -9,8 +9,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/audit"
 )
 
-// stubRepo is a minimal Repository test double that records the last
-// query it received and returns a canned event slice.
+// stubRepo is a Repository double that records the last query and returns canned events.
 type stubRepo struct {
 	gotQuery audit.Query
 	events   []*audit.Event
@@ -23,12 +22,6 @@ func (s *stubRepo) Query(_ context.Context, q audit.Query) ([]*audit.Event, erro
 	s.gotQuery = q
 	return s.events, s.err
 }
-
-// The audit module's Handlers struct is the
-// per-domain use-case layer. The api package's transport handler delegates
-// to ListEvents — passing the parsed query through and returning the raw
-// domain slice. These tests pin the contract (single delegation, no
-// translation, error pass-through).
 
 func TestHandlers_ListEvents_DelegatesQueryToRepository(t *testing.T) {
 	uid := uuid.New()
@@ -69,8 +62,7 @@ func TestHandlers_ListEvents_EmptyResultReturnsEmptySlice(t *testing.T) {
 	require.Empty(t, events)
 }
 
-// errFake mirrors the no-repo-side-error case; using a package-level sentinel
-// so require.ErrorIs is the matcher rather than string comparison.
+// errFake is a sentinel error matched with require.ErrorIs.
 type errFakeT struct{}
 
 func (errFakeT) Error() string { return "fake" }

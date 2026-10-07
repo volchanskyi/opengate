@@ -1,21 +1,6 @@
 #!/usr/bin/env bash
-# pretooluse-test-skip-guard.sh — block introducing silently-skipped tests.
-#
-# Triggers on PreToolUse Write|Edit|MultiEdit. Tests must always run
-# deterministically (.claude/rules/tests-determinism.md): a test that skips on a
-# missing dependency, an environment flag, or a focus marker is a false green.
-# This guard refuses new content that introduces a skip/ignore/focus marker in a
-# test file, across all three languages:
-#
-#   Go   (*_test.go)              t.Skip( / t.Skipf( / t.SkipNow(
-#   Web  (*.{test,spec}.{ts,tsx,js,jsx})
-#                                 it|test|describe .skip/.skipIf/.only/.todo/.fixme,
-#                                 and xit/xdescribe/xtest/fit/fdescribe(
-#   Rust (*.rs)                   #[ignore] attribute
-#
-# Deterministic provisioning (e.g. internal/testpg auto-starts Postgres) is the
-# sanctioned alternative to skipping. NO BYPASS — edit .claude/settings.json to
-# change enforcement.
+# Refuses new content that adds a skip, ignore or focus marker to a Go, web or Rust test file.
+# Deterministic provisioning, such as internal/testpg starting Postgres, replaces skipping.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -32,8 +17,7 @@ esac
 path="${HOOK_TOOL_INPUT_FILE_PATH:-}"
 [ -n "$path" ] || exit 0
 
-# Select the banned pattern + a human label by file type. Empty pattern → the
-# file is not a test file this guard covers, so allow.
+# The banned pattern and its label depend on the file type; other files are allowed.
 pattern=""
 label=""
 case "$path" in

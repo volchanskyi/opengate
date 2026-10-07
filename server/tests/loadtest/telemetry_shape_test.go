@@ -13,16 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// A load harness only measures the ingest path if it sends what a machine
-// sends. Emitting fewer dimensions than the server stores leaves those series
-// unexercised — they cost cardinality and write time in production and nothing
-// in the run — and emitting a family name the server does not know produces a
-// series nothing reads.
-//
-// Both halves of the contract are pinned by the cross-language golden fixture,
-// which is what the agent and the server already agree through, so this reads
-// the same file rather than restating a list a third time.
-
 // goldenHostMetricWindow decodes the committed host-metric window golden.
 func goldenHostMetricWindow(t *testing.T) *protocol.ControlMessage {
 	t.Helper()
@@ -41,9 +31,6 @@ func goldenHostMetricWindow(t *testing.T) *protocol.ControlMessage {
 	return msg
 }
 
-// TestHarnessEmitsEveryStoredDimension proves the sampler shape the harness
-// sends is the whole vocabulary the server stores, in the order a real window
-// carries it. A dimension missing here is a dimension no load run ever writes.
 func TestHarnessEmitsEveryStoredDimension(t *testing.T) {
 	golden := goldenHostMetricWindow(t)
 
@@ -56,9 +43,6 @@ func TestHarnessEmitsEveryStoredDimension(t *testing.T) {
 		"the harness must emit the same dimensions, in the same order, as a machine does")
 }
 
-// TestDefaultWindowCarriesEveryDimension pins the built frame rather than the
-// list behind it, so a window that silently drops dimensions on the way to the
-// wire is caught too.
 func TestDefaultWindowCarriesEveryDimension(t *testing.T) {
 	golden := goldenHostMetricWindow(t)
 
@@ -70,8 +54,6 @@ func TestDefaultWindowCarriesEveryDimension(t *testing.T) {
 	}
 }
 
-// TestExtraWindowCarriesEveryDimension — the multi-tenant stress window shares
-// the same vocabulary, so it cannot drift away from the default one.
 func TestExtraWindowCarriesEveryDimension(t *testing.T) {
 	golden := goldenHostMetricWindow(t)
 
@@ -83,10 +65,6 @@ func TestExtraWindowCarriesEveryDimension(t *testing.T) {
 	}
 }
 
-// TestHealthSummaryUsesTheServerFamilyNames pins the anomaly families to the
-// names the server accounts for. A summary reporting "memory" and "network"
-// writes two families the server never asked about and leaves "mem", "net" and
-// "proc" with no sample at all.
 func TestHealthSummaryUsesTheServerFamilyNames(t *testing.T) {
 	assert.Equal(t, []string{"cpu", "mem", "disk", "net", "proc"}, defaultFamilies)
 
@@ -97,9 +75,6 @@ func TestHealthSummaryUsesTheServerFamilyNames(t *testing.T) {
 	}
 }
 
-// TestTelemetryShapeStaysInsideTheSeriesCap keeps the harness honest about
-// cardinality: one device's window plus its anomaly summary must fit the budget
-// a device is allowed centrally, or the run proves a shape production refuses.
 func TestTelemetryShapeStaysInsideTheSeriesCap(t *testing.T) {
 	const vitalSeriesCap = 24
 

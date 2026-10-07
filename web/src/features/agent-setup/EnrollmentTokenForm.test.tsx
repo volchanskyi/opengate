@@ -29,9 +29,6 @@ describe('EnrollmentTokenForm', () => {
 
     expect(onCreateToken).toHaveBeenCalledWith({ label: 'Branch office', max_uses: 5, expires_in_hours: 48 });
   });
-
-  // The next token starts from the defaults rather than from whatever the last
-  // one was given.
   it('after creating a token the uses and hours go back to their defaults', async () => {
     renderForm();
 

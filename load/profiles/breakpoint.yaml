@@ -1,44 +1,13 @@
-# Raise the load until something gives, and report what gave. The answer is
-# three things — the last load that passed, the first that failed, and which
-# resource ran out — so the phases step rather than ramp: a step that failed is
-# attributable, a continuous ramp is not.
-#
-# It runs on a disposable runner stack rather than on staging. The cluster node
-# offers 1,830 millicores with 1,680 reserved, and the fleet this profile asks
-# for is several times the largest anything has ever connected to it — so the
-# venue could never answer the question, whatever the run did. A runner brings
-# its own processors and its own disk and is thrown away at the end of the job.
-#
-# A runner is x86_64 and production is ARM64, so what this produces is a
-# comparison and never an absolute capacity claim about production hardware.
-#
-# That venue is also what makes the family safe to run at all. Saturating the
-# cluster node throttles production's health probes on the same machine, and no
-# guardrail low enough to prevent that leaves room to find a breaking point.
+# The phases step up so each failing step is attributable to one load, which a ramp cannot offer.
+# It runs on a disposable x86_64 runner stack, so results compare runs and claim no ARM64 capacity.
 schema_version: 1
 name: breakpoint
 family: breakpoint
 environment: runner
 fixture: small
 
-# The ladder reaches past where the last one stopped. Four thousand machines
-# arrived with no errors at all, which establishes nothing except that the
-# answer is higher, so two steps are added above it. The lower steps stay: a
-# single jump from four thousand to sixteen would answer whether the system
-# gives out without answering where.
-#
-# Every step is five minutes rather than two. A step has to settle before it can
-# be read, and the length is also what keeps the arrivals inside the rate the
-# server refuses past — sixteen thousand machines in two minutes is 133 a
-# second against a ceiling of about a hundred, and in five it is 53.
-#
-# This is the one shape allowed past what its venue has been shown to hold,
-# because finding that edge is what it is for, and `gave_out:` below is the
-# declaration that makes it one. What it owes instead is the bracket: a rung at
-# or below the recorded ceiling and a rung above it, or no rung of it can be
-# named as the last that held. scripts/tests/loadtest-venue-ceiling.test.sh
-# holds it to that against scripts/lib/loadtest-venue-ceilings.sh, whose runner
-# row this ladder is what established.
+# Every step runs five minutes so it settles and keeps arrivals under the server's refusal rate.
+# The ladder may pass its venue's recorded ceiling, as `gave_out:` declares, with a rung each side.
 phases:
   - name: step-500
     duration: 5m
@@ -70,97 +39,44 @@ phases:
     operator_arrivals_per_second: 160
     connected_agents: 16000
     sessions: 160
-  # The fleet is emptied before the recovery is asked for.
-  #
-  # The generator never replaces a machine it lost — the gap between the level
-  # asked for and the level connected is the finding, and topping it up would be
-  # the harness closing it quietly. A rung that severs most of the fleet
-  # therefore leaves a recovery phase holding corpses: the 2026-09-13 ladder's
-  # recovery declared five hundred machines, had seven connected, and offered no
-  # arrival at all, so nothing in it could say whether the server had come back.
-  #
-  # One minute, because standing a machine down is cancelling its context and
-  # sixteen thousand of those cost nothing.
+  # The generator never replaces a lost machine, so the drain empties the fleet before recovery.
   - name: drain
     duration: 1m
     operator_arrivals_per_second: 0
     connected_agents: 0
     sessions: 0
-  # Held at the load the run started from, with machines this phase reaches for
-  # itself, so the report can say whether the system came back on its own or
-  # stayed broken.
+  # Held at the starting load, so the report says whether the system came back on its own.
   - name: recovery
     duration: 5m
     operator_arrivals_per_second: 5
     connected_agents: 500
     sessions: 5
 
-# No processor ceiling. This stack is created by the job and thrown away with
-# it, and running the processor out is the experiment: a capacity test that
-# stops short of the capacity has measured nothing. What is declared is the room
-# the run can still exhaust, past which the machine has nowhere to put what the
-# run produces.
+# No processor ceiling, because running the processor out is the experiment on a throwaway stack.
+# The declared limits keep the room the machine needs to store what the run produces.
 safety:
   max_node_memory_percent: 80
   max_error_rate: 0.25
 
-# What counts as giving out, written down before the ladder goes looking for it.
-#
-# Without this the family's answer is whatever the run happened to survive: the
-# 2026-09-09 ladder reached four thousand machines with no errors at all, which
-# establishes nothing except that the answer is higher than four thousand. A rung
-# crossing any one of these is where the system gave, the rung below it is the
-# last that held, and the run reports both together with the reading that decided
-# it.
-#
-# The three are different kinds of giving out and each is worth catching on its
-# own. Refusing work is the loudest and usually moves first. Doing the work and
-# taking far too long over it is the shape a technician actually meets, and it
-# can arrive with no errors at all. Running out of the processor the target was
-# given is what says the hold-up is the hardware rather than the code — the other
-# two cannot tell those apart.
-#
-# The figures are loose against what this ladder has measured, deliberately: the
-# rungs it has walked returned no errors and middle-case waits of 19 to 62
-# milliseconds, so a limit near those would report the ladder breaking on its own
-# noise rather than on the system.
+# A rung crossing any limit is where the system gave out, and the rung below is the last that held.
+# The figures sit well above the measured waits so ladder noise is not reported as a break.
 gave_out:
   error_rate_above: 0.05
   latency_p95_ms_above: 2000
   target_busy_percent_above: 95
 
 gates:
-  # This family runs on a throwaway machine with no browser-side generator on
-  # it, so a limit naming a browser-side measurement could never be read here.
-  # What this venue produces is the machine side, and this is a limit on that.
-  #
-  # Failing under overload is the finding this family exists to produce, so the
-  # figure is loose by design: it is a floor under a collapse of the arrival
-  # path rather than a target, and the rungs walked so far have returned tails
-  # of 2 to 2,123 milliseconds against it.
+  # This venue has no browser-side generator, so the limit names a machine-side measurement.
+  # The figure is a floor under a collapse of the arrival path, as failing under load is the finding.
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
     max: 10000
     blocking: false
 
-# Measurements this profile has looked at and deliberately left alone. An entry
-# here is a decision; a measurement in neither list is nobody having decided,
-# and the two read identically from the outside.
+# Each entry is a measurement this profile deliberately leaves without a limit.
 ungated:
-  # The whole walk's arrival failures, over a family whose subject is the load
-  # at which arrivals start failing. The 2026-09-13 ladder answered the question
-  # it was sent to answer — 8,000 machines held, 16,000 gave — and the same walk
-  # read 0.97 aggregate, so any ceiling this family could pass is one it passes
-  # by not finding an answer.
-  #
-  # What is worth holding is whether the system came back, and that is the
-  # recovery phase rather than the walk: it empties the fleet and dials the
-  # opening load again at a crushed server. The profile's own max_error_rate
-  # already holds it, applied per phase by the run's verdict, and every rung at
-  # or above the breaking point is exempt there while every rung below it —
-  # the recovery included — is not. A ceiling here at the same figure would be
-  # a second limit on the same reading, which is the shape one of them is always
-  # decoration.
+  # The aggregate error rate is the finding, because the ladder climbs until arrivals fail.
+  # The profile's max_error_rate holds the recovery phase, and rungs at or above the break are exempt.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     reason: the walk climbs until arrivals fail, so its aggregate is the finding; safety.max_error_rate holds the recovery phase

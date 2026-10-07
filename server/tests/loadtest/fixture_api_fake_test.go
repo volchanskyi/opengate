@@ -19,9 +19,7 @@ type filedCall struct {
 	target   string
 }
 
-// fakeAPI is a stand-in for the server, recording what the builder asked it for.
-// It answers the handful of calls a fixture needs and nothing else, so a builder
-// that reaches for a surface nobody agreed to gets a 404 and the test says so.
+// fakeAPI stands in for the server, records each call and answers 404 to any other.
 type fakeAPI struct {
 	mu sync.Mutex
 
@@ -31,25 +29,17 @@ type fakeAPI struct {
 	registered    []string
 	tokenLabels   []string
 	tokenHours    []int
-	// filedToCustomer and filedToSite are the two halves of filing a machine,
-	// recorded apart because a machine under the right customer with no site is
-	// exactly the state the browser-side scenarios cannot read.
+	// filedToCustomer and filedToSite record the two halves of filing a machine apart.
 	filedToCustomer []filedCall
 	filedToSite     []filedCall
 
-	// failAt makes one path answer 500, so the builder's error handling is
-	// exercised rather than assumed.
+	// failAt makes one path answer 500.
 	failAt string
 
-	// rowLandsAfter is how many filing attempts answer the way the real server
-	// answers for a machine whose row has not landed yet. A machine's row is
-	// written when the server finishes reading its register frame, and the
-	// machine's own write returns as soon as the bytes are buffered locally —
-	// so a filing that follows the arrival straight away can reach the server
-	// first. Setting this is how a case drives that gap.
+	// rowLandsAfter is how many filing attempts answer as for a machine whose row is not written.
+	// The row lands after the register frame is read, which can follow the filing request.
 	rowLandsAfter int
-	// filingAttempts counts every attempt at the filing path, refused ones
-	// included, so a case can say how many it took.
+	// filingAttempts counts every attempt at the filing path, refused ones included.
 	filingAttempts int
 }
 
@@ -165,9 +155,8 @@ func (f *fakeAPI) handler() http.Handler {
 	return mux
 }
 
-// rowHasNotLanded answers the way the server answers for a machine it has not
-// written yet, for as many attempts as the case asked for. The words are the
-// server's own: the path serves two lookups and says which of them missed.
+// rowHasNotLanded answers as the server does for a machine it has not written yet, using
+// the server's own words for the missed lookup.
 func (f *fakeAPI) rowHasNotLanded(w http.ResponseWriter) bool {
 	f.mu.Lock()
 	f.filingAttempts++
@@ -230,10 +219,8 @@ func (f *fakeAPI) hoursAsked() []int {
 	return append([]int(nil), f.tokenHours...)
 }
 
-// fleetUnderTest is one built fleet and everything a case needs to assert about
-// it: the requests the server saw, the plan it came from, the fixture it became,
-// and the client that built it. Producing these took six lines in every case,
-// which buried what each case was actually about.
+// fleetUnderTest is one built fleet with the requests the server saw, its plan, its
+// fixture and the client that built it.
 type fleetUnderTest struct {
 	api     *fakeAPI
 	client  *FixtureClient

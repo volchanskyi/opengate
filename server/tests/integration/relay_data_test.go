@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-// waitForRelayWired blocks until both agent and browser sides have registered
-// with the relay and piping has started. Replaces fixed `time.Sleep` waits.
 func waitForRelayWired(t *testing.T, ctx context.Context, r *relay.Relay, token protocol.SessionToken) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -25,8 +23,6 @@ func waitForRelayWired(t *testing.T, ctx context.Context, r *relay.Relay, token 
 	}, 3*time.Second, 25*time.Millisecond, "relay should wire both sides of session %s", token)
 }
 
-// setupRelayPair creates a session and connects both agent and browser WebSockets.
-// The returned connections are cleaned up when the test ends.
 func (e *sessionTestEnv) setupRelayPair(t *testing.T, ctx context.Context) (agentConn, browserConn *websocket.Conn) {
 	t.Helper()
 
@@ -45,7 +41,6 @@ func (e *sessionTestEnv) setupRelayPair(t *testing.T, ctx context.Context) (agen
 
 	result := e.createSession(t, jwtToken, deviceID, map[string]bool{"desktop": true})
 
-	// Read SessionRequest and accept
 	codec := &protocol.Codec{}
 	_, _, err = codec.ReadFrame(stream)
 	require.NoError(t, err)
@@ -64,7 +59,6 @@ func (e *sessionTestEnv) setupRelayPair(t *testing.T, ctx context.Context) (agen
 	browserConn = e.dialRelayWS(t, ctx, result.Token, "browser", jwtToken)
 	t.Cleanup(func() { browserConn.Close(websocket.StatusNormalClosure, "") })
 
-	// Wait for relay pipe to start (both sides registered).
 	waitForRelayWired(t, ctx, e.relay, protocol.SessionToken(result.Token))
 
 	return agentConn, browserConn
@@ -79,15 +73,11 @@ func TestRelayBinaryPayloadIntegrity(t *testing.T) {
 	wsCtx, wsCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer wsCancel()
 
-	// Send multiple distinct messages and verify each arrives intact.
-	// The relay streams data so messages may be split/merged; we verify
-	// by sending individually and reading each message back.
 	payloads := [][]byte{
 		[]byte("hello-from-agent"),
-		make([]byte, 1024),    // 1 KB zeros
-		make([]byte, 16*1024), // 16 KB zeros
+		make([]byte, 1024),
+		make([]byte, 16*1024),
 	}
-	// Fill with recognizable patterns
 	for i := range payloads[1] {
 		payloads[1][i] = byte(i % 256)
 	}

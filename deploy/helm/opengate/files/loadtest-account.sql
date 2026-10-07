@@ -1,24 +1,11 @@
--- The load-test administrator, seeded from two places.
---
--- The chart's post-upgrade hook runs this on every release, and the staging
--- deploy runs it again once the browser suite is finished — that suite's
--- database reset truncates users, and the nightly load run has nobody to mint
--- an enrolment token against without this account.
---
--- Both callers set the address and the password as psql variables before
--- sending this file, so neither credential appears on a command line: a psql
--- argv is readable by every process in the Postgres pod and is recorded
--- verbatim in the API server's audit entry for the exec subresource.
+-- Callers set the address and password as psql variables, so no credential reaches a command
+-- line, where every process in the pod and the audit log could read it.
 
--- The server hashes with bcrypt at cost 10, and pgcrypto's 'bf' produces
--- exactly that, so the hash written here is one the server's own comparison
--- accepts. Hashing inside the database keeps the plaintext off every command
--- line in this pod.
+-- pgcrypto's 'bf' matches the server's bcrypt cost 10, so the server accepts the hash.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- The well-known ids the server itself uses: the default tenant and the
--- Administrators group. Membership of that group is what makes an account an
--- administrator; users.is_admin mirrors it.
+-- The ids are the server's default tenant and Administrators group; users.is_admin mirrors
+-- membership of that group.
 INSERT INTO users (id, tenant_id, email, password_hash, display_name, is_admin)
 VALUES (
   '00000000-0000-0000-0000-00000000000a',

@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Which machines a staged rule has reached.
-//
-// The ids here are derived from a counter rather than drawn at random, so a case
-// that fails fails the same way on the next run and on someone else's machine.
 func fleet(size int) []uuid.UUID {
 	out := make([]uuid.UUID, size)
 	for i := range out {
@@ -21,21 +17,26 @@ func fleet(size int) []uuid.UUID {
 	return out
 }
 
-// reached counts how many of a fleet a rule at percent actually lands on.
-func reached(devices []uuid.UUID, ruleID string, percent int) int {
+func countWhere(devices []uuid.UUID, pick func(uuid.UUID) bool) int {
 	count := 0
 	for _, id := range devices {
-		if InStage(id, ruleID, percent, len(devices)) {
+		if pick(id) {
 			count++
 		}
 	}
 	return count
 }
 
-// Raising the reach only ever adds machines. A device that dropped out as the
-// percentage rose would have the rule installed, removed and installed again
-// across one rollout — flapping a customer's estate for no reason and making
-// every other property here untestable.
+func reached(devices []uuid.UUID, ruleID string, percent int) int {
+	return countWhere(devices, func(id uuid.UUID) bool {
+		return InStage(id, ruleID, percent, len(devices))
+	})
+}
+
+func rolloutReached(devices []uuid.UUID, r Rollout) int {
+	return countWhere(devices, func(id uuid.UUID) bool { return r.Reaches(id, len(devices)) })
+}
+
 func TestStageMembershipOnlyEverAddsMachines(t *testing.T) {
 	t.Parallel()
 
@@ -58,8 +59,6 @@ func TestStageMembershipOnlyEverAddsMachines(t *testing.T) {
 	assert.Len(t, in, len(devices), "every machine is in by 100%")
 }
 
-// Membership is a function of the machine, the rule and the reach, and of
-// nothing else — including how many times it is asked.
 func TestStageMembershipIsStable(t *testing.T) {
 	t.Parallel()
 
@@ -73,36 +72,21 @@ func TestStageMembershipIsStable(t *testing.T) {
 	}
 }
 
-// One rule's canary must not be the same machines as another's, or the same
-// handful of endpoints would carry every trial the fleet ever runs.
 func TestStageMembershipDiffersByRule(t *testing.T) {
 	t.Parallel()
 
 	devices := fleet(1000)
-	disk := make(map[uuid.UUID]bool)
-	for _, id := range devices {
-		if InStage(id, "disk-critical", 10, len(devices)) {
-			disk[id] = true
-		}
+	inRule := func(ruleID string) func(uuid.UUID) bool {
+		return func(id uuid.UUID) bool { return InStage(id, ruleID, 10, len(devices)) }
 	}
+	inDisk, inCPU := inRule("disk-critical"), inRule("cpu-saturated")
 
-	same, cpu := 0, 0
-	for _, id := range devices {
-		if !InStage(id, "cpu-saturated", 10, len(devices)) {
-			continue
-		}
-		cpu++
-		if disk[id] {
-			same++
-		}
-	}
+	cpu := countWhere(devices, inCPU)
+	same := countWhere(devices, func(id uuid.UUID) bool { return inCPU(id) && inDisk(id) })
 	require.NotZero(t, cpu)
 	assert.Less(t, same, cpu, "two rules at one reach must not pick one identical set")
 }
 
-// The population a stage aims at. The floor is what makes a canary meaningful on
-// a small estate — 1 % of a dental practice's twelve machines is nobody — and the
-// fleet is what bounds it, because a floor of five cannot be met by three.
 func TestStagePopulationHasACanaryFloorBoundedByTheFleet(t *testing.T) {
 	t.Parallel()
 
@@ -134,9 +118,6 @@ func TestStagePopulationHasACanaryFloorBoundedByTheFleet(t *testing.T) {
 	}
 }
 
-// A stage never reaches fewer machines than the stage before it, whatever the
-// fleet size does to the arithmetic — a rollout that shrank on its way forward
-// would pull a rule back off machines it was already proving itself on.
 func TestStagePopulationNeverShrinksAsARolloutAdvances(t *testing.T) {
 	t.Parallel()
 
@@ -151,10 +132,6 @@ func TestStagePopulationNeverShrinksAsARolloutAdvances(t *testing.T) {
 	}
 }
 
-// The population is what a stage aims at; membership is what it hits, one
-// machine at a time and without the fleet's roster. The two must land in the
-// same place, or a canary aiming at five machines would quietly cover half an
-// estate.
 func TestStageMembershipLandsNearThePopulationItAimsAt(t *testing.T) {
 	t.Parallel()
 
@@ -167,8 +144,6 @@ func TestStageMembershipLandsNearThePopulationItAimsAt(t *testing.T) {
 	}
 }
 
-// The two ends are absolute: nothing is reached before a rollout starts, and
-// nothing is left out once it finishes.
 func TestStageMembershipCoversTheEndsExactly(t *testing.T) {
 	t.Parallel()
 
@@ -178,27 +153,18 @@ func TestStageMembershipCoversTheEndsExactly(t *testing.T) {
 		"a rule at 100 % reaches the whole estate")
 }
 
-// Without a fleet count the floor cannot be worked out, so the rule reaches the
-// share it declares and never more. Guessing the other way would put a canary on
-// an estate the moment a count query failed.
 func TestStageMembershipWithoutAFleetCountReachesOnlyItsDeclaredShare(t *testing.T) {
 	t.Parallel()
 
 	devices := fleet(2000)
-	count := 0
-	for _, id := range devices {
-		if InStage(id, "disk-critical", 1, 0) {
-			count++
-		}
-	}
+	count := countWhere(devices, func(id uuid.UUID) bool {
+		return InStage(id, "disk-critical", 1, 0)
+	})
 	assert.Less(t, count, len(devices)/10,
 		"an unsized canary must stay near its 1 %, not spread to the estate")
 	assert.Positive(t, count, "and must still reach the machines it names")
 }
 
-// What the pushed ruleset actually asks: does this machine get this rule. A stop
-// outranks membership — a killed rule reaches nobody, including the canary that
-// was proving it.
 func TestRolloutReachesRespectsBothTheStopAndTheStage(t *testing.T) {
 	t.Parallel()
 
@@ -206,32 +172,19 @@ func TestRolloutReachesRespectsBothTheStopAndTheStage(t *testing.T) {
 	org := uuid.New()
 
 	full := DefaultRollout(org, "disk-critical")
-	for _, id := range devices {
-		assert.True(t, full.Reaches(id, len(devices)), "a rule nobody staged reaches every machine")
-	}
+	assert.Equal(t, len(devices), rolloutReached(devices, full), "a rule nobody staged reaches every machine")
 
 	canary := full
 	canary.RolloutPercent = PercentFor(StageCanary)
-	in := 0
-	for _, id := range devices {
-		if canary.Reaches(id, len(devices)) {
-			in++
-		}
-	}
+	in := rolloutReached(devices, canary)
 	assert.Positive(t, in)
 	assert.Less(t, in, len(devices), "a canary is not the estate")
 
 	killed := canary
 	killed.Kill = true
-	for _, id := range devices {
-		assert.False(t, killed.Reaches(id, len(devices)), "a kill stops the canary too")
-	}
+	assert.Zero(t, rolloutReached(devices, killed), "a kill stops the canary too")
 }
 
-// A rollout state that needs a fleet count says so, so the count is read for the
-// customers that are mid-rollout and for nobody else. Every customer paying for a
-// query on every reconnect, to size a stage almost none of them are in, is the
-// cost this avoids.
 func TestNeedsFleetSizeOnlyForAPartialRollout(t *testing.T) {
 	t.Parallel()
 

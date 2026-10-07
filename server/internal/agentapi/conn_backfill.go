@@ -10,37 +10,22 @@ import (
 )
 
 const (
-	// backfillMetric is the central series reconnect backfill writes into — the
-	// same raw `avg` series live telemetry uses and the WS-6 charts read via
-	// *_over_time, so backfilled history is continuous with live telemetry and
-	// immediately visible. The agent's 60 s/1 min/1 hr tiering is a bandwidth
-	// optimization (coarser points for older periods); on the server they
-	// reconstitute this one series at their native resolution, deduped by VM on
-	// (series, timestamp) so replaying a batch is idempotent. The import API
-	// preserves each sample's original timestamp, so history lands in its true
-	// time bucket rather than at ingest time.
+	// backfillMetric is the raw avg series that live telemetry also writes, so backfilled history
+	// is continuous with it and VM dedups a replayed batch by series and timestamp.
 	backfillMetric = "opengate_edge_metric_avg"
 	// backfillDimLabel names the dimension the pre-rolled value belongs to.
 	backfillDimLabel = "dim"
-	// backfillRetentionSecs bounds how old a backfilled sample may be (~90 d);
-	// older history stays reachable only via an on-demand deep-history pull.
+	// backfillRetentionSecs bounds how old a backfilled sample may be (90 days).
 	backfillRetentionSecs = 90 * 24 * 3600
-	// backfillFutureSkewSecs rejects wild-future timestamps (defense in depth;
-	// the agent bounds them too).
+	// backfillFutureSkewSecs rejects timestamps further ahead than this many seconds.
 	backfillFutureSkewSecs = 3600
-	// backfillPersistTimeout bounds a single batch's synchronous VM write so a
-	// slow backend cannot stall the control loop indefinitely.
+	// backfillPersistTimeout bounds a batch's synchronous VM write so a slow backend cannot stall
+	// the control loop.
 	backfillPersistTimeout = 5 * time.Second
 )
 
-// handleMetricBackfillBatch persists a tier's pre-rolled historical samples to
-// VictoriaMetrics at their original timestamps, then acks so the agent advances
-// its durable per-tier watermark. The write is synchronous and the ack is sent
-// only on success: a failed write leaves the batch un-acked, so the agent keeps
-// its durable data and re-sends from the un-advanced cursor on its next grant
-// (idempotent — VM dedups by timestamp). Samples are clamped to retention and
-// bounded against wild clocks, and the tenant is taken from the authenticated
-// connection, never the agent's message.
+// handleMetricBackfillBatch persists pre-rolled samples at their original timestamps and acks;
+// a failed write leaves the batch un-acked. The tenant is the connection's, never the message's.
 func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
 	if a.telemetry == nil {
 		return nil
@@ -67,12 +52,10 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 	unknown := 0
 	for _, s := range msg.BackfillSamples {
 		if s.TS < floor || s.TS > ceil {
-			skipped++ // retention clamp + wild-clock guard (defense in depth)
+			skipped++
 			continue
 		}
-		// Backfill writes the same series live telemetry does, so it answers to
-		// the same vocabulary. A dim outside it would open exactly the central
-		// cardinality the allowlist closes, one replayed batch at a time.
+		// A dimension outside the live vocabulary would open central series cardinality.
 		if !isVitalDim(s.Name) {
 			unknown++
 			continue
@@ -84,9 +67,7 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 			Labels: map[string]string{backfillDimLabel: s.Name},
 		})
 	}
-	// One batch is one message, so the counter moves once however many samples
-	// fell outside the window; the sample count rides the log line. Without this
-	// the skip was the pipeline's last silent discard.
+	// A batch counts once per drop reason however many samples it lost; the sample count rides the log.
 	if skipped > 0 {
 		a.dropTelemetry("backfill_out_of_retention", "type", protocol.MsgMetricBackfillBatch,
 			"tier", msg.Tier, "skipped", skipped, "batch", len(msg.BackfillSamples))
@@ -106,8 +87,7 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 		}
 	}
 
-	// Ack even an all-clamped batch so the agent advances past out-of-retention
-	// (or evicted) ranges without stalling.
+	// An all-skipped batch is still acked so the agent advances past out-of-retention ranges.
 	return a.sendControl(&protocol.ControlMessage{
 		Type:   protocol.MsgMetricBackfillAck,
 		Tier:   msg.Tier,
@@ -115,15 +95,8 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 	})
 }
 
-// handleRequestBackfillSlot admits or defers a reconnect-backfill drain through
-// the server-coordinated scheduler and replies to the agent with the decision
-// (GrantBackfill with a rate + deadline, or DeferBackfill with a retry-after).
-//
-// The tenant is taken from the authenticated connection, never from the agent's
-// message, so backfill admission is always scoped to the right tenant. A
-// connection without a scheduler (test/programmatic) or an agent that never
-// advertised the Backfill capability is a silent no-op — the agent falls back
-// to holding its durable data and retrying.
+// handleRequestBackfillSlot asks the scheduler to grant or defer a backfill drain, scoped to the
+// connection's tenant; without a scheduler or the Backfill capability it does nothing.
 func (a *AgentConn) handleRequestBackfillSlot(msg *protocol.ControlMessage) error {
 	if a.scheduler == nil {
 		return nil

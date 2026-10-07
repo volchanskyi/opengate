@@ -1,27 +1,6 @@
 #!/usr/bin/env bash
-# The test Postgres is started the same way everywhere, and its shared memory
-# fits what it is configured to use.
-#
-# Six places start it — the Makefile target the gauntlet's prerequisite phase
-# calls, and five workflow steps — and every one of them raises
-# max_connections to 400 so the parallel per-schema suite does not saturate the
-# 100-connection default. None of them said anything about shared memory, so all
-# six took Docker's 64 MiB default for /dev/shm.
-#
-# That is not enough for what those settings ask for. Postgres puts a parallel
-# query's workers in shared memory, and one of them asked for 32 MiB: two at
-# once exhaust the 64. What it looks like from outside is not a memory error in
-# a test but the database going away mid-run — `could not resize shared memory
-# segment to 33554432 bytes: No space left on device`, then `connection
-# refused` from everything after it, on a host with 189 GB free. The container
-# runs with `--rm`, so it removes itself on the way out and leaves nothing to
-# inspect.
-#
-# It is load-dependent, so it passes far more often than it fails, which is the
-# property that makes a sweep over the text worth more than a run: the settings
-# are checkable without reproducing the conditions.
-#
-# Run: ./scripts/tests/postgres-test-container.test.sh
+# Every start of the test Postgres declares a 1g /dev/shm and the same connection settings.
+# Parallel query workers place segments in /dev/shm, which Docker's 64 MiB default cannot hold.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,8 +21,7 @@ fail() {
 
 echo "postgres test container:"
 
-# Every file that starts the test Postgres, found by the image it starts rather
-# than by a list — a new caller is swept the day it is written.
+# Files are found by the image they start, so a new caller is swept when it is written.
 sources="$(grep -rl 'postgres:17-alpine' \
   "$REPO_ROOT/Makefile" "$REPO_ROOT/.github/workflows" 2>/dev/null || true)"
 
@@ -53,9 +31,7 @@ if [ -z "$sources" ]; then
   exit 1
 fi
 
-# starts_in FILE — each `docker run` of the test image, joined onto one line so
-# a command written across continuations is read whole. A sweep that reads one
-# line at a time sees none of them, because every one of these is wrapped.
+# starts_in joins each `docker run` of the test image onto one line so wrapped commands read whole.
 starts_in() {
   sed -e ':a' -e '/\\$/{N;s/\\\n//;ta' -e '}' "$1" \
     | grep -E 'docker run .*postgres:17-alpine' || true
@@ -71,14 +47,12 @@ while IFS= read -r file; do
     [ -n "$start" ] || continue
     checked=$((checked + 1))
 
-    # Shared memory is declared, and declared large enough to hold more than one
-    # parallel worker's segment at a time.
+    # The declared shared memory holds more than one parallel worker's segment.
     if ! grep -qE -- '--shm-size[= ]1g' <<<"$start"; then
       missing_shm="$missing_shm [$rel]"
     fi
 
-    # And the settings that make it necessary are the same everywhere, so a
-    # caller cannot raise the connection ceiling in one place alone.
+    # The connection settings match in every caller, so none raises the ceiling alone.
     grep -qE -- '-c max_connections=400' <<<"$start" \
       || mismatched="$mismatched [$rel:max_connections]"
     grep -qE -- '-c max_locks_per_transaction=256' <<<"$start" \
@@ -104,12 +78,7 @@ else
   fail "the test database is configured differently in different places:$mismatched"
 fi
 
-# --- The default really is too small ------------------------------------------
-#
-# The sweep above is a statement about text. This is the reading behind it, so a
-# guard that has stopped policing a real limit fails rather than going on
-# checking a flag for its own sake. It needs Docker; without it the reading is
-# stated as unavailable rather than counted as a pass.
+# Reading the image's default /dev/shm shows the flag guards a real limit; this needs Docker.
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   default_shm="$(docker run --rm --entrypoint sh postgres:17-alpine \
     -c 'df -k /dev/shm | tail -1 | awk "{print \$2}"' 2>/dev/null || true)"

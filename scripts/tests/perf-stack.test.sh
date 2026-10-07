@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 # The runner-hosted performance stack must be able to host the load it is for.
-#
-# The disposable stack this replaces could not: it published only the
-# browser-facing port, so no simulated machine could reach it; it declared no
-# resource bounds, so "the server ran out of processor" and "the database did"
-# were the same observation; and it ran no metrics store, so a slow run could
-# report latency and nothing about why.
-#
-# Run: ./scripts/tests/perf-stack.test.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,16 +32,13 @@ for f in "$COMPOSE" "$WORKFLOW"; do
   fi
 done
 
-# A machine reaches the server over QUIC, which is UDP. A stack that publishes
-# only the browser port can host operator load and no fleet at all.
+# A machine reaches the server over QUIC, which is UDP.
 if grep -qE '^\s*-\s*"9090:9090/udp"' "$COMPOSE"; then
   pass "the machine-facing QUIC port is published"
 else
   fail "the machine-facing QUIC port is published"
 fi
 
-# Every service is bounded, separately. Without that, the sweep has nothing to
-# vary and a saturated stack cannot say which part saturated.
 for service in postgres server metrics; do
   if awk -v svc="$service" '
       $0 ~ "^  " svc ":" { in_svc = 1; next }
@@ -73,16 +62,13 @@ for service in postgres server metrics; do
   fi
 done
 
-# The server's processor count is the sweep's variable, so it cannot be a
-# literal: several stacks that also differ in unrecorded ways are not a sweep.
 if grep -q 'PERF_SERVER_CPUS' "$COMPOSE"; then
   pass "the server's processor count is the sweep's variable"
 else
   fail "the server's processor count is the sweep's variable"
 fi
 
-# The volume family measures how much disk a fixture occupies. A database in
-# memory has no size, so this stack must not put its data on tmpfs.
+# The volume family measures disk a fixture occupies, so the database data stays off tmpfs.
 postgres_block() {
   awk '
     /^  postgres:/ { in_svc = 1; next }
@@ -90,9 +76,7 @@ postgres_block() {
     in_svc { print }
   ' "$COMPOSE"
 }
-# Read once into a variable: piped into `grep -q` the reader stops at its
-# first match, and pipefail reports the writer's failed write as a service that
-# names neither thing.
+# Read once into a variable: under pipefail a `grep -q` that stops early fails the writer's pipe.
 POSTGRES_BLOCK="$(postgres_block)"
 if grep -qE '^[[:space:]]+tmpfs:' <<<"$POSTGRES_BLOCK"; then
   fail "the database writes to tmpfs, so a fixture would have no measurable size"
@@ -102,22 +86,18 @@ else
   fail "the database names no data volume"
 fi
 
-# A stack that cannot observe itself reports latency and nothing about why.
 if grep -q 'victoria-metrics' "$COMPOSE"; then
   pass "the stack runs a metrics store"
 else
   fail "the stack runs a metrics store"
 fi
 
-# A variable no Go source reads is a setting somebody will one day try to
-# change, expecting something to happen.
 if grep -q 'OPENGATE_TEST_MODE' "$COMPOSE"; then
   fail "the perf stack sets OPENGATE_TEST_MODE, which no Go source reads"
 else
   pass "the perf stack sets no variable the server does not read"
 fi
 
-# Compose must be able to parse it — a stack nobody can bring up is not a stack.
 if command -v docker >/dev/null 2>&1; then
   if DOCKER_CONFIG="$("$REPO_ROOT/scripts/docker-credstore-guard.sh")" \
     docker compose -f "$COMPOSE" config >/dev/null 2>&1; then
@@ -126,28 +106,11 @@ if command -v docker >/dev/null 2>&1; then
     fail "compose parses the perf stack"
   fi
 else
-  # A machine without Docker still checks the shape above; only the parse is
-  # skipped, and it is stated rather than counted as a pass.
   echo "  note docker not on PATH; compose parse not exercised here (CI runs it)"
 fi
 
-# --- A default that fires on an empty value is not a default on an unset one ---
-#
-# The endurance family sets PERF_SERVER_GO_LDFLAGS to the empty string, and that
-# empty string is the whole point: an empty link keeps the target's symbol table,
-# and a core dump is addresses until something can read them back as types.
-#
-# Compose's `${VAR:-default}` substitutes its default for a variable that is set
-# and empty as well as for one that is unset, so the value the workflow chose was
-# discarded and the release link came back. The soak of 2026-09-13 walked its five
-# hours, reached the reference walk and refused at the first thing it checks —
-# "carries no debugging information" — on the first night that walk had ever run.
-# `${VAR-default}` is the form that means what the workflow meant.
-#
-# The contract is stated in the workflow and satisfied in the compose file, so it
-# is checked against both: every variable a workflow deliberately empties is read
-# off the workflows, and the form the compose file reads it with is read off the
-# compose file.
+# Compose's `${VAR:-default}` also replaces a variable that is set and empty;
+# `${VAR-default}` keeps the empty value a workflow sets on purpose.
 emptied=()
 while IFS= read -r name; do
   [ -n "$name" ] && emptied+=("$name")
@@ -156,8 +119,6 @@ done < <(
     | sed -E "s/^[[:space:]]+([A-Z0-9_]+):.*/\1/" | sort -u
 )
 
-# A sweep that reached nothing passes for the wrong reason. The soak's own
-# variable is the one it must always find.
 if [ "${#emptied[@]}" -gt 0 ] && grep -qxF 'PERF_SERVER_GO_LDFLAGS' <<<"$(printf '%s\n' "${emptied[@]}")"; then
   pass "the sweep read the variables a workflow empties on purpose (${#emptied[@]})"
 else
@@ -176,9 +137,6 @@ else
   fail "compose reads these with \${VAR:-default}, which discards the empty value the workflow set:$discarded"
 fi
 
-# And the punctuation is a proxy for what compose does with it, so compose is
-# asked. The variable is set exactly the way the soak sets it, and what comes
-# back has to be the empty link rather than the release one.
 if command -v docker >/dev/null 2>&1; then
   rendered="$(
     PERF_SERVER_GO_LDFLAGS='' DOCKER_CONFIG="$("$REPO_ROOT/scripts/docker-credstore-guard.sh")" \
@@ -196,11 +154,6 @@ else
   echo "  note docker not on PATH; what compose renders is not read back here (CI runs it)"
 fi
 
-# The workflow must drive the two families this stack exists for, and must not
-# claim absolute capacity from a runner.
-# The volume family is a sweep over machines enrolled rather than a single run,
-# so it is matched by prefix: the fixture names do not differ in how much data
-# they hold, and the count that does is in the profile's own name.
 for family in volume- scaling; do
   if grep -q "load/profiles/${family}" "$WORKFLOW"; then
     pass "the workflow runs the ${family%-} profile"
@@ -215,11 +168,6 @@ else
   fail "the workflow weighs the fixture it built"
 fi
 
-# Every path a step names must exist from where that step runs. A step that
-# changes directory into server/ and then names a repository-root script does
-# not fail on a missing flag or a bad argument — it fails with "No such file or
-# directory" after the stack is already up, which is how all four legs of the
-# sweep died on the one night this workflow has ever run.
 missing_paths="$(
   python3 - "$WORKFLOW" "$REPO_ROOT" <<'PY'
 import os
@@ -232,7 +180,6 @@ workflow, root = sys.argv[1], sys.argv[2]
 with open(workflow, encoding="utf-8") as handle:
     document = yaml.safe_load(handle)
 
-# Anything that looks like a repository path the step hands to a program.
 candidate = re.compile(r"(?<![\w/.-])((?:scripts|load|deploy|policy|benchmarks)/[\w./-]+)")
 missing = []
 for job in document.get("jobs", {}).values():
@@ -258,9 +205,7 @@ else
   fail "paths named from the wrong directory: $missing_paths"
 fi
 
-# The weighing counts rows in tables the schema actually has. Numeric readings
-# live in the metrics store, not in Postgres, so a count of a readings table is
-# a query that can only ever fail.
+# Numeric readings live in the metrics store, so the weighing counts only tables Postgres has.
 weighed_tables="$(grep -oE 'table_rows [a-z_]+' "$REPO_ROOT/scripts/perf-weigh-fixture.sh" | awk '{ print $2 }' | sort -u)"
 unknown_tables=""
 for table in $weighed_tables; do
@@ -275,14 +220,7 @@ else
   fail "the weighing counts tables that do not exist:$unknown_tables"
 fi
 
-# --- Every family enrols; none signs its own ----------------------------------
-#
-# The stack's certificate authority is created by the server, inside a container
-# whose /data is a tmpfs. A harness given no enrolment URL builds an authority of
-# its own in a temp directory instead, and the two are then different generations
-# of the same-named authority: every dial is refused with "certificate signed by
-# unknown authority ... OpenGate CA". All four scaling shards died that way on
-# every run the workflow has ever had, 3300 refusals apiece.
+# Each family passes -enroll-url so the server signs the certificates the harness uses.
 job_block() {
   awk -v job="$1" '
     $0 ~ "^  " job ":$" { in_job = 1; next }
@@ -299,38 +237,14 @@ for family in volume scaling shapes; do
   fi
 done
 
-# The scaling family holds the data constant and varies the processors, so the
-# fixture its profile declares has to actually be built. Running it against an
-# empty database holds the data constant at nothing.
 if grep -q -- '-fixture-account=' <<<"$(job_block scaling)"; then
   pass "the scaling family builds the fleet its profile declares"
 else
   fail "the scaling family measures against an empty database, so its data is not the profile's"
 fi
 
-# --- A leg is the unit, because a family's legs do not all offer the same load -
-#
-# The volume family varies how much data is already there. Reading is what more
-# data slows, and the only reader this venue had was machines arriving — the
-# cheapest thing the server does, and one whose cost barely moves with the size
-# of the fleet already in the database. So the sweep varied its variable against
-# a load that could not feel it, which is the same shape that left the scaling
-# curve flat from one processor upwards.
-#
-# Held at family level these checks answer the wrong question for a family whose
-# legs differ. The shape family's three legs are one job, and `journeys` varies
-# across them: two open the sessions their profiles declare and the third does
-# not. A family-level check reads the one generator invocation in the block,
-# finds it, and reports the whole family covered — crediting the leg that offers
-# nothing with the load its neighbours offer. So the unit here is the leg.
-#
-# legs_of <family> — one record per leg: its profile, then whether that leg
-# offers a browser-side generator.
-#
-# A family whose legs vary the profile spells them in `matrix.include`; one that
-# varies something else names its profile once in the run block. A leg that
-# declares `journeys:` has said which it is, and where none does, every leg of a
-# family that starts a generator offers one.
+# legs_of <family> prints one record per leg: its profile, then whether that leg offers a
+# browser-side generator.
 legs_of() {
   local family="$1" block default_offers include profile
   block="$(job_block "$family")"
@@ -370,8 +284,7 @@ legs_of() {
   ' <<<"$include"
 }
 
-# folds_gate <block> — the condition on the step that folds the browser-side
-# numbers in, or empty where nothing gates it.
+# folds_gate <block> prints the condition on the step that folds the browser-side numbers in.
 folds_gate() {
   awk '
     /^      - name:/ { cond = "" }
@@ -380,20 +293,14 @@ folds_gate() {
   ' <<<"$1"
 }
 
-# A leg that declares a technician load and deliberately offers none, with the
-# reason it is that way. An exemption is re-earned: the sweep fails on an entry
-# whose leg now offers a generator, so one cannot outlive what it was for.
+# Legs that declare a technician load and deliberately offer none; an entry fails once its leg
+# offers a generator.
 declare -A OFFERS_NO_JOURNEYS=(
-  # This leg raises the fleet until the server gives out — sixteen thousand
-  # machines on a shared runner, with a hundred and sixty held sessions on top.
-  # What that generator would need of the runner is read rung by rung, and the
-  # sessions follow a night whose readings show its room at a rung that held.
+  # The breakpoint leg raises the fleet until the server gives out, and offers no generator yet.
   ["shapes load/profiles/breakpoint.yaml"]="the generator's room at a rung that held is a reading still to be taken"
 )
 
-# Every leg names a profile this gate can read, and there is at least one, so a
-# sweep that stopped enumerating legs fails rather than passing over an empty
-# list.
+# Every leg names a readable profile, and at least one leg is read.
 legs_read=0
 for family in volume scaling shapes; do
   while IFS=$'\t' read -r profile journeys; do
@@ -446,11 +353,7 @@ else
   fail "a leg is exempted from offering a technician load and now offers one, so the exemption has outlived its reason:$exempt_unused"
 fi
 
-# And what a browser-side generator times is written into another process's
-# file. A leg that starts one and never folds it in has produced readings in a
-# directory the job destroys; one that folds without starting one folds an
-# export that was never written. Both directions, per leg, because a family
-# whose legs differ is satisfied at family level by doing each once.
+# A leg that starts a generator folds its export in, and a leg that folds one starts a generator.
 for family in volume scaling shapes; do
   block="$(job_block "$family")"
   gate="$(folds_gate "$block")"
@@ -476,22 +379,13 @@ for family in volume scaling shapes; do
   done < <(legs_of "$family")
 done
 
-# And the two halves of a leg walk the same shape. The generator reads its walk
-# from LOADTEST_PROFILE and the harness from -profile, and nothing about either
-# name says they are the same decision — so a leg can offer fifteen journeys a
-# second against a fleet arriving to a different profile's ramp, and every
-# number it produces is about a night nobody scheduled.
-#
-# A family whose legs vary the profile spells it through the matrix, so what is
-# compared is the expression rather than a resolved path: the check is that one
-# decision reaches both halves.
+# The generator's LOADTEST_PROFILE and the harness's -profile name the same profile expression.
 for family in volume scaling shapes; do
   block="$(job_block "$family")"
   grep -q 'loadtest-k6-alongside\.sh' <<<"$block" || continue
 
   generator_walks="$(sed -n 's/^[[:space:]]*LOADTEST_PROFILE:[[:space:]]*//p' <<<"$block" | sed -n 1p)"
-  # The value is taken whole rather than to the first space: a matrix expression
-  # carries spaces of its own, and cutting at one compares half a name.
+  # The value is taken whole, because a matrix expression carries spaces of its own.
   harness_walks="$(sed -n 's/^[[:space:]]*-profile=//p' <<<"$block" | sed -n 1p)"
   harness_walks="${harness_walks%%[[:space:]]\\}"
   harness_walks="${harness_walks#\"}"
@@ -506,23 +400,8 @@ for family in volume scaling shapes; do
   fi
 done
 
-# --- A capacity claim is made about the load the product actually costs -------
-#
-# Both families answer "how many machines can one processor hold", which is the
-# kind of finding a reader acts on. They answered it for a fleet that is
-# connected and idle: nobody was watching a screen. A technician holding a remote
-# session is the expensive thing the product does, so a ceiling read without one
-# is a ceiling for a load that never happens.
-#
-# Every profile on both families declares `sessions`, and a declared number
-# nothing offers is an intention rather than a fact — the same gap the endurance
-# family closed, one venue over. The scenarios are read off the invocation rather
-# than listed here, so a scenario added to or taken off a leg is judged by what
-# it offers.
-#
-# A scenario's executor says which of the two technician numbers it offers:
-# arrivals are a rate of journeys, sessions are a count held open, and neither
-# stands in for the other.
+# Every declared `sessions` count is offered by a scenario read off the invocation.
+# An executor offers either arrivals (a journey rate) or sessions (a count held open).
 scenarios_on() {
   local block="$1" invocation word
   invocation="$(grep -oE 'loadtest-k6-alongside\.sh[^&]*' <<<"$block" | head -1 || true)"
@@ -540,9 +419,7 @@ scenarios_on() {
 for family in volume scaling shapes; do
   block="$(job_block "$family")"
 
-  # The sessions a leg declares are held open beside its fleet, and the harness
-  # answers the machine end of them. A leg that offers no generator is judged by
-  # the exemption above rather than twice here.
+  # The sessions a leg declares are held open beside its fleet, and the harness answers them.
   while IFS=$'\t' read -r profile journeys; do
     [ -n "$profile" ] && [ -f "$REPO_ROOT/$profile" ] || continue
     [ "$journeys" = true ] || continue
@@ -576,11 +453,7 @@ for family in volume scaling shapes; do
     fi
   done < <(legs_of "$family")
 
-  # The scenarios a family runs and the exports it folds are one invocation and
-  # one list, shared by every leg that reaches them, so they are read once. Both
-  # directions: a leg that starts a generator and folds nothing has produced
-  # readings in a directory the job destroys, and a fold naming an export
-  # nothing runs fails on the night rather than here.
+  # The scenarios a family runs and the exports it folds are one invocation and one shared list.
   grep -q 'loadtest-k6-alongside\.sh' <<<"$block" || continue
 
   folded=0
@@ -609,29 +482,14 @@ for family in volume scaling shapes; do
     | sed -nE 's|.*/([a-z0-9-]+)\.json.*|\1|p' | sort -u)
 done
 
-# --- The bundle's verdict is read back ----------------------------------------
-#
-# The harness writes what it thought of its own run into the bundle, and the
-# volume family passed a run whose bundle said "invalid" and whose fleet was
-# 0/500. A verdict nothing reads is a string in a file, which is the same defect
-# as a cache save nobody asserts.
 if grep -q 'verdict' "$WORKFLOW"; then
   pass "the workflow reads the verdict the harness wrote about the run"
 else
   fail "the workflow never reads the bundle's verdict, so a run that measured nothing passes"
 fi
 
-# Weekly answered a question that changes when the schema or the read paths do,
-# so it runs nightly. The hour it names is not a time it starts — every
-# scheduled run begins four and a half to six and a half hours later — so what
-# the hour buys is a place in the order, and this one goes last: the whole
-# night's batch is in front of it, and a run scheduled beside them queues behind
-# them on a twenty-job pool rather than running.
-#
-# Last is therefore the property to hold, rather than the number seven.
-# Only the crons that fire every night are the night's batch. A weekly run is
-# in a different queue on a different day, and holding this one behind it would
-# be a claim about a Sunday.
+# The cron hour sets a place in the queue order, and this run goes after every nightly cron.
+# Only crons that fire every night count; a weekly cron queues on another day.
 daily_hours() {
   sed -n "s/^ *- cron: '[0-9]* \([0-9]*\) \* \* \*'.*/\1/p" "$1"
 }
@@ -659,17 +517,8 @@ else
   fail "the stack is last in the night's order (not behind:$behind)"
 fi
 
-# --- A machine reaches the server the way it does in production --------------
-#
-# The breakpoint ladder's top rung collapsed to a tenth of the machines it asked
-# for while the target sat at sixty percent of its processor. Two things stood
-# between the ends that production does not have: a runner's kernel capping a
-# socket's receive buffer at 1 MiB against the 7 MiB the transport asks for, and
-# Docker's userland proxy relaying every datagram sent to the loopback's
-# published port. Every job that brings the stack up gives it production's
-# buffers first, dials the server by its certificate's name once it is up, hands
-# the harness the target's network counters, and fails a run either end of which
-# still ran short.
+# Every job that brings the stack up sets production's socket buffers, dials the server by its
+# certificate's name, and hands the harness the target's network counters.
 path_problems="$(
   python3 - "$WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY'
 import sys, yaml
@@ -720,13 +569,8 @@ else
   fail "a job measures the machine-facing path through what production does not have: $path_problems"
 fi
 
-# --- One cause is one error --------------------------------------------------
-#
-# A scaling leg died on one reset connection while Docker Hub handed out a pull
-# token, and three more steps each printed an error of their own for it: the
-# verdict found no bundle, the limits found no bundle, and the upload found no
-# files. The images are pulled first, with bounded retries, and every step after
-# the bring-up that runs whatever happened waits on the stack having come up.
+# Images are pulled first with bounded retries, and every always-run step after the bring-up
+# waits on the stack having come up.
 bringup_problems="$(
   python3 - "$WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY_BRINGUP'
 import sys, yaml
@@ -827,12 +671,8 @@ fi
 rm -rf "$PULL_WORK"
 
 TREND_WORKFLOW="$WORKFLOW"
-# --- The legs join the trend, and the nights before them judge them ------------
-#
-# Each leg wrote a bundle and nothing kept its numbers past the artifact: fixed
-# profile limits only, and no comparison with the nights before. A publish job
-# pushes every leg's rows with the run's start, compares each leg with its own
-# nights, and a gate job reads what it found off the job's result.
+# A publish job pushes every leg's rows with the run's start and compares each leg with its own
+# nights, and a gate job reads the verdict off the job's result.
 publish_problems="$(
   python3 - "$TREND_WORKFLOW" <<'PY_PUBLISH'
 import sys, yaml

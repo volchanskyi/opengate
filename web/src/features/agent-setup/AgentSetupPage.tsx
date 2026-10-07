@@ -57,7 +57,6 @@ export function AgentSetupPage() {
     <div className="max-w-3xl mx-auto p-6">
       <h2 className="text-2xl font-bold mb-6">Add Device</h2>
 
-      {/* Quick Install */}
       <section className="mb-8">
         <h3 className="text-lg font-semibold mb-3">Quick Setup</h3>
         <QuickInstallContent
@@ -68,7 +67,6 @@ export function AgentSetupPage() {
         />
       </section>
 
-      {/* Enrollment Tokens (admin only) */}
       {user?.is_admin && (
         <EnrollmentTokenForm
           enrollmentTokens={enrollmentTokens}
@@ -81,7 +79,6 @@ export function AgentSetupPage() {
         />
       )}
 
-      {/* What happens next */}
       <section className="mb-8">
         <h3 className="text-lg font-semibold mb-3">What happens next</h3>
         <p className="text-sm text-gray-400">
@@ -96,11 +93,7 @@ export function AgentSetupPage() {
   );
 }
 
-/**
- * Standing BIOS/MEBx documentation for enabling Intel AMT. It belongs to setup,
- * not to any one device: the steps are the same everywhere, and a device page
- * shows a device's actual AMT state instead.
- */
+/** Standing BIOS/MEBx steps for enabling Intel AMT, identical for every device. */
 function IntelAmtSetup() {
   const [expanded, setExpanded] = useState(false);
 

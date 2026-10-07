@@ -19,10 +19,8 @@ func NewPostgresReader(db *sql.DB) *PostgresReader {
 	return &PostgresReader{db: db}
 }
 
-// ScopeFor reads one machine's whole ladder in a single row: the machine, the
-// site it is filed into, the customer that site belongs to, and the tenant. It
-// is tenant-scoped like every other read, so a device outside the caller's
-// tenant is indistinguishable from one that does not exist.
+// ScopeFor reads one machine's whole ladder in a single row. A device outside the
+// caller's tenant reads as not found.
 func (p *PostgresReader) ScopeFor(ctx context.Context, deviceID uuid.UUID) (Scope, error) {
 	var (
 		scope  Scope
@@ -41,7 +39,7 @@ func (p *PostgresReader) ScopeFor(ctx context.Context, deviceID uuid.UUID) (Scop
 	if err != nil {
 		return Scope{}, err
 	}
-	// An unfiled machine simply has no site rung; the zero value says so.
+	// An unfiled machine has no site rung; the zero value marks it.
 	if siteID.Valid {
 		scope.SiteID = siteID.UUID
 	}

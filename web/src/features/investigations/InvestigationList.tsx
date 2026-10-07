@@ -38,11 +38,7 @@ function QueueRow({ incident }: { readonly incident: Incident }) {
   );
 }
 
-/**
- * The triage queue. An incident in `new` **is** the queue, so there is nothing
- * here that creates or promotes one — every row is already a room somebody can
- * open and work.
- */
+/** The triage queue; every row links to the incident's room. */
 export function InvestigationList() {
   const items = useQueueStore((s) => s.items);
   const loading = useQueueStore((s) => s.loading);
@@ -58,13 +54,9 @@ export function InvestigationList() {
 
   const load = useCallback(() => { fireAndForget(fetchQueue()); }, [fetchQueue]);
 
-  // Re-read whenever the narrowing changes — the filters themselves, and the
-  // customer the whole session is looking at.
   useEffect(() => { load(); }, [load, filters, organizationId]);
 
-  // A re-read starts from the top of the queue, so once somebody has walked past
-  // the first page the beat stops: pulling them back to the head mid-read costs
-  // more than the rows are stale.
+  // A re-read restarts at the first page, so polling stops once the reader has paged on.
   const poll = useCallback(() => { if (!pagedOn) load(); }, [pagedOn, load]);
   useVisibleInterval(poll, QUEUE_POLL_MS);
 

@@ -44,10 +44,6 @@ func readControl(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer) *protoc
 	return msg
 }
 
-// TestDefaultTelemetryFrames builds the full default telemetry shape one agent
-// emits each cycle: a health summary, a host metric window, and a minimal
-// process report — the shape the WS-15b soak drives through the WS-4 ingest
-// path. None of them asserts a tenant (the server assigns it from the connection).
 func TestDefaultTelemetryFrames(t *testing.T) {
 	frames := defaultTelemetryFrames(1_700_000_000)
 	require.Len(t, frames, 3)
@@ -74,10 +70,6 @@ func TestDefaultTelemetryFrames(t *testing.T) {
 	assert.EqualValues(t, 1, frames[2].TopN[0].Rank)
 }
 
-// TestPlanAgents deterministically partitions N tenants × M agents so a soak
-// run is reproducible: every agent has a stable tenant index and a
-// tenant-tagged hostname, and the tenant indices cover exactly [0, tenants).
-// This is the layout the harness actually runs, so it is the one under test.
 func TestPlanAgents(t *testing.T) {
 	const tenants, perTenant = 5, 100
 	agents := planAgents(tenants*perTenant, tenants, defaultHostnamePrefix)
@@ -103,9 +95,6 @@ func TestPlanAgents(t *testing.T) {
 	assert.Equal(t, agents, planAgents(tenants*perTenant, tenants, defaultHostnamePrefix))
 }
 
-// TestBuildBackfillBatch builds a tiered reconnect-backfill batch with the
-// original historical timestamps preserved, matching the agent replay engine's
-// recent-first, one-acked-batch-at-a-time contract.
 func TestBuildBackfillBatch(t *testing.T) {
 	const n = 50
 	start := int64(1_700_000_000)
@@ -127,10 +116,6 @@ func TestBuildBackfillBatch(t *testing.T) {
 	}
 }
 
-// TestBackfillStormRoundTrip drives the agent side of the reconnect storm over
-// an in-memory stream primed with a grant then an ack per batch, proving the
-// harness sends a slot request, drains acked-one-at-a-time under the grant, and
-// stops at the batch budget.
 func TestBackfillStormRoundTrip(t *testing.T) {
 	codec := &protocol.Codec{}
 
@@ -164,9 +149,6 @@ func TestBackfillStormRoundTrip(t *testing.T) {
 	}
 }
 
-// TestBackfillStormDeferIsNotAnError verifies a DeferBackfill reply ends the
-// drain cleanly with zero batches sent — the scheduler shed load, which is a
-// valid soak outcome, not a failure.
 func TestBackfillStormDeferIsNotAnError(t *testing.T) {
 	codec := &protocol.Codec{}
 	var serverToAgent bytes.Buffer
@@ -181,9 +163,6 @@ func TestBackfillStormDeferIsNotAnError(t *testing.T) {
 	assert.Zero(t, sent, "a deferred storm drains nothing")
 }
 
-// TestSafeUint64 pins the non-negative narrowing used for the backlog hint: a
-// positive count passes through, and a zero or negative count clamps to 0 so
-// the int→uint64 conversion can never wrap into a huge PendingSamples value.
 func TestSafeUint64(t *testing.T) {
 	assert.Equal(t, uint64(42), safeUint64(42))
 	assert.Equal(t, uint64(0), safeUint64(0))

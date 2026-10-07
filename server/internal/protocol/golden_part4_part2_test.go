@@ -52,10 +52,6 @@ func TestGoldenControlHardwareReport(t *testing.T) {
 	assert.Equal(t, "16.1.30.2260", msg.AMTVersion)
 }
 
-// TestGoldenControlHardwareReportNoAMT covers the other half of the presence
-// flag: a host with no Management Engine reports false, and false must arrive as
-// a stated false rather than as an absent field the server cannot distinguish
-// from an agent too old to report at all.
 func TestGoldenControlHardwareReportNoAMT(t *testing.T) {
 	msg := decodeControlFrame(t, "control_hardware_report_no_amt.bin")
 

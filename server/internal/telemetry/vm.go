@@ -20,8 +20,7 @@ import (
 )
 
 var (
-	// ErrTenantMatcherNotAllowed is returned when a caller tries to provide its
-	// own tenant_id matcher instead of letting the scoped client inject it.
+	// ErrTenantMatcherNotAllowed is returned when a caller supplies its own tenant_id matcher.
 	ErrTenantMatcherNotAllowed = errors.New("tenant_id matcher is not allowed")
 	// ErrReservedLabel is returned when a sample tries to override labels the
 	// server owns for tenant/device scoping.
@@ -47,11 +46,8 @@ type VMClient struct {
 	namespace string
 }
 
-// environmentLabel names the environment a sample was written in. Production
-// and staging write into one store, and this is what holds them apart on a
-// dashboard. Every read the product makes groups it away: a device lives in one
-// environment, so the stamp is metadata rather than part of what a reading is,
-// and readings written before it and after it are one series.
+// environmentLabel names the environment a sample was written in, which keeps production
+// and staging apart in one store. Reads group it away, so one device stays one series.
 const environmentLabel = "namespace"
 
 // WithNamespace returns a client that stamps everything it writes with the
@@ -123,9 +119,8 @@ func (v *VMClient) Flush(ctx context.Context) error {
 	return nil
 }
 
-// Export queries series through the scoped selector path used by future
-// telemetry reads. The caller supplies a selector without tenant_id; this method
-// injects the authoritative tenant matcher.
+// Export queries series for tenantID; the caller's selector omits tenant_id, which this
+// method injects.
 func (v *VMClient) Export(ctx context.Context, tenantID uuid.UUID, selector string, start, end time.Time) ([]ExportedSeries, error) {
 	scoped, err := ScopeSelector(selector, tenantID)
 	if err != nil {

@@ -1,20 +1,5 @@
 #!/usr/bin/env bash
 # Tests for deploy/scripts/loadtest-account-sql.sh.
-#
-# The load-test administrator is seeded twice: by the chart's post-upgrade hook,
-# and by the staging deploy once the browser suite has finished — because the
-# suite's database reset destroys it, and the nightly load run has nobody to
-# mint an enrolment token against without it.
-#
-# Two copies of that SQL drift. A column the schema added broke one copy from a
-# distance once already, and a second copy would have been broken with nothing
-# to say so. So both callers read one file, and this holds them to it.
-#
-# The password reaches psql over stdin as a \set meta-command for the same
-# reason the app-role password does: a command line is readable by every process
-# in the Postgres pod and is recorded verbatim in the API server's audit entry
-# for the exec subresource.
-#
 # Run: ./scripts/tests/loadtest-account-sql.test.sh
 
 set -euo pipefail
@@ -65,8 +50,6 @@ if [ ! -f "$SQL_FILE" ]; then
 fi
 pass "the seeding SQL has a file of its own"
 
-# Both credentials are required. A silent empty password writes an account
-# nobody can sign in as, and the load run fails a day later on a 401.
 if env -u ACCOUNT_PASSWORD ACCOUNT_EMAIL=svc@service.invalid "$EMITTER" >/dev/null 2>&1; then
   fail "the emitter refuses to run without ACCOUNT_PASSWORD"
 else
@@ -86,15 +69,12 @@ assert_contains "the password is delivered as a psql variable" \
 assert_contains "the address is delivered as a psql variable" \
   "$OUTPUT" "\\set email 'svc@service.invalid'"
 
-# psql's meta-command lexer reads backslash escapes inside a single-quoted
-# argument, so a quote in the generated password has to arrive escaped and a
-# backslash has to arrive doubled — in that order, or the escaping is escaped.
+# psql's meta-command lexer reads backslash escapes in a quoted argument, so a quote is escaped
+# and a backslash doubled, in that order.
 TRICKY="$(ACCOUNT_PASSWORD="a'b\\c" ACCOUNT_EMAIL='svc@service.invalid' "$EMITTER")"
 assert_contains "a quote and a backslash in the password survive intact" \
   "$TRICKY" "\\set account_password 'a\\'b\\\\c'"
 
-# The statements themselves are the file's, byte for byte. Anything else means
-# a second copy has appeared.
 EMITTED_SQL="$(grep -v '^\\set ' <<<"$OUTPUT")"
 if [ "$EMITTED_SQL" = "$(cat "$SQL_FILE")" ]; then
   pass "the emitter sends the shared file and nothing else"
@@ -102,7 +82,6 @@ else
   fail "the emitter's SQL differs from the shared file — there are two copies again"
 fi
 
-# ...and the chart hook reads the same file rather than restating it.
 if grep -qF '.Files.Get "files/loadtest-account.sql"' "$HOOK"; then
   pass "the chart hook reads the shared file"
 else
@@ -115,8 +94,6 @@ else
   pass "the chart hook carries no INSERT of its own"
 fi
 
-# The statements have to be safe to run twice: the hook fires on every upgrade,
-# and the deploy runs the same file again after every browser suite.
 for clause in "ON CONFLICT (email) DO UPDATE" "ON CONFLICT DO NOTHING"; do
   assert_contains "seeding is repeatable ($clause)" "$(cat "$SQL_FILE")" "$clause"
 done

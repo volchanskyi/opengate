@@ -168,8 +168,6 @@ func TestAgentConn_TelemetryIntervalFloorDropsFastSamples(t *testing.T) {
 	ac.flushTelemetry(ctx)
 	_ = receiveTelemetryCall(t, writer.calls)
 	assert.Equal(t, uint64(1), ac.DroppedTelemetryCount())
-	// The accepted window coalesces into one flush; the interval-floored second
-	// window never reaches the buffer, so exactly one write occurs.
 	assert.Equal(t, int64(1), writer.count.Load())
 }
 
@@ -202,8 +200,6 @@ func TestAgentConn_TelemetryWriterDoesNotBlockControlLoop(t *testing.T) {
 
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 	require.NoError(t, ac.handleControl(ctx))
-	// The flush persists on a bounded slot goroutine, so even a blocked writer
-	// never stalls the read-loop goroutine that triggered it.
 	start := time.Now()
 	ac.flushTelemetry(ctx)
 	assert.Less(t, time.Since(start), 100*time.Millisecond)
@@ -240,8 +236,6 @@ func TestAgentConn_PersistTelemetryDropsWhenTenantMissing(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 
 	called := false
-	// A context without a tenant must never reach the persistence closure, and
-	// every message the write carried is counted, not just the write.
 	ac.persistTelemetry(context.Background(), 3, func(context.Context, dbtx.Tenant) error {
 		called = true
 		return nil
@@ -304,15 +298,10 @@ func TestTelemetryTimestamp(t *testing.T) {
 	assert.WithinDuration(t, time.Now().UTC(), got, 5*time.Second)
 	assert.Equal(t, time.UTC, got.Location())
 
-	// A stamp outside the accepted window is corrected, and a nil metrics sink
-	// (the default for a programmatic conn) must not panic doing it.
 	assert.WithinDuration(t, time.Now().UTC().Add(-maxTelemetryBacklog),
 		ac.telemetryTimestamp(time.Now().Add(-30*24*time.Hour).Unix()), 5*time.Second)
 }
 
-// telemetryConn wires an AgentConn to a recording telemetry writer with a
-// buffered call channel of the given capacity, returning all three for driving
-// the persist/coalesce paths without repeating the setup in every test.
 func telemetryConn(t *testing.T, callCap int) (*AgentConn, *bytes.Buffer, *recordingTelemetryWriter) {
 	t.Helper()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, callCap)}

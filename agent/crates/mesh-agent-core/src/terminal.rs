@@ -1,7 +1,4 @@
-//! Terminal session management using PTY.
-//!
-//! Spawns a pseudo-terminal (PTY) and bridges its I/O with the relay
-//! WebSocket connection, forwarding terminal data as `TerminalFrame`s.
+//! PTY-backed terminal session that forwards terminal data as `TerminalFrame`s.
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,7 +18,7 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
-    /// Spawn a new terminal with the given dimensions.
+    /// Opens a PTY with the given dimensions in character cells.
     pub fn spawn(cols: u16, rows: u16) -> Result<Self, SessionError> {
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -36,9 +33,7 @@ impl TerminalSession {
         Ok(Self { pair })
     }
 
-    /// Start the terminal, spawning a shell and returning a handle.
-    ///
-    /// The terminal output is forwarded as `TerminalFrame`s via `frame_tx`.
+    /// Spawns a shell, forwards its output as `TerminalFrame`s on `frame_tx`, and returns a handle.
     pub async fn run(
         self,
         frame_tx: mpsc::Sender<Vec<u8>>,
@@ -70,27 +65,23 @@ impl TerminalSession {
         let (resize_tx, resize_rx) = mpsc::channel::<(u16, u16)>(8);
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        // Spawn PTY reader -> frame sender
         let reader_running = running.clone();
         let reader_shutdown = shutdown.clone();
         tokio::task::spawn_blocking(move || {
             pty_reader_loop(reader, frame_tx, reader_running, reader_shutdown);
         });
 
-        // Spawn stdin writer
         let writer_shutdown = shutdown.clone();
         tokio::task::spawn_blocking(move || {
             stdin_writer_loop(writer, stdin_rx, writer_shutdown);
         });
 
-        // Spawn resize handler
         let master = self.pair.master;
         let resize_shutdown = shutdown.clone();
         tokio::spawn(async move {
             resize_loop(master, resize_rx, resize_shutdown).await;
         });
 
-        // Spawn child waiter (cleanup on exit)
         tokio::task::spawn_blocking(move || {
             if let Err(e) = child.wait() {
                 debug!("PTY child wait failed: {e}");
@@ -101,7 +92,6 @@ impl TerminalSession {
     }
 }
 
-/// Read PTY output and send encoded terminal frames.
 pub(crate) fn pty_reader_loop(
     mut reader: Box<dyn Read + Send>,
     frame_tx: mpsc::Sender<Vec<u8>>,
@@ -133,7 +123,6 @@ pub(crate) fn pty_reader_loop(
     }
 }
 
-/// Write data from the stdin channel to the PTY master writer.
 pub(crate) fn stdin_writer_loop(
     mut writer: Box<dyn Write + Send>,
     mut rx: mpsc::Receiver<Vec<u8>>,
@@ -153,7 +142,6 @@ pub(crate) fn stdin_writer_loop(
     }
 }
 
-/// Handle resize events from the resize channel.
 async fn resize_loop(
     master: Box<dyn portable_pty::MasterPty + Send>,
     mut rx: mpsc::Receiver<(u16, u16)>,
@@ -174,7 +162,6 @@ async fn resize_loop(
     }
 }
 
-/// Get the default shell for the current platform.
 fn default_shell() -> String {
     #[cfg(unix)]
     {
@@ -196,11 +183,6 @@ mod tests {
         assert!(!shell.is_empty());
     }
 
-    /// On a unix host the terminal opens the shell the environment names, and
-    /// `/bin/sh` when it names none — an agent running as a system service has
-    /// no login environment, so the fallback is the common case in production,
-    /// not an edge case. A platform that is not unix has no `SHELL` convention
-    /// to read and gets the bare `sh` name.
     #[test]
     fn default_shell_follows_the_environment_on_unix() {
         let shell = default_shell();
@@ -225,11 +207,6 @@ mod tests {
         assert!(term.is_ok());
     }
 
-    // --- Mutation-test gap closers (pty_reader_loop / stdin_writer_loop) ---
-
-    /// Pin pty_reader_loop's Ok(0) match arm: when the underlying reader
-    /// reports EOF, the loop must break (not loop forever). Mutating away
-    /// the Ok(0) arm or replacing the function body would leak this thread.
     #[test]
     fn pty_reader_loop_breaks_on_eof() {
         let reader: Box<dyn Read + Send> = Box::new(std::io::Cursor::new(b"hello"));
@@ -237,10 +214,8 @@ mod tests {
         let running = Arc::new(AtomicBool::new(true));
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        // Run the loop directly on this thread; Cursor reaches EOF after 5 bytes.
         pty_reader_loop(reader, frame_tx, running, shutdown);
 
-        // Exactly one frame should have been sent.
         let data = frame_rx.try_recv().expect("expected one frame");
         let (frame, _) = mesh_protocol::Frame::decode(&data).unwrap();
         match frame {
@@ -253,36 +228,29 @@ mod tests {
         ));
     }
 
-    /// Pin pty_reader_loop's `if !running || shutdown { break }` guard:
-    /// `shutdown == true` alone must terminate the loop. Mutating `||` to
-    /// `&&` would require BOTH `!running` AND `shutdown` to be true,
-    /// preventing shutdown when running stays true.
     #[test]
     fn pty_reader_loop_breaks_when_shutdown_alone_set() {
-        // Provide infinite data so EOF is not the exit condition.
+        // The reader still holds data, so only the flags can end the loop.
         let reader: Box<dyn Read + Send> = Box::new(std::io::repeat(0xAB).take(1_000_000));
         let (frame_tx, _frame_rx) = mpsc::channel(64);
         let running = Arc::new(AtomicBool::new(true));
-        let shutdown = Arc::new(AtomicBool::new(true)); // pre-set shutdown
+        let shutdown = Arc::new(AtomicBool::new(true));
 
         let r = running.clone();
         let s = shutdown.clone();
         let handle = std::thread::spawn(move || {
             pty_reader_loop(reader, frame_tx, r, s);
         });
-        // Must return promptly because shutdown is already set.
         handle
             .join()
             .expect("pty_reader_loop must terminate when shutdown is set");
     }
 
-    /// Pin pty_reader_loop's `if !running || shutdown` guard with the
-    /// mirror condition: `running == false` alone must terminate.
     #[test]
     fn pty_reader_loop_breaks_when_running_false_alone() {
         let reader: Box<dyn Read + Send> = Box::new(std::io::repeat(0x42).take(1_000_000));
         let (frame_tx, _frame_rx) = mpsc::channel(64);
-        let running = Arc::new(AtomicBool::new(false)); // pre-set running=false
+        let running = Arc::new(AtomicBool::new(false));
         let shutdown = Arc::new(AtomicBool::new(false));
 
         let handle = std::thread::spawn(move || {
@@ -293,8 +261,6 @@ mod tests {
             .expect("pty_reader_loop must terminate when running is false");
     }
 
-    /// Pin pty_reader_loop's Err(e) arm: an IO error must terminate the loop.
-    /// Mutating the Err arm away would either loop forever on errors or panic.
     #[test]
     fn pty_reader_loop_breaks_on_io_error() {
         struct ErrReader;
@@ -314,11 +280,8 @@ mod tests {
         ));
     }
 
-    /// Pin stdin_writer_loop: bytes from the channel must reach the writer
-    /// in order. Replacing the body with `()` would silently drop input.
     #[test]
     fn stdin_writer_loop_writes_to_underlying_writer() {
-        // The trait object owns the writer; we sample writes via Arc<Mutex<Vec<u8>>>.
         let captured = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
         struct CapturingWriter(Arc<std::sync::Mutex<Vec<u8>>>);
         impl Write for CapturingWriter {
@@ -337,7 +300,6 @@ mod tests {
         let handle = std::thread::spawn(move || {
             stdin_writer_loop(writer, rx, shutdown);
         });
-        // Send two payloads then close the channel.
         tx.blocking_send(b"abc".to_vec()).unwrap();
         tx.blocking_send(b"def".to_vec()).unwrap();
         drop(tx);
@@ -347,8 +309,6 @@ mod tests {
         assert_eq!(*data, b"abcdef");
     }
 
-    /// Pin stdin_writer_loop's shutdown gate: when the shutdown flag is set,
-    /// pending writes must NOT be flushed to the writer.
     #[test]
     fn stdin_writer_loop_respects_shutdown_flag() {
         let captured = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
@@ -364,7 +324,7 @@ mod tests {
         }
         let writer: Box<dyn Write + Send> = Box::new(CapturingWriter(captured.clone()));
         let (tx, rx) = mpsc::channel::<Vec<u8>>(4);
-        let shutdown = Arc::new(AtomicBool::new(true)); // pre-set shutdown
+        let shutdown = Arc::new(AtomicBool::new(true));
 
         let handle = std::thread::spawn(move || {
             stdin_writer_loop(writer, rx, shutdown);

@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
 # Holds the workflows to .claude/rules/ci-cd-determinism.md: a CI/CD step whose
 # work was refused must not report success.
-#
-# Bug history: the deploy's cache token carries read scope only. Two saves were
-# refused on every run for two months — the deploy-state entry the pre-flight
-# skip stood on, and a toolchain cache added later that never once wrote — and
-# both steps were green. A 45.8% skip rate went to zero and nothing said so.
-#
-# Run: ./scripts/tests/ci-cd-determinism.test.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +24,6 @@ fail() {
 
 echo "ci-cd-determinism:"
 
-# --- the rule is written down and indexed -----------------------------------
 if [ -f "$RULE" ]; then
   pass "the rule exists"
 else
@@ -48,11 +40,7 @@ else
   fail "the read-back guard is executable"
 fi
 
-# --- the deploy asks for no cache at all ------------------------------------
-#
-# Its token cannot write. Every cache it declares is a save that will be refused
-# and reported as a success, so it declares none — not an explicit cache action,
-# not a toolchain cache, and not the cache half of a setup action.
+# The deploy token cannot write, so the deploy declares no cache of any kind.
 CD="$WORKFLOWS/cd.yml"
 for shape in 'actions/cache' 'Swatinem/rust-cache' 'cache-to:' '^[[:space:]]*cache:[[:space:]]'; do
   if grep -qE -- "$shape" "$CD"; then
@@ -62,10 +50,7 @@ for shape in 'actions/cache' 'Swatinem/rust-cache' 'cache-to:' '^[[:space:]]*cac
   fi
 done
 
-# --- every cache write we name is read back ---------------------------------
-#
-# An inline save names its own key, so nothing stops the same key being asserted
-# in the step after it. A save with no read-back is the defect this rule is about.
+# An inline save names its own key, so the step after it can assert that key.
 SAVE_HITS=0
 for wf in "$WORKFLOWS"/*.yml; do
   grep -qF 'actions/cache/save@' "$wf" || continue
@@ -81,11 +66,7 @@ if [ "$SAVE_HITS" -eq 0 ]; then
   pass "no workflow writes a cache entry inline"
 fi
 
-# --- the agent build's cache is read back -----------------------------------
-#
-# The deploy no longer builds the agent; the image workflow does, and it is that
-# workflow's cache keeping the cross-build off a cold start. A refusal there
-# would cost three minutes on every run with nothing saying why.
+# The image workflow's cache keeps the agent cross-build off a cold start.
 BUILD_IMAGE="$WORKFLOWS/build-image.yml"
 if grep -qF "$GUARD" "$BUILD_IMAGE"; then
   pass "build-image reads back the agent build's cache"
@@ -101,14 +82,7 @@ for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
   fi
 done
 
-# --- an artifact nobody wrote is not an artifact ------------------------------
-#
-# Every artifact mutation.yml uploads is an input to the aggregation that scores
-# the night. A shard whose tool wrote no report uploads nothing, and the upload
-# action's default is to say so in a warning and exit zero — so the shard job is
-# green, and the only symptom is the publish job reporting an incomplete set
-# without naming what went missing or why. The shard is where the fact is known,
-# so the shard is where it has to fail.
+# A mutation shard that wrote no report fails where it ran, since the upload default only warns.
 MUTATION="$WORKFLOWS/mutation.yml"
 uploads="$(grep -c 'uses: actions/upload-artifact' "$MUTATION" || true)"
 errors="$(grep -c 'if-no-files-found: error' "$MUTATION" || true)"
@@ -118,19 +92,9 @@ else
   fail "mutation.yml has $uploads artifact upload(s) but only $errors fail on an empty set — a shard that produced no report would report success"
 fi
 
-# --- a tool a workflow builds resolves the graph it was tested against -------
-#
-# `cargo install <tool>` re-resolves that tool's whole dependency graph to
-# "latest compatible versions" on every run, so a workflow that installs one is
-# building software nobody has ever built before. It does not fail as a
-# vulnerability or a version bump; it fails as a compile error deep inside a
-# transitive crate, in a job whose subject is something else entirely — and it
-# is invisible on a workstation, where the tool was installed once and is never
-# rebuilt. `--locked` uses the lockfile the tool's own authors tested, which is
-# the only build anybody has evidence about.
+# `--locked` builds from the lockfile the tool's authors tested, not a fresh dependency graph.
 install_bad=""
 while IFS= read -r line; do
-  # Prose in a comment is not an install.
   case "$line" in
     *'#'*) continue ;;
   esac
@@ -149,25 +113,8 @@ else
   fail "cargo install without --locked re-resolves the tool's whole graph every run:$install_bad"
 fi
 
-# --- a read is spelled as a read ---------------------------------------------
-#
-# `gh api` chooses its own HTTP method: GET normally, and POST the moment any
-# field flag is present. So a read that narrows its result with `-f`/`-F` is
-# silently posted, and every list endpoint answers a POST with `404 Not Found` —
-# which reads as "the workflow does not exist" rather than "you asked wrongly".
-# Under `set -euo pipefail` the step then dies on a message about the wrong
-# thing, and the shapes around it are built to treat an absent run as a reason
-# to stand down quietly.
-#
-# The nightly drill lost a whole night's measurement to this: its search for the
-# image build that carries the agent binary was a POST, the 404 killed the step,
-# and the run reported no machine to measure. So every `gh api` that passes a
-# field flag states its method rather than letting the tool infer one.
-#
-# This file is the one place excluded, because it necessarily carries the
-# pattern it matches: its own matcher strings and the prose above are not calls.
-# Counting them would let the sweep satisfy its own tripwire by reading itself,
-# which is the absence-shaped check this rule warns about.
+# `gh api` infers POST from any field flag, and a list endpoint answers a POST with 404.
+# This file is excluded because its own matcher strings carry the pattern it matches.
 SELF="scripts/tests/ci-cd-determinism.test.sh"
 GH_SOURCES=()
 while IFS= read -r f; do
@@ -185,7 +132,6 @@ gh_fielded=0
 for f in "${GH_SOURCES[@]}"; do
   [ -f "$f" ] || continue
   grep -qF 'gh api' "$f" || continue
-  # Join backslash continuations so a wrapped invocation is judged whole.
   while IFS= read -r entry; do
     where="${entry%%$'\t'*}"
     cmd="${entry#*$'\t'}"
@@ -193,12 +139,10 @@ for f in "${GH_SOURCES[@]}"; do
       *'gh api'*) ;;
       *) continue ;;
     esac
-    # Prose about the tool is not a call to it.
     case "$cmd" in
       '#'*) continue ;;
     esac
     gh_seen=$((gh_seen + 1))
-    # A field flag is what flips the inferred method to POST.
     grep -qE '(^|[[:space:]])(-f|-F|--field|--raw-field)([[:space:]=])' \
       <<<"$cmd" || continue
     gh_fielded=$((gh_fielded + 1))
@@ -227,63 +171,20 @@ else
   fail "gh api infers POST from a field flag, and a list endpoint answers a POST with 404:$gh_bad"
 fi
 
-# --- an input a script refuses to run without is named where it is called -----
-#
-# A script that documents an input as required, or refuses to start without one,
-# holds a contract with every workflow that calls it, and nothing was reading
-# that contract. `scripts/loadtest-quic-incluster.sh` works through the pod named
-# in LOADTEST_POD. The nightly drill calls it holding its pod in FLEET_POD — a
-# name the shim has never heard of — so the call was refused where it stood: no
-# fleet started, the drill measured nothing, and the whole of it surfaced two
-# hours into a nightly instead of in the commit that wrote the call.
-#
-# This is the same shape as the `gh api` verb above. There, a tool inferred a
-# verb nobody wrote down; here, a caller assumed a name nobody checked. Both are
-# decisions made at a distance from the text that carries them, and both come
-# back as an error about something else.
-#
-# Three things decide whether a requirement is visible at all, and a sweep that
-# reads any of them too narrowly holds a contract nobody signed:
-#
-#   * where the refusal is written. `: "${VAR:?…}"` on a line of its own is one
-#     shape; the same refusal written where the value is used —
-#     `--env "URL=${VAR:?…}"` — is the commoner one, and a sweep that reads only
-#     the first finds nothing to check in a script built out of the second.
-#   * which file holds it. A requirement belongs to the process, not to the path
-#     a workflow happens to spell. A wrapper hands its whole environment to what
-#     it starts, so a sweep that stops at the named file asks the one script in
-#     the chain that requires nothing. What the wrapper sets for itself is
-#     subtracted: a name it exports before starting the inner script is
-#     satisfied.
-#   * which job is answering. A name is reachable from the job that holds it and
-#     from the workflow-level env every job inherits — and from nowhere else. A
-#     scope that pools every job naming the script lets the one that sets the
-#     variable answer on behalf of the one that does not, which is the whole
-#     question turned around.
-#
-# The performance stack's peak and spike legs were all three at once: three
-# inputs refused inline, behind a wrapper, in a workflow whose other two jobs
-# name them. Each night both legs walked their fleet, offered no technician load
-# at all, and failed an hour in.
+# A required input is visible inline, through a wrapper, and per job plus the workflow-level env.
 env_demo="$(mktemp -d)"
 trap 'rm -rf "$env_demo"' EXIT
 
-# required_env_of prints the inputs one script refuses to run without.
 required_env_of() {
   local body
   body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
   {
-    # The refusal the shell makes, wherever it is written: on a line of its
-    # own, or inline at the point the value is used.
     grep -oE '\$\{[A-Z][A-Z0-9_]*:\?' <<<"$body" | grep -oE '[A-Z][A-Z0-9_]*' || true
-    # The script's own account of itself, in its Environment header.
     grep -E '^#[[:space:]]+[A-Z][A-Z0-9_]*([[:space:]]|$).*\(required\)' "$1" \
       | grep -oE '^#[[:space:]]+[A-Z][A-Z0-9_]*' | grep -oE '[A-Z][A-Z0-9_]*' || true
   } | sort -u
 }
 
-# provided_env_of prints the names a script sets for itself, which its caller
-# therefore does not have to name.
 provided_env_of() {
   local body
   body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
@@ -291,8 +192,7 @@ provided_env_of() {
     | grep -oE '[A-Z][A-Z0-9_]*' | sort -u
 }
 
-# scripts_run_by prints the repository scripts a script runs or sources, by
-# basename, which is what survives being spelled through $SCRIPT_DIR or $ROOT.
+# Basenames survive being spelled through $SCRIPT_DIR or $ROOT.
 scripts_run_by() {
   local body
   body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
@@ -304,9 +204,6 @@ while IFS= read -r tracked; do
   SCRIPT_BY_BASE["$(basename "$tracked")"]="$tracked"
 done < <(git -C "$REPO_ROOT" ls-files '*.sh')
 
-# required_env_closure prints everything the process a call starts refuses to
-# run without — the named script's own refusals, and those of every script it
-# runs or sources that the named one does not satisfy itself.
 required_env_closure() {
   local rel="$1" seen="${2:-}" path provided child childrel
   case " $seen " in *" $rel "*) return 0 ;; esac
@@ -323,7 +220,6 @@ required_env_closure() {
   done < <(scripts_run_by "$path")
 }
 
-# The workflow-level env every job inherits: everything above `jobs:`.
 workflow_env_of() { awk '/^jobs:[[:space:]]*$/ { exit } { print }' "$1"; }
 
 job_names_of() {
@@ -342,10 +238,7 @@ job_block_of() {
   ' "$1"
 }
 
-# The defect first, so a sweep that has stopped reproducing anything fails
-# rather than policing a non-problem. One inner script refusing an input
-# inline, one wrapper that starts it, and a workflow whose first job names the
-# input and whose second does not.
+# The demonstration comes first, so a sweep that reproduces nothing fails.
 cat >"$env_demo/inner.sh" <<'DEMO'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -371,7 +264,6 @@ jobs:
       - run: scripts/wrapper.sh
 DEMO
 
-# The line-form reader the sweep used to be, kept only to be shown losing.
 required_env_lineform() {
   grep -oE '^: *"\$\{[A-Z][A-Z0-9_]*:\?' "$1" | grep -oE '[A-Z][A-Z0-9_]*' || true
 }
@@ -405,12 +297,7 @@ else
   fail "the pooled-scope direction no longer reproduces"
 fi
 
-# --- and nothing in the repository is written that way ------------------------
-#
-# The membership test is a here-string rather than a pipe: `grep -q` stops at
-# its first match, and a writer piped into it loses the race on a file large
-# enough to fill the pipe — so a workflow that does call the script reads as one
-# that does not, on some runs and not others. See rules/assertion-determinism.md.
+# The membership test is a here-string: a piped `grep -q` loses the race on a large file.
 env_bad=""
 env_calls=0
 while IFS= read -r script; do
@@ -419,7 +306,6 @@ while IFS= read -r script; do
   [ -n "$vars" ] || continue
   for wf in "$WORKFLOWS"/*.yml; do
     wf_body="$(grep -vE '^[[:space:]]*#' "$wf" || true)"
-    # A mention in a comment is not a call.
     grep -qF "$script" <<<"$wf_body" || continue
     wf_env="$(workflow_env_of "$wf")"
     while IFS= read -r job; do
@@ -447,24 +333,7 @@ fi
 
 rm -rf "$env_demo"
 trap - EXIT
-# --- a status read after errexit has already killed the shell ----------------
-#
-# A step that wants to branch on a command's exit code writes the shape
-# `cmd; rc=$?; if [ "$rc" -eq 2 ]; then …`. GitHub runs every `run:` block under
-# `bash -e`, so a non-zero `cmd` ends the step at `cmd` and `rc=$?` is never
-# reached: the whole branch below it is unreachable, and the step reports the
-# failure it was written to interpret.
-#
-# The nightly drill's publish job lost a night to it. Its regression check
-# captured the script's output into a variable, read `$?` on the next line, and
-# printed the output on the line after that — so a run with a regression died at
-# the assignment, printed nothing at all, and never reached the branch that
-# raises the alert. Its scenario loop carries the same shape around the exit code
-# that means "this scenario could not observe the system", which the comment
-# beside it calls "not a failed drill".
-#
-# The demonstration comes first, so a guard that has stopped reproducing the
-# defect fails rather than quietly policing a non-problem.
+# GitHub runs `run:` blocks under `bash -e`, so a failing command ends the step before `rc=$?`.
 demo_captured=$(
   bash -e -c '
     reached=no
@@ -489,10 +358,7 @@ else
   fail "the errexit demonstration no longer reproduces (unguarded='$demo_captured' guarded='$demo_guarded')"
 fi
 
-# The sweep. Every `run:` block is read whole — GitHub's `run: |` body is the
-# lines indented past the key — and a block that reads `$?` has to have turned
-# errexit off first, or to have taken the status on the failing command's own
-# line with `|| var=$?`, which errexit does not fire on.
+# A block that reads `$?` turns errexit off first or takes the status with `|| var=$?`.
 status_blocks=0
 status_bad=""
 while IFS= read -r finding; do
@@ -540,33 +406,7 @@ else
   fail "a workflow step reads an exit status errexit has already acted on:$status_bad"
 fi
 
-# --- a short cluster call a nightly cannot afford to lose ---------------------
-#
-# A drill died three minutes and forty-nine seconds in because a `chmod` inside
-# a pod that was already created and ready had its connection dropped — twelve
-# steps of setup, then nothing measured. The health check seven lines below it
-# retries sixty times over two minutes; the calls above it got one attempt each.
-# The same signature has cost three nights across the drill and the load tests,
-# roughly one a month, and no retry helper existed anywhere.
-#
-# The narrowness is the interesting half, because three of the four kinds of
-# call here must never be repeated: a probe whose failure *is* the measurement
-# the drill is taking during a deliberate network fault; a long-lived exec
-# carrying the workload, where a dropped connection does not kill the process in
-# the pod and a second attempt runs a second generator against the same server;
-# and a non-idempotent write, where a transport drop cannot say whether the
-# statement landed. A blanket wrapper would corrupt every fault measurement the
-# drill takes.
-#
-# So each call is either routed through the helper or carries its own reason for
-# not being, one comment per call — the convention the coverage exclusions
-# already set, for the same reason: an exemption whose reason is not written
-# next to it cannot be reviewed and will never be removed.
-
-# The nightlies this covers, and the scripts they reach through. `cd.yml` and
-# the drill it calls are deliberately outside it: they carry a different risk
-# profile, they run under a person who is already watching, and they are not
-# what is costing nights.
+# Each cluster call goes through the retry helper or carries its own reason for not retrying.
 RETRY_SCOPE=(
   ".github/workflows/network-drill.yml"
   ".github/workflows/load-test.yml"
@@ -585,9 +425,6 @@ for relative in "${RETRY_SCOPE[@]}"; do
     retry_bad="$retry_bad"$'\n'"      $relative is in the retry sweep's scope and is not there"
     continue
   }
-  # Read each call whole. These are written across continuations, and a
-  # line-at-a-time sweep sees a fragment of the call and none of the reason
-  # above it.
   while IFS=$'\t' read -r line rendered; do
     retry_calls=$((retry_calls + 1))
     grep -qF 'kubectl_retry' <<<"$rendered" && continue

@@ -9,18 +9,13 @@ interface ApiFailure {
 
 type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
-/**
- * Subset of an openapi-fetch result we depend on. `response` is the raw HTTP
- * Response (always present in production); `error` is the parsed JSON error
- * body only when the server actually sent one.
- */
+// `error` holds the parsed JSON error body only when the server sent one.
 interface FetchResult<T> {
   data?: T;
   error?: unknown;
   response?: Response;
 }
 
-/** Derive a user-facing message from whatever the server returned. */
 function failureMessage(error: unknown, response?: Response): string {
   if (typeof error === 'string' && error.length > 0) {
     return error;
@@ -37,21 +32,14 @@ function failureMessage(error: unknown, response?: Response): string {
   return 'Request failed';
 }
 
-/** What [apiAction] reports back as a call starts and finishes. */
 export interface Progress {
   isLoading?: boolean;
   error?: string | null;
 }
 
 /**
- * Adapt [apiAction]'s progress reports to a store that names its slots something
- * other than `isLoading` and `error` — one holding several independent reads
- * needs a slot per read, and a message routed to the wrong one reports a failed
- * evidence fetch as a failed queue read.
- *
- * A field the call did not report is not forwarded, so "unchanged" stays
- * distinct from "cleared". `onLoading` is optional: a store that shows no
- * spinner for a call has no flag to keep.
+ * Maps apiAction's progress reports onto a store whose slots have other names.
+ * A field the call did not report is not forwarded, so "unchanged" differs from "cleared".
  */
 export function progressAdapter(
   onError: (error: string | null) => void,
@@ -64,14 +52,8 @@ export function progressAdapter(
 }
 
 /**
- * Wraps an API call with loading/error state management.
- * Pass `loading: false` for mutation actions that don't show a loading spinner.
- * Returns `{ ok: true, data }` on success, `{ ok: false }` on error.
- *
- * Failure is keyed off `response.ok`, not just a populated `error`. openapi-fetch
- * only fills in `error` when it can parse a JSON error body, so an error response
- * with an empty or non-JSON body (e.g. a bare 409) leaves `error` falsy — keying
- * off `error` alone would misread those as success.
+ * Wraps an API call with loading and error state; returns `{ ok: true, data }` or `{ ok: false }`.
+ * Failure also keys off `response.ok`, since openapi-fetch leaves `error` unset for non-JSON bodies.
  */
 export async function apiAction<T>(
   set: (partial: { isLoading?: boolean; error?: string | null }) => void,

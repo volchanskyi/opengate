@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/staging-lease.sh — one holder at a time, and a claim nobody
-# is holding any more does not wedge the namespace forever.
-#
-# The kubectl stand-in keeps real state in a file, so a create that should have
-# been refused is visible as the wrong holder afterwards rather than as a fake
-# that answered the same way regardless.
+# Tests for scripts/staging-lease.sh: one holder at a time, and an abandoned claim expires.
+# The kubectl stand-in keeps its state in a file, so a wrongly accepted create shows as a holder.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,10 +38,8 @@ cat >"$FAKE" <<'FAKE_KUBECTL'
 set -uo pipefail
 STATE="$FAKE_STATE"
 
-# The credential plugin the real cluster is reached through writes a warning to
-# stderr on every single call, whatever the verb and whatever the outcome. A
-# caller that folds the two streams together reads that line as the first line
-# of the JSON.
+# The cluster's credential plugin writes a warning to stderr on every call, so a caller that
+# merges the streams reads that line as the first line of the JSON.
 if [ -n "${FAKE_NOISY_STDERR:-}" ]; then
   echo "Warning: To increase security of your API key located at /home/runner/.oci/key.pem, append an extra line with 'OCI_API_KEY' at the end." >&2
 fi
@@ -65,10 +59,8 @@ for a in "$@"; do
   esac
 done
 
-# The alert quiet period reaches Grafana's silences API from inside its pod:
-# everything after `--` is `sh -c <script> <$0> <method> <path>`. Each open,
-# extension and close is recorded with the silence's comment, which names the
-# holder.
+# Grafana silences calls arrive as `sh -c <script> <$0> <method> <path>` after `--`.
+# Each open, extension and close is recorded with the silence comment naming the holder.
 quiet_call() {
   local remote=() after="" method path body id comment
   for a in "$@"; do
@@ -117,11 +109,8 @@ quiet_call() {
   esac
 }
 
-# The manifest as the API server reads it. kubectl converts what it is handed
-# from YAML to JSON before anything else and refuses the whole object when that
-# fails, so the stand-in parses it the same way. A stand-in that matched lines
-# instead accepted a manifest no cluster would: every renewal and every takeover
-# of an expired claim was refused for weeks while this file stayed green.
+# The manifest as the API server reads it: converted from YAML to JSON, and refused whole when
+# that fails.
 manifest_json() {
   python3 -c '
 import json, sys, yaml
@@ -140,11 +129,8 @@ field() {
   jq -r "$1 // empty" <<<"$2"
 }
 
-# The API server decodes acquireTime and renewTime as MicroTime — RFC3339 with
-# exactly six digits of fractional seconds — and refuses the whole object when
-# either is shaped any other way, before it considers who holds what. The
-# stand-in holds the same line, so a manifest that could not be written to a
-# real cluster cannot pass here either.
+# The API server decodes acquireTime and renewTime as MicroTime, RFC3339 with exactly six
+# fractional digits, and refuses the whole object otherwise.
 check_stamps() {
   local doc="$1" name value
   for name in acquireTime renewTime; do
@@ -156,8 +142,7 @@ check_stamps() {
   done
 }
 
-# Stands in for every refusal that is not a lost race — a credential without the
-# rights, a webhook, a namespace being torn down.
+# Stands in for every refusal other than a lost race.
 refuse_write() {
   if [ -n "${FAKE_REFUSE_WRITE:-}" ]; then
     echo 'Error from server (Forbidden): leases.coordination.k8s.io is forbidden' >&2
@@ -165,10 +150,8 @@ refuse_write() {
   fi
 }
 
-# A namespace that is not there answers NotFound to every verb, so a `get` that
-# reads as "no lease yet" is followed by a `create` that says NotFound too. That
-# wording is a lost race on a replace and never on a create, and the difference
-# is the whole of whether a run waits on a holder that cannot exist.
+# A missing namespace answers NotFound to every verb, create included; NotFound means a lost
+# race on a replace only.
 missing_namespace() {
   if [ -n "${FAKE_NO_NAMESPACE:-}" ]; then
     echo "Error from server (NotFound): namespaces \"opengate-staging\" not found" >&2
@@ -190,9 +173,7 @@ case "$verb" in
     missing_namespace
     if [ -f "$STATE" ]; then
       cat "$STATE"
-      # The holder releases while a waiter is mid-loop, so the next read finds
-      # the namespace empty and the waiter is left holding only a name that has
-      # since left.
+      # The holder releases mid-loop, so the waiter's next read finds the namespace empty.
       [ -n "${FAKE_VANISH_AFTER:-}" ] && rm -f "$STATE"
       exit 0
     fi
@@ -205,9 +186,8 @@ case "$verb" in
     check_stamps "$doc"
     missing_namespace
     refuse_write
-    # The race itself: two runs both read an empty namespace and both create, so
-    # the loser is told the object already exists while `get` still answers
-    # NotFound, leaving it only the create's own answer to go on.
+    # Two runs both read an empty namespace and both create; the loser hears AlreadyExists
+    # while `get` still answers NotFound.
     if [ -n "${FAKE_CREATE_TAKEN:-}" ] || [ -f "$STATE" ]; then
       echo 'Error from server (AlreadyExists): leases.coordination.k8s.io "guard" already exists' >&2
       exit 1
@@ -219,8 +199,6 @@ case "$verb" in
     cat >"$WORKDIR_IN"
     doc="$(manifest_json "$WORKDIR_IN")" || exit 1
     check_stamps "$doc"
-    # Every replace the script sends, as the API server read it, so a test can
-    # ask what a renewal or a takeover actually carried.
     printf '%s\n' "$doc" >>"$FAKE_REPLACES"
     refuse_write
     [ -f "$STATE" ] || {
@@ -271,9 +249,7 @@ run_lease() {
 
 holder_now() { sed -n 's/.*"holderIdentity":"\([^"]*\)".*/\1/p' "$STATE"; }
 
-# Writes a claim directly, bypassing the script, so a test can set up a lease
-# that somebody else is holding. Callers pass the renew stamp in the MicroTime
-# the API stores, so the expiry read meets the shape it meets on a real cluster.
+# Writes a claim directly with a MicroTime renew stamp, as a lease another run holds.
 seed_lease() {
   local holder="$1" renew="$2" dur="$3"
   printf '{"metadata":{"resourceVersion":"7"},"spec":{"holderIdentity":"%s","renewTime":"%s","leaseDurationSeconds":%s}}\n' \
@@ -282,7 +258,6 @@ seed_lease() {
 
 echo "staging-lease:"
 
-# A free namespace is taken.
 rm -f "$STATE"
 if run_lease acquire cd-1 >/dev/null 2>&1; then
   assert_eq "an unheld namespace is acquired" "cd-1" "$(holder_now)"
@@ -290,8 +265,6 @@ else
   fail "an unheld namespace is acquired"
 fi
 
-# The stamp is the whole object's admission ticket: a Lease whose times are not
-# MicroTime is refused at decode, so nothing about holders is ever reached.
 stamp_written="$(python3 -c 'import json, sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["spec"]["renewTime"])' "$WORKDIR_IN" || true)"
 if grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$' \
   <<<"$stamp_written"; then
@@ -300,15 +273,12 @@ else
   fail "the claim it writes carries a timestamp the API accepts (got=[$stamp_written])"
 fi
 
-# Asking twice is not an error — a job that retries a step must not deadlock
-# against the claim it already owns.
 if run_lease acquire cd-1 >/dev/null 2>&1; then
   assert_eq "the holder can re-acquire its own claim" "cd-1" "$(holder_now)"
 else
   fail "the holder can re-acquire its own claim"
 fi
 
-# Somebody else's live claim is waited on and then refused, rather than stolen.
 seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 if run_lease acquire cd-2 >/dev/null 2>&1; then
   fail "a live claim held by another run is refused"
@@ -317,8 +287,6 @@ else
 fi
 assert_eq "the live holder is left in place" "other-run" "$(holder_now)"
 
-# A holder that died without releasing must not wedge the namespace until
-# somebody notices: the claim ages out and the next run takes it.
 seed_lease dead-run "$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%S.000000Z)" 60
 if run_lease acquire cd-3 >/dev/null 2>&1; then
   assert_eq "an expired claim is taken over" "cd-3" "$(holder_now)"
@@ -326,14 +294,10 @@ else
   fail "an expired claim is taken over"
 fi
 
-# The takeover is a compare-and-set, and a manifest the API server cannot read
-# is refused before the comparison is made. So the one it sent has to parse as
-# YAML and carry the version it read — under metadata, where the server looks.
 last_replace() { tail -n 1 "$FAKE_REPLACES"; }
 assert_eq "the takeover it sends parses and carries the version it read" "7" \
   "$(jq -r '.metadata.resourceVersion // empty' <<<"$(last_replace)")"
 
-# Releasing frees it for the next run.
 if run_lease release cd-3 >/dev/null 2>&1; then
   if [ -f "$STATE" ]; then
     fail "releasing the claim removes it"
@@ -344,14 +308,10 @@ else
   fail "releasing the claim removes it"
 fi
 
-# Releasing a claim that has already been taken over must not drop the live
-# holder's lock — the cleanup step runs `always()`, including after the job
-# overran its own lease.
 seed_lease someone-else "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 run_lease release cd-3 >/dev/null 2>&1 || true
 assert_eq "releasing somebody else's claim leaves it alone" "someone-else" "$(holder_now)"
 
-# Releasing when there is nothing there is a no-op, not a failure.
 rm -f "$STATE"
 if run_lease release cd-3 >/dev/null 2>&1; then
   pass "releasing nothing succeeds"
@@ -359,8 +319,6 @@ else
   fail "releasing nothing succeeds"
 fi
 
-# A cluster that cannot be read is not an empty namespace. Treating the two the
-# same would hand the lock to every waiter at once during an outage.
 rm -f "$STATE"
 if FAKE_HARD_ERROR=1 run_lease acquire cd-4 >/dev/null 2>&1; then
   fail "an unreadable cluster fails rather than reading as unheld"
@@ -368,9 +326,6 @@ else
   pass "an unreadable cluster fails rather than reading as unheld"
 fi
 
-# Losing the create race must be waited out, not exited on. The refusal arrives
-# as a non-zero kubectl inside a script that runs under `set -e`, so the arm
-# handling it is one edit away from ending the run instead of looping.
 rm -f "$STATE"
 if out="$(FAKE_CREATE_TAKEN=1 timeout 20 env \
   NAMESPACE=opengate-staging \
@@ -387,10 +342,6 @@ else
   fail "losing the create race waits rather than ending the run (got=[$out])"
 fi
 
-# Losing the race is the one refusal this lock is built on. Every other refusal
-# is a fault of ours — a manifest the API will not decode, a credential without
-# the rights — and spending the wait on it reports a holder that does not exist
-# for as long as the deadline allows, which is the shape a stuck deploy takes.
 rm -f "$STATE"
 started="$(date -u +%s)"
 if out="$(FAKE_REFUSE_WRITE=1 timeout 10 env \
@@ -412,8 +363,6 @@ else
   fail "the server's reason for refusing the create is reported (got=[$out])"
 fi
 
-# The same for the takeover write: an expired claim that cannot be replaced for
-# a reason of ours is not somebody else holding the namespace.
 seed_lease dead-run "$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%S.000000Z)" 60
 started="$(date -u +%s)"
 if out="$(FAKE_REFUSE_WRITE=1 timeout 10 env \
@@ -430,12 +379,6 @@ else
   pass "a takeover refused for anything but a lost race stops rather than waiting"
 fi
 
-# NotFound is a lost race on a replace and never on a create: nothing that
-# already exists can answer "not found", so a create told that is refused for a
-# reason of ours — a namespace missing or being torn down — and no amount of
-# waiting produces the holder the message names. This is the shape the stuck
-# deploy took: an empty namespace, a refusal nobody read, and a run that spent
-# its whole window reporting a holder that was never there.
 rm -f "$STATE"
 started="$(date -u +%s)"
 if out="$(FAKE_NO_NAMESPACE=1 timeout 10 env \
@@ -457,15 +400,6 @@ else
   fail "the missing namespace is named rather than reported as contention (got=[$out])"
 fi
 
-# A run that waits on a live holder and then finds the claim gone must not carry
-# the old holder's name into whatever happens next. Losing the create race that
-# follows is reported as the race it is, not as the run that has already left.
-#
-# The assertion is on the last line alone, because how many times the loop polls
-# before its deadline depends on how fast the machine is: a busy one spends the
-# whole three seconds on one pass, an idle one gets three. The property does not
-# — whatever line the run ends on, it must not still be naming a holder that has
-# gone.
 rm -f "$STATE"
 seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 if out="$(FAKE_CREATE_TAKEN=1 timeout 20 env \
@@ -484,15 +418,6 @@ else
   fail "a holder that has gone is not still named once the claim is gone (got=[$out])"
 fi
 
-# --- the read is JSON, and only JSON -------------------------------------------
-#
-# Every call to the cluster goes through a credential plugin that writes a
-# warning to stderr, so a read that folds stderr into stdout hands its caller a
-# line of prose followed by the object. Nothing about the lease is wrong at that
-# point; the parse of it is, and the step dies holding a claim it was there to
-# release.
-
-# Reading a claim somebody else holds still reports contention.
 rm -f "$STATE"
 seed_lease other-run "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 if out="$(FAKE_NOISY_STDERR=1 run_lease acquire cd-10 2>&1)"; then
@@ -504,7 +429,6 @@ else
   fail "a warning on stderr does not become the first line of the lease (got=[$out])"
 fi
 
-# And the release the noise actually broke: the claim comes off the namespace.
 rm -f "$STATE"
 seed_lease cd-11 "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 if out="$(FAKE_NOISY_STDERR=1 run_lease release cd-11 2>&1)" && [ ! -f "$STATE" ]; then
@@ -513,21 +437,12 @@ else
   fail "a noisy credential plugin does not wedge the namespace at release (got=[$out])"
 fi
 
-# A missing holder identity is a usage error, not a lease held by the empty
-# string that nothing can ever release.
 if run_lease acquire >/dev/null 2>&1; then
   fail "a missing holder identity is refused"
 else
   pass "a missing holder identity is refused"
 fi
 
-# --- the workflows name one holder, and both steps use it ----------------------
-#
-# A claim is released only by the identity holding it. Written out at each call
-# site, acquire and release can drift apart without anything failing: the
-# release matches nothing, says so, and the namespace stays locked until the
-# claim times out. So each workflow names its holder once and both steps read
-# that.
 for wf in "$REPO_ROOT"/.github/workflows/*.yml; do
   grep -qF 'staging-lease.sh' "$wf" || continue
   name="$(basename "$wf")"
@@ -545,9 +460,6 @@ for wf in "$REPO_ROOT"/.github/workflows/*.yml; do
     fail "$name writes the holder out at $inline call site(s) instead of reading the shared one"
   fi
 
-  # The release is the one step that says the claim was lost mid-run, and a
-  # release whose status is thrown away turns a measurement taken on somebody
-  # else's namespace into a green night.
   releases="$(grep -c -E 'staging-lease\.sh release' "$wf" || true)"
   swallowed="$(grep -c -E 'staging-lease\.sh release[^#]*\|\|' "$wf" || true)"
   if [ "$releases" -eq 0 ]; then
@@ -558,13 +470,6 @@ for wf in "$REPO_ROOT"/.github/workflows/*.yml; do
     fail "$name throws away the release's status at $swallowed call site(s), so a claim lost mid-run reads green"
   fi
 done
-
-# --- D34: a claim is renewed for as long as its holder is still working -------
-#
-# The claim was written once, at acquisition, and declared forty-five minutes.
-# Past that any waiter may take the namespace from under a run still in
-# progress — and a five-hour soak is six times that. What makes the lock a lock
-# is that the holder keeps saying so.
 
 RENEW_WORK="$WORK/renew"
 mkdir -p "$RENEW_WORK"
@@ -583,7 +488,6 @@ run_lease_renewing() {
 
 renew_stamp() { sed -n 's/.*"renewTime":"\([^"]*\)".*/\1/p' "$STATE"; }
 
-# One renewal moves the claim forward without changing who holds it.
 rm -f "$STATE"
 run_lease_renewing acquire cd-r1 >/dev/null 2>&1 || true
 run_lease_renewing stop-renewing cd-r1 >/dev/null 2>&1 || true
@@ -602,9 +506,6 @@ fi
 assert_eq "the renewal it sends parses and carries the version it read" "7" \
   "$(jq -r '.metadata.resourceVersion // empty' <<<"$(last_replace)")"
 
-# A renewal against somebody else's claim is refused rather than stealing it.
-# The run has lost the namespace, and quietly writing over the new holder's
-# claim would put two runs on the same server with neither of them knowing.
 seed_lease someone-else "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 if run_lease_renewing renew cd-r1 >/dev/null 2>&1; then
   fail "renewing a claim somebody else now holds is refused"
@@ -613,8 +514,6 @@ else
 fi
 assert_eq "the new holder is left in place" "someone-else" "$(holder_now)"
 
-# A claim that is no longer there cannot be renewed, and saying so is the only
-# way the run finds out it is measuring a namespace it does not hold.
 rm -f "$STATE"
 if run_lease_renewing renew cd-r1 >/dev/null 2>&1; then
   fail "renewing a claim that is gone is refused"
@@ -622,23 +521,10 @@ else
   pass "renewing a claim that is gone is refused"
 fi
 
-# The property D34 is about: a run that outlives its own declared duration still
-# holds the namespace, because something has been renewing it.
-#
-# The three cases below wait on the renewer's own evidence rather than on the
-# clock. A blind sleep past the duration makes the verdict a race against how
-# promptly a detached shell process is scheduled, and beside the rest of the
-# gauntlet that race is lost: the claim expires, a waiter takes it, and a renewer
-# working exactly as designed is reported as broken. It cost a gauntlet run, and
-# it cost two assertions rather than one — the claim was stolen, so the release
-# that followed was correctly refused and failed too. Waiting for the renewer
-# makes a loaded machine a slower test instead of a failing one.
 renewer_pid() { cat "$RENEW_WORK/staging-lease-guard.pid" 2>/dev/null || true; }
 stamp_epoch() { date -u -d "$1" +%s 2>/dev/null || echo 0; }
 
-# wait_until polls a condition every second up to a generous bound. The bound is
-# long because the only thing that reaches it is a renewer that has genuinely
-# stopped, which is the defect these cases exist to catch.
+# Polls a condition every second for up to 60 seconds.
 wait_until() {
   local remaining=60
   while [ "$remaining" -gt 0 ]; do
@@ -652,8 +538,6 @@ wait_until() {
 rm -f "$STATE"
 if TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-long >/dev/null 2>&1; then
   acquired_at="$(stamp_epoch "$(renew_stamp)")"
-  # Carried past its own eight seconds by the renewer, proved by the claim's own
-  # timestamps rather than by how long the test slept.
   carried_past_its_duration() {
     local now
     now="$(renew_stamp)"
@@ -671,21 +555,12 @@ else
   fail "a claim outliving its own duration is still held (acquire failed)"
 fi
 
-# A run longer than the renewal interval kept its claim because every renewal
-# was accepted, not because nobody came to take it: the renewer wrote down no
-# loss.
 if [ -f "$RENEW_WORK/staging-lease-guard.lost" ]; then
   fail "a run longer than the renewal interval keeps the claim (the renewer lost it: $(cat "$RENEW_WORK/staging-lease-guard.lost"))"
 else
   pass "a run longer than the renewal interval keeps the claim"
 fi
 
-# Releasing stops the renewing as well as the claim, or the next run's own
-# acquisition is written over by a process nobody is waiting on.
-#
-# "The claim did not come back" is an absence, and an absence is satisfied by a
-# machine too busy to have renewed anything. So the renewer is proved dead first,
-# and only then is the absence read.
 renewer_before_release="$(renewer_pid)"
 if TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing release cd-long >/dev/null 2>&1; then
   renewer_is_gone() {
@@ -702,12 +577,6 @@ else
   fail "releasing stops the renewing as well (release failed)"
 fi
 
-# A claim taken from under a live run is not something to discover in a
-# measurement. The renewer records the loss and the release step reports it,
-# which is the only place in a job that always runs.
-#
-# The wait is for the renewer to have noticed, which is a file it writes — not
-# for a number of seconds in which it ought to have.
 rm -f "$STATE"
 TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-lost >/dev/null 2>&1 || true
 seed_lease a-thief "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
@@ -721,13 +590,6 @@ else
   fail "a claim lost mid-run fails the release rather than passing quietly (got=[$out])"
 fi
 
-# --- the shared alerts are quiet while the claim is held ----------------------
-#
-# A run holding the claim drives the node production shares, so the rules
-# watching that node — its disk, its memory, the containers on it — fire at the
-# run rather than at a fault. The quiet period rides the claim: opened with it,
-# carried forward by every renewal, and ended with it, whichever way the claim
-# ended.
 quiet_calls() { grep -c -E "^$1 .*$2( |\$)" "$FAKE_QUIET_CALLS" || true; }
 
 rm -f "$STATE" "$FAKE_SILENCES"
@@ -735,7 +597,6 @@ rm -f "$STATE" "$FAKE_SILENCES"
 run_lease acquire cd-q1 >/dev/null 2>&1 || true
 assert_eq "taking the claim opens a quiet period for its holder" "1" "$(quiet_calls POST cd-q1)"
 
-# Re-taking a claim the run already holds does not stack a second quiet period.
 run_lease acquire cd-q1 >/dev/null 2>&1 || true
 assert_eq "re-taking the claim keeps one quiet period" "1" \
   "$(jq '[.[] | select(.status.state == "active")] | length' "$FAKE_SILENCES")"
@@ -743,8 +604,6 @@ assert_eq "re-taking the claim keeps one quiet period" "1" \
 run_lease release cd-q1 >/dev/null 2>&1 || true
 assert_eq "releasing the claim ends its quiet period" "1" "$(quiet_calls DELETE cd-q1)"
 
-# The renewer carries the quiet period forward on every renewal, so a run that
-# outlives one claim duration is not loud for the rest of it.
 rm -f "$STATE" "$FAKE_SILENCES"
 : >"$FAKE_QUIET_CALLS"
 TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-q2 >/dev/null 2>&1 || true
@@ -755,17 +614,11 @@ else
   fail "each renewal extends the quiet period (posts=$(quiet_calls POST cd-q2))"
 fi
 
-# A claim taken from under the run still ends the run's own quiet period, and
-# nobody else's: the thief opened one of its own when it took the claim.
 seed_lease a-thief "$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)" 2700
 wait_until loss_recorded || true
 TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing release cd-q2 >/dev/null 2>&1 || true
 assert_eq "a lost claim still ends its holder's quiet period" "1" "$(quiet_calls DELETE cd-q2)"
 
-# A quiet period that cannot be opened does not cost the night: the claim, the
-# measurement and the verdict go ahead, and the step says what it could not do —
-# in the log and in the run's summary. A missed silence announces itself as the
-# messages it did not hold back.
 rm -f "$STATE" "$FAKE_SILENCES"
 : >"$FAKE_QUIET_CALLS"
 summary="$WORK/step-summary.md"

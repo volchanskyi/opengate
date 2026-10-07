@@ -9,11 +9,7 @@ interface InventoryState {
   byDevice: Map<string, InventoryItem[]>;
   loading: Map<string, boolean>;
   errors: Map<string, string>;
-  /**
-   * Load a device's inventory. Cache-first by default so the grid can trigger a
-   * fetch per visible card without hammering the API; pass `force` to bypass the
-   * cache (the detail view's Refresh button).
-   */
+  /** Loads a device's inventory from the cache unless `force` is set. */
   fetchInventory: (id: string, force?: boolean) => Promise<void>;
 }
 

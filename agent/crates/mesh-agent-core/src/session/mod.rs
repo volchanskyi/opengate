@@ -1,7 +1,4 @@
-//! Relay session handler for agent-side session management.
-//!
-//! When the server sends a `SessionRequest`, the agent connects to the relay
-//! WebSocket and streams desktop/terminal/file data to the browser.
+//! Relay session handler that streams desktop, terminal and file data to the browser.
 
 mod handler;
 pub mod handlers;
@@ -32,14 +29,12 @@ pub struct SessionHandler {
     token: SessionToken,
     pub(crate) permissions: Permissions,
     pub(crate) ice_servers: Vec<IceServerConfig>,
-    /// Dispatch seam for the two WebRTC control arms. Defaults to
-    /// [`RealWebRtcDispatch`]; tests inject a recording dispatch to observe
-    /// the offer/candidate routing without a live media stack.
+    /// Dispatch seam for the WebRTC control arms; defaults to [`RealWebRtcDispatch`].
     pub(crate) webrtc: Arc<dyn WebRtcDispatch>,
 }
 
 impl SessionHandler {
-    /// Create a new session handler.
+    /// Creates a handler for the session `token` with the granted `permissions`.
     pub fn new(token: SessionToken, permissions: Permissions) -> Self {
         Self {
             token,
@@ -49,23 +44,19 @@ impl SessionHandler {
         }
     }
 
-    /// Override the WebRTC dispatch seam (tests only) so the offer/candidate
-    /// routing in `handle_control` can be observed without a live peer.
     #[cfg(test)]
     pub(crate) fn with_webrtc_dispatch(mut self, dispatch: Arc<dyn WebRtcDispatch>) -> Self {
         self.webrtc = dispatch;
         self
     }
 
-    /// Set ICE servers for WebRTC upgrade capability.
+    /// Sets the ICE servers used for the WebRTC upgrade.
     pub fn with_ice_servers(mut self, servers: Vec<IceServerConfig>) -> Self {
         self.ice_servers = servers;
         self
     }
 
-    /// Connect to the relay WebSocket and run the session loop.
-    ///
-    /// This method blocks until the session ends (either side disconnects).
+    /// Runs the relay session until either side disconnects.
     pub async fn run(
         self,
         relay_url: &str,
@@ -80,15 +71,12 @@ impl SessionHandler {
 
         info!(token = %self.token.redacted(), "connected to relay");
 
-        // Channel for sending frames to the WebSocket
         let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(64);
         let running = Arc::new(AtomicBool::new(true));
 
-        // Spawn WebSocket writer task
         let writer_running = running.clone();
         let writer_handle = tokio::spawn(ws_writer_loop(ws_tx, frame_rx, writer_running));
 
-        // Spawn desktop capture task if permitted
         let capture_handle = if self.permissions.desktop {
             let tx = frame_tx.clone();
             let r = running.clone();
@@ -99,7 +87,6 @@ impl SessionHandler {
             None
         };
 
-        // Spawn terminal session if permitted
         let terminal = if self.permissions.terminal {
             match TerminalSession::spawn(80, 24) {
                 Ok(term) => {
@@ -122,7 +109,6 @@ impl SessionHandler {
         let webrtc_pc: Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>> =
             Arc::new(tokio::sync::Mutex::new(None));
 
-        // Main receive loop: read frames from browser via relay
         self.receive_loop(
             &mut ws_rx,
             &frame_tx,
@@ -140,7 +126,6 @@ impl SessionHandler {
         Ok(())
     }
 
-    /// Process incoming WebSocket messages until the connection closes.
     async fn receive_loop(
         &self,
         ws_rx: &mut futures_util::stream::SplitStream<
@@ -194,7 +179,6 @@ impl SessionHandler {
         }
     }
 
-    /// Clean up all spawned tasks and WebRTC connections.
     async fn cleanup(
         capture_handle: Option<tokio::task::JoinHandle<()>>,
         terminal: Option<&TerminalHandle>,

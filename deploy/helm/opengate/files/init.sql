@@ -1,10 +1,5 @@
--- Sourced from deploy/postgres/init.sql — kept in sync so the chart is
--- self-contained for `helm template` validation. Mounted into the Postgres
--- StatefulSet via a ConfigMap at /docker-entrypoint-initdb.d/init.sql.
---
--- Idempotent bootstrap for the opengate database. Runs once on first start.
--- POSTGRES_USER / POSTGRES_DB already create the role and database; this
--- script only sets recommended defaults.
+-- Idempotent first-start bootstrap mirroring deploy/postgres/init.sql, so the chart renders
+-- self-contained; POSTGRES_USER and POSTGRES_DB already create the role and database.
 
 CREATE SCHEMA IF NOT EXISTS public;
 

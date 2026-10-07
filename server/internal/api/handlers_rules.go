@@ -12,42 +12,24 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
-// The curated pack, and how much of an estate each rule is actually watching.
-//
-// This is a read and only a read. Rules are data in a bounded grammar compiled
-// into the server, validated and cost-bounded in CI before they can reach a
-// machine — an agent that ran server-supplied code would be a supply-chain
-// weapon aimed at every customer estate at once. So there is no authoring
-// surface here and the response is shaped to not imply one: what a customer may
-// change is the numbers each rule declares tunable and whether it is rolled out,
-// and that is what comes back beside what the rule watches.
-//
-// Coverage is the other half, and the reason this endpoint exists rather than
-// the catalogue being a constant in the client. A rule quietly evaluating on
-// half an estate while reading as healthy is the failure the accounting exists
-// to make impossible, so every machine is exactly one thing for every rule and
-// the four states always add up to the fleet they were counted against.
-
 // errRulesUnavailable is a deployment wired without the compiled pack.
 var errRulesUnavailable = errors.New("the rule catalogue is not configured on this server")
 
-// ListRules implements StrictServerInterface.
+// ListRules implements StrictServerInterface as a read-only catalogue; each rule's four
+// coverage states add up to the fleet.
 func (s *Server) ListRules(ctx context.Context, request ListRulesRequestObject) (ListRulesResponseObject, error) {
 	if s.ruleCatalogue == nil {
 		return nil, errRulesUnavailable
 	}
 	organizationID := deref(request.Params.OrganizationId)
 
-	// The fleet and the split of it are read together, because a coverage share
-	// taken against a fleet counted a moment apart describes an estate nobody
-	// was ever in.
+	// The fleet count and the coverage split are read together so shares match one estate.
 	counts, err := s.devices.Counts(ctx, device.OrganizationID(organizationID))
 	if err != nil {
 		return nil, err
 	}
 	coverage := s.coverageFor(ctx, organizationID, counts.Total)
-	// A rollout belongs to one customer, and a screen with none picked changes
-	// the tenant's own, so that is the one whose rollouts it shows.
+	// A rollout belongs to one customer; with none picked, the tenant's own is shown.
 	customer, err := s.customerOrDefault(ctx, request.Params.OrganizationId)
 	if err != nil {
 		return nil, err
@@ -64,9 +46,7 @@ func (s *Server) ListRules(ctx context.Context, request ListRulesRequestObject) 
 	return ListRules200JSONResponse(catalogue), nil
 }
 
-// coverageFor reads the split, answering an all-unknown fleet when nothing can
-// report one. A deployment with no coverage source has heard from nobody, which
-// is exactly what unknown means.
+// coverageFor reads the coverage split and answers an all-unknown fleet when no source exists.
 func (s *Server) coverageFor(
 	ctx context.Context, organizationID uuid.UUID, fleetSize int,
 ) map[string]agentapi.RuleCoverageCounts {
@@ -76,9 +56,7 @@ func (s *Server) coverageFor(
 	return s.ruleCoverage.RuleCoverage(ctx, organizationID, fleetSize)
 }
 
-// rolloutsFor reads how far each rule has reached. A read that failed leaves the
-// rules reading as their defaults rather than failing the whole catalogue: the
-// coverage half is what somebody opened this for, and it is still true.
+// rolloutsFor reads how far each rule has reached; a failed read leaves the rules at defaults.
 func (s *Server) rolloutsFor(ctx context.Context, organizationID uuid.UUID) map[string]rules.Rollout {
 	if s.ruleRollouts == nil {
 		return nil
@@ -92,12 +70,7 @@ func (s *Server) rolloutsFor(ctx context.Context, organizationID uuid.UUID) map[
 	return stored
 }
 
-// ruleToAPI renders one rule as an operator reads it.
-//
-// The predicate, its extra terms and its clear threshold are deliberately not
-// here. They are the grammar the rule is written in, and putting them on a
-// read-only surface invites the question of how to change them — which is the
-// one thing this product does not do.
+// ruleToAPI renders one rule as an operator reads it, omitting the predicate grammar.
 func ruleToAPI(
 	definition rules.Definition, rollout rules.Rollout,
 	coverage agentapi.RuleCoverageCounts, fleetSize int, noise alerts.Noise,
@@ -117,9 +90,7 @@ func ruleToAPI(
 		Coverage:         coverageToAPI(coverage, fleetSize),
 		Noise:            noiseToAPI(noise),
 	}
-	// A rule watching the machine's own words compares no number, so it names
-	// no reading, no comparison and no line. Sending zeros for those would put
-	// a threshold of nought on a screen somebody could read as a setting.
+	// An event rule compares no number, so it carries no metric, comparator or threshold.
 	if !definition.WatchesEvents() {
 		metric, comparator, threshold := definition.Metric,
 			RuleComparator(definition.ComparatorName), definition.Threshold
@@ -140,10 +111,7 @@ func ruleKindToAPI(definition rules.Definition) RuleKind {
 	return Reading
 }
 
-// noiseFor reads how noisy each rule has been for this customer. A read that
-// failed leaves every badge neutral rather than failing the list: a badge is a
-// hint about where to look next, and losing it costs nothing that the rest of
-// the page was opened for.
+// noiseFor reads each rule's noise for this customer; a failed read leaves every badge neutral.
 func (s *Server) noiseFor(ctx context.Context, organizationID uuid.UUID) map[string]alerts.Noise {
 	if s.alertBudget == nil {
 		return nil
@@ -157,9 +125,7 @@ func (s *Server) noiseFor(ctx context.Context, organizationID uuid.UUID) map[str
 	return noise
 }
 
-// tunableToAPI renders the numbers a customer may retune, each beside the value
-// the catalogue ships — a bound with no starting point says how far it can move
-// but not from where.
+// tunableToAPI renders each retunable number's bounds beside its shipped value.
 func tunableToAPI(definition rules.Definition) map[string]RuleParameterBounds {
 	out := make(map[string]RuleParameterBounds, len(definition.Tunable))
 	for name, bounds := range definition.Tunable {
@@ -169,10 +135,8 @@ func tunableToAPI(definition rules.Definition) map[string]RuleParameterBounds {
 	return out
 }
 
-// coverageToAPI renders the split, filling the remainder into unknown so the
-// four states account for every machine in the estate. A rule nothing has
-// reported on is watching none of the fleet, and reading that as an empty split
-// would make it look like a rule with no estate to watch.
+// coverageToAPI renders the split, filling the remainder into unknown so the four states
+// account for every machine in the estate.
 func coverageToAPI(coverage agentapi.RuleCoverageCounts, fleetSize int) RuleCoverage {
 	unknown := fleetSize - coverage.Active - coverage.Throttled - coverage.Unsupported
 	return RuleCoverage{
@@ -183,8 +147,7 @@ func coverageToAPI(coverage agentapi.RuleCoverageCounts, fleetSize int) RuleCove
 	}
 }
 
-// orEmpty renders an absent list as an empty one, so a reader never has to tell
-// null from [].
+// orEmpty renders an absent list as an empty one so clients never see null.
 func orEmpty(values []string) []string {
 	if values == nil {
 		return []string{}

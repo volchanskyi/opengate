@@ -15,43 +15,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The schema the migrations land in, as everywhere else in this package.
 const deploySQLSchema = "opengate_test"
 
-// The directories whose files embed SQL written against the application
-// schema: the chart's hooks, the statement files they read, and the deploy
-// workflows. Every regular file in them is read, so SQL that moves into a
-// helper template or out into a file two callers share is still covered.
+// Every regular file in these directories is read, so SQL moved into a helper template or a
+// shared file stays covered.
 var deploySQLSources = []string{
 	filepath.Join("..", "..", "..", "deploy", "helm", "opengate", "templates"),
 	filepath.Join("..", "..", "..", "deploy", "helm", "opengate", "files"),
 	filepath.Join("..", "..", "..", ".github", "workflows"),
 }
 
-// embeddedInsert is one INSERT found in a deployment artifact: the table it
-// writes and the columns it names.
 type embeddedInsert struct {
 	source  string
 	table   string
 	columns []string
 }
 
-// An INSERT that names its columns. No column list in these artifacts contains
-// a nested parenthesis, so everything up to the first ")" is the list.
+// No column list in these artifacts nests parentheses, so the first ")" ends the list.
 var embeddedInsertRE = regexp.MustCompile(`(?is)INSERT\s+INTO\s+([a-z_][a-z0-9_]*)\s*\(([^)]*)\)`)
 
-// An INSERT that names none, which takes on a new meaning the moment a column
-// is added ahead of the ones it supplies.
+// An INSERT without a column list changes meaning when a column is added ahead of its values.
 var positionalInsertRE = regexp.MustCompile(`(?is)INSERT\s+INTO\s+([a-z_][a-z0-9_]*)\s+(?:VALUES|SELECT)\b`)
 
-// TestDeploymentSQLNamesEveryRequiredColumn holds the SQL embedded in the Helm
-// chart and the deploy workflows against the schema the migrations build.
-//
-// Nothing compiles this SQL and nothing types it. It runs for the first time
-// inside a post-upgrade hook against a live cluster, so a column the schema
-// requires and the statement omits is a failed deployment rather than a failed
-// build — and the migration that adds the column breaks the statement from a
-// distance, with nothing in its own diff to show for it.
 func TestDeploymentSQLNamesEveryRequiredColumn(t *testing.T) {
 	store := newPostgresTestStore(t)
 
@@ -86,9 +71,7 @@ func TestDeploymentSQLNamesEveryRequiredColumn(t *testing.T) {
 	}
 }
 
-// requiredColumns returns the columns of a table that a caller must supply: not
-// nullable, and filled in by nothing. A default, a generated expression and an
-// identity sequence each supply a value on their own.
+// A default, a generated expression and an identity sequence each supply a value on their own.
 func requiredColumns(ctx context.Context, t *testing.T, store *PostgresStore, table string) []string {
 	t.Helper()
 
@@ -115,11 +98,7 @@ func requiredColumns(ctx context.Context, t *testing.T, store *PostgresStore, ta
 	return columns
 }
 
-// collectEmbeddedInserts reads every deployment artifact and returns the
-// column-listed INSERTs it embeds, failing on any that names no columns.
-//
-// Each directory is read through its own file system root, so a name can only
-// ever resolve inside the directory being scanned.
+// Each directory is read through its own file system root, so a name resolves only inside it.
 func collectEmbeddedInserts(t *testing.T) []embeddedInsert {
 	t.Helper()
 
@@ -154,7 +133,6 @@ func collectEmbeddedInserts(t *testing.T) []embeddedInsert {
 	return found
 }
 
-// splitColumnList turns "group_id, user_id" into its column names.
 func splitColumnList(list string) []string {
 	parts := strings.Split(list, ",")
 	columns := make([]string, 0, len(parts))

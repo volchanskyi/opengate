@@ -1,19 +1,8 @@
-//! Primary (default-route) network-interface resolver.
-//!
-//! The net telemetry dims report throughput on the host's *primary* interface —
-//! the one carrying the default route — rather than a sum across every
-//! interface. This module resolves that interface, degrading silently where the
-//! platform has no supported lookup: on Linux it reads the default route from
-//! `/proc/net/route`; everywhere else (and when the route is unavailable) it
-//! falls back to the busiest non-loopback interface. When only loopback exists
-//! it yields `None`, and the caller emits no net sample rather than a wrong one.
+//! Resolves the primary interface: the default route on Linux, else the busiest non-loopback one.
 
 use sysinfo::Networks;
 
-/// Parse the default-route interface from `/proc/net/route` contents. The
-/// default route is the row whose hex destination is `00000000` (0.0.0.0); its
-/// interface name is the first whitespace-delimited column. Returns the first
-/// matching interface, or `None` when the table has no default route.
+/// The first interface in `/proc/net/route` contents whose hex destination is `00000000`.
 #[must_use]
 pub fn default_route_iface(route_contents: &str) -> Option<String> {
     for line in route_contents.lines().skip(1) {
@@ -27,16 +16,13 @@ pub fn default_route_iface(route_contents: &str) -> Option<String> {
     None
 }
 
-/// Whether an interface name denotes a loopback device (excluded from the
-/// busiest-interface fallback so idle hosts never report loopback traffic).
+/// Whether an interface name denotes a loopback device.
 #[must_use]
 pub fn is_loopback(name: &str) -> bool {
     name == "lo" || name.to_ascii_lowercase().contains("loopback")
 }
 
-/// The busiest non-loopback interface from `(name, total_bytes)` pairs, used as
-/// the fallback when the default route is unavailable. `None` when every
-/// interface is loopback (or the iterator is empty).
+/// The busiest non-loopback interface from `(name, total_bytes)` pairs, `None` if there is none.
 #[must_use]
 pub fn busiest_iface<'a>(ifaces: impl Iterator<Item = (&'a str, u64)>) -> Option<String> {
     ifaces
@@ -45,9 +31,7 @@ pub fn busiest_iface<'a>(ifaces: impl Iterator<Item = (&'a str, u64)>) -> Option
         .map(|(name, _)| name.to_string())
 }
 
-/// Resolve the primary interface against a live `sysinfo::Networks` snapshot:
-/// the default route when it names an interface `sysinfo` is tracking, else the
-/// busiest non-loopback interface, else `None`.
+/// Resolves the primary interface: the tracked default-route interface, else the busiest one.
 #[must_use]
 pub fn resolve_primary_iface(networks: &Networks) -> Option<String> {
     #[cfg(target_os = "linux")]
@@ -73,8 +57,6 @@ pub fn resolve_primary_iface(networks: &Networks) -> Option<String> {
 mod tests {
     use super::*;
 
-    // A trimmed `/proc/net/route` with a default route (destination 00000000) on
-    // eth0 and a specific-subnet route on eth1.
     const ROUTE_WITH_DEFAULT: &str = "\
 Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT
 eth1\t0000A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0

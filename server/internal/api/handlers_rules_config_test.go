@@ -13,25 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// The screen that administers detection, driven through the HTTP surface.
-//
-// Two things matter more than the shapes that come back. Every write is
-// administrator-only, refused one endpoint at a time rather than in one combined
-// case — a gate that is asserted in aggregate is a gate that can be missing from
-// one route and still pass. And every write lands in the audit log, asserted
-// table-driven over the whole list, so an endpoint added later without auditing
-// fails this test rather than being discovered from an incident nobody can
-// attribute.
-
-// How long an audit assertion waits. The write is fire-and-forget by design —
-// an audit record must not be able to fail the action it records — so the
-// assertion is eventual rather than immediate.
-
-// The settings around a rule rather than on it: the alert budget, the pace a
-// rollout spreads at, the stop switch, and the labels a rule is aimed at.
-
-// A budget past the maximum the code allows is refused, and so is one of nothing
-// — which would silence the customer's detection outright.
 func TestABudgetOutsideItsBoundsIsRefused(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -53,8 +34,6 @@ func TestABudgetOutsideItsBoundsIsRefused(t *testing.T) {
 		})
 	}
 
-	// The maximum itself goes through: it is the ceiling on the ceiling, not the
-	// first value past it.
 	resp := doRequest(e.srv, http.MethodPut, e.query(testPathLimits), e.adminToken,
 		AlertLimitsInput{
 			OrganizationHourly: alerts.MaxOrganizationHourlyCeiling,
@@ -69,10 +48,6 @@ func TestABudgetOutsideItsBoundsIsRefused(t *testing.T) {
 	assert.Equal(t, alerts.MaxDeviceHourlyCeiling, stored.MaxDeviceHourly)
 }
 
-// A rollout population or waiting period outside its bounds is refused too: a
-// stage reaching nobody is not a stage, and one held for seconds proves nothing.
-
-// A budget nobody has set reads as the shipped one rather than as nothing.
 func TestAnUnconfiguredBudgetReadsAsTheShippedOne(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -86,12 +61,6 @@ func TestAnUnconfiguredBudgetReadsAsTheShippedOne(t *testing.T) {
 	assert.Equal(t, alerts.DefaultDeviceHourlyCeiling, got.DeviceHourly)
 }
 
-// A deployment wired without the mutable half of the rule store can still serve
-// the read-only catalogue, and says so on everything it cannot do rather than
-// answering as though nothing were configured.
-
-// A rollout population or waiting period outside its bounds is refused too: a
-// stage reaching nobody is not a stage, and one held for seconds proves nothing.
 func TestARolloutPaceOutsideItsBoundsIsRefused(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -118,11 +87,6 @@ func TestARolloutPaceOutsideItsBoundsIsRefused(t *testing.T) {
 	}
 }
 
-// The rule page shows the tuning, and the resolved read answers the question the
-// tuning section exists for: why is this machine at this number?
-
-// A stop reaches one customer, and the tenant-wide one reaches every customer at
-// once. Both are visible immediately on the read that the delivery path uses.
 func TestAStopReachesOneCustomerOrEveryCustomer(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -146,7 +110,6 @@ func TestAStopReachesOneCustomerOrEveryCustomer(t *testing.T) {
 	assert.True(t, e.killed(t, other, "cpu-saturated"),
 		"the tenant-wide stop reaches every customer")
 
-	// Lifting it is a separate action, and it lifts only the stop.
 	resp := doRequest(e.srv, http.MethodPost,
 		e.query(testPathRules+"/disk-critical/stop"), e.adminToken,
 		RuleStopInput{Scope: RuleStopScopeOrganization, Stopped: false})
@@ -154,11 +117,7 @@ func TestAStopReachesOneCustomerOrEveryCustomer(t *testing.T) {
 	assert.False(t, e.killed(t, e.org, "disk-critical"))
 }
 
-// killed reads whether one customer's rule is stopped, through the same store
-// the delivery path reads.
-
-// killed reads whether one customer's rule is stopped, through the same store
-// the delivery path reads.
+// killed reads whether one customer's rule is stopped, from the store the delivery path reads.
 func (e ruleAdminEstate) killed(t *testing.T, org uuid.UUID, ruleID string) bool {
 	t.Helper()
 	stored, err := e.srv.ruleRollouts.ListRollouts(testTenantContext(t), org)
@@ -166,11 +125,6 @@ func (e ruleAdminEstate) killed(t *testing.T, org uuid.UUID, ruleID string) bool
 	return stored[ruleID].Kill
 }
 
-// Labels belong to one customer, a machine cannot take another customer's, and
-// deleting one a rule is aimed at is refused.
-
-// Labels belong to one customer, a machine cannot take another customer's, and
-// deleting one a rule is aimed at is refused.
 func TestLabelsAreCustomerScopedAndHeldByTheRulesThatAimAtThem(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -194,8 +148,6 @@ func TestLabelsAreCustomerScopedAndHeldByTheRulesThatAimAtThem(t *testing.T) {
 	require.Len(t, catalogue.Assignments, 1)
 	assert.Equal(t, map[string]string{"role": "file-server"}, catalogue.Assignments[0].Tags)
 
-	// Aim a rule at it, and the label can no longer be removed: doing so would
-	// take the tuned value off every machine that carried it.
 	aim := doRequest(e.srv, http.MethodPut,
 		e.query(testPathRules+"/disk-critical/bindings"), e.adminToken,
 		RuleBindingInput{
@@ -215,11 +167,6 @@ func TestLabelsAreCustomerScopedAndHeldByTheRulesThatAimAtThem(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missing.Code)
 }
 
-// A rule the pack does not hold is a 404 on every route that names one, rather
-// than a write filed against a rule nothing evaluates.
-
-// A label and a machine belonging to different customers is refused, and the
-// refusal names what was wrong rather than failing the whole request opaquely.
 func TestAssigningALabelAcrossCustomersIsRefused(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -241,10 +188,6 @@ func TestAssigningALabelAcrossCustomersIsRefused(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, refused.Code)
 }
 
-// A budget nobody has set reads as the shipped one rather than as nothing.
-
-// A rule the pack does not hold is a 404 on every route that names one, rather
-// than a write filed against a rule nothing evaluates.
 func TestAnUnknownRuleIsRefusedEverywhereItCanBeNamed(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -266,12 +209,6 @@ func TestAnUnknownRuleIsRefusedEverywhereItCanBeNamed(t *testing.T) {
 	}
 }
 
-// A member of the admin security group is an administrator here too, which is
-// what keeps this screen's gate the same gate as every other one.
-
-// A write that names no customer acts on the tenant's own, the same rule a site
-// or a device create follows. Without it the whole screen fails whenever the
-// picker is showing every customer, which is the state it starts in.
 func TestAWriteNamingNoCustomerActsOnTheTenantsOwn(t *testing.T) {
 	t.Parallel()
 	e := newRuleAdminEstate(t)
@@ -306,13 +243,8 @@ func TestAWriteNamingNoCustomerActsOnTheTenantsOwn(t *testing.T) {
 		RuleStopInput{Scope: RuleStopScopeOrganization, Stopped: true})
 	require.Equal(t, http.StatusNoContent, stop.Code, stop.Body.String())
 
-	// All of it landed on the tenant's own customer, which is the one the
-	// estate's machines are filed under.
 	assert.True(t, e.killed(t, e.org, "disk-critical"))
 
-	// And the screen that made those changes, still with no customer picked,
-	// shows them. A read that looked somewhere else would show an administrator
-	// a rule still running after they stopped it.
 	listed := doRequest(e.srv, http.MethodGet, testPathRules, e.adminToken, nil)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	var catalogue RuleCatalogue

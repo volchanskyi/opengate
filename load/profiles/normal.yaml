@@ -1,42 +1,27 @@
-# The load the system is expected to carry on an ordinary day, run to prove it
-# still carries it. Everything else in this directory is a departure from this
-# one, so this is the profile a trend is read against.
+# The load the system carries on an ordinary day; every other profile departs from this one.
 schema_version: 1
 name: normal
 family: normal
 environment: staging
 fixture: small
 
-# The fleet below is the largest staging has been shown to hold. The node offers
-# 1,830 millicores with 1,680 already spoken for, so both generator pods share
-# 150 between them and what bounds this is the pod rather than the server it
-# drives. The figure lives once, with the run that established it, in
-# scripts/lib/loadtest-venue-ceilings.sh, and
-# scripts/tests/loadtest-venue-ceiling.test.sh refuses a profile asking its
-# venue for more than that.
+# The fleet is the largest staging holds: both generator pods share 150 of the node's millicores.
+# The figure lives in scripts/lib/loadtest-venue-ceilings.sh, which the venue-ceiling test reads.
 phases:
-  # A ramp rather than a step, so the steady phase measures a warm system: the
-  # first connection of a run pays for a cold connection pool and an empty
-  # statement cache, and folding that into the number being trended makes every
-  # run's first minute look like a regression.
+  # A ramp warms the connection pool and statement cache before the steady phase is measured.
   - name: ramp
     duration: 1m
     operator_arrivals_per_second: 2
     connected_agents: 250
     sessions: 0
-  # Long enough to contain the three browser-side scenarios that run against
-  # this fleet. They run one after another and take about six minutes between
-  # them, and the last of them opens real sessions — so a steady phase that ends
-  # first hands the relay scenario a fleet that is already draining, and what it
-  # would time is the wind-down.
+  # The steady phase outlasts the three browser-side scenarios, which run one after another.
   - name: steady
     duration: 8m
     operator_arrivals_per_second: 5
     connected_agents: 500
     sessions: 5
     measured: true
-  # A declared wind-down, so a connection torn down by the run ending is not
-  # counted as one the server dropped.
+  # A declared wind-down, so a connection closed by the run ending is not counted as dropped.
   - name: drain
     duration: 30s
     operator_arrivals_per_second: 0
@@ -48,39 +33,11 @@ safety:
   max_node_memory_percent: 90
   max_error_rate: 0.01
 
-# Every number a night is judged against, and every measurement deliberately
-# left without one. This is the only home for both.
-#
-# They used to live in two places. scripts/loadtest-regression-check.sh kept a
-# set of "something has collapsed" limits keyed by the same source/scenario/phase
-# triple these rows name, and this file kept its own — with different values for
-# the same measurement, one enforced and one read by nothing. An edit to either
-# did not do what it said.
-#
-# Two kinds of row sit here and they are different statements:
-#
-#   * a row that fails the night. It is loose on purpose, because the fortnight
-#     comparison beside it has a blind spot — a product that gets slowly worse
-#     drags its own window median down and nothing ever fires. These are the
-#     floor under that slide.
-#   * a row that only reports. It is a target somebody has committed to and is
-#     watching before enforcing. A number that fires on the measurement's own
-#     noise teaches everyone to ignore it, so it earns enforcement by holding.
-#
-# A measurement carries at most one of the first kind per direction, which the
-# schema enforces. What it must not do is carry neither of them and no entry in
-# `ungated:` either: the limits this list replaced had a catch-all that held
-# anything unlisted to a default, and a list with no catch-all can therefore
-# lose protection while looking like consolidation. Every measurement the
-# summarizer emits appears below, one way or the other, and a shell test holds
-# that in both directions.
+# A blocking row fails the night, and a non-blocking row only reports.
+# Every measurement the summarizer emits appears here or under `ungated:`.
 
 gates:
-  # --- the technician's own requests ------------------------------------------
-  #
-  # One number for the whole interface distinguished nothing: a technician waits
-  # differently for a glance at a fleet, for one machine's page, and for an
-  # instruction they have deliberately sent. Each is timed on its own below.
+  # A fleet glance, a machine's page and a sent instruction are each timed on their own below.
 
   - series: k6/api-baseline/http
     metric: latency_p50_ms
@@ -90,9 +47,7 @@ gates:
     metric: latency_p95_ms
     max: 200
     blocking: true
-  # The target, tightened from the limit above and still watched rather than
-  # enforced until fresh nights show the spread has narrowed now that the
-  # generator and the target hold separate allocations.
+  # The tightened target, watched until the spread narrows under separate allocations.
   - series: k6/api-baseline/http
     metric: latency_p95_ms
     max: 100
@@ -120,8 +75,7 @@ gates:
     max: 2000
     blocking: false
 
-  # One machine's page, which fans out to its inventory, its history and its
-  # readings.
+  # One machine's page fans out to its inventory, history and readings.
   - series: k6/api-baseline/device_detail
     metric: latency_p95_ms
     max: 500
@@ -141,7 +95,6 @@ gates:
     max: 2000
     blocking: false
 
-  # --- the same requests with a fleet arriving underneath them -----------------
   - series: k6/concurrent-agents/http
     metric: latency_p50_ms
     max: 500
@@ -163,7 +116,6 @@ gates:
     max: 0.001
     blocking: true
 
-  # --- a remote session, and the requests that open one ------------------------
   - series: k6/relay-throughput/http
     metric: latency_p50_ms
     max: 500
@@ -176,19 +128,8 @@ gates:
     metric: latency_p99_ms
     max: 1000
     blocking: false
-  # What the generator can offer, less a tenth. This scenario holds the
-  # profile's five sessions open and each makes one request and then waits a
-  # second, so five a second is the arithmetic ceiling and is reachable only
-  # against a server that answers in no time — which is what the floor was set
-  # to, so it was breached on every night ever taken. The nights on record read
-  # 4.926, 4.926, 4.928, 4.932 and 4.935 against a server opening a session in
-  # 4.9 ms and returning a keystroke through the machine in 3.0 ms.
-  #
-  # At 4.5 the journey may cost 111 ms before this fires — fourteen times what
-  # those nights measured, and comfortably inside the 500 ms and 400 ms the two
-  # halves of it are separately held to above. So it says what it is for: the
-  # generator stopped keeping pace, rather than the server got slower, which the
-  # limits beside it already answer.
+  # Five held sessions each make one request a second, so five a second is the ceiling.
+  # The 4.5 floor fires when the generator stops keeping pace; the latency limits cover the server.
   - series: k6/relay-throughput/http
     metric: rps
     min: 4.5
@@ -207,8 +148,7 @@ gates:
     metric: latency_p95_ms
     max: 400
     blocking: true
-  # Past this a session stops feeling like a conversation. Watched rather than
-  # enforced until fresh nights show the relay path holds it.
+  # Past this a session stops feeling like a conversation; watched until the relay path holds it.
   - series: k6/relay-throughput/relay
     metric: latency_p95_ms
     max: 150
@@ -222,7 +162,6 @@ gates:
     min: 0.25
     blocking: true
 
-  # --- a machine arriving ------------------------------------------------------
   - series: quic/quic-agents/connect
     metric: latency_p50_ms
     max: 800
@@ -249,22 +188,8 @@ gates:
     max: 2000
     blocking: false
 
-  # The server's own figure, measured where the device row lands rather than at
-  # this generator's send buffer.
-  #
-  # Four nights bracket the middle case and the tail — runs 34635099183 and
-  # 34641263355 on 2026-09-11, 34684461192 on 2026-09-12 and 34831825889 on
-  # 2026-09-14 — reading p50 8.058, 8.124, 8.085 and 8.255, and p95 24.085,
-  # 23.810, 23.451 and 31.250. The middle case sits within three per cent of
-  # itself across the four and the widest tail is 31 ms, against the figures
-  # below: twelve and sixteen times the headroom the readings need, which is
-  # tighter than this venue keeps elsewhere — the connect middle case measures
-  # 3 ms against a limit of 800.
-  #
-  # The 99th is watched rather than enforced. Those same nights read it at
-  # 278.542, 200.500, 154.625 and 85.714 — the widest is more than three times
-  # the narrowest — and a limit near any of them would fire on the
-  # measurement's own noise.
+  # The server's own figure, measured where the device row lands.
+  # The 99th is watched only: its readings vary more than threefold, so a limit near one is noise.
   - series: quic/quic-agents/register
     metric: latency_p50_ms
     max: 100
@@ -283,18 +208,8 @@ gates:
     max: 0
     blocking: true
 
-  # --- the generator saying it kept up ----------------------------------------
-  #
-  # An arrival-rate run offers work whether or not the last answer has come
-  # back, which is what makes a slow server show as a queue rather than as a
-  # quieter test. What it costs is a second way to be wrong: a generator that
-  # cannot keep the rate offers less, latency stays flat, and the night reports
-  # a healthy system nobody finished asking. This is the number that says so.
-  #
-  # The blocking row is loose because a handful of late iterations over a walk
-  # this long is the generator having a bad second rather than a generator that
-  # fell behind; the advisory row beside it is the target, watched until fresh
-  # nights show it holds.
+  # A generator that falls behind offers less work, and dropped iterations count that shortfall.
+  # The blocking row tolerates a few late iterations; the advisory row is the target.
   - series: k6/api-baseline/http
     metric: dropped_iterations
     max: 50
@@ -312,15 +227,10 @@ gates:
     max: 0
     blocking: false
 
-# Measurements this profile has looked at and deliberately left alone. An entry
-# here is a decision; a measurement in neither list is nobody having decided,
-# and the two read identically from the outside.
+# Measurements this profile has looked at and deliberately left alone.
 ungated:
-  # A screen's middle case cannot cross a limit its tail is already held under:
-  # half the requests are at or below the figure the 95th percentile reports, so
-  # a ceiling above that one can never fire. The catch-all these three inherited
-  # put them at 1000 ms while their tails are held to 300, 500 and 1000, which
-  # is a limit that has never been able to fire and never will.
+  # The median sits at or below the 95th percentile, so a middle-case ceiling above the
+  # tail's limit can never fire.
   - series: k6/api-baseline/device_list
     metric: latency_p50_ms
     reason: the tail is held to 300 ms, so a middle-case ceiling above that can never fire
@@ -330,15 +240,8 @@ ungated:
   - series: k6/api-baseline/command_accept
     metric: latency_p50_ms
     reason: the tail is held to 1000 ms, so a middle-case ceiling above that can never fire
-  # The rate machines arrive at is this profile's own pacing, not the server's
-  # intake. The phases climb to five hundred machines over nine minutes, so the
-  # figure is about one a second whatever the server does, and the floor it
-  # inherited from the flat run this profile replaced was fifty. Every other
-  # walked profile in this directory already holds the aggregate by its error
-  # rate alone. What the floor was there to catch is caught twice over here: a
-  # machine that was asked for and did not arrive moves the error rate, which is
-  # held at nought, and how fast the server takes machines on is the server's
-  # own registration timing, which is held three ways above.
+  # Machines arrive at the profile's own pace, so the rate measures the profile; the error rate
+  # and the registration timings above catch a machine that did not arrive.
   - series: quic/quic-agents/aggregate
     metric: rps
     reason: a walked profile paces its own arrivals, so the rate measures the profile rather than the server

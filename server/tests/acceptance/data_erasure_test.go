@@ -11,12 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// TestDeletingAMachineRemovesItAndStopsTrustingItsAgent is the sentence Data
-// Erasure promises, in the case that actually happens: the machine is still
-// connected when somebody deletes it. The row has to go, the readings have to
-// go with it, and the agent's next attempt to connect has to be refused —
-// otherwise the machine simply re-registers itself and the erasure undoes
-// itself minutes later.
 func TestDeletingAMachineRemovesItAndStopsTrustingItsAgent(t *testing.T) {
 	t.Parallel()
 
@@ -46,14 +40,10 @@ func TestDeletingAMachineRemovesItAndStopsTrustingItsAgent(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, chart.Status,
 		"the readings are unreachable with the machine, or the erasure was not one")
 
-	// The agent is still holding a valid certificate. Coming back with it must
-	// not put the machine back.
+	// The agent still holds a valid certificate, so the refusal rests on the erased device row.
 	product.assertAgentIsNoLongerTrusted(machine, token)
 }
 
-// TestDeletingAMachineFromAnotherTenantIsNotFound keeps erasure inside its
-// tenant. This is the one command that cannot be undone, so the boundary
-// matters more here than anywhere.
 func TestDeletingAMachineFromAnotherTenantIsNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -71,10 +61,8 @@ func TestDeletingAMachineFromAnotherTenantIsNotFound(t *testing.T) {
 	require.Len(t, admin.devices(), 1, "somebody else's delete leaves the machine where it was")
 }
 
-// assertAgentIsNoLongerTrusted has an erased machine's agent try to come back
-// with the identity it still holds. Whether the refusal happens at the
-// handshake or later, the machine must not reappear — otherwise an erasure
-// undoes itself the moment the endpoint reconnects.
+// assertAgentIsNoLongerTrusted reconnects an erased machine's agent with its old identity and
+// requires the machine not to reappear, whether refused at the handshake or later.
 func (p *Product) assertAgentIsNoLongerTrusted(erased *Machine, enrolmentToken string) {
 	p.t.Helper()
 

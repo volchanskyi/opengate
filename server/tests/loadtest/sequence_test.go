@@ -46,8 +46,6 @@ func TestEachPhaseEndsAtTheLevelItDeclared(t *testing.T) {
 
 	assert.Equal(t, 250, results[0].AchievedConnectedAgents)
 	assert.Equal(t, 500, results[1].AchievedConnectedAgents)
-	// A declared wind-down, so a connection the run closed is not counted as one
-	// the server dropped.
 	assert.Equal(t, 0, results[2].AchievedConnectedAgents)
 }
 
@@ -59,10 +57,7 @@ func TestAPhaseRampsRatherThanStepping(t *testing.T) {
 	_, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
-	// The first phase climbs to its level rather than arriving at it. A step
-	// change is a different event — a site whose link came back — and the
-	// profile says which one it wants. Only the first phase's instructions are
-	// read here, because each phase starts its own climb.
+	// Only the first phase's instructions are read, because each phase starts its own climb.
 	var rampTargets []int
 	for i, step := range fleet.steps {
 		if i >= rampSteps {

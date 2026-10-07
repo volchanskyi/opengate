@@ -20,24 +20,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testpg"
 )
 
-// The cleanup a run does is SQL, and SQL is held to a schema. Nothing held this
-// one to ours, so it named a column the schema had dropped, the whole removal
-// aborted on the first statement, and every night's residue survived — which is
-// what the next night's fixture then collided with.
-//
-// The stand-in psql the unit tests drive cannot catch that: it matches on the
-// statement's text and knows nothing about columns. So the statements are run
-// here against a database built by the migrations themselves, seeded with one
-// of every kind of thing a run creates. A column that moves fails this the day
-// it moves.
-//
-// It brings up a database of its own rather than sharing the suite's: the whole
-// point is a removal that empties tables, and psql has to be run where the
-// database is — inside the container — the same way the workflow reaches
-// staging's through kubectl.
-
-// defaultTenant is the tenant every load-test identity lives in, fixed by the
-// migration that introduced tenancy.
+// defaultTenant is the tenant every load-test identity lives in.
 const defaultTenant = "00000000-0000-0000-0000-000000000002"
 
 // cleanupResidue is what one load run leaves behind, as the cleanup's proof
@@ -75,21 +58,15 @@ func TestCleanupRemovesEveryKindARunCreates(t *testing.T) {
 	assert.Zero(t, proof.OrphanSites)
 	assert.Zero(t, proof.OrphanDevices)
 
-	// The dependants go with what they hang off, or the removal is refused and
-	// nothing is cleaned at all.
 	assert.Zero(t, countRows(t, ctx, conn, "SELECT COUNT(*) FROM enrollment_tokens"))
 	assert.Zero(t, countRows(t, ctx, conn, "SELECT COUNT(*) FROM agent_sessions"))
 
-	// The administrator the next night mints against, and the customer the
-	// deployment itself declared, are not this run's to remove.
 	assert.Equal(t, 1, countRows(t, ctx, conn,
 		"SELECT COUNT(*) FROM users WHERE email = 'opengate-service@service.invalid'"))
 	assert.Equal(t, 1, countRows(t, ctx, conn,
 		"SELECT COUNT(*) FROM organizations WHERE name = 'Default Organization'"))
 }
 
-// A second pass over an environment the first already emptied is the ordinary
-// case, and it is the one that must not read as a failure.
 func TestCleanupOnAnAlreadyEmptyDatabaseIsNotAFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -101,9 +78,7 @@ func TestCleanupOnAnAlreadyEmptyDatabaseIsNotAFailure(t *testing.T) {
 	assert.Zero(t, proof.OrphanOrganizations)
 }
 
-// migratedDatabase brings up a database of this test's own, walks the
-// migrations across it, and returns a psql command prefix that reaches it plus
-// an open connection for seeding and counting.
+// migratedDatabase starts a migrated database and returns a psql command prefix plus a connection.
 func migratedDatabase(t *testing.T, ctx context.Context) (psqlPrefix string, conn *sql.DB) {
 	t.Helper()
 
@@ -123,8 +98,7 @@ func migratedDatabase(t *testing.T, ctx context.Context) (psqlPrefix string, con
 	url, err := container.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err)
 
-	// Opening the store is what applies the migrations, so the schema the
-	// cleanup meets is the schema the product ships.
+	// Opening the store applies the migrations.
 	store, err := db.NewPostgresStoreWithOptions(ctx, url, db.PostgresOptions{MaxOpenConns: 2, MaxIdleConns: 1})
 	require.NoError(t, err, "apply the migrations")
 	require.NoError(t, store.Close())
@@ -134,8 +108,7 @@ func migratedDatabase(t *testing.T, ctx context.Context) (psqlPrefix string, con
 	t.Cleanup(func() { assert.NoError(t, conn.Close()) })
 	require.NoError(t, conn.PingContext(ctx))
 
-	// psql lives in the database's own image, so it is run there — the same
-	// shape the workflow uses to reach staging's database through kubectl.
+	// psql lives in the database's own image, so the prefix runs it through docker exec.
 	prefix := filepath.Join(t.TempDir(), "psql")
 	script := fmt.Sprintf("#!/bin/sh\nexec docker exec -i %s psql -U opengate -d opengate_cleanup \"$@\"\n",
 		container.GetContainerID())
@@ -143,10 +116,8 @@ func migratedDatabase(t *testing.T, ctx context.Context) (psqlPrefix string, con
 	return prefix, conn
 }
 
-// seedOneRunsResidue writes one of every kind a load run creates: two operator
-// accounts, the administrator it mints against, a customer, a site under that
-// customer, a machine filed there, the token it enrolled with and the session a
-// technician opened against it.
+// seedOneRunsResidue writes one of every kind of row a load run creates, from operator accounts
+// to the session a technician opened.
 func seedOneRunsResidue(t *testing.T, ctx context.Context, conn *sql.DB) {
 	t.Helper()
 

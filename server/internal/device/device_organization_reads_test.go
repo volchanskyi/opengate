@@ -12,8 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestListNarrowsByOrganizationAndFallsBackToTheTenant is the read rule: a
-// selected customer narrows the list, and no selection returns the whole tenant.
 func TestListNarrowsByOrganizationAndFallsBackToTheTenant(t *testing.T) {
 	t.Parallel()
 	devices, _, _, store := newRepos(t)
@@ -37,8 +35,7 @@ func TestListNarrowsByOrganizationAndFallsBackToTheTenant(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, whole, 2, "no customer selected returns the whole tenant")
 
-	// Site and customer narrow together rather than one replacing the other. The
-	// office has to be one of Fabrikam's own, since a move unfiles the machine.
+	// The site belongs to Fabrikam because a move unfiles the machine.
 	fabrikamSite := &device.Site{ID: uuid.New(), OrganizationID: fabrikam, Name: "Austin"}
 	require.NoError(t, testutil.NewTestSites(t, store).Create(ctx, fabrikamSite))
 	require.NoError(t, devices.UpdateSite(ctx, inFabrikam.ID, fabrikamSite.ID))
@@ -49,9 +46,6 @@ func TestListNarrowsByOrganizationAndFallsBackToTheTenant(t *testing.T) {
 	assert.Equal(t, inFabrikam.ID, both[0].ID)
 }
 
-// TestCountsNarrowByOrganization proves the fleet rollup answers for the
-// selected customer, so the dashboard tiles and the device list describe the same
-// set.
 func TestCountsNarrowByOrganization(t *testing.T) {
 	t.Parallel()
 	devices, _, _, store := newRepos(t)
@@ -77,8 +71,6 @@ func TestCountsNarrowByOrganization(t *testing.T) {
 	assert.Equal(t, 3, whole.Total)
 }
 
-// TestDeletingAnOrganizationTakesItsDevices proves the erasure cascade at the
-// customer level: the devices go, and so does everything keyed to them.
 func TestDeletingAnOrganizationTakesItsDevices(t *testing.T) {
 	t.Parallel()
 	devices, _, hardware, store := newRepos(t)

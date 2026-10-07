@@ -1,11 +1,5 @@
-//! Listening-port discovery (WS-16).
-//!
-//! On Linux the collector reads `/proc/net/{tcp,tcp6,udp,udp6}` — listening TCP
-//! sockets (state `0A`) and unconnected bound UDP sockets — and resolves each
-//! socket's owning process basename by walking `/proc/[pid]/fd` for the matching
-//! `socket:[inode]`. This is read-only, localhost-only introspection: no network
-//! scanning, no bound address ever leaves the device — only the transport, port
-//! number, and process basename.
+//! Listening-port discovery from `/proc/net` and `/proc/[pid]/fd`; only the transport, port and
+//! process basename are reported, never a bound address.
 
 use std::collections::{HashMap, HashSet};
 
@@ -14,34 +8,28 @@ use mesh_protocol::DiscoveredPort;
 /// Hex TCP state for a listening socket in `/proc/net/tcp{,6}`.
 const TCP_LISTEN: &str = "0A";
 
-/// One row parsed from a `/proc/net/*` table: the local port and the socket
-/// inode used to map it back to an owning process.
+/// One `/proc/net` row: the local port and the socket inode that maps it to a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProcNetEntry {
     pub port: u16,
     pub inode: u64,
 }
 
-/// Parses the hex `IP:PORT` local-address column into a port number.
 fn hex_local_port(addr: &str) -> Option<u16> {
     let (_, port) = addr.rsplit_once(':')?;
     u16::from_str_radix(port, 16).ok()
 }
 
-/// Parses the hex `IP:PORT` remote-address column into a port number.
 fn hex_remote_port(addr: &str) -> Option<u16> {
     hex_local_port(addr)
 }
 
-/// Parses a `/proc/net/tcp{,6}` or `/proc/net/udp{,6}` table. For TCP only
-/// sockets in the `LISTEN` state are kept; for UDP only unconnected bound
-/// sockets (remote port `0`) are kept, which is the closest UDP analogue to a
-/// listener. Malformed rows are skipped so one bad line never aborts the scan.
+/// Parses a `/proc/net` table, keeping TCP listeners and UDP sockets with remote port 0.
 pub(crate) fn parse_proc_net(content: &str, is_tcp: bool) -> Vec<ProcNetEntry> {
     let mut out = Vec::new();
     for line in content.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        // sl local rem st ... inode is field index 9.
+        // The inode is field index 9.
         if fields.len() < 10 {
             continue;
         }
@@ -61,9 +49,7 @@ pub(crate) fn parse_proc_net(content: &str, is_tcp: bool) -> Vec<ProcNetEntry> {
     out
 }
 
-/// Correlates parsed socket rows for one transport with an inode → process
-/// basename map, de-duplicating by port (a socket bound on both IPv4 and IPv6
-/// reports once). Ports whose inode is unresolved carry an empty process.
+/// Maps socket rows to process basenames, deduplicating by port; an unresolved inode gives none.
 pub(crate) fn resolve_ports(
     entries: &[ProcNetEntry],
     proto: &str,
@@ -84,16 +70,13 @@ pub(crate) fn resolve_ports(
     out
 }
 
-/// Parses a `socket:[12345]` symlink target into its inode number.
 #[cfg(target_os = "linux")]
 fn parse_socket_inode(target: &str) -> Option<u64> {
     let inner = target.strip_prefix("socket:[")?.strip_suffix(']')?;
     inner.parse::<u64>().ok()
 }
 
-/// Reads the most recent listening ports on the host, bounded and de-duplicated.
-/// Returns an empty vector on any platform where the source is absent, so one
-/// call is safe on every fleet host.
+/// Lists listening ports; empty where the `/proc` source is absent.
 pub fn collect_ports() -> Vec<DiscoveredPort> {
     #[cfg(target_os = "linux")]
     {
@@ -105,7 +88,6 @@ pub fn collect_ports() -> Vec<DiscoveredPort> {
     }
 }
 
-/// Reads and correlates `/proc/net/*` with the live socket-inode → process map.
 #[cfg(target_os = "linux")]
 fn collect_ports_linux() -> Vec<DiscoveredPort> {
     let read = |path: &str| std::fs::read_to_string(path).unwrap_or_default();
@@ -122,9 +104,7 @@ fn collect_ports_linux() -> Vec<DiscoveredPort> {
     out
 }
 
-/// Builds a socket-inode → process-basename map by walking `/proc/[pid]/fd`.
-/// Only inodes in `wanted` are recorded, and the scan stops early once every
-/// wanted inode is resolved, so a busy host does not pay for a full fd sweep.
+/// Maps wanted socket inodes to process basenames via `/proc/[pid]/fd`, stopping once all resolve.
 #[cfg(target_os = "linux")]
 fn build_inode_proc_map(wanted: &HashSet<u64>) -> HashMap<u64, String> {
     let mut map = HashMap::new();
@@ -167,12 +147,9 @@ fn build_inode_proc_map(wanted: &HashSet<u64>) -> HashMap<u64, String> {
 mod tests {
     use super::*;
 
-    /// A `/proc/net/tcp` table yields only the listening (state `0A`) sockets,
-    /// with the local port decoded from hex and the inode captured.
     #[test]
     fn parse_proc_net_tcp_keeps_only_listeners() {
-        // Port 0x1F90 = 8080 (LISTEN 0A) and 0x0016 = 22 (LISTEN); the middle
-        // row is an ESTABLISHED (01) connection and must be dropped.
+        // Rows 0 and 2 are LISTEN (0A); row 1 is ESTABLISHED (01).
         let table = concat!(
             "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n",
             "   0: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000\n",
@@ -197,8 +174,6 @@ mod tests {
         );
     }
 
-    /// A `/proc/net/udp` table keeps only unconnected bound sockets (remote
-    /// port 0); a connected UDP socket (remote port set) is dropped.
     #[test]
     fn parse_proc_net_udp_keeps_bound_sockets() {
         let table = concat!(
@@ -212,10 +187,6 @@ mod tests {
         assert_eq!(entries[0].inode, 44444);
     }
 
-    /// Ten columns is the shortest usable row: the inode sits at index 9, so a
-    /// row that ends exactly there is complete and must be parsed, while nine
-    /// columns has no inode to correlate a process against and is dropped.
-    /// Kernels pad the trailing columns differently, so the boundary is real.
     #[test]
     fn parse_proc_net_keeps_the_shortest_complete_row() {
         let table = concat!(
@@ -234,7 +205,6 @@ mod tests {
         );
     }
 
-    /// Malformed and short rows are skipped without aborting the scan.
     #[test]
     fn parse_proc_net_skips_malformed_rows() {
         let table = concat!(
@@ -248,8 +218,6 @@ mod tests {
         assert_eq!(entries[0].port, 80);
     }
 
-    /// Ports resolve their owning process via the inode map and de-duplicate by
-    /// port; an unresolved inode yields an empty process, not a dropped row.
     #[test]
     fn resolve_ports_maps_process_and_dedups() {
         let entries = vec![
@@ -280,12 +248,6 @@ mod tests {
         );
     }
 
-    /// The collector reads this platform's own socket tables: on Linux every row
-    /// it reports is a TCP or UDP listener, unique per transport and port, and a
-    /// host without `/proc` mounted contributes nothing. On a platform with no
-    /// socket table to read there is nothing to report at all. No bound address
-    /// ever appears in the result — only the transport, port, and owning process
-    /// basename.
     #[test]
     fn collect_ports_reads_the_platform_or_reports_nothing() {
         let ports = collect_ports();

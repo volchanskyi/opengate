@@ -9,13 +9,9 @@ spec:
   replicas: {{ .Values.server.replicas }}
   strategy:
     {{- if and .Values.server.sharedKeys.enabled (not .Values.server.hostPortL4) }}
-    # Shared keys (no RWO PVC) AND LB-based L4 (no node-bound hostPorts) — pods can
-    # overlap across nodes, so a rolling update is safe (and wanted for HA).
     type: RollingUpdate
     {{- else }}
-    # Recreate (old pod fully released before the new one starts) is required when
-    # either: hostPortL4 binds node ports a second pod can't duplicate on the same
-    # node, or /data is an RWO PVC (non-shared-keys) that can't be co-mounted.
+    # Recreate releases the old pod first: hostPort binds and an RWO PVC cannot be shared by two pods.
     type: Recreate
     {{- end }}
   selector:
@@ -61,8 +57,7 @@ spec:
             - "-vapid-contact"
             - "$(VAPID_CONTACT)"
           env:
-            # POSTGRES_APP_PASSWORD must precede DATABASE_URL so k8s resolves
-            # the $(POSTGRES_APP_PASSWORD) reference below.
+            # POSTGRES_APP_PASSWORD precedes DATABASE_URL so Kubernetes resolves the reference.
             - name: POSTGRES_APP_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -84,34 +79,18 @@ spec:
                   name: {{ .Values.server.existingSecret }}
                   key: VAPID_CONTACT
             {{- if .Values.server.githubRepo }}
-            # Drives the agent-update manifest sync + the OPENGATE_GITHUB_REPO
-            # export injected into the served install.sh. Unset → the installer
-            # reports "No agent binary found for <os>/<arch>".
             - name: OPENGATE_GITHUB_REPO
               value: {{ .Values.server.githubRepo | quote }}
             {{- end }}
-            # Added to the server TLS cert SAN so agents reaching the QUIC listener
-            # at this host pass the handshake. Without it the cert names localhost
-            # alone → "certificate not valid for name <host>".
-            #
-            # The default is the server Service's own name, which is how a pod in
-            # this namespace reaches the server — the address the machines the
-            # staging browser suite reads its device pages against dial, and the
-            # name they verify the certificate for, since an agent takes its TLS
-            # name from the host half of the address it was given. A deployment
-            # whose agents come from outside the cluster sets its public host here
-            # instead.
+            # Added to the server certificate SAN; defaults to the Service name in-cluster agents dial.
             - name: OPENGATE_QUIC_HOST
               value: {{ .Values.server.quicHost | default (printf "%s-server" (include "opengate.fullname" .)) | quote }}
             {{- if .Values.server.baseURL }}
-            # SERVER_URL baked into the served install.sh for manifest fetches.
             - name: OPENGATE_BASE_URL
               value: {{ .Values.server.baseURL | quote }}
             {{- end }}
             {{- if .Values.server.trustedProxies }}
-            # Which peer's X-Forwarded-For is believed, and therefore which
-            # allowance a request spends. Comma-joined so one variable carries
-            # the whole list.
+            # Peers whose X-Forwarded-For is trusted, joined into one comma-separated variable.
             - name: OPENGATE_TRUSTED_PROXIES
               value: {{ join "," .Values.server.trustedProxies | quote }}
             {{- end }}
@@ -123,8 +102,7 @@ spec:
             - name: OPENGATE_VICTORIAMETRICS_URL
               value: {{ .Values.server.victoriaMetricsURL | quote }}
             {{- end }}
-            # Production and staging write into one metrics store, and this is
-            # the environment the server stamps onto every reading it writes.
+            # The environment the server stamps onto every reading it writes to the shared store.
             - name: OPENGATE_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -174,9 +152,7 @@ spec:
             - name: data
               mountPath: /data
             {{- if .Values.server.sharedKeys.enabled }}
-            # Shared keypairs mounted read-only over the emptyDir /data, so every
-            # replica serves the same CA / VAPID / update-signing material. The
-            # rest of /data stays writable (manifest cache).
+            # Shared keypairs mount read-only over /data so every replica serves the same keys.
             - name: keys
               mountPath: /data/ca.crt
               subPath: ca.crt
@@ -199,9 +175,7 @@ spec:
       volumes:
         - name: data
           {{- if or .Values.server.sharedKeys.enabled (not .Values.server.dataVolume.persistent) }}
-          # emptyDir when keys are shared via Secret (sharedKeys, prod) OR when
-          # persistence is off (staging, ADR-035 free-tier cap — CA/keys reset on
-          # restart, acceptable for the deploy-test env).
+          # An emptyDir holds /data when keys come from a Secret or persistence is off.
           emptyDir: {}
           {{- else }}
           persistentVolumeClaim:

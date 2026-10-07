@@ -14,9 +14,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// TestClampTelemetryTimestamp pins the accepted clock window: a wild-future
-// stamp is pulled back to the skew ceiling, a stale one up to the backlog floor,
-// and anything inside both bounds is left exactly as the agent sent it.
 func TestClampTelemetryTimestamp(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(1_800_000_000, 0).UTC()
@@ -48,8 +45,6 @@ func TestClampTelemetryTimestamp(t *testing.T) {
 	assert.Empty(t, dir)
 }
 
-// TestClampTelemetryTimestampPreservesOrder pins monotonicity: clamping may
-// collapse out-of-window stamps onto a bound, but it never reorders a batch.
 func TestClampTelemetryTimestampPreservesOrder(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(1_800_000_000, 0).UTC()
@@ -70,9 +65,6 @@ func TestClampTelemetryTimestampPreservesOrder(t *testing.T) {
 	}
 }
 
-// TestClockClampIsCountedAndStillPersisted pins the distinction the ledger
-// depends on: a clamped message is corrected, not discarded — it lands on its
-// own counter with a direction label and is still written.
 func TestClockClampIsCountedAndStillPersisted(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -107,9 +99,6 @@ func TestClockClampIsCountedAndStillPersisted(t *testing.T) {
 	}
 }
 
-// TestClockClampCountsOnlyPersistedMessages pins that a message discarded for
-// carrying nothing to store is reported once, as a drop — its timestamp was
-// never written, so the clamp counter must not report it too.
 func TestClockClampCountsOnlyPersistedMessages(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
@@ -129,9 +118,6 @@ func TestClockClampCountsOnlyPersistedMessages(t *testing.T) {
 		m.EdgeTelemetryClockClampedTotal.WithLabelValues(clampFuture)), 0)
 }
 
-// TestHealthWindowClampPreservesSummaryOrder drives a batch of out-of-order
-// summaries — two of them outside the window — through the real handler and
-// pins that the persisted samples keep the order the agent sent them in.
 func TestHealthWindowClampPreservesSummaryOrder(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}

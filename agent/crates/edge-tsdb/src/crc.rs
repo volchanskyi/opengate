@@ -1,8 +1,4 @@
-//! Dependency-free CRC-32 (IEEE 802.3) used to detect torn or flipped chunks.
-//!
-//! A storage engine needs an integrity check on every persisted chunk; adding a
-//! crate for it would risk the workspace's strict `multiple-versions` deny
-//! policy, so the standard reflected polynomial is inlined here.
+//! Inline CRC-32 (IEEE 802.3, reflected polynomial) that detects torn or flipped chunks.
 
 const POLY: u32 = 0xEDB8_8320;
 
@@ -50,7 +46,6 @@ mod tests {
 
     #[test]
     fn known_vectors() {
-        // Canonical CRC-32/IEEE check values.
         assert_eq!(crc32(b""), 0x0000_0000);
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
         assert_eq!(
@@ -62,7 +57,7 @@ mod tests {
     #[test]
     fn single_bit_flip_changes_crc() {
         let a = crc32(b"edge-sentinel");
-        let b = crc32(b"edge-sentinem"); // last byte +1
+        let b = crc32(b"edge-sentinem");
         assert_ne!(a, b);
     }
 }

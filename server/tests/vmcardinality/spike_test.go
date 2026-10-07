@@ -1,20 +1,5 @@
-// Package vmcardinality measures what one device actually costs the central
-// store, against a real VictoriaMetrics.
-//
-// Cardinality — not sample rate — is the binding constraint on the central
-// store, so the vitals contract fixes how many series a device may occupy and
-// this package proves the number rather than projecting it. Two properties are
-// under test:
-//
-//   - A device occupies at most vitalSeriesCap series, whatever it sends. The
-//     count is a compile-time constant of the contract, not a function of how
-//     large the host is or of what dim names an agent chooses to invent.
-//   - The whole reference fleet fits the budget at that per-device cost, which
-//     is what makes central growth linear in agent count.
-//
-// The dims written here are the contract the agent emits and the server
-// allowlists; a name added on either side without being added here writes a
-// series this measurement does not account for.
+// Package vmcardinality counts, against a real VictoriaMetrics, the series one device occupies
+// and checks that the reference fleet fits the central budget.
 package vmcardinality
 
 import (
@@ -33,23 +18,16 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
-// Central active-series budget at the reference fleet size. A single-node
-// VictoriaMetrics handles far more, but this keeps the free-tier volume and
-// query latency comfortable; exceeding it is a signal to revisit the schema.
+// The central active-series budget at the reference fleet size.
 const (
 	referenceAgents = 500
 	seriesBudget    = 50_000
 )
 
-// vitalSeriesCap is the most central series one device may occupy — the same
-// cap the ingest path enforces (server/internal/agentapi/vitals.go). A Linux
-// device now writes exactly this many.
+// vitalSeriesCap is the most central series one device may occupy, as the ingest path enforces.
 const vitalSeriesCap = 24
 
-// metricDims is every dimension of opengate_edge_metric_avg a device writes:
-// each gauge's average, the window maximum for the five where a within-minute
-// spike is the signal, the five stall vitals a Linux device reads from the
-// kernel's pressure accounting, and the three that say how slow its disks are.
+// metricDims is every dimension of opengate_edge_metric_avg a device writes.
 var metricDims = []string{
 	"cpu.total",
 	"cpu.total.max",
@@ -71,8 +49,8 @@ var metricDims = []string{
 	"disk.queue_depth",
 }
 
-// anomalyFamilies are the metric families the health summary reports a rate for,
-// beside the one node-wide rate.
+// anomalyFamilies are the metric families the health summary reports a rate for, beside the
+// node-wide rate.
 var anomalyFamilies = []string{"cpu", "mem", "disk", "net", "proc"}
 
 const (
@@ -85,26 +63,18 @@ const (
 // dim, one node-wide anomaly rate, and one rate per family.
 func seriesPerDevice() int { return len(metricDims) + 1 + len(anomalyFamilies) }
 
-// TestSeriesModelFitsTheCap pins the per-device cost and its headroom before any
-// VM is involved, so a dim added to the contract without a decision fails here.
 func TestSeriesModelFitsTheCap(t *testing.T) {
 	require.Equal(t, 24, seriesPerDevice(), "the vitals a Linux device emits today")
 	require.Equal(t, vitalSeriesCap, seriesPerDevice(),
 		"a Linux device now occupies the whole cap, so the next vital re-opens it")
 
-	// Central growth is linear in agent count at this per-device cost.
 	require.LessOrEqual(t, seriesPerDevice()*referenceAgents, seriesBudget,
 		"the reference fleet must fit the central budget")
 }
 
-// TestDeviceSeriesAreCappedInVM writes the contract for real devices and counts
-// what VictoriaMetrics actually holds. A count is only meaningful per device, so
-// every assertion is scoped to one device_id — the TSDB-wide total says nothing
-// about whether a single agent can grow without bound.
 func TestDeviceSeriesAreCappedInVM(t *testing.T) {
 	base := testvm.BaseURL(t)
-	// Every series this run writes carries a fresh run_id, so the counts measure
-	// exactly what this test ingested and nothing else in a shared TSDB.
+	// A fresh run_id on every series scopes the counts to this test in a shared TSDB.
 	runID := "vmcard-" + uuid.NewString()
 
 	devices := deviceIDs(runID, 3)
@@ -118,11 +88,6 @@ func TestDeviceSeriesAreCappedInVM(t *testing.T) {
 	}
 }
 
-// TestAnUnlistedDimWouldBreachTheCap is the measurement that gives the cap its
-// teeth: writing dims beyond the contract for one device raises that device's
-// series count past the cap, which is exactly what the server's allowlist stops
-// happening from an agent's own message. Here the writes bypass the allowlist —
-// they go straight to VM — so the breach is observable rather than theoretical.
 func TestAnUnlistedDimWouldBreachTheCap(t *testing.T) {
 	base := testvm.BaseURL(t)
 	runID := "vmcard-" + uuid.NewString()
@@ -142,15 +107,11 @@ func TestAnUnlistedDimWouldBreachTheCap(t *testing.T) {
 		got, vitalSeriesCap)
 }
 
-// TestFleetFitsTheBudget scales the measured per-device cost to the reference
-// fleet and checks the total against the central budget.
 func TestFleetFitsTheBudget(t *testing.T) {
 	base := testvm.BaseURL(t)
 	runID := "vmcard-" + uuid.NewString()
 
-	// Measure a sample of devices, then project: writing 500 devices' worth of
-	// series proves nothing the per-device count does not already prove, and it
-	// would make the suite pay for 8 000 series to learn it.
+	// A sample of devices is measured and the fleet total projected from it.
 	const sample = 25
 	devices := deviceIDs(runID, sample)
 	ingest(t, base, generate(runID, devices, nil))
@@ -175,10 +136,8 @@ func deviceIDs(runID string, n int) []string {
 	return ids
 }
 
-// generate returns Prometheus exposition lines carrying the vitals contract for
-// each device, plus any extraDims — the dims an agent outside the contract would
-// write if nothing filtered them. Metric name + label set is unique per (device,
-// dimension), so the line count equals the distinct active-series count.
+// generate returns exposition lines for the vitals contract of each device plus extraDims; the
+// line count equals the active-series count.
 func generate(runID string, devices, extraDims []string) string {
 	const tenants = 5
 	ts := time.Now().UnixMilli()
@@ -229,10 +188,8 @@ func measureRunSeries(t *testing.T, base, runID string, want int) int {
 	return measure(t, base, fmt.Sprintf(`{run_id=%q}`, runID), want)
 }
 
-// measure flushes VM and re-counts the matching series, retrying (in the same
-// goroutine, so -race stays clean) until the count reaches want or the budget of
-// attempts is spent — then returns the last reading for the caller to assert on,
-// so a mismatch fails loudly rather than skips.
+// measure flushes VM and re-counts the matching series until the count reaches want or the
+// attempts end, then returns the last reading.
 func measure(t *testing.T, base, selector string, want int) int {
 	t.Helper()
 	var last int
@@ -257,11 +214,8 @@ func forceFlush(t *testing.T, base string) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// countSeries counts the series matching a selector.
-//
-// /api/v1/series answers this rather than an instant `count()` query: VM's
-// default -search.latencyOffset evaluates instant queries 30s in the past, so a
-// query would never see samples written moments earlier.
+// countSeries counts the series matching a selector through /api/v1/series, because instant
+// queries evaluate 30s in the past under the default -search.latencyOffset.
 func countSeries(t *testing.T, base, selector string) int {
 	t.Helper()
 	q := url.Values{"match[]": {selector}}

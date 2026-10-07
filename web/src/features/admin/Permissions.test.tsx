@@ -42,7 +42,7 @@ const fakeGroup = {
 };
 
 function renderPermissions() {
-  // Override fetchGroups and fetchUsers to no-op (we set state directly)
+  // The fetches are no-ops so the directly seeded state stays in place.
   useSecurityGroupsStore.setState({
     fetchGroups: vi.fn(),
     fetchUsers: vi.fn(),
@@ -109,7 +109,6 @@ describe('Permissions', () => {
     renderPermissions();
     const select = screen.getByRole('combobox');
     const options = within(select).getAllByRole('option');
-    // Should have placeholder + regular user only (admin is already a member)
     expect(options).toHaveLength(2);
     expect(options[1]?.textContent).toContain('regular@test.com');
   });
@@ -134,7 +133,6 @@ describe('Permissions', () => {
 
   it('calls removeMember when Remove clicked', async () => {
     const removeMember = vi.fn();
-    // Need 2 members so isLastAdmin is false and button is enabled
     useSecurityGroupsStore.setState({
       removeMember,
       selectedGroup: { ...fakeGroup, members: [fakeAdmin, fakeRegularUser] },
@@ -150,7 +148,6 @@ describe('Permissions', () => {
   });
 
   it('disables Remove button when last admin tries to remove self', () => {
-    // Only one member, current user is that member
     useSecurityGroupsStore.setState({
       selectedGroup: { ...fakeGroup, members: [fakeAdmin] },
     });
@@ -212,14 +209,13 @@ describe('Permissions', () => {
       fetchUsers: vi.fn(),
       fetchGroupDetail,
     });
-    // Render without renderPermissions (which overrides fetchGroupDetail to a no-op).
+    // Renders directly because renderPermissions replaces fetchGroupDetail with a no-op.
     const router = createMemoryRouter(
       [{ path: '/admin/security/permissions', element: <Permissions /> }],
       { initialEntries: ['/admin/security/permissions'] },
     );
     render(<RouterProvider router={router} />);
 
-    // The effect picks groups[0] (Auditors) and fetches its detail.
     expect(fetchGroupDetail).toHaveBeenCalledWith('g2');
   });
 
@@ -237,7 +233,6 @@ describe('Permissions', () => {
       { initialEntries: ['/admin/security/permissions'] },
     );
     render(<RouterProvider router={router} />);
-    // selectedGroup is truthy → no auto-fetch call.
     expect(fetchGroupDetail).not.toHaveBeenCalled();
   });
 
@@ -267,7 +262,6 @@ describe('Permissions', () => {
     expect(select.value).toBe('u2');
 
     await user.click(screen.getByRole('button', { name: 'Add Member' }));
-    // After the add resolves, the dropdown resets to '' (the placeholder) and the button is disabled again.
     expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('');
     expect(screen.getByRole('button', { name: 'Add Member' })).toBeDisabled();
   });
@@ -277,7 +271,6 @@ describe('Permissions', () => {
     useSecurityGroupsStore.setState({ addMember });
     const user = userEvent.setup();
     renderPermissions();
-    // Force-click the disabled button via the DOM:
     const btn = screen.getByRole('button', { name: 'Add Member' });
     expect(btn).toBeDisabled();
     await user.click(btn);
@@ -291,8 +284,6 @@ describe('Permissions', () => {
     useAuthStore.setState({ user: fakeAdmin });
     renderPermissions();
     const buttons = screen.getAllByRole('button', { name: 'Remove' });
-    // First member is the current user, but since members.length > 1, isLastAdmin = false.
-    // Both buttons should have the "Remove from group" tooltip.
     for (const b of buttons) {
       expect(b.getAttribute('title')).toBe('Remove from group');
       expect((b as HTMLButtonElement).disabled).toBe(false);
@@ -316,7 +307,6 @@ describe('Permissions', () => {
     });
     renderPermissions();
     expect(screen.queryByText('Full system access')).toBeNull();
-    // The group h3 heading is still present (the tab button also has "Administrators" text).
     expect(screen.getByRole('heading', { level: 3, name: 'Administrators' })).toBeInTheDocument();
   });
 
@@ -328,7 +318,6 @@ describe('Permissions', () => {
     renderPermissions();
     const select = screen.getByRole('combobox');
     const options = within(select).getAllByRole('option');
-    // Option text must include "(Regular User)" — kills the empty-string mutant on the parenthetical.
     expect(options[1]?.textContent).toMatch(/regular@test\.com\s*\(Regular User\)/);
   });
 
@@ -350,7 +339,6 @@ describe('Permissions', () => {
       selectedGroup: { ...fakeGroup, members: [{ ...fakeAdmin, display_name: '' }] },
     });
     renderPermissions();
-    // The members table cell falls back to "-" when display_name is empty.
     expect(screen.getByText('-')).toBeInTheDocument();
   });
 });

@@ -22,15 +22,12 @@ const RANGES = [
 
 const LIMIT = 300;
 
-// Pager arrows. Disabled is the resting state on a single page, so it darkens
-// the yellow rather than fading the whole button: a fade would take the white
-// chevron (stroke=currentColor) down to grey with it.
+// The disabled state darkens the yellow, since a fade would grey the white chevron too.
 const pagerButtonClass =
   'px-2 py-1 rounded inline-flex items-center bg-yellow-600 hover:bg-yellow-700 text-white ' +
   'disabled:bg-yellow-800 disabled:hover:bg-yellow-800 disabled:cursor-not-allowed';
 
-// Window pulled by the one automatic fetch a pane makes: the first time it is
-// opened for a device that has no logs cached yet.
+// Window of the one automatic fetch, made on first open when no logs are cached.
 const FIRST_OPEN_WINDOW_SECONDS = 3600;
 
 interface TimeWindow {
@@ -42,7 +39,6 @@ interface LogExplorerProps {
   readonly deviceId: string;
   /** Which pane this instance drives (independent per-source store state). */
   readonly source: LogPaneSource;
-  /** Card heading. */
   readonly title: string;
   /** System logs only: show the auto-detected unit dropdown + `target` column. */
   readonly showUnitFilter?: boolean;
@@ -59,19 +55,11 @@ function formatWindow(w: TimeWindow): string {
 }
 
 /**
- * Shared raw-log explorer used by both the Agent Logs (`source=agent`) and
- * System Logs (`source=host`) panes: a severity dropdown + level facets, keyword
- * search, a time-window selector, and pagination. The System Logs instance adds
- * an auto-detected unit dropdown and a clickable `target` column. Each source
- * reads and writes its own slice of the store, so the two panes never clobber.
- *
- * Every control pulls the window it describes, so there is no separate refresh
- * action; the caret collapses the returned output alone, leaving the controls
- * live, and any pull re-opens it.
+ * LogExplorer pages through one source's raw logs with level, keyword and time-window filters.
+ * Each source owns its store slice; the caret hides the output only and any pull re-opens it.
  */
 export function LogExplorer({ deviceId, source, title, showUnitFilter = false, focusWindow = null, startCollapsed = false, loadOnFirstOpen = false }: LogExplorerProps) {
-  // Explicit source selection (not `s.logs[source]`) so the security linter can
-  // see the access is over a fixed, closed key set.
+  // Explicit source selection keeps the access over a fixed, closed key set for the security linter.
   const logs = useDeviceStore((s) => (source === 'agent' ? s.logs.agent : s.logs.system));
   const logsLoading = useDeviceStore((s) => (source === 'agent' ? s.logsLoading.agent : s.logsLoading.system));
   const fetchLogs = useDeviceStore((s) => s.fetchLogs);
@@ -84,9 +72,7 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
   const [collapsed, setCollapsed] = useState(startCollapsed);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Every load funnels through here. A load is an operator asking for lines, so
-  // it opens the output and stands in for the one automatic first-open pull —
-  // without that, expanding-by-fetching would pull the same window twice.
+  // Every load opens the output and stands in for the first-open pull, so no window is pulled twice.
   const didLoadRef = useRef(false);
 
   const runFetch = useCallback((nextOffset: number, lvl: string, win: TimeWindow | null, unitFilter: string) => {
@@ -119,8 +105,7 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
 
   const clearWindow = useCallback(() => { setTimeWindow(null); runFetch(0, level, null, unit); }, [runFetch, level, unit]);
 
-  // Correlation jump: apply an incoming focus window, fetch it, and scroll in.
-  // The action is captured in a ref so the effect fires only on window change.
+  // Applies an incoming focus window and fetches it; the ref fires the effect once per window.
   const applyFocusRef = useRef<(w: TimeWindow) => void>(() => undefined);
   useEffect(() => {
     applyFocusRef.current = (w: TimeWindow) => {
@@ -134,19 +119,14 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
     containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [focusWindow]);
 
-  // The single automatic pull an opted-in pane makes: the first time its output
-  // is opened with nothing cached for this device, fetch the recent default
-  // window so `available_units` and entries are there. Everything after that is
-  // an explicit control — a range button, a filter, or a search. Re-opening a
-  // device page renders the cached response and pulls nothing. A correlation
-  // focusWindow drives its own fetch, so it wins and this is skipped.
+  // The one automatic pull: first open with nothing cached fetches the recent default window.
+  // A focusWindow drives its own fetch and skips it.
   const hasLogs = logs !== null;
   useEffect(() => {
     if (!loadOnFirstOpen || collapsed || focusWindow || hasLogs || didLoadRef.current) return;
     selectRange(FIRST_OPEN_WINDOW_SECONDS);
   }, [loadOnFirstOpen, collapsed, focusWindow, hasLogs, selectRange]);
 
-  // Level facets over the returned page — a point-and-click quick filter.
   const facets = useMemo(() => {
     const counts = new Map<string, number>();
     for (const e of logs?.entries ?? []) counts.set(e.level, (counts.get(e.level) ?? 0) + 1);

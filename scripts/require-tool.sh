@@ -1,35 +1,18 @@
 #!/usr/bin/env bash
-# Refuse a tool that is missing, or present at a version other than the pin,
-# naming the command that installs the pin.
-#
-# Six Makefile targets each carried their own "not found, install with ..."
-# line, and every one of them named a version by resolving it at run time —
-# `@latest`, or no version at all. Three named a tool this repository's manifest
-# already pins, so the advice and the pin disagreed and nothing read both.
-#
-# Presence was not enough either. govulncheck was installed by hand at whatever
-# version came out that day, the gauntlet ran it, and CI went on running the pin
-# — which crashed under the Go the module had just moved to. The workstation was
-# green on a scanner CI does not run, and nothing compared the two. Five more
-# tools the gauntlet runs had sat a release or more off their pins since before
-# the manifest existed.
-#
-# So this file knows, for every pinned tool the workstation runs, how the tool
-# words its version and how to install the pin; the Makefile asks for a tool by
-# name, and scripts/lib/toolchain-parity.sh asks for every tool the gauntlet
-# runs before the gauntlet starts. scripts/tests/tool-version-parity.test.sh
-# holds the install lines to the manifest.
+# Refuses a tool that is missing or at a version other than its pin and prints the install command.
 #
 # Usage: require-tool.sh <tool>
-#   Exit 0 = present at the pin. 1 = missing or drifted (the install command is
-#   printed). 2 = a tool with no pin here.
+#
+# Exit codes:
+#   0  present at the pin
+#   1  missing or drifted, the install command is printed
+#   2  a tool with no pin here
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/tool-versions.sh
 . "$HERE/lib/tool-versions.sh"
 
-# manifest_key TOOL — the manifest row a tool is pinned by.
 manifest_key() {
   case "$1" in
     age-keygen) printf 'AGE' ;;
@@ -37,9 +20,8 @@ manifest_key() {
   esac
 }
 
-# go_module_version TOOL — the module version recorded in a Go-built binary.
-# Several of these print `dev` when asked, because a `go install` stamps no
-# version into their own flag; the build record always carries it.
+# go_module_version reads the module version from a Go binary's build record, which `go install`
+# builds stamp even when their own version flag prints `dev`.
 go_module_version() {
   local path
   path="$(command -v "$1")" || return 0
@@ -77,16 +59,13 @@ installed_version() {
   esac
 }
 
-# install_command TOOL — how to install it at the pinned version. A tool this
-# does not know refuses rather than printing a command that would install
-# whatever resolves today, which is the shape the whole file exists to remove.
+# install_command prints how to install the tool at its pinned version and refuses an unknown tool.
 install_command() {
   case "$1" in
     jq | shellcheck | shfmt)
       printf 'scripts/install-shell-tools.sh'
       ;;
-    # What opens the endurance run's encrypted dump. The installer reads both
-    # versions from the manifest.
+    # These open the endurance run's encrypted dump; the installer reads their manifest pins.
     age | age-keygen | zstd)
       printf 'scripts/install-dump-tools.sh   # age %s, zstd %s' "$TOOL_VERSION_AGE" "$TOOL_VERSION_ZSTD"
       ;;
@@ -144,7 +123,7 @@ main() {
     return 2
   fi
 
-  # A probe that reads no version is an answer, not a reason to stop silently.
+  # A tool that reports no version fails with the install command.
   got="$(installed_version "$tool" || true)"
   if [ -z "$got" ]; then
     if command -v "$tool" >/dev/null 2>&1; then

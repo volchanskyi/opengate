@@ -141,12 +141,8 @@ run_hook_case \
   1 \
   'docs/index.md:4: target does not exist'
 
-# A Markdown file OUTSIDE the repository is out of scope: the global
-# ~/.claude/projects/.../memory tree matches the .claude/*.md hook scope but is
-# not a repo doc. The checker must ALLOW such a write (exit 0) rather than
-# fail-closing with "outside repository root" — that misfire blocked the agent
-# memory subsystem. The broken in-content link is intentional: it must NOT be
-# validated, because the file is not part of the repo.
+# A Markdown file outside the repository is out of scope, so the checker allows the write (exit 0).
+# Its broken in-content link is left unvalidated on purpose.
 run_hook_case \
   "hook ignores Markdown outside the repo root" \
   hook-overlay \

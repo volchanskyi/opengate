@@ -14,19 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// productChapters is where the capabilities live. The gate reads the
-// directory rather than a list of its own: a thirteenth chapter must fail
-// until somebody states its outcome, and a hand-kept list would silently rot
-// instead.
+// productChapters is the directory whose chapters each need an outcome.
 const productChapters = "../../../docs/product"
 
-// capabilityOutcomes binds every chapter of the product documentation to the
-// outcomes that prove it. A chapter with no outcome is a promise nothing
-// keeps; an outcome naming no chapter is a test nobody can place.
-//
-// This table is the whole map, and the guard below checks it in both
-// directions against the directory and against this package's own syntax tree,
-// so it cannot drift from either.
+// capabilityOutcomes binds every product chapter to the outcome tests that prove it.
 var capabilityOutcomes = map[string][]string{
 	"Agent-Deployment.md": {
 		"TestAMachineEnrolsWithATokenAndAppearsOnline",
@@ -91,19 +82,12 @@ var capabilityOutcomes = map[string][]string{
 	},
 }
 
-// guardsOfTheMapItself are the tests below, which prove the binding rather
-// than a capability. They are the only functions in this package exempt from
-// naming a chapter, and they are named here rather than matched by a prefix so
-// the exemption cannot quietly grow.
+// guardsOfTheMapItself names the only tests exempt from naming a chapter.
 var guardsOfTheMapItself = map[string]bool{
 	"TestEveryCapabilityHasAnOutcome":    true,
 	"TestEveryOutcomeNamesOneCapability": true,
 }
 
-// TestEveryCapabilityHasAnOutcome reads the chapter directory and insists each
-// chapter is proven. Adding a capability to the product without stating what a
-// customer gets from it fails here, naming the chapter — which is the point:
-// the alternative is noticing months later that nothing ever tested it.
 func TestEveryCapabilityHasAnOutcome(t *testing.T) {
 	t.Parallel()
 
@@ -126,9 +110,6 @@ func TestEveryCapabilityHasAnOutcome(t *testing.T) {
 	}
 }
 
-// TestEveryOutcomeNamesOneCapability is the other direction. An outcome that
-// names no chapter is a test nobody can place when it goes red, and a chapter
-// name that does not exist is a binding to nothing.
 func TestEveryOutcomeNamesOneCapability(t *testing.T) {
 	t.Parallel()
 
@@ -157,9 +138,7 @@ func TestEveryOutcomeNamesOneCapability(t *testing.T) {
 	assert.Emptyf(t, unplaced, "these outcomes name no capability: %s", strings.Join(unplaced, ", "))
 }
 
-// declaredTests reads this package's own syntax tree and returns every test
-// function in it. Reading the source rather than a list is what makes the
-// binding impossible to satisfy by forgetting.
+// declaredTests returns every test function declared in this package's source.
 func declaredTests(t *testing.T) map[string]bool {
 	t.Helper()
 

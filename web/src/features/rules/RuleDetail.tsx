@@ -13,14 +13,7 @@ import { noiseWording } from './rule-summary';
 import { useCatalogueStore } from './state/catalogue-store';
 import { useRuleStore } from './state/rule-store';
 
-/**
- * One rule's page.
- *
- * Everyone in the tenant reads it — a technician resolving something as a false
- * alarm has to be able to see the rule that produced it — and only an
- * administrator changes anything, so the controls are absent rather than
- * disabled for everybody else.
- */
+// Everyone in the tenant reads the page; only administrators get the controls.
 export function RuleDetail() {
   const { ruleId = '' } = useParams();
   const detail = useRuleStore((s) => s.detail);

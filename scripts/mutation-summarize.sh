@@ -1,79 +1,40 @@
 #!/usr/bin/env bash
-# Reads mutation-test outputs from all three languages, emits a canonical
-# JSON-Lines row, runs the regression check, and prints a Telegram-ready
-# alert payload.
+# Reads mutation-test outputs from the three languages, emits a canonical JSON-Lines row, runs the
+# regression check and prints one Telegram-ready REGRESSION_ALERT payload on regression.
 #
-# Invoked by .github/workflows/mutation.yml after the matrix runs complete.
-# Per the PR 9 plan (mutation testing as observability):
-# .claude/plans/pr9-mutation-testing-as-observability.md
-#
-# Inputs (file paths can be overridden via env vars for testing):
-#   RUST_OUTCOMES   default: agent/mutants.out/outcomes.json
-#   GO_REPORT       default: server/mutation-report.json
-#   WEB_REPORT      default: web/reports/mutation/mutation.json
-#   HISTORY_FILE    default: docs/mutation-history.jsonl
-#
-# Behavior controlled by env vars:
+# Environment:
+#   RUST_OUTCOMES       Rust outcomes file (default: agent/mutants.out/outcomes.json)
+#   GO_REPORT           Go gremlins report (default: server/mutation-report.json)
+#   WEB_REPORT          Stryker report (default: web/reports/mutation/mutation.json)
+#   HISTORY_FILE        history rows file (default: docs/mutation-history.jsonl)
 #   GITHUB_SHA          tagged into the canonical row
-#   APPEND=1            append the canonical row to HISTORY_FILE (and rotate to 90d)
-#   MUTATION_LANGUAGES  which legs to carry, space-separated (default: all three)
-#
-# Outputs to stdout:
-#   - the canonical row as a single JSON object
-#   - on regression: a separate line starting with "REGRESSION_ALERT:" containing
-#     the Telegram-ready text (one alert payload per run, never multiple)
+#   APPEND              1 appends the canonical row to HISTORY_FILE and rotates it to 90 days
+#   MUTATION_LANGUAGES  legs to carry, space-separated (default: all three)
 #
 # Exit codes:
-#   0  no regression detected
-#   1  regression detected (per-language: drop >2pp from previous OR score <85%)
-#   2  input file missing or unparseable
-#
-# Score definition (matches PR 6/7/8 conventions):
-#   Rust  = (caught + timeout) / (caught + missed + timeout)         [unviable excluded]
-#   Go    = mutants_killed / (mutants_killed + mutants_lived + mutants_not_covered)
-#   Web   = (killed + timeout) / (killed + survived + timeout + no_coverage)
+#   0  no regression
+#   1  a language dropped more than 2pp from the previous row or scored under 85%
+#   2  an input file is missing or unparseable
 
 set -euo pipefail
-
-# --- Configuration ------------------------------------------------------------
 
 RUST_OUTCOMES="${RUST_OUTCOMES:-agent/mutants.out/outcomes.json}"
 GO_REPORT="${GO_REPORT:-server/mutation-report.json}"
 WEB_REPORT="${WEB_REPORT:-web/reports/mutation/mutation.json}"
 HISTORY_FILE="${HISTORY_FILE:-docs/mutation-history.jsonl}"
 
-# Which legs this run has to carry.
-#
-# A night where one language flakes used to produce no row for any of them: the
-# publish job held a single completeness boolean over all fifty-three shards, and
-# on six of the last ten red nights the failing leg was Go alone. The other
-# legs' scores were thrown away, and with them their regression checks — so a
-# Rust regression was invisible on any night the Go leg flaked.
-#
-# The distinction this keeps is between a leg nobody asked for and a leg asked
-# for and broken. The first is absent from the row; the second is exit 2, the
-# same as it has always been. Blurring them would turn every partial night back
-# into an incomplete run, one level down.
+# A leg nobody asked for is absent from the row; a leg asked for and broken is exit 2.
 MUTATION_LANGUAGES="${MUTATION_LANGUAGES-rust go web}"
 
-REGRESSION_DROP_PP=2.0    # alert when score drops by more than this from prev
-REGRESSION_FLOOR_PCT=85.0 # alert when absolute score crosses below this floor
-RETENTION_DAYS=90         # rolling window for HISTORY_FILE rotation
+REGRESSION_DROP_PP=2.0
+REGRESSION_FLOOR_PCT=85.0
+RETENTION_DAYS=90
 
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# --- Parsers ------------------------------------------------------------------
-
-# parse_rust FILE → JSON object {killed, survived, no_coverage, total, score_pct}
-# Uses cargo-mutants outcomes.json; "unviable" mutants are excluded from the
-# denominator (they couldn't even compile and aren't real test signal).
-#
-# Note: cargo-mutants does NOT distinguish "no coverage" from "missed" — both
-# end up in `.missed`. The JSON keeps the field for canonical-row shape
-# consistency across languages, but it is encoded as null (not 0) so downstream
-# consumers (Grafana, summary tables) can render it as "—" / "n/a" instead of
-# misreading it as "0 mutants without coverage".
+# parse_rust reads cargo-mutants outcomes.json; unviable mutants leave the denominator, and
+# no_coverage is null because cargo-mutants counts no-coverage mutants as missed.
 parse_rust() {
   local file="$1"
   [[ -f "$file" ]] || {
@@ -100,9 +61,8 @@ parse_rust() {
   }
 }
 
-# parse_go FILE → JSON object {killed, survived, no_coverage, total, score_pct}
-# Uses gremlins --output JSON. Per PR 7 convention NOT_COVERED counts toward
-# the denominator (gremlins' own "% caught" includes NOT COVERED).
+# parse_go reads the gremlins JSON; not-covered mutants count toward the denominator, as in
+# gremlins' own caught percentage.
 parse_go() {
   local file="$1"
   [[ -f "$file" ]] || {
@@ -129,10 +89,8 @@ parse_go() {
   }
 }
 
-# parse_web FILE → JSON object {killed, survived, no_coverage, total, score_pct}
-# Uses Stryker JSON reporter. The reporter writes a per-mutant array; we
-# aggregate status counts. CompileError mutants are excluded (free kill by the
-# TS checker; not real test signal). Matches PR 8 score convention.
+# parse_web aggregates the Stryker per-mutant statuses; CompileError mutants are excluded as a
+# free kill by the TypeScript checker.
 parse_web() {
   local file="$1"
   [[ -f "$file" ]] || {
@@ -160,10 +118,7 @@ parse_web() {
   }
 }
 
-# --- Aggregator ---------------------------------------------------------------
-
-# build_row → canonical JSON object for the current run, carrying one entry per
-# language in MUTATION_LANGUAGES and nothing for the rest.
+# build_row emits the canonical row, with one entry per language in MUTATION_LANGUAGES.
 build_row() {
   local language parsed scores='{}'
 
@@ -172,19 +127,15 @@ build_row() {
     return 2
   fi
 
-  # `|| return 2` is required: build_row runs in a `row="$(build_row)" || exit 2`
-  # context where set -e is suspended, so a parse failure here would otherwise
-  # fall through to the aggregating jq and print a misleading "invalid JSON"
-  # after the correct "missing: <file>" error.
+  # `|| return 2` is needed because build_row runs where set -e is suspended, so a parse failure
+  # would otherwise fall through to the aggregating jq.
   for language in $MUTATION_LANGUAGES; do
     case "$language" in
       rust) parsed="$(parse_rust "$RUST_OUTCOMES")" || return 2 ;;
       go) parsed="$(parse_go "$GO_REPORT")" || return 2 ;;
       web) parsed="$(parse_web "$WEB_REPORT")" || return 2 ;;
       *)
-        # Not skipped: a caller that named a language this does not know asked
-        # for a row it will not get, and publishing a narrower one silently is
-        # the shape the subset exists to make visible.
+        # An unknown language is an error; a silently narrower row would hide it.
         echo "unknown mutation language: $language" >&2
         return 2
         ;;
@@ -204,9 +155,7 @@ build_row() {
     }'
 }
 
-# --- Regression check ---------------------------------------------------------
-
-# previous_row → last row from HISTORY_FILE, or null if empty/missing
+# previous_row prints the last HISTORY_FILE row, or null when it is empty or missing.
 previous_row() {
   [[ -f "$HISTORY_FILE" ]] || {
     echo "null"
@@ -215,9 +164,8 @@ previous_row() {
   tail -n 1 "$HISTORY_FILE" 2>/dev/null || echo "null"
 }
 
-# regression_check CURR_ROW PREV_ROW → exit 1 if any language regressed,
-# also prints "REGRESSION_ALERT:" followed by Telegram-ready text on regression.
-# When PREV_ROW is null (first run), only the absolute-floor rule applies.
+# regression_check returns 1 and prints REGRESSION_ALERT lines when a language regressed; with a
+# null PREV_ROW only the absolute floor applies.
 regression_check() {
   local curr="$1" prev="$2"
   local branch="${GITHUB_REF_NAME:-dev}"
@@ -236,9 +184,7 @@ regression_check() {
         or (p != null and (p - c) > $drop)
       end;
 
-    # A leg that did not run has not regressed, so only the legs the row
-    # carries are judged — and a leg absent from the row is absent from the
-    # alert rather than reported as a null beside the ones that ran.
+    # Only the legs the row carries are judged, so a leg that did not run stays out of the alert.
     [ $curr.scores | keys[] ] as $languages
     | reduce $languages[] as $l ({};
         .[$l] = { curr: $curr.scores[$l].score_pct, prev: ($prev.scores[$l].score_pct // null) }
@@ -250,7 +196,6 @@ regression_check() {
   any="$(jq -r '.any' <<<"$result")"
 
   if [[ "$any" == "true" ]]; then
-    # Build Telegram-friendly text
     local lines
     lines="$(jq -r '
       def fmt(lang; row):
@@ -274,10 +219,7 @@ regression_check() {
   return 0
 }
 
-# --- Rotation -----------------------------------------------------------------
-
-# rotate_history → drop rows older than RETENTION_DAYS from HISTORY_FILE.
-# Called only when APPEND=1. Stable: in-place via temp file.
+# rotate_history drops rows older than RETENTION_DAYS from HISTORY_FILE through a temp file.
 rotate_history() {
   [[ -f "$HISTORY_FILE" ]] || return 0
   local cutoff_epoch
@@ -296,8 +238,6 @@ rotate_history() {
   done <"$HISTORY_FILE"
   mv "$tmp" "$HISTORY_FILE"
 }
-
-# --- Main ---------------------------------------------------------------------
 
 main() {
   local row prev

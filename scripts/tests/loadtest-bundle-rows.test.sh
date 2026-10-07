@@ -1,25 +1,5 @@
 #!/usr/bin/env bash
-# The limits a bundle-judged profile declares reach a measurement, and every
-# measurement the reader produces reaches a limit.
-#
-# scripts/loadtest-gate-check.sh is the one thing that reads a limit, and what
-# it reads is canonical rows. Those exist only where a browser-side export has
-# been joined to the machine-side output, which is the staging night and nothing
-# else — so the seven profiles that run on a throwaway machine declared limits
-# nobody evaluated. scripts/loadtest-bundle-rows.sh turns a run's own evidence
-# into those rows, and this holds the two vocabularies level.
-#
-# Both directions matter and they fail differently. A limit naming a series the
-# reader does not produce fails the night it is first read, loudly and for the
-# wrong reason. A series the reader produces that no profile names is a row
-# nobody reads, which is the decoration this work exists to remove and which
-# nothing would ever report.
-#
-# The reader itself is exercised against a bundle the harness actually wrote —
-# built through the same validator a night's evidence passes — in
-# server/tests/loadtest/bundle_rows_test.go. What is here is the reader's
-# refusals and the sweep.
-#
+# Holds each bundle-judged profile's limits level with the rows loadtest-bundle-rows.sh emits.
 # Run: ./scripts/tests/loadtest-bundle-rows.test.sh
 set -euo pipefail
 
@@ -59,8 +39,6 @@ echo "loadtest bundle rows:"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# bundle_observing writes a bundle carrying the named series, in the shape the
-# harness writes one.
 bundle_observing() {
   local out="$1"
   shift
@@ -87,8 +65,6 @@ run_rows() {
   OUT="$("$ROWS" "$@" 2>"$WORK/err.txt")" || STATUS=$?
 }
 
-# --- what the reader produces ------------------------------------------------
-
 bundle_observing "$WORK/full.json" \
   aggregate_error_rate 0.004 connect_p95_ms 41 handshake_p95_ms 12 \
   register_p50_ms 8.1 register_p95_ms 23.45
@@ -105,29 +81,17 @@ assert_eq "the aggregate error rate is read off the bundle" "0.004" \
   "$(jq -r '.[] | select(.phase == "aggregate") | .error_rate' <<<"$OUT")"
 assert_eq "registration is read off the bundle" "23.45" \
   "$(jq -r '.[] | select(.phase == "register") | .latency_p95_ms' <<<"$OUT")"
-# Both halves of it. The tail and the middle case answer different questions
-# about the same queue, and where a venue is driven to what it has been shown to
-# hold only the middle case reproduces — so a profile that can name only the
-# tail there has nothing left it can hold the write path to.
 assert_eq "so is its middle case" "8.1" \
   "$(jq -r '.[] | select(.phase == "register") | .latency_p50_ms' <<<"$OUT")"
 assert_eq "every row names the machine side" "quic quic-agents" \
   "$(jq -r '[.[] | .source] + [.[] | .scenario] | unique | join(" ")' <<<"$OUT")"
 
-# Registration is the server's own figure and a run the server did not answer
-# has none. An absent row is what lets the limits on it fail the night; a row
-# carrying nought would pass every ceiling ever written.
+# An absent registration row lets its limits fail the run; a row carrying zero would pass them.
 bundle_observing "$WORK/no-register.json" aggregate_error_rate 0 connect_p95_ms 41
 run_rows "$WORK/no-register.json"
 assert_eq "a run the server did not answer still reads" "0" "$STATUS"
 assert_eq "and publishes no registration row" "0" \
   "$(jq '[.[] | select(.phase == "register")] | length' <<<"$OUT")"
-
-# --- what it refuses ---------------------------------------------------------
-#
-# Each of these would otherwise arrive as a night where every limit passed for
-# want of anything to compare against, which a caller cannot tell from a clean
-# one.
 
 run_rows "$WORK/absent.json"
 assert_eq "a bundle that is not there refuses" "2" "$STATUS"
@@ -148,8 +112,6 @@ assert_eq "a bundle observing nothing refuses" "2" "$STATUS"
 run_rows
 assert_eq "a call naming no bundle refuses" "2" "$STATUS"
 
-# The rows it produces are rows the evaluator reads: the two scripts join here
-# or they join nowhere.
 run_rows "$WORK/full.json" "$WORK/rows.json"
 assert_eq "rows can be written for the evaluator" "0" "$STATUS"
 GATE_STATUS=0
@@ -162,13 +124,7 @@ else
   fail "and reports how many limits it read: $(cat "$WORK/gate.txt")"
 fi
 
-# --- the sweep ---------------------------------------------------------------
-
-# bundle_judged_profiles — every profile whose limits are read off a bundle: the
-# profiles named by a workflow that runs this reader. The workflows call it
-# through scripts/perf-bundle-limits.sh, which pairs it with the one evaluator
-# and holds an invalid run's numbers apart from a valid one's, so that is the
-# name a workflow is searched for.
+# Profiles named by a workflow that reads its limits through scripts/perf-bundle-limits.sh.
 bundle_judged_profiles() {
   local workflow
   while IFS= read -r workflow; do
@@ -177,14 +133,7 @@ bundle_judged_profiles() {
   done < <(grep -rlE 'perf-bundle-limits\.sh' "$WORKFLOW_DIR" 2>/dev/null || true) | sort -u
 }
 
-# A leg that writes an evidence bundle and reads no limits is the state this
-# closes, so a workflow whose run produces a bundle and no browser-side export
-# to join it to has to run the reader.
-#
-# The bundle is what makes a workflow one of these, rather than the harness
-# binary: the network drill runs the same binary as a site — no profile, no
-# limits, no bundle — so there is nothing there for a reader to read, and a
-# sweep that selected on the binary would demand one.
+# Workflows that write a bundle and have no browser-side export to join it to.
 machine_side_workflows() {
   local workflow
   while IFS= read -r workflow; do
@@ -237,9 +186,6 @@ while IFS= read -r relative; do
   fi
 done < <(bundle_judged_profiles)
 
-# And back the other way. A row the reader produces that no profile names is a
-# measurement nobody decided about, which reads from the outside exactly like
-# one deliberately left alone.
 unread=""
 while IFS= read -r measurement; do
   [ -n "$measurement" ] || continue
@@ -252,8 +198,6 @@ else
   fail "the reader produces measurements no bundle-judged profile names:$unread"
 fi
 
-# A sweep that reached nothing proves nothing, which is the same shape as the
-# limits it exists to catch.
 if [ "$profiles" -ge 5 ] && [ "$limits" -ge 8 ]; then
   pass "read $limits limit(s) across $profiles profile(s)"
 else

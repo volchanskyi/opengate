@@ -10,21 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Rehearsal assertions for migration 014: the three tables an investigation is
-// made of — the alerts a machine raised, the incidents they fold into, and what
-// happened to an incident afterwards.
-//
-// What matters here is what the database itself refuses. An alert is the only
-// carrier of the detail behind a signal and there is no path for asking the
-// endpoint again, so the vocabularies these tables store against are closed by
-// check constraint rather than by an application convention somebody has to
-// remember: a severity nothing downstream can render, a cause code nobody can
-// report on, and an evidence blob past the cap are all refused at the database.
-// Two open incidents for one grouping key are refused the same way, which is
-// what makes folding an alert into an incident race-safe.
-
-// The ids these assertions seed. They sit in their own range so nothing else in
-// the rehearsal collides with them.
+// The seeded ids sit in their own range so nothing else in the rehearsal collides with them.
 const (
 	invTenantA = "00000000-0000-0000-0000-000000000002"
 	invTenantB = "00000000-0000-0000-0000-000000000202"
@@ -33,11 +19,8 @@ const (
 	invDeviceA = "00000000-0000-0000-0000-000000000603"
 )
 
-// investigationTables is every table migration 014 creates.
 var investigationTables = []string{"alerts", "incidents", "incident_events"}
 
-// assertInvestigationsIntroduced confirms migration 014 built the investigation
-// tables with the isolation, the closed vocabularies and the keys they depend on.
 func assertInvestigationsIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
 	t.Helper()
 
@@ -52,11 +35,7 @@ func assertInvestigationsIntroduced(t *testing.T, ctx context.Context, db *sql.D
 		assertTenantLeadingIndex(t, ctx, db, table)
 	}
 
-	// These assertions seed customers and machines of their own. They run
-	// against the migrated database and again against its dump/restore copy,
-	// which carries the first run's rows, so they clear their own fixtures on
-	// both ends: once so a second run starts clean, once so the rehearsal's
-	// shared counts still describe what the migrations built.
+	// Fixtures are cleared at both ends because the dump/restore copy carries the first run's rows.
 	clearInvestigationFixtures(t, ctx, db)
 	defer clearInvestigationFixtures(t, ctx, db)
 
@@ -68,17 +47,13 @@ func assertInvestigationsIntroduced(t *testing.T, ctx context.Context, db *sql.D
 	assertErasingACustomerLeavesNoInvestigation(t, ctx, db)
 }
 
-// clearInvestigationFixtures removes everything the assertions below seed.
-// Deleting the two customers is enough: their machines, alerts, incidents and
-// incident events all cascade from them.
+// Deleting the two customers cascades to their machines, alerts, incidents and incident events.
 func clearInvestigationFixtures(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	rehearsalExecNoTx(t, ctx, db,
 		`DELETE FROM organizations WHERE id IN ($1, $2)`, invOrgA, invOrgB)
 }
 
-// seedInvestigationFixtures inserts one customer per tenant plus a machine in the
-// first, which is the least the assertions below need to point at.
 func seedInvestigationFixtures(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	rehearsalExecNoTx(t, ctx, db,
@@ -89,8 +64,7 @@ func seedInvestigationFixtures(t *testing.T, ctx context.Context, db *sql.DB) {
 		 ON CONFLICT DO NOTHING`, invDeviceA, invTenantA, invOrgA)
 }
 
-// insertRehearsalAlert writes one alert for the seeded machine, varying only the
-// window so each call is its own alert under the identity key.
+// insertRehearsalAlert varies only the window so each call is its own alert under the identity key.
 func insertRehearsalAlert(ctx context.Context, db *sql.DB, severity string, windowStart string) error {
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO alerts (id, tenant_id, organization_id, device_id, rule_id, rule_version,
@@ -101,7 +75,6 @@ func insertRehearsalAlert(ctx context.Context, db *sql.DB, severity string, wind
 	return err
 }
 
-// insertRehearsalIncident opens one incident for the seeded customer.
 func insertRehearsalIncident(ctx context.Context, db *sql.DB, status, causeCode string, scopeKey uuid.UUID) error {
 	var cause any
 	if causeCode != "" {
@@ -115,9 +88,6 @@ func insertRehearsalIncident(ctx context.Context, db *sql.DB, status, causeCode 
 	return err
 }
 
-// assertInvestigationsRLSDeniesAcrossTenants proves the wall holds for a role
-// that is not the table owner: each tenant sees its own incident and nothing
-// else, while an admin context sees both.
 func assertInvestigationsRLSDeniesAcrossTenants(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
 	t.Helper()
 	const roleName = "opengate_rls_rehearsal"
@@ -132,14 +102,11 @@ func assertInvestigationsRLSDeniesAcrossTenants(t *testing.T, ctx context.Contex
 		uuid.New(), invTenantA, invOrgA, uuid.New(), invTenantB, invOrgB)
 
 	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse(invTenantA), false)
-	// Rolled back rather than committed: the assertions only read.
 	defer func() { _ = txA.Rollback() }()
 	var visibleToA int
 	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM incidents`).Scan(&visibleToA))
 	assert.Equal(t, 1, visibleToA, "a tenant should see only its own incidents")
 
-	// The wall also refuses a write into the other tenant's customer, which is
-	// the half a read-only test would miss.
 	_, err := txA.ExecContext(ctx,
 		`INSERT INTO incidents (id, tenant_id, organization_id, rule_id, scope, scope_key,
 		                        severity, status, first_seen, last_seen)
@@ -154,10 +121,6 @@ func assertInvestigationsRLSDeniesAcrossTenants(t *testing.T, ctx context.Contex
 	assert.Equal(t, 2, visibleToAdmin)
 }
 
-// assertClosedVocabulariesRefuseAnythingElse proves the three closed sets are
-// enforced where they cannot be forgotten. A severity nothing can render or a
-// cause code nothing can report on would be stored happily by an application
-// convention and discovered by whoever opens the incident.
 func assertClosedVocabulariesRefuseAnythingElse(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	seedInvestigationFixtures(t, ctx, db)
@@ -200,10 +163,6 @@ func assertClosedVocabulariesRefuseAnythingElse(t *testing.T, ctx context.Contex
 		"an event kind outside the set must be refused at the database")
 }
 
-// assertOneOpenIncidentPerGroupingKey proves the partial unique index does the
-// refusing. Two open incidents for one grouping key is the race an alert
-// arriving on two connections at once would otherwise win, and it would split a
-// customer's estate-wide event into two rooms nobody can reconcile.
 func assertOneOpenIncidentPerGroupingKey(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	seedInvestigationFixtures(t, ctx, db)
@@ -213,8 +172,7 @@ func assertOneOpenIncidentPerGroupingKey(t *testing.T, ctx context.Context, db *
 	assert.Error(t, insertRehearsalIncident(ctx, db, "acknowledged", "", scopeKey),
 		"a second open incident for one grouping key must be refused")
 
-	// Resolved incidents are outside the index, so the same key recurring next
-	// month opens a new room rather than colliding with a closed one.
+	// Resolved incidents sit outside the index, so a recurrence opens a new incident.
 	rehearsalExecNoTx(t, ctx, db,
 		`UPDATE incidents SET status = 'resolved', resolved_at = NOW(), cause_code = 'fixed_by_tech'
 		  WHERE scope_key = $1`, scopeKey)
@@ -223,10 +181,7 @@ func assertOneOpenIncidentPerGroupingKey(t *testing.T, ctx context.Context, db *
 		"the key is free again once every incident holding it is resolved")
 }
 
-// assertAlertIdentityIsUnique proves a reconnect replaying a queued alert lands
-// on the row it already wrote. The identity is deliberately not the id the
-// device chose: an agent that lost its local store would pick a new one and
-// duplicate every alert it still had to send.
+// The alert identity excludes the device-chosen id, which changes when the agent loses its store.
 func assertAlertIdentityIsUnique(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	seedInvestigationFixtures(t, ctx, db)
@@ -238,10 +193,6 @@ func assertAlertIdentityIsUnique(t *testing.T, ctx context.Context, db *sql.DB) 
 		"the next window is a different alert")
 }
 
-// assertEvidenceCapIsEnforcedAtTheDatabase proves the cap is a property of the
-// row rather than of the path that wrote it. Evidence is immutable and there is
-// no path for asking the endpoint again, so a blob that slipped past an
-// application check would sit in the table forever.
 func assertEvidenceCapIsEnforcedAtTheDatabase(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	seedInvestigationFixtures(t, ctx, db)
@@ -263,9 +214,6 @@ func assertEvidenceCapIsEnforcedAtTheDatabase(t *testing.T, ctx context.Context,
 		"evidence with no codec named is an unreadable blob, which is worse than none")
 }
 
-// assertErasingACustomerLeavesNoInvestigation proves the cascade reaches every
-// table a customer's investigations live in. An incident that outlived the
-// customer it belongs to is a row nobody can read and nobody can delete.
 func assertErasingACustomerLeavesNoInvestigation(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	seedInvestigationFixtures(t, ctx, db)
@@ -293,9 +241,7 @@ func assertErasingACustomerLeavesNoInvestigation(t *testing.T, ctx context.Conte
 	}
 }
 
-// assertInvestigationsDownReversal confirms migration 014's down rollback dropped
-// the three tables and left the rule tables' shared tenant predicate standing —
-// 013 owns it, and taking it down here would break every policy built on it.
+// The rollback leaves the rule tables' shared tenant predicate standing; 013 owns it.
 func assertInvestigationsDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	for _, table := range investigationTables {

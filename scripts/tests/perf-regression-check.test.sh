@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/perf-regression-check.sh — the performance stack's and the
-# endurance run's legs, against the nights before them.
-#
-# The legs were held to their profiles' fixed limits and to nothing else, so a
-# leg that doubled its registration tail inside its limit said nothing. This
-# holds each leg to the median of its own previous nights, as the load test is
-# held — where the history says that comparison means something. A leg that
-# holds its load moved at most 1.73 times its median from one night to the next
-# over the bundles on record; a leg driven to or past what the venue holds swung
-# by up to 1400 times on unchanged code. The first is failed past three times
-# its median; the second is reported and left to its fixed limits.
-#
-# Run: ./scripts/tests/perf-regression-check.test.sh
+# Tests for scripts/perf-regression-check.sh, which holds each leg to its prior nights' median.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,8 +32,6 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/store"
 
-# The stand-in store: every reading of the metric asked for, one JSON object per
-# series, as the export API writes them.
 cat >"$WORK/bin/kubectl" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$KUBECTL_ARGS"
@@ -101,20 +87,15 @@ run_check() {
 
 echo "perf-regression-check:"
 
-# The history the store is back-filled with: the volume-500 leg's own
-# registration tail over nine nights on record, and the spike leg's middle case,
-# which is either a write or a queue depending on whether the night saturated.
 nights perf_latency_p95_ms volume-500 register volume-500/1 4.99 4.89 5.01 4.93 5.2 4.97 8.62 5.04 4.98
 nights perf_latency_p50_ms spike register spike/1 5.32 3.01 4.8 6143 5.1 3.3 4.2 5 5.4
 
-# A night inside what the back-filled history holds passes.
 bundle volume-500 volume-500 valid 6.1 3.1
 rc=0
 out="$(run_check "$WORK/legs/volume-500/bundle.json" 2>&1)" || rc=$?
 assert_eq "a night inside its leg's history passes" "0" "$rc"
 assert_lacks "and raises nothing" "REGRESSION_ALERT:" "$out"
 
-# A leg that holds its load, past three times the median of its nights.
 bundle volume-500 volume-500 valid 20 3.1
 rc=0
 out="$(run_check "$WORK/legs/volume-500/bundle.json" 2>&1)" || rc=$?
@@ -126,29 +107,23 @@ else
   pass "the window is nights by date and asks nothing about commits"
 fi
 
-# A leg driven to or past what the venue holds swings by three orders of
-# magnitude on unchanged code, so the same comparison is reported and decides
-# nothing; the leg's fixed limits still do.
 bundle spike spike valid 9650 6140
 rc=0
 out="$(run_check "$WORK/legs/spike/bundle.json" 2>&1)" || rc=$?
 assert_eq "a saturated leg past its median is reported rather than failed" "0" "$rc"
 assert_contains "and the report names it" "REPORTED:spike register latency_p50_ms: 5 -> 6140" "$out"
 
-# Fewer than three nights is no window at all.
 bundle volume-2000 volume-2000 valid 900 3.1
 rc=0
 out="$(run_check "$WORK/legs/volume-2000/bundle.json" 2>&1)" || rc=$?
 assert_eq "a leg with no window is judged by its fixed limits alone" "0" "$rc"
 
-# A leg that did not measure the system is judged by nothing here.
 bundle scaling-1 scaling invalid 900 3.1
 nights perf_latency_p95_ms scaling-1 register scaling/1 7.6 7.8 7.5 7.7
 rc=0
 out="$(run_check "$WORK/legs/scaling-1/bundle.json" 2>&1)" || rc=$?
 assert_eq "an invalid leg is not compared" "0" "$rc"
 
-# Without tonight's date the window would read tonight into itself.
 rc=0
 STARTED_OVERRIDE="" run_check "$WORK/legs/volume-500/bundle.json" >/dev/null 2>&1 || rc=$?
 assert_eq "a check that does not know tonight's date refuses" "2" "$rc"

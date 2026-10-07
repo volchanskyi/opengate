@@ -1,10 +1,4 @@
-//! The common contract every bake-off substrate implements.
-//!
-//! A / B share the Gorilla tiering+compression layer and differ only in how
-//! blocks are persisted (bespoke append-only files vs redb); C is the no-persist
-//! control. Keeping them behind one trait means the fixture corpus and the
-//! measurement runner drive all three identically, so measured differences are
-//! attributable to the substrate, not the harness.
+//! The contract every bake-off substrate implements, so one runner drives them all.
 
 use std::path::Path;
 

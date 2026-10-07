@@ -1,23 +1,6 @@
 #!/usr/bin/env bash
-# Guards the Go test scope against a silent hole between the local gauntlet and CI.
-#
-# The gauntlet has always run the whole tree — `go test ./tests/...` — while CI
-# ran one package of it. Thirty-two tests across four packages
-# (tests/vmramseries, tests/loadtest, tests/vmcardinality, tests/vmbackfill)
-# therefore existed, passed locally, and were measured by no pipeline; a new
-# package under server/tests/ inherited that hole the moment it was created.
-#
-# Fix by construction: the two commands must name the same package patterns.
-# This test reads the pattern out of each file and compares them, in both the
-# unit scope (./internal/...) and the tree scope (./tests/...), so neither side
-# can be narrowed without the other.
-#
-# It also proves both shared services are provisioned for the tree scope. With
-# POSTGRES_TEST_URL or VICTORIAMETRICS_TEST_URL unset, every package in the
-# scope starts its own container — several metrics stores at once is the memory
-# pressure that has the runner kill one mid-run.
-#
-# Run: ./scripts/tests/go-test-scope-parity.test.sh
+# Holds the gauntlet and CI to the same Go package patterns, in the unit and the tree scope.
+# Both shared services are provisioned for the tree scope, so no package starts its own container.
 
 set -euo pipefail
 
@@ -52,9 +35,7 @@ for f in "$CI" "$MUTATION" "$GAUNTLET"; do
 done
 
 # patterns_in FILE — every `./…/...` package pattern a `go test` line names.
-# Comment lines are stripped first: both files explain the scope in prose that
-# quotes the very command being matched, and counting those would make the
-# comparison pass on a scope no test run actually uses.
+# Comment lines are stripped first, as prose may quote the command being matched.
 patterns_in() {
   grep -vE '^[[:space:]]*#' "$1" \
     | grep -oE 'go test [^|>]*' \
@@ -84,8 +65,7 @@ for want in './internal/...' './tests/...'; do
   fi
 done
 
-# The tree scope is only honest if nothing under server/tests/ is left out of
-# it. Every directory holding a _test.go file must be reachable from ./tests/...
+# Every directory under server/tests/ holding a _test.go file is reachable from ./tests/...
 missing_dirs=""
 while IFS= read -r dir; do
   rel="${dir#"$SERVER/"}"
@@ -124,14 +104,8 @@ else
   fail "the integration job never starts Postgres"
 fi
 
-# The mutation shards run the same tree. gremlins takes the module as its unit
-# and re-runs the whole suite as the coverage baseline for every shard, so a
-# package left to start its own metrics store there starts one on each of the
-# thirty-odd Go shards a night — the same memory pressure the integration job
-# provisions its way out of, multiplied by the width of the matrix. A baseline
-# that fails writes no report, and the shard is lost along with it.
-# The shard-budget pre-flight gathers the same module-wide coverage, so it needs
-# the same two services as the shards it projects.
+# The mutation shards and the shard-budget pre-flight run the whole tree as a coverage baseline,
+# so each needs both shared services.
 mutation_budget="$(awk '/^  shard-budget:/{flag=1} /^  mutation:/{flag=0} flag' "$MUTATION")"
 mutation_matrix="$(awk '/^  mutation:/{flag=1} /^  publish:/{flag=0} flag' "$MUTATION")"
 

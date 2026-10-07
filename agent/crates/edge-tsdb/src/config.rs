@@ -1,50 +1,31 @@
-//! Production store configuration and the durability contract.
-//!
-//! Kept in its own always-compiled module so the shipped store surface does not
-//! depend on the bake-off comparison layer (`substrate`, `append_only`, …),
-//! which is gated behind the `bakeoff` feature.
+//! Store configuration and the durability contract, compiled without the `bakeoff` feature.
 
 /// Durability requested at commit time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Durability {
-    /// Flush and fsync — survives power loss. The bounded-loss boundary.
+    /// Flush and fsync, so the commit survives power loss.
     Full,
-    /// Buffer only; a later `Full` commit or clean close makes it durable. The
-    /// fast path for hot writes, with a bounded loss window on crash.
+    /// Buffer only; a later `Full` commit makes it durable.
     None,
 }
 
-/// Footprint and precision policy for a [`LocalTsdb`](crate::store::LocalTsdb).
-///
-/// The store is host-disk-courteous: it never fills the host disk and the agent
-/// never crashes on a full disk. The effective cap is
-/// `min(cap_bytes, host_free × host_free_fraction)` recomputed as the disk fills,
-/// and eviction (coarsest tier first) keeps the store under it.
+/// Footprint and precision policy for a [`LocalTsdb`](crate::store::LocalTsdb); the effective
+/// cap is `min(cap_bytes, host_free × host_free_fraction)`.
 #[derive(Debug, Clone, Copy)]
 pub struct TsdbConfig {
     /// Hard upper bound on the store's on-disk footprint, in bytes.
     pub cap_bytes: u64,
-    /// Fraction of currently-free host disk the store may additionally borrow
-    /// against. The effective cap is the smaller of `cap_bytes` and
-    /// `free × host_free_fraction`. `0.0` disables the host-pressure backoff and
-    /// uses `cap_bytes` alone.
+    /// Fraction of free host disk the cap may borrow against; `0.0` uses `cap_bytes` alone.
     pub host_free_fraction: f64,
-    /// Default per-metric fixed-point scale applied to series without an
-    /// explicit [`set_scale`](crate::store::LocalTsdb::set_scale). `None` keeps
-    /// the adaptive float32 / integer path (no fixed-point quantization).
+    /// Fixed-point scale for series without a [`set_scale`](crate::store::LocalTsdb::set_scale);
+    /// `None` selects the adaptive float32 path.
     pub default_scale: Option<i64>,
 }
 
 impl TsdbConfig {
-    /// The cap actually in force given `host_free` currently-free host bytes:
-    /// the configured cap until the host disk gets tight, then the fraction of
-    /// what is left. `None` (nobody has reported the disk) means the configured
-    /// cap, and a zero fraction disables the backoff.
-    ///
-    /// Public because it is also the store's disk-pressure geometry: anything
-    /// that must stand down *before* eviction changes what it keeps reads its
-    /// own threshold from this function, so the two cannot drift apart.
+    /// The cap in force given `host_free` bytes; `None` or a zero fraction yields `cap_bytes`.
+    /// Callers that act before eviction read their threshold here so both agree.
     #[must_use]
     pub fn effective_cap(&self, host_free: Option<u64>) -> u64 {
         match host_free {

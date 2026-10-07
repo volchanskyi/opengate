@@ -1,10 +1,4 @@
-//! Turning an alert this machine raised into the message the server admits.
-//!
-//! The server refuses an alert it cannot identify, cannot place in time, or
-//! cannot read the evidence of, and it counts every refusal under its own
-//! reason. A machine whose alerts are all refused is indistinguishable from a
-//! machine that raised none — so what is under test here is that every field
-//! the far end requires is present and means what that end reads it as.
+//! A raised alert maps to a message carrying every field the server requires.
 
 use mesh_agent_core::alerts::{
     alert_message, AlertOrigin, AlertSeverity, EdgeAlert, EVIDENCE_CODEC,
@@ -13,11 +7,8 @@ use mesh_protocol::{AlertSeverity as WireSeverity, ControlMessage};
 
 const SECOND: i64 = 1_000_000;
 
-/// Whole seconds, so nothing here depends on how a fraction rounds.
 const FIRED_AT: i64 = 1_763_000_000;
 
-/// A live firing: the reading held over the line for five minutes and then the
-/// rule fired.
 fn live() -> EdgeAlert {
     EdgeAlert {
         rule_id: "disk-critical".to_string(),
@@ -36,8 +27,6 @@ fn live() -> EdgeAlert {
     }
 }
 
-/// Pulls the alert fields out of the message, or fails loudly: every case below
-/// is about what one `AgentAlert` carries.
 fn sent(alert: &EdgeAlert) -> ControlMessage {
     let msg = alert_message(alert);
     assert!(
@@ -47,10 +36,6 @@ fn sent(alert: &EdgeAlert) -> ControlMessage {
     msg
 }
 
-/// The identity the server deduplicates on is (machine, rule, revision, window
-/// start). The machine half of that is the connection; the other three have to
-/// be on the message, and a reconnect replaying the same alert has to produce
-/// the same three or the replay inserts a second row.
 #[test]
 fn an_alert_carries_the_identity_the_server_resolves_it_by() {
     let alert = live();
@@ -78,9 +63,6 @@ fn an_alert_carries_the_identity_the_server_resolves_it_by() {
     );
 }
 
-/// Replaying the same raised alert produces the same identity. The holding area
-/// hands the same value back after a failed send, and the server's duplicate
-/// check is what makes that safe — but only while the three fields do not move.
 #[test]
 fn the_same_alert_sent_twice_resolves_to_one_row() {
     let alert = live();
@@ -98,9 +80,6 @@ fn the_same_alert_sent_twice_resolves_to_one_row() {
     assert_eq!(identity(first), identity(second));
 }
 
-/// The window runs forwards and both ends are stated. A window whose end
-/// precedes its start describes no interval and is refused; so is one whose
-/// ends are nothing.
 #[test]
 fn the_window_runs_forwards_and_both_ends_are_stated() {
     let ControlMessage::AgentAlert {
@@ -124,8 +103,6 @@ fn the_window_runs_forwards_and_both_ends_are_stated() {
     assert!(observed_ts > 0, "an alert nobody saw is refused");
 }
 
-/// An event with no duration still has a window: the instant it happened, at
-/// both ends. A log record is one moment, not a stretch.
 #[test]
 fn an_event_with_no_duration_still_states_a_window() {
     let alert = EdgeAlert {
@@ -159,10 +136,6 @@ fn an_event_with_no_duration_still_states_a_window() {
     );
 }
 
-/// A finding out of history says so, and is stamped with the minute it
-/// happened. The far end widens its clock window for exactly this, and sorts
-/// the incident by that time — a freeze from three weeks ago that arrived
-/// stamped today would sort as today's problem.
 #[test]
 fn a_finding_out_of_history_is_stamped_when_it_happened() {
     let three_weeks = 21 * 24 * 3600;
@@ -193,9 +166,6 @@ fn a_finding_out_of_history_is_stamped_when_it_happened() {
     assert_eq!(window_end_ts, happened);
 }
 
-/// Severity is always stated, and all three travel. An absent severity reads as
-/// a broken sender at the far end rather than as a quiet machine, and reading a
-/// critical alert as the mildest of the three would file it where nobody looks.
 #[test]
 fn every_severity_travels_as_itself() {
     for (raised, expected) in [
@@ -217,9 +187,6 @@ fn every_severity_travels_as_itself() {
     }
 }
 
-/// Evidence names the codec that produced it. The far end refuses a blob under
-/// a codec it cannot read rather than storing something unreadable beside an
-/// alert, so an unnamed codec costs the alert everything behind it.
 #[test]
 fn evidence_names_the_codec_that_packed_it() {
     let ControlMessage::AgentAlert {
@@ -235,9 +202,6 @@ fn evidence_names_the_codec_that_packed_it() {
     assert_eq!(evidence_codec, EVIDENCE_CODEC);
 }
 
-/// A machine that had nothing to attach still says it is in trouble. Evidence
-/// is optional, and an empty blob names no codec — a codec on nothing would
-/// read as evidence that exists.
 #[test]
 fn an_alert_with_nothing_behind_it_still_travels() {
     let alert = EdgeAlert {
@@ -266,8 +230,6 @@ fn an_alert_with_nothing_behind_it_still_travels() {
     );
 }
 
-/// The holding area keeps microseconds and the wire carries seconds. A window
-/// shorter than a second must not collapse into one that ends before it starts.
 #[test]
 fn sub_second_precision_does_not_invert_the_window() {
     let alert = EdgeAlert {

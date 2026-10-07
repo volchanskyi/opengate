@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 # Tests for .github/actions/oci-kube-teardown/oci-kube-teardown.sh.
-#
-# oci-kube-setup writes the OCI API private key, the OCI config, and the OKE
-# kubeconfig to $HOME. Nothing else in a job needs them once the deploy steps
-# finish, so every job that sets them up tears them down with if: always().
-#
-# Run: ./scripts/tests/oci-kube-teardown.test.sh
 
 set -euo pipefail
 
@@ -44,8 +38,6 @@ assert_absent() {
 
 echo "oci-kube-teardown:"
 
-# --- removes every credential the setup action writes ------------------------
-
 FAKE_HOME="$(mktemp -d)"
 trap 'rm -rf "$FAKE_HOME"' EXIT
 
@@ -61,15 +53,11 @@ assert_absent "removes the OCI config" "$FAKE_HOME/.oci/config"
 assert_absent "removes the OCI directory" "$FAKE_HOME/.oci"
 assert_absent "removes the kubeconfig" "$FAKE_HOME/.kube/config"
 
-# --- idempotent: runs under if: always(), including when setup never ran -----
-
 if HOME="$FAKE_HOME" "$TEARDOWN" >/dev/null 2>&1; then
   pass "succeeds when there is nothing to remove"
 else
   fail "succeeds when there is nothing to remove"
 fi
-
-# --- leaves unrelated home content alone -------------------------------------
 
 mkdir -p "$FAKE_HOME/.kube"
 printf 'keep me\n' >"$FAKE_HOME/.kube/other-file"
@@ -81,8 +69,6 @@ if [ -f "$FAKE_HOME/.bashrc" ] && [ -f "$FAKE_HOME/.kube/other-file" ]; then
 else
   fail "leaves unrelated files in place"
 fi
-
-# --- every job that sets credentials up also tears them down -----------------
 
 setup_jobs="$(grep -rlF 'actions/oci-kube-setup' "$REPO_ROOT/.github/workflows" | sort)"
 for wf in $setup_jobs; do

@@ -19,10 +19,8 @@ interface MaintenancePanelProps {
 }
 
 /**
- * Device-detail control for the maintenance toggle. When active it offers an
- * optional-reason entry; when suppressed it states since-when, surfaces the
- * operator reason, and escalates a day-counting alert (the visible stand-in for
- * the deliberate absence of auto-expiry) before offering to resume.
+ * MaintenancePanel toggles maintenance with an optional reason, and while on shows since when,
+ * the reason and a day-counting alert before offering to resume.
  */
 export function MaintenancePanel({ device, onToggle }: MaintenancePanelProps) {
   const [reason, setReason] = useState('');

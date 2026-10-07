@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Create the non-superuser runtime role used by the server. The official
-# Postgres image creates POSTGRES_USER as a superuser; keep that role for
-# maintenance/backups and run application traffic through opengate_app.
+# Creates the non-superuser opengate_app role the server runs as; POSTGRES_USER stays superuser.
 
 set -euo pipefail
 
@@ -9,8 +7,7 @@ set -euo pipefail
 : "${POSTGRES_DB:?POSTGRES_DB is required}"
 : "${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}"
 
-# \getenv reads the password from psql's own environment, so it never appears
-# on a command line that other processes in this pod can read.
+# \getenv reads the password from psql's environment, keeping it off the command line.
 psql \
   -v ON_ERROR_STOP=1 \
   --username "$POSTGRES_USER" \

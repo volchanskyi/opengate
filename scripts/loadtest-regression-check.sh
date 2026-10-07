@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-# Gate canonical load-test trend rows against VictoriaMetrics read-back baselines.
-#
-# Tonight is judged against the nights before it: the median of the latest
-# reading of each of the fourteen previous dates, needing three, read through
-# scripts/lib/vm-query.sh. A night is a date rather than a commit, so a week
-# without a merge is a week of nights, and a re-run of tonight is kept out by its
-# date.
+# Gates load-test trend rows against the median of the latest reading of each of the previous
+# fourteen dates (three needed), read through scripts/lib/vm-query.sh.
 #
 # Environment:
 #   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
@@ -18,32 +13,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WINDOW_DAYS=14
 MIN_WINDOW_SAMPLES=3
 
-# How many nights in a row an advisory has to fire before it stops being an
-# advisory. The tail it was written for ran three and each of them printed a line
-# and returned success.
-#
-# It needs a counter because the comparison silences itself: each bad night
-# enters the window the next one is judged against, so the comparison point
-# climbs until a bad night is no longer four times anything.
+# Consecutive nights a p99 advisory fires before it escalates; each bad night enters the window,
+# so the comparison point climbs and only a counter catches the repeat.
 P99_ESCALATE_NIGHTS=3
 
-# How far back a previous night's count is looked for. A nightly cadence puts the
-# last one inside a day; three gives room for a night that did not run without
-# reaching back far enough to pick up a count from a different fortnight.
+# Days back a previous night's streak count is read from, covering a night that did not run.
 P99_STREAK_LOOKBACK_DAYS=3
 
-# Where this run writes what it counted, for the push that follows it.
 P99_STREAK_FILE="${P99_STREAK_FILE:-loadtest-p99-streaks.json}"
 
-# Frozen tolerance bands, calibrated offline from the live VM series.
-# Deliberately broad: staging load crosses GitHub-hosted runners, a kubectl
-# port-forward, and a shared free-tier OKE cluster, so run-to-run variance is
-# large. A contended night degrades throughput and latency together while every
-# agent still succeeds — measured over a 24-run window, aggregate rps swings
-# between 0.36x and 1.22x its median and connect p95 reaches 4.5x its median with
-# error_rate flat at zero. The bands below clear the widest excursion in that
-# window, so they red on a collapse rather than on a busy neighbour; error_rate
-# and the absolute floors carry the correctness signal.
+# Tolerance bands wide enough to clear the variance of shared runners and a free-tier cluster;
+# error_rate and the absolute floors carry the correctness signal.
 LATENCY_REL_TOL=4.0
 RPS_REL_TOL=0.65
 P99_REL_TOL=3.0
@@ -77,20 +57,8 @@ vm_metric_name() {
   esac
 }
 
-# The absolute limits this file used to hold now live in the profile, beside the
-# phases they judge, and are read by scripts/loadtest-gate-check.sh.
-#
-# They were here and there at once, keyed by the same source/scenario/phase
-# triple, with different values for the same measurement — 200 in this file and
-# 100 in the profile, one enforced and one read by nothing. An edit to either
-# did not do what it said, which is a worse failure than either number being
-# wrong.
-#
-# What stays here is the method: tonight against a typical night from the last
-# fortnight, with tolerances wide enough to clear the spread a shared cluster
-# produces on its own. That comparison has a blind spot by construction — a
-# product that gets slowly worse drags its own window median down with it — and
-# the profile's limits are the floor under that slide.
+# Absolute limits live in the profile and are read by scripts/loadtest-gate-check.sh; a slowly
+# worsening product drags the window median down, and those limits are the floor under it.
 
 num_gt() {
   awk -v a="$1" -v b="$2" 'BEGIN { exit !(a > b) }'
@@ -120,9 +88,6 @@ prom_label_escape() {
   sed 's/\\/\\\\/g; s/"/\\"/g' <<<"$1"
 }
 
-# The window for one of the row's measurements: one line per series, keyed
-# metric/source/scenario/phase/workload, with its median and how many dates it
-# holds.
 window_stats_for_metric() {
   local metric="$1" vm_metric
   vm_metric="$(vm_metric_name "$metric")" || return 0
@@ -139,9 +104,8 @@ window_stats_for_metric() {
         if (kv[1] == "workload") workload = kv[2]
       }
       if (source == "" || scenario == "" || phase == "") next
-      # A series is only comparable to itself, and the workload that produced
-      # it is part of what it is: a scenario rewritten to measure something
-      # else keeps its name, and compares against its own nights or nothing.
+      # The workload is part of the key, so a scenario rewritten under its old name compares
+      # against its own nights alone.
       print metric "/" source "/" scenario "/" phase "/" workload "\t" median "\t" count
     }
   '
@@ -215,9 +179,6 @@ rps_regression_line() {
 
 }
 
-# The error rate is judged against the window like every other measurement. It
-# was compared with the previous night alone, and only when that night had
-# errors, so one bad night excused the next.
 error_rate_regression_line() {
   local source="$1" scenario="$2" phase="$3" current="$4" window="$5" workload="$6"
   local series="${source}/${scenario}/${phase}"
@@ -233,10 +194,8 @@ error_rate_regression_line() {
   fi
 }
 
-# The consecutive-night count each series carried out of the newest night
-# before tonight, keyed the same way the window is. It is read from the store
-# the run already writes to, so nothing new has to persist between nights, and
-# a re-run of tonight is kept out by its date.
+# Streak counts from the newest night before tonight, keyed like the window and read from the
+# store the run writes to.
 streak_map() {
   local map oldest
   oldest="$(date -u -d "$(vm_tonight) - ${P99_STREAK_LOOKBACK_DAYS} days" +%Y-%m-%d)"
@@ -308,8 +267,7 @@ regression_check() {
     source="$(jq -r '.source // "unknown"' <<<"$row")"
     scenario="$(jq -r '.scenario // "unknown"' <<<"$row")"
     phase="$(jq -r '.phase // "aggregate"' <<<"$row")"
-    # A row that names no workload cannot say what produced it, so it keys to
-    # the same empty bucket the unnamed history sits in and is judged by the
+    # A row without a workload keys to the empty bucket of unnamed history and is judged by the
     # absolute rules alone.
     workload="$(jq -r '.workload // ""' <<<"$row")"
     p50="$(jq -r '.latency_p50_ms // empty' <<<"$row")"
@@ -336,11 +294,8 @@ regression_check() {
     fi
     if [ -n "$p99" ]; then
       line="$(p99_advisory_line "$source" "$scenario" "$phase" "$p99" "$window" "$workload")"
-      # Every series gets a count, whether or not it is advisory tonight. A
-      # count that is only written on the nights it is not nought cannot say
-      # whether the quiet nights in between were quiet or absent, and putting a
-      # nought back is what makes three separate bad nights over a fortnight
-      # different from three in a row.
+      # Every series gets a count, zero included, so three bad nights in a fortnight differ from
+      # three in a row.
       local previous streak
       previous="$(streak_entry "$streaks" "$source" "$scenario" "$phase" "$workload")"
       if [ -n "$line" ]; then
@@ -359,7 +314,6 @@ regression_check() {
     fi
   done < <(jq -c '.[]' <<<"$rows")
 
-  # What the next night reads this one's count out of.
   if ((${#streak_rows[@]})); then
     printf '%s\n' "${streak_rows[@]}" | jq -s '.' >"$P99_STREAK_FILE"
   else

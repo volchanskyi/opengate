@@ -1,8 +1,3 @@
--- Initial PostgreSQL schema for OpenGate.
--- This is a flattened representation of SQLite migrations 001-011
--- (Phase 13a fresh-start — no data migration, discards prior SQLite state).
-
--- Users ----------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
     id            UUID PRIMARY KEY,
     email         TEXT NOT NULL UNIQUE,
@@ -13,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Groups (trailing underscore to avoid the reserved word GROUP) --------
+-- The trailing underscore avoids the reserved word GROUP.
 CREATE TABLE IF NOT EXISTS groups_ (
     id         UUID PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -22,7 +17,6 @@ CREATE TABLE IF NOT EXISTS groups_ (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Devices --------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS devices (
     id            UUID PRIMARY KEY,
     group_id      UUID REFERENCES groups_(id) ON DELETE SET NULL,
@@ -39,7 +33,6 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE INDEX IF NOT EXISTS idx_devices_group_id ON devices(group_id);
 CREATE INDEX IF NOT EXISTS idx_devices_status   ON devices(status);
 
--- Agent Sessions -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS agent_sessions (
     token      TEXT PRIMARY KEY,
     device_id  UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
@@ -48,7 +41,6 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_device_id ON agent_sessions(device_id);
 
--- Web Push Subscriptions -----------------------------------------------
 CREATE TABLE IF NOT EXISTS web_push_subscriptions (
     endpoint TEXT PRIMARY KEY,
     user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -56,7 +48,6 @@ CREATE TABLE IF NOT EXISTS web_push_subscriptions (
     auth     TEXT NOT NULL DEFAULT ''
 );
 
--- Audit Events ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS audit_events (
     id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id    UUID NOT NULL,
@@ -68,7 +59,6 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS idx_audit_events_user_id    ON audit_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);
 
--- AMT Devices ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS amt_devices (
     uuid      UUID PRIMARY KEY,
     hostname  TEXT NOT NULL DEFAULT '',
@@ -79,7 +69,6 @@ CREATE TABLE IF NOT EXISTS amt_devices (
 );
 CREATE INDEX IF NOT EXISTS idx_amt_devices_status ON amt_devices(status);
 
--- Enrollment Tokens ----------------------------------------------------
 CREATE TABLE IF NOT EXISTS enrollment_tokens (
     id         UUID PRIMARY KEY,
     token      TEXT NOT NULL UNIQUE,
@@ -92,7 +81,6 @@ CREATE TABLE IF NOT EXISTS enrollment_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_enrollment_tokens_token ON enrollment_tokens(token);
 
--- Security Groups ------------------------------------------------------
 CREATE TABLE IF NOT EXISTS security_groups (
     id          UUID PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
@@ -110,12 +98,10 @@ CREATE TABLE IF NOT EXISTS security_group_members (
 );
 CREATE INDEX IF NOT EXISTS idx_sgm_user_id ON security_group_members(user_id);
 
--- Seed the built-in Administrators group (well-known UUID).
 INSERT INTO security_groups (id, name, description, is_system)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Administrators', 'Full system access', TRUE)
 ON CONFLICT (id) DO NOTHING;
 
--- Device Updates -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_updates (
     id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
@@ -128,7 +114,6 @@ CREATE TABLE IF NOT EXISTS device_updates (
 CREATE INDEX IF NOT EXISTS idx_device_updates_device  ON device_updates(device_id);
 CREATE INDEX IF NOT EXISTS idx_device_updates_version ON device_updates(version);
 
--- Device Hardware ------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_hardware (
     device_id          UUID PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
     cpu_model          TEXT NOT NULL DEFAULT '',
@@ -140,7 +125,6 @@ CREATE TABLE IF NOT EXISTS device_hardware (
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Device Logs ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS device_logs (
     id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     device_id  UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,

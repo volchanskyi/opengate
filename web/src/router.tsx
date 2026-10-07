@@ -51,10 +51,7 @@ export const router = createBrowserRouter([
           { path: 'investigations', element: withSuspense(InvestigationList) },
           { path: 'investigations/:id', element: withSuspense(InvestigationDetail) },
           { path: 'sessions/:token', element: withSuspense(SessionView) },
-          // Rules is a top-level section: everyone in the tenant reads it, and a
-          // technician resolving something as a false alarm has to be able to
-          // see the rule that produced it. Only an administrator can change
-          // anything, which each screen decides for itself.
+          // Everyone in the tenant reads rules; each screen decides whether the viewer may change them.
           { path: 'rules', element: withSuspense(RuleList) },
           { path: 'rules/alert-limits', element: withSuspense(AlertLimits) },
           { path: 'rules/labels', element: withSuspense(DeviceLabels) },
@@ -79,7 +76,6 @@ export const router = createBrowserRouter([
               },
             ],
           },
-          // Redirect old /admin routes to /settings
           { path: 'admin/*', element: <Navigate to="/settings" replace /> },
         ],
       },

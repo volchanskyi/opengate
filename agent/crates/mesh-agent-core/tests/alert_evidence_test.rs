@@ -1,11 +1,5 @@
-//! What travels with an alert, and what is dropped when it will not fit.
-//!
-//! Central holds no high-resolution history behind a signal and never asks the
-//! device for more, so evidence is assembled once, at fire time, and whatever is
-//! not on the message does not exist. Two properties follow, and both are
-//! asserted here rather than assumed: the composition is *fixed* (so two
-//! incidents are comparable), and going over the size cap costs the alert its
-//! least valuable parts rather than the alert itself.
+//! Alert evidence has a fixed composition, and a size-cap overrun drops the least valuable
+//! parts first.
 
 use mesh_agent_core::alerts::{
     compose_evidence, encode_evidence, DimSeries, EvidenceSource, LOG_SAMPLES, PROCESS_ROWS,
@@ -16,7 +10,6 @@ use mesh_protocol::{
     AlertEvidence, HistoryPoint, ProcessReportEntry, EVIDENCE_CODEC, MAX_EVIDENCE_BYTES,
 };
 
-/// The instant the imaginary rule fired.
 const EVENT_TS: i64 = 1_700_000_000;
 
 fn ranked(count: usize) -> Vec<Ranked> {
@@ -34,8 +27,7 @@ fn ranked(count: usize) -> Vec<Ranked> {
         .collect()
 }
 
-/// Readings for `count` dimensions, one a second across a window far wider than
-/// the one evidence keeps, so the span filter has something to cut.
+/// Readings for `count` dimensions, one a second, wider than the window evidence keeps.
 fn readings(count: usize, span_secs: i64) -> Vec<DimSeries> {
     (0..count)
         .map(|i| DimSeries {
@@ -85,8 +77,6 @@ fn source<'a>(
 
 #[test]
 fn the_composition_is_fixed_rather_than_whatever_was_available() {
-    // Offered far more of everything than the composition keeps. What comes back
-    // is the stated shape, not the largest shape that happened to fit.
     let scores = ranked(40);
     let series = readings(40, SERIES_SPAN_SECS * 4);
     let procs = processes(200);
@@ -103,8 +93,6 @@ fn the_composition_is_fixed_rather_than_whatever_was_available() {
         "the fixed composition fits its own cap"
     );
 
-    // The series are the highest-ranked dimensions, in rank order — the three a
-    // technician would have asked for.
     for (i, series) in evidence.series.iter().enumerate() {
         assert_eq!(series.dim, evidence.ranked[i].dim);
         assert!(
@@ -142,8 +130,6 @@ fn a_series_covers_the_event_window_on_both_sides() {
 
 #[test]
 fn a_thin_device_composes_what_it_has_without_inventing_the_rest() {
-    // Negative case: a device that ranked two dimensions and saw one process is
-    // not a broken device. Its evidence is small and complete, never padded.
     let scores = ranked(2);
     let series = readings(2, 30);
     let procs = processes(1);
@@ -158,9 +144,7 @@ fn a_thin_device_composes_what_it_has_without_inventing_the_rest() {
 
 #[test]
 fn a_ranked_dimension_with_no_readings_still_ranks() {
-    // The ranking and the local store can disagree — a dimension can be scored
-    // from a window that has since been evicted. That costs the alert a series,
-    // never the ranking, and never a panic.
+    // A ranked dimension can have readings already evicted from the local store.
     let scores = ranked(3);
     let series = readings(1, 60);
     let evidence = compose_evidence(&source(&scores, &series, &[], &[]));
@@ -176,8 +160,7 @@ fn a_ranked_dimension_with_no_readings_still_ranks() {
 
 #[test]
 fn the_log_sample_cap_is_taken_before_redaction() {
-    // A flood of secret-bearing lines must not cost more redaction work than
-    // twenty lines' worth, or an attacker chooses how much CPU the alert burns.
+    // The cap applies before redaction, so redaction work stays bounded.
     let logs: Vec<String> = (0..5_000)
         .map(|i| format!("attempt {i} password=hunter2"))
         .collect();
@@ -191,8 +174,7 @@ fn the_log_sample_cap_is_taken_before_redaction() {
 
 #[test]
 fn no_field_carries_a_secret_off_the_device() {
-    // A hostile corpus, asserted field by field. Redaction happens here, at the
-    // edge; the server's own guard is defence in depth and not the guarantee.
+    // Redaction happens at the edge; the server's own guard is defence in depth.
     let hostile = [
         "GET /v1 Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJhIjoxfQ.sig",
         "aws_key AKIAIOSFODNN7EXAMPLE rotated",
@@ -267,18 +249,14 @@ fn no_field_carries_a_secret_off_the_device() {
 
 #[test]
 fn oversized_evidence_is_truncated_and_still_travels() {
-    // The cap costs the alert its least valuable parts. It never costs the
-    // alert: a machine in trouble still says so, with less behind it.
     let scores = ranked(RANKED_DIMS);
     let series = readings(RANKED_DIMS, SERIES_SPAN_SECS);
     let procs = processes(PROCESS_ROWS as u32);
-    // Incompressible lines, so the cap is reached by content rather than by
-    // repetition the codec would collapse to nothing.
+    // Incompressible lines reach the cap by content, not repetition.
     let logs: Vec<String> = (0..LOG_SAMPLES).map(|i| noisy_line(i, 8_000)).collect();
 
     let mut evidence = compose_evidence(&source(&scores, &series, &procs, &logs));
-    // Composition alone does not police size — the codec decides that, because
-    // compressed size is not knowable until after encoding.
+    // The codec enforces size, since compressed size is known only after encoding.
     assert_eq!(evidence.log_samples.len(), LOG_SAMPLES);
 
     let encoded = encode_evidence(&mut evidence).expect("evidence must encode");
@@ -294,14 +272,10 @@ fn oversized_evidence_is_truncated_and_still_travels() {
         "the evidence handed to the wire must carry the flag, not just the caller"
     );
 
-    // Deterministic order: the log samples went first, and the ranking — the
-    // part a technician reads before anything else — is still whole.
     assert!(
         evidence.log_samples.len() < LOG_SAMPLES,
         "log samples are the first thing the cap takes"
     );
-    // Halved each round rather than cut to a remainder: a rung that emptied the
-    // list in one step would throw away samples the cap did not need.
     assert!(
         !evidence.log_samples.is_empty(),
         "the samples are halved until they fit, not discarded wholesale"
@@ -312,7 +286,6 @@ fn oversized_evidence_is_truncated_and_still_travels() {
         "the ranking is the last thing the cap takes"
     );
 
-    // What survived still decodes as evidence rather than as a damaged blob.
     let decoded = AlertEvidence::decode(&encoded.bytes, encoded.codec).expect("decodes");
     assert!(decoded.truncated);
     assert_eq!(decoded.ranked.len(), RANKED_DIMS);
@@ -361,15 +334,8 @@ fn evidence_that_fits_is_left_alone() {
     );
 }
 
-/// A deterministic, effectively incompressible log line.
-///
-/// The cap is about *compressed* size, so a corpus the codec can fold away
-/// proves nothing: a repeated block of 160 KB compresses to a few hundred bytes
-/// and the truncation path never runs. This is a fixed-seed generator, so the
-/// corpus is the same on every machine and the same on every run, while carrying
-/// no structure for DEFLATE to exploit. Seeding line n directly from a multiple
-/// of the step constant would be exactly such a structure — every line would be
-/// the same stream one character along — so the seed is itself mixed.
+/// A fixed-seed, effectively incompressible line, so the cap is reached by compressed content.
+/// The seed is mixed so that no two lines share one stream.
 fn noisy_line(index: usize, len: usize) -> String {
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
     const STEP: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -384,40 +350,21 @@ fn noisy_line(index: usize, len: usize) -> String {
     format!("line {index} {noise}")
 }
 
-/// The SplitMix64 finalizer: a bijection that scatters a counter into something
-/// with no exploitable structure.
+/// The SplitMix64 finalizer, a bijection that scatters a counter into structureless bits.
 fn mix(mut z: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^ (z >> 31)
 }
 
-// --- The order of sacrifice ---------------------------------------------------
-//
-// The tests above check the ends of the ladder: that oversized evidence is cut
-// down and that evidence which fits is left alone. Neither says anything about
-// *what* is given up first, and fifteen of the sixteen ways to break the ladder
-// went unnoticed because of it — including reversing every one of its guards and
-// replacing each halving with a remainder.
-//
-// The order is the composition table read bottom-up, and it is what a technician
-// experiences: on a struggling machine they should lose log samples, then the
-// process list, then the depth of each reading series, then whole series, and
-// the ranking last and never entirely, because it is the line they read first.
-//
-// These build an AlertEvidence directly rather than composing one, so each case
-// can put the whole overflow in one part and watch only that part be given up.
-
 use mesh_protocol::{EvidenceSeries, RankedDim};
 
-/// `count` log samples of `bytes` each, incompressible so the cap is reached by
-/// content rather than by repetition the codec would fold away.
+/// `count` incompressible log samples of `bytes` each.
 fn heavy_logs(count: usize, bytes: usize) -> Vec<String> {
     (0..count).map(|i| noisy_line(i, bytes)).collect()
 }
 
-/// A series of `points` readings, one a second, ending the second before the
-/// event.
+/// A series of `points` readings, one a second, ending the second before the event.
 fn series_of(dim: &str, points: usize) -> EvidenceSeries {
     #[allow(clippy::cast_possible_wrap)]
     let span = points as i64;
@@ -444,7 +391,6 @@ fn ranked_dims(count: usize) -> Vec<RankedDim> {
         .collect()
 }
 
-/// Every part at its composed size, as the ladder's untouched baseline.
 fn full_evidence() -> AlertEvidence {
     AlertEvidence {
         ranked: ranked_dims(RANKED_DIMS),
@@ -472,8 +418,6 @@ fn log_samples_are_the_first_thing_given_up_and_nothing_else_is_touched() {
         evidence.log_samples.len() < LOG_SAMPLES,
         "log samples are the first thing the cap takes"
     );
-    // Halved each round rather than cut to a remainder: a rung that emptied the
-    // list in one step would throw away samples the cap did not need.
     assert!(
         !evidence.log_samples.is_empty(),
         "the samples are halved until they fit, not discarded wholesale"
@@ -560,15 +504,10 @@ fn readings_are_thinned_from_the_far_end_before_a_series_is_dropped() {
             "an oversized series is thinned, got {} points",
             series.points.len()
         );
-        // Halved each round rather than cut to a remainder: what is left of a
-        // twenty-thousand-point series is thousands, never one or none.
         assert!(
             series.points.len() > 1,
             "thinning halves a series; it does not cut it to a remainder"
         );
-        // The readings nearest the event are the ones a technician needs, so
-        // the far end goes first and what survives is one unbroken run ending
-        // where the series ended.
         let first = series
             .points
             .first()
@@ -599,8 +538,7 @@ fn readings_are_thinned_from_the_far_end_before_a_series_is_dropped() {
 
 #[test]
 fn whole_series_go_before_the_ranking_does() {
-    // Series carrying no readings at all: there is nothing left to thin, so the
-    // next rung is the one that clears them. Their labels are the overflow.
+    // Series with no readings leave nothing to thin, so only their labels overflow.
     let mut evidence = AlertEvidence {
         ranked: ranked_dims(RANKED_DIMS),
         series: (0..SERIES_DIMS)
@@ -663,9 +601,7 @@ fn the_ranking_is_halved_last_and_never_entirely() {
 
 #[test]
 fn evidence_that_cannot_fit_at_all_still_travels_and_says_so() {
-    // One ranked dimension whose label alone is larger than the cap, so the
-    // ladder runs out of rungs. The alert still goes: empty, flagged, and inside
-    // the cap. A machine in trouble says so even when nothing travels with it.
+    // One label larger than the cap exhausts every truncation step.
     let mut evidence = AlertEvidence {
         ranked: vec![RankedDim {
             dim: noisy_line(0, MAX_EVIDENCE_BYTES * 4),
@@ -696,11 +632,7 @@ fn evidence_that_cannot_fit_at_all_still_travels_and_says_so() {
 
 #[test]
 fn the_ranking_stops_at_one_dimension_rather_than_at_none() {
-    // Eight dimensions whose labels are sized so that one of them fits and two
-    // do not. The ladder halves 8 to 4 to 2 to 1 and stops there: the last
-    // dimension is the whole of what a technician has left to read, and a rung
-    // that gave it up as well would leave an alert saying only that something
-    // happened.
+    // Labels sized so that one dimension fits and two do not.
     let mut evidence = AlertEvidence {
         ranked: (0..RANKED_DIMS)
             .map(|i| RankedDim {

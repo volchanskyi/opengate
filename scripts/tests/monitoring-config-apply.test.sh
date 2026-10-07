@@ -1,20 +1,6 @@
 #!/usr/bin/env bash
-# The monitoring configuration the cluster is actually given, held to the
-# repository that declares it.
-#
-# Three ConfigMaps carry everything Grafana alerts on and everything
-# VictoriaMetrics scrapes. Two of them were created once by hand and re-created
-# by nothing; the third is the chart's, and the chart had not been upgraded in
-# over a hundred days. So the cluster evaluated seven of the thirteen rules the
-# repository declares, served nine of its thirteen dashboards, and scraped none
-# of the per-container series — including the ones the rule written to detect
-# exactly that gap reads. A rule can be added, pinned by a gate, reviewed,
-# merged, and never exist.
-#
-# The applier closes it, and this drives it against a stub cluster: one that
-# accepts what it is given, one that quietly keeps its old content, and one that
-# holds nothing at all. An apply has to pass on the first and fail on the other
-# two, because the apply is not the guarantee — the read-back is.
+# Tests for deploy/scripts/monitoring-config-apply.sh against a stub cluster that accepts, silently
+# drops, or holds nothing; an apply passes only when what it reads back matches the repository.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,12 +32,6 @@ trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$WORK/bin" "$WORK/state"
 
-# --- the stub cluster ---------------------------------------------------------
-#
-# A real `kubectl apply` of a ConfigMap either lands or refuses, and the failure
-# this file exists for is neither: it is an apply nobody ran. So the stub stores
-# what it is given and answers `get` from the store, and its modes are the three
-# ways the store can disagree with the repository.
 cat >"$WORK/bin/kubectl" <<'FAKE_KUBECTL'
 #!/usr/bin/env bash
 set -uo pipefail
@@ -165,9 +145,8 @@ esac
 FAKE_KUBECTL
 chmod +x "$WORK/bin/kubectl"
 
-# The workloads the monitoring chart runs, as `kind/name`, read from the chart
-# rather than written here, so a workload that changes kind changes what the
-# stub cluster holds.
+# The workloads the monitoring chart runs, as `kind/name`, come from the chart itself, so a
+# workload that changes kind changes what the stub cluster holds.
 python3 - "$REPO_ROOT/deploy/helm/monitoring/templates" >"$WORK/workloads" <<'CHART'
 import pathlib, re, sys
 for f in sorted(pathlib.Path(sys.argv[1]).glob("*.yaml")):
@@ -204,8 +183,8 @@ run_apply() {
     bash "$APPLY" "$@" >"$out" 2>&1
 }
 
-# A store that loaded what the repository declares, in the shape VictoriaMetrics
-# prints it back: its own key order, and the zero defaults it fills in.
+# Writes the declared scrape file the way VictoriaMetrics prints it back: in its own key order,
+# with the zero defaults it fills in.
 store_loaded_declared() {
   python3 - "$SCRAPE_FILE" >"$FAKE_VM_LOADED" <<'LOADED'
 import sys, yaml
@@ -226,7 +205,6 @@ stored_key() {
 
 echo "monitoring configuration apply:"
 
-# --- an accepting cluster: all three land and read back -----------------------
 rm -f "$WORK"/state/*.json
 store_loaded_declared
 OUT="$WORK/accept.out"
@@ -244,8 +222,6 @@ for cm in grafana-alerting grafana-dashboards monitoring-victoriametrics-scrape;
   fi
 done
 
-# Every alert rule the repository declares is in what was sent. The gap this
-# closes was seven rules of thirteen, so a count is the assertion.
 REPO_RULES="$(grep -cE '^[[:space:]]+title:' "$REPO_ROOT/deploy/grafana/provisioning/alerting/alert-rules.yml" || true)"
 SENT_RULES="$(grep -cE '^[[:space:]]+title:' <<<"$(stored_key grafana-alerting alert-rules.yml)" || true)"
 if [ "$REPO_RULES" -gt 0 ] && [ "$SENT_RULES" -eq "$REPO_RULES" ]; then
@@ -254,7 +230,6 @@ else
   fail "all declared alert rules reach the cluster (repo=$REPO_RULES sent=$SENT_RULES)"
 fi
 
-# Every dashboard the repository declares is in what was sent.
 REPO_DASH="$(find "$REPO_ROOT/deploy/grafana/provisioning/dashboards" -maxdepth 1 -type f | wc -l)"
 SENT_DASH="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["data"]))' "$WORK/state/grafana-dashboards.json" 2>/dev/null || echo 0)"
 if [ "$REPO_DASH" -gt 0 ] && [ "$SENT_DASH" -eq "$REPO_DASH" ]; then
@@ -263,18 +238,12 @@ else
   fail "all declared dashboards reach the cluster (repo=$REPO_DASH sent=$SENT_DASH)"
 fi
 
-# The scrape job whose absence hid Finding 3's neighbour.
 if grep -qF "kubernetes-cadvisor" <<<"$(stored_key monitoring-victoriametrics-scrape scrape.yml)"; then
   pass "the per-container scrape job reaches the cluster"
 else
   fail "the per-container scrape job reaches the cluster"
 fi
 
-# --- the chat id arrives as a literal string ----------------------------------
-#
-# Grafana refuses to start when the chat id is an unsubstituted variable, and
-# starts with a broken destination when the value carries its own quotes. Only
-# the literal works, and only a reading of what was sent can tell them apart.
 CONTACT="$(stored_key grafana-alerting contact-points.yml)"
 if grep -qF 'chatid: "-1001234567890"' <<<"$CONTACT"; then
   pass "the chat id is rendered as a quoted literal"
@@ -292,8 +261,6 @@ else
   pass "the contact point list is not empty"
 fi
 
-# And the default route points at it, which is the half that decides whether a
-# firing rule reaches anybody.
 POLICIES="$(stored_key grafana-alerting notification-policies.yml)"
 if grep -qE 'receiver: *telegram' <<<"$POLICIES"; then
   pass "the default route points at the Telegram destination"
@@ -301,10 +268,6 @@ else
   fail "the default route points at the Telegram destination (got [$POLICIES])"
 fi
 
-# --- a cluster that quietly keeps its old content: the apply fails ------------
-#
-# The failure the whole applier exists to refuse. Nothing warns, nothing errors,
-# and the only way to know is to ask for what was written back.
 rm -f "$WORK"/state/*.json
 OUT="$WORK/silent.out"
 if run_apply silent-drop "$OUT"; then
@@ -318,10 +281,6 @@ else
   fail "and says which ConfigMap did not come back (out=[$(cat "$OUT")])"
 fi
 
-# --- a chat id carrying its own quotes is refused before it is applied --------
-#
-# It is a green apply with a destination Telegram rejects at send time, which is
-# the one shape a read-back of the ConfigMap cannot catch.
 rm -f "$WORK"/state/*.json
 OUT="$WORK/quoted.out"
 if PATH="$WORK/bin:$PATH" \
@@ -337,7 +296,6 @@ else
   pass "a chat id carrying its own quotes is refused"
 fi
 
-# --- an absent chat id is refused ---------------------------------------------
 rm -f "$WORK"/state/*.json
 OUT="$WORK/nochat.out"
 if PATH="$WORK/bin:$PATH" \
@@ -353,14 +311,8 @@ else
   pass "an absent chat id is refused rather than provisioned empty"
 fi
 
-# --- the deploy job's own namespace does not move the monitoring stack --------
-#
-# A step inherits its job's environment, and the production deploy job names
-# its own release in NAMESPACE and RELEASE. An applier that took its namespace
-# from a name that general wrote the three ConfigMaps into the application's
-# namespace, restarted a Grafana that does not run there, and on the retry found
-# them "unchanged" and asked a store that does not run there either — while the
-# monitoring namespace kept its old dashboards and rules.
+# A step inherits its job's environment, and the production deploy job names its own release in
+# NAMESPACE and RELEASE.
 rm -f "$WORK"/state/*.json
 store_loaded_declared
 OUT="$WORK/production-env.out"
@@ -378,8 +330,6 @@ else
   fail "and every call it makes addresses the monitoring namespace (elsewhere=[$elsewhere])"
 fi
 
-# The namespace is named by the caller, never defaulted: a default is what let
-# a general name from the job decide where the stack was looked for.
 rm -f "$WORK"/state/*.json
 : >"$WORK/calls"
 OUT="$WORK/nonamespace.out"
@@ -398,10 +348,6 @@ else
   fail "an unnamed monitoring namespace is refused by name, before the cluster is touched (out=[$(cat "$OUT")] calls=[$(cat "$WORK/calls")])"
 fi
 
-# --- a second run over an up-to-date cluster changes nothing ------------------
-#
-# The applier runs every night. One that restarts Grafana nightly would trade a
-# stale configuration for a daily outage of the dashboards.
 rm -f "$WORK"/state/*.json
 run_apply accept "$WORK/first.out" || true
 run_apply accept "$WORK/second.out" || true
@@ -416,12 +362,6 @@ else
   fail "and says the configuration was already current (out=[$(cat "$WORK/second.out")])"
 fi
 
-# --- a first run restarts each reader once, by the kind it runs as -----------
-#
-# Every ConfigMap changes on an empty cluster, so every reader is restarted. A
-# restart addressed to a kind the workload is not is a NotFound that fails the
-# night after the configuration already landed, and the next night reads
-# "unchanged" and restarts nothing: the store never reads its new scrape file.
 rm -f "$WORK"/state/*.json
 if run_apply accept "$WORK/restart.out"; then
   pass "a run that changes every ConfigMap restarts the workloads that read them"
@@ -437,13 +377,8 @@ for workload in deployment/monitoring-grafana statefulset/monitoring-victoriamet
   fi
 done
 
-# --- a ConfigMap is applied whole, and keeps what the cluster put on it --------
-#
-# Two ways an apply quietly deletes something. One of the three ConfigMaps
-# carries a second key that no file in the alerting or dashboard trees produces,
-# and rendering only the first is a delete wearing an apply's clothes. And one of
-# the three is the chart's: an apply that drops the ownership metadata Helm
-# recorded leaves a ConfigMap the next chart upgrade refuses to touch.
+# The live scrape ConfigMap carries a second key no repository file produces, and the ownership
+# metadata Helm recorded, which the next chart upgrade requires.
 rm -f "$WORK"/state/*.json
 cat >"$WORK/state/monitoring-victoriametrics-scrape.json" <<'LIVE'
 {
@@ -475,13 +410,6 @@ else
   fail "and the ownership the chart recorded is carried forward (got [$OWNER])"
 fi
 
-# --- the running store is asked what it loaded -------------------------------
-#
-# The ConfigMap held a relabel for two days that the running store never read:
-# a chart upgrade changed the file and restarted nothing, and the nightly apply
-# then found the ConfigMap already current and restarted nothing either. Every
-# production-scoped rule was blind. So the decision rests on what the process
-# loaded, never on what this script changed.
 rm -f "$WORK"/state/*.json
 run_apply accept "$WORK/seed.out" || true
 printf 'global:\n  scrape_interval: 15s\nscrape_configs: []\n' >"$FAKE_VM_LOADED"
@@ -507,7 +435,6 @@ else
   fail "a store still on an older file after reloading is refused, and says what it loaded (out=[$(cat "$OUT")])"
 fi
 
-# A store that could not be asked is not one that loaded the declared file.
 rm -f "$FAKE_VM_LOADED"
 OUT="$WORK/unasked.out"
 if run_apply accept "$OUT"; then
@@ -516,10 +443,6 @@ else
   pass "a store that cannot be asked what it loaded is refused"
 fi
 
-# --- every panel answers, and every production rule can see ------------------
-#
-# Against the stand-in store above, where everything exists, the applier runs
-# every panel's query and every production rule's selectors.
 store_loaded_declared
 run_apply accept "$WORK/answers.out" || true
 if grep -q 'every panel answers' "$WORK/answers.out" && grep -q 'every production rule' "$WORK/answers.out"; then
@@ -580,8 +503,6 @@ else
   fail "a live panel is asked once for each environment (queries=[$(cat "$FAKE_VM_QUERIES")])"
 fi
 
-# The coverage of the production rules: a selector naming a series the store
-# does not hold is a rule that cannot see.
 cat >"$WORK/rules.yml" <<'RULES'
 groups:
   - name: fixture
@@ -628,8 +549,6 @@ else
   fi
 fi
 
-# What the store loaded, compared as structure: its own key order and the zero
-# defaults it fills in are the same configuration; a changed value is not.
 printf 'a: 1\nb: {c: x}\n' >"$WORK/declared.yml"
 if readback loaded "$WORK/declared.yml" <<<$'b:\n  c: x\n  d: false\na: 1'; then
   pass "a loaded configuration in another order with zero defaults is the declared one"

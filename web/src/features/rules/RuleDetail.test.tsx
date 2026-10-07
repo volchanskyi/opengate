@@ -41,7 +41,6 @@ function detail(over: Partial<RuleDetailData> = {}): RuleDetailData {
   };
 }
 
-/** The store with a page already read, so a case is about what is rendered. */
 function show(data: RuleDetailData, isAdmin: boolean, fleetSize = 312) {
   useAuthStore.setState({
     user: { id: 'u1', email: 'x@example.com', display_name: 'X', is_admin: isAdmin },
@@ -68,8 +67,6 @@ beforeEach(() => {
 });
 
 describe('RuleDetail — opening it', () => {
-  // A rule opened after another must not show the previous rule's resolved
-  // settings while its own are being read.
   it('clears the previous rule and reads this rule and the fleet it runs on', () => {
     const fetchRule = vi.fn().mockResolvedValue(undefined);
     const fetchCatalogue = vi.fn().mockResolvedValue(undefined);
@@ -97,8 +94,6 @@ describe('RuleDetail — what it does', () => {
     show(detail(), true);
     expect(screen.getByText('disk.used_percent at or above 90')).toBeInTheDocument();
 
-    // No control anywhere carries the rule's own logic: the only fields on the
-    // page are the tuning and the rollout pace.
     const forbidden = ['disk.used_percent', 'gte', '90'];
     for (const field of screen.queryAllByRole('textbox')) {
       expect(forbidden).not.toContain((field as HTMLInputElement).value);
@@ -107,8 +102,6 @@ describe('RuleDetail — what it does', () => {
 
   it('says how long a breach must persist and how firings group', () => {
     show(detail(), true);
-    // Both the sustain and the grouping window are five minutes here, and both
-    // are stated in words rather than left as a number of seconds.
     expect(screen.getAllByText('5 minutes')).toHaveLength(2);
     expect(screen.getByText('device')).toBeInTheDocument();
   });
@@ -210,10 +203,6 @@ describe('RuleDetail — tuning', () => {
     expect(screen.getAllByText(/allowed 50–99, ships at 90/).length).toBeGreaterThan(0);
   });
 
-  // A rule declares its own adjustable settings, so their names carry whatever
-  // case the author wrote. Ordering by code unit files every capitalised name
-  // ahead of every lower-case one, which puts an arbitrary setting under the
-  // cursor when the form opens.
   it('offers the adjustable settings in the order somebody reads them', () => {
     show(detail({
       rule: {

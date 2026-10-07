@@ -11,16 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// healthTSPath is the web client's copy of the edge-health band boundaries.
 const healthTSPath = "../../../web/src/features/devices/health.ts"
 
 var tsThresholdRE = regexp.MustCompile(`export const (WATCH_THRESHOLD|ANOMALOUS_THRESHOLD) = ([0-9.]+);`)
 
-// TestHealthBandThresholdsMatchWebClient keeps the two copies of the band
-// boundaries in step. Go feeds them to the PromQL behind the dashboard rollup;
-// TypeScript classifies each device badge in the grid and the detail panel.
-// A silent drift would make the dashboard tiles disagree with the badges they
-// link to, so moving one threshold without the other fails here.
 func TestHealthBandThresholdsMatchWebClient(t *testing.T) {
 	t.Parallel()
 

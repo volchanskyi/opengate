@@ -7,14 +7,7 @@ import { useAlertLimitsStore } from './state/alert-limits-store';
 
 const FIELD = 'w-32 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200';
 
-/**
- * A customer's alert budget.
- *
- * On its own page rather than on a rule, because it is not a property of any
- * rule: it is the safety net under all of them. Both numbers were chosen from an
- * estimate of a rate nobody had measured, which is exactly why they are here —
- * a wrong guess that needs a release to correct is an outage.
- */
+// A customer's alert budget is a safety net that caps every rule, so it sits apart from them.
 export function AlertLimits() {
   const limits = useAlertLimitsStore((s) => s.limits);
   const isLoading = useAlertLimitsStore((s) => s.isLoading);
@@ -23,9 +16,7 @@ export function AlertLimits() {
   const saveLimits = useAlertLimitsStore((s) => s.saveLimits);
   const canEdit = useAuthStore((s) => s.user?.is_admin ?? false);
 
-  // The fields show what somebody has typed, or the stored budget until they
-  // type anything. Mirroring the stored value into state on every read would
-  // overwrite a half-typed number the moment another read landed.
+  // The fields show typed text, else the stored budget, so a re-read keeps a half-typed number.
   const [typedCustomer, setTypedCustomer] = useState<string | null>(null);
   const [typedMachine, setTypedMachine] = useState<string | null>(null);
 

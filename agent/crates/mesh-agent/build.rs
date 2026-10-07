@@ -1,8 +1,7 @@
 use std::process::Command;
 
 fn main() {
-    // Allow CI to override the agent version via OPENGATE_VERSION env var.
-    // Falls back to git describe, then CARGO_PKG_VERSION as last resort.
+    // The version is OPENGATE_VERSION when CI sets it, else the latest git tag, else the crate's.
     println!("cargo:rerun-if-env-changed=OPENGATE_VERSION");
 
     let version = if let Ok(ver) = std::env::var("OPENGATE_VERSION") {
@@ -10,13 +9,13 @@ fn main() {
     } else if let Some(ver) = git_version() {
         ver
     } else {
-        std::env::var("CARGO_PKG_VERSION").unwrap()
+        env!("CARGO_PKG_VERSION").to_string()
     };
 
     println!("cargo:rustc-env=AGENT_VERSION={version}");
 }
 
-/// Try to get the version from the latest git tag (e.g. "v0.15.4" → "0.15.4").
+/// Reads the latest git tag without its leading `v`.
 fn git_version() -> Option<String> {
     let output = Command::new("git")
         .args(["describe", "--tags", "--abbrev=0"])
@@ -30,6 +29,5 @@ fn git_version() -> Option<String> {
     let tag = String::from_utf8(output.stdout).ok()?;
     let tag = tag.trim();
 
-    // Strip leading "v" prefix if present.
     Some(tag.strip_prefix('v').unwrap_or(tag).to_string())
 }

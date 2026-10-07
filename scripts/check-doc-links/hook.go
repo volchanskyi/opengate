@@ -11,9 +11,7 @@ import (
 	"strings"
 )
 
-// errOutsideRepoRoot marks a hook-supplied file_path that resolves outside the
-// repository root. Such a file is not a repo doc, so hook mode skips it rather
-// than treating it as a hard error.
+// errOutsideRepoRoot marks a hook file_path that resolves outside the repository root.
 var errOutsideRepoRoot = errors.New("is outside repository root")
 
 type edit struct {
@@ -46,9 +44,7 @@ func (c *checker) readHookOverlay(reader io.Reader) (string, []byte, bool, error
 	relativePath, err := c.relativePath(envelope.ToolInput.FilePath)
 	if err != nil {
 		if errors.Is(err, errOutsideRepoRoot) {
-			// The edited file lives outside the repository (e.g. the global
-			// ~/.claude/projects/.../memory tree matches the .claude/*.md hook
-			// scope but is not a repo doc). Out of scope: nothing to validate.
+			// A file outside the repository has nothing to validate.
 			return "", nil, false, nil
 		}
 		return "", nil, false, err

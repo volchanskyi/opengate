@@ -11,8 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-// A customer's alert budget, stored and read back.
-
 const (
 	upsertLimitsSQL = `INSERT INTO organization_alert_limits
 		   (tenant_id, organization_id, hourly_ceiling, device_hourly_ceiling,
@@ -30,9 +28,7 @@ const (
 		    AND organization_id = $1`
 )
 
-// UpsertLimits stores one customer's budget. It is validated here rather than at
-// a read, so a budget nobody could have meant is refused while an operator is
-// still looking at the number they typed.
+// UpsertLimits validates and stores one customer's budget, refusing an unusable one at write time.
 func (s *Store) UpsertLimits(ctx context.Context, l Limits) error {
 	if err := ValidateLimits(l); err != nil {
 		return err
@@ -51,8 +47,7 @@ func (s *Store) UpsertLimits(ctx context.Context, l Limits) error {
 	})
 }
 
-// Limits reads one customer's budget, falling back to the shipped one when they
-// have set nothing.
+// Limits reads one customer's budget, falling back to the shipped one when none is stored.
 func (s *Store) Limits(ctx context.Context, organizationID uuid.UUID) (Limits, error) {
 	limits := DefaultLimits(organizationID)
 	err := dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
@@ -69,9 +64,7 @@ func (s *Store) Limits(ctx context.Context, organizationID uuid.UUID) (Limits, e
 	return limits, nil
 }
 
-// limitsIn reads the budget inside a transaction already open. Recording an
-// alert reads it on the same connection as the insert that spends it, so the
-// budget being counted against is the one in force at that moment.
+// limitsIn reads the budget inside an open transaction, so an insert spends the budget in force.
 func limitsIn(ctx context.Context, tx *sql.Tx, organizationID uuid.UUID) (Limits, error) {
 	limits := DefaultLimits(organizationID)
 	err := tx.QueryRowContext(ctx, readLimitsSQL, organizationID).

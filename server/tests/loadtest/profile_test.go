@@ -9,10 +9,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// A profile is the only thing a run is configured by, so what it refuses is as
-// much a part of it as what it accepts. Everything below is a shape that would
-// otherwise produce a run whose numbers cannot be compared with any other run's.
-
 const minimalProfile = `
 schema_version: 1
 name: normal
@@ -66,9 +62,6 @@ func TestProfileParsesEveryDeclaredField(t *testing.T) {
 	assert.False(t, p.Gates[0].Blocking, "a gate is advisory until it is declared blocking")
 }
 
-// The phase list is ordered and a run walks it in order, so the total is a
-// property the profile can state about itself rather than something a reader
-// adds up.
 func TestProfileReportsItsOwnDuration(t *testing.T) {
 	p, err := ParseProfile([]byte(minimalProfile))
 	require.NoError(t, err)
@@ -166,8 +159,6 @@ func TestProfileRefusesWhatCannotBeCompared(t *testing.T) {
 	}
 }
 
-// Production is never a target, and a profile is a file somebody edits. The
-// refusal has to be in the type rather than in a reviewer's attention.
 func TestProfileNeverAcceptsProductionAsAnEnvironment(t *testing.T) {
 	_, err := ParseProfile([]byte(`
 schema_version: 1
@@ -183,17 +174,12 @@ safety: {max_node_cpu_percent: 85, max_node_memory_percent: 90}
 	assert.Contains(t, err.Error(), "environment")
 }
 
-// Malformed YAML must name itself rather than silently producing a zero
-// profile that then fails validation for the wrong reason.
 func TestProfileRejectsMalformedYAML(t *testing.T) {
 	_, err := ParseProfile([]byte("phases: [oh no"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse profile")
 }
 
-// A duration written the way a person writes one. Bare seconds are ambiguous
-// between seconds and milliseconds, and a profile that reads either way is a
-// run nobody can reproduce.
 func TestDurationRequiresAUnit(t *testing.T) {
 	var d Duration
 	require.Error(t, d.UnmarshalYAML(yamlNode(t, "300")))
@@ -201,8 +187,6 @@ func TestDurationRequiresAUnit(t *testing.T) {
 	assert.Equal(t, 300*time.Millisecond, d.Duration)
 }
 
-// Every committed profile is loadable and valid. A profile that only exists to
-// be read by a workflow is exactly the file that rots unnoticed.
 func TestCommittedProfilesAreValid(t *testing.T) {
 	profiles, err := LoadProfileDir(profileDir())
 	require.NoError(t, err)
@@ -218,8 +202,6 @@ func TestCommittedProfilesAreValid(t *testing.T) {
 	}
 }
 
-// Every family the strategy names has a profile, so a family cannot be
-// described in the documentation and be unrunnable.
 func TestEveryFamilyHasAProfile(t *testing.T) {
 	profiles, err := LoadProfileDir(profileDir())
 	require.NoError(t, err)
@@ -233,8 +215,6 @@ func TestEveryFamilyHasAProfile(t *testing.T) {
 	}
 }
 
-// yamlNode builds a scalar YAML node, so a scalar decoder can be tested
-// without a document around it.
 func yamlNode(t *testing.T, value string) *yaml.Node {
 	t.Helper()
 	var doc yaml.Node
@@ -243,10 +223,6 @@ func yamlNode(t *testing.T, value string) *yaml.Node {
 	return doc.Content[0]
 }
 
-// The processor ceiling is a promise made to a neighbour, and a disposable stack
-// has none. Declaring one there writes down a number nothing consults — and a
-// ceiling nothing consults reads, to the next person, as protection that is not
-// there. So the profile is refused rather than quietly ignored.
 func TestADisposableStackMayNotDeclareAProcessorCeiling(t *testing.T) {
 	_, err := ParseProfile([]byte(`
 schema_version: 1
@@ -263,8 +239,6 @@ safety: {max_node_cpu_percent: 95, max_node_memory_percent: 90}
 	assert.Contains(t, err.Error(), "runner")
 }
 
-// The room it can still run out of is declared all the same: past the memory
-// ceiling the node has nowhere to put what the run produces, wherever the run is.
 func TestADisposableStackDeclaresTheRoomItCanRunOutOf(t *testing.T) {
 	p, err := ParseProfile([]byte(`
 schema_version: 1

@@ -1,4 +1,3 @@
-// Who may change the Administrators group, and what may not be changed at all.
 package api_test
 
 import (
@@ -14,7 +13,7 @@ func TestSecurityGroup_NonAdminBlocked(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
 
-	// Seed an admin first so the registered user is NOT the first user.
+	// The seeded admin keeps the registered user from being the first user.
 	testutil.SeedAdminUser(t, t.Context(), env.store)
 	regularToken := env.register(t, "nonadmin-sg@example.com", "pass1234")
 
@@ -36,7 +35,6 @@ func TestSecurityGroup_NonAdminBlocked(t *testing.T) {
 		})
 	}
 
-	// POST endpoints with valid bodies — non-admin should get 403.
 	t.Run("POST "+pathSecurityGroups, func(t *testing.T) {
 		resp := env.doJSON(t, http.MethodPost, pathSecurityGroups, regularToken,
 			map[string]string{"name": "test-group"})
@@ -70,7 +68,6 @@ func TestSecurityGroup_CannotRemoveLastAdmin(t *testing.T) {
 	env := newTestEnv(t)
 	ctx := t.Context()
 
-	// Only one admin in the group.
 	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 

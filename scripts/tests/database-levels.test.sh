@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/database-levels.sh — how much of its own caps the database
-# used through a run's measured phase.
-#
-# On the runner's compose stack the reading is the container's own accounting,
-# read from its cgroup while the run is on; on staging it is the cluster's
-# container readings over the phase's window. Either way the answer is a share
-# of the database's own cap, and a reading that could not be taken is null —
-# which a summary prints as "not read", never as 0.
-#
-# Run: ./scripts/tests/database-levels.test.sh
+# Tests for scripts/database-levels.sh, the database's share of its caps over the measured phase.
+# A reading that could not be taken is null, which a summary prints as "not read".
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,10 +28,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "database-levels:"
 
-# --- the container's own accounting --------------------------------------------
-#
-# A cgroup as the kernel lays it out: processor time used so far, the program's
-# own memory, and the two caps.
+# A cgroup as the kernel lays it out: processor time used, the program's memory, and the two caps.
 CG="$WORK/cgroup"
 mkdir -p "$CG"
 printf 'usage_usec 5000000\nuser_usec 4000000\nsystem_usec 1000000\n' >"$CG/cpu.stat"
@@ -55,8 +44,7 @@ else
   fail "each line carries the processor used, the program's memory and the two caps (got=[$(cat "$WORK/samples.tsv")])"
 fi
 
-# Ten seconds of the measured phase, half a processor used against a cap of
-# one, the program holding a tenth of its gigabyte and then three tenths.
+# Ten seconds of the phase use half a processor of a one-processor cap.
 t0="$(date -u -d '2026-09-29T13:45:35Z' +%s)"
 {
   printf '%s\t1000000\t107374182\t100000\t100000\t1073741824\n' "$((t0 - 5))"
@@ -69,14 +57,12 @@ assert_eq "processor is the share of its cap used across the window" "50" "$(jq 
 assert_eq "memory is the program's own, averaged, against its cap" "20" "$(jq -r '.memory_percent | round' <<<"$out")"
 assert_eq "and the caps are named" "1 processor 1 GiB" "$(jq -r '"\(.cpu_cap) \(.memory_cap)"' <<<"$out")"
 
-# A window with fewer than two readings in it has no processor figure: a
-# difference needs two ends. It is null, never nought.
+# A window with fewer than two readings has a null processor figure, as a difference needs two ends.
 out="$("$LEVELS" average "$WORK/run.tsv" 2026-09-29T13:45:40Z 2026-09-29T13:45:44Z)"
 assert_eq "a window holding no reading is null throughout" "null null" "$(jq -r '"\(.cpu_percent) \(.memory_percent)"' <<<"$out")"
 out="$("$LEVELS" average "$WORK/no-such.tsv" 2026-09-29T13:45:35Z 2026-09-29T13:45:45Z)"
 assert_eq "no samples at all is null, not a failure" "null null" "$(jq -r '"\(.cpu_percent) \(.memory_percent)"' <<<"$out")"
 
-# --- the cluster's container readings -------------------------------------------
 mkdir -p "$WORK/bin"
 cat >"$WORK/bin/kubectl" <<'STUB'
 #!/usr/bin/env bash

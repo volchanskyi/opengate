@@ -15,10 +15,8 @@ type tombstoneLoader interface {
 	ListAll(ctx context.Context) ([]lifecycle.Tombstone, error)
 }
 
-// WarmTombstones loads the persisted deny-list into the in-memory cache so a
-// device purged before this process started stays rejected on reconnect. It is
-// a no-op when no persisted store is wired. Call it once at startup, before
-// serving.
+// WarmTombstones loads the persisted deny-list into the in-memory cache so a device purged
+// before startup stays rejected on reconnect. A no-op when no persisted store is wired.
 func (s *AgentServer) WarmTombstones(ctx context.Context) error {
 	if s.tombstoneStore == nil {
 		return nil
@@ -49,16 +47,13 @@ func (s *AgentServer) DeregisterAgent(ctx context.Context, deviceID protocol.Dev
 		s.logger.Error("send deregistered to agent", "error", err, "device_id", deviceID)
 	}
 
-	// Close connection so the control loop exits.
 	if err := ac.Close(); err != nil {
 		s.logger.Warn("close agent connection on deregister", "error", err, "device_id", deviceID)
 	}
 }
 
-// DeregisterTenant tombstones and disconnects every connected agent in a tenant, for
-// a tenant-wide purge. Offline agents in the tenant are covered by the persisted
-// per-device deny-list entries the purge records, so they are rejected by their
-// own id when they next reconnect.
+// DeregisterTenant tombstones and disconnects every connected agent in a tenant. Offline
+// agents are rejected by the per-device deny-list entries the purge records.
 func (s *AgentServer) DeregisterTenant(ctx context.Context, tenantID uuid.UUID) {
 	for _, ac := range s.ListConnectedAgents() {
 		if ac.TenantID == tenantID {

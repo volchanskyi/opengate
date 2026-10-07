@@ -11,8 +11,6 @@ readonly TMP_PARENT="${OPENGATE_TMP_PARENT:-${TMPDIR:-/tmp}}"
 readonly SERVICE_NAME="mesh-agent"
 readonly BINARY_NAME="mesh-agent"
 
-# --- Helpers ----------------------------------------------------------------
-
 log() {
   printf '[opengate] %s\n' "$*"
   return 0
@@ -22,23 +20,17 @@ fail() {
   exit 1
 }
 
-# --- Pre-flight checks ------------------------------------------------------
-
 [[ ${OPENGATE_EFFECTIVE_UID:-$EUID} -eq 0 ]] || fail "This script must be run as root (use sudo)"
 command -v curl >/dev/null 2>&1 || fail "curl is required but not installed"
 command -v systemctl >/dev/null 2>&1 || fail "systemd is required but not found"
 
-# --- Parse arguments --------------------------------------------------------
-
 ENROLLMENT_TOKEN="${1:-}"
 [[ -n "$ENROLLMENT_TOKEN" ]] || fail "Usage: $0 <ENROLLMENT_TOKEN>"
 
-# Derive the server URL from OPENGATE_SERVER env or from the download source.
 if [[ -n "${OPENGATE_SERVER:-}" ]]; then
   SERVER_URL="${OPENGATE_SERVER}"
 else
-  # When piped via curl, try to extract the server from /proc.
-  # Fallback: user must set OPENGATE_SERVER.
+  # Piped via curl, the parent's command line names the server.
   CMDLINE=$(tr '\0' ' ' </proc/$PPID/cmdline 2>/dev/null || true)
   if [[ "$CMDLINE" =~ https?://([^/]+) ]]; then
     SERVER_URL="${BASH_REMATCH[0]%%/api/*}"
@@ -48,8 +40,6 @@ else
 fi
 
 log "Server: ${SERVER_URL}"
-
-# --- Detect platform -------------------------------------------------------
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -64,8 +54,6 @@ esac
 
 log "Platform: ${OS}/${ARCH}"
 
-# --- Validate enrollment token before downloading ----------------------------
-
 log "Validating enrollment token..."
 ENROLL_RESPONSE=$(curl -sf --max-time 30 \
   -X POST "${SERVER_URL}/api/v1/enroll/${ENROLLMENT_TOKEN}" \
@@ -79,12 +67,9 @@ SERVER_ADDR=$(echo "$ENROLL_RESPONSE" | grep -oP '"server_addr"\s*:\s*"\K[^"]*')
 
 log "Server QUIC address: ${SERVER_ADDR}"
 
-# --- Resolve binary download URL and SHA256 ---------------------------------
-
 DOWNLOAD_URL=""
 EXPECTED_SHA256=""
 
-# Strategy 1: Try GitHub Releases if OPENGATE_GITHUB_REPO is set.
 GITHUB_REPO="${OPENGATE_GITHUB_REPO:-}"
 if [[ -n "$GITHUB_REPO" ]]; then
   log "Fetching latest release from GitHub (${GITHUB_REPO})..."
@@ -125,7 +110,6 @@ sys.exit(1)
   fi
 fi
 
-# Strategy 2: Fall back to server manifests.
 if [[ -z "$DOWNLOAD_URL" ]]; then
   log "Fetching agent manifest for ${OS}/${ARCH} from server..."
   MANIFESTS=$(curl -sf --max-time 30 \
@@ -160,15 +144,12 @@ fi
 
 log "Downloading agent from: ${DOWNLOAD_URL}"
 
-# --- Download binary --------------------------------------------------------
-
 WORK_DIR=$(mktemp -d "$TMP_PARENT/opengate-agent.XXXXXX")
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 curl -fL --max-time 300 -o "${WORK_DIR}/${BINARY_NAME}" "$DOWNLOAD_URL" \
   || fail "Failed to download agent binary"
 
-# Verify SHA256 if available.
 if [[ -n "$EXPECTED_SHA256" ]]; then
   ACTUAL_SHA256=$(sha256sum "${WORK_DIR}/${BINARY_NAME}" | awk '{print $1}')
   if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
@@ -177,31 +158,19 @@ if [[ -n "$EXPECTED_SHA256" ]]; then
   log "SHA256 verified"
 fi
 
-# --- Install ----------------------------------------------------------------
-
 log "Installing agent..."
 
-# Binary. Owner and group only: it is owned by root and started by a unit that
-# runs as root, so no other local account needs to read or run it — and every one
-# of those accounts is somebody the agent's key and data directory are already
-# closed to. The auto-updater writes the same mode.
+# The binary is mode 0750: root starts it, so other local accounts need no access.
 install -m 0750 "${WORK_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 
-# Config + data directories
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR"
 
-# --- Systemd service --------------------------------------------------------
-# On first boot the agent uses --enroll-url and --enroll-token to obtain a
-# CA-signed certificate via CSR enrollment. On subsequent restarts, the agent
-# loads the saved identity from DATA_DIR and ignores the enrollment flags.
+# The first boot enrolls with the flags below; later restarts load the identity saved in DATA_DIR.
 
 mkdir -p "$SYSTEMD_DIR"
 UNIT_FILE="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
-# ExecStart below carries the enrollment token, which stays usable until it
-# expires or is exhausted, so the unit is readable only by root. The mode is
-# placed on the file before the content, and re-placed on every run, because a
-# redirect keeps whatever mode the file already had.
+# The unit carries the enrollment token, so mode 0600 is set before the content is written.
 install -m 0600 /dev/null "$UNIT_FILE"
 cat >"$UNIT_FILE" <<UNIT
 [Unit]

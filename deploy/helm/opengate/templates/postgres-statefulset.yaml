@@ -93,8 +93,7 @@ spec:
         - name: tmp
           emptyDir: {}
         {{- if not .Values.postgres.storage.persistent }}
-        # Ephemeral DB (staging only, ADR-035): the data dir resets on restart.
-        # E2E/smoke seed their own state, so no block volume is provisioned.
+        # The data dir is an emptyDir that resets on restart; e2e and smoke seed their own state.
         - name: data
           emptyDir: {}
         {{- end }}

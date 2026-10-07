@@ -16,7 +16,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// restartDevice posts a raw restart body and returns the response status.
 func restartDevice(t *testing.T, env *sessionTestEnv, jwt string, deviceID uuid.UUID, body string) int {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost,
@@ -32,8 +31,6 @@ func restartDevice(t *testing.T, env *sessionTestEnv, jwt string, deviceID uuid.
 	return resp.StatusCode
 }
 
-// readControlFrame reads one control frame off the agent's QUIC stream and
-// decodes it the way the agent would.
 func readControlFrame(t *testing.T, stream io.ReadWriter) *protocol.ControlMessage {
 	t.Helper()
 	codec := &protocol.Codec{}
@@ -45,16 +42,6 @@ func readControlFrame(t *testing.T, stream io.ReadWriter) *protocol.ControlMessa
 	return msg
 }
 
-// TestRestartDevice_ReachesAgentOverQUIC drives the restart endpoint against a
-// real connected agent and asserts on the frame the agent actually receives.
-//
-// A reason that bottoms out empty encodes a map with no `reason` key, which the
-// agent's decoder rejects — it would break the control stream and force a full
-// reconnect while the caller saw a 200 for a restart that never happened. So the
-// empty case must put *nothing* on the stream. The assertion is ordering-based
-// rather than timing-based: a third restart with a distinct reason follows the
-// refused one, and the next frame off the stream must be that third one. Any
-// frame the refused request had written would arrive first.
 func TestRestartDevice_ReachesAgentOverQUIC(t *testing.T) {
 	t.Parallel()
 	env := newSessionTestEnv(t)
@@ -72,7 +59,6 @@ func TestRestartDevice_ReachesAgentOverQUIC(t *testing.T) {
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
-	// A stated reason round-trips to a complete RestartAgent.
 	require.Equal(t, http.StatusOK,
 		restartDevice(t, env, jwtToken, deviceID, `{"reason":"scheduled maintenance"}`))
 
@@ -80,14 +66,13 @@ func TestRestartDevice_ReachesAgentOverQUIC(t *testing.T) {
 	assert.Equal(t, protocol.MsgRestartAgent, msg.Type)
 	assert.Equal(t, "scheduled maintenance", msg.Reason)
 
-	// An empty reason is refused before anything is written.
+	// An empty reason encodes no reason key, which the agent's decoder rejects, so nothing is written.
 	assert.Equal(t, http.StatusBadRequest,
 		restartDevice(t, env, jwtToken, deviceID, `{"reason":""}`))
 	assert.Equal(t, http.StatusBadRequest,
 		restartDevice(t, env, jwtToken, deviceID, `{"reason":"   "}`))
 
-	// The next frame on the stream is the following restart, proving neither
-	// refused request wrote one.
+	// The next frame is the following restart, so neither refused request wrote one.
 	require.Equal(t, http.StatusOK,
 		restartDevice(t, env, jwtToken, deviceID, `{"reason":"second attempt"}`))
 

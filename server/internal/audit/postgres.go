@@ -13,7 +13,6 @@ type Postgres struct {
 }
 
 // NewPostgres returns a Postgres-backed Repository using the provided handle.
-// The db package owns the audit_events schema and migrations.
 func NewPostgres(db *sql.DB) *Postgres {
 	return &Postgres{db: db}
 }
@@ -33,8 +32,7 @@ func (p *Postgres) Write(ctx context.Context, event *Event) error {
 }
 
 func (p *Postgres) Query(ctx context.Context, q Query) ([]*Event, error) {
-	// Sentinel-parameter pattern: always pass every filter so the query is a
-	// single static literal (avoids go:S2077 dynamic-SQL hotspot).
+	// Every filter is always passed, so the query stays one static literal.
 	var userID any
 	if q.UserID != nil {
 		userID = *q.UserID

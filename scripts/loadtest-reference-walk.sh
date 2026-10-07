@@ -1,38 +1,14 @@
 #!/usr/bin/env bash
-# Follow what actually holds a leaked object, on the machine the run destroys.
-#
-# The profiles the soak keeps say where an object was born and how many
-# goroutines are parked on a line. For a stuck goroutine that is the whole
-# answer. For a held object it is half of one: Go's heap profile records the
-# allocation site, and a leak is not about where something was made — it is
-# about what is still pointing at it. Nothing the target publishes about itself
-# can answer that, because the answer is the shape of the live heap.
-#
-# A core dump can. This takes one off the running server without stopping it,
-# and walks the reference graph back from the objects occupying the most memory
-# to the root that keeps them alive — a global, or a variable in a live
-# goroutine's frame, named with its function.
-#
-# It is here and nowhere else for the reason the endurance family runs on a
-# throwaway machine at all: taking a core means ptrace on a neighbour's process,
-# and reading it means a binary that still carries its debugging information.
-# The staging pod drops every capability, runs as a non-root user and has a
-# read-only filesystem; this runner is created by the job and destroyed with it.
-#
-# The core is most of the server's address space and holds the fixture's own
-# data, and the repository is public. So it is taken outside the bundle,
-# compressed, and encrypted to the maintainer's public key before anything reads
-# it — a reader that cannot open it tonight leaves a dump that can be opened at
-# the desk with one that can. The plain copy is removed on every exit. The
-# program it was taken from travels with the reports, in the clear: it is built
-# from public source, and a core names addresses and nothing else.
+# Takes a core of the running server and walks the reference graph from its largest objects.
+# The core is encrypted to the maintainer's key, and the plain copy is removed on exit.
 #
 # Environment:
 #   SOAK_DUMP_AGE_RECIPIENT  the maintainer's age public key (required)
 #   RUNNER_TEMP              where the plain core is taken
 #
-# Usage: loadtest-reference-walk.sh <container> <binary-path-in-container> <out-dir> <dump-dir>
-#        loadtest-reference-walk.sh --check-recipient
+# Usage:
+#   loadtest-reference-walk.sh <container> <binary-path-in-container> <out-dir> <dump-dir>
+#   loadtest-reference-walk.sh --check-recipient
 set -euo pipefail
 
 # shellcheck source=lib/reference-walk.sh
@@ -43,10 +19,8 @@ usage() {
   echo "       $0 --check-recipient" >&2
 }
 
-# check_recipient refuses anything but a native age public key. The value is
-# never printed: one of the shapes refused is a private key. An SSH key is
-# refused because an SSH recipient writes a marker of the key into every file
-# it encrypts.
+# check_recipient accepts only a native age public key and never prints the value, which may be
+# a private key. An SSH recipient writes a marker of the key into every file it encrypts.
 check_recipient() {
   local recipient="${SOAK_DUMP_AGE_RECIPIENT:-}"
   case "$recipient" in
@@ -98,24 +72,19 @@ main() {
 
   mkdir -p "$out"
 
-  # The process to dump, named in the host's own numbering rather than the
-  # container's: the debugger runs beside the container, not inside it.
+  # The pid is the host's numbering, since the debugger runs beside the container.
   local pid
   pid="$(docker inspect -f '{{.State.Pid}}' "$container" 2>/dev/null || true)"
   if [ -z "$pid" ] || [ "$pid" = "0" ]; then
     refuse "$container is not running, so there is no live heap to walk"
   fi
 
-  # The binary, because a core names addresses and nothing else. It is copied
-  # out rather than read in place: the path inside the container resolves to
-  # nothing out here.
+  # A core names addresses only, so the binary is copied out to read it against.
   local exe="$out/target-binary"
   docker cp "$container:$binary" "$exe" \
     || refuse "could not take $binary out of $container, so the core cannot be read"
 
-  # And the binary has to still carry its debugging information. A release build
-  # strips it, and a stripped binary makes every reading below empty rather than
-  # wrong — which is the shape that reports a leaking server clean.
+  # A stripped release binary makes every reading empty, which would report a leaking server clean.
   local sections
   sections="$(readelf -S "$exe" 2>/dev/null || true)"
   if ! grep -qF -- '.debug_info' <<<"$sections"; then
@@ -134,8 +103,7 @@ main() {
     refuse "gcore reported success and wrote no core"
   fi
 
-  # Encrypted before anything reads it, so a reader that fails on it tonight
-  # still leaves the dump for one that can.
+  # The dump is encrypted before the walk reads the core, so a failed walk still leaves it.
   local encrypted=yes
   if ! encrypt_dump "$core" "$dump_dir"; then
     encrypted=no

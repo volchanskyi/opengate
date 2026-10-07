@@ -1,19 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * Run `callback` every `delayMs` while the tab is visible.
- *
- * A background tab is not watching anything, so polling it only burns the
- * device's battery and the server's capacity. The interval is torn down when the
- * page hides and rebuilt when it shows again, with one immediate catch-up call
- * on the hidden -> visible edge so a returning user never reads stale data while
- * waiting out a full period.
- *
- * The first render does not fire a catch-up: mount-time loading belongs to the
- * caller, and this hook governs the repeat only.
- *
- * `callback` is held in a ref, so an inline arrow function may be passed without
- * restarting the interval on every render.
+ * Runs `callback` every `delayMs` while the tab is visible, with a catch-up call on showing.
+ * The callback is held in a ref, so an inline function does not restart the interval.
  */
 export function useVisibleInterval(callback: () => void, delayMs: number): void {
   const savedCallback = useRef(callback);

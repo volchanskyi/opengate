@@ -11,18 +11,8 @@ thread_local! {
     static COUNT: Cell<usize> = const { Cell::new(0) };
 }
 
-// Counting is per-thread on purpose. A global allocator sees every thread in
-// the process, and the claim under test is about one loop on one thread — so a
-// process-wide counter also charges it for the test harness's own bookkeeping
-// and for whatever the coverage runtime does on its own schedule. Those are
-// timing-dependent: they show up when the machine is loaded enough for another
-// thread to be scheduled mid-loop, which makes the assertion pass or fail on
-// core count rather than on the code it is describing.
-//
-// Both thread-locals are `const`-initialized, so registering them cannot itself
-// allocate — an allocating initializer would re-enter this allocator. They also
-// hold `Copy` types with no drop glue, so no TLS destructor is registered and
-// `with` cannot panic on a thread that is shutting down.
+// Counting is per-thread so allocations by the harness and coverage runtime are not charged.
+// The thread-locals are const-initialized `Copy` types, so using them never allocates or panics.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if COUNTING.with(Cell::get) {
@@ -86,9 +76,6 @@ fn detection_loop_is_allocation_free_after_model_load() {
     );
 }
 
-/// The counter has to be able to fail, or the test above proves nothing. One
-/// allocation on the measured thread is observed; the same allocation made
-/// before the measured region is not.
 #[test]
 fn counter_observes_allocations_on_the_measured_thread_only() {
     let before = vec![1u8; 32];
@@ -102,11 +89,7 @@ fn counter_observes_allocations_on_the_measured_thread_only() {
 
     assert_eq!(observed, 1, "an allocation inside the region is counted");
 
-    // A child thread's own allocations are not charged here, which is what
-    // keeps the harness's allocations out of the measurement above. Spawning
-    // and joining does allocate on *this* thread, so the two runs are compared
-    // against each other: the only difference between them is the work the
-    // child does, and the counts have to come out equal.
+    // Spawning and joining allocates on this thread, so the two runs are compared to each other.
     fn spawn_join_cost(child_allocations: usize) -> usize {
         let counter = AllocationCounter::start();
         std::thread::spawn(move || {

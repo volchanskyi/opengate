@@ -15,18 +15,12 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-// The incidents strip owns its own read and is exercised in
-// DeviceIncidentsStrip.test.tsx; stub it here so these tests assert only that
-// the device page carries it, keyed to the device on screen.
 vi.mock('../investigations', () => ({
   DeviceIncidentsStrip: ({ deviceId }: { deviceId: string }) => (
     <div data-testid="incidents-strip">{deviceId}</div>
   ),
 }));
 
-// The telemetry panel is exercised in DeviceMetrics.test.tsx; stub it here so
-// these tests stay isolated from uPlot/canvas and the metrics fetch. The stub
-// exposes onViewLogs so the correlation-jump glue can be driven.
 vi.mock('./DeviceMetrics', () => ({
   DeviceMetrics: ({ deviceId, onViewLogs }: { deviceId: string; onViewLogs?: (f: number, t: number) => void }) => (
     <div data-testid="device-metrics">
@@ -104,12 +98,8 @@ describe('DeviceDetail — agent version, upgrade and restart', () => {
     useDeviceStore.setState({ restartAgent: restartFn });
 
     renderDetail();
-
-    // First click shows confirmation
     await user.click(screen.getByRole('button', { name: 'Restart Agent' }));
     expect(screen.getByRole('button', { name: /Confirm \(1 active\)/ })).toBeInTheDocument();
-
-    // Second click triggers the actual restart
     await user.click(screen.getByRole('button', { name: /Confirm \(1 active\)/ }));
     expect(restartFn).toHaveBeenCalledWith('d1');
   });
@@ -172,7 +162,6 @@ describe('DeviceDetail — agent version, upgrade and restart', () => {
       ],
     });
     renderDetail();
-    // Windows manifest must be filtered out; linux 5.0.0 == device 5.0.0 → Up to date
     expect(screen.queryByText(/Upgrade to v99\.0\.0/)).not.toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Up to date' })).toBeInTheDocument();
   });
@@ -202,8 +191,6 @@ describe('DeviceDetail — agent version, upgrade and restart', () => {
       ],
     });
     renderDetail();
-    // Without numeric comparison, '5.0.0' >= '10.0.0' lexicographically → "Up to date".
-    // With numeric comparison, '5.0.0' < '10.0.0' → "Upgrade to v10.0.0".
     expect(screen.getByText('Upgrade to v10.0.0')).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Up to date' })).not.toBeInTheDocument();
   });
@@ -234,9 +221,6 @@ describe('DeviceDetail — agent version, upgrade and restart', () => {
 
     renderDetail();
     await user.click(screen.getByText('Upgrade to v2.0.0'));
-
-    // After the promise settles, setIsUpgrading(false) flips the label back from "Upgrading..." to the original.
-    // (A mutation that flips that final boolean leaves the label stuck on "Upgrading...".)
     expect(await screen.findByText('Upgrade to v2.0.0')).toBeInTheDocument();
     expect(screen.queryByText('Upgrading...')).not.toBeInTheDocument();
   });
@@ -251,7 +235,6 @@ describe('DeviceDetail — agent version, upgrade and restart', () => {
     renderDetail();
 
     await user.click(screen.getByText('Upgrade to v2.0.0'));
-    // While the promise is pending the button shows "Upgrading..." and is disabled.
     const upgrading = await screen.findByText('Upgrading...');
     const btn = upgrading.closest('button') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
@@ -289,7 +272,6 @@ describe('DeviceDetail — agent version, upgrade and restart', () => {
     expect(btn.disabled).toBe(true);
 
     resolve(true);
-    // Label flips back to "Restart Agent" after promise settles.
     expect(await screen.findByRole('button', { name: 'Restart Agent' })).toBeInTheDocument();
   });
 
@@ -315,7 +297,6 @@ describe('DeviceDetail — agent version, upgrade and restart', () => {
     renderDetail();
     const pill = screen.getByRole('img', { name: 'Up to date' });
     expect(pill.tagName).toBe('SPAN');
-    // Upgrade button must NOT be rendered when isUpToDate.
     expect(screen.queryByText(/Upgrade to v/)).not.toBeInTheDocument();
   });
 

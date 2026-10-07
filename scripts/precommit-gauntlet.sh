@@ -1,38 +1,22 @@
 #!/usr/bin/env bash
-# precommit-gauntlet.sh — single source of truth for the precommit checks.
-#
-# Runs EVERY mandatory check in order; this file defines what they are.
-# Invoked by:
-#   - .claude/hooks/pretooluse-git-commit-guard.sh (enforcement; the hook is
-#     the gate, no marker bypass possible)
-#   - by hand, to run the same checks without attempting a commit
-#
-# Exit 0 = all checks passed. Exit 1 = a check failed (the failing check's
-# output is printed to stderr above the exit). Exit 2 = prerequisite missing
-# (Postgres not reachable, SONAR_TOKEN absent, etc.) — also blocks the
-# commit; prerequisites must be fixed, not skipped.
+# Runs every mandatory precommit check in order and records the content it passed on success.
+# The commit guard invokes it, and it runs by hand to check without committing.
 #
 # Environment:
-#   POSTGRES_TEST_URL  — required for Go DB-dependent tests + coverage.
-#   SONAR_TOKEN        — required for SonarCloud. Sourced from .env if present.
-#   PRECOMMIT_SKIP_BENCH=1 — opt out of benchmarks for fast iteration on
-#                            non-perf-touching commits. Use sparingly.
+#   POSTGRES_TEST_URL  (required) the Postgres the Go database tests use
+#   SONAR_TOKEN        (required) the SonarCloud token, sourced from .env when present
+#   PRECOMMIT_SKIP_BENCH  1 skips the benchmarks
 #
-# On a pass it records the content it passed in .claude/.markers/gauntlet.pass,
-# which /refactor's start refuses to begin without (scripts/refactor-gate.sh).
-# Content edited while the checks ran is not content they passed, so then it
-# records nothing and says so.
-#
-# NO bypass for tests / lint / e2e / sonar. Those are unconditional.
-# Sonar is always the FULL `make sonar` (includes fresh coverage upload) so a
-# coverage regression cannot slip past local enforcement and surface only in CI.
+# Exit codes:
+#   0  all checks passed
+#   1  a check failed
+#   2  prerequisite missing
 
 set -uo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT" || exit 2
 
-# Source .env so SONAR_TOKEN and similar local-only secrets are available.
 if [ -f .env ]; then
   set -a
   # shellcheck disable=SC1091
@@ -40,17 +24,12 @@ if [ -f .env ]; then
   set +a
 fi
 
-# Make every docker step (e2e, sonar) resilient to a broken credential helper —
-# e.g. WSL's docker-credential-desktop.exe, which fails to exec and breaks pulls
-# of even public images. The guard is a no-op when the helper works or none is
-# configured (so CI, where docker login writes auths directly, is unaffected),
-# and preserves auths when it sanitizes. Local-only: this script never runs in CI.
+# The guard gives every docker step a config whose broken credential helper is removed.
 DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
 export DOCKER_CONFIG
 
 # shellcheck source=../.claude/hooks/lib/tidy-up.sh
 source "$PROJECT_ROOT/.claude/hooks/lib/tidy-up.sh"
-# The content the checks run on, named before the first of them starts.
 TIDY_START="$(tidy_fingerprint || true)"
 
 START_EPOCH="$(date +%s)"
@@ -83,10 +62,7 @@ fail() {
   color "0"
 }
 
-# run_check NAME -- CMD ARGS...
-# Captures output; on failure, prints the captured output then continues
-# (so the user sees ALL failures in one pass instead of fixing one then
-# discovering the next).
+# run_check captures a command's output and, on failure, prints it and continues to the next check.
 run_check() {
   local name="$1"
   shift
@@ -103,7 +79,6 @@ run_check() {
   fi
   local rc=$?
   fail "$name" "$(($(date +%s) - start))"
-  # Show the last 80 lines of output — full log is at $tmpfile path.
   tail -80 "$tmpfile" >&2 || true
   printf '  (full log: %s, exit code: %s)\n' "$tmpfile" "$rc" >&2
   FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -111,7 +86,6 @@ run_check() {
   return 0 # keep going so all failures surface in one pass
 }
 
-# Prerequisites first — if missing, we cannot validly enforce the gate.
 banner "Prerequisites"
 
 if [ -d "$HOME/go/src/net" ] || [ -f "$HOME/go/VERSION" ]; then
@@ -122,14 +96,7 @@ if [ -d "$HOME/go/src/net" ] || [ -f "$HOME/go/VERSION" ]; then
   exit 2
 fi
 
-# Toolchain parity gate. Every CI toolchain pin in this repo floats — the Rust
-# jobs ask for `stable` (fuzz.yml for `nightly`) and the web jobs for node major
-# `24`, each resolved to the newest release at the moment the job runs, while a
-# workstation resolves them once. A workstation left behind runs this whole
-# gauntlet blind to the lints and behaviour CI will see, which is a green gate
-# and a red pipeline with nothing in the diff to explain it. Implementation
-# lives in scripts/lib/toolchain-parity.sh so its parsers can be unit-tested by
-# scripts/tests/toolchain-parity.test.sh.
+# CI resolves its floating toolchains at run time, so a drifted workstation fails the gate here.
 # shellcheck source=lib/toolchain-parity.sh
 . "$PROJECT_ROOT/scripts/lib/toolchain-parity.sh"
 if ! toolchain_parity_check "$PROJECT_ROOT"; then
@@ -149,16 +116,7 @@ if [ -z "${POSTGRES_TEST_URL:-}" ]; then
   exit 2
 fi
 
-# Postgres reachability gate (deterministic). $POSTGRES_TEST_URL being set
-# is not enough — the test DB has to actually accept connections, otherwise
-# every DB-dependent Go test fails with "connection refused" and the rest
-# of the gauntlet wastes 10+ minutes downstream.
-#
-# Implementation lives in scripts/lib/postgres-prereq.sh so it can be
-# unit-tested via scripts/tests/postgres-prereq.test.sh. pg_ensure_up
-# auto-starts the container when unreachable, waits up to 30s for
-# readiness, and exits non-zero if it still can't connect — fail-loud
-# per CLAUDE.md "no silent skip" rule.
+# pg_ensure_up starts the test container when Postgres is unreachable and fails if it stays down.
 # shellcheck source=lib/postgres-prereq.sh
 . "$PROJECT_ROOT/scripts/lib/postgres-prereq.sh"
 if ! pg_ensure_up; then
@@ -168,15 +126,7 @@ if ! pg_ensure_up; then
   exit 2
 fi
 
-# VictoriaMetrics reachability gate. Unlike Postgres this needs no credentials,
-# so the URL is derived rather than required — but it must be exported, because
-# testvm memoizes its container per test BINARY and `go test ./tests/...` builds
-# one binary per package. With the URL unset each VictoriaMetrics-touching
-# package provisions its own store, and several of them holding a fleet's worth
-# of series at once is enough memory pressure for the kernel to kill one
-# mid-run — which surfaces as an unrelated package failing on a refused
-# connection. Implementation lives in scripts/lib/victoriametrics-prereq.sh so it
-# can be unit-tested via scripts/tests/victoriametrics-prereq.test.sh.
+# The exported URL makes every Go test package share one store.
 # shellcheck source=lib/victoriametrics-prereq.sh
 . "$PROJECT_ROOT/scripts/lib/victoriametrics-prereq.sh"
 if ! vm_ensure_up; then
@@ -187,11 +137,8 @@ if ! vm_ensure_up; then
 fi
 export VICTORIAMETRICS_TEST_URL="${VICTORIAMETRICS_TEST_URL:-$(vm_test_url)}"
 
-# The reference branch the SonarCloud scan measures new code from. It is read
-# out of this repository by name, so a local branch left behind moves the
-# boundary to wherever it and the remote last agreed — and the scan then reports
-# every commit since as this change's. Checked here rather than beside `make
-# sonar` so it costs a second instead of most of a gauntlet.
+# The SonarCloud scan reads its reference branch by local name, so a stale local branch moves
+# the new-code boundary.
 # shellcheck source=lib/sonar-reference-branch.sh
 . "$PROJECT_ROOT/scripts/lib/sonar-reference-branch.sh"
 if ! sonar_reference_branch_check "$PROJECT_ROOT" main; then
@@ -210,8 +157,7 @@ if [ -z "${SONAR_TOKEN:-}" ]; then
   exit 2
 fi
 
-# Semgrep — required by the ADR-027 pen-test gate. Fail loud with the install
-# command (no silent skip per .claude/rules/editing-and-scope.md).
+# The pen-test gate needs semgrep; a missing install exits 2 with the command that provisions it.
 if ! command -v semgrep >/dev/null 2>&1; then
   export PATH="$HOME/.local/bin:$PATH"
 fi
@@ -224,8 +170,7 @@ if ! command -v semgrep >/dev/null 2>&1; then
   exit 2
 fi
 
-# pmat — required by the ADR-019 TDG gate (the exact-version pin is enforced
-# by scripts/pmat-precommit.sh; here we only check presence, fail-loud).
+# The TDG gate needs pmat present; scripts/pmat-precommit.sh checks the exact version.
 if ! command -v pmat >/dev/null 2>&1; then
   color "1;31"
   echo "✗ pmat is not installed — the ADR-019 TDG gate cannot run." >&2
@@ -235,9 +180,7 @@ if ! command -v pmat >/dev/null 2>&1; then
   exit 2
 fi
 
-# Mermaid validator deps — the docs Mermaid gate parses every fence with the
-# pinned official parser. node_modules is gitignored, so a fresh clone
-# provisions it once; fail loud rather than skip.
+# The docs Mermaid gate parses every fence with the pinned parser installed in node_modules.
 if [ ! -d tools/mermaid-validate/node_modules ]; then
   color "1;31"
   echo "✗ tools/mermaid-validate/node_modules is missing — the Mermaid docs gate cannot run." >&2
@@ -249,7 +192,6 @@ fi
 
 echo "✓ all prerequisites present" >&2
 
-# Phase 1: lints (fast, fail-fast for cheap signal).
 banner "Lints"
 run_check "rust fmt" -- bash -c 'cd agent && cargo fmt --all -- --check'
 run_check "rust clippy" -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
@@ -280,57 +222,29 @@ run_check "cargo modules" -- bash -c '
 '
 run_check "cargo-deny" -- bash -c 'cd agent && cargo-deny check --hide-inclusion-graph 2>&1'
 run_check "web eslint" -- bash -c 'cd web && npx eslint .'
-# The variables below intentionally expand in the inner bash process.
-# shellcheck disable=SC2016
-run_check "depcruise" -- bash -c '
-  cd web
-  current=$(npx --no-install depcruise src --output-type json --no-progress 2>/dev/null | jq -r ".summary.warn")
-  baseline=$(jq -r ".warn" dependency-cruiser.snapshot.json)
-  if [ -f ../.claude/.markers/arch-lint-flipped/depcruise ]; then
-    # ADR-020 flipped: zero is the only allowed count.
-    if [ "$current" -gt 0 ]; then
-      echo "::error::depcruise (flipped to error mode) violations: current=$current (ADR-020)."
-      exit 1
-    fi
-  else
-    if [ "$current" -gt "$baseline" ]; then
-      echo "::error::depcruise warning count grew: current=$current baseline=$baseline (ADR-020)."
-      echo "Either fix the new violation or, if intentional, update the baseline:"
-      echo "  jq \".warn = $current\" web/dependency-cruiser.snapshot.json > /tmp/snap.json && mv /tmp/snap.json web/dependency-cruiser.snapshot.json"
-      exit 1
-    fi
-  fi
-'
+# The web tsconfig is a solution file, so only a build-mode run checks the sources.
+run_check "web typecheck" -- bash -c 'cd web && npx tsc -b'
+run_check "depcruise" -- bash scripts/depcruise-check.sh
 run_check "shell-check" -- make shell-check
 run_check "actionlint" -- actionlint -shellcheck="$(command -v shellcheck)"
 run_check "doc links" -- bash -c 'GO111MODULE=off go run ./scripts/check-doc-links'
 run_check "mermaid syntax" -- bash -c 'cd tools/mermaid-validate && node validate-mermaid.mjs ../../docs'
 run_check "taint (go)" -- make taint-go
 run_check "taint (web)" -- make taint-web
-# ADR-027 adversarial pen-test gate. Diff vs origin/dev so a local dev-push
-# gauntlet re-run is not blocked by pre-existing grandfathered findings.
+# The pen-test gate diffs against origin/dev so only findings in the change count.
 run_check "pentest-review" -- bash -c 'PENTEST_BASELINE_REF=origin/dev scripts/pentest-review.sh'
 run_check "dead-code" -- make dead-code
 run_check "gitleaks (staged)" -- gitleaks protect --staged --config .gitleaks.toml --no-banner --redact
 run_check "lint-deploy" -- make lint-deploy
 run_check "no-vm-ssh-guard" -- bash scripts/no-vm-ssh-guard.sh
-# coverage-exclusion drift: splitting a coverage-excluded file gives the carved-out
-# half a new path that nothing excludes, and git blame dates every relocated line to
-# the split — so it enters SonarCloud's new code at whatever unit coverage it has.
-# The `make sonar` step below cannot catch it (blame has no commit for those lines
-# during a pre-commit scan), which is how a file split dropped new_coverage to 31.7%
-# in CI run 31904922362. This reads the diff and the exclusion list instead.
+# A file carved out of a coverage-excluded one is new code that `make sonar` cannot see pre-commit.
 run_check "sonar coverage-exclusion guard" -- bash scripts/sonar-coverage-exclusion-guard.sh
 
-# Phase 2: codegen sync — would be a CI failure otherwise.
 banner "Codegen sync"
 run_check "verify-codegen" -- bash -c "PATH=\"\$HOME/go/bin:\$PATH\" make verify-codegen"
 
-# Phase 3: tests (the meat).
 banner "Tests"
-# Shell tests for CI gates / hooks / helper scripts — the same runner CI calls,
-# which hands each test step files of its own and fails one that writes into
-# them.
+# The shell tests run through the runner CI calls, which fails a test that writes to its step files.
 run_check "shell tests" -- scripts/shell-quality.sh test
 run_check "go unit + coverage" -- bash -c '
   cd server && go test -race -count=1 -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
@@ -339,7 +253,6 @@ run_check "go integration" -- bash -c 'cd server && go test -race -count=1 -time
 run_check "rust tests" -- bash -c 'cd agent && cargo test --workspace'
 run_check "web vitest+cov" -- bash -c 'cd web && npx vitest run --coverage'
 
-# Phase 4: coverage thresholds (derived from artifacts above).
 banner "Coverage thresholds"
 # shellcheck disable=SC2016 # $pct is set and consumed inside the inner shell; outer expansion is not desired.
 run_check "go coverage ≥80%" -- bash -c '
@@ -357,25 +270,21 @@ run_check "web coverage ≥80%" -- bash -c '
     process.exit(l<80?1:0);
   "
 '
-# Only the test files themselves are ignored; every production path counts
-# toward the threshold — see .claude/rules/coverage-exclusions.md.
+# Only test files are ignored; every production path counts toward the threshold.
 run_check "rust coverage ≥80%" -- bash -c '
   cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
     --ignore-filename-regex "(/tests/)"
 '
 
-# Phase 5: security audits — lockfile-based; fail on any reported vuln.
 banner "Security audits"
-# The same script CI runs: the database fetched with retries, one scan.
+# The script CI runs fetches the vulnerability database with retries and scans once.
 run_check "govulncheck" -- bash scripts/govulncheck-scan.sh
-# One audit per lockfile: npm audit reads the lockfile of the directory it runs
-# from, so a second dependency set needs a second run to be looked at.
-run_check "npm audit (web)" -- bash -c 'cd web && npm audit --audit-level=high'
-run_check "npm audit (mermaid-validate)" -- bash -c 'cd tools/mermaid-validate && npm audit --audit-level=high'
+# Each lockfile gets its own audit; the script CI runs applies the expiring exceptions.
+run_check "npm audit (web)" -- bash scripts/npm-audit.sh web
+run_check "npm audit (mermaid-validate)" -- bash scripts/npm-audit.sh tools/mermaid-validate
 run_check "cargo audit" -- bash -c 'cd agent && cargo audit'
 run_check "cargo deny" -- bash -c 'cd agent && cargo deny check 2>&1'
 
-# Phase 6: benchmarks — must run without errors (no perf thresholds enforced).
 if [ "${PRECOMMIT_SKIP_BENCH:-0}" = "1" ]; then
   banner "Benchmarks (SKIPPED via PRECOMMIT_SKIP_BENCH=1)"
 else
@@ -384,20 +293,11 @@ else
   run_check "rust benchmarks" -- bash -c 'cd agent && cargo bench -p mesh-protocol'
 fi
 
-# Phase 7: PMAT TDG gate. Placed before the slow E2E + SonarCloud phase: it is
-# fast and frequently the check that fails, so running it first surfaces those
-# failures without first paying the long SonarCloud run. Grades ONLY changed
-# code files at the B+ floor (Clean-as-You-Code) and passes trivially on
-# docs-only / CI-only commits. Wrapper owns the changed-file resolution +
-# exact-version pin.
+# The TDG gate runs before the slow phase because it is fast and fails often.
 banner "PMAT TDG gate"
 run_check "pmat tdg ≥ B+ (changed code)" -- bash scripts/pmat-precommit.sh
 
-# Phase 8: end-to-end + SonarCloud (the slowest, and `make sonar` uploads fresh
-# coverage to an external service). Skipped when any earlier check already
-# failed: the commit is doomed regardless, so there is no reason to spend the
-# long runtime or push a coverage upload for a commit that cannot land. Every
-# cheaper failure has already surfaced above in one pass.
+# The slow end-to-end and SonarCloud phase runs only when every earlier check passed.
 if [ "$FAIL_COUNT" -gt 0 ]; then
   banner "E2E + SonarCloud (SKIPPED — $FAIL_COUNT earlier check(s) failed; fix those first)"
 else
@@ -405,34 +305,15 @@ else
   run_check "make e2e" -- make e2e
 
   banner "SonarCloud"
-  # Always the full scan with fresh coverage upload. `sonar-quick` is intentionally
-  # not wired in: a quality-gate evaluation against stale coverage was the gap
-  # that let new_coverage regressions reach CI undetected.
+  # The full scan uploads fresh coverage so the gate never evaluates stale numbers.
   run_check "make sonar" -- make sonar
-  # new-coverage guard, in two halves. The aggregate: a value like 79.95% displays
-  # as "80.0" and flips green→red between local and CI on sub-line coverage
-  # nondeterminism, so it must clear a buffer above 80 (CI run 26929821908). The
-  # diff: SonarCloud derives "new" from git blame, so the lines being committed
-  # right now are measured by nothing locally — a file split out of another read
-  # 47% in CI and green here — so every changed line is checked against the hit
-  # counts computed from the upload rather than from blame.
+  # The guard holds aggregate coverage above a buffer over 80 and checks every changed line's hits.
   run_check "sonar new-coverage guard" -- bash scripts/sonar-coverage-guard.sh
-  # new-duplication guard: `make sonar` enforces new_duplicated_lines_density ≤ 3,
-  # but SonarCloud derives "new" lines from git blame, so uncommitted changes in a
-  # pre-commit scan are under-counted and a copy-pasted file can pass locally then
-  # fail CI (redb_compact.rs, CI run 29071122300). This checks each changed file's
-  # blame-independent absolute duplication after the upload.
-  run_check "sonar new-duplication guard" -- bash scripts/sonar-duplication-guard.sh
-  # new-rating guard: `make sonar` enforces new_reliability_rating and
-  # new_security_rating at A, and both are derived from git blame the same way, so
-  # a bug or vulnerability on an uncommitted line sits outside the new-code period
-  # locally and lands inside it once CI re-scans the commit (2acbdbdc: two bad
-  # sorts and one assembled SQL statement, clean locally, D and C in CI). This
-  # checks the blame-independent absolute findings on each changed file.
+  run_check "repeated code ≤ 3% per file" -- bash -c 'GO111MODULE=off go run ./scripts/check-duplication'
+  # The guard checks the absolute findings on each changed file, which blame-based ratings miss.
   run_check "sonar new-rating guard" -- bash scripts/sonar-rating-guard.sh
 fi
 
-# Summary.
 ELAPSED=$(($(date +%s) - START_EPOCH))
 banner "Summary"
 if [ "$FAIL_COUNT" -eq 0 ]; then

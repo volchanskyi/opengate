@@ -1,36 +1,16 @@
 #!/usr/bin/env bash
-# Pre-flight for the mutation workflow: does every shard still fit the job?
-#
-# A shard that outgrows the 90-minute cap does not fail with a useful message —
-# the runner is shot mid-run, the artifact set comes back incomplete, and the
-# whole nightly is lost after 90 minutes of compute. That has now happened on
-# both legs: ten mesh-agent-core shards grew past their budget together, and
-# three Go shards followed when a new integration test raised coverage and turned
-# uncovered mutants into runnable ones.
-#
-# Counting mutants is cheap on both sides, so the same drift is visible in
-# minutes. `cargo mutants --list` enumerates a Rust shard's mutants from the
-# source; `gremlins unleash --dry-run` lists the Go mutants coverage actually
-# reaches. Multiplied by the shard's measured per-mutant cost that gives the
-# projection this refuses on, before the matrix has burned a night.
-#
-# On the Go side that product is only the first term. A mutant that removes a
-# loop's exit condition never terminates and holds a worker for its whole leash,
-# which is minutes rather than seconds, so the projection adds one leash per
-# declared blocking mutant. Leaving that term out is how go-domain-alerts cleared
-# this pre-flight at 31 minutes and was then shot at the 90-minute cap.
+# Pre-flight for the mutation workflow: projects each shard's wall clock from its mutant count and
+# refuses one that would outgrow the 90-minute job cap.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/mutation-shards.sh
 . "$SCRIPT_DIR/lib/mutation-shards.sh"
 
-# How a Rust shard's mutants are counted. Overridable so the behavior tests can
-# state a count instead of building a workspace.
+# The Rust mutant counter, overridable so tests can state a count without building a workspace.
 COUNTER="${MUTATION_SHARD_COUNTER:-}"
 
-# Where the Go dry-run listing comes from. Overridable for the same reason: the
-# real listing costs a module-wide coverage run.
+# The Go dry-run listing, overridable because the real listing costs a module-wide coverage run.
 GO_DRYRUN_FILE="${MUTATION_GO_DRYRUN_FILE:-}"
 
 over=0
@@ -56,8 +36,6 @@ require_count() {
   esac
 }
 
-# --- Rust ---------------------------------------------------------------------
-
 budget="$(mutation_rust_shard_budget_minutes)"
 
 printf '%-34s %8s %10s %8s\n' shard mutants projected verdict
@@ -67,8 +45,7 @@ for shard in $(mutation_rust_shards); do
   count="$(count_shard "$shard")" || exit 2
   count="${count//[[:space:]]/}"
   require_count "$shard" "$count"
-  # Thousandths of a minute, rounded up, so a shard is never reported cheaper
-  # than it is.
+  # Thousandths of a minute, rounded up so a shard is never reported cheaper than it is.
   projected=$(((count * cost + 999) / 1000))
   if [ "$projected" -gt "$budget" ]; then
     verdict=OVER
@@ -79,13 +56,8 @@ for shard in $(mutation_rust_shards); do
   printf '%-34s %8s %8smin %8s\n' "$shard" "$count" "$projected" "$verdict"
 done
 
-# --- Go -----------------------------------------------------------------------
-#
-# gremlins reports a mutant as RUNNABLE only where coverage reaches it, so the
-# listing — not the source — is what says how big a shard has become. One
-# module-wide dry-run answers for every shard; the lines it prints carry the file
-# each mutant belongs to, which is what buckets them.
-
+# gremlins reports a mutant as RUNNABLE only where coverage reaches it, so one module-wide dry-run
+# listing sizes every shard, bucketed by the file each line names.
 go_dryrun() {
   if [ -n "$GO_DRYRUN_FILE" ]; then
     cat "$GO_DRYRUN_FILE"
@@ -94,7 +66,6 @@ go_dryrun() {
   (cd "$SCRIPT_DIR/../server" && GOFLAGS=-count=1 gremlins unleash . --dry-run 2>/dev/null)
 }
 
-# The file each RUNNABLE line names, one per line.
 runnable_paths() {
   awk '$1 == "RUNNABLE" { split($NF, at, ":"); print at[1] }'
 }
@@ -113,11 +84,8 @@ count_go_shard() {
 }
 
 go_budget="$(mutation_go_shard_budget_minutes)"
-# A shard's wall clock has two terms, and only the first is a count of anything.
-# The second is one leash per mutant that never terminates — gremlins gives every
-# mutant the coverage elapsed times the timeout coefficient, and a mutant with no
-# exit condition holds all of it. Projecting the first term alone is what cleared
-# go-domain-alerts at 31 minutes on the night it was shot at the 90-minute cap.
+# A shard's wall clock adds one leash per mutant that never terminates; gremlins gives each
+# mutant the coverage time times the timeout coefficient, and a mutant without an exit holds it all.
 go_leash="$(mutation_go_leash_ceiling_seconds)" || exit 2
 listing="$(mktemp)"
 trap 'rm -f "$listing"' EXIT
@@ -131,7 +99,6 @@ for shard in $(mutation_go_shards); do
   count="$(count_go_shard "$shard" "$listing")" || exit 2
   require_count "$shard" "$count"
   require_count "$shard" "$blocking"
-  # Seconds, rounded up to whole minutes, for the same reason as above.
   projected=$(((count * cost + blocking * go_leash + 59) / 60))
   if [ "$projected" -gt "$go_budget" ]; then
     verdict=OVER

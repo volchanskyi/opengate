@@ -16,9 +16,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/session"
 )
 
-// recordingDevices is a device.Repository double that records the tenant scope
-// it observes on Get, so a test can prove the decorator threads the request
-// context through unchanged.
 type recordingDevices struct {
 	device.Repository
 	gotTenant dbtx.Tenant
@@ -60,10 +57,6 @@ func TestFaultDevicesErrorSkipsRealCall(t *testing.T) {
 	assert.Equal(t, 0, real.getCalls, "an ActionError fault must not reach the real repository")
 }
 
-// TestFaultDevicesPreservesTenantContext is the cross-tenant-leak guard: the
-// decorator must forward the exact tenant scope from the request context, never
-// dropping or swapping it, for both a faulted-then-delegated call and a plain
-// delegated call.
 func TestFaultDevicesPreservesTenantContext(t *testing.T) {
 	t.Parallel()
 	real := &recordingDevices{}
@@ -99,7 +92,6 @@ func TestFaultDevicesListFaultsAndDelegates(t *testing.T) {
 	assert.Equal(t, 1, real.listCalls)
 }
 
-// fakeSessions is a minimal session.Repository double that records calls.
 type fakeSessions struct {
 	session.Repository
 	createCalls int
@@ -151,7 +143,6 @@ func TestFaultRegistryPingFaults(t *testing.T) {
 	t.Parallel()
 	fr := WrapRegistry(relay.NewInProcessRegistry())
 
-	// Unarmed Ping delegates to the always-healthy in-process registry.
 	require.NoError(t, fr.Ping(context.Background()))
 
 	fr.Arm("Ping", Spec{Action: ActionError})
@@ -166,12 +157,10 @@ func TestFaultRegistrySaveSessionFaultsAndDelegates(t *testing.T) {
 	fr.Arm("SaveSession", Spec{Action: ActionError})
 	assert.ErrorIs(t, fr.SaveSession(context.Background(), "tok", meta), ErrInjected)
 
-	// Delegating to the in-process registry succeeds.
 	fr.Clear("SaveSession")
 	require.NoError(t, fr.SaveSession(context.Background(), "tok", meta))
 }
 
-// fakeAgentControl is a minimal api.AgentControl double.
 type fakeAgentControl struct {
 	api.AgentControl
 	sendCalls int
@@ -192,7 +181,6 @@ func TestFaultAgentControlSendFaults(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInjected)
 	assert.Equal(t, 0, real.sendCalls, "a faulted control-write must not reach the real agent")
 
-	// Unarmed, the decorator delegates to the real control-write.
 	fac.Clear("SendSessionRequest")
 	require.NoError(t, fac.SendSessionRequest(context.Background(), "tok", "wss://relay", protocol.Permissions{}))
 	assert.Equal(t, 1, real.sendCalls)

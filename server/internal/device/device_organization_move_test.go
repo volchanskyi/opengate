@@ -12,10 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestMoveDeviceBetweenOrganizations proves a move is complete: the device
-// answers under its new customer, no longer under the old one, and everything
-// keyed to the device — hardware, site, status — comes with it rather than
-// being left behind or rewritten.
 func TestMoveDeviceBetweenOrganizations(t *testing.T) {
 	t.Parallel()
 	devices, _, hardware, store := newRepos(t)
@@ -39,8 +35,6 @@ func TestMoveDeviceBetweenOrganizations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, inOld, "the device must not answer under the customer it left")
 
-	// The rows that hang off a device are keyed by device id, so a move carries
-	// them without a rewrite. Reading them back after the move is what proves it.
 	hw, err := hardware.Get(ctx, d.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Ryzen 9 7950X", hw.CPUModel, "hardware history follows the device")
@@ -51,10 +45,6 @@ func TestMoveDeviceBetweenOrganizations(t *testing.T) {
 	assert.Equal(t, d.Hostname, moved.Hostname)
 }
 
-// TestMoveRefusesAnOrganizationOutsideTheTenant closes the hole a foreign key
-// alone would leave open: constraint checks run past row-level security, so
-// without an explicit scope check a device could be pushed into another tenant's
-// customer.
 func TestMoveRefusesAnOrganizationOutsideTheTenant(t *testing.T) {
 	t.Parallel()
 	devices, _, _, store := newRepos(t)
@@ -77,7 +67,6 @@ func TestMoveRefusesAnOrganizationOutsideTheTenant(t *testing.T) {
 	assert.Equal(t, before.OrganizationID, after.OrganizationID, "the refused move must change nothing")
 }
 
-// TestMoveMissingDeviceAndMissingOrganization covers the two not-found halves.
 func TestMoveMissingDeviceAndMissingOrganization(t *testing.T) {
 	t.Parallel()
 	devices, _, _, store := newRepos(t)

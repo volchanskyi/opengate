@@ -1,21 +1,6 @@
 #!/usr/bin/env bash
-# Tests for the mutation workflow: timeout/exit-code classification, the Go
-# source partition, shard-report validation/merge, run-status generation, and
-# summarizer error propagation.
-#
-# Bug history: GitHub Actions run 27743482464 cancelled the Go gremlins leg at
-# the job cap before server/mutation-report.json could be uploaded; the publish
-# job then collapsed mutation-summarize.sh exit 2 (missing input) into
-# "regression=1", mislabeling an incomplete run as a score regression. Exit-code
-# semantics are pinned here: 0 = clean, 1 = score regression, 2 =
-# incomplete/malformed input.
-#
-# Scaling: the Go leg uses directory/file mutation units so every non-test Go
-# source under server/ is mutated exactly once (or globally excluded). The shard
-# split lives in one place (scripts/lib/mutation-shards.sh); these tests assert
-# the workflow matrix matches it and prevent cross-shard duplicate counting.
-#
-# Run: ./scripts/tests/mutation-workflow.test.sh
+# Tests for the mutation workflow: exit-code classification, the Go source partition,
+# shard-report merge, run-status generation and summarizer error propagation.
 
 set -euo pipefail
 
@@ -51,13 +36,8 @@ if [ ! -f "$WORKFLOW" ]; then
   exit 1
 fi
 
-# --- Static workflow contract -------------------------------------------------
-
-# The job timeout is a flat 90 minutes. Every leg fits under it: both the Go and
-# the Rust leg are sharded by scope, so each shard mutates one package's named
-# behavior and rebuilds inside one crate. The ceiling sits above the widest
-# measured shard rather than on top of it, because a shard shot at the ceiling
-# reports nothing at all — the whole night is lost to discover one shard grew.
+# The 90-minute ceiling sits above the widest measured shard, since a shard cut at the ceiling
+# reports nothing.
 if grep -qE "^[[:space:]]*timeout-minutes:[[:space:]]*90[[:space:]]*$" "$WORKFLOW"; then
   pass "mutation job timeout is a flat 90 minutes (every sharded leg fits under it)"
 else
@@ -70,12 +50,8 @@ else
   fail "rust step must select mutants via mutation_rust_shard_args"
 fi
 
-# What sank runs 31667836032 and 31770530290 was not the shard count — it was the
-# per-mutant test cost. cargo-mutants runs the mutated package's whole suite once
-# per mutant, and one measurement test in mesh-agent-core drives three stores to
-# eviction for ~25s, so all ~1400 of that package's mutants each paid it. The
-# guard below is the fix, expressed where it cannot be lost: the shipped
-# cargo-mutants config must keep the measurement out of the per-mutant run.
+# cargo-mutants runs the package's whole suite once per mutant, so the config skips the
+# multi-second reach measurement in mesh-agent-core.
 MUTANTS_TOML="$REPO_ROOT/agent/.cargo/mutants.toml"
 if [ -f "$MUTANTS_TOML" ] \
   && grep -q 'additional_cargo_test_args' "$MUTANTS_TOML" \
@@ -86,8 +62,6 @@ else
   fail "agent/.cargo/mutants.toml must skip the reach measurement via additional_cargo_test_args"
 fi
 
-# The test that costs it must still exist and still run under a plain `cargo
-# test` — the skip is scoped to mutation runs, not a quiet deletion.
 REACH_TEST="$REPO_ROOT/agent/crates/mesh-agent-core/tests/reach_test.rs"
 if [ -f "$REACH_TEST" ] \
   && grep -q 'fn the_minute_tier_reaches_back_far_enough_to_be_worth_scanning' "$REACH_TEST"; then
@@ -111,14 +85,11 @@ else
   fail "summarize exit 0/1 must preserve clean/regression semantics"
 fi
 
-# --- Shard partition (single source of truth) ---------------------------------
-
 if [ -f "$SHARDS_LIB" ]; then
   # shellcheck source=/dev/null
   . "$SHARDS_LIB"
   pass "scripts/lib/mutation-shards.sh exists and sources cleanly"
 
-  # Workflow matrix Go shard ids must match the shard map (no drift).
   want_ids="$(mutation_go_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
   have_ids="$(grep -oE 'shard:[[:space:]]*go-[a-z0-9-]+' "$WORKFLOW" \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
@@ -128,8 +99,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "workflow shard ids drifted from map: map='$want_ids' wf='$have_ids'"
   fi
 
-  # Rust shard ids name the behavior they mutate, so a red leg says what broke
-  # without anyone opening the matrix to decode a slice number.
   have_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
   meaningful_rust="rust-agent-loops rust-core-alerts-conditions rust-core-alerts-evaluator rust-core-alerts-event rust-core-alerts-retro-plan rust-core-alerts-retro-scan rust-core-alerts-sink rust-core-correlate-divergence rust-core-correlate-ranking rust-core-discovery rust-core-ml-analysis rust-core-ml-backfill-drain rust-core-ml-backfill-tiers rust-core-ml-host-sources rust-core-ml-redaction rust-core-ml-sampling rust-core-ml-store-sink rust-core-runtime rust-core-runtime-lifecycle rust-core-session-dispatch rust-core-session-terminal rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-surface "
   if [ "$have_rust" = "$meaningful_rust" ]; then
@@ -138,7 +107,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "Rust shard ids must describe behavior (got='$have_rust')"
   fi
 
-  # Workflow matrix legs must match the library.
   workflow_rust="$({ grep -oE 'shard:[[:space:]]*rust-[a-z0-9-]+' "$WORKFLOW" || true; } \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
   if [ "$have_rust" = "$workflow_rust" ]; then
@@ -149,10 +117,6 @@ if [ -f "$SHARDS_LIB" ]; then
 
   read -r -a rust_shards <<<"$(mutation_rust_shards)"
 
-  # Every shard mutates exactly one package, and every package that holds
-  # mutable sources has exactly one catch-all shard. The catch-all is what makes
-  # a newly added source mutate the day it lands instead of falling through the
-  # map unnoticed.
   rust_pkg_bad=""
   declare -A rust_catchall=()
   declare -A rust_pkg_seen=()
@@ -180,8 +144,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "Rust shard package map is wrong:$rust_pkg_bad"
   fi
 
-  # cargo-mutants' own exclude_globs carve out code with no in-tree harness;
-  # those files are not the shard map's to own.
   rust_carved="$(sed -n '/^exclude_globs[[:space:]]*=/,/]/p' "$REPO_ROOT/agent/.cargo/mutants.toml" \
     | grep -oE '"[^"]+"' | tr -d '"')"
   rust_is_carved() {
@@ -195,9 +157,6 @@ if [ -f "$SHARDS_LIB" ]; then
     return 1
   }
 
-  # Whole-workspace partition: every mutable Rust source belongs to exactly one
-  # shard — an explicit unit, or its package's catch-all when no unit claims it.
-  # Double ownership would count the same mutant twice in the merged score.
   rust_partition_bad=""
   while IFS= read -r source; do
     rel="${source#"$REPO_ROOT/agent/"}"
@@ -212,7 +171,6 @@ if [ -f "$SHARDS_LIB" ]; then
         mutation_rust_unit_matches "$unit" "$rel" && owners=$((owners + 1))
       done
     done
-    # Unclaimed sources are the catch-all's, which every package has.
     [ "$owners" -eq 0 ] && owners=1
     [ "$owners" -eq 1 ] || rust_partition_bad="$rust_partition_bad [$rel:owners=$owners]"
   done < <(find "$REPO_ROOT/agent/crates" -type f -name '*.rs' -path '*/src/*' | sort)
@@ -222,9 +180,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "Rust source partition mismatch:$rust_partition_bad"
   fi
 
-  # A shard may not name a source cargo-mutants carves out. Such a unit selects
-  # nothing, so the shard reports a clean run over a file it never mutated and
-  # the map says a scope is covered that is not.
   rust_carved_unit_bad=""
   for shard in "${rust_shards[@]}"; do
     units="$(mutation_rust_shard_units "$shard")"
@@ -243,8 +198,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "Rust shards claim carved-out sources:$rust_carved_unit_bad"
   fi
 
-  # Declared units must exist, so a rename cannot leave a shard silently
-  # mutating nothing while its files drift into the catch-all.
   rust_unit_bad=""
   for shard in "${rust_shards[@]}"; do
     units="$(mutation_rust_shard_units "$shard")"
@@ -263,8 +216,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "invalid Rust mutation unit declarations:$rust_unit_bad"
   fi
 
-  # The emitted CLI must scope the run to the shard's package and select by
-  # file, never fall back to mutating the whole workspace.
   rust_args_bad=""
   for shard in "${rust_shards[@]}"; do
     mapfile -t shard_args < <(mutation_rust_shard_args "$shard")
@@ -275,7 +226,6 @@ if [ -f "$SHARDS_LIB" ]; then
     grep -q -- '--workspace' <<<"$(printf '%s\n' "${shard_args[@]}")" \
       && rust_args_bad="$rust_args_bad [$shard:workspace-wide]"
     if [ "$(mutation_rust_shard_units "$shard")" = "rest" ]; then
-      # A catch-all with siblings must exclude every one of their globs.
       for other in "${rust_shards[@]}"; do
         [ "$other" = "$shard" ] && continue
         [ "$(mutation_rust_shard_package "$other")" = "$(mutation_rust_shard_package "$shard")" ] || continue
@@ -317,7 +267,6 @@ if [ -f "$SHARDS_LIB" ]; then
   declare -A unit_owner=()
   declare -A shard_regex=()
 
-  # Reverse-check unit declarations before using them for source coverage.
   unit_bad=""
   for shard in "${go_shards[@]}"; do
     shard_regex[$shard]="$(mutation_go_shard_exclude_regex "$shard")"
@@ -347,17 +296,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "invalid Go mutation unit declarations:$unit_bad"
   fi
 
-  # Every non-test Go source under server/ is either globally excluded or
-  # belongs to exactly one mutation unit. This catches sources outside
-  # internal/* (notably tests/loadtest) and duplicate directory/file overlap.
-  #
-  # And then the question that actually decides a night: how many shards would
-  # mutate the file. That is not the unit map — it is the walk each shard is
-  # pointed at and the regexp it is handed, together. A shard whose walk cannot
-  # see a file mutates it whatever the regexp says, and a regexp written in the
-  # wrong coordinates excludes nothing at all. Both halves are asked below, of
-  # every source, against every shard, so a file that would be mutated twice or
-  # not at all is named here rather than showing up as a number that moved.
   partition_bad=""
   mutated_bad=""
   declare -A scan_by_shard=()
@@ -367,8 +305,6 @@ if [ -f "$SHARDS_LIB" ]; then
     globals_by_shard[$shard]="$(mutation_go_global_excludes "${scan_by_shard[$shard]}")"
   done
 
-  # walk_path prints the source as a shard's walk sees it, or nothing when the
-  # walk cannot reach it at all.
   walk_path() {
     local scan="$1" path="$2"
     case "$scan" in
@@ -392,8 +328,6 @@ if [ -f "$SHARDS_LIB" ]; then
       fi
     done
 
-    # A source every shard's carve-outs remove is allowed to belong to no unit;
-    # everything else belongs to exactly one.
     carved=1
     for shard in "${go_shards[@]}"; do
       seen="$(walk_path "${scan_by_shard[$shard]}" "$rel")" || continue
@@ -404,7 +338,6 @@ if [ -f "$SHARDS_LIB" ]; then
       partition_bad="$partition_bad [$rel:matches=$matches]"
     fi
 
-    # What the run would actually do with it.
     mutators=0
     for shard in "${go_shards[@]}"; do
       seen="$(walk_path "${scan_by_shard[$shard]}" "$rel")" || continue
@@ -432,9 +365,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "Go shard walk/regex mismatch:$mutated_bad"
   fi
 
-  # The narrowing is only safe while the harness units keep a shard that can see
-  # them. A walk that cannot reach a unit mutates nothing and reports a smaller
-  # number, which is indistinguishable from a shard whose code got simpler.
   reach_bad=""
   for shard in "${go_shards[@]}"; do
     for unit in $(mutation_go_shard_units "$shard"); do
@@ -448,10 +378,8 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "a Go shard is pointed at a path that cannot see its own units:$reach_bad"
   fi
 
-  # Anchoring is load-bearing under the narrow walk, not tidiness: internal/api
-  # and internal/agentapi become api/ and agentapi/, and the second contains the
-  # first. An unanchored rule for one would drop the other from every shard that
-  # does not own it.
+  # Under the narrow walk internal/api and internal/agentapi become api/ and agentapi/, so an
+  # unanchored rule for api/ would also drop agentapi/.
   anchor_bad=""
   for shard in "${go_shards[@]}"; do
     while IFS= read -r alternative; do
@@ -555,20 +483,8 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "conn_backfill.go and handshaker.go must be isolated (backfill=$backfill_owner handshake=$handshake_owner)"
   fi
 
-  # gremlins gives every mutant the same leash: the coverage run's own elapsed
-  # time multiplied by the timeout coefficient. That product is the term that
-  # decides whether a non-terminating mutant costs a shard its report, and it is
-  # bounded only by what the coefficient is set to — so the coefficient is not a
-  # tuning knob, it is the bound.
-  #
-  # Two mutants in the tree do not terminate at all: the VAPID key padding loop
-  # in internal/notifications/vapid.go and the MPS accept loop in
-  # internal/amt/transport/mps.go, both of which turn into `for {}` under
-  # CONDITIONALS_NEGATION. Each one holds a worker for its whole leash. Nightly
-  # coverage runs measure 185s to 298s across the Go shards, so the leash has to
-  # be small enough that one such mutant still leaves the shard able to finish,
-  # and large enough that a genuinely slow mutant is not cut off and miscredited
-  # as caught — the slowest mutant that does finish takes about 290s.
+  # The leash is the coverage run's elapsed time times the timeout coefficient, which bounds what
+  # a non-terminating mutant costs a shard: the VAPID padding loop and the MPS accept loop.
   baseline_coef="$(sed -nE 's/^[[:space:]]*timeout-coefficient:[[:space:]]*([0-9]+).*/\1/p' "$REPO_ROOT/server/.gremlins.yaml")"
   leash="$(mutation_go_leash_ceiling_seconds)"
   if [ -n "$baseline_coef" ] \
@@ -578,10 +494,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "leash ceiling must derive from server/.gremlins.yaml (coef='$baseline_coef' leash='$leash')"
   fi
 
-  # The bound that matters: a mutant that never terminates must fit in what the
-  # job has left after the widest shard has spent its whole budget. Without it a
-  # single blocked mutant runs the job past the cap, which is how run
-  # 33727909504 lost go-domain-alerts and with it the night's canonical row.
   cap_s=$((90 * 60))
   spent=$((cap_s - $(mutation_go_setup_ceiling_seconds) - $(mutation_go_coverage_elapsed_ceiling_seconds) - $(mutation_go_shard_budget_minutes) * 60))
   if [ "$leash" -le "$spent" ]; then
@@ -590,17 +502,12 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "leash ceiling ${leash}s exceeds the ${spent}s a fully-spent shard has left"
   fi
 
-  # A slow mutant that does finish must not be cut off: false timeouts are
-  # dropped from both halves of the score, so they quietly depress it.
   if [ "$leash" -ge $((290 * 2)) ]; then
     pass "the leash leaves a finishing mutant at least twice its measured worst case"
   else
     fail "leash ceiling ${leash}s is too tight for the ~290s slowest finishing mutant"
   fi
 
-  # The baseline now holds the bound for every shard, so no shard overrides it.
-  # The override seam stays for a shard that one day needs a tighter one; what it
-  # may never be is looser than the baseline it is scoped inside.
   coef_bad=""
   for shard in "${go_shards[@]}"; do
     got="$(mutation_go_shard_timeout_coefficient "$shard")"
@@ -614,8 +521,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "a scoped coefficient must be numeric, >=2 and <baseline($baseline_coef):$coef_bad"
   fi
 
-  # Both CI and local runs must derive the per-shard coefficient from the shard
-  # library, not hardcode it, so the two stay identical.
   if grep -q 'mutation_go_shard_timeout_coefficient' "$WORKFLOW" \
     && grep -q -- '--timeout-coefficient' "$WORKFLOW"; then
     pass "workflow derives --timeout-coefficient from the shard library"
@@ -629,11 +534,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "Makefile mutate-go must derive --timeout-coefficient from the shard library"
   fi
 
-  # The path gremlins walks decides both what it mutates and which tests it runs
-  # to survey coverage, so a literal path in either caller is a second home for a
-  # fact the library already holds. The two must also agree with each other: a
-  # local run and a nightly that walk different trees produce scores nobody can
-  # compare, and the difference does not appear anywhere in either report.
   for caller in "$WORKFLOW" "$REPO_ROOT/Makefile"; do
     name="$(basename "$caller")"
     if grep -q 'mutation_go_shard_scan_path' "$caller" \
@@ -644,9 +544,8 @@ if [ -f "$SHARDS_LIB" ]; then
     fi
   done
 
-  # The pre-flight must be able to fail the job it runs in. Its output is teed
-  # into the step summary, and the default shell does not set pipefail, so
-  # without it the step reports tee's success and an OVER shard passes green.
+  # The pre-flight output is teed into the step summary, so the step sets pipefail to fail on an
+  # OVER shard.
   budget_step="$(sed -n '/Project every shard against the job cap/,/^$/p' "$WORKFLOW")"
   if grep -q 'mutation-shard-budget.sh' <<<"$budget_step" \
     && grep -q 'set -o pipefail' <<<"$budget_step"; then
@@ -655,12 +554,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "the shard-budget step must set pipefail around mutation-shard-budget.sh"
   fi
 
-  # Each shard's tool step swallows the tool's exit code on purpose: a surviving
-  # mutant is not a build failure. That leaves the report the only thing that
-  # says any work happened, and the step must read it back itself. Without that
-  # the shard's own step is green and the absence surfaces two steps later as
-  # "no files were found" — a message that names the artifact and not the
-  # baseline suite that actually refused, which is where the answer is.
   for tool_step in \
     'Run cargo-mutants (shard' \
     'Run gremlins (shard' \
@@ -673,9 +566,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fi
   done
 
-  # The pre-flight needs the same Postgres the matrix legs use: the Go count
-  # comes from a coverage run, and an uncovered mutant is a mutant the
-  # projection cannot see.
   budget_job="$(sed -n '/^  shard-budget:/,/^  mutation:/p' "$WORKFLOW")"
   if grep -q 'POSTGRES_TEST_URL' <<<"$budget_job" \
     && grep -q 'gremlins' <<<"$budget_job"; then
@@ -684,7 +574,6 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "the shard-budget job must install gremlins and give it POSTGRES_TEST_URL"
   fi
 
-  # Global excludes must stay in sync with server/.gremlins.yaml exclude-files.
   globals="$(mutation_go_global_excludes)"
   sync_bad=""
   while IFS= read -r pat; do
@@ -703,8 +592,6 @@ else
   fail "scripts/lib/mutation-shards.sh must exist (single source of shard split)"
 fi
 
-# --- Shard-report merge -------------------------------------------------------
-
 if [ -x "$MERGE" ]; then
   tmp="$(mktemp -d)"
   printf '%s' '{"mutants_killed":10,"mutants_lived":2,"mutants_not_covered":3,"mutants_not_viable":1}' >"$tmp/r1.json"
@@ -718,9 +605,6 @@ if [ -x "$MERGE" ]; then
   else
     fail "mutation-merge-go.sh must sum shard report counts"
   fi
-  # A missing shard report (a cancelled/failed shard) must FAIL the merge and
-  # write no output, so publish reports an incomplete run rather than a silent
-  # partial score from the surviving shards.
   rm -f "$tmp/out.json"
   if "$MERGE" "$tmp/out.json" "$tmp/r1.json" "$tmp/MISSING.json" >/dev/null 2>&1; then
     fail "mutation-merge-go.sh must fail when a shard report is missing"
@@ -749,8 +633,6 @@ else
   fail "scripts/mutation-merge-go.sh must exist and be executable"
 fi
 
-# --- Rust shard-outcome merge -------------------------------------------------
-
 if [ -x "$MERGE_RUST" ]; then
   tmp="$(mktemp -d)"
   printf '%s' '{"end_time":"2026-07-13T01:00:00Z","caught":10,"missed":2,"timeout":1,"unviable":3}' >"$tmp/r1.json"
@@ -764,9 +646,6 @@ if [ -x "$MERGE_RUST" ]; then
   else
     fail "mutation-merge-rust.sh must sum shard outcome counts"
   fi
-  # A missing shard outcome file (cancelled/failed shard) must FAIL the merge and
-  # write no output, mirroring the Go merge: publish then reports an incomplete
-  # run rather than a silent partial score from the surviving shard.
   rm -f "$tmp/out.json"
   if "$MERGE_RUST" "$tmp/out.json" "$tmp/r1.json" "$tmp/MISSING.json" >/dev/null 2>&1; then
     fail "mutation-merge-rust.sh must fail when a shard outcome file is missing"
@@ -796,14 +675,11 @@ else
   fail "scripts/mutation-merge-rust.sh must exist and be executable"
 fi
 
-# publish must merge the rust shards through that script.
 if grep -q 'mutation-merge-rust\.sh' "$WORKFLOW"; then
   pass "publish merges the rust shards via mutation-merge-rust.sh"
 else
   fail "publish must merge rust shards via mutation-merge-rust.sh"
 fi
-
-# --- Complete/incomplete run status ------------------------------------------
 
 make_complete_artifacts() {
   local root="$1" shard path
@@ -866,13 +742,6 @@ if [ -x "$STATUS_BUILD" ]; then
     fail "status builder must reject an invalid Web reporter shape"
   fi
 
-  # --- Completeness is reported per leg ---------------------------------------
-  #
-  # One boolean over fifty-three shards is what destroyed the scores. On six of
-  # the last ten red nights the failing leg was Go alone; the twenty-five Rust
-  # shards and the web shard had all finished and their scores were discarded,
-  # which is a detection gap as well as waste — a Rust regression is invisible on
-  # any night the Go leg flakes.
   make_complete_artifacts "$artifacts"
   if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
     && jq -e '.complete_by_language == {rust:true,go:true,web:true}' "$status" >/dev/null; then
@@ -899,8 +768,6 @@ if [ -x "$STATUS_BUILD" ]; then
     fail "an invalid web report must not mark the other legs incomplete"
   fi
 
-  # `complete` keeps meaning what it meant, so anything still reading it is
-  # unaffected by the addition beside it.
   make_complete_artifacts "$artifacts"
   rm -f "$artifacts/mutation-go-agentapi-backfill/server/mutation-report-go-agentapi-backfill.json"
   if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
@@ -919,8 +786,6 @@ if [ -x "$STATUS_PUSH" ]; then
 else
   fail "scripts/mutation-status-vm-push.sh must exist and be executable"
 fi
-
-# --- Summarizer error propagation (single clear error, no jq noise) -----------
 
 if [ -x "$SUMMARIZE" ]; then
   tmp="$(mktemp -d)"
@@ -941,12 +806,8 @@ else
   fail "scripts/mutation-summarize.sh must exist and be executable"
 fi
 
-# --- Summarizer drop-rule fires only when a previous baseline is supplied -----
-# The drop-rule ("score fell >2pp from the previous run") is dead in CI unless
-# HISTORY_FILE carries a prior row: the in-repo history file was retired, so
-# previous_row is null and only the <85 floor ever trips. mutation-baseline-fetch.sh
-# restores that row from VM; these cases pin the behavior it re-enables. web is
-# kept ABOVE the 85 floor so ONLY the drop-rule can catch it.
+# The drop rule (score fell >2pp from the previous run) needs HISTORY_FILE to carry a prior row.
+# The web score stays above the 85 floor so only the drop rule can catch it.
 web_report() { # $1=killed $2=survived → Stryker-shaped JSON at killed/(killed+survived)%
   jq -nc --argjson k "$1" --argjson s "$2" \
     '{files:{"a.ts":{mutants:
@@ -955,11 +816,10 @@ web_report() { # $1=killed $2=survived → Stryker-shaped JSON at killed/(killed
 
 if [ -x "$SUMMARIZE" ]; then
   tmp="$(mktemp -d)"
-  printf '%s' '{"caught":95,"missed":5,"timeout":0,"unviable":0}' >"$tmp/rust.json"                                    # 95.0
-  printf '%s' '{"mutants_killed":95,"mutants_lived":5,"mutants_not_covered":0,"mutants_not_viable":0}' >"$tmp/go.json" # 95.0
-  web_report 87 13 >"$tmp/web.json"                                                                                    # 87.0 (> floor)
+  printf '%s' '{"caught":95,"missed":5,"timeout":0,"unviable":0}' >"$tmp/rust.json"
+  printf '%s' '{"mutants_killed":95,"mutants_lived":5,"mutants_not_covered":0,"mutants_not_viable":0}' >"$tmp/go.json"
+  web_report 87 13 >"$tmp/web.json"
 
-  # prev web 89.5 → curr 87.0 = 2.5pp drop (> 2pp); rust/go flat.
   printf '%s\n' '{"scores":{"rust":{"score_pct":95.0},"go":{"score_pct":95.0},"web":{"score_pct":89.5}}}' >"$tmp/hist-drop.jsonl"
   code=0
   out="$(RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" WEB_REPORT="$tmp/web.json" \
@@ -973,7 +833,6 @@ if [ -x "$SUMMARIZE" ]; then
     fail "drop-rule must fire (exit 1, '(drop > 2pp)') on a >2pp baseline fall (code=$code, out=$out)"
   fi
 
-  # prev web 88.5 → curr 87.0 = 1.5pp drop (< 2pp): no regression.
   printf '%s\n' '{"scores":{"rust":{"score_pct":95.0},"go":{"score_pct":95.0},"web":{"score_pct":88.5}}}' >"$tmp/hist-nodrop.jsonl"
   code=0
   out="$(RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" WEB_REPORT="$tmp/web.json" \
@@ -984,8 +843,6 @@ if [ -x "$SUMMARIZE" ]; then
     fail "a <2pp fall must not be flagged (code=$code, out=$out)"
   fi
 
-  # Alert branch label derives from GITHUB_REF_NAME (the failing run was the
-  # scheduled MAIN run, previously mislabeled 'dev').
   out="$(GITHUB_REF_NAME=main RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
     WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/hist-drop.jsonl" "$SUMMARIZE" 2>&1)" || true
   if grep -q 'regression on main' <<<"$out"; then
@@ -1005,15 +862,6 @@ if [ -x "$SUMMARIZE" ]; then
 else
   fail "scripts/mutation-summarize.sh must exist and be executable"
 fi
-
-# --- The summarizer carries the legs it was given, and only those -------------
-#
-# The distinction that must not blur is between a leg nobody asked for and a leg
-# asked for and broken. The first is a night where one language flaked and the
-# other two still have scores worth publishing and regressions worth checking;
-# the second is the malformed input the exit-2 path above exists for. Collapsing
-# them would turn every partial night into an incomplete run again, one level
-# down.
 
 if [ -x "$SUMMARIZE" ]; then
   tmp="$(mktemp -d)"
@@ -1046,9 +894,6 @@ if [ -x "$SUMMARIZE" ]; then
     fail "the summarizer must publish a single complete leg (code=$code, out=$out)"
   fi
 
-  # Asked for and broken is still exit 2. This is the case the whole distinction
-  # rests on: a leg named as complete whose artifact will not parse is an
-  # incomplete run, not a partial publish.
   printf '%s' 'not json at all' >"$tmp/broken.json"
   code=0
   out="$(MUTATION_LANGUAGES="rust go" RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/broken.json" \
@@ -1059,8 +904,6 @@ if [ -x "$SUMMARIZE" ]; then
     fail "a malformed leg that was asked for must exit 2, not publish (code=$code, out=$out)"
   fi
 
-  # Naming no leg at all is a publish with nothing in it, which must not read as
-  # a clean run.
   code=0
   out="$(MUTATION_LANGUAGES="" RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
     WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
@@ -1070,8 +913,6 @@ if [ -x "$SUMMARIZE" ]; then
     fail "an empty language set must be refused (code=$code, out=$out)"
   fi
 
-  # An unknown language is a caller mistake, not a leg to skip: skipping it
-  # would publish a narrower row than the caller believed it asked for.
   code=0
   out="$(MUTATION_LANGUAGES="rust perl" RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
     WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
@@ -1081,8 +922,6 @@ if [ -x "$SUMMARIZE" ]; then
     fail "an unknown language must be refused (code=$code, out=$out)"
   fi
 
-  # The regression check still reads the legs present, and says nothing about
-  # the ones absent — a leg that did not run has not regressed.
   printf '%s\n' '{"scores":{"rust":{"score_pct":95.0},"go":{"score_pct":95.0},"web":{"score_pct":89.5}}}' >"$tmp/hist.jsonl"
   web_report 87 13 >"$tmp/web-drop.json"
   code=0
@@ -1094,7 +933,6 @@ if [ -x "$SUMMARIZE" ]; then
     fail "the regression check must read the legs present and name no others (code=$code, out=$out)"
   fi
 
-  # Naming every leg is what the whole set does today, and it must be unchanged.
   code=0
   out="$(RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" WEB_REPORT="$tmp/web.json" \
     HISTORY_FILE="$tmp/NOHIST" "$SUMMARIZE" 2>&1)" || code=$?
@@ -1110,16 +948,8 @@ else
   fail "scripts/mutation-summarize.sh must exist and be executable"
 fi
 
-# --- Workflow wires the VM baseline restore before Summarize ------------------
-# The fetch needs kubectl, so OCI+kube setup must precede the Restore step, and
-# Restore must precede Summarize so previous_row sees the reconstructed row.
-# The first line matching a pattern, or nothing.
-#
-# Not a pipeline: `grep | head` under pipefail reports grep's status, so a
-# pattern that matches nothing ends the sweep at the assignment rather than
-# answering "no line" — and the assertions below it never run at all. That is
-# the shape .claude/rules/assertion-determinism.md refuses, and it hid here for
-# as long as every pattern happened to match.
+# line_of prints the first line number matching a pattern, or nothing. It avoids `grep | head`,
+# which under pipefail ends the script on no match (.claude/rules/assertion-determinism.md).
 line_of() {
   local matches
   matches="$(grep -nE "$1" "$WORKFLOW" || true)"
@@ -1148,8 +978,6 @@ else
   fail "workflow must contain exactly one oci-kube-setup step (moved ahead of Restore, not duplicated)"
 fi
 
-# The baseline is the previous night by date, so the job hands the reader the
-# time the run started — the date tonight is kept out by.
 if grep -qE 'VM_RUN_STARTED_AT:[[:space:]]*\$\{\{[[:space:]]*needs\.shard-budget\.outputs\.started_at' "$WORKFLOW" \
   && ! grep -qF 'VM_EXCLUDE_COMMIT' "$WORKFLOW"; then
   pass "baseline restore reads the previous night by date (VM_RUN_STARTED_AT from the first job)"
@@ -1162,9 +990,7 @@ status_upload_line="$(line_of 'name:[[:space:]]*Upload mutation run status')"
 status_push_line="$(line_of 'mutation-status-vm-push\.sh')"
 incomplete_line="$(line_of 'name:[[:space:]]*Fail a mutation run with no complete leg')"
 
-# The step's following lines go into variables rather than through a pipe:
-# `grep -q` stops at its first match, and pipefail reports the writer's failed
-# write as a step that declares neither thing.
+# The step's following lines go into variables so `grep -q` cannot lose a match to a failed pipe.
 upload_next5="$(grep -A5 -E 'name:[[:space:]]*Upload mutation run status' "$WORKFLOW" || true)"
 upload_next8="$(grep -A8 -E 'name:[[:space:]]*Upload mutation run status' "$WORKFLOW" || true)"
 
@@ -1184,8 +1010,6 @@ else
   fail "status VM push order is wrong (oci=$oci_line push=$status_push_line summarize=$summ_line)"
 fi
 
-# A run with no complete leg at all has nothing to summarize and still fails
-# here, before summarization is attempted.
 incomplete_step="$(sed -n "/name:[[:space:]]*Fail a mutation run with no complete leg/,+5p" "$WORKFLOW")"
 if [ -n "$incomplete_line" ] && [ -n "$summ_line" ] && [ "$incomplete_line" -lt "$summ_line" ] \
   && grep -q "steps.status.outputs.complete-legs == ''" <<<"$incomplete_step"; then
@@ -1194,9 +1018,6 @@ else
   fail "workflow needs an explicit failure when no leg completed"
 fi
 
-# And the publishing steps run for the legs that did complete rather than only
-# for a whole set. This is the change itself: on six of the last ten red nights
-# the failing leg was Go alone and twenty-six finished shards were discarded.
 canonical_guards=0
 for step_name in 'Upload canonical row as artifact' 'Push to VictoriaMetrics'; do
   step="$(sed -n "/name:[[:space:]]*$step_name/,+4p" "$WORKFLOW")"
@@ -1210,8 +1031,6 @@ else
   fail "canonical upload/push must be gated on the complete legs, not the whole set (found=$canonical_guards)"
 fi
 
-# The summarizer is handed exactly those legs, so a row never claims a leg that
-# did not run and never omits one that did.
 summarize_step="$(sed -n "/name:[[:space:]]*Summarize + regression check/,+8p" "$WORKFLOW")"
 if grep -qE 'MUTATION_LANGUAGES: .*steps\.status\.outputs\.complete-legs' <<<"$summarize_step"; then
   pass "the summarizer is handed the legs that completed"
@@ -1219,9 +1038,6 @@ else
   fail "the summarize step must hand mutation-summarize.sh the complete legs"
 fi
 
-# An incomplete night is still a red night. The gate reads the whole-run
-# boolean, which is what keeps this change from softening anything: what moved
-# is that the complete legs are published before the run goes red.
 gate_step="$(sed -n "/name:[[:space:]]*Fail workflow red on regression/,/^  [a-z-]*:$/p" "$WORKFLOW")"
 if grep -q 'needs.publish.outputs.complete' <<<"$gate_step" \
   && grep -q 'needs.publish.outputs.regression' <<<"$gate_step"; then

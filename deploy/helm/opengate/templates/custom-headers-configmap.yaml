@@ -1,9 +1,6 @@
 {{- if .Values.ingress.enabled -}}
-# Security response headers consumed by the ingress-nginx controller's
-# `add-headers` global config (controller.config.add-headers points here).
-# This replaces the per-ingress configuration-snippet annotation, which
-# required cluster-wide allowSnippetAnnotations=true — a header-injection
-# attack surface. See NOTES.txt for the controller wiring.
+# Security headers for the ingress-nginx `add-headers` global config, which avoids
+# cluster-wide allowSnippetAnnotations.
 apiVersion: v1
 kind: ConfigMap
 metadata:

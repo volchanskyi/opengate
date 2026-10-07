@@ -10,10 +10,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/session"
 )
 
-// Each decorator embeds the real port so unfaulted methods delegate unchanged,
-// and overrides the faultable methods to consult the armed fault first. Every
-// override threads the caller's context to both the fault executor and the real
-// call, so the tenant scope (dbtx GUC) always survives.
+// Each override passes the caller's context to the fault and to the real call,
+// so the tenant scope always survives.
 
 // FaultDevices decorates a device.Repository.
 type FaultDevices struct {
@@ -26,7 +24,7 @@ func WrapDevices(real device.Repository) *FaultDevices {
 	return &FaultDevices{Repository: real, faults: newFaultSet()}
 }
 
-// Arm sets the fault for a method name (e.g. "Get", "List"). Clear removes it.
+// Arm sets the fault for the named method.
 func (f *FaultDevices) Arm(method string, s Spec) { f.faults.arm(method, s) }
 
 // Clear removes the fault armed for method.
@@ -81,9 +79,7 @@ func (f *FaultSessions) Get(ctx context.Context, token string) (*session.Session
 	return f.Repository.Get(ctx, token)
 }
 
-// FaultRegistry decorates a relay.SessionRegistry, injected via
-// relay.WithRegistry — ServerConfig.Relay is a concrete *relay.Relay, so the
-// registry interface is the seam, not a *relay.Relay decorator.
+// FaultRegistry decorates a relay.SessionRegistry, the seam injected through relay.WithRegistry.
 type FaultRegistry struct {
 	relay.SessionRegistry
 	faults *faultSet
@@ -116,9 +112,7 @@ func (f *FaultRegistry) Ping(ctx context.Context) error {
 	return f.SessionRegistry.Ping(ctx)
 }
 
-// FaultAgentControl decorates the FI0 api.AgentControl seam. Connection-close is
-// performed by the harness on the concrete connection it owns; there is no
-// Close on this port.
+// FaultAgentControl decorates api.AgentControl, which has no Close; the harness closes connections.
 type FaultAgentControl struct {
 	api.AgentControl
 	faults *faultSet
@@ -143,7 +137,6 @@ func (f *FaultAgentControl) SendSessionRequest(ctx context.Context, token protoc
 	return f.AgentControl.SendSessionRequest(ctx, token, relayURL, perms)
 }
 
-// Compile-time assertions that each decorator still satisfies its port.
 var (
 	_ device.Repository     = (*FaultDevices)(nil)
 	_ session.Repository    = (*FaultSessions)(nil)

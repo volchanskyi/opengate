@@ -30,15 +30,12 @@ pub enum ProtocolError {
     #[error("invalid session token")]
     InvalidSessionToken,
 
-    /// Alert evidence arrived under a codec this build cannot read. Named
-    /// rather than guessed: the codec travels on the message so a future one is
-    /// additive, and a reader that quietly assumed the old one would hand back
-    /// nonsense instead of saying it could not read this.
+    /// Alert evidence arrived under a codec this build cannot read; the codec name travels with
+    /// the message.
     #[error("unknown evidence codec: {0}")]
     UnknownEvidenceCodec(String),
 
-    /// Alert evidence did not decompress. A truncated or corrupt blob is a
-    /// decode failure, never a panic and never a silently empty evidence set.
+    /// Alert evidence did not decompress; a truncated or corrupt blob surfaces as this error.
     #[error("corrupt alert evidence")]
     CorruptEvidence,
 }

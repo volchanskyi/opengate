@@ -1,17 +1,5 @@
-# Fault-injection manifest policy — runs against the rendered Helm output
-# alongside security.rego:
-#   helm template … | conftest test -p policy/k8s -
-#
-# Rule (deny):
-#   Fault-injection annotations (any `fault.opengate.dev/…` key) are applied
-#   out-of-band to the *staging* Ingress by scripts/fault/ingress-apply.sh for
-#   the duration of a drill and removed afterwards. They must never be baked
-#   into a chart template, which would render into every environment —
-#   production included. This denies any rendered document carrying the marker,
-#   so the production render provably cannot ship a fault annotation.
-#
-# Input shape: a single rendered Kubernetes manifest document. Documents without
-# a fault annotation (every normal manifest) match no rule and pass.
+# Fault annotations (fault.opengate.dev/ keys) are applied out-of-band to the staging Ingress.
+# A rendered document carrying one is denied, so a chart template cannot ship it to production.
 
 package main
 

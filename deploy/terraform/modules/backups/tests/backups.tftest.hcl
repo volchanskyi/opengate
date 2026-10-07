@@ -1,9 +1,3 @@
-# Module-invariant tests for the off-cluster Postgres backup substrate
-# (ADR-035): a private Object Storage bucket, a server-side retention lifecycle
-# rule, and the least-privilege IAM policy that lets the Object Storage service
-# principal run that lifecycle. mock_provider lets a plan succeed without OCI
-# creds; no data sources are used (namespace is passed in by the root module),
-# so an empty mock suffices.
 mock_provider "oci" {}
 
 variables {
@@ -16,7 +10,6 @@ variables {
   policy_statements = ["Allow service objectstorage-us-sanjose-1 to manage object-family in tenancy"]
 }
 
-# The backup bucket holds database dumps and must never be publicly readable.
 run "bucket_is_private" {
   command = plan
 
@@ -26,8 +19,6 @@ run "bucket_is_private" {
   }
 }
 
-# Bucket sits in the namespace/compartment the root module resolves; a drift
-# here would import-mismatch the live bucket on Phase B.
 run "bucket_wired_to_inputs" {
   command = plan
 
@@ -47,8 +38,6 @@ run "bucket_wired_to_inputs" {
   }
 }
 
-# Retention is enforced server-side by a single DELETE lifecycle rule scoped to
-# the opengate- prefix — the replacement for the old find -mtime cron.
 run "lifecycle_rule_deletes_after_retention" {
   command = plan
 
@@ -67,11 +56,7 @@ run "lifecycle_rule_deletes_after_retention" {
     error_message = "Lifecycle time_unit must be DAYS."
   }
 
-  # time_amount is Optional+Computed in the provider schema, so the mock provider
-  # leaves it unknown under `plan` and it cannot be asserted here. The retention
-  # window is instead guarded by the var.lifecycle_days validation
-  # (rejects_nonpositive_retention) and verified concretely by the Phase-B
-  # no-change `terraform import` plan.
+  # time_amount is Optional+Computed, so the mock provider leaves it unknown under plan.
 
   assert {
     condition     = one(oci_objectstorage_object_lifecycle_policy.this.rules).target == "objects"
@@ -84,8 +69,6 @@ run "lifecycle_rule_deletes_after_retention" {
   }
 }
 
-# The IAM policy must be exactly the verbatim live statement set — no
-# broadening to manage all-resources, no extra statements.
 run "iam_policy_is_least_privilege" {
   command = plan
 
@@ -105,8 +88,6 @@ run "iam_policy_is_least_privilege" {
   }
 }
 
-# lifecycle_days must be a positive retention window; 0 would expire every dump
-# immediately. Validated at the variable.
 run "rejects_nonpositive_retention" {
   command = plan
 
@@ -117,8 +98,6 @@ run "rejects_nonpositive_retention" {
   expect_failures = [var.lifecycle_days]
 }
 
-# An empty policy statement set would mean the lifecycle service principal has
-# no grant at all — the bucket lifecycle would silently stop running.
 run "rejects_empty_policy_statements" {
   command = plan
 

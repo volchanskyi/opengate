@@ -1,8 +1,3 @@
-# OCI Bastion service — operator access plane for human SSH sessions. IAM gates
-# session creation, so the dev-machine IP is irrelevant (no L4 CIDR allow-list).
-#
-# See `docs/adr/ADR-018-operator-node-access.md`.
-
 mock_provider "oci" {}
 
 variables {
@@ -10,10 +5,6 @@ variables {
   target_subnet_id = "ocid1.subnet.oc1..fake"
 }
 
-# The bastion type must be STANDARD. The other supported value (`EPHEMERAL`)
-# is being deprecated by OCI and only exists for backwards compatibility with
-# legacy sessions; STANDARD is the only billable-as-Always-Free option that
-# supports both Managed SSH and Port-Forwarding sessions.
 run "bastion_type_is_standard" {
   command = plan
 
@@ -23,9 +14,6 @@ run "bastion_type_is_standard" {
   }
 }
 
-# The bastion must attach to the subnet containing its current target. The root
-# module wires this to the OKE worker-node subnet, so OCI's allocated /28 service
-# endpoint lands inside the VCN data plane.
 run "target_subnet_is_wired" {
   command = plan
 
@@ -35,10 +23,6 @@ run "target_subnet_is_wired" {
   }
 }
 
-# Session creation is IAM-gated, not CIDR-gated — the allow-list is just the
-# L4 envelope filter for which clients may even talk to the bastion endpoint.
-# Locking it to 0.0.0.0/0 keeps the dev-machine IP irrelevant; tightening to
-# specific CIDRs would re-introduce the dynamic-IP problem this module fixes.
 run "client_cidr_is_open" {
   command = plan
 
@@ -48,8 +32,6 @@ run "client_cidr_is_open" {
   }
 }
 
-# OCI service cap is 10800 seconds (3 hours). Pinning it here documents the
-# upper bound the Makefile wrapper schedules cache refreshes against.
 run "session_ttl_at_oci_max" {
   command = plan
 
@@ -59,8 +41,6 @@ run "session_ttl_at_oci_max" {
   }
 }
 
-# Operator-supplied subnet OCID must be non-empty — otherwise the bastion
-# would attach to a phantom subnet at apply time. Validated at the variable.
 run "target_subnet_id_validation" {
   command = plan
 

@@ -1,11 +1,5 @@
-//! The tier walk: which phase a drain is in, the timestamp band that phase
-//! covers, and where one batch ends and the next begins.
-//!
-//! A drain runs recent-first and then oldest-first per tier from a durable
-//! watermark, so an interrupted replay resumes without re-sending and without
-//! shipping the same wall-clock time at two resolutions. It is pure and
-//! synchronous: it reads through a [`TierReader`] and yields ready-to-send
-//! [`PlannedBatch`]es, leaving the durable cursor to the caller.
+//! The tier walk: recent-first, then oldest-first per tier from a durable watermark, so an
+//! interrupted replay resumes without re-sending or shipping one time at two resolutions.
 
 use std::collections::BTreeMap;
 
@@ -20,9 +14,7 @@ use crate::ml::store_sink::{
     series_dim_name, series_max_dim_name, series_reduction, WindowReduction,
 };
 
-/// A ready-to-send batch of pre-rolled samples for one tier, sorted ascending by
-/// timestamp. `cursor` is the newest bucket timestamp in the batch; the caller
-/// advances the durable per-tier watermark to it only after the server acks.
+/// A batch of pre-rolled samples for one tier, ascending by timestamp, ending at bucket `cursor`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedBatch {
     pub tier: BackfillTier,
@@ -30,7 +22,6 @@ pub struct PlannedBatch {
     pub cursor: i64,
 }
 
-/// Which tier the drain is currently emitting. Phases run recent-first.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Phase {
     Recent,
@@ -58,10 +49,7 @@ impl Phase {
     }
 }
 
-/// A stateful, recent-first drain over a [`TierReader`]. Call [`next_batch`]
-/// until it returns `None`.
-///
-/// [`next_batch`]: BackfillDrain::next_batch
+/// A recent-first drain over a [`TierReader`]; `next_batch` yields batches until `None`.
 pub struct BackfillDrain<'a, R: TierReader> {
     reader: &'a R,
     now: i64,
@@ -69,14 +57,12 @@ pub struct BackfillDrain<'a, R: TierReader> {
     series: &'a [SeriesId],
     cursors: BackfillCursors,
     phase: Phase,
-    /// Next timestamp to read from (inclusive) within the current phase.
     pos: i64,
-    /// True once `pos` has been initialized for the current phase.
     pos_ready: bool,
 }
 
 impl<'a, R: TierReader> BackfillDrain<'a, R> {
-    /// Start a drain from the given durable cursors.
+    /// Starts a drain from the given durable cursors.
     pub fn new(
         reader: &'a R,
         now: i64,
@@ -96,9 +82,7 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
         }
     }
 
-    /// Samples one bucket produces across the active series: each series' average
-    /// plus its maximum where it has one. The cap counts samples, so the bucket
-    /// budget divides by this rather than by the series count.
+    /// Samples one bucket yields across the series: an average plus a maximum where one exists.
     fn samples_per_bucket(&self) -> usize {
         self.series
             .iter()
@@ -110,13 +94,11 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
             .max(1)
     }
 
-    /// Buckets per batch = the sample cap spread across a bucket's samples (>=1).
     fn buckets_per_batch(&self) -> i64 {
         let per = self.cfg.max_batch_samples / self.samples_per_bucket();
         per.max(1) as i64
     }
 
-    /// The `[lo, hi]` timestamp band and bucket step for a phase.
     fn band(&self, phase: Phase) -> (i64, i64, i64) {
         match phase {
             Phase::Recent => (
@@ -134,23 +116,13 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
                 self.now - self.cfg.mid_secs,
                 HOUR_STEP,
             ),
-            // An empty interval: nothing can be at once above the largest
-            // timestamp and below the smallest, which is what a finished walk
-            // has left to cover.
+            // An empty interval: no timestamp is both above `i64::MAX` and below `i64::MIN`.
             Phase::Done => (i64::MAX, i64::MIN, RECENT_STEP),
         }
     }
 
-    /// Whether a bucket `[ts, ts+step)` may ship in the current phase. Each
-    /// phase is bounded by its own band and by nothing else: the recent band's
-    /// ceiling is the clock-skew allowance, which is what keeps a wild future
-    /// reading out, and the older bands end well inside the past.
-    ///
-    /// A rollup bucket ships only if it lies **entirely** inside its tier's time
-    /// range, so a coarse bucket that straddles into a finer tier's range is
-    /// dropped rather than double-counting the same wall-clock time at two
-    /// resolutions. The recent tier has no such straddle to guard — its buckets
-    /// are the finest resolution shipped — so its own ceiling bounds it.
+    /// Whether a bucket may ship in the current phase; a rollup bucket must lie entirely in its
+    /// band so no time ships at two resolutions.
     fn emit_ok(&self, ts: i64, step: i64) -> bool {
         let (lo, hi, _) = self.band(self.phase);
         match self.phase {
@@ -160,8 +132,7 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
         }
     }
 
-    /// Produce the next batch, or `None` when fully drained. Does not touch the
-    /// caller's durable cursor.
+    /// Produces the next batch, or `None` when drained; the caller owns the durable cursor.
     pub fn next_batch(&mut self) -> Result<Option<PlannedBatch>, TsdbError> {
         loop {
             let Some(tier) = self.phase.tier() else {
@@ -170,8 +141,7 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
             let (band_lo, band_hi, step) = self.band(self.phase);
 
             if !self.pos_ready {
-                // Resume strictly after the durable watermark, but never before
-                // the band's own floor.
+                // Resumes strictly after the watermark and never before the band floor.
                 let resume = self.cursors.get(tier).map(|c| c + step);
                 self.pos = resume.map_or(band_lo, |r| r.max(band_lo));
                 self.pos_ready = true;
@@ -186,8 +156,7 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
             let buckets = self.read_buckets(tier, step, self.pos, read_end)?;
 
             if buckets.is_empty() {
-                // Evicted or empty slice — skip it without stalling, advancing
-                // past the window we just scanned.
+                // An evicted or empty slice is skipped past the scanned window.
                 if read_end >= band_hi {
                     self.advance_phase();
                 } else {
@@ -230,20 +199,8 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
         self.pos_ready = false;
     }
 
-    /// Read one bounded slice for `tier` over `[start, end]`, returning a map of
-    /// bucket-ts → the `(series, avg, max)` triples at that bucket, capped to
-    /// `buckets_per_batch` distinct buckets and bounded by [`emit_ok`].
-    ///
-    /// The rollup tiers read `max` from the stored bucket rather than deriving it
-    /// from the averages, so a bucket's maximum is the largest raw sample in it
-    /// and not the largest of its own means.
-    ///
-    /// A stall vital publishes its latest reading wherever the bucket is the
-    /// 60 s the kernel itself averaged over — the recent tier and the 1 min
-    /// rollup. The 1 hr rollup spans sixty of those kernel windows, so its mean
-    /// summarizes the hour the way it does for every other series.
-    ///
-    /// [`emit_ok`]: BackfillDrain::emit_ok
+    /// Reads `[start, end]` for `tier` into per-bucket `(series, avg, max)` triples, capped to
+    /// `buckets_per_batch` buckets; rollup tiers take `max` from the stored bucket.
     fn read_buckets(
         &self,
         tier: BackfillTier,
@@ -284,9 +241,7 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
                 }
             }
         }
-        // Cap to buckets_per_batch distinct bucket timestamps (ascending). The
-        // first bucket past the cap is where the map is cut, so an uncapped read
-        // walks no further than one key past what it keeps.
+        // The map is cut at the first bucket past the cap.
         let cap = self.buckets_per_batch() as usize;
         if let Some(&first_dropped) = acc.keys().nth(cap) {
             acc.split_off(&first_dropped);

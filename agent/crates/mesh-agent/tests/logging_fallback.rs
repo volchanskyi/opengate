@@ -1,16 +1,5 @@
-//! Startup survives a log directory the agent cannot write.
-//!
-//! The rolling file appender is built from a directory that is not guaranteed
-//! to exist or to be writable: an image that does not pre-create it, a
-//! read-only mount, or a pod whose user cannot write under `/var/log`. Logging
-//! to a file is a diagnostic, not a precondition for running a machine, so a
-//! directory the agent cannot use costs it the file sink and nothing else —
-//! stdout still carries every line, which is what `kubectl logs` and
-//! `journalctl` read.
-//!
-//! Exercised against the real binary because the fault only exists once the
-//! process is running: an agent on a staging pod reached the first line of
-//! `main` and died there, and the fleet it should have joined stayed empty.
+//! The real binary starts with an unusable log directory, losing only the file sink while stdout
+//! keeps every line.
 
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -22,24 +11,15 @@ use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 
-/// Path to the compiled `mesh-agent` binary, provided by Cargo to this crate's
-/// integration tests.
 const MESH_AGENT_BIN: &str = env!("CARGO_BIN_EXE_mesh-agent");
 
-/// Logged immediately after the subscriber is installed. Seeing it means the
-/// process is past the appender.
+/// Logged right after the subscriber is installed; seeing it means the process passed the appender.
 const STARTUP_LINE: &str = "mesh-agent starting";
 
-/// What the appender prints when it gives up on a directory, and the whole
-/// reason this file exists.
 const APPENDER_PANIC: &str = "initializing rolling file appender failed";
 
-/// How long to wait for the startup line.
 const STARTUP_WAIT: Duration = Duration::from_secs(60);
 
-/// Start the agent against the given directories with its stderr captured to a
-/// file. The two required arguments are the only ones it needs to get as far
-/// as logging; it never reaches a server.
 fn spawn_agent(log_dir: &Path, data_dir: &Path, stderr_path: &Path) -> Child {
     let stderr = fs::File::create(stderr_path).expect("create the stderr capture file");
     Command::new(MESH_AGENT_BIN)
@@ -56,9 +36,6 @@ fn spawn_agent(log_dir: &Path, data_dir: &Path, stderr_path: &Path) -> Child {
         .expect("run the mesh-agent binary")
 }
 
-/// Wait for the startup line on stdout, then stop the agent. An agent that
-/// starts runs until it is killed, so the caller always stops it; the return
-/// says whether it got that far.
 fn started_then_stop(child: &mut Child) -> bool {
     let stdout = child.stdout.take().expect("the agent's stdout is piped");
     let (lines, received) = mpsc::channel();
@@ -78,14 +55,11 @@ fn started_then_stop(child: &mut Child) -> bool {
                 started = true;
                 break;
             }
-            // Another line, or the agent closed stdout by dying.
             Ok(_) => continue,
             Err(_) => break,
         }
     }
 
-    // Best effort both times: an agent that died on its own is already gone,
-    // which is itself one of the outcomes these tests distinguish.
     drop(child.kill());
     drop(child.wait());
     started
@@ -94,8 +68,7 @@ fn started_then_stop(child: &mut Child) -> bool {
 #[test]
 fn a_log_directory_that_cannot_be_created_does_not_stop_the_agent() {
     let tmp = TempDir::new().expect("a temp dir");
-    // No directory can be created underneath a regular file, for any user, so
-    // this is unusable whether the suite runs as root or not.
+    // No directory can be created under a regular file, for root or any other user.
     let blocker = tmp.path().join("not-a-directory");
     fs::write(&blocker, b"").expect("write the blocking file");
     let log_dir = blocker.join("logs");
@@ -135,8 +108,7 @@ fn a_writable_log_directory_receives_the_rolling_file() {
         "the agent never reached its startup line. stderr: {stderr}"
     );
 
-    // `agent.log` is the prefix the device-log collector discovers files by, so
-    // the name is part of the contract and not an implementation detail.
+    // `agent.log` is the prefix the device-log collector discovers files by.
     let written: Vec<String> = fs::read_dir(&log_dir)
         .expect("the agent creates the log directory it is given")
         .filter_map(Result::ok)

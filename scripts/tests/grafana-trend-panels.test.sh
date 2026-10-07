@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# The trend dashboards draw one line per measurement, a point per night.
-#
-# A night's samples used to carry the commit, so every run was a series of its
-# own and Grafana gave each a colour of its own and joined nothing: one
-# benchmark over four nights on three commits was three colours. Folding the
-# commit away in the query was not enough either, because the store carries a
-# reading forward only on a series that holds two readings, so the folded line
-# was a staircase with gaps.
-#
-# So a sample names the measurement and nothing else, and a trend panel asks
-# for the raw readings over the dashboard's range: an instant query of a bare
-# selector over [$__range], which returns each night's reading at its own time,
-# drawn as lines with points. Its legend names every label of the measurement,
-# so no two lines share a legend. A stat panel reads last_over_time(…[30d]),
-# which names one series now that nothing else varies. And each dashboard says
-# where its readings come from.
-#
-# Run: ./scripts/tests/grafana-trend-panels.test.sh
+# A trend panel is an instant query of a bare selector over [$__range], drawn as lines with points.
+# Its legend names every label of the measurement; stat panels read last_over_time(…[30d]).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,10 +22,7 @@ fail() {
 
 echo "grafana trend panels:"
 
-# The labels each measurement carries, by metric. What each pusher writes is
-# pinned by its own test; this table is checked against the pushers below, so a
-# label added there and not here fails rather than drawing two lines under one
-# legend.
+# The label table is checked against the pushers, so a label added there and not here fails.
 findings="$(
   python3 - "$DASHBOARDS" "$REPO_ROOT/scripts" <<'PY'
 import json, pathlib, re, sys

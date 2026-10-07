@@ -1,8 +1,4 @@
 //! Mouse input control-message handler.
-//!
-//! Owns `ControlMessage::MouseMove` and `ControlMessage::MouseClick`
-//! dispatch so mouse input policy is independently testable outside the
-//! [`super::super::handler::SessionHandler`] multiplexer.
 
 use mesh_protocol::{MouseButton, Permissions};
 use tracing::warn;
@@ -11,21 +7,13 @@ use crate::platform::InputInjector;
 
 use super::ControlMessageHandler;
 
-/// Handles mouse input messages.
-///
-/// Unit struct with associated functions — no per-session state needed.
-/// `Permissions` and the `InputInjector` are threaded explicitly so the
-/// handler is trivially testable in isolation.
+/// Handles mouse input messages, gated by `Permissions::input`.
 pub struct MouseHandler;
 
 impl ControlMessageHandler for MouseHandler {}
 
 impl MouseHandler {
-    /// Process a `MouseMove` control message.
-    ///
-    /// Silently drops the event if `permissions.input` is false. Failed
-    /// injector calls are logged at warn but do not propagate — the relay
-    /// session continues regardless.
+    /// Injects a mouse move when `permissions.input` is set; injector failures are logged.
     pub fn handle_mouse_move(
         permissions: &Permissions,
         injector: &dyn InputInjector,
@@ -40,12 +28,7 @@ impl MouseHandler {
         }
     }
 
-    /// Process a `MouseClick` control message.
-    ///
-    /// Issues `inject_mouse_move` followed by `inject_mouse_button`. Same
-    /// permission gate and warn-on-failure posture as `handle_mouse_move`.
-    /// A failed move does not short-circuit the button — both attempts run
-    /// independently, matching the pre-carve-out behavior.
+    /// Injects a move then a button event; each runs even when the other fails.
     pub fn handle_mouse_click(
         permissions: &Permissions,
         injector: &dyn InputInjector,
@@ -83,8 +66,6 @@ mod tests {
         }
     }
 
-    /// Recording injector — captures every inject call in order, with
-    /// per-method failure toggles for negative-path coverage.
     struct RecordingInjector {
         calls: Arc<Mutex<Vec<String>>>,
         fail_move: Arc<Mutex<bool>>,
@@ -165,8 +146,6 @@ mod tests {
 
     #[test]
     fn mouse_move_boundary_u16_max() {
-        // Pins the u16 → i32 widening at the boundary; mutating the cast to
-        // `as i16` would overflow at u16::MAX and surface here.
         let inj = RecordingInjector::new();
         MouseHandler::handle_mouse_move(&perms(true), &inj, u16::MAX, u16::MAX);
         assert_eq!(
@@ -232,8 +211,6 @@ mod tests {
 
     #[test]
     fn null_injector_accepts_mouse_calls() {
-        // Smoke: the production NullInput impl (headless/CI) must not panic
-        // when called via MouseHandler with input permitted.
         let null = NullInput;
         MouseHandler::handle_mouse_move(&perms(true), &null, 1, 1);
         MouseHandler::handle_mouse_click(&perms(true), &null, MouseButton::Left, true, 1, 1);

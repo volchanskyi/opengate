@@ -35,7 +35,7 @@ gauntlet passes, then this skill, then the commit, which runs the gauntlet again
 3. **Strategize** — Describe the optimization strategy options you suggest
 4. **Divide and conquer** — Break the work into smaller, manageable subtasks. Address one logical unit at a time, review and test the changes, then move to the next step
 5. **Dead-code & unreachable-branch sweep** — Run `make dead-code` (clippy `-W dead_code`, staticcheck `U1000`, ts-prune) on the touched packages. For every finding, either remove it or justify it inline:
-   - Rust: remove the symbol, OR add `#[allow(dead_code)]` with a one-line comment explaining the binding.
+   - Rust: remove the symbol, OR add `#[allow(dead_code)]` with a one-line comment stating the binding ([`code-comments.md`](../../rules/code-comments.md)).
    - Go: remove, OR add a build-tag guard, OR add a test that exercises it. `staticcheck` U1000 has no inline-suppress; if removal is wrong, restructure so the call site exists.
    - TypeScript: remove, OR mark the export `@internal` if it is intentionally unused at the boundary but kept for future restoration. Bare comments are not justification — the comment must name what would call this and when.
    - Unreachable branches: `if false`, dead `match`/`switch` arms, code after `return`/`panic`. Remove all. Suppression here is never the right answer — the branch is either reachable (write a test) or not (delete it).
@@ -49,6 +49,8 @@ gauntlet passes, then this skill, then the commit, which runs the gauntlet again
 ## Focus Areas
 
 - Readability and performance
+- Comments held to [`code-comments.md`](../../rules/code-comments.md): delete
+  what restates the code, and keep each why as one short positive statement
 - Eliminate duplications, unused imports, and unused libraries
 - Apply industry best practices
 - Audit and fix lint/warning suppressions (`#[allow(...)]`, `//nolint:`, `eslint-disable`) — prefer

@@ -1,12 +1,7 @@
 import { test, expect } from "./fixtures";
 import type { Route } from "@playwright/test";
 
-// Exercises the WS-6/WS-12 device-detail telemetry surface end-to-end:
-// the anomaly panel, a uPlot metric timeline, and the metrics->logs
-// correlation jump ("View logs for this window" -> the logs explorer fetches
-// that window). Backend telemetry (VictoriaMetrics) is not seeded in the e2e
-// stack, so the numeric window + logs are provided via route interception,
-// mirroring device-logs.spec.ts.
+// VictoriaMetrics is not seeded in the e2e stack, so the metric window and logs are intercepted.
 
 const DEVICE_ID = "33333333-3333-4333-8333-333333333333";
 const GROUP_ID = "44444444-4444-4444-8444-444444444444";
@@ -64,9 +59,7 @@ test.describe("Device telemetry UI", () => {
     await authedPage.goto(`/devices/${DEVICE_ID}`);
 
     await expect(authedPage.getByRole("heading", { name: "Telemetry", exact: true })).toBeVisible();
-    // Anomaly panel surfaces the edge-health percentage.
     await expect(authedPage.getByText("80%")).toBeVisible();
-    // A uPlot timeline mounts for the cpu family (canvas owns the pixels).
     await expect(authedPage.getByRole("figure", { name: "cpu metrics" })).toBeVisible();
   });
 
@@ -85,7 +78,6 @@ test.describe("Device telemetry UI", () => {
     await authedPage.getByRole("button", { name: /view logs for this window/i }).click();
 
     await expect(authedPage.getByText("window-scoped log line")).toBeVisible();
-    // The jump carried a bounded from/to window to the explorer.
     expect(logsQuery).not.toBeNull();
     expect(logsQuery!.get("from")).toBeTruthy();
     expect(logsQuery!.get("to")).toBeTruthy();

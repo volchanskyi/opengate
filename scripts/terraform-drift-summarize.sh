@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
-# Parses the JSON output of `terraform show -json drift.tfplan` (where
-# `drift.tfplan` came from `terraform plan -refresh-only -detailed-exitcode`)
-# and emits a single canonical drift record.
+# Prints one single-line JSON drift record from `terraform show -json` of a refresh-only plan.
+# The record carries timestamp, run_id, commit, drift_count, resource_changes and summary.
 #
-# Invoked by .github/workflows/terraform-drift.yml when refresh-only returns
-# exit code 2 (drift detected). Mirrors the style of scripts/mutation-summarize.sh.
+# Usage:
+#   terraform-drift-summarize.sh <drift.json>
 #
-# Input:
-#   $1   path to the terraform-show JSON
-# Required env (optional):
-#   GITHUB_SHA      tagged into the output record
-#   GITHUB_RUN_ID   tagged into the output record
-#
-# Output (stdout): one JSON object on one line, e.g.
-#   {"timestamp":"2026-...","run_id":"...","commit":"...","drift_count":3,
-#    "resource_changes":[{"address":"module.networking.oci_core_security_list.opengate","actions":["update"],"type":"oci_core_security_list"}],
-#    "summary":"3 resources drifted: 2 update, 1 delete"}
+# Environment:
+#   GITHUB_SHA      commit tagged into the record, default the current HEAD
+#   GITHUB_RUN_ID   run id tagged into the record, default local
 #
 # Exit codes:
 #   0  parsed successfully
@@ -33,10 +25,7 @@ COMMIT="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 RUN_ID="${GITHUB_RUN_ID:-local}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# `terraform show -json` produces a top-level `resource_changes` array. Each
-# element has `address`, `type`, and `change.actions` (array of strings).
-# For refresh-only plans, `change.actions` typically contains "update", "create",
-# "delete", or "no-op". Filter out no-ops; emit one record per drifted resource.
+# Changes whose only action is "no-op" are dropped; each remaining one is a drifted resource.
 jq -e -c \
   --arg ts "$TIMESTAMP" \
   --arg run "$RUN_ID" \

@@ -1,23 +1,9 @@
 #!/usr/bin/env bash
-# Read a night's canonical rows against the profile's own limits.
+# Reads a night's canonical rows against the profile's own limits.
+# A limit whose measurement never arrived fails the night, so a missing row cannot read as a pass.
 #
-# Every profile declares limits, keyed by the same source/scenario/phase triple
-# the rows carry. Nothing read them. The schema checked each was well-formed and
-# then no code consumed one, so every limit in all seven profiles was
-# decoration — including the ones marked as failing the run.
-#
-# They could not be read where the run classifies itself, either: that happens
-# inside the machine-side harness, which holds phases and machines and no
-# browser-side row at all. Twelve of the sixteen limits across the profiles name
-# a browser-side measurement, so from in there they were unreachable by
-# construction. This runs in the publish step, where both halves of the night
-# have been joined into one file, which is the first place both exist.
-#
-# A limit whose measurement never arrived fails the night. It reads as a passing
-# limit forever otherwise — the same false green as a step that reports success
-# for work it was refused.
-#
-# Usage: loadtest-gate-check.sh <profile.yaml> <loadtest-summary.json> [breaches.json]
+# Usage:
+#   loadtest-gate-check.sh <profile.yaml> <loadtest-summary.json> [breaches.json]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,12 +14,8 @@ usage() {
   echo "usage: $0 <profile.yaml> <loadtest-summary.json> [breaches.json]" >&2
 }
 
-# breaches_for compares every limit against the rows and prints one line per
-# breach: "blocking<TAB>message" or "advisory<TAB>message".
-#
-# The comparison is done in jq rather than in a shell loop because these are
-# floating-point numbers, and a shell that compares them as strings decides 90
-# is greater than 200.
+# breaches_for prints one "blocking<TAB>message" or "advisory<TAB>message" line per breached limit.
+# jq does the comparison because a shell compares these floats as strings and ranks 90 above 200.
 breaches_for() {
   local gates="$1" rows="$2"
 
@@ -77,8 +59,7 @@ main() {
   local gates
   gates="$(profile_gates "$profile")" || return 2
 
-  # A profile that declares nothing must not read as a night that cleared
-  # everything. The two are the same output and opposite facts.
+  # A profile with no limits fails, since its output matches a night that cleared everything.
   if [ "$(jq 'length' <<<"$gates")" -eq 0 ]; then
     echo "::error::$profile declares no limits, so this call would report a clean night having checked nothing." >&2
     return 2
@@ -87,8 +68,8 @@ main() {
   local lines blocking=0 advisory=0
   lines="$(breaches_for "$gates" "$summary")"
 
-  # Each entry says whether the profile enforces it, so the reader that decides
-  # the night fails it for a limit and never for a mark that only reports.
+  # Each entry records whether the profile enforces it, so a mark that only reports never fails
+  # the night.
   local recorded="[]"
   while IFS=$'\t' read -r kind message; do
     [ -n "${message:-}" ] || continue

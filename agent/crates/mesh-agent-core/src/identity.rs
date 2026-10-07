@@ -22,11 +22,7 @@ const DATA_DIR_MODE: u32 = 0o700;
 #[cfg(unix)]
 const KEY_FILE_MODE: u32 = 0o600;
 
-/// Ensure `data_dir` exists and is reachable only by the account that owns it.
-///
-/// The mode is set rather than only requested at creation: the installer
-/// usually creates the directory first, and `create_dir_all` returns `Ok` on an
-/// existing directory without touching its mode.
+/// Ensures `data_dir` exists with owner-only mode, applied even to a pre-existing directory.
 pub fn ensure_private_dir(data_dir: &Path) -> Result<(), AgentError> {
     std::fs::create_dir_all(data_dir)?;
     #[cfg(unix)]
@@ -37,13 +33,7 @@ pub fn ensure_private_dir(data_dir: &Path) -> Result<(), AgentError> {
     Ok(())
 }
 
-/// Write `contents` to `path` as a file only its owner can read.
-///
-/// The mode travels with the `open`, so the bytes are never observable at a
-/// wider mode. A file left behind by a partial uninstall keeps whatever mode it
-/// was created with, so the mode is also asserted before the new contents land
-/// — and the file is truncated rather than refused, because refusing would stop
-/// the agent from starting.
+/// Writes `contents` to `path` readable only by its owner; an existing file's mode is reset.
 fn write_private_file(path: &Path, contents: &[u8]) -> Result<(), AgentError> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -90,8 +80,7 @@ pub struct AgentIdentity {
 }
 
 impl AgentIdentity {
-    /// Load an existing identity from `data_dir`, or generate a new one and
-    /// persist it. Files: `device_id.txt`, `agent.crt` (DER), `agent.key` (DER).
+    /// Loads the identity from `data_dir`, or generates and persists a new one.
     pub fn load_or_create(data_dir: &Path) -> Result<Self, AgentError> {
         let id_path = data_dir.join(DEVICE_ID_FILE);
         let cert_path = data_dir.join(CERT_FILE);
@@ -159,8 +148,7 @@ impl AgentIdentity {
         })
     }
 
-    /// Save a CA-signed certificate (DER) to the data directory,
-    /// replacing any existing self-signed certificate.
+    /// Saves a CA-signed DER certificate over the self-signed one.
     pub fn save_signed_cert(data_dir: &Path, cert_der: &[u8]) -> Result<(), AgentError> {
         std::fs::write(data_dir.join(CERT_FILE), cert_der)?;
         Ok(())
@@ -178,9 +166,7 @@ pub struct PendingIdentity {
 }
 
 impl PendingIdentity {
-    /// Generate a key pair and CSR for enrollment. Saves `device_id.txt` and
-    /// `agent.key` to `data_dir`. The certificate will be saved later after
-    /// the server signs the CSR.
+    /// Generates a key pair and CSR, saving the device ID and key to `data_dir`.
     pub fn generate(data_dir: &Path) -> Result<Self, AgentError> {
         ensure_private_dir(data_dir)?;
 
@@ -193,7 +179,6 @@ impl PendingIdentity {
 
         let key_der = key_pair.serialize_der();
 
-        // Persist device ID and key (cert comes after enrollment).
         std::fs::write(data_dir.join(DEVICE_ID_FILE), device_id.0.to_string())?;
         write_private_file(&data_dir.join(KEY_FILE), &key_der)?;
 
@@ -216,15 +201,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let identity = AgentIdentity::load_or_create(dir.path()).unwrap();
 
-        // Device ID is a valid UUID
         assert_ne!(identity.device_id.0, uuid::Uuid::nil());
 
-        // Files were written
         assert!(dir.path().join("device_id.txt").exists());
         assert!(dir.path().join("agent.crt").exists());
         assert!(dir.path().join("agent.key").exists());
 
-        // Cert and key DER bytes are non-empty
         assert!(!identity.cert_der.is_empty());
         assert!(!identity.key_der.is_empty());
     }
@@ -245,11 +227,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let identity = AgentIdentity::load_or_create(dir.path()).unwrap();
 
-        // Verify the persisted device_id matches the in-memory one
         let stored_id = std::fs::read_to_string(dir.path().join("device_id.txt")).unwrap();
         assert_eq!(identity.device_id.0.to_string(), stored_id.trim());
 
-        // Verify cert DER is non-empty and starts with a valid ASN.1 SEQUENCE tag
         assert!(!identity.cert_der.is_empty());
         assert_eq!(
             identity.cert_der[0], 0x30,
@@ -272,14 +252,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pending = PendingIdentity::generate(dir.path()).unwrap();
 
-        // CSR PEM is well-formed.
         assert!(pending.csr_pem.contains("BEGIN CERTIFICATE REQUEST"));
         assert!(pending.csr_pem.contains("END CERTIFICATE REQUEST"));
 
-        // Key was saved to disk.
         assert!(dir.path().join("agent.key").exists());
         assert!(dir.path().join("device_id.txt").exists());
-        // Cert is NOT saved yet (will come from server).
         assert!(!dir.path().join("agent.crt").exists());
 
         assert!(!pending.key_der.is_empty());
@@ -296,14 +273,8 @@ mod tests {
         assert_eq!(saved, fake_cert);
     }
 
-    /// Pin both `&&` operators in load_or_create's three-file existence check.
-    /// If any single file is missing, we must re-generate the full identity
-    /// (and a new device UUID is chosen). Mutating any `&&` to `||` would
-    /// instead fall through to `load`, which fails with a missing-file error.
     #[test]
     fn load_or_create_regenerates_when_any_file_is_missing() {
-        // Helper: create a partial state with only `present` files written, then
-        // assert load_or_create succeeds (regenerated, not failed-load).
         for which_present in ["id", "cert", "key", "id+cert", "id+key", "cert+key"] {
             let dir = tempfile::tempdir().unwrap();
             if which_present.contains("id") {
@@ -323,8 +294,6 @@ mod tests {
             let identity = AgentIdentity::load_or_create(dir.path()).unwrap_or_else(|e| {
                 panic!("load_or_create with only [{which_present}] present must regenerate: {e}")
             });
-            // After regeneration, all three files must be present and the
-            // identity is freshly generated (cert is a valid DER SEQUENCE).
             assert!(dir.path().join(DEVICE_ID_FILE).exists());
             assert!(dir.path().join(CERT_FILE).exists());
             assert!(dir.path().join(KEY_FILE).exists());
@@ -340,11 +309,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pending = PendingIdentity::generate(dir.path()).unwrap();
 
-        // Simulate server signing by writing a dummy cert.
-        let fake_cert = vec![0x30, 0x82, 0x01, 0x00]; // ASN.1 SEQUENCE
+        let fake_cert = vec![0x30, 0x82, 0x01, 0x00];
         AgentIdentity::save_signed_cert(dir.path(), &fake_cert).unwrap();
 
-        // Now load_or_create should find all three files and load.
         let identity = AgentIdentity::load_or_create(dir.path()).unwrap();
         assert_eq!(identity.device_id.0, pending.device_id.0);
         assert_eq!(identity.cert_der, fake_cert);

@@ -5,20 +5,13 @@ resource "oci_bastion_bastion" "opengate" {
 
   target_subnet_id = var.target_subnet_id
 
-  # IAM gates session creation; CIDR is just the L4 envelope filter. Locking
-  # to 0.0.0.0/0 keeps the dev-machine IP irrelevant — the whole point of
-  # adopting the bastion (see ADR-018).
+  # IAM gates session creation; the CIDR list is only the L4 envelope filter.
   client_cidr_block_allow_list = ["0.0.0.0/0"]
 
-  # OCI service cap is 10800 seconds (3h). Pinned at the cap so a single
-  # interactive debug session covers a typical incident window without
-  # mid-flight reconnects; the Makefile wrapper still re-creates expired
-  # sessions transparently.
+  # 10800 seconds (3h) is the OCI service cap on session lifetime.
   max_session_ttl_in_seconds = 10800
 
-  # Required by policy/terraform/tags.rego and applied here for consistency.
-  # Bastion itself is Always Free in perpetuity, but tagging the resource makes
-  # future cost-attribution searches uniform.
+  # policy/terraform/tags.rego requires these tags.
   freeform_tags = {
     env        = "prod"
     component  = "bastion"

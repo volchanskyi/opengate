@@ -15,9 +15,7 @@ metadata:
   labels:
     {{- include "mon.labels" . | nindent 4 }}
 rules:
-  # Least privilege: the config uses kubernetes_sd `role: pod` and reads logs
-  # from the host's /var/log/pods, so only pod metadata is needed — no
-  # nodes/proxy (avoids the node-proxy privilege-escalation finding, KSV0047).
+  # Least privilege: `role: pod` discovery needs only pod metadata, so nodes/proxy is omitted.
   - apiGroups: [""]
     resources: [pods]
     verbs: [get, list, watch]
@@ -44,7 +42,7 @@ metadata:
   labels:
     {{- include "mon.labels" . | nindent 4 }}
 data:
-  # LOKI_URL substituted at template time with the in-cluster Loki Service.
+  # LOKI_URL is substituted at template time with the in-cluster Loki Service.
   promtail-config.yaml: |
 {{ $config | indent 4 }}
 ---
@@ -63,7 +61,7 @@ spec:
       labels:
         {{- include "mon.selectorLabels" (list . "promtail") | nindent 8 }}
       annotations:
-        # What Promtail reads at start; a changed configuration restarts it.
+        # A changed configuration restarts Promtail.
         checksum/config: {{ $config | sha256sum }}
     spec:
       serviceAccountName: {{ $name }}
@@ -81,11 +79,8 @@ spec:
           image: {{ .Values.promtail.image }}
           args: ["-config.file=/etc/promtail/promtail-config.yaml"]
           env:
-            # The scrape config relabels __host__ to the pod's node name and
-            # promtail keeps only targets whose __host__ equals its own hostname.
-            # Default hostname is the *pod* name, so without this every target is
-            # filtered out (0 active targets, nothing shipped to Loki). Set the
-            # hostname to the node name via the Downward API so they match.
+            # Promtail keeps targets whose __host__ (the node name) equals its hostname, so the
+            # Downward API sets the hostname to the node name; the pod name would drop every target.
             - name: HOSTNAME
               valueFrom:
                 fieldRef:
@@ -93,12 +88,8 @@ spec:
           ports:
             - name: http
               containerPort: 9080
-          # Liveness is a plain port check, NOT /ready: promtail's /ready returns
-          # 500 until its first scrape-target sync completes, and on a busy/large
-          # node that can lag past the probe's failure window. Gating liveness on
-          # readiness there crash-loops a healthy shipper (killed → re-synced from
-          # scratch → killed). Readiness still uses /ready so it only joins once
-          # it is actually tailing.
+          # Liveness is a port check because /ready returns 500 until the first target sync,
+          # which would crash-loop a healthy shipper; readiness uses /ready.
           livenessProbe:
             tcpSocket: { port: http }
             initialDelaySeconds: 10

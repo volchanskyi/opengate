@@ -12,13 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// Intel AMT is a property of a managed device: a device's own payload carries
-// whether the hardware supports AMT and, once a CIRA connection is linked, its
-// state and identity. Power actions are the only dedicated AMT endpoint left.
-
-// TestDeviceCarriesItsAMTProperty walks the three shapes a device can be in —
-// no AMT, AMT-capable but never dialled in, and AMT-capable with a linked
-// connection — through the real device read.
 func TestDeviceCarriesItsAMTProperty(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
@@ -93,7 +86,6 @@ func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
 	})
 	defer resp.Body.Close()
 
-	// No live CIRA tunnel — the operator refuses with 409.
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 
 	var errResp struct {
@@ -102,21 +94,17 @@ func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&errResp))
 	assert.Contains(t, errResp.Error, "not connected")
 
-	// The refusal changed nothing: the device still carries its offline link.
 	amt := fetchDeviceAMT(t, env, adminToken, dev.ID)
 	require.NotNil(t, amt)
 	assert.Equal(t, "offline", amt.Status)
 }
 
-// deviceAMT mirrors the amt object the device payload carries.
 type deviceAMT struct {
 	Available bool       `json:"available"`
 	Status    string     `json:"status"`
 	UUID      *uuid.UUID `json:"uuid"`
 }
 
-// fetchDeviceAMT reads one device over HTTP and returns its amt object, or nil
-// when the payload omits it.
 func fetchDeviceAMT(t *testing.T, env *testEnv, token string, deviceID uuid.UUID) *deviceAMT {
 	t.Helper()
 	resp := env.doJSON(t, http.MethodGet, "/api/v1/devices/"+deviceID.String(), token, nil)

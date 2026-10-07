@@ -48,10 +48,7 @@ else
   fail "installer exists and is executable"
 fi
 
-# The installer takes its versions from the manifest rather than spelling them
-# out, so the workstation and CI cannot provision different ones. Asserting the
-# literal here would put the version back in a second file — which is the defect
-# the manifest exists to close.
+# The installer takes its versions from the manifest, so the workstation and CI provision alike.
 # shellcheck source=../lib/tool-versions.sh
 . "$REPO_ROOT/scripts/lib/tool-versions.sh"
 
@@ -70,9 +67,7 @@ for tool in SHELLCHECK SHFMT JQ; do
   fi
 done
 
-# jq is provisioned here for the same reason the gates' tools are: 33 scripts
-# read JSON with it, and the runner image's copy and the workstation's had
-# disagreed about how a number renders.
+# jq is provisioned at the pinned version because jq copies differ in how they render numbers.
 if grep -q 'JQ_VERSION' "$INSTALLER" 2>/dev/null \
   && grep -q 'jq_version_of' "$INSTALLER" 2>/dev/null; then
   pass "the installer provisions jq and reads back what it installed"

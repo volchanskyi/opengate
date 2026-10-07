@@ -25,7 +25,7 @@ pub struct MetricDim {
     pub avg: f64,
 }
 
-/// Comparison direction for a WS-19 declarative threshold-alert rule.
+/// Comparison direction for a declarative threshold-alert rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum AlertComparator {
@@ -39,9 +39,7 @@ pub enum AlertComparator {
     Lte,
 }
 
-/// Every metric name a rule may watch, canonical. These are the vitals names —
-/// the dimensions the fleet agreed to collect — so a rule can only ever watch
-/// something that is actually being read.
+/// Every canonical vitals metric name a rule may watch.
 pub const RULE_METRICS: [&str; 13] = [
     "cpu.total",
     "mem.used_percent",
@@ -58,41 +56,25 @@ pub const RULE_METRICS: [&str; 13] = [
     "disk.queue_depth",
 ];
 
-/// Metric names a rule may still be written in, and the canonical name each one
-/// means. Rules pushed to the fleet before the vitals rename name these, and
-/// they keep watching the same reading — under one name from here on, so nothing
-/// downstream ever sees two names for one thing.
+/// Alternate metric names a rule may use, each mapped to the canonical name it watches.
 pub const RULE_METRIC_ALIASES: [(&str, &str); 2] = [
     ("mem.used", "mem.used_percent"),
     ("disk.used", "disk.used_percent"),
 ];
 
-/// The longest window a rule may span, in seconds. The point of a closed grammar
-/// is that the cost of every rule an operator can write is computable before it
-/// reaches an endpoint, so the window a predicate retains is bounded here rather
-/// than by whatever the machine turns out to survive. Fifteen minutes is long
-/// enough to state a trend (a disk whose service time is drifting) and short
-/// enough that the retained readings stay a few kilobytes.
+/// The longest window a rule may span, in seconds; it bounds the readings a predicate retains.
 pub const MAX_RULE_WINDOW_SECS: u32 = 900;
 
-/// The most extra conditions a rule may require alongside its own. Conjunction
-/// exists to separate a slow disk that is also backed up from one that is merely
-/// busy; four extra sides cover that and keep the worst-case cost a small
-/// multiple of one window.
+/// The most extra conditions a rule may require alongside its own.
 pub const MAX_RULE_TERMS: usize = 4;
 
-// Both bounds are load-bearing: a window under a minute cannot state a trend,
-// and a rule with no room for a second side cannot separate a slow disk from a
-// busy one. Checked at compile time so neither can be tuned to a degenerate
-// value by accident.
+// Compile-time floors: a window under a minute cannot state a trend, and a rule needs room
+// for a second side.
 const _: () = assert!(MAX_RULE_WINDOW_SECS >= 60);
 const _: () = assert!(MAX_RULE_TERMS >= 1);
 
-/// Resolve a rule's declared metric name to its canonical vitals name, or `None`
-/// when the name is outside the vocabulary — in which case the rule never fires
-/// and is counted `unsupported`, never silently skipped.
-///
-/// This is the single alias map. Two of them, one per side of the wire, drift.
+/// Resolves a rule's metric name to its canonical vitals name, or `None` outside the
+/// vocabulary; such a rule never fires and is counted `unsupported`.
 #[must_use]
 pub fn canonical_rule_metric(name: &str) -> Option<&'static str> {
     if let Some(canonical) = RULE_METRICS.iter().find(|&&metric| metric == name) {
@@ -105,30 +87,21 @@ pub fn canonical_rule_metric(name: &str) -> Option<&'static str> {
 }
 
 /// How a rule derives the number it compares against its threshold.
-///
-/// Every variant's evaluation cost is a function of the rule's own declared
-/// fields, so a rule whose cost the build cannot compute is one the grammar
-/// cannot express.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum RulePredicate {
     /// The reading itself, this second.
     #[default]
     Instant,
-    /// Change per second across `window_secs` — the shape of a resource that is
-    /// getting worse rather than one that is already bad.
+    /// Change per second across `window_secs`.
     Rate,
-    /// The largest reading in the last `window_secs`. A minute's average hides a
-    /// five-second freeze; its maximum does not.
+    /// The largest reading in the last `window_secs`.
     WindowMax,
-    /// The mean reading over the last `window_secs` — generally slow, rather
-    /// than momentarily busy.
+    /// The mean reading over the last `window_secs`.
     WindowMean,
 }
 
-/// One extra condition a rule requires at the same instant as its own. Sustain
-/// and the firing state belong to the rule; a term carries only what it takes to
-/// decide whether this side holds right now.
+/// One extra condition a rule requires at the same instant as its own.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuleTerm {
     /// Watched dimension, resolved through [`canonical_rule_metric`].
@@ -148,36 +121,19 @@ pub struct RuleTerm {
     pub window_secs: u32,
 }
 
-/// One declarative edge threshold-alert rule, evaluated locally against sampler
-/// dimensions every window. A breach must sustain `sustain_secs` continuously
-/// before it fires, and `clear` adds hysteresis so a value dithering around
-/// `threshold` does not flap. Rules are tenant-scoped config pushed to the
-/// agent; a resulting breach is investigation-aid only until the FPR soak.
-///
-/// Rules are data in a bounded grammar, never shipped code: an agent executing
-/// server-supplied code would be a supply-chain weapon aimed at every customer
-/// estate, so everything a rule can say stays statically analysable and
-/// cost-boundable before it reaches an endpoint.
+/// A tenant-scoped threshold-alert rule evaluated locally each window; `clear` adds hysteresis.
+/// Rules are data in a bounded grammar, so their cost is known before they reach an endpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThresholdRule {
-    /// Stable rule id, used to attribute a breach and to preserve evaluation
-    /// state across an identical rule re-push.
+    /// Stable rule id that attributes a breach and keeps state across an identical re-push.
     pub id: String,
-    /// Which revision of the definition this is. An alert's identity is
-    /// `(device, rule, revision, window start)`, so the machine has to be told
-    /// which revision it is running before it can raise an alert the server
-    /// will accept. A retuned number is not a new revision — it is the same
-    /// definition with a different threshold.
+    /// Definition revision; an alert's identity is `(device, rule, revision, window start)`.
     #[serde(default)]
     pub version: u32,
-    /// How bad this rule's alerts are. It travels with the rule so the machine
-    /// states it on every alert it raises: a queue ordered by severity cannot
-    /// order an alert that states none.
+    /// How bad this rule's alerts are; stated on every alert the rule raises.
     #[serde(default)]
     pub severity: AlertSeverity,
-    /// Watched sampler dimension, resolved through [`canonical_rule_metric`].
-    /// A metric outside that vocabulary never fires and is counted
-    /// `unsupported`.
+    /// Watched dimension, resolved through [`canonical_rule_metric`]; unknown names never fire.
     pub metric: String,
     /// Comparison direction.
     pub comparator: AlertComparator,
@@ -188,8 +144,7 @@ pub struct ThresholdRule {
     pub clear: f64,
     /// Seconds the breach must hold continuously before it fires.
     pub sustain_secs: u32,
-    /// How the compared number is derived from the metric. Additive: a rule
-    /// written before the grammar extension decodes as an instant reading.
+    /// How the compared number is derived from the metric; absent decodes as `Instant`.
     #[serde(default)]
     pub predicate: RulePredicate,
     /// Seconds the predicate spans. Zero for [`RulePredicate::Instant`], and at
@@ -202,27 +157,17 @@ pub struct ThresholdRule {
     pub all: Vec<RuleTerm>,
 }
 
-/// What one rule is doing on one device.
-///
-/// A device is `Active`, `Unsupported` or `Throttled` for a rule it reports; a
-/// device that reports nothing is `unknown`, which only the server can know
-/// because only the server knows the fleet. They are distinct on purpose:
-/// reading "cannot be evaluated here" as "did not breach" reports a rule as
-/// watching machines it is not watching.
+/// What one rule is doing on one device; a device reporting nothing is `unknown`, which only
+/// the server can know.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum RuleCoverageState {
     /// The rule is being evaluated on this device.
     #[default]
     Active,
-    /// The rule cannot be evaluated here: the metric is outside the vocabulary,
-    /// the predicate is outside the grammar's bounds, or this host cannot take
-    /// the reading at all (no kernel pressure information, no disk counters).
+    /// Cannot be evaluated here: unknown metric, out-of-bounds predicate, or no host reading.
     Unsupported,
-    /// The rule cost this device more than its allowance, so the device stopped
-    /// running it. Separate from `Unsupported` because it is a fact about the
-    /// rule rather than about the host: one machine reporting it means a rule
-    /// was written wrong, and a rollout gate acts on it.
+    /// The rule exceeded its cost allowance on this device, so the device stopped running it.
     Throttled,
 }
 
@@ -236,8 +181,7 @@ pub struct RuleCoverage {
     pub state: RuleCoverageState,
 }
 
-/// One currently-firing threshold-alert breach (WS-19), carried additively in an
-/// `AgentHealthSummary`. Investigation-aid only — no auto-notify.
+/// One currently-firing threshold-alert breach, carried additively in an `AgentHealthSummary`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AlertBreach {
     /// Id of the [`ThresholdRule`] that fired.
@@ -261,12 +205,7 @@ fn is_zero_i64(value: &i64) -> bool {
     *value == 0
 }
 
-/// How bad an alert is.
-///
-/// A closed set, and closed on purpose: severity decides how an incident is
-/// presented, and an open scale invites a per-rule argument about numbers no two
-/// rule authors would settle the same way. The server refuses anything outside
-/// it rather than storing a severity nothing downstream knows how to render.
+/// How bad an alert is; a closed set, and the server refuses a value outside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum AlertSeverity {
@@ -289,10 +228,7 @@ pub struct RankedDim {
     pub score: f64,
 }
 
-/// One dimension's readings either side of the event, at the resolution only
-/// the device holds. Central keeps a 60 s average per dimension, which is where
-/// a ten-second collapse goes to disappear — so the shape travels with the
-/// alert or it is not available at all.
+/// One dimension's readings around the event at device resolution; central keeps a 60 s mean.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceSeries {
     /// The dimension's stable label.
@@ -301,13 +237,7 @@ pub struct EvidenceSeries {
     pub points: Vec<HistoryPoint>,
 }
 
-/// Everything the device knows about why an alert fired, shipped with the alert.
-///
-/// Central never holds the detail behind a signal and nothing can be fetched
-/// back later, so an alert that arrives without its evidence is an alert whose
-/// evidence no longer exists. Composition is fixed rather than "top-N by
-/// whatever fits": a technician comparing two incidents needs them to have been
-/// assembled the same way.
+/// Everything the device knows about why an alert fired; central cannot fetch it back later.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AlertEvidence {
     /// Dimensions that broke pattern, most anomalous first.
@@ -328,28 +258,16 @@ pub struct AlertEvidence {
     pub truncated: bool,
 }
 
-/// The codec `AlertEvidence` is compressed with on the wire.
-///
-/// Versioned in the name, and carried on every alert rather than assumed, so a
-/// later codec is an additive change and a reader that does not know one says so
-/// instead of handing back nonsense. DEFLATE because both sides already have it
-/// — pure-Rust `miniz_oxide` here, `compress/flate` in the Go standard library —
-/// so the evidence contract costs neither side a dependency.
+/// The codec `AlertEvidence` is compressed with, carried on every alert so a later codec is
+/// additive.
 pub const EVIDENCE_CODEC: &str = "deflate-1";
 
-/// The most an alert's compressed evidence may weigh.
-///
-/// Evidence that would exceed this is truncated and says so; it is never a
-/// reason to refuse the alert. An alert without its evidence still says a
-/// machine is in trouble, and that is the part nothing else can reconstruct.
+/// The most an alert's compressed evidence may weigh; excess is truncated and flagged.
 pub const MAX_EVIDENCE_BYTES: usize = 64 * 1024;
 
 impl AlertEvidence {
-    /// Compress this evidence for the wire under [`EVIDENCE_CODEC`].
-    ///
-    /// # Errors
-    /// Returns [`ProtocolError::MsgpackEncode`] if the evidence cannot be
-    /// serialized.
+    /// Compresses this evidence under [`EVIDENCE_CODEC`], failing when it cannot be serialized
+    /// or deflated.
     pub fn encode(&self) -> Result<Vec<u8>, ProtocolError> {
         let packed = rmp_serde::to_vec_named(self)?;
         let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
@@ -358,13 +276,8 @@ impl AlertEvidence {
             .map_err(|_| ProtocolError::CorruptEvidence)
     }
 
-    /// Read evidence written by [`AlertEvidence::encode`].
-    ///
-    /// # Errors
-    /// Returns [`ProtocolError::UnknownEvidenceCodec`] when `codec` is not one
-    /// this build reads, [`ProtocolError::CorruptEvidence`] when the blob does
-    /// not decompress, and [`ProtocolError::MsgpackDecode`] when it decompresses
-    /// to something that is not evidence.
+    /// Reads evidence written by [`AlertEvidence::encode`]; fails on an unknown `codec`, a blob
+    /// that does not inflate, or content that is not evidence.
     pub fn decode(bytes: &[u8], codec: &str) -> Result<Self, ProtocolError> {
         if codec != EVIDENCE_CODEC {
             return Err(ProtocolError::UnknownEvidenceCodec(codec.to_string()));
@@ -403,9 +316,7 @@ pub struct HealthSummary {
     pub model_ver: String,
 }
 
-/// Which central VictoriaMetrics tier a reconnect-backfill batch targets. The
-/// agent maps each local WS-14b tier to the matching central tier; full-res 1 s
-/// raw is never pushed (it is reachable only via an on-demand deep-history pull).
+/// Which central VictoriaMetrics tier a reconnect-backfill batch targets; 1 s raw is never pushed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum BackfillTier {
@@ -419,9 +330,7 @@ pub enum BackfillTier {
     Rollup1h,
 }
 
-/// One pre-rolled historical sample replayed during reconnect backfill. Central
-/// VM keeps `avg` only, so a sample carries just its dimension, original
-/// timestamp (seconds), and averaged value for that bucket.
+/// One pre-rolled historical sample replayed during reconnect backfill; central keeps `avg` only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BackfillSample {
     pub name: String,
@@ -429,18 +338,14 @@ pub struct BackfillSample {
     pub value: f64,
 }
 
-/// One point in an on-demand deep-history pull of a single dimension. Unlike a
-/// backfill batch (which spans many dims), a history response is scoped to one
-/// dimension, so a point needs only its timestamp (seconds) and value.
+/// One point of a history response scoped to a single dimension: timestamp in seconds, and value.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistoryPoint {
     pub ts: i64,
     pub value: f64,
 }
 
-/// One listening network port discovered on the host (WS-16). Read-only: the
-/// transport, the port number, and the owning process basename only — never a
-/// bound address that could leak internal topology beyond the port itself.
+/// One listening port: transport, number and owning process basename, never a bound address.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiscoveredPort {
     /// Transport, lowercase: `"tcp"` or `"udp"`.
@@ -452,8 +357,7 @@ pub struct DiscoveredPort {
     pub process: String,
 }
 
-/// One host service discovered on the endpoint (WS-16) — a systemd unit on Linux
-/// or a Windows service. Carries the unit name and its run state only.
+/// One host service on the endpoint, a systemd unit or Windows service: name and run state only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiscoveredService {
     /// Unit / service name (e.g. `"nginx.service"`, `"Spooler"`).
@@ -463,9 +367,8 @@ pub struct DiscoveredService {
     pub state: String,
 }
 
-/// One database engine inferred from a listening port plus its owning process
-/// (WS-16). Engine family, best-effort version, and port only — never a
-/// connection string or credential.
+/// One database engine inferred from a listening port and its owning process: family, version
+/// and port only, never a connection string or credential.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiscoveredDbEngine {
     /// Engine family, lowercase (e.g. `"postgres"`, `"mysql"`, `"mongodb"`,
@@ -478,8 +381,7 @@ pub struct DiscoveredDbEngine {
     pub port: u16,
 }
 
-/// One container discovered via a read-only local runtime (WS-16). Runtime,
-/// image reference, container name, and state only.
+/// One container found via a read-only local runtime: runtime, image, name and state only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiscoveredContainer {
     /// Runtime, lowercase: `"docker"`, `"podman"`, or `"containerd"`.
@@ -492,8 +394,7 @@ pub struct DiscoveredContainer {
     pub state: String,
 }
 
-/// One installed OS package discovered on the host (WS-16) — dpkg/rpm on Linux
-/// or the Windows package registry. Name and version only.
+/// One installed OS package, from dpkg/rpm or the Windows package registry: name and version.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiscoveredPackage {
     /// Package name.
@@ -502,9 +403,8 @@ pub struct DiscoveredPackage {
     pub version: String,
 }
 
-/// All control messages exchanged between agent and server.
-/// Uses internally tagged representation so msgpack output matches Go's flat struct:
-/// {"type": "AgentRegister", "capabilities": [...], "hostname": "...", "os": "..."}
+/// All control messages exchanged between agent and server, internally tagged so msgpack
+/// output matches Go's flat struct.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[non_exhaustive]
@@ -535,14 +435,11 @@ pub enum ControlMessage {
         sampler_ver: String,
         #[serde(default)]
         model_ver: String,
-        /// Threshold-alert breaches firing when this summary was built (WS-19).
-        /// Additive: an older decoder ignores it; a newer one defaults it empty.
+        /// Threshold-alert breaches firing at build time; an older decoder ignores the field.
         #[serde(default)]
         breaches: Vec<AlertBreach>,
-        /// What every installed rule is doing on this device. Additive, and
-        /// omitted entirely when there is nothing to say, which is the shape an
-        /// agent that predates coverage sends — the server reads that as this
-        /// device having reported nothing.
+        /// What every installed rule is doing here; omitted when empty, which the server reads
+        /// as the device having reported nothing.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         rule_coverage: Vec<RuleCoverage>,
     },
@@ -673,21 +570,16 @@ pub enum ControlMessage {
     },
 
     // Device lifecycle
-    /// Server notifies agent that its device has been deleted.
-    /// Agent should clean up and exit.
+    /// Server notifies agent that its device has been deleted; the agent cleans up and exits.
     AgentDeregistered {
-        /// Informational only — the agent cleans up and exits either way, so an
-        /// absent reason (the server drops zero-valued fields on encode) is a
-        /// legal message rather than a decode failure that would break the
-        /// control loop.
+        /// Informational; the server drops a zero-valued reason on encode, so absent decodes empty.
         #[serde(default)]
         reason: String,
     },
 
     /// Server requests agent to restart (exit code 42, systemd auto-restarts).
     RestartAgent {
-        /// Informational only — the agent restarts either way, so an absent
-        /// reason decodes as empty instead of dropping the control stream.
+        /// Informational; an absent reason decodes as empty and the control stream stays up.
         #[serde(default)]
         reason: String,
     },
@@ -695,15 +587,8 @@ pub enum ControlMessage {
     /// Server requests the agent to collect and send hardware inventory.
     RequestHardwareReport,
 
-    /// Agent reports hardware inventory to the server.
-    ///
-    /// `system_uuid` is the host's SMBIOS system UUID. On vPro hardware the
-    /// Intel AMT firmware presents that same value over CIRA, so the server uses
-    /// it to resolve which managed device an AMT connection belongs to; it is a
-    /// join key only and is never returned over the API. `amt_available` and
-    /// `amt_version` report what the host's Management Engine interface exposes.
-    /// All three are always serialized, so a host with no Management Engine
-    /// states `false` rather than going silent.
+    /// Agent reports hardware inventory; `system_uuid` is the SMBIOS UUID the server joins AMT
+    /// connections on, and is never returned over the API.
     HardwareReport {
         cpu_model: String,
         cpu_cores: u32,
@@ -738,8 +623,7 @@ pub enum ControlMessage {
         log_offset: u32,
         #[serde(default)]
         log_limit: u32,
-        /// Host log source to query ("self", "journald", "windows"). Empty
-        /// selects the agent's own files, so older servers stay compatible.
+        /// Host log source to query ("self", "journald", "windows"); empty selects the agent's files.
         #[serde(default)]
         source: String,
         /// Structured filter on the emitting unit (systemd unit or Windows
@@ -753,9 +637,7 @@ pub enum ControlMessage {
         log_entries: Vec<LogEntry>,
         total_count: u32,
         has_more: bool,
-        /// Distinct emitting units the host source offers for the unit dropdown
-        /// (systemd units / Windows providers), capped and sorted. Empty for the
-        /// agent's own files and for older agents, so it degrades to "all units".
+        /// Distinct emitting units the host source offers, capped and sorted; empty means all units.
         #[serde(default)]
         available_units: Vec<String>,
     },
@@ -779,10 +661,8 @@ pub enum ControlMessage {
         summaries: Vec<HealthSummary>,
     },
 
-    /// Agent → Server: request an admission slot to drain persisted history.
-    /// Carries backlog hints (pending sample count, oldest pending timestamp)
-    /// so the server scheduler can prioritize and age fairly. Because local
-    /// data is durable, this request can be deferred without data loss.
+    /// Agent → Server: request an admission slot to drain persisted history, with backlog hints
+    /// (pending count, oldest timestamp).
     RequestBackfillSlot {
         #[serde(default)]
         pending_samples: u64,
@@ -790,9 +670,8 @@ pub enum ControlMessage {
         oldest_ts: i64,
     },
 
-    /// Server → Agent: admission granted. `rate` bounds the drain to N
-    /// samples/sec; the grant expires at `deadline` (unix seconds) and must be
-    /// re-requested afterwards. Gated by the Backfill capability.
+    /// Server → Agent: admission granted at `rate` samples/sec until `deadline` (unix seconds).
+    /// Gated by the Backfill capability.
     GrantBackfill {
         #[serde(default)]
         rate: u32,
@@ -800,19 +679,15 @@ pub enum ControlMessage {
         deadline: i64,
     },
 
-    /// Server → Agent: admission deferred; retry after `retry_after` seconds
-    /// (the agent adds jitter). Durable local data means deferral never loses
-    /// samples. Gated by the Backfill capability.
+    /// Server → Agent: admission deferred; retry after `retry_after` seconds plus agent jitter.
+    /// Gated by the Backfill capability.
     DeferBackfill {
         #[serde(default)]
         retry_after: u32,
     },
 
-    /// Agent → Server: a batch of pre-rolled historical samples for one tier,
-    /// written to the matching VM tier at their original timestamps (never
-    /// through live stream-aggregation). `cursor` is the newest bucket
-    /// timestamp in this batch; the agent advances its durable per-tier
-    /// watermark only after the matching `MetricBackfillAck`.
+    /// Agent → Server: pre-rolled samples for one tier; `cursor` is the newest bucket timestamp,
+    /// and the watermark advances only after the matching `MetricBackfillAck`.
     MetricBackfillBatch {
         #[serde(default)]
         tier: BackfillTier,
@@ -822,9 +697,8 @@ pub enum ControlMessage {
         cursor: i64,
     },
 
-    /// Server → Agent: durability ack for a persisted backfill batch. The agent
-    /// advances its durable per-tier watermark to `cursor` on receipt. Gated by
-    /// the Backfill capability.
+    /// Server → Agent: durability ack that advances the per-tier watermark to `cursor`.
+    /// Gated by the Backfill capability.
     MetricBackfillAck {
         #[serde(default)]
         tier: BackfillTier,
@@ -832,9 +706,8 @@ pub enum ControlMessage {
         cursor: i64,
     },
 
-    /// Server → Agent: on-demand pull of deep/full-res history for one dimension
-    /// over a bounded window. Brokered from an authenticated, admin-gated API
-    /// call; single-host, never a fan-out. Gated by the Backfill capability.
+    /// Server → Agent: pull of full-resolution history for one dimension over a bounded window.
+    /// Gated by the Backfill capability.
     RequestLocalHistory {
         #[serde(default)]
         dim: String,
@@ -846,9 +719,7 @@ pub enum ControlMessage {
         max_points: u32,
     },
 
-    /// Agent → Server: bounded response to `RequestLocalHistory` for one
-    /// dimension. `truncated` is set when the window held more than `max_points`
-    /// samples and the response was capped.
+    /// Agent → Server: response to `RequestLocalHistory`; `truncated` marks a cap at `max_points`.
     LocalHistoryResponse {
         #[serde(default)]
         dim: String,
@@ -858,13 +729,8 @@ pub enum ControlMessage {
         truncated: bool,
     },
 
-    /// Agent → Server: a tenant-scoped auto-discovery profile of the host
-    /// (WS-16) — listening ports, host services, database engines, containers,
-    /// and installed packages. Non-intrusive, read-only, per-category bounded;
-    /// `truncated` is set when any category was capped. Carries no secrets
-    /// (engine/port/version only, never connection strings or credentials). The
-    /// server assigns the authoritative tenant, so the agent leaves `tenant_id` empty.
-    /// Gated by the Discovery capability.
+    /// Agent → Server: read-only host discovery profile; the server assigns the authoritative
+    /// tenant, so `tenant_id` is empty. Gated by the Discovery capability.
     DiscoveryReport {
         #[serde(default)]
         ts: i64,
@@ -884,104 +750,69 @@ pub enum ControlMessage {
         truncated: bool,
     },
 
-    /// Server → Agent: replace the agent's active threshold-alert ruleset (WS-19)
-    /// with this tenant-scoped set. The server sends only the connecting agent's
-    /// authoritative-tenant rules; the agent evaluates them locally each window and
-    /// carries any breach in `AgentHealthSummary`. Gated by the ThresholdAlerts
-    /// capability.
+    /// Server → Agent: replace the active ruleset with the connecting agent's tenant-scoped rules.
+    /// Gated by the ThresholdAlerts capability.
     PushAlertRules {
         #[serde(default)]
         rules: Vec<ThresholdRule>,
-        /// How many alerts this device may raise in a rolling hour. The customer
-        /// sets it and it travels with the rules, because the limit is enforced
-        /// where the alerts are raised — a check at the far end would receive
-        /// the flood it exists to prevent. Absent or zero leaves the agent on
-        /// the allowance it already has.
+        /// Alerts this device may raise per rolling hour, enforced on the device; zero or absent
+        /// keeps the current allowance.
         #[serde(default)]
         device_hourly_ceiling: u32,
     },
 
-    /// Server → Agent: set the device's maintenance state. In maintenance the
-    /// agent stops telemetry/discovery/log collection and suppresses alert-breach
-    /// evaluation while keeping the control channel and remote-management paths
-    /// live; leaving maintenance resumes collection. Server-authoritative and
-    /// pushed on connect and on every change; `enabled` defaults to `false`
-    /// (Active) so an absent field decodes as not-in-maintenance.
+    /// Server → Agent: set the maintenance state, which pauses telemetry, discovery and
+    /// alert evaluation; an absent `enabled` decodes as `false`.
     SetMaintenanceMode {
         #[serde(default)]
         enabled: bool,
     },
 
-    /// Agent → Server: applied-state report for maintenance mode. The agent
-    /// echoes the state it actually reconciled to after a `SetMaintenanceMode`
-    /// so the server can track applied vs. desired and surface a device that has
-    /// not yet converged.
+    /// Agent → Server: the maintenance state the agent actually reconciled to after
+    /// `SetMaintenanceMode`.
     MaintenanceApplied {
         #[serde(default)]
         enabled: bool,
     },
 
-    /// Agent → Server: one alert, carrying with it everything the device knows
-    /// about why it fired.
-    ///
-    /// This is the only alert transport. Central holds no high-resolution
-    /// history to go back to, and there is no path for asking the device
-    /// afterwards, so an alert is self-contained at fire time or the detail
-    /// behind it is gone. `evidence` is [`AlertEvidence`] encoded as msgpack and
-    /// compressed with the codec `evidence_codec` names; keeping the codec on
-    /// the message rather than assuming one makes a future codec additive.
-    ///
-    /// `(device, rule_id, rule_version, window_start_ts)` identifies the alert
-    /// independently of `alert_id`, so a reconnect that replays a queued alert
-    /// resolves to the same row rather than a second one.
-    ///
-    /// Every field is omitted when it carries nothing, mirroring the server's
-    /// struct, except `severity` and `backfilled`: those two are always stated,
-    /// because "not said" and "not serious" must never look alike. Gated by the
-    /// Alerts capability.
+    /// Agent → Server: one self-contained alert, identified by
+    /// `(device, rule_id, rule_version, window_start_ts)`. Gated by the Alerts capability.
     AgentAlert {
-        /// The device's own id for this alert, for tracing one report end to
-        /// end. Not the identity the server dedups on.
+        /// The device's own id for tracing one report; the server dedups on the tuple instead.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         alert_id: String,
         /// Which rule fired.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         rule_id: String,
-        /// Which revision of that rule fired, counting from one. A rule edited
-        /// after this alert was raised does not retroactively change what fired.
+        /// Which revision of that rule fired, counting from one.
         #[serde(default, skip_serializing_if = "is_zero_u32")]
         rule_version: u32,
         /// How bad the rule says this is.
         #[serde(default)]
         severity: AlertSeverity,
-        /// Watched dimension, echoed so an alert reads without a rule-table
-        /// join. Empty for a rule that watches something other than a metric.
+        /// Watched dimension, echoed so an alert reads without a rule-table join.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         metric: String,
         /// The value that crossed the line, when there was one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<f64>,
-        /// Start of the window the rule decided on, in seconds. Part of the
-        /// alert's identity.
+        /// Start of the window the rule decided on, in seconds; part of the alert's identity.
         #[serde(default, skip_serializing_if = "is_zero_i64")]
         window_start_ts: i64,
         /// End of that window, in seconds.
         #[serde(default, skip_serializing_if = "is_zero_i64")]
         window_end_ts: i64,
-        /// When the device raised the alert, in seconds. For a backfilled
-        /// finding this is nowhere near the window it describes.
+        /// When the device raised the alert, in seconds; a backfilled finding lies after its window.
         #[serde(default, skip_serializing_if = "is_zero_i64")]
         observed_ts: i64,
-        /// Whether the device found this by re-running a rule over history it
-        /// already held, rather than as it happened.
+        /// Whether the device found this by re-running a rule over stored history.
         #[serde(default)]
         backfilled: bool,
         /// How `evidence` is compressed, e.g. `"deflate-1"`. Empty when the
         /// alert carries no evidence.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         evidence_codec: String,
-        /// Compressed [`AlertEvidence`]. Empty when the device had nothing to
-        /// attach, which is a legal alert rather than a broken one.
+        /// Compressed [`AlertEvidence`]; empty when the device had nothing to attach.
         #[serde(default, with = "serde_bytes", skip_serializing_if = "Vec::is_empty")]
         evidence: Vec<u8>,
     },

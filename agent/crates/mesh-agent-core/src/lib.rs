@@ -1,7 +1,5 @@
-//! Core agent logic for OpenGate.
-//!
-//! This crate provides agent identity management, QUIC connection handling,
-//! control message exchange with the server, and relay session management.
+//! Core agent logic for OpenGate: identity management, QUIC connection handling, control
+//! message exchange with the server, and relay session management.
 
 pub mod alerts;
 pub mod amt_detect;

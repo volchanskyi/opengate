@@ -1,20 +1,17 @@
-//! On-demand log collection from agent log files.
-//!
-//! Reads daily-rotated log files produced by `tracing-appender::rolling::daily`,
-//! parses tracing-subscriber format, and returns filtered/paginated results.
+//! On-demand collection of filtered, paginated entries from the daily-rotated agent log files.
 
 use mesh_protocol::LogEntry;
 use std::fs;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
-/// Maximum number of log files to scan (1 week of dailies).
+/// Maximum number of daily log files to scan.
 const MAX_LOG_FILES: usize = 7;
 
-/// Maximum number of lines to scan per request to bound memory/CPU.
+/// Maximum number of lines scanned per request, bounding memory and CPU.
 const MAX_SCAN_LINES: usize = 10_000;
 
-/// Default page size when limit is 0 (omitted by server).
+/// Page size used when the filter's limit is 0.
 const DEFAULT_LIMIT: usize = 300;
 
 /// Collects and filters log entries from the agent's log directory.
@@ -100,7 +97,6 @@ impl LogCollector {
                 }
 
                 if let Some(entry) = parse_log_line(&line) {
-                    // Flush previous entry
                     if let Some(prev) = current_entry.take() {
                         if matches_filter(&prev, filter) {
                             all_entries.push(prev);
@@ -108,15 +104,14 @@ impl LogCollector {
                     }
                     current_entry = Some(entry);
                 } else if let Some(ref mut entry) = current_entry {
-                    // Continuation line — append to previous entry's message
+                    // A line with no timestamp continues the previous entry's message.
                     entry.message.push('\n');
                     entry.message.push_str(&line);
                 }
-                // else: garbage line before any valid entry — skip
+                // A line before the first valid entry is dropped.
             }
         }
 
-        // Flush last entry
         if let Some(prev) = current_entry.take() {
             if matches_filter(&prev, filter) {
                 all_entries.push(prev);
@@ -126,10 +121,7 @@ impl LogCollector {
         Ok(paginate(all_entries, filter))
     }
 
-    /// Discovers log files sorted by name (newest first).
-    /// tracing-appender daily rotation produces files like:
-    ///   agent.log.2026-04-01
-    ///   agent.log.2026-04-02
+    /// Discovers the `agent.log*` daily files, newest first, capped at `MAX_LOG_FILES`.
     fn discover_log_files(&self) -> Result<Vec<PathBuf>, io::Error> {
         let mut files: Vec<PathBuf> = fs::read_dir(&self.log_dir)?
             .filter_map(|e| e.ok())
@@ -143,13 +135,11 @@ impl LogCollector {
 
         files.sort();
 
-        // Keep only the most recent files
         if files.len() > MAX_LOG_FILES {
             files = files.split_off(files.len() - MAX_LOG_FILES);
         }
 
-        // Reverse so newest files are scanned first (avoids wasting
-        // MAX_SCAN_LINES budget on old entries).
+        // Newest files are scanned first so the line budget goes to recent entries.
         files.reverse();
 
         Ok(files)
@@ -159,36 +149,29 @@ impl LogCollector {
 /// Parses a single log line in tracing-subscriber format:
 /// `2026-04-01T12:34:56.789012Z  INFO mesh_agent::connection: connected to server`
 fn parse_log_line(line: &str) -> Option<LogEntry> {
-    // Timestamp must start with a digit (year)
     if !line.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
 
-    // Split: timestamp <whitespace> level <whitespace> target: message
     let mut parts = line.splitn(2, |c: char| c.is_whitespace());
     let timestamp = parts.next()?.trim();
 
-    // Validate timestamp looks like ISO 8601
     if timestamp.len() < 20 || !timestamp.contains('T') {
         return None;
     }
 
     let rest = parts.next()?.trim_start();
 
-    // Level is the next non-whitespace token
     let mut parts = rest.splitn(2, |c: char| c.is_whitespace());
     let level = parts.next()?.trim();
 
-    // Validate level
     level_severity(level)?;
 
     let rest = parts.next().unwrap_or("").trim_start();
 
-    // Target and message split at first ": "
     let (target, message) = if let Some(pos) = rest.find(": ") {
         (&rest[..pos], rest[pos + 2..].to_string())
     } else {
-        // No target separator — entire rest is the message
         ("", rest.to_string())
     };
 
@@ -200,11 +183,8 @@ fn parse_log_line(line: &str) -> Option<LogEntry> {
     })
 }
 
-/// Applies the shared severity/time/search filter to a batch of already-parsed
-/// entries, so a host log source (journald / Windows Event Log) gets identical
-/// level/time/search semantics to the agent's own files (min-severity WARN ⊇
-/// ERROR). The agent-file path applies the same `matches_filter` inline during
-/// the scan; the host path has no scan, so it filters the collected batch here.
+/// Applies the severity, time and search filter to already-parsed entries so host log
+/// sources match the agent's own files.
 pub(crate) fn filter_entries(entries: Vec<LogEntry>, filter: &LogFilter) -> Vec<LogEntry> {
     entries
         .into_iter()
@@ -212,11 +192,8 @@ pub(crate) fn filter_entries(entries: Vec<LogEntry>, filter: &LogFilter) -> Vec<
         .collect()
 }
 
-/// Sorts entries newest-first and applies offset/limit pagination, reporting the
-/// pre-page total and whether more remain. Shared by the agent-file and host log
-/// paths so both paginate identically. Files are scanned newest-first (for
-/// scan-budget efficiency) but lines within each file are chronological, so a
-/// simple reverse wouldn't order correctly — hence a full sort.
+/// Sorts entries newest-first and applies offset/limit pagination, reporting the pre-page
+/// total; a full sort is needed because lines within each file run oldest-first.
 pub(crate) fn paginate(mut all_entries: Vec<LogEntry>, filter: &LogFilter) -> LogResult {
     all_entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
@@ -238,9 +215,8 @@ pub(crate) fn paginate(mut all_entries: Vec<LogEntry>, filter: &LogFilter) -> Lo
     }
 }
 
-/// Checks if an entry matches the filter criteria.
+/// Whether an entry passes the level, time-range and search filters.
 fn matches_filter(entry: &LogEntry, filter: &LogFilter) -> bool {
-    // Level filter (severity-based: WARN includes WARN+ERROR)
     if let Some(ref min_level) = filter.level {
         if let (Some(min_sev), Some(entry_sev)) =
             (level_severity(min_level), level_severity(&entry.level))
@@ -251,7 +227,7 @@ fn matches_filter(entry: &LogEntry, filter: &LogFilter) -> bool {
         }
     }
 
-    // Time range filter (ISO 8601 string comparison works correctly)
+    // ISO 8601 strings order chronologically, so a string comparison bounds the range.
     if let Some(ref from) = filter.time_from {
         if entry.timestamp.as_str() < from.as_str() {
             return false;
@@ -263,7 +239,6 @@ fn matches_filter(entry: &LogEntry, filter: &LogFilter) -> bool {
         }
     }
 
-    // Keyword search (case-insensitive substring match on message)
     if let Some(ref search) = filter.search {
         if !entry
             .message
@@ -299,8 +274,6 @@ mod tests {
         }
     }
 
-    // --- Positive cases ---
-
     #[test]
     fn test_parse_standard_tracing_format() {
         let line = "2026-04-01T12:34:56.789012Z  INFO mesh_agent::connection: connected to server";
@@ -323,7 +296,6 @@ mod tests {
         let collector = LogCollector::new(dir.path().to_path_buf());
         let result = collector.collect(&default_filter()).unwrap();
 
-        // Newest-first ordering
         assert_eq!(result.entries.len(), 2);
         assert_eq!(result.entries[0].level, "INFO");
         assert_eq!(result.entries[0].message, "recovered");
@@ -351,7 +323,6 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
-        // Newest-first: WARN before INFO
         assert_eq!(result.entries.len(), 2);
         assert_eq!(result.entries[0].level, "WARN");
         assert_eq!(result.entries[1].level, "INFO");
@@ -377,7 +348,6 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
-        // Newest-first: ERROR before WARN
         assert_eq!(result.entries.len(), 2);
         assert_eq!(result.entries[0].level, "ERROR");
         assert_eq!(result.entries[1].level, "WARN");
@@ -403,7 +373,6 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
-        // Newest-first: afternoon before midday
         assert_eq!(result.entries.len(), 2);
         assert_eq!(result.entries[0].message, "afternoon");
         assert_eq!(result.entries[1].message, "midday");
@@ -427,7 +396,6 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
-        // Newest-first: "connection lost" before "connected to server"
         assert_eq!(result.entries.len(), 2);
         assert!(result.entries[0].message.contains("connection"));
         assert!(result.entries[1].message.contains("connected"));
@@ -437,7 +405,6 @@ mod tests {
     fn test_pagination_offset_limit() {
         let dir = TempDir::new().unwrap();
         let mut content = String::new();
-        // Use unique timestamps: hour 10-11, minutes 0-99 spread across
         for i in 0..100u32 {
             let hour = 10 + i / 60;
             let min = i % 60;
@@ -456,7 +423,6 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
-        // Newest-first: entries are 99,98,...,0. offset=50 skips 99..50 → starts at 49.
         assert_eq!(result.entries.len(), 25);
         assert_eq!(result.entries[0].message, "line 49");
         assert_eq!(result.entries[24].message, "line 25");
@@ -478,7 +444,6 @@ mod tests {
 
         let collector = LogCollector::new(dir.path().to_path_buf());
 
-        // has_more = true
         let filter = LogFilter {
             offset: 0,
             limit: 25,
@@ -488,7 +453,6 @@ mod tests {
         assert!(result.has_more);
         assert_eq!(result.total_count, 50);
 
-        // has_more = false (exactly at boundary)
         let filter = LogFilter {
             offset: 25,
             limit: 25,
@@ -497,7 +461,6 @@ mod tests {
         let result = collector.collect(&filter).unwrap();
         assert!(!result.has_more);
 
-        // has_more = false (beyond)
         let filter = LogFilter {
             offset: 0,
             limit: 100,
@@ -524,13 +487,10 @@ mod tests {
         let collector = LogCollector::new(dir.path().to_path_buf());
         let result = collector.collect(&default_filter()).unwrap();
 
-        // Newest-first: day2 before day1
         assert_eq!(result.entries.len(), 2);
         assert_eq!(result.entries[0].message, "day2");
         assert_eq!(result.entries[1].message, "day1");
     }
-
-    // --- Negative cases ---
 
     #[test]
     fn test_empty_log_dir() {
@@ -563,7 +523,6 @@ mod tests {
         let collector = LogCollector::new(dir.path().to_path_buf());
         let result = collector.collect(&default_filter()).unwrap();
 
-        // Only the valid entry (with continuation line appended)
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].level, "INFO");
         assert!(result.entries[0].message.contains("valid entry"));
@@ -580,9 +539,6 @@ mod tests {
         assert_eq!(result.total_count, 0);
     }
 
-    // --- Mutation-test gap closers ---
-
-    /// Pin every level_severity match arm: deleting any arm fails one row.
     #[test]
     fn level_severity_table() {
         assert_eq!(level_severity("TRACE"), Some(0));
@@ -593,8 +549,6 @@ mod tests {
         assert_eq!(level_severity("UNKNOWN"), None);
     }
 
-    /// `INFO` filter must reject `TRACE` and `DEBUG` entries, proving the
-    /// TRACE/DEBUG arms exist (they're below INFO in severity ordering).
     #[test]
     fn collect_filters_below_info_keeps_trace_and_debug_arms_alive() {
         let dir = TempDir::new().unwrap();
@@ -611,22 +565,14 @@ mod tests {
             ..default_filter()
         };
         let result = collector.collect(&filter).unwrap();
-        // Only INFO survives (TRACE and DEBUG must severity-rank below).
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].level, "INFO");
     }
 
-    /// Pin `lines_scanned += 1`. With `*=`, scanning > 0 lines after the
-    /// initial 0 stays at 0 forever and the scan budget never trips, so a
-    /// huge file would parse all entries instead of capping. Use a count
-    /// just below MAX_SCAN_LINES so the *= mutation produces visibly
-    /// different output (every line returned vs only the budgeted count).
     #[test]
     fn collect_counts_lines_with_addition_not_multiplication() {
         let dir = TempDir::new().unwrap();
         let mut content = String::new();
-        // Write MAX_SCAN_LINES + 50 entries; with `+=` only MAX get scanned.
-        // With `*=` the counter stays at 0 and ALL 10050 get scanned.
         for i in 0..(MAX_SCAN_LINES + 50) {
             content.push_str(&format!(
                 "2026-04-01T{:02}:{:02}:{:02}.{:06}Z  INFO mesh_agent: line {}\n",
@@ -653,42 +599,28 @@ mod tests {
         );
     }
 
-    /// Pin parse_log_line timestamp validation: timestamp shorter than 20
-    /// chars OR missing 'T' must fail to parse.
     #[test]
     fn parse_log_line_rejects_short_or_t_less_timestamp() {
-        // 19 chars (one short of 20) — must fail.
         assert!(
             parse_log_line("2026-04-01T12:34:5  INFO m: msg").is_none(),
             "<20 char timestamp must fail"
         );
-        // 20+ chars but no 'T' — must fail. Use spaces inside but no 'T' on year.
         assert!(
             parse_log_line("2026X04X01X12:34:56  INFO m: msg").is_none(),
             "missing 'T' must fail"
         );
-        // 20 chars with 'T' — must succeed.
         let valid = parse_log_line("2026-04-01T12:34:56Z  INFO m: msg");
         assert!(valid.is_some(), "20-char timestamp with 'T' must succeed");
     }
 
-    /// Pin parse_log_line uses `||` not `&&` — the timestamp test
-    /// `len < 20 || !contains('T')` rejects EITHER condition.
-    /// With `&&`, only timestamps that are BOTH short AND missing 'T'
-    /// would be rejected — so a long-but-T-less timestamp would slip in.
     #[test]
     fn parse_log_line_validates_both_length_and_t_separator() {
-        // Long enough (>20) but no 'T': must still fail with `||`.
         assert!(
             parse_log_line("2026/04/01 12:34:56.789012  INFO m: msg").is_none(),
             "long timestamp without 'T' must fail"
         );
     }
 
-    /// Pin `entry.timestamp < from` boundary: filter `time_from` is
-    /// inclusive on equality. With `<=`, an entry exactly at `from`
-    /// would be filtered out; with `==`, only entries equal to from
-    /// would be filtered.
     #[test]
     fn matches_filter_time_from_is_inclusive_on_boundary() {
         let entry = LogEntry {
@@ -697,14 +629,12 @@ mod tests {
             target: "m".to_string(),
             message: "x".to_string(),
         };
-        // from == entry timestamp: must keep (boundary inclusive).
         let filter = LogFilter {
             time_from: Some("2026-04-01T12:00:00.000000Z".to_string()),
             ..default_filter()
         };
         assert!(matches_filter(&entry, &filter), "from == entry must keep");
 
-        // from > entry timestamp: must drop.
         let filter = LogFilter {
             time_from: Some("2026-04-01T13:00:00.000000Z".to_string()),
             ..default_filter()
@@ -712,8 +642,6 @@ mod tests {
         assert!(!matches_filter(&entry, &filter), "from > entry must drop");
     }
 
-    /// Pin `entry.timestamp > to` boundary: `time_to` is inclusive on
-    /// equality. With `>=`, an entry exactly at `to` would be filtered out.
     #[test]
     fn matches_filter_time_to_is_inclusive_on_boundary() {
         let entry = LogEntry {
@@ -722,14 +650,12 @@ mod tests {
             target: "m".to_string(),
             message: "x".to_string(),
         };
-        // to == entry timestamp: must keep.
         let filter = LogFilter {
             time_to: Some("2026-04-01T12:00:00.000000Z".to_string()),
             ..default_filter()
         };
         assert!(matches_filter(&entry, &filter), "to == entry must keep");
 
-        // to < entry timestamp: must drop.
         let filter = LogFilter {
             time_to: Some("2026-04-01T11:00:00.000000Z".to_string()),
             ..default_filter()
@@ -737,14 +663,9 @@ mod tests {
         assert!(!matches_filter(&entry, &filter), "to < entry must drop");
     }
 
-    /// Pin `discover_log_files` truncation: when files.len() > MAX_LOG_FILES,
-    /// keep ONLY the most recent MAX_LOG_FILES. Mutating `>` to `==` would
-    /// only truncate at exactly N+1; mutating `-` to `+` would request a
-    /// split point past the end and panic.
     #[test]
     fn discover_log_files_caps_at_max_log_files() {
         let dir = TempDir::new().unwrap();
-        // Create MAX_LOG_FILES + 3 files with ascending names.
         for i in 0..(MAX_LOG_FILES + 3) {
             write_log_file(
                 dir.path(),
@@ -757,7 +678,6 @@ mod tests {
         }
         let collector = LogCollector::new(dir.path().to_path_buf());
         let result = collector.collect(&default_filter()).unwrap();
-        // Each file has one entry; we must read exactly MAX_LOG_FILES files.
         assert_eq!(
             result.total_count as usize, MAX_LOG_FILES,
             "discover_log_files must cap at {}",
@@ -765,9 +685,6 @@ mod tests {
         );
     }
 
-    /// Pin the boundary case where exactly MAX_LOG_FILES exist — mutating
-    /// `>` to `>=` would trigger truncation at the boundary and reduce the
-    /// kept count below MAX_LOG_FILES.
     #[test]
     fn discover_log_files_keeps_all_when_at_exactly_max() {
         let dir = TempDir::new().unwrap();

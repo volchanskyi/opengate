@@ -13,7 +13,6 @@ import (
 	"nhooyr.io/websocket"
 )
 
-// wsEchoServer creates an httptest server that accepts a WebSocket and echoes messages.
 func wsEchoServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,11 +53,9 @@ func TestWSConn_ReadWriteRoundtrip(t *testing.T) {
 	conn, _ := dialWSConn(t, srv.URL)
 	defer conn.Close()
 
-	// Write data via adapter
 	testData := []byte("hello websocket")
 	require.NoError(t, conn.WriteMessage(testData))
 
-	// Read echoed data via adapter
 	data, err := conn.ReadMessage()
 	require.NoError(t, err)
 	assert.Equal(t, testData, data)
@@ -72,7 +69,6 @@ func TestWSConn_LargeMessage(t *testing.T) {
 	conn, _ := dialWSConn(t, srv.URL)
 	defer conn.Close()
 
-	// 256 KB message — larger than the old 32KB io.CopyBuffer
 	largeData := make([]byte, 256*1024)
 	for i := range largeData {
 		largeData[i] = byte(i % 251)
@@ -91,10 +87,8 @@ func TestWSConn_CloseClosesUnderlying(t *testing.T) {
 
 	conn, _ := dialWSConn(t, srv.URL)
 
-	// Close the adapter
 	require.NoError(t, conn.Close())
 
-	// Subsequent read should fail
 	_, err := conn.ReadMessage()
 	assert.Error(t, err)
 }
@@ -107,8 +101,6 @@ func TestWSConn_MultipleMessages(t *testing.T) {
 	conn, _ := dialWSConn(t, srv.URL)
 	defer conn.Close()
 
-	// nhooyr.io/websocket does not support concurrent reads or writes,
-	// so verify sequential multi-message round-trips instead.
 	for i := 0; i < 5; i++ {
 		msg := []byte{byte(i)}
 		require.NoError(t, conn.WriteMessage(msg))
@@ -119,9 +111,6 @@ func TestWSConn_MultipleMessages(t *testing.T) {
 	}
 }
 
-// wsSilentServer accepts a WebSocket and then never reads from it, standing in
-// for a peer that is present on the network and not consuming — which is the
-// case TCP keep-alive cannot see, because the socket is alive.
 func wsSilentServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	accepted := make(chan struct{})
@@ -139,8 +128,6 @@ func wsSilentServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// wsDrainServer accepts a WebSocket and reads everything sent to it, discarding
-// it — a peer that is consuming as fast as it is given.
 func wsDrainServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -160,56 +147,24 @@ func wsDrainServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-// TestWSConn_WriteFailsAgainstAPeerThatNeverReads pins the deadline on a
-// forwarded relay frame.
-//
-// Against a peer that accepted the connection and never drains it, the socket
-// buffers fill and the write blocks. Without a deadline it blocks with no error
-// for as long as the peer stays connected, holding a goroutine and a socket per
-// direction. A frame the peer cannot accept inside the budget is a peer that is
-// not consuming, not a slow link.
 func TestWSConn_WriteFailsAgainstAPeerThatNeverReads(t *testing.T) {
 	t.Parallel()
 	srv := wsSilentServer(t)
 	defer srv.Close()
 
-	// A budget far below any real one, so the stall ends inside the assertion
-	// below rather than inside the shipped 30 seconds.
 	stalled, elapsed := writeUntilError(t, srv.URL, 250*time.Millisecond)
 	require.Error(t, stalled, "a write to a peer that never reads must not block indefinitely")
 	assert.Lessf(t, elapsed, 10*time.Second,
 		"the write must end on its own deadline rather than on the test's patience; took %s", elapsed)
 
-	// The contrast is what makes the arm above specific: the identical loop
-	// against a peer that drains carries every frame and returns no error. It
-	// has to be a drain rather than the echo server — an echo whose replies
-	// nobody reads fills its own buffers, stops reading, and stalls exactly
-	// like the silent peer.
-	//
-	// It runs against the budget the relay actually ships, not the shortened
-	// one above. The two arms want opposite things of that number — the stall
-	// has to trip it and the drain must not — so a single value has to be both
-	// shorter than the test's patience and longer than a real megabyte write,
-	// and on a loaded machine those meet: at 250ms this arm failed on a runner
-	// carrying twenty-six other jobs, reporting a peer that was draining
-	// perfectly well as one that had been cut off. What the drain arm is for is
-	// the shipped budget, so that is the budget it is given.
+	// The drain arm uses the shipped budget; a short one cuts off a draining peer on a loaded host.
 	drain := wsDrainServer(t)
 	defer drain.Close()
 	drained, _ := writeUntilError(t, drain.URL, relayWriteTimeout)
 	assert.NoError(t, drained, "a peer that drains must not be cut off by the write budget")
 }
 
-// writeUntilError writes frames through a WSConn with a short write budget until
-// one fails, and reports the failure and how long it took. It writes enough to
-// fill the send and receive buffers on any host this runs on; the write that
-// finds them full is the one under test.
-//
-// The error is not matched against context.DeadlineExceeded: when the write
-// context expires the library tears the connection down, and the write that
-// returns names the closed socket rather than the deadline that closed it. What
-// is being asserted is that the write ends at all, which without a budget it
-// does not.
+// The library closes the socket when the write context expires, so the error names the socket.
 func writeUntilError(t *testing.T, serverURL string, budget time.Duration) (error, time.Duration) {
 	t.Helper()
 	rawConn, _, err := websocket.Dial(context.Background(), "ws"+strings.TrimPrefix(serverURL, "http"), nil)
@@ -227,10 +182,6 @@ func writeUntilError(t *testing.T, serverURL string, budget time.Duration) (erro
 	return err, time.Since(start)
 }
 
-// TestWSConn_ReadIsNotDeadlined states the other half deliberately. A quiet
-// relay session is legitimate — a technician watching a static screen sends
-// nothing for minutes — so a read deadline would end sessions that are working.
-// Liveness is the ping's job, not the read's.
 func TestWSConn_ReadIsNotDeadlined(t *testing.T) {
 	t.Parallel()
 	srv := wsSilentServer(t)

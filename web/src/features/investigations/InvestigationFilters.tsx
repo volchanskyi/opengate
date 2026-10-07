@@ -36,15 +36,9 @@ function Chip({ label, pressed, onClick }: {
   );
 }
 
-/**
- * How the queue is narrowed. Status and severity apply on the click, because
- * each is one decision; the rule and device boxes apply together on submit, so
- * typing a rule name does not spend a request per keystroke.
- */
+/** Queue filters: status and severity apply on click, the rule and device boxes on submit. */
 export function InvestigationFilters({ filters, onChange }: Props) {
-  // Seeded from the narrowing already in force, so returning to the queue shows
-  // the filters it is actually reading under rather than an empty form. Clearing
-  // empties these boxes itself, so there is nothing to mirror back afterwards.
+  // The boxes start from the filters already in force.
   const [ruleId, setRuleId] = useState(filters.ruleId);
   const [deviceId, setDeviceId] = useState(filters.deviceId);
 
@@ -106,8 +100,6 @@ export function InvestigationFilters({ filters, onChange }: Props) {
         <button
           type="button"
           onClick={() => {
-            // Clear the boxes here rather than waiting for the reset to come
-            // back round through the store — a button that says Clear clears.
             setRuleId(DEFAULT_QUEUE_FILTERS.ruleId);
             setDeviceId(DEFAULT_QUEUE_FILTERS.deviceId);
             onChange(DEFAULT_QUEUE_FILTERS);

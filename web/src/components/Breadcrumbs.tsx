@@ -7,14 +7,7 @@ interface Crumb {
   to?: string;
 }
 
-/**
- * How each fixed path segment names itself.
- *
- * `lastLabel` is what the segment is called when it is where the reader
- * currently stands. `link` is where it points when it is not: a literal path for
- * a section with one home, `'path'` for one that lives wherever it was reached
- * from, and absent for a segment that is never a link.
- */
+/** How a fixed path segment is labelled, as the last crumb (`lastLabel`) or as a link (`link`). */
 interface SegmentRule {
   readonly label: string;
   readonly lastLabel?: string;

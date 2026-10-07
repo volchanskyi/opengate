@@ -1,14 +1,6 @@
 // @ts-nocheck
-// Security-only ESLint config used by `make taint-web`.
-//
-// PR 1 installs `eslint-plugin-security` and `eslint-plugin-no-unsanitized` as
-// devDependencies but does NOT register them in the main `eslint.config.js` —
-// that registration (and the associated baseline cleanup) lands in PR 5.
-// Until then, this config lets developers run the security plugins in
-// isolation without affecting `npm run lint` or CI.
-//
-// Rule sets used here are the upstream `recommended` configurations. Severity
-// is `error` so findings surface clearly when the target is invoked.
+// Security-only ESLint config used by `make taint-web`, separate from `npm run lint`.
+// It applies the upstream `recommended` rule sets of the security plugins at error severity.
 import js from '@eslint/js'
 import globals from 'globals'
 import security from 'eslint-plugin-security'

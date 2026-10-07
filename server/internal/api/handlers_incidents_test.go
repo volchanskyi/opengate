@@ -25,19 +25,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// The investigation surface, driven through HTTP.
-//
-// Two things are being proved here and they fail differently. Tenancy is the
-// wall: a caller from another tenant must not be able to tell an incident they
-// may not see from one that does not exist, on any route, including with an id
-// they guessed. Narrowing to a customer is the quieter one — both customers are
-// inside one tenant, so nothing is refused and a wrong query simply shows
-// Contoso's estate to somebody looking at Fabrikam's.
-//
-// The rest is what a technician can actually do: page a queue that is moving,
-// move an incident only the way the lifecycle allows, and read the frozen
-// evidence behind one alert without the list ever carrying it.
-
 // investigations is a server wired for the incident routes, with a seeded
 // customer, machine and technician.
 type investigations struct {
@@ -54,8 +41,7 @@ type investigations struct {
 	now    time.Time
 }
 
-// stubRuleCoverage answers the coverage split without a connected fleet, which
-// is what a handler test can have.
+// stubRuleCoverage answers the coverage split without a connected fleet.
 type stubRuleCoverage struct {
 	counts map[string]agentapi.RuleCoverageCounts
 }
@@ -66,15 +52,11 @@ func (s stubRuleCoverage) RuleCoverage(
 	if s.counts != nil {
 		return s.counts
 	}
-	// Everything unknown is the honest answer for an install nothing has
-	// reported into, and it still adds up to the fleet.
 	return map[string]agentapi.RuleCoverageCounts{
 		"disk-critical": {Unknown: fleetSize},
 	}
 }
 
-// newInvestigations builds the server and the estate every case below starts
-// from.
 func newInvestigations(t *testing.T, coverage RuleCoverageReader) investigations {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -86,9 +68,7 @@ func newInvestigations(t *testing.T, coverage RuleCoverageReader) investigations
 	require.NoError(t, err)
 
 	alertStore := alerts.NewStore(store.DB())
-	// Event time is stated by the fixture; receipt time is the store's own
-	// clock, which stays real so the customer's rolling hourly budget behaves
-	// the way it does in production.
+	// Event time comes from the fixture; receipt time is the store's real clock.
 	now := time.Now().UTC().Truncate(time.Second)
 
 	cfg := testJWTConfig()
@@ -120,8 +100,6 @@ func newInvestigations(t *testing.T, coverage RuleCoverageReader) investigations
 	}
 }
 
-// open files one alert and returns the incident it opened, which is how every
-// case gets a room to work with through the same path production uses.
 func (e investigations) open(t *testing.T, severity alerts.Severity, evidence []byte) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	alert := alerts.Alert{
@@ -143,8 +121,7 @@ func (e investigations) open(t *testing.T, severity alerts.Severity, evidence []
 	return incident.ID, alert.ID
 }
 
-// stranger is a token for a caller in a tenant of their own, which is what a
-// crafted id has to be tried with.
+// stranger returns a token for a caller in a different tenant.
 func (e investigations) stranger(t *testing.T) string {
 	t.Helper()
 	token, err := e.cfg.GenerateToken(uuid.New(), "elsewhere@example.com", false, uuid.New())
@@ -152,10 +129,6 @@ func (e investigations) stranger(t *testing.T) string {
 	return token
 }
 
-// TestInvestigationRoutesStopAtTheTenantWall walks every route with an incident
-// from another tenant. Route by route, because a single missed guard is the
-// whole class of defect this is here to close, and one route covered by another
-// route's test proves nothing about the one that was forgotten.
 func TestInvestigationRoutesStopAtTheTenantWall(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -186,8 +159,7 @@ func TestInvestigationRoutesStopAtTheTenantWall(t *testing.T) {
 		})
 	}
 
-	// The queue itself is not a 404 — it is a queue, and another tenant's is
-	// empty rather than forbidden.
+	// Another tenant's queue reads as empty with a 200.
 	w := doRequest(e.srv, http.MethodGet, "/api/v1/investigations", outsider, nil)
 	require.Equal(t, http.StatusOK, w.Code)
 	var page IncidentPage
@@ -195,10 +167,6 @@ func TestInvestigationRoutesStopAtTheTenantWall(t *testing.T) {
 	assert.Empty(t, page.Items)
 }
 
-// TestInvestigationRoutesStopAtTheCustomer is the quieter leak. Both customers
-// sit inside one tenant, so the wall is not breached and nothing is refused —
-// only the query decides, and getting it wrong shows one customer's estate to
-// somebody looking at another's.
 func TestInvestigationRoutesStopAtTheCustomer(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -239,8 +207,6 @@ func TestInvestigationRoutesStopAtTheCustomer(t *testing.T) {
 	assert.Empty(t, page.Items, "another customer's queue holds none of this customer's rooms")
 }
 
-// TestTriageQueuePagesByCursor. The queue is read while it is being written to,
-// so the page says where it ended and the next one starts there.
 func TestTriageQueuePagesByCursor(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -267,9 +233,6 @@ func TestTriageQueuePagesByCursor(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code, "a cursor that names nothing is refused, not ignored")
 }
 
-// TestTriageQueueNeverCarriesEvidence is the bound that keeps the queue cheap.
-// Evidence is tens of kilobytes per alert; a queue that embedded it would drag
-// megabytes to render a list nobody has clicked into.
 func TestTriageQueueNeverCarriesEvidence(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -280,8 +243,7 @@ func TestTriageQueueNeverCarriesEvidence(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "log_samples")
 	assert.NotContains(t, w.Body.String(), "\"evidence\"")
 
-	// The detail says what evidence there is and what fetching it costs, and
-	// still does not carry it.
+	// The detail reports the evidence codec and size without carrying the evidence.
 	w = doRequest(e.srv, http.MethodGet, "/api/v1/investigations/"+incident.String(), e.token, nil)
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.NotContains(t, w.Body.String(), "log_samples")
@@ -293,9 +255,6 @@ func TestTriageQueueNeverCarriesEvidence(t *testing.T) {
 	assert.Positive(t, detail.Alerts[0].EvidenceBytes)
 }
 
-// TestDeviceStripSharesTheQueue. The machine's incidents are the same read
-// narrowed to it, including the customer-wide rooms it is one of forty machines
-// in — not a second list implementation that can drift from the first.
 func TestDeviceStripSharesTheQueue(t *testing.T) {
 	t.Parallel()
 	e := newInvestigations(t, stubRuleCoverage{})
@@ -315,8 +274,7 @@ func TestDeviceStripSharesTheQueue(t *testing.T) {
 
 func (e investigations) seedRooms(t *testing.T, n int) {
 	t.Helper()
-	// Another machine's alerts, so the strip narrowing to one machine is proved
-	// by what it leaves out as well as by what it returns.
+	// Alerts on another machine prove the strip excludes rooms this machine did not raise.
 	elsewhere := testutil.SeedDevice(t, e.ctx, e.store, e.site)
 	for i := range n {
 		alert := alerts.Alert{
@@ -334,8 +292,6 @@ func (e investigations) seedRooms(t *testing.T, n int) {
 	}
 }
 
-// rewriteEvidence replaces one alert's stored blob, which is how a case builds
-// the row a future codec would leave behind.
 func (e investigations) rewriteEvidence(t *testing.T, alertID uuid.UUID, blob []byte, codec string) {
 	t.Helper()
 	_, err := e.store.DB().ExecContext(e.ctx,

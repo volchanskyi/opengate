@@ -5,80 +5,36 @@ import (
 	"sort"
 )
 
-// A run has three outcomes, not two.
-//
-// Valid and failed are both measurements: one of a system that held, one of a
-// system that did not. Invalid is the third, and it is the one that was
-// missing — the run did not measure the system at all, because the generator
-// had nothing left, a safety ceiling stopped it, or a scenario produced no rows.
-//
-// Keeping it separate is the whole point. A night where one half ran and the
-// other produced nothing, absorbed as data, pulls the window median down; the
-// next genuinely slow night is then compared against that lowered median and
-// passes. One partial night quietly costs two.
-
 // Result is a run's outcome.
 type Result string
 
 const (
 	// ResultValid is a run that measured the system and cleared its gates.
 	ResultValid Result = "valid"
-	// ResultFailed is a run that measured the system and breached a gate. It
-	// stays in the trend: a slow night is exactly what the trend is for.
+	// ResultFailed is a run that measured the system and breached a gate; it stays in the trend.
 	ResultFailed Result = "failed"
-	// ResultInvalid is a run that did not measure the system. It never enters
-	// the trend.
+	// ResultInvalid is a run that did not measure the system; it never enters the trend.
 	ResultInvalid Result = "invalid"
 )
 
-// Generator-saturation thresholds. Past any of these the run is measuring the
-// generator rather than the target, and no amount of care about the target
-// makes the number mean anything.
-//
-// They fall on a reading of the generator's own allowance and not on a reading
-// of a box it shares with the system under test: what a shared box has left is
-// what the two of them have left together, and on the throwaway venue driving
-// that box hard is the experiment. Whether the load was offered at all is
-// answered there by attainment, which is a reading of the fleet.
+// Generator-saturation thresholds; past any of them the run measures the generator.
+// They read the generator's own allowance because a shared box's headroom belongs to both ends.
 const (
 	minGeneratorCPUHeadroomPercent = 20.0
 	maxGeneratorMemoryUsedPercent  = 90.0
-	// maxGeneratorCPURefusedPercent is how much of a run the generator may
-	// spend runnable and denied the processor. Past a fifth of the run, that
-	// wait is inside every round trip the generator timed, so the latencies
-	// describe the queue the generator sat in rather than the server it was
-	// talking to.
+	// maxGeneratorCPURefusedPercent is the share of a run the generator may spend runnable
+	// and denied the processor; past it that wait sits inside every round trip it timed.
 	maxGeneratorCPURefusedPercent = 20.0
 )
 
-// defaultMaxErrorRate is the ceiling used when a run classifies without a
-// profile. A missing ceiling must not read as an unlimited one.
+// defaultMaxErrorRate is the ceiling used when a run classifies without a profile.
 const defaultMaxErrorRate = 0.25
 
-// minAchievedFraction is how much of the offered arrival rate has to have
-// arrived for the phase to be a measurement of the target. Below it, the
-// generator never asked the questions the numbers are answers to.
+// minAchievedFraction is the share of the offered arrival rate that must arrive.
 const minAchievedFraction = 0.8
 
-// maxRetainedGoroutinesPerOperation is what one completed operation may cost
-// the target and not give back.
-//
-// The defect this gate exists for retained exactly two — one parked handler per
-// side of a relay session — and it did so on the success path, forever. Half of
-// one is far below that and far above what a target invents between two
-// readings taken seconds apart: goroutines are whole numbers, a settled server
-// holds a stable count, and the reading is taken after the fleet is wound down
-// and the count has stopped falling.
-//
-// Goroutines carry this gate on their own. Resident memory is recorded beside
-// them and deliberately not gated: the Go runtime does not return freed arena
-// to the operating system promptly, so within a single run resident growth
-// cannot be told apart from a working set that simply got bigger, and a band
-// wide enough not to fire on that is too wide to catch the leak it would be
-// for. The instrument for resident memory is the container's own limit, which
-// is watched continuously rather than twice
-// (deploy/grafana/provisioning/alerting/alert-rules.yml), and the figure this
-// run records enters the trend where a slope across nights can be read off it.
+// maxRetainedGoroutinesPerOperation is the goroutines one completed operation may leave behind.
+// Resident memory is recorded but ungated, because the Go runtime returns freed arena slowly.
 const maxRetainedGoroutinesPerOperation = 0.5
 
 // Verdict is the classification plus everything a reader needs to see why.
@@ -86,45 +42,35 @@ type Verdict struct {
 	Result  Result   `json:"result"`
 	Reasons []string `json:"reasons,omitempty"`
 
-	// The completeness record. Naming both halves means a reader sees what ran
-	// rather than inferring it from which rows happened to arrive.
+	// The completeness record: which scenarios ran, which are missing and which were unexpected.
 	ProducedScenarios   []string `json:"produced_scenarios,omitempty"`
 	MissingScenarios    []string `json:"missing_scenarios,omitempty"`
 	UnexpectedScenarios []string `json:"unexpected_scenarios,omitempty"`
 }
 
-// EntersTrend reports whether this run's rows may be stored. Only a run that
-// measured the system may move a window median.
+// EntersTrend reports whether this run's rows may be stored; only a measuring run moves a median.
 func (v Verdict) EntersTrend() bool { return v.Result != ResultInvalid }
 
-// RunInputs is everything the classification reads. It reads no live state:
-// the same inputs always produce the same verdict, which is what lets a verdict
-// be recomputed from a stored bundle years later.
+// RunInputs is everything the classification reads, so a stored bundle reproduces its verdict.
 type RunInputs struct {
 	Profile *Profile
 
-	// ExpectedScenarios is what the run was supposed to produce rows for;
-	// ProducedScenarios is what actually did.
+	// ExpectedScenarios is what the run should produce rows for; ProducedScenarios is what did.
 	ExpectedScenarios []string
 	ProducedScenarios []string
 
 	Headroom Headroom
 	Phases   []PhaseResult
 
-	// Target is what the target was holding before the run and after it, and
-	// how much work happened in between. A zero value is a run that never
-	// looked, which is silent rather than clean.
+	// Target is the target's state before and after the run and the work between; zero means unread.
 	Target TargetConservation
 
-	// BreakingPoint is the ladder's answer, for a profile that went looking for
-	// one. A rung at or above the one that gave out is what such a run was sent
-	// to measure — see phaseReasons.
+	// BreakingPoint is the ladder's answer; rungs at or above the one that gave out are exempt.
 	BreakingPoint *BreakingPoint
 
 	// SafetyBreaches are ceilings the run crossed and stopped for.
 	SafetyBreaches []string
-	// GateBreaches are gate rules the results broke. These are findings about
-	// the system, so they fail the run rather than invalidating it.
+	// GateBreaches are gate rules the results broke; they fail the run.
 	GateBreaches []string
 }
 
@@ -152,9 +98,8 @@ func Classify(in RunInputs) Verdict {
 	return verdict
 }
 
-// invalidReasons collects every reason this run measured something other than
-// the system under test. All of them are collected rather than the first one
-// returned, so one look at a bundle says everything that went wrong.
+// invalidReasons collects every reason this run measured something other than the target.
+// All reasons are collected so one look at a bundle shows everything that went wrong.
 func invalidReasons(in RunInputs, verdict Verdict) []string {
 	var reasons []string
 
@@ -167,20 +112,14 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 			"scenario %q produced rows the profile never asked for", scenario))
 	}
 
-	// A reading nobody took is not a reading of plenty. The figures below were
-	// written as 100% free and 0% used on every run ever recorded, so the two
-	// rules after this one described a generator nobody had looked at.
+	// An unmeasured generator invalidates the run, since its headroom is unknown.
 	if !in.Headroom.Measured {
 		reasons = append(reasons,
 			"the generator was not measured, and a run that cannot say how much room its own generator had cannot say what its numbers are about")
 	}
 	reasons = append(reasons, generatorReasons(in.Headroom)...)
 
-	// A target that was replaced invalidates rather than fails. The numbers
-	// either side of the restart were measured against two different processes,
-	// and absorbing that as data costs two nights: the partial figures pull the
-	// window median down, and the next genuinely slow night compares favourably
-	// against the lowered median and passes.
+	// A restart splits the readings across two processes, so it invalidates the run.
 	if in.Target.Restarted() {
 		reasons = append(reasons, fmt.Sprintf(
 			"target restarted mid-run: the process answering at the end started at %.0f, not %.0f, so the readings either side describe two systems",
@@ -196,12 +135,7 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 }
 
 // generatorReasons collects the ways a run measured its own generator.
-//
-// Only a reading of the generator's own allowance can say so. A reading of a
-// box the generator shares with the system under test is carried as evidence
-// and gated by nothing here: it describes the pair, and reading a busy shared
-// box as a starved generator would invalidate every run on the venue built to
-// drive that box hard.
+// Only the generator's own allowance gates; a shared box's reading describes the pair.
 func generatorReasons(headroom Headroom) []string {
 	if !headroom.Measured || headroom.Scope != headroomScopeGenerator {
 		return nil
@@ -237,12 +171,7 @@ func phaseReasons(in RunInputs) []string {
 		if pastTheBreakingPoint(in.BreakingPoint, phase) {
 			continue
 		}
-		// A phase that reached for no machine has no arrival error rate of its
-		// own: what its window holds is the tail of the phase that did reach.
-		// A ladder's recovery read 0.588 over seventeen stragglers out of a
-		// fleet of sixteen thousand and threw away the answer the run had just
-		// found. Whether such a phase recovered is asked of the machines it
-		// reaches for, which is why the ladder empties its fleet first.
+		// A phase that offered no arrivals has no error rate of its own; its window is the prior tail.
 		if phase.OfferedAgentArrivals() && phase.ErrorRate > maxErrorRate {
 			reasons = append(reasons, fmt.Sprintf(
 				"phase %q error rate %.3f is past the ceiling %.3f, so its numbers describe the error path",
@@ -258,19 +187,8 @@ func phaseReasons(in RunInputs) []string {
 	return reasons
 }
 
-// pastTheBreakingPoint reports whether this phase is a rung the ladder has
-// already reported as the load the system gave out under.
-//
-// Every other family reads a phase full of errors as a run that stopped
-// measuring the system. A capacity ladder is sent to find exactly that phase,
-// and reading it the same way threw away the run for succeeding: one nightly
-// climbed to sixteen thousand machines, lost fifteen thousand of them, and the
-// ladder's own answer went with it.
-//
-// Only rungs at or above the one that gave out are covered. A rung below it was
-// meant to hold, and a recovery phase sits at the load the ladder started from
-// — so a system that gave out and stayed broken still invalidates, which is the
-// outcome the recovery phase exists to report.
+// pastTheBreakingPoint reports whether the phase is a rung at or above where the ladder gave out.
+// Lower rungs and the recovery phase are still judged, so a system that stays broken invalidates.
 func pastTheBreakingPoint(answer *BreakingPoint, phase PhaseResult) bool {
 	if answer == nil || answer.GaveAgents <= 0 {
 		return false
@@ -278,13 +196,8 @@ func pastTheBreakingPoint(answer *BreakingPoint, phase PhaseResult) bool {
 	return phase.OfferedConnectedAgents >= answer.GaveAgents
 }
 
-// conservationBreaches reports what the target took and did not give back.
-//
-// This is a finding about the system rather than a reason the run measured
-// nothing, so it fails the run and the rows still enter the trend — a target
-// that is leaking is exactly what a trend is for. A run that never read its
-// target, or that read it across a restart, says nothing here: the restart is
-// already an invalidation, and an unasked question is not a pass.
+// conservationBreaches reports what the target took and did not give back; it fails the run.
+// A run that never read its target, or read it across a restart, reports none.
 func conservationBreaches(target TargetConservation) []string {
 	if !target.Bracketed() || target.Restarted() {
 		return nil
@@ -322,8 +235,7 @@ func scenarioDifference(expected, produced []string) (missing, unexpected []stri
 	return missing, unexpected
 }
 
-// sortedCopy returns a sorted copy, so a verdict reads the same whatever order
-// the scenarios finished in.
+// sortedCopy returns a sorted copy, so a verdict is independent of scenario finish order.
 func sortedCopy(values []string) []string {
 	if len(values) == 0 {
 		return nil

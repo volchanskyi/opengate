@@ -5,21 +5,12 @@ import (
 	"net/http"
 )
 
-// NewControl is the shaper's command surface: how the runner names the
-// impairment a scenario is in, re-addresses mid-connection, and reads back what
-// the shaper did with the datagrams it handled.
-//
-// It is cluster-internal — no Ingress route and no Service publishes it — so it
-// carries no authentication of its own. What guards it is that nothing outside
-// the namespace can reach it, which is the same guarantee the load harness's
-// own in-cluster surfaces rest on.
+// NewControl returns the shaper's command surface. No Ingress or Service publishes it, and it
+// carries no authentication.
 func NewControl(shaper *Shaper) http.Handler {
 	mux := http.NewServeMux()
 
-	// Whether the shaper is answering at all is the difference between a
-	// scenario that measured the product and one that measured nothing, so the
-	// runner asks directly rather than inferring it from a counter that happens
-	// to come back.
+	// The runner asks /healthz directly because a scenario against a silent shaper measures nothing.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if !methodIs(w, r, http.MethodGet) {
 			return
@@ -43,10 +34,7 @@ func NewControl(shaper *Shaper) http.Handler {
 			http.Error(w, "that is not an impairment: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		// The refusal is the point. A scenario that mistyped its instruction
-		// must fail where it was typed, rather than running as whatever the
-		// shaper made of the number and producing a measurement of some
-		// impairment nobody named.
+		// A mistyped instruction is refused at the call, so no scenario measures an unnamed impairment.
 		if err := shaper.SetProfile(profile); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -68,9 +56,7 @@ func NewControl(shaper *Shaper) http.Handler {
 	return mux
 }
 
-// methodIs refuses the wrong verb, because a runner that reaches one is a
-// runner that thinks it commanded a scenario it did not command, and the phase
-// it goes on to measure is the phase before.
+// methodIs refuses the wrong verb so a runner never believes it commanded a scenario it did not.
 func methodIs(w http.ResponseWriter, r *http.Request, want string) bool {
 	if r.Method != want {
 		http.Error(w, "this endpoint answers "+want, http.StatusMethodNotAllowed)

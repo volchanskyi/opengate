@@ -1,12 +1,7 @@
 import { test, expect } from "./fixtures";
 import type { Route } from "@playwright/test";
 
-// These specs exercise the Device Logs UI on the DeviceDetail page.
-// Logs are retrieved via an asynchronous agent round-trip
-// (server -> agent control channel -> agent collects logs -> server caches -> UI),
-// so there is no public API for a test to seed logs directly.
-// We therefore intercept /api/v1/devices/:id/logs with Playwright and assert
-// that the UI renders, filters, and paginates correctly against deterministic payloads.
+// Logs arrive through an asynchronous agent round-trip, so the logs endpoint is intercepted.
 
 const DEVICE_ID = "11111111-1111-4111-8111-111111111111";
 const GROUP_ID = "22222222-2222-4222-8222-222222222222";
@@ -54,7 +49,6 @@ function ok(route: Route, body: unknown) {
 
 test.describe("Device logs UI", () => {
   test.beforeEach(async ({ authedPage }) => {
-    // Backing collections for endpoints DeviceDetail calls on mount.
     await authedPage.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) =>
       ok(route, fakeDevice()),
     );
@@ -77,8 +71,7 @@ test.describe("Device logs UI", () => {
       `**/api/v1/devices/${DEVICE_ID}/hardware`,
       (route: Route) => route.fulfill({ status: 404, body: "" }),
     );
-    // DeviceDetail mounts the telemetry panel, which fetches metrics on load;
-    // keep it deterministic (empty window -> "no telemetry") for the logs tests.
+    // An empty metrics window keeps the telemetry panel deterministic.
     await authedPage.route(
       `**/api/v1/devices/${DEVICE_ID}/metrics*`,
       (route: Route) => ok(route, { t: [], series: [], downsampled: false, bucket_s: 60 }),
@@ -110,23 +103,18 @@ test.describe("Device logs UI", () => {
     );
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
-    // Scope to the Agent Logs pane — the System Logs pane and the metrics panel
-    // each render their own controls. The pane title is a collapse-toggle
-    // button; its grandparent is the pane root.
+    // The pane title is a collapse toggle; its grandparent is the pane root.
     const agentPane = authedPage.getByRole("button", { name: /Agent Logs/ }).locator("xpath=../..");
-    // Fetching is driven by the time-window buttons (no Fetch Logs button).
     await agentPane.getByRole("button", { name: "1h" }).click();
 
     await expect(agentPane.getByText("entry #0")).toBeVisible();
     await expect(agentPane.getByText(/Showing 1-300 of 500/)).toBeVisible();
 
-    // Offset paging via the ›/‹ arrows (replaced the single Load More button).
     await agentPane.getByRole("button", { name: "Next page" }).click();
 
     await expect(agentPane.getByText("entry #300")).toBeVisible();
     await expect(agentPane.getByText(/Showing 301-500 of 500/)).toBeVisible();
 
-    // Stepping back returns to the first page.
     await agentPane.getByRole("button", { name: "Previous page" }).click();
     await expect(agentPane.getByText(/Showing 1-300 of 500/)).toBeVisible();
 
@@ -149,14 +137,10 @@ test.describe("Device logs UI", () => {
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
 
-    // Scope to the Agent Logs pane so the System Logs pane never dilutes the
-    // row count / level assertions.
     const agentPane = authedPage.getByRole("button", { name: /Agent Logs/ }).locator("xpath=../..");
-    // Selecting a level in the pane's severity dropdown refetches immediately.
     await agentPane.getByRole("combobox").first().selectOption("ERROR");
 
     await expect(agentPane.getByText("synthetic log message #0")).toBeVisible();
-    // Every rendered row must carry the requested level.
     const rows = agentPane.locator("table tbody tr");
     const count = await rows.count();
     expect(count).toBe(5);

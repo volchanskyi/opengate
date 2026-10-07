@@ -13,23 +13,12 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// The fleet-wide half of coverage: what the platform's own monitoring reads.
-//
-// Per-customer coverage answers "how much of Contoso's estate is this rule
-// watching". This answers "how much of everything is it watching", which is the
-// question a staged rollout is actually being judged on — and it has to be
-// answerable about tenants this process is not currently serving requests for,
-// because a rule that reached nobody in a quiet tenant reached nobody.
-
-// TestFleetCoverageCountsEveryTenantsMachines is the whole claim: one fleet size
-// and one blind-spot count per rule, summed across every tenant.
 func TestFleetCoverageCountsEveryTenantsMachines(t *testing.T) {
 	t.Parallel()
 
 	s, e := newEstate(t)
 	require.NoError(t, s.MarkUnsupported(e.ctx, e.org, e.device, "io-stalled"))
 
-	// A second tenant with its own machine, blind to the same rule.
 	neighbourID := uuid.New()
 	admin := dbtx.WithDefaultTenant(context.Background(), true)
 	testutil.EnsureTenant(t, admin, e.store, neighbourID, "Neighbour "+neighbourID.String()[:8])
@@ -47,9 +36,6 @@ func TestFleetCoverageCountsEveryTenantsMachines(t *testing.T) {
 		"a standing hole is counted wherever it is, in whichever tenant")
 }
 
-// TestFleetCoverageNeedsNoCallerScope states the contract the metrics updater
-// relies on: it runs on a background goroutine belonging to no request, so the
-// read scopes itself.
 func TestFleetCoverageNeedsNoCallerScope(t *testing.T) {
 	t.Parallel()
 
@@ -65,9 +51,6 @@ func TestFleetCoverageNeedsNoCallerScope(t *testing.T) {
 	assert.Equal(t, map[string]int{"io-stalled": 1}, blind)
 }
 
-// TestFleetCoverageAnswersAnEmptyEstate keeps the read from failing on the state
-// every install starts in. Nothing blind is an empty map, not an error and not a
-// missing fleet size.
 func TestFleetCoverageAnswersAnEmptyEstate(t *testing.T) {
 	t.Parallel()
 
@@ -79,11 +62,6 @@ func TestFleetCoverageAnswersAnEmptyEstate(t *testing.T) {
 	assert.Empty(t, blind, "nothing is blind to anything yet")
 }
 
-// TestFleetCoverageSurfacesAReadThatCannotBeAnswered is the negative case. A
-// fleet size of zero is a meaningful answer — an install with no machines — so
-// a read that could not be completed must not return one. The caller would
-// otherwise publish "watching nothing" when what happened is that it failed to
-// look.
 func TestFleetCoverageSurfacesAReadThatCannotBeAnswered(t *testing.T) {
 	t.Parallel()
 
@@ -96,9 +74,6 @@ func TestFleetCoverageSurfacesAReadThatCannotBeAnswered(t *testing.T) {
 	assert.Nil(t, blind)
 }
 
-// TestFleetCoverageIsOneStatement is the bound. The caller refreshes a gauge
-// from this on a timer, so counting the fleet and counting the blind spots is
-// one aggregate rather than a query each — and never one per rule.
 func TestFleetCoverageIsOneStatement(t *testing.T) {
 	t.Parallel()
 
