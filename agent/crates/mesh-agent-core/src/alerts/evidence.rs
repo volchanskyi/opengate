@@ -2,7 +2,7 @@
 //! [`encode_evidence`], which gives up the least valuable parts until the size cap holds.
 
 use mesh_protocol::{
-    AlertEvidence, EvidenceSeries, HistoryPoint, ProcessReportEntry, ProtocolError, RankedDim,
+    AlertEvidence, EvidenceProcess, EvidenceSeries, HistoryPoint, ProtocolError, RankedDim,
     EVIDENCE_CODEC, MAX_EVIDENCE_BYTES,
 };
 
@@ -44,7 +44,7 @@ pub struct EvidenceSource<'a> {
     /// Readings the local store holds, by dimension.
     pub readings: &'a [DimSeries],
     /// What was running at the event instant, most significant first.
-    pub processes: &'a [ProcessReportEntry],
+    pub processes: &'a [EvidenceProcess],
     /// Host log lines from the event window, in the order they were read.
     pub log_lines: &'a [String],
     /// The instant the rule fired, in seconds.
@@ -95,11 +95,11 @@ pub fn compose_evidence(source: &EvidenceSource<'_>) -> AlertEvidence {
         })
         .collect();
 
-    let processes: Vec<ProcessReportEntry> = source
+    let processes: Vec<EvidenceProcess> = source
         .processes
         .iter()
         .take(PROCESS_ROWS)
-        .map(|p| ProcessReportEntry {
+        .map(|p| EvidenceProcess {
             basename: redact_cmdline(&p.basename),
             ..p.clone()
         })

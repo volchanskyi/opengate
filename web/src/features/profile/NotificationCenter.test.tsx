@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { usePushStore } from '../profile';
+import { usePushStore } from './state/push-store';
 import { NotificationCenter } from './NotificationCenter';
 
 const { forwarded } = vi.hoisted(() => ({ forwarded: [] as Promise<unknown>[] }));

@@ -7,7 +7,9 @@
 All work happens on `dev`. No exceptions.
 
 - Before starting any work: `git checkout dev && git pull origin dev && git pull origin main`
-- Before every push: `git pull --rebase origin dev`, then push
+- Before every push: `git pull --rebase=merges origin dev`, then push. The
+  rebase keeps a merge of `main` whole; replayed one commit at a time, `main`'s
+  commits collide with `dev`'s own.
 - Commit and push to `dev` only
 - Never commit or push directly to `main`. `main` receives code exclusively via
   the automated `merge-to-main` CI job after all checks pass on `dev`.

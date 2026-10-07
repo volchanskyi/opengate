@@ -101,7 +101,18 @@ async function stubRules(page: AuthedPage, seen: string[]) {
       if (url.pathname === "/api/v1/device-tags") return ok(route, labels);
       if (url.pathname === "/api/v1/rules/disk-critical") return ok(route, detail);
       if (url.pathname === "/api/v1/rules") {
-        return ok(route, { fleet_size: 312, rules: [rule()] });
+        return ok(route, {
+          fleet_size: 312,
+          rules: [
+            rule(),
+            rule({
+              id: "linux-oom-kill", kind: "event", summary: "The kernel killed a process to reclaim memory.",
+              metric: undefined, comparator: undefined, threshold: undefined, coverage_requires: [], tunable: {},
+              coverage: { active: 312, throttled: 0, unsupported: 0, unknown: 0 },
+              noise: { recent: 0, baseline_per_hour: 0, level: "quiet" },
+            }),
+          ],
+        });
       }
       return route.continue();
     },
@@ -117,10 +128,30 @@ test.describe("Rules", () => {
     await expect(authedPage.getByRole("link", { name: "disk-critical" })).toBeVisible();
     await expect(authedPage.getByText("disk.used_percent at or above 90")).toBeVisible();
 
-    await expect(authedPage.getByText("/ 312")).toBeVisible();
-    await expect(authedPage.getByText(/6 cannot run it/)).toBeVisible();
-
     await expect(authedPage.locator("input")).toHaveCount(0);
+  });
+
+  test("the list carries each rule's coverage against the fleet, in two groups", async ({ authedPage }) => {
+    const seen: string[] = [];
+    await stubRules(authedPage, seen);
+
+    await authedPage.goto("/rules");
+    await expect(authedPage.getByText("Counted against 312 hosts")).toBeVisible();
+
+    const row = authedPage.getByRole("row", { name: /disk-critical/ });
+    await expect(row.getByLabel("Watching")).toHaveText("300 / 312");
+    await expect(row.getByLabel("Paused: too costly")).toHaveText("2 / 312");
+    await expect(row.getByLabel("Can't run here")).toHaveText("6 / 312");
+    await expect(row.getByLabel("Not heard from")).toHaveText("4 / 312");
+
+    const hostRules = authedPage.getByRole("button", { name: "Host rules (1)" });
+    const linuxRules = authedPage.getByRole("button", { name: "Linux rules (1)" });
+    await expect(hostRules).toHaveAttribute("aria-expanded", "true");
+    await expect(linuxRules).toHaveAttribute("aria-expanded", "true");
+    await expect(authedPage.getByRole("link", { name: "linux-oom-kill" })).toBeVisible();
+
+    await linuxRules.click();
+    await expect(authedPage.getByRole("link", { name: "linux-oom-kill" })).toHaveCount(0);
   });
 
   test("a rule's page explains its tuning, its coverage and what a version change moved", async ({
@@ -133,13 +164,16 @@ test.describe("Rules", () => {
     await authedPage.getByRole("link", { name: "disk-critical" }).click();
 
     await expect(authedPage.getByRole("heading", { name: "disk-critical" })).toBeVisible();
-    await expect(authedPage.getByText("machines labelled role=file-server")).toBeVisible();
+    await expect(authedPage.getByText("Rule explanation: A disk about to fill")).toBeVisible();
+    await expect(authedPage.getByRole("heading", { name: "Default Config" })).toBeVisible();
+    await expect(authedPage.getByText("hosts labelled role=file-server")).toBeVisible();
     await expect(authedPage.getByText(/allowed 50–99, ships at 90/).first()).toBeVisible();
 
     await expect(authedPage.getByText(/no longer allows threshold at 98/)).toBeVisible();
     await expect(authedPage.getByText(/it is running at 95/)).toBeVisible();
 
-    await expect(authedPage.getByText("312 of 312 machines accounted for.")).toBeVisible();
+    await expect(authedPage.getByText("312 of 312 hosts accounted for.")).toBeVisible();
+    await expect(authedPage.getByText("Select a host to see current values.")).toBeVisible();
   });
 
   test("an ordinary member has the whole page to read and nothing to press", async ({ authedPage }) => {
@@ -147,7 +181,7 @@ test.describe("Rules", () => {
     await stubRules(authedPage, seen);
 
     await authedPage.goto("/rules/disk-critical");
-    await expect(authedPage.getByText("A disk about to fill")).toBeVisible();
+    await expect(authedPage.getByText("Rule explanation: A disk about to fill")).toBeVisible();
 
     for (const name of ["Stop for this customer", "Stop for every customer", "Save pace", "Understood"]) {
       await expect(authedPage.getByRole("button", { name })).toHaveCount(0);
@@ -181,9 +215,9 @@ test.describe("Rules", () => {
 
     await authedPage.goto("/rules/alert-limits");
     await expect(authedPage.getByLabel("This customer, per hour")).toHaveValue("500");
-    await expect(authedPage.getByLabel("One machine, per hour")).toHaveValue("20");
+    await expect(authedPage.getByLabel("One host, per hour")).toHaveValue("20");
     await expect(authedPage.getByText(/At most 5000/)).toBeVisible();
-    await expect(authedPage.getByText(/Enforced on the machine itself/)).toBeVisible();
+    await expect(authedPage.getByText(/Enforced on the host itself/)).toBeVisible();
   });
 
   test("the customer picker narrows every read on the screen", async ({

@@ -69,13 +69,13 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2
+      - uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
           tool: cargo-nextest@0.9.129
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov@0.8.5
       # One instrumented run reports pass/fail and produces lcov.info; only test files are ignored.
@@ -1037,8 +1037,8 @@ jobs:
         with:
           name: rust-coverage
           path: agent/
-      # The action downloads the scanner CLI from a CDN that can fail; continue-on-error hands over
-      # to the Docker fallback, which re-runs the scan and fails on a real gate failure.
+      # The action downloads the scanner CLI from a CDN that can fail; continue-on-error lets the
+      # next step tell that apart from a failed gate.
       - name: SonarCloud Scan
         id: sonar_action
         if: env.SONAR_TOKEN != ''
@@ -1050,15 +1050,26 @@ jobs:
             -Dsonar.qualitygate.wait=true
             -Dsonar.scanner.keepReport=true
             -Dsonar.working.directory=.scannerwork
+      # The scanner writes report-task.txt once SonarCloud holds the analysis, so a failed scan that
+      # left it is the gate's verdict; only a scan that never reached SonarCloud falls back.
+      - name: Fail on a refused quality gate
+        if: env.SONAR_TOKEN != '' && steps.sonar_action.outcome == 'failure'
+        run: |
+          if [ -f .scannerwork/report-task.txt ]; then
+            echo "::error::SonarCloud analysed this commit and its quality gate failed; the SonarCloud Scan step names the conditions."
+            exit 1
+          fi
       - uses: ./.github/actions/docker-hub-mirror
         if: env.SONAR_TOKEN != '' && steps.sonar_action.outcome == 'failure'
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-      # The scanner image bundles a JRE, so -Dsonar.scanner.skipJreProvisioning=true keeps the
-      # fallback independent of the SonarSource CDNs.
+      # The image's own JRE keeps the fallback off the SonarSource CDNs. It runs as the runner's
+      # user, which owns the checkout, and names the target the action reads from the event.
       - name: SonarCloud Scan (Docker fallback on CDN failure)
         if: env.SONAR_TOKEN != '' && steps.sonar_action.outcome == 'failure'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           . scripts/lib/tool-versions.sh
@@ -1076,8 +1087,17 @@ jobs:
             echo "::warning::scanner image pull attempt $attempt failed; retrying in $((attempt * 15))s"
             sleep $((attempt * 15))
           done
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            target=(-Dsonar.pullrequest.key="$PR_NUMBER"
+              -Dsonar.pullrequest.branch="$GITHUB_HEAD_REF"
+              -Dsonar.pullrequest.base="$GITHUB_BASE_REF")
+          else
+            target=(-Dsonar.branch.name="$GITHUB_REF_NAME")
+          fi
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -e SONAR_TOKEN="$SONAR_TOKEN" \
+            -e SONAR_USER_HOME=/tmp/.sonar \
             -v "$(pwd):/usr/src" -w /usr/src \
             "$image" \
             -Dsonar.host.url=https://sonarcloud.io \
@@ -1085,7 +1105,7 @@ jobs:
             -Dsonar.scanner.skipJreProvisioning=true \
             -Dsonar.scanner.keepReport=true \
             -Dsonar.working.directory=.scannerwork \
-            -Dsonar.branch.name=dev
+            "${target[@]}"
       - uses: actions/setup-go@v7
         if: env.SONAR_TOKEN != ''
         with:

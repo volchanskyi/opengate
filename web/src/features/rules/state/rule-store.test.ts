@@ -145,7 +145,7 @@ describe('rule-store', () => {
   it('resolves the rule for one named machine, and forgets it on request', async () => {
     mockedGet.mockResolvedValue(ok({
       rule_id: 'disk-critical', device_id: 'fs01', delivered: true,
-      params: { threshold: { value: 95, level: 'site', source: "set on this machine's office" } },
+      params: { threshold: { value: 95, level: 'site', source: "set on this host's site" } },
     }) as never);
 
     await useRuleStore.getState().resolveFor('disk-critical', 'fs01');
@@ -193,7 +193,7 @@ describe('rule-store refusals', () => {
   it('keeps the last resolved answer when a resolve is refused', async () => {
     mockedGet.mockResolvedValueOnce(ok({
       rule_id: 'disk-critical', device_id: 'fs01', delivered: true,
-      params: { threshold: { value: 95, level: 'site', source: "set on this machine's office" } },
+      params: { threshold: { value: 95, level: 'site', source: "set on this host's site" } },
     }) as never);
     await useRuleStore.getState().resolveFor('disk-critical', 'fs01');
 

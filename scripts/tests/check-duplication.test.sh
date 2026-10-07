@@ -94,8 +94,10 @@ else
   fail "the gauntlet reads the kept report after make sonar"
 fi
 
-if grep -qF 'sonar.scanner.keepReport=true' "$REPO_ROOT/Makefile" \
-  && grep -qF 'sonar.working.directory=.scannerwork' "$REPO_ROOT/Makefile"; then
+scan="$REPO_ROOT/scripts/sonar-scan.sh"
+if grep -qF 'scripts/sonar-scan.sh' "$REPO_ROOT/Makefile" \
+  && grep -qF 'sonar.scanner.keepReport=true' "$scan" \
+  && grep -qF 'sonar.working.directory=.scannerwork' "$scan"; then
   pass "make sonar keeps the report in the work tree"
 else
   fail "make sonar keeps the report in the work tree"
@@ -111,7 +113,7 @@ else
   fail "the CI Sonar job keeps the report and reads it"
 fi
 
-if git -C "$REPO_ROOT" grep -qE 'sonar-scanner-cli:latest' -- Makefile .github; then
+if git -C "$REPO_ROOT" grep -qE 'sonar-scanner-cli:latest' -- Makefile .github scripts ':!scripts/tests'; then
   fail "the scanner image is pinned, never latest"
 else
   pass "the scanner image is pinned, never latest"

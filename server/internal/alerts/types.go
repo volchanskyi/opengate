@@ -103,6 +103,8 @@ type Incident struct {
 	RuleID   string
 	Scope    Scope
 	ScopeKey uuid.UUID
+	// ScopeName names the host, site or customer ScopeKey points at, empty once that is removed.
+	ScopeName string
 	// Severity is the worst of what has folded in.
 	Severity Severity
 	Status   Status

@@ -188,7 +188,7 @@ export interface paths {
         };
         /**
          * List devices, optionally narrowed by customer and site
-         * @description Returns the caller's tenant. organization_id narrows to one customer; site_id narrows to one location inside it. Both narrow together, and omitting both returns the whole tenant.
+         * @description Returns the caller's tenant. organization_id narrows to one customer; site_id narrows to one location inside it, and without_site to the devices filed under no site. They narrow together, except that site_id and without_site together are refused. Omitting all of them returns the whole tenant.
          */
         get: operations["listDevices"];
         put?: never;
@@ -1709,6 +1709,8 @@ export interface components {
              * @description What the incident is about at that rung.
              */
             scope_key: string;
+            /** @description The name of the host, site or customer `scope_key` names; null once that record is removed. */
+            scope_name: string | null;
             severity: components["schemas"]["IncidentSeverity"];
             status: components["schemas"]["IncidentStatus"];
             /**
@@ -1746,6 +1748,8 @@ export interface components {
             id: string;
             /** Format: uuid */
             device_id: string;
+            /** @description The name of the host that raised it; null once the host is removed. */
+            hostname: string | null;
             rule_id: string;
             rule_version: number;
             severity: components["schemas"]["IncidentSeverity"];
@@ -1789,6 +1793,10 @@ export interface components {
         /** @description The whole of one incident, as somebody opening it sees it. */
         IncidentDetail: {
             incident: components["schemas"]["Incident"];
+            /** @description Display names by user id for the holder, every actor and every assignee the history names, inside the caller's tenant only. An id absent here belongs to a user who has been removed. */
+            people: {
+                [key: string]: string;
+            };
             /** @description The most recent alerts, bounded. */
             alerts: components["schemas"]["IncidentAlert"][];
             /** @description How many there are altogether, so a bounded page says what it is a page of. */
@@ -1834,9 +1842,15 @@ export interface components {
             rank: number;
             basename: string;
             pid: number;
-            /** Format: double */
-            cpu: number;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Share of the whole host's processors, 0–100; null when the agent could not measure it.
+             */
+            cpu: number | null;
+            /**
+             * Format: double
+             * @description Resident memory in bytes.
+             */
             mem: number;
         };
         /** @description Everything the machine knew about why an alert fired, frozen at write time. Nothing can be fetched from the machine afterwards, so what is not here about an event is not recorded anywhere. */
@@ -2571,6 +2585,8 @@ export interface operations {
                 site_id?: string;
                 /** @description Narrow the list to one customer. */
                 organization_id?: string;
+                /** @description Narrow the list to devices filed under no site. */
+                without_site?: boolean;
             };
             header?: never;
             path?: never;
@@ -2587,7 +2603,7 @@ export interface operations {
                     "application/json": components["schemas"]["Device"][];
                 };
             };
-            /** @description Invalid request */
+            /** @description Invalid request, including site_id and without_site together */
             400: {
                 headers: {
                     [name: string]: unknown;

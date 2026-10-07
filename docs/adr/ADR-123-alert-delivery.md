@@ -62,6 +62,16 @@ Where a workflow has several jobs, or one job whose timeout is barely over what
 the work takes, the alert is a job with `needs:` and `if: always()` rather than a
 step — a job killed at its timeout may run no step at all.
 
+**The alert path passes through no environment check.** A scheduled job reads
+the Telegram token and chat id as repository secrets and names no GitHub
+environment. An environment no person approves adds nothing a job needs beyond
+those two secrets, and GitHub can hold a job that names one waiting with no limit,
+which is a lost night with no alert. Only `staging` and `production`, which a person
+approves, are named by any workflow, and
+[`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)
+refuses any other. The token is readable from any branch; only the owner pushes
+branches, and a pull request from outside receives no secrets.
+
 **A refused send is allowed to fail because the verdict lives elsewhere.** Every
 one of these workflows carries its regression verdict in a separate gate job
 reading `needs.<job>.result`; `pmat-trend` and `terraform-drift` gained one here.

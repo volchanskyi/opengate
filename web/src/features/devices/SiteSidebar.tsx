@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { useDeviceStore } from './state/device-store';
 import { useAuthStore } from '../../state/auth-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
-import { UNFILED_SITE_ID, isDeviceDrag, readDraggedDeviceId } from './device-drag';
+import { NOT_ASSIGNED_SITE_ID, isDeviceDrag, readDraggedDeviceId } from './device-drag';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
-function isUnfiled(id: string | undefined | null): boolean {
+function isNotAssigned(id: string | undefined | null): boolean {
   const trimmed = id?.trim();
-  return !trimmed || trimmed === UNFILED_SITE_ID;
+  return !trimmed || trimmed === NOT_ASSIGNED_SITE_ID;
 }
 
 export function SiteSidebar() {
@@ -50,7 +50,7 @@ export function SiteSidebar() {
     const deviceId = readDraggedDeviceId(transfer);
     if (!deviceId) return;
     const dragged = devices.find((d) => d.id === deviceId);
-    const currentId = isUnfiled(dragged?.site_id) ? UNFILED_SITE_ID : (dragged?.site_id ?? '');
+    const currentId = isNotAssigned(dragged?.site_id) ? NOT_ASSIGNED_SITE_ID : (dragged?.site_id ?? '');
     if (currentId === targetId) return;
 
     const label = dragged?.hostname ?? 'device';
@@ -64,12 +64,10 @@ export function SiteSidebar() {
     await fetchDevices(selectedSiteId ?? undefined);
   };
 
-  /** Drop-zone wiring shared by every site row and the Unfiled zone. */
+  /** Drop-zone wiring shared by every site row and the Not Assigned row. */
   const dropProps = (targetId: string, targetName: string) => (!isAdmin ? {
-    role: 'listitem',
     'aria-label': targetName,
   } : {
-    role: 'listitem',
     'aria-label': targetName,
     onDragOver: (e: React.DragEvent) => {
       if (!isDeviceDrag(e.dataTransfer)) return;
@@ -117,9 +115,9 @@ export function SiteSidebar() {
         </form>
       )}
 
-      <div role="list" className="space-y-2">
+      <ul className="space-y-2">
         {sites.map((site) => (
-          <div
+          <li
             key={site.id}
             {...dropProps(site.id, site.name)}
             className={`flex items-center justify-between rounded px-3 py-2 cursor-pointer text-sm ${zoneRing(site.id)} ${
@@ -143,19 +141,27 @@ export function SiteSidebar() {
                 {confirmDelete === site.id ? 'Confirm?' : 'x'}
               </button>
             )}
-          </div>
+          </li>
         ))}
 
-        {isAdmin && sites.length > 0 && (
-          <div
-            {...dropProps(UNFILED_SITE_ID, 'Unfiled')}
-            title="Drop a device here to take it out of its site"
-            className={`rounded border border-dashed border-gray-600 px-3 py-2 text-xs text-gray-500 ${zoneRing(UNFILED_SITE_ID)}`}
+        {sites.length > 0 && (
+          <li
+            {...dropProps(NOT_ASSIGNED_SITE_ID, 'Not Assigned')}
+            title={isAdmin ? 'Drop a device here to take it out of its site' : undefined}
+            className={`flex items-center rounded border border-dashed border-gray-600 px-3 py-2 text-sm ${zoneRing(NOT_ASSIGNED_SITE_ID)} ${
+              selectedSiteId === NOT_ASSIGNED_SITE_ID ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-750 hover:text-gray-200'
+            }`}
           >
-            Unfiled
-          </div>
+            <button
+              type="button"
+              onClick={() => selectSite(NOT_ASSIGNED_SITE_ID)}
+              className="flex-1 text-left truncate"
+            >
+              Not Assigned
+            </button>
+          </li>
         )}
-      </div>
+      </ul>
 
       {sites.length === 0 && (
         <p className="text-sm text-gray-500">No sites yet</p>

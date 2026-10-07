@@ -17,12 +17,24 @@ const (
 	maxQueuePage = 200
 )
 
+// scopeNameColumn names the host, site or customer a room is about; it is evaluated per returned
+// row, so the page's indexed read keeps its shape, and a removed record reads as null.
+const scopeNameColumn = `
+	       CASE i.scope
+	         WHEN 'device' THEN (SELECT d.hostname FROM devices d
+	                              WHERE d.id = i.scope_key AND d.tenant_id = i.tenant_id)
+	         WHEN 'site' THEN (SELECT s.name FROM sites s
+	                            WHERE s.id = i.scope_key AND s.tenant_id = i.tenant_id)
+	         WHEN 'organization' THEN (SELECT o.name FROM organizations o
+	                                    WHERE o.id = i.scope_key AND o.tenant_id = i.tenant_id)
+	       END`
+
 // Every filter is a sentinel comparison, so the statement keeps one shape for the customer index.
 // The all-zero uuid means not narrowing on that filter.
 const queueForCustomerSQL = `
 	SELECT i.id, i.organization_id, i.rule_id, i.scope, i.scope_key, i.severity, i.status,
 	       i.assignee_id, i.opened_at, i.first_seen, i.last_seen, i.resolved_at, i.cause_code,
-	       i.occurrences, i.device_count
+	       i.occurrences, i.device_count,` + scopeNameColumn + `
 	  FROM incidents i
 	 WHERE i.tenant_id = current_setting('app.current_tenant')::uuid
 	   AND i.organization_id = $9::uuid
@@ -41,7 +53,7 @@ const queueForCustomerSQL = `
 const queueForTenantSQL = `
 	SELECT i.id, i.organization_id, i.rule_id, i.scope, i.scope_key, i.severity, i.status,
 	       i.assignee_id, i.opened_at, i.first_seen, i.last_seen, i.resolved_at, i.cause_code,
-	       i.occurrences, i.device_count
+	       i.occurrences, i.device_count,` + scopeNameColumn + `
 	  FROM incidents i
 	 WHERE i.tenant_id = current_setting('app.current_tenant')::uuid
 	   AND (i.last_seen, i.id) < ($6::timestamptz, $7::uuid)
@@ -119,7 +131,7 @@ func (s *Store) Queue(ctx context.Context, f Filter) (Page, error) {
 		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
-			incident, err := scanIncident(rows)
+			incident, err := scanNamedIncident(rows)
 			if err != nil {
 				return err
 			}
@@ -162,27 +174,37 @@ func labels[T ~string](values []T) []string {
 	return out
 }
 
-type incidentColumns interface {
+type rowScanner interface {
 	Scan(dest ...any) error
 }
 
 // Columns a room may lack, an assignee or a cause, map to zero values so callers check no pointer.
-func scanIncident(row incidentColumns) (Incident, error) {
+// Columns a statement selects after the incident's own are scanned into extra.
+func scanIncident(row rowScanner, extra ...any) (Incident, error) {
 	var (
 		incident   Incident
 		assignee   uuid.NullUUID
 		resolvedAt sql.NullTime
 		cause      sql.NullString
 	)
-	if err := row.Scan(
+	dest := append([]any{
 		&incident.ID, &incident.OrganizationID, &incident.RuleID, &incident.Scope,
 		&incident.ScopeKey, &incident.Severity, &incident.Status, &assignee,
 		&incident.OpenedAt, &incident.FirstSeen, &incident.LastSeen, &resolvedAt, &cause,
-		&incident.Occurrences, &incident.DeviceCount); err != nil {
+		&incident.Occurrences, &incident.DeviceCount}, extra...)
+	if err := row.Scan(dest...); err != nil {
 		return Incident{}, fmt.Errorf("scan incident: %w", err)
 	}
 	incident.AssigneeID = assignee.UUID
 	incident.ResolvedAt = resolvedAt.Time
 	incident.CauseCode = CauseCode(cause.String)
 	return incident, nil
+}
+
+// scanNamedIncident reads an incident followed by the name of what it is about.
+func scanNamedIncident(row rowScanner) (Incident, error) {
+	var name sql.NullString
+	incident, err := scanIncident(row, &name)
+	incident.ScopeName = name.String
+	return incident, err
 }

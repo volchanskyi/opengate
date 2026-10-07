@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router';
-import { useDeviceStore } from '../features/devices/state/device-store';
 import { Breadcrumbs } from './Breadcrumbs';
 
 function renderAt(path: string) {
@@ -15,7 +14,6 @@ function renderAt(path: string) {
 describe('Breadcrumbs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useDeviceStore.setState({ selectedDevice: null });
   });
 
   it('renders nothing on root path', () => {
@@ -30,16 +28,13 @@ describe('Breadcrumbs', () => {
     expect(devicesText.tagName).toBe('SPAN');
   });
 
-  it('renders settings breadcrumb at /settings (last segment, no link)', () => {
-    renderAt('/settings');
-    const node = screen.getByText('Settings');
-    expect(node.tagName).toBe('SPAN');
-  });
-
-  it('renders the investigations crumb at /investigations (last segment, no link)', () => {
-    renderAt('/investigations');
-    const node = screen.getByText('Investigations');
-    expect(node.tagName).toBe('SPAN');
+  it.each([
+    { path: '/settings', label: 'Settings' },
+    { path: '/investigations', label: 'Investigations' },
+    { path: '/audit', label: 'Audit Log' },
+  ])('names $label as the last crumb at $path, with no link', ({ path, label }) => {
+    renderAt(path);
+    expect(screen.getByText(label).tagName).toBe('SPAN');
   });
 
   it('links back to the queue from inside a room, and names the room by its leading block', () => {
@@ -65,31 +60,15 @@ describe('Breadcrumbs', () => {
     expect(screen.getByText('Profile')).toBeInTheDocument();
   });
 
-  it('renders audit breadcrumb at /audit (last)', () => {
-    renderAt('/audit');
-    const node = screen.getByText('Audit Log');
-    expect(node.tagName).toBe('SPAN');
-  });
-
-  it('renders /audit/foo with Audit Log linked to /audit', () => {
-    renderAt('/audit/foo');
-    const link = screen.getByText('Audit Log');
+  it.each([
+    { path: '/audit/foo', label: 'Audit Log', href: '/audit' },
+    { path: '/users/u1', label: 'Users', href: '/users' },
+    { path: '/updates/x', label: 'Agent Settings', href: '/updates' },
+  ])('links $label back to $href from $path', ({ path, label, href }) => {
+    renderAt(path);
+    const link = screen.getByText(label);
     expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe('/audit');
-  });
-
-  it('renders /users/u1 with Users linked to /users', () => {
-    renderAt('/users/u1');
-    const link = screen.getByText('Users');
-    expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe('/users');
-  });
-
-  it('renders /updates/x with Agent Settings linked to /updates', () => {
-    renderAt('/updates/x');
-    const link = screen.getByText('Agent Settings');
-    expect(link.tagName).toBe('A');
-    expect(link.getAttribute('href')).toBe('/updates');
+    expect(link.getAttribute('href')).toBe(href);
   });
 
   it('renders /sessions/abc as Session label (params.token branch)', () => {
@@ -124,13 +103,10 @@ describe('Breadcrumbs', () => {
     expect(container.querySelector('nav')).toBeNull();
   });
 
-  it('renders /devices/<id> with hostname when selectedDevice is loaded', () => {
-    useDeviceStore.setState({
-      selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-    });
+  it('names a device by the hostname its page handed the route', () => {
     const router = createMemoryRouter(
       [{ path: 'devices/:id', element: <Breadcrumbs /> }],
-      { initialEntries: ['/devices/d1'] },
+      { initialEntries: [{ pathname: '/devices/d1', state: { crumb: 'web-01' } }] },
     );
     render(<RouterProvider router={router} />);
     const devicesLink = screen.getByText('Devices');
@@ -139,14 +115,23 @@ describe('Breadcrumbs', () => {
     expect(screen.getByText('web-01')).toBeInTheDocument();
   });
 
-  it('renders /devices/<id> with raw id when no selectedDevice', () => {
-    useDeviceStore.setState({ selectedDevice: null });
+  it('renders /devices/<id> with the raw id until the page names it', () => {
     const router = createMemoryRouter(
       [{ path: 'devices/:id', element: <Breadcrumbs /> }],
       { initialEntries: ['/devices/raw-id'] },
     );
     render(<RouterProvider router={router} />);
     expect(screen.getByText('raw-id')).toBeInTheDocument();
+  });
+
+  it('names a room by the label its page handed the route', () => {
+    const router = createMemoryRouter(
+      [{ path: 'investigations/:id', element: <Breadcrumbs /> }],
+      { initialEntries: [{ pathname: '/investigations/6f2b9c31-1111-2222-3333-444455556666', state: { crumb: 'cpu-saturated' } }] },
+    );
+    render(<RouterProvider router={router} />);
+    expect(screen.getByText('cpu-saturated')).toBeInTheDocument();
+    expect(screen.queryByText('6f2b9c31')).toBeNull();
   });
 
   it('Dashboard link always points to / and is rendered as an anchor', () => {
@@ -180,13 +165,10 @@ describe('Breadcrumbs', () => {
     expect(link.getAttribute('href')).toBe('/devices');
   });
 
-  it('does not treat a device-id segment outside the devices/* path as a hostname', () => {
-    useDeviceStore.setState({
-      selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-    });
+  it('does not take a page label for a segment outside a named section', () => {
     const router = createMemoryRouter(
       [{ path: 'audit/:id', element: <Breadcrumbs /> }],
-      { initialEntries: ['/audit/d1'] },
+      { initialEntries: [{ pathname: '/audit/d1', state: { crumb: 'web-01' } }] },
     );
     render(<RouterProvider router={router} />);
     expect(screen.queryByText('web-01')).toBeNull();

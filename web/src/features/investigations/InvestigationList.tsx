@@ -1,14 +1,12 @@
 import { useCallback, useEffect } from 'react';
 import { Link } from 'react-router';
 import type { components } from '../../types/api';
-import { shortId } from '../../lib/short-id';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
 import { useOrganizationStore } from '../organizations';
 import { IncidentSeverityBadge, IncidentStatusBadge } from './IncidentBadges';
 import { InvestigationFilters } from './InvestigationFilters';
-import { RuleCoveragePanel } from './RuleCoveragePanel';
-import { countLabel, durationLabel, formatMoment } from './incident-format';
+import { countLabel, durationLabel, formatMoment, scopeLabel } from './incident-format';
 import { useQueueStore } from './state/queue-store';
 
 type Incident = components['schemas']['Incident'];
@@ -30,10 +28,10 @@ function QueueRow({ incident }: { readonly incident: Incident }) {
         </Link>
       </td>
       <td className={CELL}>{countLabel(incident.occurrences, 'alert', 'alerts')}</td>
-      <td className={CELL}>{countLabel(incident.device_count, 'machine', 'machines')}</td>
+      <td className={CELL}>{countLabel(incident.device_count, 'host', 'hosts')}</td>
       <td className={CELL}>{durationLabel(incident.first_seen, incident.last_seen)}</td>
       <td className={CELL}>{formatMoment(incident.last_seen)}</td>
-      <td className={`${CELL} font-mono text-xs text-gray-500`}>{incident.scope} · {shortId(incident.scope_key)}</td>
+      <td className={`${CELL} text-xs text-gray-400`}>{scopeLabel(incident)}</td>
     </tr>
   );
 }
@@ -82,7 +80,7 @@ export function InvestigationList() {
                 <th className={HEAD_CELL}>Status</th>
                 <th className={HEAD_CELL}>Rule</th>
                 <th className={HEAD_CELL}>Alerts</th>
-                <th className={HEAD_CELL}>Machines</th>
+                <th className={HEAD_CELL}>Hosts</th>
                 <th className={HEAD_CELL}>Running for</th>
                 <th className={HEAD_CELL}>Last seen</th>
                 <th className={HEAD_CELL}>Scope</th>
@@ -116,7 +114,6 @@ export function InvestigationList() {
         </button>
       )}
 
-      <RuleCoveragePanel />
     </div>
   );
 }

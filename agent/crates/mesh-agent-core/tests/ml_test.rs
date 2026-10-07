@@ -90,7 +90,7 @@ fn fake_sampler_returns_deterministic_process_ranks_without_full_cmdline() {
                 basename: "postgres".to_string(),
                 cmdline_hash: Some(cmdline_hash("postgres --password=secret")),
                 pid: 4242,
-                cpu: 88.0,
+                cpu_share: Some(88.0),
                 mem: 2_147_483_648.0,
             },
             ProcessSample {
@@ -98,7 +98,7 @@ fn fake_sampler_returns_deterministic_process_ranks_without_full_cmdline() {
                 basename: "mesh-agent".to_string(),
                 cmdline_hash: None,
                 pid: 1010,
-                cpu: 0.4,
+                cpu_share: None,
                 mem: 33_554_432.0,
             },
         ],

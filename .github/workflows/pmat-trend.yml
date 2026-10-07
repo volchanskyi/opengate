@@ -23,8 +23,6 @@ jobs:
     name: PMAT trend + alert on regression
     runs-on: ubuntu-24.04
     timeout-minutes: 40  # a cold `cargo install pmat` compiles from source
-    # The observability environment scopes the Telegram and OCI secrets to unattended alerting.
-    environment: observability
     permissions:
       contents: read
     outputs:

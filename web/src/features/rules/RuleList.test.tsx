@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import type { components } from '../../types/api';
 import { RuleList } from './RuleList';
@@ -61,16 +62,61 @@ describe('RuleList', () => {
     expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
   });
 
-  it('counts the machines running the rule against the fleet it was counted over', () => {
+  it('heads the coverage in the words the list uses for it', () => {
     show([rule()]);
-    const row = screen.getByRole('row', { name: /disk-critical/ });
-    expect(within(row).getByText('300')).toBeInTheDocument();
-    expect(within(row).getByText('/ 312')).toBeInTheDocument();
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads).toEqual([
+      'Rule', 'Watches', 'Rolled out', 'Watching', 'Paused: too costly', "Can't run here", 'Not heard from', 'Recent alerts',
+    ]);
   });
 
-  it('calls out machines that cannot run the rule at all — a standing blind spot', () => {
+  it('counts every coverage state against the fleet it was counted over', () => {
+    show([rule({ coverage: { active: 300, throttled: 5, unsupported: 0, unknown: 7 } })]);
+    const row = screen.getByRole('row', { name: /disk-critical/ });
+    expect(within(row).getByLabelText('Watching')).toHaveTextContent('300 / 312');
+    expect(within(row).getByLabelText('Paused: too costly')).toHaveTextContent('5 / 312');
+    expect(within(row).getByLabelText("Can't run here")).toHaveTextContent('0 / 312');
+    expect(within(row).getByLabelText('Not heard from')).toHaveTextContent('7 / 312');
+  });
+
+  it('says once what the counts are taken against', () => {
+    show([rule()]);
+    expect(screen.getByText('Counted against 312 hosts')).toBeInTheDocument();
+  });
+
+  it('marks hosts that cannot run the rule at all in red — a standing blind spot', () => {
     show([rule({ coverage: { active: 300, throttled: 0, unsupported: 6, unknown: 6 } })]);
-    expect(screen.getByText(/6 cannot run it/)).toBeInTheDocument();
+    const row = screen.getByRole('row', { name: /disk-critical/ });
+    expect(within(row).getByLabelText("Can't run here").firstElementChild).toHaveClass('text-red-400');
+  });
+
+  it('warns when a rule\'s four counts do not add up to the fleet', () => {
+    show([rule({ coverage: { active: 300, throttled: 0, unsupported: 0, unknown: 2 } })]);
+    expect(screen.getByRole('alert')).toHaveTextContent('disk-critical: the coverage counts account for 302 of 312 hosts.');
+  });
+
+  it('groups host rules apart from Linux rules, by what each rule states it is', () => {
+    show([rule(), rule({ id: 'linux-oom-kill', kind: 'event', summary: 'The kernel killed a process.' })]);
+
+    const hostGroup = screen.getByRole('button', { name: 'Host rules (1)' });
+    const linuxGroup = screen.getByRole('button', { name: 'Linux rules (1)' });
+    expect(hostGroup).toHaveAttribute('aria-expanded', 'true');
+    expect(linuxGroup).toHaveAttribute('aria-expanded', 'true');
+    expect(within(screen.getByRole('region', { name: 'Linux rules' })).getByRole('link', { name: 'linux-oom-kill' }))
+      .toBeInTheDocument();
+  });
+
+  it('folds a group away and back', async () => {
+    const user = userEvent.setup();
+    show([rule(), rule({ id: 'linux-oom-kill', kind: 'event', summary: 'The kernel killed a process.' })]);
+
+    await user.click(screen.getByRole('button', { name: 'Linux rules (1)' }));
+    expect(screen.getByRole('button', { name: 'Linux rules (1)' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('link', { name: 'linux-oom-kill' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'disk-critical' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Linux rules (1)' }));
+    expect(screen.getByRole('link', { name: 'linux-oom-kill' })).toBeInTheDocument();
   });
 
   it('shows a stop as a stop rather than as the rule being switched off', () => {
@@ -146,16 +192,18 @@ describe('RuleList states', () => {
   it('omits the fleet denominator when no fleet has been counted', () => {
     showState({ loaded: true, rules: [rule()], fleetSize: 0 });
     const row = screen.getByRole('row', { name: /disk-critical/ });
-    expect(within(row).getByText('300')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Watching')).toHaveTextContent('300');
     expect(within(row).queryByText(/\/ 0/)).not.toBeInTheDocument();
   });
 
-  it('says nothing about a blind spot when every machine can run the rule', () => {
+  it('leaves the blind-spot column quiet when every host can run the rule', () => {
     showState({
       loaded: true, fleetSize: 312,
       rules: [rule({ coverage: { active: 312, throttled: 0, unsupported: 0, unknown: 0 } })],
     });
-    expect(screen.queryByText(/cannot run it/)).not.toBeInTheDocument();
+    const row = screen.getByRole('row', { name: /disk-critical/ });
+    expect(within(row).getByLabelText("Can't run here").firstElementChild).not.toHaveClass('text-red-400');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 
@@ -163,7 +211,7 @@ describe('RuleList rollout tone', () => {
   function badge(over: Partial<Rule['rollout']>): HTMLElement {
     showState({ loaded: true, fleetSize: 312, rules: [rule({ rollout: rollout(over) })] });
     const row = screen.getByRole('row', { name: /disk-critical/ });
-    return within(row).getByText(/Stopped|Off|Everywhere|machines/);
+    return within(row).getByText(/Stopped|Off|Everywhere|hosts/);
   }
 
   it('gives a stopped rule the loudest tone', () => {

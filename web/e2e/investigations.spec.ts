@@ -8,6 +8,7 @@ const INCIDENT_ID = "6f2b9c31-1111-4111-8111-444455556666";
 const ALERT_ID = "aaaa1111-2222-4333-8444-555566667777";
 const DEVICE_ID = "bbbb1111-2222-4333-8444-555566667777";
 const ORG_ID = "cccc1111-2222-4333-8444-555566667777";
+const USER_ID = "eeee1111-2222-4333-8444-555566667777";
 
 const WAIVED_RULES: ReadonlySet<string> = new Set([
   "color-contrast",
@@ -24,8 +25,9 @@ function incident(over: Record<string, unknown> = {}) {
     id: INCIDENT_ID,
     organization_id: ORG_ID,
     rule_id: "cpu.sustained",
-    scope: "organization",
-    scope_key: ORG_ID,
+    scope: "device",
+    scope_key: DEVICE_ID,
+    scope_name: "reception-pc",
     severity: "critical",
     status: "new",
     opened_at: "2026-08-12T09:00:00Z",
@@ -41,6 +43,7 @@ function alert() {
   return {
     id: ALERT_ID,
     device_id: DEVICE_ID,
+    hostname: "reception-pc",
     rule_id: "cpu.sustained",
     rule_version: 3,
     severity: "critical",
@@ -58,14 +61,15 @@ function alert() {
 
 function detail(over: Record<string, unknown> = {}) {
   return {
-    incident: incident(),
+    incident: incident({ assignee_id: USER_ID }),
     alerts: [alert()],
     alerts_total: 1,
     events: [
       { id: "e1", at: "2026-08-12T09:05:00Z", kind: "status_change", body: { from: "new", to: "acknowledged" } },
-      { id: "e2", at: "2026-08-12T09:07:00Z", kind: "comment", actor_id: DEVICE_ID, body: { body: "Driver rollout at 02:41" } },
+      { id: "e2", at: "2026-08-12T09:07:00Z", kind: "comment", actor_id: USER_ID, body: { body: "Driver rollout at 02:41" } },
     ],
     events_total: 2,
+    people: { [USER_ID]: "Dana Whitfield" },
     ...over,
   };
 }
@@ -73,12 +77,42 @@ function detail(over: Record<string, unknown> = {}) {
 const evidence = {
   ranked: [{ dim: "cpu.busy_pct", score: 0.94 }],
   series: [{ dim: "cpu.busy_pct", points: [{ ts: 1, value: 40 }, { ts: 2, value: 96 }] }],
-  processes: [{ rank: 1, basename: "chrome", pid: 4242, cpu: 88.5, mem: 12.5 }],
+  processes: [{ rank: 1, basename: "backup-agent", pid: 4242, cpu: 37.5, mem: 121634816 }],
   log_samples: ["<b>kernel</b>: task nginx:1234 blocked for more than 120 seconds"],
   truncated: true,
 };
 
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
+
+// The picker drops a customer the tenant lacks, so the customer comes from the tenant's list.
+async function chooseFirstCustomer(page: AuthedPage, token: string): Promise<string> {
+  const listed = await page.request.get("/api/v1/organizations", { headers: { Authorization: `Bearer ${token}` } });
+  expect(listed.ok()).toBe(true);
+  const customers = (await listed.json()) as { id: string }[];
+  const customer = customers[0];
+  expect(customer).toBeDefined();
+  await page.addInitScript((org: string) => {
+    localStorage.setItem("selectedOrganizationId", org);
+  }, customer!.id);
+  return customer!.id;
+}
+
+// The pick-lists read the catalogue and the chosen customer's hosts.
+async function stubPickLists(page: AuthedPage) {
+  await page.route(
+    (url: URL) => url.pathname === "/api/v1/rules" || url.pathname === "/api/v1/devices",
+    (route: Route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/api/v1/rules") {
+        return ok(route, { fleet_size: 3, rules: [{ id: "cpu.sustained" }, { id: "disk-critical" }] });
+      }
+      return ok(route, [
+        { id: DEVICE_ID, hostname: "reception-pc", status: "online", organization_id: ORG_ID, os: "linux",
+          agent_version: "", capabilities: [], last_seen: "", created_at: "", updated_at: "" },
+      ]);
+    },
+  );
+}
 
 // Matched by pathname because the room read carries a query string only with a customer selected.
 async function stubInvestigations(page: AuthedPage, seen: string[]) {
@@ -96,23 +130,54 @@ async function stubInvestigations(page: AuthedPage, seen: string[]) {
 }
 
 test.describe("Investigations", () => {
-  test("the queue lists open incidents and narrows by comma-joined filters", async ({ authedPage }) => {
+  test("the queue opens on New, names what each room is about, and narrows by severity", async ({ authedPage }) => {
     const seen: string[] = [];
     await stubInvestigations(authedPage, seen);
 
     await authedPage.goto("/investigations");
     await expect(authedPage.getByRole("link", { name: "cpu.sustained" })).toBeVisible();
     await expect(authedPage.getByText("312 alerts")).toBeVisible();
-    await expect(authedPage.getByText("40 machines")).toBeVisible();
+    await expect(authedPage.getByText("40 hosts")).toBeVisible();
+    await expect(authedPage.getByText("Host · reception-pc")).toBeVisible();
+    await expect(authedPage.getByRole("radio", { name: "New" })).toHaveAttribute("aria-checked", "true");
 
-    // The server binder reads only the first value of a repeated parameter.
-    expect(seen[0]).toContain("status=new,acknowledged,investigating");
+    expect(new URL(seen[0]!).searchParams.get("status")).toBe("new");
 
     await authedPage.getByRole("button", { name: "Critical" }).click();
     await expect.poll(() => seen.some((u) => u.includes("severity=critical"))).toBe(true);
+
+    await authedPage.getByRole("radio", { name: "Resolved" }).click();
+    await expect.poll(() => seen.some((u) => new URL(u).searchParams.get("status") === "resolved")).toBe(true);
   });
 
-  test("a room renders its history and its evidence, and asks nothing of the machine", async ({ authedPage }) => {
+  test("the Rule and Host pick-lists narrow the queue at once", async ({ authedPage, testUser }) => {
+    const seen: string[] = [];
+    await chooseFirstCustomer(authedPage, testUser.token);
+    await stubPickLists(authedPage);
+    await stubInvestigations(authedPage, seen);
+
+    await authedPage.goto("/investigations");
+    await expect(authedPage.getByRole("link", { name: "cpu.sustained" })).toBeVisible();
+
+    await authedPage.getByLabel("Rule").selectOption("cpu.sustained");
+    await expect.poll(() => seen.some((u) => u.includes("rule_id=cpu.sustained"))).toBe(true);
+
+    await authedPage.getByRole("button", { name: /^Host/ }).click();
+    await authedPage.getByRole("option", { name: /reception-pc/ }).click();
+    await expect.poll(() => seen.some((u) => u.includes(`device_id=${DEVICE_ID}`))).toBe(true);
+  });
+
+  test("under All customers the host list waits on a customer and the picker is marked", async ({ authedPage }) => {
+    await stubInvestigations(authedPage, []);
+
+    await authedPage.goto("/investigations");
+    const host = authedPage.getByRole("button", { name: /^Host/ });
+    await expect(host).toBeDisabled();
+    await expect(host).toContainText("Pick a customer first");
+    await expect(authedPage.getByRole("combobox", { name: "Customer" })).toHaveClass(/ring-2/);
+  });
+
+  test("a room renders its history and its evidence by name, and asks nothing of the host", async ({ authedPage }) => {
     const seen: string[] = [];
     await stubInvestigations(authedPage, seen);
 
@@ -120,13 +185,20 @@ test.describe("Investigations", () => {
     await authedPage.getByRole("link", { name: "cpu.sustained" }).click();
 
     await expect(authedPage.getByRole("heading", { name: "cpu.sustained" })).toBeVisible();
+    await expect(authedPage.getByText("Held by Dana Whitfield")).toBeVisible();
     await expect(authedPage.getByText("New → Acknowledged")).toBeVisible();
     await expect(authedPage.getByText("Driver rollout at 02:41")).toBeVisible();
+    await expect(authedPage.getByRole("list", { name: "Timeline" }).getByText(/by Dana Whitfield/)).toBeVisible();
+    await expect(authedPage.getByRole("link", { name: "reception-pc" })).toHaveAttribute("href", `/devices/${DEVICE_ID}`);
+    await expect(authedPage.getByText(DEVICE_ID.slice(0, 8))).toHaveCount(0);
 
     await authedPage.getByRole("button", { name: /Show evidence/ }).click();
     await expect(authedPage.getByRole("list", { name: "Ranked dimensions" })).toBeVisible();
     await expect(authedPage.getByRole("img", { name: /cpu\.busy_pct over the window/ })).toBeVisible();
-    await expect(authedPage.getByRole("table", { name: "Processes" })).toContainText("chrome");
+    const processes = authedPage.getByRole("table", { name: "Processes" });
+    await expect(processes).toContainText("backup-agent");
+    await expect(processes).toContainText("37.5 %");
+    await expect(processes).toContainText("116 MB");
     await expect(authedPage.getByText(/size cap/)).toBeVisible();
     await expect(authedPage.getByText("<b>kernel</b>: task nginx:1234 blocked for more than 120 seconds")).toBeVisible();
 
@@ -154,28 +226,12 @@ test.describe("Investigations", () => {
     await expect.poll(() => posted).toEqual({ status: "resolved", cause_code: "false_positive" });
   });
 
-  test("rule coverage shows all four states against the fleet", async ({ authedPage }) => {
+  test("the queue leaves rule coverage to the Rules page", async ({ authedPage }) => {
     await stubInvestigations(authedPage, []);
-    await authedPage.route("**/api/v1/rules*", (route: Route) =>
-      ok(route, {
-        fleet_size: 312,
-        rules: [{
-          id: "cpu.sustained", version: 3, summary: "CPU pinned for two minutes",
-          metric: "cpu.busy_pct", comparator: "gt", threshold: 90, group_by: ["device_id"],
-          group_window_secs: 900, evidence: ["series"], coverage_requires: ["cpu.busy_pct"],
-          tunable: {}, rollout: { enabled: true, rollout_percent: 100, kill: false },
-          coverage: { active: 300, throttled: 5, unsupported: 6, unknown: 1 },
-        }],
-      }),
-    );
 
     await authedPage.goto("/investigations");
-    await authedPage.getByRole("button", { name: "Rule coverage" }).click();
-
-    const row = authedPage.getByRole("row", { name: /cpu\.sustained/ });
-    await expect(row.getByLabel("Watching")).toHaveText("300");
-    await expect(row.getByLabel("Cannot evaluate")).toHaveText("6");
-    await expect(authedPage.getByText("Counted against 312 machines.")).toBeVisible();
+    await expect(authedPage.getByRole("link", { name: "cpu.sustained" })).toBeVisible();
+    await expect(authedPage.getByRole("button", { name: "Rule coverage" })).toHaveCount(0);
   });
 
   test("the queue and a room have no axe violations", async ({ authedPage }) => {

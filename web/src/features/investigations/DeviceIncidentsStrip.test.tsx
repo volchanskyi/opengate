@@ -10,7 +10,7 @@ type Incident = components['schemas']['Incident'];
 function incident(over: Partial<Incident> = {}): Incident {
   return {
     id: 'i1', organization_id: 'org-1', rule_id: 'cpu.sustained', scope: 'organization',
-    scope_key: 'org-1', severity: 'critical', status: 'new',
+    scope_key: 'org-1', scope_name: 'Contoso', severity: 'critical', status: 'new',
     opened_at: '2026-08-12T09:00:00Z', first_seen: '2026-08-12T09:00:00Z',
     last_seen: '2026-08-12T11:05:00Z', occurrences: 312, device_count: 40, ...over,
   };
@@ -108,7 +108,7 @@ describe('DeviceIncidentsStrip', () => {
     setVisibility('hidden');
     const beforeHidden = fetchDeviceIncidents.mock.calls.length;
     await vi.advanceTimersByTimeAsync(180_000);
-    expect(fetchDeviceIncidents.mock.calls.length).toBe(beforeHidden);
+    expect(fetchDeviceIncidents.mock.calls).toHaveLength(beforeHidden);
   });
 
   it('re-reads when the page moves to another machine', () => {

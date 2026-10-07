@@ -1,6 +1,6 @@
 import { Link, Outlet } from 'react-router';
 import { useAuthStore } from '../state/auth-store';
-import { NotificationCenter } from '../features/admin/NotificationCenter';
+import { NotificationCenter } from '../features/profile';
 import { ToastContainer } from './ToastContainer';
 import { Breadcrumbs } from './Breadcrumbs';
 import { OrganizationPicker } from '../features/organizations';

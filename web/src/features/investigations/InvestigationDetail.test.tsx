@@ -19,8 +19,8 @@ type IncidentDetail = components['schemas']['IncidentDetail'];
 
 function incident(over: Partial<Incident> = {}): Incident {
   return {
-    id: 'i1', organization_id: 'org-1', rule_id: 'cpu.sustained', scope: 'organization',
-    scope_key: '6f2b9c31-1111-2222-3333-444455556666', severity: 'critical', status: 'new',
+    id: 'i1', organization_id: 'org-1', rule_id: 'cpu.sustained', scope: 'device',
+    scope_key: '6f2b9c31-1111-2222-3333-444455556666', scope_name: 'reception-pc', severity: 'critical', status: 'new',
     opened_at: '2026-08-12T09:00:00Z', first_seen: '2026-08-12T09:00:00Z',
     last_seen: '2026-08-12T11:05:00Z', occurrences: 312, device_count: 40, ...over,
   };
@@ -28,7 +28,7 @@ function incident(over: Partial<Incident> = {}): Incident {
 
 function alert(over: Partial<IncidentAlert> = {}): IncidentAlert {
   return {
-    id: 'a1', device_id: 'aaaaaaaa-1111-2222-3333-444455556666', rule_id: 'cpu.sustained',
+    id: 'a1', device_id: 'aaaaaaaa-1111-2222-3333-444455556666', hostname: 'reception-pc', rule_id: 'cpu.sustained',
     rule_version: 3, severity: 'critical', metric: 'cpu.busy_pct', value: 96.4,
     window_start: '2026-08-12T09:00:00Z', window_end: '2026-08-12T09:01:00Z',
     observed_at: '2026-08-12T09:00:30Z', received_at: '2026-08-12T09:00:45Z',
@@ -37,7 +37,9 @@ function alert(over: Partial<IncidentAlert> = {}): IncidentAlert {
 }
 
 function detail(over: Partial<IncidentDetail> = {}): IncidentDetail {
-  return { incident: incident(), alerts: [alert()], alerts_total: 1, events: [], events_total: 0, ...over };
+  return {
+    incident: incident(), alerts: [alert()], alerts_total: 1, events: [], events_total: 0, people: {}, ...over,
+  };
 }
 
 const ok = <T,>(data: T) => ({ data, error: undefined, response: { ok: true, status: 200 } });
@@ -80,7 +82,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('InvestigationDetail — nothing is asked of the machine', () => {
+describe('InvestigationDetail — nothing is asked of the host', () => {
   it('issues no device-directed request when a room is opened', async () => {
     renderRoom();
     await screen.findByRole('heading', { name: 'cpu.sustained' });
@@ -118,13 +120,29 @@ describe('InvestigationDetail — what the room says about itself', () => {
     await screen.findByRole('heading', { name: 'cpu.sustained' });
 
     const summary = within(screen.getByRole('region', { name: 'Incident summary' }));
-    expect(summary.getByText('312 alerts · across 40 machines · running for 2 h 5 m')).toBeInTheDocument();
+    expect(summary.getByText('312 alerts · across 40 hosts · running for 2 h 5 m')).toBeInTheDocument();
   });
 
-  it('says what rung the room is about', async () => {
+  it('names what the room is about rather than printing its id', async () => {
     renderRoom();
     await screen.findByRole('heading', { name: 'cpu.sustained' });
-    expect(screen.getByText(/organization · 6f2b9c31/)).toBeInTheDocument();
+    const summary = within(screen.getByRole('region', { name: 'Incident summary' }));
+    expect(summary.getByText('Host · reception-pc')).toBeInTheDocument();
+    expect(summary.queryByText(/6f2b9c31/)).toBeNull();
+  });
+
+  it('names the people in the room from the names it carries', async () => {
+    mockedGet.mockResolvedValue(ok(detail({
+      incident: incident({ assignee_id: 'user-7' }),
+      events: [{ id: 'e1', at: '2026-08-12T09:07:00Z', kind: 'comment', actor_id: 'user-7', body: { body: 'on it' } }],
+      events_total: 1,
+      people: { 'user-7': 'Dana Whitfield' },
+    })) as never);
+    renderRoom();
+
+    expect(await screen.findByText('Held by Dana Whitfield')).toBeInTheDocument();
+    const timeline = within(screen.getByRole('list', { name: 'Timeline' }));
+    expect(timeline.getByText(/by Dana Whitfield/)).toBeInTheDocument();
   });
 
   it('renders the history in the order it happened', async () => {
@@ -144,9 +162,20 @@ describe('InvestigationDetail — what the room says about itself', () => {
 
   it('renders the alerts it folded', async () => {
     renderRoom();
-    expect(await screen.findByRole('link', { name: 'aaaaaaaa' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'reception-pc' })).toHaveAttribute(
       'href', '/devices/aaaaaaaa-1111-2222-3333-444455556666',
     );
+  });
+
+  it('hands the breadcrumb its rule through its own history entry', async () => {
+    const router = createMemoryRouter(
+      [{ path: '/investigations/:id', element: <InvestigationDetail /> }],
+      { initialEntries: ['/investigations/i1'] },
+    );
+    render(<RouterProvider router={router} />);
+    await vi.waitFor(() => {
+      expect(router.state.location.state).toEqual({ crumb: 'cpu.sustained' });
+    });
   });
 
   it('offers a way back to the queue', async () => {
@@ -156,8 +185,8 @@ describe('InvestigationDetail — what the room says about itself', () => {
   });
 });
 
-describe('InvestigationDetail — a room whose machines are gone', () => {
-  it('renders the machines that remain and says how many the incident covers', async () => {
+describe('InvestigationDetail — a room whose hosts are gone', () => {
+  it('renders the hosts that remain and says how many the incident covers', async () => {
     mockedGet.mockResolvedValue(ok(detail({
       incident: incident({ device_count: 3, occurrences: 2 }),
       alerts: [alert({ id: 'a1' }), alert({ id: 'a2' })],
@@ -166,7 +195,7 @@ describe('InvestigationDetail — a room whose machines are gone', () => {
     renderRoom();
 
     await screen.findByRole('heading', { name: 'cpu.sustained' });
-    expect(screen.getByText(/1 of 3 machines/)).toBeInTheDocument();
+    expect(screen.getByText(/1 of 3 hosts/)).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -219,7 +248,7 @@ describe('InvestigationDetail — polling', () => {
     setVisibility('hidden');
     const before = mockedGet.mock.calls.length;
     await vi.advanceTimersByTimeAsync(120_000);
-    expect(mockedGet.mock.calls.length).toBe(before);
+    expect(mockedGet.mock.calls).toHaveLength(before);
   });
 
   it('leaves nothing behind when the room is closed', async () => {

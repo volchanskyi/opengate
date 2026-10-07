@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useToastStore } from '../../../lib/feedback/toast-store';
 import { useDeviceStore } from './device-store';
+import { NOT_ASSIGNED_SITE_ID } from '../device-drag';
 import { useOrganizationStore } from '../../organizations';
 
 const mockPost = vi.fn();
@@ -938,6 +939,35 @@ describe('device store narrows by the selected customer', () => {
     expect(mockGet).toHaveBeenCalledWith('/api/v1/devices', {
       params: { query: { site_id: 'site-7', organization_id: 'org-2' } },
     });
+  });
+
+  it('asks for the devices filed under no site when Not Assigned is picked', async () => {
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-2' });
+    mockGet.mockResolvedValue({ data: [], response: { ok: true } });
+
+    await useDeviceStore.getState().fetchDevices(NOT_ASSIGNED_SITE_ID);
+
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/devices', {
+      params: { query: { without_site: true, organization_id: 'org-2' } },
+    });
+  });
+
+  it('drops a picked site when the customer changes, since the site belonged to the old one', () => {
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-1' });
+    useDeviceStore.setState({ selectedSiteId: 'site-front-desk' });
+
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-2' });
+
+    expect(useDeviceStore.getState().selectedSiteId).toBeNull();
+  });
+
+  it('keeps a picked site while the customer stays the same', () => {
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-1' });
+    useDeviceStore.setState({ selectedSiteId: 'site-front-desk' });
+
+    useOrganizationStore.setState({ customerWanted: 2 });
+
+    expect(useDeviceStore.getState().selectedSiteId).toBe('site-front-desk');
   });
 
   it('narrows the dashboard rollup to the same customer as the list', async () => {

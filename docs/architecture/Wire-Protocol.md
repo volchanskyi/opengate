@@ -178,6 +178,15 @@ their mean. `disk.await_ms` and `disk.queue_depth` answer how *slow* the disks
 are rather than how full — average service time per I/O and average outstanding
 I/Os, each from the worst device chosen independently, derived from the kernel's
 per-device counters ([`diskperf.rs`](../../agent/crates/mesh-agent-core/src/ml/diskperf.rs)).
+
+The same sampler ranks what is running for an alert's evidence. A process's
+processor share is the processor time it gained since the previous sample, over
+the wall time between the two samples times the host's cores, held to 0–100
+([`sampler.rs`](../../agent/crates/mesh-agent-core/src/ml/sampler.rs)). A process
+is keyed by its id and start time, so a reused id starts over, and it has no share
+on its first sample. Only processes are ranked — the platform also lists each
+thread, carrying its whole process's memory — busiest first, an unmeasured
+process after every measured one.
 A containerized agent ships neither, because those counters are host-wide and
 would report its neighbours' I/O as its own, and a device that completed no I/O
 in the interval ships no service time rather than a zero that would read as
@@ -310,7 +319,7 @@ are only comparable if they were assembled the same way.
 |---|---|
 | `ranked` | 8 dimensions the device's own correlation ranked, most anomalous first |
 | `series` | the top 3 of those, ±5 min around the event, ≤ 512 readings each |
-| `processes` | 10 rows at the event instant |
+| `processes` | 10 [`EvidenceProcess`](../../agent/crates/mesh-protocol/src/control.rs) rows at the event instant: rank, basename, pid, `cpu_share` (the share of the whole host's processors, 0–100, absent until the agent has measured the process across two samples) and `mem` (resident bytes) |
 | `log_samples` | 20 redacted host log lines, capped **before** redaction so a flood cannot buy CPU |
 
 Size is decided after encoding, because how large evidence compresses to is not

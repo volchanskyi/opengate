@@ -566,7 +566,7 @@ mod test_support {
             basename: "pg_dump".to_string(),
             cmdline_hash: None,
             pid: 4242,
-            cpu: 88.0,
+            cpu_share: Some(37.5),
             mem: 3.5,
         }];
         sample

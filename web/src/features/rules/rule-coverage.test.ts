@@ -9,15 +9,15 @@ const coverage = (over: Partial<RuleCoverage> = {}): RuleCoverage => ({
 });
 
 describe('the coverage states', () => {
-  it('names all four — three would make a rule look like it watches a smaller estate than it does', () => {
+  it('names all four — three would make a rule look like it watches a smaller fleet than it does', () => {
     expect(COVERAGE_STATES).toEqual(['active', 'throttled', 'unsupported', 'unknown']);
   });
 
-  it('says what each state means for the machines counted in it', () => {
+  it('says what each state means for the hosts counted in it, in the rules list\'s own words', () => {
     expect(coverageStateLabel('active')).toBe('Watching');
-    expect(coverageStateLabel('throttled')).toBe('Throttled');
-    expect(coverageStateLabel('unsupported')).toBe('Cannot evaluate');
-    expect(coverageStateLabel('unknown')).toBe('Never reported');
+    expect(coverageStateLabel('throttled')).toBe('Paused: too costly');
+    expect(coverageStateLabel('unsupported')).toBe("Can't run here");
+    expect(coverageStateLabel('unknown')).toBe('Not heard from');
   });
 });
 
@@ -26,7 +26,7 @@ describe('coverageTotal', () => {
     expect(coverageTotal(coverage({ active: 300, throttled: 5, unsupported: 6, unknown: 1 }))).toBe(312);
   });
 
-  it('counts an untouched estate as nothing rather than as a missing number', () => {
+  it('counts an untouched fleet as nothing rather than as a missing number', () => {
     expect(coverageTotal(coverage())).toBe(0);
   });
 });

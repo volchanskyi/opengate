@@ -12,7 +12,7 @@ type Incident = components['schemas']['Incident'];
 function incident(over: Partial<Incident> = {}): Incident {
   return {
     id: 'i1', organization_id: 'org-1', rule_id: 'cpu.sustained', scope: 'organization',
-    scope_key: 'org-1', severity: 'critical', status: 'new',
+    scope_key: 'org-1', scope_name: 'Contoso', severity: 'critical', status: 'new',
     opened_at: '2026-08-12T09:00:00Z', first_seen: '2026-08-12T09:00:00Z',
     last_seen: '2026-08-12T11:05:00Z', occurrences: 312, device_count: 40, ...over,
   };
@@ -33,20 +33,20 @@ beforeEach(() => {
 
 describe('IncidentActions — an illegal move is not offerable', () => {
   it('offers every move the lifecycle allows out of the queue', () => {
-    render(<IncidentActions incident={incident({ status: 'new' })} />);
+    render(<IncidentActions incident={incident({ status: 'new' })} people={{}} />);
     expect(screen.getByRole('button', { name: 'Acknowledged' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Investigating' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Resolve' })).toBeInTheDocument();
   });
 
   it('never offers a move to where the room already stands', () => {
-    render(<IncidentActions incident={incident({ status: 'acknowledged' })} />);
+    render(<IncidentActions incident={incident({ status: 'acknowledged' })} people={{}} />);
     expect(screen.queryByRole('button', { name: 'Acknowledged' })).toBeNull();
     expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
   });
 
   it('offers a closed room no move at all — an answer given is not un-given here', () => {
-    render(<IncidentActions incident={incident({ status: 'resolved', cause_code: 'fixed_by_tech' })} />);
+    render(<IncidentActions incident={incident({ status: 'resolved', cause_code: 'fixed_by_tech' })} people={{}} />);
     expect(screen.queryByRole('button', { name: 'New' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull();
     expect(screen.getByText(/Resolved — Fixed by a technician/i)).toBeInTheDocument();
@@ -54,7 +54,7 @@ describe('IncidentActions — an illegal move is not offerable', () => {
 
   it('sends a move the moment it is chosen', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'new' })} />);
+    render(<IncidentActions incident={incident({ status: 'new' })} people={{}} />);
 
     await user.click(screen.getByRole('button', { name: 'Investigating' }));
     expect(setStatus).toHaveBeenCalledWith('i1', 'investigating');
@@ -64,7 +64,7 @@ describe('IncidentActions — an illegal move is not offerable', () => {
 describe('IncidentActions — resolving needs an answer', () => {
   it('offers exactly the closed set of cause codes and nothing else', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'investigating' })} />);
+    render(<IncidentActions incident={incident({ status: 'investigating' })} people={{}} />);
     await user.click(screen.getByRole('button', { name: 'Resolve' }));
 
     const options = [...screen.getByLabelText('Why it ended').querySelectorAll('option')]
@@ -75,7 +75,7 @@ describe('IncidentActions — resolving needs an answer', () => {
 
   it('names every cause in an operator’s words', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'investigating' })} />);
+    render(<IncidentActions incident={incident({ status: 'investigating' })} people={{}} />);
     await user.click(screen.getByRole('button', { name: 'Resolve' }));
 
     for (const code of CAUSE_CODES) {
@@ -85,7 +85,7 @@ describe('IncidentActions — resolving needs an answer', () => {
 
   it('will not resolve until a cause is chosen', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'investigating' })} />);
+    render(<IncidentActions incident={incident({ status: 'investigating' })} people={{}} />);
     await user.click(screen.getByRole('button', { name: 'Resolve' }));
 
     expect(screen.getByRole('button', { name: 'Confirm resolution' })).toBeDisabled();
@@ -94,7 +94,7 @@ describe('IncidentActions — resolving needs an answer', () => {
 
   it('resolves with the cause that was chosen', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'investigating' })} />);
+    render(<IncidentActions incident={incident({ status: 'investigating' })} people={{}} />);
     await user.click(screen.getByRole('button', { name: 'Resolve' }));
     await user.selectOptions(screen.getByLabelText('Why it ended'), 'false_positive');
     await user.click(screen.getByRole('button', { name: 'Confirm resolution' }));
@@ -104,7 +104,7 @@ describe('IncidentActions — resolving needs an answer', () => {
 
   it('never carries a cause on a move that is not a resolution', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'new' })} />);
+    render(<IncidentActions incident={incident({ status: 'new' })} people={{}} />);
     await user.click(screen.getByRole('button', { name: 'Resolve' }));
     await user.selectOptions(screen.getByLabelText('Why it ended'), 'duplicate');
     await user.click(screen.getByRole('button', { name: 'Acknowledged' }));
@@ -114,7 +114,7 @@ describe('IncidentActions — resolving needs an answer', () => {
 
   it('puts the resolution form away when it is abandoned', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'new' })} />);
+    render(<IncidentActions incident={incident({ status: 'new' })} people={{}} />);
     await user.click(screen.getByRole('button', { name: 'Resolve' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
@@ -127,7 +127,7 @@ describe('IncidentActions — a refused move', () => {
     setStatus.mockResolvedValue(false);
     useRoomStore.setState({ actionError: 'illegal incident transition: resolved to new' });
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'new' })} />);
+    render(<IncidentActions incident={incident({ status: 'new' })} people={{}} />);
 
     await user.click(screen.getByRole('button', { name: 'Acknowledged' }));
     expect(screen.getByRole('alert')).toHaveTextContent('illegal incident transition: resolved to new');
@@ -136,7 +136,7 @@ describe('IncidentActions — a refused move', () => {
   it('keeps the resolution form open after a refusal, so the answer is not retyped', async () => {
     setStatus.mockResolvedValue(false);
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'investigating' })} />);
+    render(<IncidentActions incident={incident({ status: 'investigating' })} people={{}} />);
 
     await user.click(screen.getByRole('button', { name: 'Resolve' }));
     await user.selectOptions(screen.getByLabelText('Why it ended'), 'duplicate');
@@ -147,7 +147,7 @@ describe('IncidentActions — a refused move', () => {
 
   it('puts the form away once the resolution is accepted', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ status: 'investigating' })} />);
+    render(<IncidentActions incident={incident({ status: 'investigating' })} people={{}} />);
 
     await user.click(screen.getByRole('button', { name: 'Resolve' }));
     await user.selectOptions(screen.getByLabelText('Why it ended'), 'duplicate');
@@ -160,7 +160,7 @@ describe('IncidentActions — a refused move', () => {
 describe('IncidentActions — who is working it', () => {
   it('offers to take an unheld room', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident()} />);
+    render(<IncidentActions incident={incident()} people={{}} />);
 
     await user.click(screen.getByRole('button', { name: /Take it/i }));
     expect(setAssignee).toHaveBeenCalledWith('i1', 'user-3');
@@ -168,7 +168,7 @@ describe('IncidentActions — who is working it', () => {
 
   it('offers to hand back the room this person holds', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ assignee_id: 'user-3' })} />);
+    render(<IncidentActions incident={incident({ assignee_id: 'user-3' })} people={{}} />);
 
     await user.click(screen.getByRole('button', { name: /Hand it back/i }));
     expect(setAssignee).toHaveBeenCalledWith('i1', null);
@@ -176,9 +176,14 @@ describe('IncidentActions — who is working it', () => {
 
   it('says who holds a room somebody else is working, and offers to take it over', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident({ assignee_id: 'aaaaaaaa-2222-3333-4444-555566667777' })} />);
+    render(
+      <IncidentActions
+        incident={incident({ assignee_id: 'aaaaaaaa-2222-3333-4444-555566667777' })}
+        people={{ 'aaaaaaaa-2222-3333-4444-555566667777': 'Dana Whitfield' }}
+      />,
+    );
 
-    expect(screen.getByText(/aaaaaaaa/)).toBeInTheDocument();
+    expect(screen.getByText('Held by Dana Whitfield')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Take it over/i }));
     expect(setAssignee).toHaveBeenCalledWith('i1', 'user-3');
   });
@@ -186,14 +191,14 @@ describe('IncidentActions — who is working it', () => {
 
 describe('IncidentActions — notes', () => {
   it('adding a note stays on the page rather than submitting it', () => {
-    render(<IncidentActions incident={incident({ status: 'acknowledged' })} />);
+    render(<IncidentActions incident={incident({ status: 'acknowledged' })} people={{}} />);
     const form = screen.getByLabelText('Add a note').closest('form')!;
     expect(fireEvent.submit(form)).toBe(false);
   });
 
   it('adds a note and empties the box', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident()} />);
+    render(<IncidentActions incident={incident()} people={{}} />);
 
     await user.type(screen.getByLabelText('Add a note'), 'rolled the driver back');
     await user.click(screen.getByRole('button', { name: 'Add note' }));
@@ -204,7 +209,7 @@ describe('IncidentActions — notes', () => {
 
   it('will not send a note that says nothing', async () => {
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident()} />);
+    render(<IncidentActions incident={incident()} people={{}} />);
 
     expect(screen.getByRole('button', { name: 'Add note' })).toBeDisabled();
     await user.type(screen.getByLabelText('Add a note'), '   ');
@@ -214,7 +219,7 @@ describe('IncidentActions — notes', () => {
   it('keeps a refused note in the box rather than throwing away what was typed', async () => {
     addComment.mockResolvedValue(false);
     const user = userEvent.setup();
-    render(<IncidentActions incident={incident()} />);
+    render(<IncidentActions incident={incident()} people={{}} />);
 
     await user.type(screen.getByLabelText('Add a note'), 'rolled the driver back');
     await user.click(screen.getByRole('button', { name: 'Add note' }));
@@ -222,7 +227,7 @@ describe('IncidentActions — notes', () => {
   });
 
   it('lets a closed room still be annotated — a handover outlives the answer', () => {
-    render(<IncidentActions incident={incident({ status: 'resolved', cause_code: 'duplicate' })} />);
+    render(<IncidentActions incident={incident({ status: 'resolved', cause_code: 'duplicate' })} people={{}} />);
     expect(screen.getByLabelText('Add a note')).toBeInTheDocument();
   });
 });
@@ -230,14 +235,39 @@ describe('IncidentActions — notes', () => {
 describe('IncidentActions — while a move is in flight', () => {
   it('stops a second one being sent on top of it', () => {
     useRoomStore.setState({ acting: true });
-    render(<IncidentActions incident={incident()} />);
+    render(<IncidentActions incident={incident()} people={{}} />);
     expect(screen.getByRole('button', { name: 'Acknowledged' })).toBeDisabled();
   });
 
   it('offers no remediation from the room — no restart, no script, no session', () => {
-    render(<IncidentActions incident={incident()} />);
+    render(<IncidentActions incident={incident()} people={{}} />);
     for (const name of [/restart/i, /run script/i, /isolate/i, /start session/i]) {
       expect(screen.queryByRole('button', { name })).toBeNull();
     }
+  });
+});
+
+describe('IncidentActions — who holds the room', () => {
+  it('names the holder by the name they go by', () => {
+    render(<IncidentActions incident={incident({ assignee_id: 'user-7' })} people={{ 'user-7': 'Dana Whitfield' }} />);
+    expect(screen.getByText('Held by Dana Whitfield')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Take it over' })).toBeInTheDocument();
+  });
+
+  it('tells the reader when the room is theirs', () => {
+    render(<IncidentActions incident={incident({ assignee_id: 'user-3' })} people={{ 'user-3': 'Sam Okafor' }} />);
+    expect(screen.getByText('Held by you')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hand it back' })).toBeInTheDocument();
+  });
+
+  it('never shows an id for a holder the room cannot name', () => {
+    render(<IncidentActions incident={incident({ assignee_id: '6f2b9c31-1111-2222-3333-444455556666' })} people={{}} />);
+    expect(screen.getByText('Held by a removed user')).toBeInTheDocument();
+    expect(screen.queryByText(/6f2b9c31/)).toBeNull();
+  });
+
+  it('says nobody has taken an unheld room', () => {
+    render(<IncidentActions incident={incident()} people={{}} />);
+    expect(screen.getByText('Nobody has taken this')).toBeInTheDocument();
   });
 });

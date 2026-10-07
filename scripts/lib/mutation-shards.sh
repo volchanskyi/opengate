@@ -219,7 +219,7 @@ mutation_web_shards() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  echo "go-api-runtime go-api-limits go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
 }
 
 mutation_all_shards() {
@@ -262,7 +262,10 @@ mutation_go_global_excludes() {
 mutation_go_shard_units() {
   case "$1" in
     go-api-runtime)
-      echo "file:internal/api/api.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/ratelimit.go file:internal/api/proxytrust.go"
+      echo "file:internal/api/api.go file:internal/api/middleware.go file:internal/api/wsconn.go"
+      ;;
+    go-api-limits)
+      echo "file:internal/api/ratelimit.go file:internal/api/proxytrust.go"
       ;;
     go-api-intake)
       echo "file:internal/api/validate.go file:internal/api/log_redact.go"
@@ -356,7 +359,8 @@ mutation_go_shard_units() {
 # that finish, since a blocked one holds a worker for its whole leash and is counted separately.
 mutation_go_shard_seconds_per_mutant() {
   case "$1" in
-    go-api-runtime) echo 46 ;;
+    # The slowest night measured across both: 50 to 67 s per mutant on identical code.
+    go-api-runtime | go-api-limits) echo 67 ;;
     go-api-intake) echo 42 ;;
     go-api-status) echo 46 ;;
     go-api-converters) echo 68 ;;

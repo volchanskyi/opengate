@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { components } from '../../types/api';
+import { api } from '../../lib/api';
+import { useOrganizationStore } from '../organizations';
 import { ResolvedFor } from './ResolvedFor';
 import { RolloutPanel } from './RolloutPanel';
 import { TuningPanel } from './TuningPanel';
@@ -35,8 +37,20 @@ function rule(): Rule {
   };
 }
 
+function host(id: string, hostname: string, status: 'online' | 'offline') {
+  return {
+    id, hostname, status, organization_id: 'org-1', site_id: '', os: 'linux', agent_version: '',
+    capabilities: [], last_seen: '', created_at: '', updated_at: '',
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.GET).mockResolvedValue({
+    data: [host('fs02', 'fs02', 'offline'), host('fs01', 'fs01', 'online')],
+    response: { ok: true, status: 200 },
+  } as never);
+  useOrganizationStore.setState({ selectedOrganizationId: 'org-1', customerWanted: 0 });
   useRuleStore.setState({ detail: null, resolved: null, isLoading: false, error: null });
 });
 
@@ -77,36 +91,11 @@ describe('Rollout pace', () => {
         canEdit={false}
       />,
     );
-    expect(screen.getByText('First machines — 1% of the estate')).toBeInTheDocument();
+    expect(screen.getByText('First hosts — 1% of the fleet')).toBeInTheDocument();
   });
 });
 
 describe('Tuning', () => {
-  it('files a new value against the office an operator named', async () => {
-    const saveBinding = vi.fn().mockResolvedValue(true);
-    useRuleStore.setState({ saveBinding });
-    render(<TuningPanel rule={rule()} bindings={[]} clamps={[]} canEdit />);
-
-    await userEvent.type(screen.getByLabelText('Office'), 'office-1');
-    await userEvent.type(screen.getByLabelText('Value'), '95');
-    await userEvent.click(screen.getByRole('button', { name: 'Set for this office' }));
-
-    expect(saveBinding).toHaveBeenCalledWith('disk-critical', {
-      level: 'site',
-      level_key: 'office-1',
-      params: { threshold: 95 },
-    });
-  });
-
-  it('sends nothing when the office or the value is missing', async () => {
-    const saveBinding = vi.fn().mockResolvedValue(true);
-    useRuleStore.setState({ saveBinding });
-    render(<TuningPanel rule={rule()} bindings={[]} clamps={[]} canEdit />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Set for this office' }));
-    expect(saveBinding).not.toHaveBeenCalled();
-  });
-
   it('removes a tuned value', async () => {
     const removeBinding = vi.fn().mockResolvedValue(true);
     useRuleStore.setState({ removeBinding });
@@ -126,52 +115,69 @@ describe('Tuning', () => {
     expect(removeBinding).toHaveBeenCalledWith('disk-critical', 'b-1');
   });
 
-  it('says so plainly when nothing is retuned', () => {
+  it('says so plainly when nothing is set', () => {
     render(<TuningPanel rule={rule()} bindings={[]} clamps={[]} canEdit={false} />);
-    expect(screen.getByText(/Nothing is retuned/)).toBeInTheDocument();
+    expect(screen.getByText('No values set (Ships with the default values)')).toBeInTheDocument();
   });
 });
 
-describe('Resolving for one machine', () => {
-  it('asks for the machine an operator named, and shows what decided each number', async () => {
+describe('Resolving for one host', () => {
+  async function openHosts() {
+    await vi.waitFor(() => { expect(api.GET).toHaveBeenCalled(); });
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: /Host/ }));
+    return within(screen.getByRole('listbox', { name: 'Host' }));
+  }
+
+  async function pickHost(name: RegExp) {
+    fireEvent.click((await openHosts()).getByRole('option', { name }));
+  }
+
+  it('shows the values in force as soon as a host is picked, and what decided each', async () => {
     const resolveFor = vi.fn().mockResolvedValue(undefined);
     useRuleStore.setState({ resolveFor });
     render(<ResolvedFor ruleId="disk-critical" />);
 
-    await userEvent.type(screen.getByLabelText('Machine'), 'fs01');
-    await userEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(screen.getByText('Select a host to see current values.')).toBeInTheDocument();
+    await pickHost(/fs01/);
     expect(resolveFor).toHaveBeenCalledWith('disk-critical', 'fs01');
 
     useRuleStore.setState({
       resolved: {
         rule_id: 'disk-critical', device_id: 'fs01', delivered: true,
         params: {
-          threshold: { value: 95, level: 'site', source: "set on this machine's office" },
+          threshold: { value: 95, level: 'site', source: "set on this host's site" },
         },
       },
     });
 
     expect(await screen.findByText('95')).toBeInTheDocument();
-    expect(screen.getByText("set on this machine's office")).toBeInTheDocument();
-    expect(screen.getByText('This machine is running the rule.')).toBeInTheDocument();
+    expect(screen.getByText("set on this host's site")).toBeInTheDocument();
+    expect(screen.getByText('This host is running the rule.')).toBeInTheDocument();
   });
 
-  it('says when a machine is not getting the rule at all', () => {
+  it('offers the hosts by name, each marked online or offline', async () => {
+    render(<ResolvedFor ruleId="disk-critical" />);
+    expect(screen.getByRole('button', { name: /Host/ })).toHaveTextContent('Select a host');
+    const list = await openHosts();
+    expect(list.getAllByRole('option').map((o) => o.textContent)).toEqual(['fs01online', 'fs02offline']);
+  });
+
+  it('says when a host is not getting the rule at all', () => {
     useRuleStore.setState({
       resolved: {
         rule_id: 'disk-critical', device_id: 'fs01', delivered: false, params: {},
       },
     });
     render(<ResolvedFor ruleId="disk-critical" />);
-    expect(screen.getByText('This machine is not getting the rule at all.')).toBeInTheDocument();
+    expect(screen.getByText('This host is not getting the rule at all.')).toBeInTheDocument();
   });
 
-  it('asks nothing when no machine is named', async () => {
-    const resolveFor = vi.fn().mockResolvedValue(undefined);
-    useRuleStore.setState({ resolveFor });
+  it('waits on a customer under "All customers" and asks for one', () => {
+    useOrganizationStore.setState({ selectedOrganizationId: null });
     render(<ResolvedFor ruleId="disk-critical" />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Show' }));
-    expect(resolveFor).not.toHaveBeenCalled();
+    const control = screen.getByRole('button', { name: /Host/ });
+    expect(control).toBeDisabled();
+    expect(control).toHaveTextContent('Pick a customer first');
   });
 });

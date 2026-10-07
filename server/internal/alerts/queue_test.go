@@ -255,11 +255,23 @@ func TestEveryQueueStatementNamesItsTenant(t *testing.T) {
 		"roomSQL":             roomSQL,
 		"roomAlertsSQL":       roomAlertsSQL,
 		"roomEventsSQL":       roomEventsSQL,
+		"roomPeopleSQL":       roomPeopleSQL,
 		"assignRoomSQL":       assignRoomSQL,
 		"alertEvidenceSQL":    alertEvidenceSQL,
 	} {
 		assert.Containsf(t, query, tenantPredicate,
 			"%s must name the tenant as well as passing the policy", name)
+	}
+}
+
+func TestTheRoomNamesWhatItIsAboutTheWayTheQueueDoes(t *testing.T) {
+	t.Parallel()
+	for name, query := range map[string]string{
+		"queueForCustomerSQL": queueForCustomerSQL,
+		"queueForTenantSQL":   queueForTenantSQL,
+		"roomSQL":             roomSQL,
+	} {
+		assert.Containsf(t, query, scopeNameColumn, "%s names its scope its own way", name)
 	}
 }
 

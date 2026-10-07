@@ -27,8 +27,22 @@ the answer is recorded when it is over.
 | Device incident strip | On the device page | The open incidents that machine is caught up in |
 
 The queue shows severity, status, the rule that produced the incident, how many
-alerts across how many machines, and the rule's coverage split. It filters by
-status, severity, rule and device.
+alerts across how many hosts, and what the incident is about by name — *Host ·
+reception-pc*, *Site · Front Desk*, *Customer · Acme Dental*. A host, site or
+customer removed since reads as *a removed host* (or site, or customer), never as
+an id.
+
+It opens on the **New** incidents. Status is one choice at a time — New,
+Acknowledged, Investigating or Resolved — and severity may be several. The
+**Rule** pick-list offers every rule in the catalogue; the **Host** pick-list
+offers the chosen customer's hosts by name, each with a green (online) or grey
+(offline) dot. Every pick applies at once, and **Clear** goes back to the new
+incidents at every severity, rule and host.
+
+With **All customers** chosen, the Host pick-list is greyed out and reads *Pick
+a customer first*, and the customer picker is ringed so the reader sees where the
+choice is made. How much of the fleet each rule is watching is on the
+[Rules](./Rule-Administration.md#screens) list.
 
 ## How alerts group into incidents
 
@@ -154,6 +168,12 @@ site-wide incident is still being reported into by the rest of the estate.
 The room shows the incident's history, the alerts it folded, and each alert's
 frozen evidence: the ranked dimensions the machine produced, a stretch of those
 readings, what was running, and redacted log lines.
+
+People and hosts are named. The room reads *Held by Dana Whitfield* (or *Held by
+you*), each line of the history says who acted and to whom a room was handed,
+and the alerts table names the host that raised each alert and links to its
+page. A user removed since reads as *a removed user*; the room never shows an id
+in place of a name. Names come only from inside the tenant.
 
 **The room reads a snapshot, never a machine.** Everything on the page comes from
 the incident record. Nothing can be fetched from the device afterwards — so the

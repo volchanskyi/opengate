@@ -13,8 +13,8 @@ const LABEL = 'text-xs uppercase text-gray-500 font-semibold';
 type PaceField = 'canary_percent' | 'staged_percent' | 'canary_hold_secs' | 'staged_hold_secs';
 
 const SETTINGS: readonly (readonly [PaceField, string, string])[] = [
-  ['canary_percent', 'First stage reaches', '% of the estate'],
-  ['staged_percent', 'Second stage reaches', '% of the estate'],
+  ['canary_percent', 'First stage reaches', '% of the fleet'],
+  ['staged_percent', 'Second stage reaches', '% of the fleet'],
   ['canary_hold_secs', 'First stage is held for', 'seconds'],
   ['staged_hold_secs', 'Second stage is held for', 'seconds'],
 ];
@@ -111,7 +111,7 @@ export function RolloutPanel({
         <div className="mt-6 pt-4 border-t border-gray-700">
           <h3 className="text-sm font-semibold text-red-300 mb-1">Stop this rule</h3>
           <p className="text-xs text-gray-500 mb-3">
-            Takes the rule off every machine it has reached, including machines that are offline —
+            Takes the rule off every host it has reached, including hosts that are offline —
             they are stopped when they come back. Separate from switching it off, so the two can be
             told apart afterwards.
           </p>

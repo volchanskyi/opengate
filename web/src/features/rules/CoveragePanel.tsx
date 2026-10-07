@@ -1,5 +1,5 @@
 import type { components } from '../../types/api';
-import { coverageCount, coverageTotal, type CoverageState } from '../investigations/rule-coverage';
+import { coverageCount, coverageTotal, type CoverageState } from './rule-coverage';
 
 type Coverage = components['schemas']['RuleCoverage'];
 
@@ -32,11 +32,11 @@ export function CoveragePanel({
         ))}
       </dl>
       <p className="mt-3 text-xs text-gray-500">
-        {counted} of {fleetSize} machines accounted for.
+        {counted} of {fleetSize} hosts accounted for.
       </p>
       {counted !== fleetSize && (
         <p role="alert" className="mt-1 text-xs text-red-400">
-          These do not add up to the fleet, which means some machines are unaccounted for.
+          These do not add up to the fleet, which means some hosts are unaccounted for.
         </p>
       )}
     </section>

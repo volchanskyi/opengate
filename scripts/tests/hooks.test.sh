@@ -1079,6 +1079,35 @@ if [ "$(cat .claude/.markers/refactor.head 2>/dev/null || echo none)" = "$head" 
 else fail "auto-push: marker stale after rebase"; fi
 cleanup_repo
 
+# Dev carries a merge of main; replaying main's commits one by one collides with dev's own.
+setup_autopush_repo
+git checkout --quiet -b main
+echo main >x.txt
+git add x.txt
+git commit -q -m "main: x" >/dev/null 2>&1
+git checkout --quiet dev
+echo dev >x.txt
+git add x.txt
+git commit -q -m "dev: x" >/dev/null 2>&1
+git push -q origin dev
+git merge -q main >/dev/null 2>&1 || true
+echo both >x.txt
+git add x.txt
+git commit -q --no-edit >/dev/null 2>&1
+merged="$(git rev-parse HEAD)"
+echo w >w.txt
+git add w.txt
+prove_tidy_up
+CI='' GITHUB_ACTIONS='' OPENGATE_AUTOPUSH_DEBUG=1 git commit -q -m "feat: w" >"$REMOTE/hook.log" 2>&1
+head="$(git rev-parse HEAD)"
+if [ "$(remote_ref dev)" = "$head" ] && [ "$(git rev-parse HEAD^)" = "$merged" ]; then
+  pass "auto-push: a merge of main on dev is kept and pushed"
+else
+  fail "auto-push: merge of main not pushed (origin=$(remote_ref dev) HEAD=$head merge=$merged)"
+  autopush_diag "case-merge-of-main"
+fi
+cleanup_repo
+
 # The push guard reads the marker, so the hook writes it only for content /refactor finished on.
 setup_autopush_repo
 before="$(remote_ref dev)"

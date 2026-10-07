@@ -11,6 +11,9 @@ import (
 // and a customer or site parameter only filters within the tenant.
 func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error) {
 	devices, err := s.devices.List(ctx, deviceFilterFromParams(request.Params))
+	if errors.Is(err, device.ErrSiteFilterContradicts) {
+		return ListDevices400JSONResponse{Error: err.Error()}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -30,6 +33,7 @@ func deviceFilterFromParams(params ListDevicesParams) device.Filter {
 	if params.OrganizationId != nil {
 		filter.OrganizationID = *params.OrganizationId
 	}
+	filter.WithoutSite = deref(params.WithoutSite)
 	return filter
 }
 

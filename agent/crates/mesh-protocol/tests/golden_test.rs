@@ -946,13 +946,14 @@ fn golden_evidence() -> AlertEvidence {
             })
             .collect(),
         processes: (0..10)
-            .map(|i| ProcessReportEntry {
+            .map(|i| EvidenceProcess {
                 rank: i,
                 basename: format!("proc{i}"),
                 cmdline_hash: None,
                 pid: 1000 + i,
-                cpu: f64::from(i),
-                mem: f64::from(i) * 2.0,
+                // The last row has no processor reading, as on a process seen for the first time.
+                cpu_share: (i < 9).then(|| f64::from(i) * 2.5),
+                mem: f64::from(i) * 1_048_576.0,
             })
             .collect(),
         log_samples: (0..20).map(|i| format!("log line {i}")).collect(),

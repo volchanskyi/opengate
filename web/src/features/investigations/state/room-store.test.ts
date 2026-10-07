@@ -18,7 +18,7 @@ type AlertEvidence = components['schemas']['AlertEvidence'];
 function incident(over: Partial<Incident> = {}): Incident {
   return {
     id: 'i1', organization_id: 'org-1', rule_id: 'cpu.sustained', scope: 'organization',
-    scope_key: 'org-1', severity: 'critical', status: 'new',
+    scope_key: 'org-1', scope_name: 'Contoso', severity: 'critical', status: 'new',
     opened_at: '2026-08-12T09:00:00Z', first_seen: '2026-08-12T08:59:00Z',
     last_seen: '2026-08-12T09:30:00Z', occurrences: 312, device_count: 40, ...over,
   };
@@ -26,7 +26,7 @@ function incident(over: Partial<Incident> = {}): Incident {
 
 function alert(over: Partial<IncidentAlert> = {}): IncidentAlert {
   return {
-    id: 'a1', device_id: 'dev-7', rule_id: 'cpu.sustained', rule_version: 3, severity: 'critical',
+    id: 'a1', device_id: 'dev-7', hostname: 'reception-pc', rule_id: 'cpu.sustained', rule_version: 3, severity: 'critical',
     window_start: '2026-08-12T09:00:00Z', window_end: '2026-08-12T09:01:00Z',
     observed_at: '2026-08-12T09:00:30Z', received_at: '2026-08-12T09:00:45Z',
     backfilled: false, evidence_bytes: 4096, ...over,
@@ -36,7 +36,7 @@ function alert(over: Partial<IncidentAlert> = {}): IncidentAlert {
 function detail(over: Partial<IncidentDetail> = {}): IncidentDetail {
   return {
     incident: incident(), alerts: [alert()], alerts_total: 1,
-    events: [], events_total: 0, ...over,
+    events: [], events_total: 0, people: {}, ...over,
   };
 }
 

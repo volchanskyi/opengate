@@ -51,7 +51,7 @@ fn second_at(disk: f32) -> MetricSample {
             basename: "pg_dump".to_string(),
             cmdline_hash: None,
             pid: 4242,
-            cpu: 88.0,
+            cpu_share: Some(37.5),
             mem: 2_147_483_648.0,
         }],
     }
@@ -90,12 +90,12 @@ fn raise(firing: &Firing, sample: &MetricSample) -> EdgeAlert {
     let processes: Vec<_> = sample
         .processes
         .iter()
-        .map(|p| mesh_protocol::ProcessReportEntry {
+        .map(|p| mesh_protocol::EvidenceProcess {
             rank: u32::from(p.rank),
             basename: p.basename.clone(),
             cmdline_hash: p.cmdline_hash.clone(),
             pid: p.pid,
-            cpu: p.cpu,
+            cpu_share: p.cpu_share,
             mem: p.mem,
         })
         .collect();
@@ -207,7 +207,8 @@ fn what_the_machine_attached_reads_back_at_the_other_end() {
     assert_eq!(behind.processes.len(), 1);
     assert_eq!(behind.processes[0].basename, "pg_dump");
     assert_eq!(
-        behind.processes[0].cpu, 88.0,
+        behind.processes[0].cpu_share,
+        Some(37.5),
         "a ranking without the numbers behind it has to be taken on trust"
     );
     assert!(!behind.truncated, "nothing here is near the size cap");

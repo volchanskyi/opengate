@@ -1,0 +1,70 @@
+name: SonarCloud main
+
+# SonarCloud compares dev against main, so main is analysed each time a merge lands. The run stands
+# apart from CI and gates nothing: the merge, the image build and the deploy never wait on it.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: sonarcloud-main
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: SonarCloud main analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # A merge's second parent is the commit CI tested, and that run holds the coverage reports.
+      - name: Find the CI run that tested this tree
+        id: tested
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify --quiet HEAD^2 || git rev-parse HEAD)"
+          run_id="$(gh run list --workflow ci.yml --commit "$sha" --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run_id" ]; then
+            echo "::error::no CI run tested $sha, so there is no coverage to report for main"
+            exit 1
+          fi
+          echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
+      - name: Download Go coverage
+        uses: actions/download-artifact@v8
+        with:
+          name: go-coverage
+          path: server/
+          run-id: ${{ steps.tested.outputs.run-id }}
+          github-token: ${{ github.token }}
+      - name: Download Web coverage
+        uses: actions/download-artifact@v8
+        with:
+          name: web-coverage
+          path: web/coverage/
+          run-id: ${{ steps.tested.outputs.run-id }}
+          github-token: ${{ github.token }}
+      - name: Download Rust coverage
+        uses: actions/download-artifact@v8
+        with:
+          name: rust-coverage
+          path: agent/
+          run-id: ${{ steps.tested.outputs.run-id }}
+          github-token: ${{ github.token }}
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8
+        with:
+          scannerVersion: 8.1.0.6389
+          args: >-
+            -Dsonar.branch.name=main

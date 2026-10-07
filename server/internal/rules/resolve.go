@@ -160,20 +160,24 @@ func DecidedBy(def Definition, device Device, bindings []Binding, name string) (
 }
 
 func describeBinding(b Binding) string {
-	rung := string(levelWord(b.Level))
-	if b.Selector.IsEmpty() {
-		return "set on this machine's " + rung
+	where := "set on this host's " + levelWord(b.Level)
+	if b.Level == settings.LevelDevice {
+		where = "set on this host"
 	}
-	return "set on this machine's " + rung + ", for machines labelled " + DescribeSelector(b.Selector)
+	if b.Selector.IsEmpty() {
+		return where
+	}
+	return where + ", for hosts labelled " + DescribeSelector(b.Selector)
 }
 
-// levelWord names a rung as a person reads it, calling an organization a customer.
+// levelWord names a rung as a person reads it, calling a device a host and an organization a
+// customer.
 func levelWord(level settings.Level) string {
 	switch level {
 	case settings.LevelDevice:
-		return "machine"
+		return "host"
 	case settings.LevelSite:
-		return "office"
+		return "site"
 	case settings.LevelOrganization:
 		return "customer"
 	case settings.LevelTenant:

@@ -1,4 +1,5 @@
 import type { components } from '../../types/api';
+import { formatBytes } from '../../lib/format-bytes';
 import { Sparkline } from './Sparkline';
 
 type AlertEvidence = components['schemas']['AlertEvidence'];
@@ -12,6 +13,11 @@ interface Props {
 
 const HEAD_CELL = 'px-2 py-1 text-left text-xs font-semibold text-gray-500';
 const CELL = 'px-2 py-1 text-xs text-gray-300';
+
+/** A processor share as "37.5 %", or a dash where the agent could not measure it. */
+function shareLabel(share: number | null): string {
+  return share === null ? '—' : `${String(Number(share.toFixed(1)))} %`;
+}
 
 function Section({ title, children }: { readonly title: string; readonly children: React.ReactNode }) {
   return (
@@ -38,7 +44,7 @@ export function AlertEvidencePanel({ evidence, loading, error }: Props) {
     <div className="space-y-3 bg-gray-900 border border-gray-700 rounded p-3">
       {evidence.truncated && (
         <p role="alert" className="text-xs text-amber-400">
-          The size cap cost this evidence some of what the machine recorded.
+          The size cap cost this evidence some of what the host recorded.
         </p>
       )}
 
@@ -82,8 +88,8 @@ export function AlertEvidencePanel({ evidence, loading, error }: Props) {
                   <th className={HEAD_CELL}>#</th>
                   <th className={HEAD_CELL}>Process</th>
                   <th className={HEAD_CELL}>PID</th>
-                  <th className={HEAD_CELL}>CPU</th>
-                  <th className={HEAD_CELL}>Memory</th>
+                  <th className={HEAD_CELL}>Processor (share of host)</th>
+                  <th className={HEAD_CELL}>Memory in use</th>
                 </tr>
               </thead>
               <tbody>
@@ -92,8 +98,8 @@ export function AlertEvidencePanel({ evidence, loading, error }: Props) {
                     <td className={`${CELL} tabular-nums`}>{p.rank}</td>
                     <td className={CELL}>{p.basename}</td>
                     <td className={`${CELL} tabular-nums`}>{p.pid}</td>
-                    <td className={`${CELL} tabular-nums`}>{Number(p.cpu.toFixed(2))}%</td>
-                    <td className={`${CELL} tabular-nums`}>{Number(p.mem.toFixed(2))}%</td>
+                    <td className={`${CELL} tabular-nums`}>{shareLabel(p.cpu)}</td>
+                    <td className={`${CELL} tabular-nums`}>{formatBytes(p.mem)}</td>
                   </tr>
                 ))}
               </tbody>

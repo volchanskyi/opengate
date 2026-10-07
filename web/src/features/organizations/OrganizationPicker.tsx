@@ -3,8 +3,8 @@ import { useOrganizationStore } from './state/organization-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 /**
- * Publishes the chosen customer; the device list and the dashboard re-read when it changes,
- * so the tiles and the fleet below them describe the same set.
+ * Publishes the chosen customer, which the device list and dashboard re-read on as one set; a
+ * host or site list waiting on a customer marks the picker.
  */
 export function OrganizationPicker() {
   const organizations = useOrganizationStore((s) => s.organizations);
@@ -12,6 +12,7 @@ export function OrganizationPicker() {
   const selectOrganization = useOrganizationStore((s) => s.selectOrganization);
   const fetchOrganizations = useOrganizationStore((s) => s.fetchOrganizations);
   const hydrateSelection = useOrganizationStore((s) => s.hydrateSelection);
+  const asked = useOrganizationStore((s) => s.customerWanted > 0 && s.selectedOrganizationId === null);
 
   useEffect(() => {
     hydrateSelection();
@@ -33,7 +34,7 @@ export function OrganizationPicker() {
         aria-label="Customer"
         value={selectedOrganizationId ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-gray-700 text-white text-sm rounded px-2 py-1 border border-gray-600"
+        className={`bg-gray-700 text-white text-sm rounded px-2 py-1 border border-gray-600 ${asked ? 'ring-2 ring-amber-400' : ''}`}
       >
         <option value="">All customers</option>
         {organizations.map((o) => (

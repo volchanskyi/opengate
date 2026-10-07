@@ -56,6 +56,15 @@ const (
 		   AND d.site_id = $1 AND d.organization_id = $2
 		 ORDER BY d.hostname`
 
+	listDevicesWithoutSiteQuery = deviceSelect +
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.site_id IS NULL
+		 ORDER BY d.hostname`
+
+	listDevicesWithoutSiteByOrganizationQuery = deviceSelect +
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid
+		   AND d.site_id IS NULL AND d.organization_id = $1
+		 ORDER BY d.hostname`
+
 	getDeviceByAMTUUIDQuery = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
 	        h.amt_available, a.status, a.uuid
@@ -147,6 +156,9 @@ func (p *PostgresDevices) TenantForDevice(ctx context.Context, id DeviceID) (uui
 
 // List implements Repository. Every statement carries the tenant clause; filters narrow within it.
 func (p *PostgresDevices) List(ctx context.Context, filter Filter) ([]*Device, error) {
+	if filter.WithoutSite && filter.SiteID != uuid.Nil {
+		return nil, ErrSiteFilterContradicts
+	}
 	query, args := listStatementFor(filter)
 	var devices []*Device
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
@@ -162,6 +174,10 @@ func listStatementFor(filter Filter) (string, []any) {
 	hasSite := filter.SiteID != uuid.Nil
 	hasOrganization := filter.OrganizationID != uuid.Nil
 	switch {
+	case filter.WithoutSite && hasOrganization:
+		return listDevicesWithoutSiteByOrganizationQuery, []any{filter.OrganizationID}
+	case filter.WithoutSite:
+		return listDevicesWithoutSiteQuery, nil
 	case hasSite && hasOrganization:
 		return listDevicesBySiteAndOrganizationQuery, []any{filter.SiteID, filter.OrganizationID}
 	case hasSite:

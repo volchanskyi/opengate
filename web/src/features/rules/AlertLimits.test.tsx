@@ -42,7 +42,7 @@ describe('AlertLimits', () => {
   it('shows both ceilings with how far each may be raised', () => {
     show(false);
     expect(screen.getByLabelText('This customer, per hour')).toHaveValue(500);
-    expect(screen.getByLabelText('One machine, per hour')).toHaveValue(20);
+    expect(screen.getByLabelText('One host, per hour')).toHaveValue(20);
     expect(screen.getByText(/At most 5000/)).toBeInTheDocument();
     expect(screen.getByText(/At most 200/)).toBeInTheDocument();
   });
@@ -55,17 +55,17 @@ describe('AlertLimits', () => {
     expect(fetchLimits).toHaveBeenCalledTimes(1);
   });
 
-  it('an administrator typing in the per-machine box sees what they typed', async () => {
+  it('an administrator typing in the per-host box sees what they typed', async () => {
     show(true);
-    const box = screen.getByLabelText('One machine, per hour');
+    const box = screen.getByLabelText('One host, per hour');
     await userEvent.clear(box);
     await userEvent.type(box, '35');
     expect(box).toHaveValue(35);
   });
 
-  it('says the per-machine one is enforced on the machine, because a stored row changes nothing', () => {
+  it('says the per-host one is enforced on the host, because a stored row changes nothing', () => {
     show(false);
-    expect(screen.getByText(/Enforced on the machine itself/)).toBeInTheDocument();
+    expect(screen.getByText(/Enforced on the host itself/)).toBeInTheDocument();
   });
 
   it('gives an ordinary member the numbers to read and no way to move them', () => {

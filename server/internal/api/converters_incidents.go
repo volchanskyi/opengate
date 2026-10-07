@@ -84,7 +84,7 @@ func deref[T any](value *T) T {
 }
 
 // assignUUID fills in an optional identifier, leaving it zero when absent.
-func assignUUID(into *uuid.UUID, value *uuid.UUID) {
+func assignUUID(into, value *uuid.UUID) {
 	if value != nil {
 		*into = *value
 	}
@@ -129,6 +129,7 @@ func incidentToAPI(incident alerts.Incident) Incident {
 		Occurrences:    incident.Occurrences,
 		DeviceCount:    incident.DeviceCount,
 	}
+	out.ScopeName = namedOrNull(incident.ScopeName)
 	if incident.AssigneeID != uuid.Nil {
 		assignee := incident.AssigneeID
 		out.AssigneeId = &assignee
@@ -155,13 +156,26 @@ func investigationToAPI(room alerts.Investigation) IncidentDetail {
 	for _, event := range room.Events {
 		events = append(events, incidentEventToAPI(event))
 	}
+	people := make(map[string]string, len(room.People))
+	for id, name := range room.People {
+		people[id.String()] = name
+	}
 	return IncidentDetail{
 		Incident:    incidentToAPI(room.Incident),
 		Alerts:      folded,
 		AlertsTotal: room.AlertsTotal,
 		Events:      events,
 		EventsTotal: room.EventsTotal,
+		People:      people,
 	}
+}
+
+// namedOrNull renders a name the store reads as empty once its record is removed.
+func namedOrNull(name string) *string {
+	if name == "" {
+		return nil
+	}
+	return &name
 }
 
 // foldedAlertToAPI renders one alert as its room lists it — what evidence
@@ -170,6 +184,7 @@ func foldedAlertToAPI(alert alerts.FoldedAlert) IncidentAlert {
 	out := IncidentAlert{
 		Id:            alert.ID,
 		DeviceId:      alert.DeviceID,
+		Hostname:      namedOrNull(alert.Hostname),
 		RuleId:        alert.RuleID,
 		RuleVersion:   int(alert.RuleVersion),
 		Severity:      IncidentSeverity(alert.Severity),

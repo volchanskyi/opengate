@@ -17,6 +17,7 @@ import { DeviceInventory } from './DeviceInventory';
 import { DeviceIncidentsStrip } from '../investigations';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { useRouteCrumb } from '../../lib/use-route-crumb';
 import { formatBytes } from '../../lib/format-bytes';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
 import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
@@ -25,6 +26,7 @@ const DEVICE_DETAIL_POLL_MS = 30_000;
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 type DeviceAMT = components['schemas']['DeviceAMT'];
+type Device = components['schemas']['Device'];
 
 interface AmtSectionProps {
   readonly amt: DeviceAMT | undefined;
@@ -64,10 +66,16 @@ function isUnassignedSite(id: string | undefined | null): boolean {
   return !trimmed || trimmed === UNASSIGNED_SITE_ID;
 }
 
+/** The device's hostname once the store holds the device the route names. */
+function crumbOf(device: Device | null, id: string | undefined): string | undefined {
+  return device !== null && device.id === id ? device.hostname : undefined;
+}
+
 export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const device = useDeviceStore((s) => s.selectedDevice);
+  useRouteCrumb(crumbOf(device, id));
   const isLoading = useDeviceStore((s) => s.isLoading);
   const fetchDevice = useDeviceStore((s) => s.fetchDevice);
   const deleteDevice = useDeviceStore((s) => s.deleteDevice);

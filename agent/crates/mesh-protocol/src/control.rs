@@ -248,7 +248,7 @@ pub struct AlertEvidence {
     pub series: Vec<EvidenceSeries>,
     /// What was running at the event instant.
     #[serde(default)]
-    pub processes: Vec<ProcessReportEntry>,
+    pub processes: Vec<EvidenceProcess>,
     /// Redacted host log lines from the event window.
     #[serde(default)]
     pub log_samples: Vec<String>,
@@ -288,6 +288,25 @@ impl AlertEvidence {
             .map_err(|_| ProtocolError::CorruptEvidence)?;
         Ok(rmp_serde::from_slice(&packed)?)
     }
+}
+
+/// One process running when an alert fired, as the device measured it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceProcess {
+    /// Position in the busiest-first list, from 1.
+    pub rank: u32,
+    /// Executable basename, never the full command line.
+    pub basename: String,
+    /// Hash of the full command line, present only on audited paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmdline_hash: Option<String>,
+    /// The operating system's identifier for the process.
+    pub pid: u32,
+    /// Share of the whole host's processors, 0–100; absent when the device could not measure it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_share: Option<f64>,
+    /// Resident memory, in bytes.
+    pub mem: f64,
 }
 
 /// Sanitized process sample row for Edge Sentinel reporting.

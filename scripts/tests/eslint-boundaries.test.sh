@@ -62,9 +62,20 @@ expect src/state/auth-store.ts ../lib/api allowed
 expect src/features/devices/AmtBadge.tsx ../../App refused
 expect src/features/devices/AmtBadge.tsx ../../lib/api allowed
 expect src/features/devices/AmtBadge.tsx ../../state/auth-store allowed
-expect src/features/devices/AmtBadge.tsx ../auth/LoginPage allowed
+expect src/features/devices/AmtBadge.tsx ./state/device-store allowed
+expect src/features/devices/AmtBadge.tsx ../organizations allowed
+expect src/features/devices/AmtBadge.tsx ../organizations/state/organization-store refused
+expect src/features/devices/AmtBadge.tsx ../auth/LoginPage refused
+expect src/features/devices/AmtBadge.tsx ../../components/LoadingSpinner allowed
+expect src/components/Breadcrumbs.tsx ./LoadingSpinner allowed
+expect src/components/Breadcrumbs.tsx ../lib/api allowed
+expect src/components/Breadcrumbs.tsx ../state/auth-store allowed
+expect src/components/Breadcrumbs.tsx ../features/devices allowed
+expect src/components/Breadcrumbs.tsx ../features/devices/state/device-store refused
+expect src/components/Breadcrumbs.tsx ../App refused
 expect src/router.tsx ./features/devices/AmtBadge allowed
 expect src/router.tsx ./state/auth-store allowed
+expect src/router.tsx ./components/Layout allowed
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

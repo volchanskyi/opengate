@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import { usePushStore } from '../profile';
+import { usePushStore } from './state/push-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {

@@ -17,8 +17,8 @@ function evidence(over: Partial<AlertEvidence> = {}): AlertEvidence {
       { dim: 'disk.await_ms', points: [{ ts: 1, value: 4 }, { ts: 2, value: 190 }] },
     ],
     processes: [
-      { rank: 1, basename: 'chrome', pid: 4242, cpu: 88.5, mem: 12.5 },
-      { rank: 2, basename: 'postgres', pid: 900, cpu: 6.25, mem: 30 },
+      { rank: 1, basename: 'chrome', pid: 4242, cpu: 37.5, mem: 121_634_816 },
+      { rank: 2, basename: 'postgres', pid: 900, cpu: null, mem: 30 * 1024 },
     ],
     log_samples: ['kernel: task nginx:1234 blocked for more than 120 seconds'],
     truncated: false,
@@ -43,7 +43,7 @@ describe('AlertEvidencePanel — while it is being read', () => {
   });
 });
 
-describe('AlertEvidencePanel — what the machine knew', () => {
+describe('AlertEvidencePanel — what the host knew', () => {
   it('ranks the dimensions that broke pattern, worst first', () => {
     render(<AlertEvidencePanel evidence={evidence()} loading={false} error={undefined} />);
     const ranked = within(screen.getByRole('list', { name: /ranked dimensions/i })).getAllByRole('listitem');
@@ -52,7 +52,7 @@ describe('AlertEvidencePanel — what the machine knew', () => {
     expect(ranked.at(1)).toHaveTextContent('disk.await_ms');
   });
 
-  it('draws every series the evidence carries, at the resolution only the machine holds', () => {
+  it('draws every series the evidence carries, at the resolution only the host holds', () => {
     render(<AlertEvidencePanel evidence={evidence()} loading={false} error={undefined} />);
     expect(screen.getByRole('img', { name: /cpu\.busy_pct over the window/i })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /mem\.used_pct over the window/i })).toBeInTheDocument();
@@ -76,12 +76,23 @@ describe('AlertEvidencePanel — what the machine knew', () => {
     expect(screen.getByText(/one reading: 96/i)).toBeInTheDocument();
   });
 
-  it('lists the processes at the event instant', () => {
+  it('lists the processes at the event instant, as a share of the host and memory in use', () => {
     render(<AlertEvidencePanel evidence={evidence()} loading={false} error={undefined} />);
-    const row = within(screen.getByRole('table', { name: /processes/i })).getByRole('row', { name: /chrome/ });
+    const table = screen.getByRole('table', { name: /processes/i });
+    expect(within(table).getByRole('columnheader', { name: 'Processor (share of host)' })).toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: 'Memory in use' })).toBeInTheDocument();
+
+    const row = within(table).getByRole('row', { name: /chrome/ });
     expect(within(row).getByText('4242')).toBeInTheDocument();
-    expect(within(row).getByText('88.5%')).toBeInTheDocument();
-    expect(within(row).getByText('12.5%')).toBeInTheDocument();
+    expect(within(row).getByText('37.5 %')).toBeInTheDocument();
+    expect(within(row).getByText('116 MB')).toBeInTheDocument();
+  });
+
+  it('shows a dash where the agent could not measure the processor, never a made-up number', () => {
+    render(<AlertEvidencePanel evidence={evidence()} loading={false} error={undefined} />);
+    const row = within(screen.getByRole('table', { name: /processes/i })).getByRole('row', { name: /postgres/ });
+    expect(within(row).getByText('—')).toBeInTheDocument();
+    expect(within(row).getByText('30.0 KB')).toBeInTheDocument();
   });
 
   it('renders host log lines as text, never as markup', () => {
@@ -103,7 +114,7 @@ describe('AlertEvidencePanel — what the machine knew', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('says which parts the machine recorded nothing for', () => {
+  it('says which parts the host recorded nothing for', () => {
     render(
       <AlertEvidencePanel
         loading={false}

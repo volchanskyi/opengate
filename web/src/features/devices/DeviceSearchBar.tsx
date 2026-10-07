@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 
 interface Props {
-  onSearch: (query: string) => void;
-  totalCount: number;
-  filteredCount: number;
+  /** The typed text, owned by the list so it can clear it. */
+  readonly query: string;
+  readonly onQueryChange: (query: string) => void;
+  /** Called with the text once typing pauses. */
+  readonly onSearch: (query: string) => void;
+  readonly totalCount: number;
+  readonly filteredCount: number;
 }
 
-export function DeviceSearchBar({ onSearch, totalCount, filteredCount }: Props) {
-  const [query, setQuery] = useState('');
-
+export function DeviceSearchBar({ query, onQueryChange, onSearch, totalCount, filteredCount }: Props) {
   useEffect(() => {
     const timer = setTimeout(() => onSearch(query), 300);
     return () => clearTimeout(timer);
@@ -20,14 +22,14 @@ export function DeviceSearchBar({ onSearch, totalCount, filteredCount }: Props) 
         <input
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Search Devices..."
           className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm pr-8"
         />
         {query && (
           <button
             type="button"
-            onClick={() => setQuery('')}
+            onClick={() => onQueryChange('')}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-xs"
           >
             x

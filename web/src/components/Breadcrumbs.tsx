@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router';
-import { useDeviceStore } from '../features/devices/state/device-store';
 import { shortId } from '../lib/short-id';
+import { routeCrumbOf } from '../lib/use-route-crumb';
 
 interface Crumb {
   label: string;
@@ -38,7 +38,7 @@ function fixedCrumb(rule: SegmentRule, path: string, isLast: boolean): Crumb {
 export function Breadcrumbs() {
   const location = useLocation();
   const params = useParams();
-  const device = useDeviceStore((s) => s.selectedDevice);
+  const named = routeCrumbOf(location.state);
   const segments = location.pathname.split('/').filter(Boolean);
 
   if (segments.length === 0) return null;
@@ -61,13 +61,13 @@ export function Breadcrumbs() {
     }
     if (seg !== params.id) return;
 
-    // An id names itself by whatever the section it sits under calls it.
+    // An id takes the label its page handed the route, until then what its section calls it.
     const under = crumbs.at(-1)?.label;
     if (under === 'Devices') {
-      const label = device?.hostname ?? seg;
+      const label = named ?? seg;
       crumbs.push(isLast ? { label } : { label, to: path });
     } else if (under === 'Investigations') {
-      crumbs.push({ label: shortId(seg) });
+      crumbs.push({ label: named ?? shortId(seg) });
     }
   });
 

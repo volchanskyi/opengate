@@ -56,8 +56,8 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
-  // Boundary groups: app entry points, features, the lib utility layer and bootstrap-coupled state.
-  // Only useAuthStore lives in src/state, the global store that the boundary rules permit.
+  // Boundary groups: app entry points, features, shared components, the lib utility layer and
+  // bootstrap-coupled state. Only useAuthStore lives in src/state, the global store the rules permit.
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { boundaries },
@@ -66,11 +66,15 @@ export default defineConfig([
       // Imports omit their extension; a target left unresolved escapes every policy.
       'import/resolver': { node: { extensions: ['.ts', '.tsx', '.js', '.jsx'] } },
       'boundaries/elements': [
-        // The entry points are single files, which only mode 'file' classifies.
-        { type: 'app', pattern: 'src/{main,App,router,vite-env.d}.{ts,tsx}', mode: 'file' },
         { type: 'app-state', pattern: 'src/state/**' },
-        { type: 'feature', pattern: 'src/features/*/**' },
+        // Each folder under src/features is one feature, named by the folder.
+        { type: 'feature', pattern: 'src/features/*', capture: ['name'] },
+        { type: 'component', pattern: 'src/components/**' },
         { type: 'lib', pattern: 'src/lib/**' },
+      ],
+      // The entry points are single files, so they are classified as a file category.
+      'boundaries/files': [
+        { category: 'app', pattern: 'src/{main,App,router,vite-env.d}.{ts,tsx}' },
       ],
     },
     rules: {
@@ -79,13 +83,38 @@ export default defineConfig([
         policies: [
           // Entry points reach everywhere.
           {
-            from: { element: { type: 'app' } },
-            allow: { to: { element: { types: { anyOf: ['app', 'app-state', 'feature', 'lib'] } } } },
+            from: { file: { categories: 'app' } },
+            allow: {
+              to: [
+                { file: { categories: 'app' } },
+                { element: { types: { anyOf: ['app-state', 'feature', 'component', 'lib'] } } },
+              ],
+            },
           },
-          // Features may use shared utilities + the global bootstrap stores.
+          // A feature reaches its own files.
           {
             from: { element: { type: 'feature' } },
-            allow: { to: { element: { types: { anyOf: ['feature', 'lib', 'app-state'] } } } },
+            allow: { dependency: { relationship: { to: 'internal' } } },
+          },
+          // Another feature is reached only through its public index.
+          {
+            from: { element: { type: 'feature' } },
+            allow: { to: { element: { type: 'feature', fileInternalPath: 'index.ts' } } },
+          },
+          // Features use shared components, utilities and the global bootstrap stores.
+          {
+            from: { element: { type: 'feature' } },
+            allow: { to: { element: { types: { anyOf: ['component', 'lib', 'app-state'] } } } },
+          },
+          // Shared components use utilities, the global stores, each other and a feature's index.
+          {
+            from: { element: { type: 'component' } },
+            allow: {
+              to: [
+                { element: { types: { anyOf: ['component', 'lib', 'app-state'] } } },
+                { element: { type: 'feature', fileInternalPath: 'index.ts' } },
+              ],
+            },
           },
           // The lib layer is a leaf — utilities only depend on other utilities.
           { from: { element: { type: 'lib' } }, allow: { to: { element: { type: 'lib' } } } },

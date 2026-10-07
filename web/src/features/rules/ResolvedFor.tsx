@@ -1,48 +1,54 @@
 import { useState } from 'react';
+import { HostSelect } from '../../components/HostSelect';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { useHostOptions } from '../devices';
+import { useCustomerGate } from '../organizations';
 import { useRuleStore } from './state/rule-store';
 
-// Resolves the rule for one machine as the delivery path does and names what decided each value.
+// Resolves the rule for one host as the delivery path does and names what decided each value.
 export function ResolvedFor({ ruleId }: { readonly ruleId: string }) {
   const resolved = useRuleStore((s) => s.resolved);
   const resolveFor = useRuleStore((s) => s.resolveFor);
   const clearResolved = useRuleStore((s) => s.clearResolved);
+  const customer = useCustomerGate();
+  const hosts = useHostOptions(customer);
   const [deviceId, setDeviceId] = useState('');
 
-  const ask = () => {
-    if (!deviceId) return;
-    fireAndForget(resolveFor(ruleId, deviceId));
+  const pick = (id: string) => {
+    setDeviceId(id);
+    fireAndForget(resolveFor(ruleId, id));
+  };
+
+  const clear = () => {
+    setDeviceId('');
+    clearResolved();
   };
 
   return (
     <section className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-      <h2 className="text-sm font-semibold text-gray-200 mb-1">What one machine is running</h2>
+      <h2 className="text-sm font-semibold text-gray-200 mb-1">What one host is running</h2>
       <p className="text-xs text-gray-500 mb-3">
-        Name a machine to see the values in force on it, and what decided each one.
+        Pick a host to see the values in force on it, and what decided each one.
       </p>
 
       <div className="flex items-end gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs uppercase text-gray-500 font-semibold">Machine</span>
-          <input
-            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-72"
-            placeholder="machine id"
-            aria-label="Machine"
+        <div className="flex flex-col gap-1">
+          <span aria-hidden="true" className="text-xs uppercase text-gray-500 font-semibold">Host</span>
+          <HostSelect
+            label="Host"
+            hosts={hosts}
             value={deviceId}
-            onChange={(e) => { setDeviceId(e.target.value); }}
+            onChange={pick}
+            emptyLabel="Select a host"
+            allowEmpty={false}
+            disabled={customer === null}
+            disabledLabel="Pick a customer first"
           />
-        </label>
-        <button
-          type="button"
-          onClick={ask}
-          className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-sm"
-        >
-          Show
-        </button>
+        </div>
         {resolved && (
           <button
             type="button"
-            onClick={clearResolved}
+            onClick={clear}
             className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-sm"
           >
             Clear
@@ -50,12 +56,12 @@ export function ResolvedFor({ ruleId }: { readonly ruleId: string }) {
         )}
       </div>
 
-      {resolved && (
+      {resolved ? (
         <div className="mt-4">
           <p className="text-sm text-gray-300 mb-2">
             {resolved.delivered
-              ? 'This machine is running the rule.'
-              : 'This machine is not getting the rule at all.'}
+              ? 'This host is running the rule.'
+              : 'This host is not getting the rule at all.'}
           </p>
           <dl className="grid grid-cols-[max-content_max-content_1fr] gap-x-6 gap-y-1">
             {Object.entries(resolved.params)
@@ -69,6 +75,8 @@ export function ResolvedFor({ ruleId }: { readonly ruleId: string }) {
               ))}
           </dl>
         </div>
+      ) : (
+        <p className="mt-4 text-sm text-gray-400">Select a host to see current values.</p>
       )}
     </section>
   );

@@ -185,9 +185,9 @@ srat_main() {
       echo "✗ ${#blocking[@]} finding(s) on changed main code would fail the gate in CI:"
       printf '    %s\n' "${blocking[@]}"
       echo "  A bug fails new_reliability_rating and a vulnerability fails"
-      echo "  new_security_rating, both of which the gate holds at A. They are invisible"
-      echo "  to the local scan because SonarCloud reads new code from git blame and"
-      echo "  these lines are not committed yet."
+      echo "  new_security_rating, both of which the gate holds at A. make sonar scans"
+      echo "  a snapshot commit of the work tree, so these are what CI raises once the"
+      echo "  change is committed."
       echo "  Fix: resolve each finding, then re-run. Do not suppress without approval."
       echo "  Inspect: https://sonarcloud.io/project/issues?id=${SONAR_PROJECT}&branch=${SONAR_BRANCH}&resolved=false"
     } >&2

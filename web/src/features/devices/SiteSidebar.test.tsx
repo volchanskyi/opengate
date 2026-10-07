@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { useDeviceStore } from './state/device-store';
-import { DEVICE_DRAG_MIME, UNFILED_SITE_ID } from './device-drag';
+import { DEVICE_DRAG_MIME, NOT_ASSIGNED_SITE_ID } from './device-drag';
 import { SiteSidebar } from './SiteSidebar';
 import { useAuthStore } from '../../state/auth-store';
 
@@ -47,7 +47,7 @@ describe('SiteSidebar', () => {
 
   it('highlights active site', () => {
     render(<SiteSidebar />);
-    const groupA = screen.getByText('Site A').closest('div');
+    const groupA = screen.getByText('Site A').closest('li');
     expect(groupA?.className).toContain('bg-gray-700');
   });
 
@@ -94,13 +94,24 @@ describe('SiteSidebar', () => {
   it('offers no drop affordances to an admin with no sites', () => {
     useDeviceStore.setState({ sites: [] });
     render(<SiteSidebar />);
-    expect(screen.queryByLabelText('Unfiled')).toBeNull();
+    expect(screen.queryByLabelText('Not Assigned')).toBeNull();
     expect(screen.queryByText(/drag a device card onto a site/i)).toBeNull();
   });
 
-  it('draws the Unfiled zone as a dashed drop target', () => {
+  it('offers Not Assigned beside the sites, picked like one', async () => {
+    const user = userEvent.setup();
+    const selectSite = vi.fn();
+    useDeviceStore.setState({ selectSite });
     render(<SiteSidebar />);
-    expect(screen.getByLabelText('Unfiled').className).toContain('border-dashed');
+
+    await user.click(screen.getByRole('button', { name: 'Not Assigned' }));
+    expect(selectSite).toHaveBeenCalledWith(NOT_ASSIGNED_SITE_ID);
+  });
+
+  it('marks Not Assigned when it is the pick', () => {
+    useDeviceStore.setState({ selectedSiteId: NOT_ASSIGNED_SITE_ID });
+    render(<SiteSidebar />);
+    expect(screen.getByRole('listitem', { name: 'Not Assigned' }).className).toContain('bg-gray-700');
   });
 
   it('clears the pending name so a reopened create form starts empty', async () => {
@@ -181,7 +192,7 @@ describe('SiteSidebar', () => {
 
   it('non-active sites use the gray text style; active uses white-on-gray', () => {
     render(<SiteSidebar />);
-    const groupB = screen.getByText('Site B').closest('div');
+    const groupB = screen.getByText('Site B').closest('li');
     expect(groupB?.className).toContain('text-gray-400');
     expect(groupB?.className).not.toContain('bg-gray-700 text-white');
   });
@@ -254,14 +265,14 @@ describe('SiteSidebar', () => {
       await waitFor(() => { expect(fetchDevices).toHaveBeenCalledWith('g1'); });
     });
 
-    it('dropping on the Unfiled zone clears the device site', async () => {
+    it('dropping on Not Assigned clears the device site', async () => {
       const updateDeviceSite = vi.fn().mockResolvedValue(true);
       useDeviceStore.setState({ updateDeviceSite, fetchDevices: vi.fn() });
       render(<SiteSidebar />);
 
-      fireEvent.drop(dropZone('Unfiled'), { dataTransfer: deviceTransfer() });
+      fireEvent.drop(dropZone('Not Assigned'), { dataTransfer: deviceTransfer() });
 
-      await waitFor(() => { expect(updateDeviceSite).toHaveBeenCalledWith('d1', UNFILED_SITE_ID); });
+      await waitFor(() => { expect(updateDeviceSite).toHaveBeenCalledWith('d1', NOT_ASSIGNED_SITE_ID); });
     });
 
     it('names the device and the destination in the success toast', async () => {
@@ -315,8 +326,8 @@ describe('SiteSidebar', () => {
     it.each([
       ['an empty site_id', ''],
       ['a whitespace site_id', '   '],
-      ['the placeholder site_id', UNFILED_SITE_ID],
-    ])('dropping a device with %s onto Unfiled is a no-op', async (_label, siteId) => {
+      ['the placeholder site_id', NOT_ASSIGNED_SITE_ID],
+    ])('dropping a device with %s onto Not Assigned is a no-op', async (_label, siteId) => {
       const updateDeviceSite = vi.fn();
       useDeviceStore.setState({
         devices: [{ ...device, organization_id: 'org-1', site_id: siteId }],
@@ -325,7 +336,7 @@ describe('SiteSidebar', () => {
       });
       render(<SiteSidebar />);
 
-      fireEvent.drop(dropZone('Unfiled'), { dataTransfer: deviceTransfer() });
+      fireEvent.drop(dropZone('Not Assigned'), { dataTransfer: deviceTransfer() });
 
       await waitFor(() => { expect(updateDeviceSite).not.toHaveBeenCalled(); });
     });
@@ -416,7 +427,17 @@ describe('SiteSidebar', () => {
     it('omits the drag-to-move affordances', () => {
       render(<SiteSidebar />);
       expect(screen.queryByText(/drag a device card onto a site/i)).toBeNull();
-      expect(screen.queryByLabelText('Unfiled')).toBeNull();
+      expect(fireEvent.dragOver(screen.getByRole('listitem', { name: 'Not Assigned' }))).toBe(true);
+    });
+
+    it('still offers Not Assigned to pick', async () => {
+      const user = userEvent.setup();
+      const selectSite = vi.fn();
+      useDeviceStore.setState({ selectSite });
+      render(<SiteSidebar />);
+
+      await user.click(screen.getByRole('button', { name: 'Not Assigned' }));
+      expect(selectSite).toHaveBeenCalledWith(NOT_ASSIGNED_SITE_ID);
     });
 
     it('still exposes each site as a labelled list item', () => {

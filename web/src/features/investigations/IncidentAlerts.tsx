@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import type { components } from '../../types/api';
-import { shortId } from '../../lib/short-id';
 import { formatBytes } from '../../lib/format-bytes';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { AlertEvidencePanel } from './AlertEvidencePanel';
@@ -16,7 +15,7 @@ interface Props {
   readonly alerts: readonly IncidentAlert[];
   /** How many alerts the incident holds altogether. */
   readonly total: number;
-  /** How many machines the incident covers, as the incident itself counts them. */
+  /** How many hosts the incident covers, as the incident itself counts them. */
   readonly deviceCount: number;
 }
 
@@ -39,9 +38,13 @@ function AlertRow({ incidentId, alert }: { readonly incidentId: string; readonly
     <>
       <tr className="border-t border-gray-800">
         <td className={CELL}>
-          <Link to={`/devices/${alert.device_id}`} className="text-blue-400 hover:text-blue-300 font-mono text-xs">
-            {shortId(alert.device_id)}
-          </Link>
+          {alert.hostname === null
+            ? <span className="text-xs text-gray-500">a removed host</span>
+            : (
+              <Link to={`/devices/${alert.device_id}`} className="text-blue-400 hover:text-blue-300">
+                {alert.hostname}
+              </Link>
+            )}
         </td>
         <td className={CELL}><IncidentSeverityBadge severity={alert.severity} /></td>
         <td className={CELL}>{alertReadingLabel(alert.metric, alert.value)}</td>
@@ -86,7 +89,7 @@ export function IncidentAlerts({ incidentId, alerts, total, deviceCount }: Props
       <div className="flex items-baseline gap-3 flex-wrap text-xs text-gray-500">
         {total > alerts.length && <span>Showing {alerts.length} of {total} alerts.</span>}
         {shownDevices !== deviceCount && (
-          <span>From {shownDevices} of {deviceCount} machines this incident covers.</span>
+          <span>From {shownDevices} of {deviceCount} hosts this incident covers.</span>
         )}
       </div>
 
@@ -97,7 +100,7 @@ export function IncidentAlerts({ incidentId, alerts, total, deviceCount }: Props
           <table className="w-full">
             <thead>
               <tr>
-                <th className={HEAD_CELL}>Machine</th>
+                <th className={HEAD_CELL}>Host</th>
                 <th className={HEAD_CELL}>Severity</th>
                 <th className={HEAD_CELL}>Reading</th>
                 <th className={HEAD_CELL}>Observed</th>

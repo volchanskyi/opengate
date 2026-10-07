@@ -20,7 +20,7 @@ Test both scenarios: positive cases and error handling.
 ### New feature
 
 ```
-1. checkout dev, pull --rebase origin dev
+1. checkout dev, pull --rebase=merges origin dev
 2. Edit  server/internal/api/handlers_test.go     # add failing test
 3. Edit  server/internal/api/handlers.go          # gate now silent
 4. (iterate)

@@ -152,6 +152,7 @@ jobs:
           # The internal/api shards are sized by per-mutant cost, since each mutant re-runs the
           # Postgres-backed API suite.
           - { language: go, shard: go-api-runtime }
+          - { language: go, shard: go-api-limits }
           - { language: go, shard: go-api-intake }
           - { language: go, shard: go-api-status }
           - { language: go, shard: go-api-converters }
@@ -353,12 +354,9 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # The `observability` environment scopes the Telegram alert secrets to unattended workflows;
-    # it has no reviewers or wait timer and permits only `main` and `dev`.
-    environment: observability
     permissions:
       contents: read
-    # This job's result is the environment's deployment status; the score verdict is the gate job.
+    # This job reports only whether the trend was published; the gate job carries the score verdict.
     outputs:
       regression: ${{ steps.summarize.outputs.regression }}
       complete: ${{ steps.status.outputs.complete }}
@@ -596,8 +594,7 @@ jobs:
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
-  # Separate from publish so a Telegram outage cannot suppress the failure signal and the score
-  # verdict is not recorded against the observability environment.
+  # Separate from publish so a Telegram outage cannot suppress the failure signal.
   gate:
     name: Mutation score gate
     needs: [publish]

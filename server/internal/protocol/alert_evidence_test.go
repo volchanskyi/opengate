@@ -73,10 +73,14 @@ func TestDecodeAlertEvidenceRefusesABlobThatExpandsTooFar(t *testing.T) {
 
 func TestDecodedEvidenceSurvivesARoundTrip(t *testing.T) {
 	t.Parallel()
+	share := 37.5
 	want := AlertEvidence{
-		Ranked:     []RankedDim{{Dim: "disk.await_ms", Score: 0.91}, {Dim: "cpu.iowait", Score: 0.62}},
-		Series:     []EvidenceSeries{{Dim: "disk.await_ms", Points: []HistoryPoint{{TS: 1, Value: 2}}}},
-		Processes:  []ProcessReportEntry{{Rank: 1, Basename: "sqlservr", PID: 4218, CPU: 42, Mem: 18}},
+		Ranked: []RankedDim{{Dim: "disk.await_ms", Score: 0.91}, {Dim: "cpu.iowait", Score: 0.62}},
+		Series: []EvidenceSeries{{Dim: "disk.await_ms", Points: []HistoryPoint{{TS: 1, Value: 2}}}},
+		Processes: []EvidenceProcess{
+			{Rank: 1, Basename: "sqlservr", PID: 4218, CPUShare: &share, Mem: 121_634_816},
+			{Rank: 2, Basename: "backup-agent", PID: 5120, Mem: 40_960},
+		},
 		LogSamples: []string{"controller reset"},
 		Truncated:  true,
 	}
@@ -86,6 +90,36 @@ func TestDecodedEvidenceSurvivesARoundTrip(t *testing.T) {
 	got, err := DecodeAlertEvidence(deflated(t, packed), EvidenceCodec)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
+}
+
+func TestEvidenceFromAnOlderAgentReadsWithoutAProcessorShare(t *testing.T) {
+	t.Parallel()
+	// An older agent writes its processor reading under "cpu", in units the share does not use.
+	type olderProcessRow struct {
+		Rank     uint32  `msgpack:"rank"`
+		Basename string  `msgpack:"basename"`
+		PID      uint32  `msgpack:"pid"`
+		CPU      float64 `msgpack:"cpu"`
+		Mem      float64 `msgpack:"mem"`
+	}
+	packed, err := msgpack.Marshal(map[string]any{
+		"ranked":      []RankedDim{{Dim: "cpu.total", Score: 0.9}},
+		"series":      []EvidenceSeries{},
+		"processes":   []olderProcessRow{{Rank: 1, Basename: "backup-agent", PID: 4218, CPU: 2400, Mem: 122_052_608}},
+		"log_samples": []string{},
+		"truncated":   false,
+	})
+	require.NoError(t, err)
+
+	evidence, err := DecodeAlertEvidence(deflated(t, packed), EvidenceCodec)
+	require.NoError(t, err)
+
+	require.Len(t, evidence.Processes, 1)
+	row := evidence.Processes[0]
+	assert.Equal(t, "backup-agent", row.Basename)
+	assert.Equal(t, uint32(4218), row.PID)
+	assert.Nil(t, row.CPUShare, "a reading in other units is not shown as a share")
+	assert.InDelta(t, 122_052_608.0, row.Mem, 0)
 }
 
 // deflated compresses bytes the way the agent does, which is how a case builds a

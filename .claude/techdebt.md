@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-09-27. -->
+<!-- Last reviewed: 2026-10-07. -->
 
 ## Severity: Medium
 
@@ -240,6 +240,22 @@ machine rather than enrolling one, and says so in its own header.
 **Pay-down trigger:** a Windows or macOS machine in the browser stack, for any
 reason. Point the spec at it and delete the description.
 
+### A second process list nothing uses
+
+The server accepts and stores a stand-alone "busiest programs" report that no real
+agent has ever sent. Only the load test's pretend computers send it, on every
+cycle. Nothing reads the stored rows back, and memory is filed under a name that
+says "percent".
+
+What it costs: an unused table to keep walled off by tenant and to erase, and
+nightly performance tests doing database work real customers never cause. An
+alert's evidence carries its own process rows, so nothing depends on this list.
+
+**Pay-down trigger:** the next change to telemetry ingest or to the nightly
+performance test's workload. Remove the message, its handler, its table and its
+two series, and stop the load test sending it; the performance history restarts
+under a new workload label.
+
 ### OpenAPI request constraints are documentation, not runtime validation
 
 [`api/openapi.yaml`](../api/openapi.yaml) carries `maxLength` on some request
@@ -434,31 +450,6 @@ requires giving upload an observable side effect (e.g. an ack frame), a
 business-logic change deferred until upload is implemented.
 
 **Pay-down trigger:** revisit when file upload is implemented (closes the last equivalent mutant).
-
-### Web features import each other past their public index, and share a store
-
-[ADR-020](../docs/adr/ADR-020-module-boundaries.md) says each web feature owns
-its state and nothing imports another feature's store. No lint holds either
-half: the boundary policies in [`eslint.config.js`](../web/eslint.config.js)
-allow any feature-to-feature import, and
-[`.dependency-cruiser.cjs`](../web/.dependency-cruiser.cjs) has no rule between
-features. Four production files cross the line today:
-
-- [`investigations/RuleCoveragePanel.tsx`](../web/src/features/investigations/RuleCoveragePanel.tsx)
-  reads the rules feature's catalogue store from `rules/state/`, which
-  [`rules/index.ts`](../web/src/features/rules/index.ts) also exports;
-- [`rules/CoveragePanel.tsx`](../web/src/features/rules/CoveragePanel.tsx)
-  imports `investigations/rule-coverage` directly;
-- [`session/SessionView.tsx`](../web/src/features/session/SessionView.tsx)
-  imports the remote-desktop, terminal, file-manager and messenger views from
-  their folders, and remote-desktop and terminal have no `index.ts`.
-
-**Pay-down trigger:** the next change to any of these features. Add a boundary
-policy that lets one feature reach another only through its `index.ts`, give
-remote-desktop and terminal an index, repoint the four files, decide whether the
-catalogue store stays shared through the rules index or moves to `src/lib`, and
-make ADR-020's wording match; add the pairs to
-[`eslint-boundaries.test.sh`](../scripts/tests/eslint-boundaries.test.sh).
 
 ### The React family is pinned exactly, to hold first paint under its budget
 
