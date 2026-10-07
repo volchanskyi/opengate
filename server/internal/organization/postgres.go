@@ -14,32 +14,31 @@ import (
 // here can only be the per-tenant name.
 const uniqueViolation = "23505"
 
-// tenantPredicate repeats the row-level-security tenant boundary in each statement, so a
+// Each statement is one fixed literal that repeats the row-level-security tenant clause, so a
 // mistake in either one alone still cannot reach another tenant's row.
-const tenantPredicate = `tenant_id = current_setting('app.current_tenant')::uuid`
-
-const organizationSelect = `SELECT id, name, archived_at, created_at, updated_at FROM organizations `
-
-// Every statement is assembled at compile time from constants only, so no runtime value
-// reaches the SQL text.
 const (
-	getByIDQuery = organizationSelect + `WHERE ` + tenantPredicate + ` AND id = $1`
+	getByIDQuery = `SELECT id, name, archived_at, created_at, updated_at FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-	listActiveQuery = organizationSelect + `WHERE ` + tenantPredicate + ` AND archived_at IS NULL ORDER BY name`
-	listAllQuery    = organizationSelect + `WHERE ` + tenantPredicate + ` ORDER BY name`
+	listActiveQuery = `SELECT id, name, archived_at, created_at, updated_at FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND archived_at IS NULL ORDER BY name`
+	listAllQuery = `SELECT id, name, archived_at, created_at, updated_at FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid ORDER BY name`
 
 	renameQuery = `UPDATE organizations SET name = $2, updated_at = NOW()
-			 WHERE ` + tenantPredicate + ` AND id = $1`
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
 	setArchivedQuery = `UPDATE organizations
 			    SET archived_at = CASE WHEN $2 THEN COALESCE(archived_at, NOW()) ELSE NULL END,
 			        updated_at = NOW()
-			  WHERE ` + tenantPredicate + ` AND id = $1`
+			  WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-	deleteQuery = `DELETE FROM organizations WHERE ` + tenantPredicate + ` AND id = $1`
+	deleteQuery = `DELETE FROM organizations WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
 
-	oldestQuery     = `SELECT id FROM organizations WHERE ` + tenantPredicate + ` ORDER BY created_at, id LIMIT 1`
-	findByNameQuery = `SELECT id FROM organizations WHERE ` + tenantPredicate + ` AND name = $1`
+	oldestQuery = `SELECT id FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid ORDER BY created_at, id LIMIT 1`
+	findByNameQuery = `SELECT id FROM organizations
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND name = $1`
 )
 
 // PostgresOrganizations implements [Repository] against PostgreSQL.

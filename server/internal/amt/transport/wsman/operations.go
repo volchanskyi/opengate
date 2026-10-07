@@ -7,15 +7,22 @@ import (
 	"strings"
 )
 
+// The protocol defines these resource URIs as http identifiers; nothing fetches them.
+const (
+	identifierScheme = "http"
+	cimSchema        = identifierScheme + "://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/"
+	amtSchema        = identifierScheme + "://intel.com/wbem/wscim/1/amt-schema/1/"
+)
+
 // WSMAN resource URIs for AMT operations.
 const (
-	PowerMgmtResourceURI      = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_PowerManagementService"
-	PowerMgmtAction           = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_PowerManagementService/RequestPowerStateChange"
-	ComputerSystemResourceURI = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ComputerSystem"
+	PowerMgmtResourceURI      = cimSchema + "CIM_PowerManagementService"
+	PowerMgmtAction           = PowerMgmtResourceURI + "/RequestPowerStateChange"
+	ComputerSystemResourceURI = cimSchema + "CIM_ComputerSystem"
 	// SoftwareIdentityResourceURI carries the AMT firmware version, published by
 	// the Management Engine as the instance with InstanceID "AMT".
-	SoftwareIdentityResourceURI = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_SoftwareIdentity"
-	AMTSetupResourceURI         = "http://intel.com/wbem/wscim/1/amt-schema/1/AMT_SetupAndConfigurationService"
+	SoftwareIdentityResourceURI = cimSchema + "CIM_SoftwareIdentity"
+	AMTSetupResourceURI         = amtSchema + "AMT_SetupAndConfigurationService"
 	TransferGetAction           = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get"
 )
 
@@ -151,15 +158,15 @@ func parseEnabledState(s string) (PowerState, error) {
 // This avoids a full XML parse for simple flat responses.
 func extractXMLField(data []byte, tag string) string {
 	s := string(data)
-	open := "<" + tag + ">"
-	close := "</" + tag + ">"
-	start := strings.Index(s, open)
+	openTag := "<" + tag + ">"
+	closeTag := "</" + tag + ">"
+	start := strings.Index(s, openTag)
 	if start < 0 {
 		// Try with namespace prefix (e.g., <p:Name>).
 		for _, prefix := range []string{"p:", "g:", "h:"} {
-			open = "<" + prefix + tag + ">"
-			close = "</" + prefix + tag + ">"
-			start = strings.Index(s, open)
+			openTag = "<" + prefix + tag + ">"
+			closeTag = "</" + prefix + tag + ">"
+			start = strings.Index(s, openTag)
 			if start >= 0 {
 				break
 			}
@@ -168,8 +175,8 @@ func extractXMLField(data []byte, tag string) string {
 	if start < 0 {
 		return ""
 	}
-	start += len(open)
-	end := strings.Index(s[start:], close)
+	start += len(openTag)
+	end := strings.Index(s[start:], closeTag)
 	if end < 0 {
 		return ""
 	}

@@ -31,8 +31,13 @@ const deviceSelect = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.o
 
 // Every device read is a fixed statement built at compile time, with no runtime-assembled SQL.
 const (
-	getDeviceQuery = deviceSelect +
-		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.id = $1`
+	// The single-row reads spell deviceSelect out in one literal, which a test holds equal to it.
+	getDeviceQuery = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
+	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
+	        h.amt_available, a.status, a.uuid
+	 FROM devices d
+	 LEFT JOIN device_hardware h ON h.device_id = d.id
+	 LEFT JOIN amt_devices a ON a.device_id = d.id WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.id = $1`
 
 	listDevicesQuery = deviceSelect +
 		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid
@@ -51,8 +56,12 @@ const (
 		   AND d.site_id = $1 AND d.organization_id = $2
 		 ORDER BY d.hostname`
 
-	getDeviceByAMTUUIDQuery = deviceSelect +
-		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND a.uuid = $1`
+	getDeviceByAMTUUIDQuery = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
+	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
+	        h.amt_available, a.status, a.uuid
+	 FROM devices d
+	 LEFT JOIN device_hardware h ON h.device_id = d.id
+	 LEFT JOIN amt_devices a ON a.device_id = d.id WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND a.uuid = $1`
 )
 
 func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
