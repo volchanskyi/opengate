@@ -111,7 +111,7 @@ describe('RuleDetail — coverage', () => {
   it('shows the split and says when it does not add up to the fleet', () => {
     show(detail(), false, 312);
     expect(screen.getByText('Cannot run it at all')).toBeInTheDocument();
-    expect(screen.getByText('312 of 312 machines accounted for.')).toBeInTheDocument();
+    expect(screen.getByText('312 of 312 hosts accounted for.')).toBeInTheDocument();
 
     expect(screen.queryByText(/do not add up to the fleet/)).not.toBeInTheDocument();
   });
@@ -125,7 +125,7 @@ describe('RuleDetail — coverage', () => {
 describe('RuleDetail — who may change what', () => {
   it('gives an ordinary member the whole page to read and nothing to press', () => {
     show(detail(), false);
-    expect(screen.getByText('A disk about to fill')).toBeInTheDocument();
+    expect(screen.getByText('Rule explanation: A disk about to fill')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Stop for this customer/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Save pace/ })).not.toBeInTheDocument();
   });
@@ -168,10 +168,10 @@ describe('RuleDetail — tuning', () => {
       ],
     }), true);
 
-    const rows = screen.getAllByRole('row').filter((r) => within(r).queryByText(/One office|The whole customer/));
-    expect(rows[0]).toHaveTextContent('One office');
+    const rows = screen.getAllByRole('row').filter((r) => within(r).queryByText(/One site|The whole customer/));
+    expect(rows[0]).toHaveTextContent('One site');
     expect(rows[1]).toHaveTextContent('The whole customer');
-    expect(rows[1]).toHaveTextContent('machines labelled role=file-server');
+    expect(rows[1]).toHaveTextContent('hosts labelled role=file-server');
   });
 
   it('says what a new rule version had to move, and keeps saying it until acknowledged', async () => {
@@ -214,6 +214,6 @@ describe('RuleDetail — tuning', () => {
       },
     }), true);
     const options = within(screen.getByLabelText('Setting')).getAllByRole('option');
-    expect(options.map((o) => o.textContent)).toEqual(['threshold', 'Window']);
+    expect(options.map((o) => o.textContent)).toEqual(['Alert level (threshold)', 'Window']);
   });
 });

@@ -25,20 +25,21 @@ const (
 
 // roomSQL reads one room; a room outside the caller's customer or tenant answers "no such room".
 const roomSQL = `
-	SELECT id, organization_id, rule_id, scope, scope_key, severity, status,
-	       assignee_id, opened_at, first_seen, last_seen, resolved_at, cause_code,
-	       occurrences, device_count
-	  FROM incidents
-	 WHERE tenant_id = current_setting('app.current_tenant')::uuid
-	   AND id = $1
-	   AND ($2::uuid = '00000000-0000-0000-0000-000000000000'::uuid OR organization_id = $2::uuid)`
+	SELECT i.id, i.organization_id, i.rule_id, i.scope, i.scope_key, i.severity, i.status,
+	       i.assignee_id, i.opened_at, i.first_seen, i.last_seen, i.resolved_at, i.cause_code,
+	       i.occurrences, i.device_count,` + scopeNameColumn + `
+	  FROM incidents i
+	 WHERE i.tenant_id = current_setting('app.current_tenant')::uuid
+	   AND i.id = $1
+	   AND ($2::uuid = '00000000-0000-0000-0000-000000000000'::uuid OR i.organization_id = $2::uuid)`
 
 // roomAlertsSQL lists what folded into a room, newest first, with the total on every row.
 // The evidence column is selected only as presence and size.
 const roomAlertsSQL = `
 	SELECT a.id, a.device_id, a.rule_id, a.rule_version, a.severity, a.metric, a.value,
 	       a.window_start, a.window_end, a.observed_at, a.received_at, a.backfilled,
-	       a.evidence_codec, COALESCE(length(a.evidence), 0), COUNT(*) OVER ()
+	       a.evidence_codec, COALESCE(length(a.evidence), 0), COUNT(*) OVER (),
+	       (SELECT d.hostname FROM devices d WHERE d.id = a.device_id AND d.tenant_id = a.tenant_id)
 	  FROM alerts a
 	 WHERE a.tenant_id = current_setting('app.current_tenant')::uuid
 	   AND a.incident_id = $1
@@ -53,6 +54,13 @@ const roomEventsSQL = `
 	   AND incident_id = $1
 	 ORDER BY at DESC, id DESC
 	 LIMIT $2::integer`
+
+// roomPeopleSQL reads the display names of the room's people inside the caller's tenant only;
+// the administrator flag widens the row policy, so the statement names the tenant itself.
+const roomPeopleSQL = `
+	SELECT id, display_name FROM users
+	 WHERE tenant_id = current_setting('app.current_tenant')::uuid
+	   AND id = ANY($1::uuid[])`
 
 // assignRoomSQL records who is working a room; an empty assignee hands it back to the queue.
 const assignRoomSQL = `
@@ -91,6 +99,8 @@ type FoldedAlert struct {
 	// EvidenceBytes is its compressed size.
 	EvidenceCodec string
 	EvidenceBytes int
+	// Hostname names the host that raised it, empty once the host is removed.
+	Hostname string
 }
 
 // Event is one line of a room's history — what happened, when, and who did it.
@@ -117,6 +127,9 @@ type Investigation struct {
 	// Events are the room's history in chronological order, and EventsTotal its length.
 	Events      []Event
 	EventsTotal int
+	// People maps each holder, actor and assignee the room names to a display name; a user
+	// removed or outside the tenant is absent.
+	People map[uuid.UUID]string
 }
 
 // Investigation returns one room with its alerts and timeline; a zero organizationID does not
@@ -133,7 +146,10 @@ func (s *Store) Investigation(ctx context.Context, incidentID, organizationID uu
 		if room.Alerts, room.AlertsTotal, err = readRoomAlerts(ctx, tx, incidentID); err != nil {
 			return err
 		}
-		room.Events, room.EventsTotal, err = readRoomEvents(ctx, tx, incidentID)
+		if room.Events, room.EventsTotal, err = readRoomEvents(ctx, tx, incidentID); err != nil {
+			return err
+		}
+		room.People, err = readRoomPeople(ctx, tx, peopleIn(room))
 		return err
 	})
 	if err != nil {
@@ -159,7 +175,7 @@ func (s *Store) Incident(ctx context.Context, incidentID, organizationID uuid.UU
 
 // readRoom reads one room inside an open transaction; a foreign tenant or customer reads as absent.
 func readRoom(ctx context.Context, tx *sql.Tx, incidentID, organizationID uuid.UUID) (Incident, error) {
-	incident, err := scanIncident(tx.QueryRowContext(ctx, roomSQL, incidentID, organizationID))
+	incident, err := scanNamedIncident(tx.QueryRowContext(ctx, roomSQL, incidentID, organizationID))
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return Incident{}, fmt.Errorf("%w: %s", ErrIncidentNotFound, incidentID)
@@ -182,13 +198,17 @@ func readRoomAlerts(ctx context.Context, tx *sql.Tx, incidentID uuid.UUID) ([]Fo
 		total  int
 	)
 	for rows.Next() {
-		var alert FoldedAlert
+		var (
+			alert    FoldedAlert
+			hostname sql.NullString
+		)
 		if err := rows.Scan(&alert.ID, &alert.DeviceID, &alert.RuleID, &alert.RuleVersion,
 			&alert.Severity, &alert.Metric, &alert.Value, &alert.WindowStart, &alert.WindowEnd,
 			&alert.ObservedAt, &alert.ReceivedAt, &alert.Backfilled,
-			&alert.EvidenceCodec, &alert.EvidenceBytes, &total); err != nil {
+			&alert.EvidenceCodec, &alert.EvidenceBytes, &total, &hostname); err != nil {
 			return nil, 0, fmt.Errorf("scan incident alert: %w", err)
 		}
+		alert.Hostname = hostname.String
 		folded = append(folded, alert)
 	}
 	if err := rows.Err(); err != nil {
@@ -225,6 +245,61 @@ func readRoomEvents(ctx context.Context, tx *sql.Tx, incidentID uuid.UUID) ([]Ev
 	}
 	reverse(events)
 	return events, total, nil
+}
+
+// peopleIn lists everyone a room names: its holder, each line's actor and each line's assignee.
+func peopleIn(room Investigation) []string {
+	seen := map[uuid.UUID]bool{}
+	add := func(id uuid.UUID) {
+		if id != uuid.Nil {
+			seen[id] = true
+		}
+	}
+	add(room.Incident.AssigneeID)
+	for _, event := range room.Events {
+		add(event.ActorID)
+		if event.Kind != kindAssignment {
+			continue
+		}
+		var body assignmentBody
+		if json.Unmarshal(event.Body, &body) == nil {
+			if assignee, err := uuid.Parse(body.AssigneeID); err == nil {
+				add(assignee)
+			}
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id.String())
+	}
+	return ids
+}
+
+// readRoomPeople reads the display names of the given users inside the caller's tenant.
+func readRoomPeople(ctx context.Context, tx *sql.Tx, ids []string) (map[uuid.UUID]string, error) {
+	people := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return people, nil
+	}
+	rows, err := tx.QueryContext(ctx, roomPeopleSQL, ids)
+	if err != nil {
+		return nil, fmt.Errorf("read incident people: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			id   uuid.UUID
+			name string
+		)
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("scan incident person: %w", err)
+		}
+		people[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read incident people: %w", err)
+	}
+	return people, nil
 }
 
 // reverse turns a newest-first read into chronological order.

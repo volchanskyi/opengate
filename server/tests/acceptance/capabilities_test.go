@@ -29,6 +29,7 @@ var capabilityOutcomes = map[string][]string{
 	"Fleet-and-Devices.md": {
 		"TestTheDashboardAgreesWithTheDeviceList",
 		"TestATechnicianSeesOneCustomersMachinesAtATime",
+		"TestNotAssignedListsOnlyTheMachinesWithNoSite",
 	},
 	"Remote-Sessions.md": {
 		"TestATechnicianOpensATerminalAndTheMachineIsToldToStartIt",
@@ -58,6 +59,7 @@ var capabilityOutcomes = map[string][]string{
 	"Investigations.md": {
 		"TestAnAlertBecomesAnIncidentATechnicianClosesWithACause",
 		"TestAnIncidentIdFromAnotherTenantIsIndistinguishableFromAMissingOne",
+		"TestAnIncidentNamesItsHostAndThePeopleWorkingIt",
 	},
 	"Endpoint-Logs.md": {
 		"TestATechnicianPullsALogAndTheSecretInItNeverReachesThem",
@@ -142,20 +144,20 @@ func TestEveryOutcomeNamesOneCapability(t *testing.T) {
 func declaredTests(t *testing.T) map[string]bool {
 	t.Helper()
 
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	paths, err := filepath.Glob("*.go")
 	require.NoError(t, err)
 
+	fset := token.NewFileSet()
 	declared := map[string]bool{}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				fn, isFunc := decl.(*ast.FuncDecl)
-				if !isFunc || fn.Recv != nil || !strings.HasPrefix(fn.Name.Name, "Test") {
-					continue
-				}
-				declared[fn.Name.Name] = true
+	for _, path := range paths {
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		require.NoError(t, err)
+		for _, decl := range file.Decls {
+			fn, isFunc := decl.(*ast.FuncDecl)
+			if !isFunc || fn.Recv != nil || !strings.HasPrefix(fn.Name.Name, "Test") {
+				continue
 			}
+			declared[fn.Name.Name] = true
 		}
 	}
 	require.NotEmpty(t, declared, "the package must be able to read its own tests")

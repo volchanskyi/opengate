@@ -6,9 +6,12 @@ import {
   durationLabel,
   eventLine,
   formatMoment,
+  personName,
+  scopeLabel,
 } from './incident-format';
 
 type IncidentEvent = components['schemas']['IncidentEvent'];
+type Incident = components['schemas']['Incident'];
 
 function event(over: Partial<IncidentEvent> & Pick<IncidentEvent, 'kind'>): IncidentEvent {
   return { id: 'e1', at: '2026-08-12T09:14:00Z', body: {}, ...over };
@@ -123,9 +126,15 @@ describe('eventLine — a handover reads the timeline', () => {
   });
 
   it('names who a room was handed to, and says when it was handed back', () => {
-    const assigned = eventLine(event({ kind: 'assignment', body: { assignee_id: '6f2b9c31-1111-2222-3333-444455556666' } }));
-    expect(assigned.title).toBe('Assigned to 6f2b9c31');
+    const people = { '6f2b9c31-1111-2222-3333-444455556666': 'Dana Whitfield' };
+    const assigned = eventLine(event({ kind: 'assignment', body: { assignee_id: '6f2b9c31-1111-2222-3333-444455556666' } }), people);
+    expect(assigned.title).toBe('Assigned to Dana Whitfield');
     expect(eventLine(event({ kind: 'assignment', body: { unassigned: true } })).title).toBe('Unassigned');
+  });
+
+  it('never shows an id for somebody the room cannot name', () => {
+    const assigned = eventLine(event({ kind: 'assignment', body: { assignee_id: '6f2b9c31-1111-2222-3333-444455556666' } }));
+    expect(assigned.title).toBe('Assigned to a removed user');
   });
 
   it('carries a comment’s words in the quote, never in the title', () => {
@@ -136,7 +145,7 @@ describe('eventLine — a handover reads the timeline', () => {
 
   it('names the two kinds the room records for it rather than the incident', () => {
     expect(eventLine(event({ kind: 'alert_folded' })).title).toBe('Alert folded in');
-    expect(eventLine(event({ kind: 'device_offline' })).title).toBe('Device went offline');
+    expect(eventLine(event({ kind: 'device_offline' })).title).toBe('Host went offline');
   });
 
   it('ignores a body field of the wrong type instead of rendering "[object Object]"', () => {
@@ -146,5 +155,39 @@ describe('eventLine — a handover reads the timeline', () => {
 
   it('falls back to a bare status change when the body carries no ends', () => {
     expect(eventLine(event({ kind: 'status_change' })).title).toBe('Status changed');
+  });
+});
+
+describe('personName', () => {
+  const people = { u1: 'Dana Whitfield', u2: '  ' };
+
+  it('names a colleague by the name they go by', () => {
+    expect(personName(people, 'u1')).toBe('Dana Whitfield');
+  });
+
+  it('reads an id the room could not name as a removed user', () => {
+    expect(personName(people, 'u9')).toBe('a removed user');
+  });
+
+  it('says a colleague has no name rather than printing a blank', () => {
+    expect(personName(people, 'u2')).toBe('a user with no name');
+  });
+});
+
+describe('scopeLabel', () => {
+  function about(scope: Incident['scope'], scopeName: string | null): Pick<Incident, 'scope' | 'scope_name'> {
+    return { scope, scope_name: scopeName };
+  }
+
+  it('names what a room is about in the product words', () => {
+    expect(scopeLabel(about('device', 'reception-pc'))).toBe('Host · reception-pc');
+    expect(scopeLabel(about('site', 'Front Desk'))).toBe('Site · Front Desk');
+    expect(scopeLabel(about('organization', 'Acme Dental'))).toBe('Customer · Acme Dental');
+  });
+
+  it('says the record is gone rather than showing its id', () => {
+    expect(scopeLabel(about('device', null))).toBe('Host · a removed host');
+    expect(scopeLabel(about('site', null))).toBe('Site · a removed site');
+    expect(scopeLabel(about('organization', null))).toBe('Customer · a removed customer');
   });
 });

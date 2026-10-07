@@ -22,8 +22,6 @@ jobs:
     name: Refresh-only plan + alert
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # `observability` provides the Telegram secrets without the reviewer gate that would stall the cron.
-    environment: observability
     outputs:
       drift: ${{ steps.plan.outputs.exitcode }}
     steps:
@@ -186,7 +184,6 @@ jobs:
     name: The configuration the cluster holds
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: observability
     permissions:
       contents: read
     steps:

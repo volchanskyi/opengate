@@ -3,10 +3,10 @@ import { useParams, useLocation, useNavigate } from 'react-router';
 import { useConnectionStore } from './state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
 import { SessionToolbar } from './SessionToolbar';
-import { RemoteDesktopView } from '../remote-desktop/RemoteDesktopView';
-import { TerminalView } from '../terminal/TerminalView';
-import { FileManagerView } from '../file-manager/FileManagerView';
-import { MessengerView } from '../messenger/MessengerView';
+import { RemoteDesktopView } from '../remote-desktop';
+import { TerminalView } from '../terminal';
+import { FileManagerView } from '../file-manager';
+import { MessengerView } from '../messenger';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 const ALL_TABS = ['Desktop', 'Terminal', 'Files', 'Chat'] as const;

@@ -5,10 +5,10 @@
 export const DEVICE_DRAG_MIME = 'application/x-opengate-device';
 
 /**
- * The placeholder site id meaning "no site". `PATCH /devices/{id}` clears the
- * device's site when it receives this, and the detail pane renders it as N/A.
+ * The placeholder site id meaning "no site": `PATCH /devices/{id}` clears the device's site when
+ * it receives this, and the Devices page picks it to list the devices filed under no site.
  */
-export const UNFILED_SITE_ID = '00000000-0000-0000-0000-000000000000';
+export const NOT_ASSIGNED_SITE_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Publish a dragged device: the id for drop zones, the hostname as the label. */
 export function startDeviceDrag(transfer: DataTransfer, device: { id: string; hostname: string }): void {

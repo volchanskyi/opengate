@@ -398,11 +398,13 @@ pushes the current rows through
 Telegram on regression. A separate `gate` job then fails the workflow red for an
 audit trail.
 
-The publish job carries the `observability` environment, so its result is that
-environment's deployment status; keeping the verdict in its own job means a
-deployment records whether the trend was published, not whether the system under
-test regressed. The benchmark and mutation trend workflows are split the same
-way.
+The publish job reports only whether the trend was published; the gate job
+carries the regression verdict, so a red run says which of the two went wrong. The
+benchmark and mutation trend workflows are split the same way. No scheduled job
+names a GitHub environment: an environment with no person to approve it can hold a
+job waiting with no limit, so only `staging` and `production`, which a person
+approves, are named
+([`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)).
 
 The regression semantics are recorded in
 [ADR-038](../adr/ADR-038-ci-trend-store.md). In short: latency and rps

@@ -1,13 +1,13 @@
 import { useCallback, useEffect } from 'react';
 import { Link, useParams } from 'react-router';
 import { fireAndForget } from '../../lib/fire-and-forget';
-import { shortId } from '../../lib/short-id';
+import { useRouteCrumb } from '../../lib/use-route-crumb';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
 import { IncidentActions } from './IncidentActions';
 import { IncidentAlerts } from './IncidentAlerts';
 import { IncidentSeverityBadge, IncidentStatusBadge } from './IncidentBadges';
 import { IncidentTimeline } from './IncidentTimeline';
-import { countLabel, durationLabel, formatMoment } from './incident-format';
+import { countLabel, durationLabel, formatMoment, scopeLabel } from './incident-format';
 import { useRoomStore } from './state/room-store';
 
 /** How often an open room re-reads itself while somebody is in it. */
@@ -32,6 +32,7 @@ export function InvestigationDetail() {
   const open = useRoomStore((s) => s.open);
   const refresh = useRoomStore((s) => s.refresh);
   const leave = useRoomStore((s) => s.leave);
+  useRouteCrumb(detail?.incident.id === id ? detail?.incident.rule_id : undefined);
 
   useEffect(() => {
     if (id) fireAndForget(open(id));
@@ -70,7 +71,7 @@ export function InvestigationDetail() {
         <p className="text-sm text-gray-400">
           {[
             countLabel(incident.occurrences, 'alert', 'alerts'),
-            `across ${countLabel(incident.device_count, 'machine', 'machines')}`,
+            `across ${countLabel(incident.device_count, 'host', 'hosts')}`,
             `running for ${durationLabel(incident.first_seen, incident.last_seen)}`,
           ].join(' · ')}
         </p>
@@ -90,16 +91,16 @@ export function InvestigationDetail() {
           </div>
           <div>
             <dt className="text-gray-400 text-xs">Scope</dt>
-            <dd className="font-mono text-xs">{incident.scope} · {shortId(incident.scope_key)}</dd>
+            <dd>{scopeLabel(incident)}</dd>
           </div>
         </dl>
 
-        <IncidentActions incident={incident} />
+        <IncidentActions incident={incident} people={detail.people} />
       </section>
 
       <section aria-label="Timeline" className={CARD}>
         <h3 className="text-sm font-semibold text-gray-300 mb-3">Timeline</h3>
-        <IncidentTimeline events={detail.events} total={detail.events_total} />
+        <IncidentTimeline events={detail.events} total={detail.events_total} people={detail.people} />
       </section>
 
       <section aria-label="Alerts" className={CARD}>

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -84,4 +85,37 @@ func TestATechnicianSeesOneCustomersMachinesAtATime(t *testing.T) {
 		"and Contoso's page does not show it")
 	assert.Equal(t, 1, looking.dashboard().Total,
 		"the counts narrow with the list, or the dashboard describes somebody else's estate")
+}
+
+func TestNotAssignedListsOnlyTheMachinesWithNoSite(t *testing.T) {
+	t.Parallel()
+
+	product := newProduct(t)
+	contoso := product.arrangeCustomer("Contoso")
+	admin := product.Administrator(contoso)
+	token := admin.mintEnrolmentToken("Head Office").Token
+
+	frontDesk := product.Machine(token, "contoso-front-desk")
+	frontDesk.AwaitOnline()
+	loose := product.Machine(token, "contoso-spare-laptop")
+	loose.AwaitOnline()
+
+	var site struct {
+		ID uuid.UUID `json:"id"`
+	}
+	created := admin.Post("/api/v1/sites", map[string]any{"name": "Front Desk", "organization_id": contoso})
+	require.Equalf(t, http.StatusCreated, created.Status, "creating a site failed: %s", created.Text())
+	created.Into(&site)
+	filed := admin.Patch("/api/v1/devices/"+frontDesk.DeviceID.String(), map[string]any{"site_id": site.ID})
+	require.Equalf(t, http.StatusOK, filed.Status, "filing a machine failed: %s", filed.Text())
+
+	var unfiled []deviceSummary
+	reply := admin.Get(admin.InCustomer("/api/v1/devices?without_site=true"))
+	require.Equalf(t, http.StatusOK, reply.Status, "listing machines with no site failed: %s", reply.Text())
+	reply.Into(&unfiled)
+	require.Len(t, unfiled, 1)
+	assert.Equal(t, loose.DeviceID, unfiled[0].ID)
+
+	both := admin.Get(admin.InCustomer("/api/v1/devices?without_site=true&site_id=" + site.ID.String()))
+	assert.Equal(t, http.StatusBadRequest, both.Status, "a machine cannot be in a site and in none")
 }

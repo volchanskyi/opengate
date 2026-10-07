@@ -195,11 +195,16 @@ func TestWhatDecidedAMachinesNumber(t *testing.T) {
 
 	level, source := decided([]Binding{aimed}, "threshold")
 	assert.Equal(t, settings.LevelOrganization, level)
-	assert.Equal(t, "set on this machine's customer, for machines labelled role=file-server", source)
+	assert.Equal(t, "set on this host's customer, for hosts labelled role=file-server", source)
 
 	level, source = decided([]Binding{aimed, atSite}, "threshold")
 	assert.Equal(t, settings.LevelSite, level, "the narrower rung decides it")
-	assert.Equal(t, "set on this machine's office", source)
+	assert.Equal(t, "set on this host's site", source)
+
+	onHost := newBinding(org, def.ID, settings.LevelDevice, machine.Scope.DeviceID, threshold(91))
+	level, source = decided([]Binding{aimed, atSite, onHost}, "threshold")
+	assert.Equal(t, settings.LevelDevice, level)
+	assert.Equal(t, "set on this host", source)
 
 	level, source = decided([]Binding{aimed}, "sustain_secs")
 	assert.Equal(t, settings.LevelShipped, level)
@@ -213,8 +218,8 @@ func TestEachRungIsNamedForAPerson(t *testing.T) {
 	t.Parallel()
 
 	for level, want := range map[settings.Level]string{
-		settings.LevelDevice:       "machine",
-		settings.LevelSite:         "office",
+		settings.LevelDevice:       "host",
+		settings.LevelSite:         "site",
 		settings.LevelOrganization: "customer",
 		settings.LevelTenant:       "platform",
 		settings.LevelShipped:      "shipped default",

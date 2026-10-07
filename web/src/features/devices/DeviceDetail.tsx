@@ -17,6 +17,7 @@ import { DeviceInventory } from './DeviceInventory';
 import { DeviceIncidentsStrip } from '../investigations';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { useRouteCrumb } from '../../lib/use-route-crumb';
 import { formatBytes } from '../../lib/format-bytes';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
 import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
@@ -68,6 +69,7 @@ export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const device = useDeviceStore((s) => s.selectedDevice);
+  useRouteCrumb(device !== null && device.id === id ? device.hostname : undefined);
   const isLoading = useDeviceStore((s) => s.isLoading);
   const fetchDevice = useDeviceStore((s) => s.fetchDevice);
   const deleteDevice = useDeviceStore((s) => s.deleteDevice);

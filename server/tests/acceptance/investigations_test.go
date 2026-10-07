@@ -25,6 +25,8 @@ type incident struct {
 	Status    string    `json:"status"`
 	Severity  string    `json:"severity"`
 	CauseCode string    `json:"cause_code"`
+	Scope     string    `json:"scope"`
+	ScopeName *string   `json:"scope_name"`
 }
 
 // triageQueue lists the rooms awaiting a technician.
@@ -43,13 +45,14 @@ func (a *Technician) triageQueue() []incident {
 func (m *Machine) raiseAlert(topProcess string) (windowStart time.Time) {
 	m.t.Helper()
 
+	share := 37.5
 	packed, err := msgpack.Marshal(protocol.AlertEvidence{
 		Ranked: []protocol.RankedDim{{Dim: "cpu.total", Score: 0.94}},
 		Series: []protocol.EvidenceSeries{{
 			Dim:    "cpu.total",
 			Points: []protocol.HistoryPoint{{TS: time.Now().Unix(), Value: 97.5}},
 		}},
-		Processes: []protocol.ProcessReportEntry{{Rank: 1, Basename: topProcess, PID: 4242, CPU: 88.0}},
+		Processes: []protocol.EvidenceProcess{{Rank: 1, Basename: topProcess, PID: 4242, CPUShare: &share}},
 	})
 	require.NoError(m.t, err)
 
@@ -253,4 +256,63 @@ func (m *Machine) raiseFinding(ruleID string, happenedAt time.Time) {
 		ObservedTS:    at.Unix(),
 		Backfilled:    &backfilled,
 	})
+}
+
+// namedRoom is a room as its reader sees it: what it is about, and who is in it.
+type namedRoom struct {
+	Incident incident `json:"incident"`
+	Alerts   []struct {
+		Hostname *string `json:"hostname"`
+	} `json:"alerts"`
+	People map[uuid.UUID]string `json:"people"`
+}
+
+func (a *Technician) readNamedRoom(id uuid.UUID) namedRoom {
+	a.t.Helper()
+	var room namedRoom
+	reply := a.Get(a.InCustomer("/api/v1/investigations/" + id.String()))
+	require.Equalf(a.t, http.StatusOK, reply.Status, "opening the room failed: %s", reply.Text())
+	reply.Into(&room)
+	return room
+}
+
+func TestAnIncidentNamesItsHostAndThePeopleWorkingIt(t *testing.T) {
+	t.Parallel()
+
+	// Erasing a machine runs the purge, which the product wires beside its numeric store.
+	product := newProduct(t, WithNumericTelemetry())
+	contoso := product.arrangeCustomer("Contoso")
+	admin := product.Administrator(contoso)
+
+	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-build-agent",
+		protocol.CapTerminal, protocol.CapThresholdAlerts)
+	machine.AwaitOnline()
+	machine.raiseAlert("indexer")
+	room := admin.awaitIncident()
+
+	assert.Equal(t, "device", room.Scope)
+	require.NotNil(t, room.ScopeName, "the queue names the host, never only its id")
+	assert.Equal(t, "contoso-build-agent", *room.ScopeName)
+
+	assignee := admin.InCustomer("/api/v1/investigations/" + room.ID.String() + "/assignee")
+	require.Equal(t, http.StatusOK, admin.Post(assignee, map[string]any{"assignee_id": admin.User.ID}).Status)
+
+	outsider := product.TechnicianIn(product.arrangeSeparateTenant("Northwind"))
+	assert.Equal(t, http.StatusNotFound,
+		admin.Post(assignee, map[string]any{"assignee_id": outsider.User.ID}).Status,
+		"a user of another tenant cannot be handed the room")
+
+	opened := admin.readNamedRoom(room.ID)
+	require.NotNil(t, opened.Incident.ScopeName)
+	assert.Equal(t, "contoso-build-agent", *opened.Incident.ScopeName)
+	require.NotEmpty(t, opened.Alerts)
+	require.NotNil(t, opened.Alerts[0].Hostname)
+	assert.Equal(t, "contoso-build-agent", *opened.Alerts[0].Hostname)
+	assert.Equal(t, map[uuid.UUID]string{admin.User.ID: admin.User.DisplayName}, opened.People,
+		"the room names the people in it, and nobody outside the tenant")
+
+	require.Equal(t, http.StatusNoContent, admin.Delete("/api/v1/devices/"+machine.DeviceID.String()).Status)
+	require.Eventually(t, func() bool {
+		return admin.readNamedRoom(room.ID).Incident.ScopeName == nil
+	}, eventually, poll, "a room about a removed host names nothing rather than a stale id")
 }

@@ -289,7 +289,7 @@ so everything behind a finding is attached when it fires or it exists nowhere.
 |---|---|
 | Ranked dimensions | Which of the machine's readings broke pattern around the event, ranked by the machine itself |
 | Series | A short stretch of those readings around the event |
-| Processes | What was running at the instant |
+| Processes | What was running at the instant: each program's share of the whole host's processors, from 0 to 100 %, and the memory it held. A program the device had not yet measured twice shows a dash for its processor share |
 | Log lines | A bounded sample of the machine's own log records, redacted on the device |
 
 The composition is **fixed rather than best-effort** — two incidents a week apart

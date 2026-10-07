@@ -10,12 +10,16 @@ export const SELECTED_ORGANIZATION_KEY = 'selectedOrganizationId';
 interface OrganizationState {
   organizations: Organization[];
   selectedOrganizationId: string | null;
+  /** How many customer-bound lists on screen are waiting on a chosen customer. */
+  customerWanted: number;
   isLoading: boolean;
   error: string | null;
 
   fetchOrganizations: (includeArchived?: boolean) => Promise<void>;
   selectOrganization: (id: string | null) => void;
   hydrateSelection: () => void;
+  /** Counts one more list waiting on a customer; the returned function counts it off again. */
+  wantCustomer: () => () => void;
   createOrganization: (name: string) => Promise<boolean>;
   renameOrganization: (id: string, name: string) => Promise<boolean>;
   setOrganizationArchived: (id: string, archived: boolean) => Promise<boolean>;
@@ -33,6 +37,7 @@ function rememberSelection(id: string | null): void {
 export const useOrganizationStore = create<OrganizationState>((set, get) => ({
   organizations: [],
   selectedOrganizationId: null,
+  customerWanted: 0,
   isLoading: false,
   error: null,
 
@@ -59,6 +64,11 @@ export const useOrganizationStore = create<OrganizationState>((set, get) => ({
 
   hydrateSelection: () => {
     set({ selectedOrganizationId: localStorage.getItem(SELECTED_ORGANIZATION_KEY) });
+  },
+
+  wantCustomer: () => {
+    set((state) => ({ customerWanted: state.customerWanted + 1 }));
+    return () => { set((state) => ({ customerWanted: state.customerWanted - 1 })); };
   },
 
   createOrganization: async (name) => {

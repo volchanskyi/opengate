@@ -18,7 +18,7 @@ export function AlertLimits() {
 
   // The fields show typed text, else the stored budget, so a re-read keeps a half-typed number.
   const [typedCustomer, setTypedCustomer] = useState<string | null>(null);
-  const [typedMachine, setTypedMachine] = useState<string | null>(null);
+  const [typedHost, setTypedHost] = useState<string | null>(null);
 
   useEffect(() => {
     fireAndForget(fetchLimits());
@@ -36,7 +36,7 @@ export function AlertLimits() {
   }
 
   const customerHourly = typedCustomer ?? String(limits.organization_hourly);
-  const machineHourly = typedMachine ?? String(limits.device_hourly);
+  const hostHourly = typedHost ?? String(limits.device_hourly);
 
   return (
     <div className="p-6">
@@ -70,24 +70,24 @@ export function AlertLimits() {
             onChange={(e) => { setTypedCustomer(e.target.value); }}
           />
           <span className="text-xs text-gray-500">
-            Across every machine they have. At most {limits.max_organization_hourly}.
+            Across every host they have. At most {limits.max_organization_hourly}.
           </span>
         </label>
 
         <label className="flex flex-col gap-1">
           <span className="text-xs uppercase text-gray-500 font-semibold">
-            One machine, per hour
+            One host, per hour
           </span>
           <input
             type="number"
             className={FIELD}
-            aria-label="One machine, per hour"
-            value={machineHourly}
+            aria-label="One host, per hour"
+            value={hostHourly}
             disabled={!canEdit}
-            onChange={(e) => { setTypedMachine(e.target.value); }}
+            onChange={(e) => { setTypedHost(e.target.value); }}
           />
           <span className="text-xs text-gray-500">
-            Enforced on the machine itself, so it travels down with the rules. At most{' '}
+            Enforced on the host itself, so it travels down with the rules. At most{' '}
             {limits.max_device_hourly}.
           </span>
         </label>
@@ -97,7 +97,7 @@ export function AlertLimits() {
             <button
               type="button"
               onClick={() => {
-                fireAndForget(saveLimits(Number(customerHourly), Number(machineHourly)));
+                fireAndForget(saveLimits(Number(customerHourly), Number(hostHourly)));
               }}
               className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-sm"
             >

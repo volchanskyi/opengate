@@ -46,6 +46,42 @@ func TestListNarrowsByOrganizationAndFallsBackToTheTenant(t *testing.T) {
 	assert.Equal(t, inFabrikam.ID, both[0].ID)
 }
 
+func TestListWithoutASiteReturnsOnlyUnfiledMachines(t *testing.T) {
+	t.Parallel()
+	devices, _, _, store := newRepos(t)
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+
+	site := testutil.SeedSite(t, ctx, store)
+	contoso := newCustomer(t, ctx, store, "Contoso")
+	fabrikam := newCustomer(t, ctx, store, "Fabrikam")
+
+	filed := testutil.SeedDevice(t, ctx, store, site.ID)
+	unfiled := testutil.SeedDevice(t, ctx, store, site.ID)
+	elsewhere := testutil.SeedDevice(t, ctx, store, site.ID)
+	require.NoError(t, devices.UpdateOrganization(ctx, unfiled.ID, contoso))
+	require.NoError(t, devices.UpdateOrganization(ctx, elsewhere.ID, fabrikam))
+
+	everywhere, err := devices.List(ctx, device.Filter{WithoutSite: true})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uuid.UUID{unfiled.ID, elsewhere.ID}, idsOf(everywhere),
+		"a move to another customer unfiles a machine; %s stays filed", filed.Hostname)
+
+	inContoso, err := devices.List(ctx, device.Filter{WithoutSite: true, OrganizationID: contoso})
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{unfiled.ID}, idsOf(inContoso))
+
+	_, err = devices.List(ctx, device.Filter{WithoutSite: true, SiteID: site.ID})
+	assert.ErrorIs(t, err, device.ErrSiteFilterContradicts)
+}
+
+func idsOf(devices []*device.Device) []uuid.UUID {
+	out := make([]uuid.UUID, 0, len(devices))
+	for _, d := range devices {
+		out = append(out, d.ID)
+	}
+	return out
+}
+
 func TestCountsNarrowByOrganization(t *testing.T) {
 	t.Parallel()
 	devices, _, _, store := newRepos(t)

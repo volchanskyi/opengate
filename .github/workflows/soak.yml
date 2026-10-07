@@ -247,7 +247,6 @@ jobs:
     if: always() && needs.soak.outputs.started_at != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: observability
     permissions:
       contents: read
     outputs:
@@ -360,7 +359,6 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    environment: observability
     permissions:
       contents: read
     steps:

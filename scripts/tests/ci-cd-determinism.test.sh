@@ -464,6 +464,64 @@ else
   fail "a cluster call in a nightly is neither retried nor exempt:$retry_bad"
 fi
 
+# A job naming an environment waits on GitHub to release it, so only a person's approval earns one.
+environments_named() {
+  python3 - "$@" <<'PY'
+import sys
+
+import yaml
+
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as handle:
+        workflow = yaml.safe_load(handle) or {}
+    for job, body in (workflow.get("jobs") or {}).items():
+        if not isinstance(body, dict) or "environment" not in body:
+            continue
+        named = body["environment"]
+        if isinstance(named, dict):
+            named = named.get("name", "")
+        print(f"{path.rsplit('/', 1)[-1]}\t{job}\t{named}")
+PY
+}
+
+unapproved_environments() {
+  local file job named
+  while IFS=$'\t' read -r file job named; do
+    case "$named" in
+      staging | production) ;;
+      *) printf ' [%s:%s names %s]' "$file" "$job" "$named" ;;
+    esac
+  done <<<"$(environments_named "$@")"
+}
+
+env_fixture="$(mktemp -d)"
+cat >"$env_fixture/alert.yml" <<'YAML'
+jobs:
+  alert:
+    runs-on: ubuntu-24.04
+    environment: observability
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+YAML
+if [ -n "$(unapproved_environments "$env_fixture/alert.yml")" ]; then
+  pass "an alert job naming an environment with no approver is caught"
+else
+  fail "the environment sweep passes an alert job naming observability, so it proves nothing"
+fi
+rm -rf "$env_fixture"
+
+env_named="$(environments_named "$WORKFLOWS"/*.yml)"
+env_bad="$(unapproved_environments "$WORKFLOWS"/*.yml)"
+if [ -z "$env_named" ]; then
+  fail "the environment sweep reached no job naming an environment, so it is asserting an absence it never tested"
+elif [ -z "$env_bad" ]; then
+  pass "every one of $(wc -l <<<"$env_named") environments a workflow names is one a person approves"
+else
+  fail "a workflow names an environment no person approves, which GitHub can hold indefinitely:$env_bad"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

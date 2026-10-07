@@ -78,7 +78,17 @@ func TestGoldenAlertEvidenceInflatesWithStdlib(t *testing.T) {
 		assert.NotEmpty(t, series.Dim)
 		assert.LessOrEqual(t, len(series.Points), evidenceSeriesPoints)
 	}
-	assert.Len(t, evidence.Processes, evidenceProcessRows)
+	require.Len(t, evidence.Processes, evidenceProcessRows)
+	for i, row := range evidence.Processes {
+		assert.Equal(t, uint32(1000+i), row.PID)
+		assert.InDelta(t, float64(i)*1_048_576, row.Mem, 0, "memory travels in bytes")
+		if i == evidenceProcessRows-1 {
+			assert.Nil(t, row.CPUShare, "a row the device could not measure carries no share")
+			continue
+		}
+		require.NotNil(t, row.CPUShare)
+		assert.InDelta(t, float64(i)*2.5, *row.CPUShare, 1e-9)
+	}
 	assert.Len(t, evidence.LogSamples, evidenceLogSamples)
 	assert.False(t, evidence.Truncated, "the shipped composition fits without truncation")
 

@@ -1,7 +1,8 @@
-use std::collections::VecDeque;
+use std::cmp::Ordering;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use sysinfo::{Disks, Networks, System, MINIMUM_CPU_UPDATE_INTERVAL};
+use sysinfo::{Disks, Networks, System, ThreadKind, MINIMUM_CPU_UPDATE_INTERVAL};
 use thiserror::Error;
 
 use super::diskperf::DiskPerfReader;
@@ -20,8 +21,9 @@ pub struct ProcessSample {
     pub cmdline_hash: Option<String>,
     /// The operating system's identifier for the process.
     pub pid: u32,
-    /// Share of the machine's processors this process was using, in percent.
-    pub cpu: f64,
+    /// Share of the whole host's processors since the previous sample, 0–100; `None` on a
+    /// process's first sample.
+    pub cpu_share: Option<f64>,
     /// Resident memory, in bytes.
     pub mem: f64,
 }
@@ -123,6 +125,68 @@ pub(crate) fn disk_reduction(mounts: impl Iterator<Item = (u64, u64)>) -> Option
     })
 }
 
+/// Share of the whole host's processors a process used between two readings, 0–100: processor
+/// time gained over wall time times cores. `None` without a previous reading, cores or wall time.
+#[must_use]
+pub(crate) fn cpu_share(
+    prev_ms: Option<u64>,
+    cur_ms: u64,
+    wall: Duration,
+    cores: usize,
+) -> Option<f64> {
+    let gained = cur_ms.checked_sub(prev_ms?)?;
+    let capacity_ms = wall.as_secs_f64() * 1_000.0 * cores as f64;
+    if capacity_ms <= 0.0 {
+        return None;
+    }
+    Some((gained as f64 / capacity_ms * 100.0).clamp(0.0, 100.0))
+}
+
+/// Busiest first; a process without a reading after every process with one; then by process id.
+#[must_use]
+pub(crate) fn busiest_first(left: (Option<f64>, u32), right: (Option<f64>, u32)) -> Ordering {
+    let by_share = match (left.0, right.0) {
+        (Some(l), Some(r)) => r.total_cmp(&l),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    };
+    by_share.then(left.1.cmp(&right.1))
+}
+
+/// A process across samples: a reused process id starts at a different time.
+type ProcessKey = (u32, u64);
+
+/// Each live process's accumulated processor time, in milliseconds, at the previous sample.
+#[derive(Debug, Default)]
+struct CpuTimes {
+    at: Option<Instant>,
+    by_process: HashMap<ProcessKey, u64>,
+}
+
+impl CpuTimes {
+    /// Keeps only this sample's readings, so an exited process drops out, and returns each
+    /// process's share since the previous sample, in the order given.
+    fn advance(
+        &mut self,
+        now: Instant,
+        cores: usize,
+        readings: impl IntoIterator<Item = (ProcessKey, u64)>,
+    ) -> Vec<Option<f64>> {
+        let wall = self.at.map(|at| now.saturating_duration_since(at));
+        let previous = std::mem::take(&mut self.by_process);
+        let shares = readings
+            .into_iter()
+            .map(|(key, cur_ms)| {
+                self.by_process.insert(key, cur_ms);
+                wall.and_then(|wall| cpu_share(previous.get(&key).copied(), cur_ms, wall, cores))
+            })
+            .collect();
+        self.at = Some(now);
+        shares
+    }
+}
+
 /// Rank of the process at `index` in the CPU-sorted list; 1-based because rank is the series key.
 #[must_use]
 pub(crate) fn process_rank(index: usize) -> u8 {
@@ -198,6 +262,7 @@ pub struct SysinfoSampler {
     top_processes: usize,
     include_cmdline_hash: bool,
     prev_net: Option<PrevNet>,
+    cpu_times: CpuTimes,
     pressure: PressureReader,
     diskperf: DiskPerfReader,
 }
@@ -216,6 +281,7 @@ impl SysinfoSampler {
             top_processes,
             include_cmdline_hash: false,
             prev_net: None,
+            cpu_times: CpuTimes::default(),
             pressure: PressureReader::for_root(root),
             diskperf: DiskPerfReader::for_root(root),
         })
@@ -274,6 +340,7 @@ impl MetricSampler for SysinfoSampler {
         self.system.refresh_cpu_usage();
         self.system
             .refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        let processes_at = Instant::now();
         self.networks.refresh(true);
 
         let memory_used_percent =
@@ -297,13 +364,35 @@ impl MetricSampler for SysinfoSampler {
         let (network_rx_bps, network_tx_bps) = self.net_rates(reading, now);
         let disk_perf = self.diskperf.read(now);
 
-        let mut processes: Vec<_> = self.system.processes().values().collect();
-        processes.sort_by(|left, right| right.cpu_usage().total_cmp(&left.cpu_usage()));
-        let processes = processes
+        // A thread is listed beside its process and carries the whole process's memory.
+        let running: Vec<_> = self
+            .system
+            .processes()
+            .values()
+            .filter(|process| process.thread_kind() != Some(ThreadKind::Userland))
+            .collect();
+        let shares = self.cpu_times.advance(
+            processes_at,
+            self.system.cpus().len(),
+            running.iter().map(|process| {
+                (
+                    (process.pid().as_u32(), process.start_time()),
+                    process.accumulated_cpu_time(),
+                )
+            }),
+        );
+        let mut ranked: Vec<_> = running.into_iter().zip(shares).collect();
+        ranked.sort_by(|(left, left_share), (right, right_share)| {
+            busiest_first(
+                (*left_share, left.pid().as_u32()),
+                (*right_share, right.pid().as_u32()),
+            )
+        });
+        let processes = ranked
             .into_iter()
             .take(self.top_processes)
             .enumerate()
-            .map(|(index, process)| {
+            .map(|(index, (process, cpu_share))| {
                 let cmdline_hash = if self.include_cmdline_hash {
                     let cmdline = process
                         .cmd()
@@ -324,7 +413,7 @@ impl MetricSampler for SysinfoSampler {
                     basename: basename_of(process.exe(), process.name()),
                     cmdline_hash,
                     pid: process.pid().as_u32(),
-                    cpu: f64::from(process.cpu_usage()),
+                    cpu_share,
                     mem: process.memory() as f64,
                 }
             })
@@ -523,6 +612,99 @@ mod tests {
     }
 
     #[test]
+    fn nine_busy_cores_of_twenty_four_read_as_their_share_of_the_host() {
+        let share = cpu_share(Some(1_000), 10_000, Duration::from_secs(1), 24);
+        assert_eq!(share, Some(37.5));
+    }
+
+    #[test]
+    fn one_core_for_the_whole_interval_reads_as_one_core_of_the_host() {
+        let share = cpu_share(Some(0), 1_200, Duration::from_millis(1_200), 8);
+        assert_eq!(share, Some(12.5));
+    }
+
+    #[test]
+    fn a_share_never_exceeds_the_whole_host() {
+        assert_eq!(
+            cpu_share(Some(0), 30_000, Duration::from_secs(1), 24),
+            Some(100.0)
+        );
+    }
+
+    #[test]
+    fn a_share_needs_a_previous_reading_cores_and_elapsed_time() {
+        assert_eq!(cpu_share(None, 500, Duration::from_secs(1), 4), None);
+        assert_eq!(cpu_share(Some(0), 500, Duration::from_secs(1), 0), None);
+        assert_eq!(cpu_share(Some(0), 500, Duration::ZERO, 4), None);
+        assert_eq!(cpu_share(Some(900), 500, Duration::from_secs(1), 4), None);
+        assert_eq!(
+            cpu_share(Some(500), 500, Duration::from_secs(1), 4),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn the_busiest_measured_process_ranks_first_and_unmeasured_ones_last() {
+        let mut rows = vec![
+            (None, 3),
+            (Some(10.0), 9),
+            (None, 1),
+            (Some(50.0), 7),
+            (Some(10.0), 2),
+        ];
+        rows.sort_by(|l, r| busiest_first(*l, *r));
+        assert_eq!(
+            rows,
+            vec![
+                (Some(50.0), 7),
+                (Some(10.0), 2),
+                (Some(10.0), 9),
+                (None, 1),
+                (None, 3)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_process_has_no_share_until_its_second_sample() {
+        let mut times = CpuTimes::default();
+        let start = Instant::now();
+
+        let first = times.advance(start, 4, [((10, 100), 1_000)]);
+        let second = times.advance(
+            start + Duration::from_secs(1),
+            4,
+            [((10, 100), 3_000), ((11, 105), 50)],
+        );
+
+        assert_eq!(first, vec![None]);
+        assert_eq!(second, vec![Some(50.0), None]);
+    }
+
+    #[test]
+    fn a_reused_process_id_starts_over() {
+        let mut times = CpuTimes::default();
+        let start = Instant::now();
+        times.advance(start, 4, [((10, 100), 1_000)]);
+
+        let reused = times.advance(start + Duration::from_secs(1), 4, [((10, 250), 1_200)]);
+
+        assert_eq!(reused, vec![None]);
+    }
+
+    #[test]
+    fn an_exited_process_is_forgotten() {
+        let mut times = CpuTimes::default();
+        let start = Instant::now();
+        times.advance(start, 4, [((10, 100), 1_000), ((20, 100), 1_000)]);
+        times.advance(start + Duration::from_secs(1), 4, [((20, 100), 1_400)]);
+
+        assert_eq!(times.by_process.len(), 1);
+        let back = times.advance(start + Duration::from_secs(2), 4, [((10, 100), 5_000)]);
+        assert_eq!(back, vec![None]);
+    }
+
+    #[test]
     fn process_rank_is_one_based() {
         assert_eq!(process_rank(0), 1);
         assert_eq!(process_rank(1), 2);
@@ -681,12 +863,18 @@ mod tests {
             "a running host has processes, and no more than were asked for"
         );
         assert!(
-            sample.processes.windows(2).all(|w| w[0].cpu >= w[1].cpu),
+            sample.processes.windows(2).all(|w| busiest_first(
+                (w[0].cpu_share, w[0].pid),
+                (w[1].cpu_share, w[1].pid)
+            ) != Ordering::Greater),
             "busiest first"
         );
         for process in &sample.processes {
             assert!(process.pid > 0, "{} names its process", process.basename);
-            assert!(process.cpu.is_finite() && process.cpu >= 0.0);
+            assert_eq!(
+                process.cpu_share, None,
+                "the first sample has nothing to compare"
+            );
             assert!(process.mem.is_finite() && process.mem >= 0.0);
         }
     }

@@ -54,6 +54,29 @@ test.describe("Session terminal flow", () => {
     expect(observedUrl).toMatch(/\bauth=[^&]+/);
   });
 
+  test("a session outlives the server's keep-alive with no connection error", async ({
+    authedPage,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const machine = await enrolledMachine(request, MACHINE_A);
+
+    let relayClosed = false;
+    authedPage.on("websocket", (ws) => {
+      if (isRelay(new URL(ws.url()))) ws.on("close", () => { relayClosed = true; });
+    });
+
+    await startSession(authedPage, machine.id);
+    await expect(authedPage.locator('[data-testid="terminal-container"]')).toBeVisible();
+
+    // The server pings the agent's side of the relay every 20 seconds, so one ping passes here.
+    await authedPage.waitForTimeout(25_000);
+
+    await expect(authedPage.getByText(/unknown frame type/i)).toHaveCount(0);
+    await expect(authedPage.locator('[data-testid="terminal-container"]')).toBeVisible();
+    expect(relayClosed).toBe(false);
+  });
+
   test("Disconnect returns to the fleet", async ({ authedPage, request }) => {
     const machine = await enrolledMachine(request, MACHINE_A);
     await startSession(authedPage, machine.id);

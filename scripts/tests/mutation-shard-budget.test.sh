@@ -185,6 +185,39 @@ else
   fail "the Go table must report every shard (got: $out)"
 fi
 
+# Writes a gremlins-format dry-run listing from path and count pairs.
+listing_of() {
+  local file path count i
+  file="$(mktemp)"
+  while [ "$#" -ge 2 ]; do
+    path="$1" count="$2"
+    shift 2
+    for ((i = 0; i < count; i++)); do
+      printf '    RUNNABLE CONDITIONALS_NEGATION at %s:%d:1\n' "$path" "$((i + 1))" >>"$file"
+    done
+  done
+  printf '%s\n' "$file"
+}
+
+# The 4 Oct night's runnable mutants in the API runtime files; wsconn.go had none runnable.
+api_night="$(listing_of internal/api/api.go 25 internal/api/middleware.go 10 \
+  internal/api/proxytrust.go 28 internal/api/ratelimit.go 16)"
+out="$(MUTATION_GO_DRYRUN_FILE="$api_night" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
+runtime_row="$(awk '$1 == "go-api-runtime" { print $2, $4 }' <<<"$out")"
+limits_row="$(awk '$1 == "go-api-limits" { print $2, $4 }' <<<"$out")"
+if [ "$runtime_row" = "35 ok" ] && [ "$limits_row" = "44 ok" ]; then
+  pass "the API runtime files fit as two groups on the 4 Oct counts"
+else
+  fail "go-api-runtime must hold 35 and go-api-limits 44, both inside the budget (got runtime '$runtime_row', limits '$limits_row')"
+fi
+
+whole=$(((79 * $(mutation_go_shard_seconds_per_mutant go-api-runtime) + 59) / 60))
+if [ "$whole" -gt "$(mutation_go_shard_budget_minutes)" ]; then
+  pass "the same 79 mutants in one group project past the budget (${whole}min)"
+else
+  fail "79 mutants at the declared cost must not fit one group (projected ${whole}min)"
+fi
+
 # Counting the committed Go map needs a module-wide coverage run; a caller holding its listing
 # passes it through MUTATION_GO_SHARD_LISTING.
 if [ -n "${MUTATION_GO_SHARD_LISTING:-}" ]; then

@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router';
-import { useDeviceStore } from '../features/devices/state/device-store';
 import { Breadcrumbs } from './Breadcrumbs';
 
 function renderAt(path: string) {
@@ -15,7 +14,6 @@ function renderAt(path: string) {
 describe('Breadcrumbs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useDeviceStore.setState({ selectedDevice: null });
   });
 
   it('renders nothing on root path', () => {
@@ -124,13 +122,10 @@ describe('Breadcrumbs', () => {
     expect(container.querySelector('nav')).toBeNull();
   });
 
-  it('renders /devices/<id> with hostname when selectedDevice is loaded', () => {
-    useDeviceStore.setState({
-      selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-    });
+  it('names a device by the hostname its page handed the route', () => {
     const router = createMemoryRouter(
       [{ path: 'devices/:id', element: <Breadcrumbs /> }],
-      { initialEntries: ['/devices/d1'] },
+      { initialEntries: [{ pathname: '/devices/d1', state: { crumb: 'web-01' } }] },
     );
     render(<RouterProvider router={router} />);
     const devicesLink = screen.getByText('Devices');
@@ -139,14 +134,23 @@ describe('Breadcrumbs', () => {
     expect(screen.getByText('web-01')).toBeInTheDocument();
   });
 
-  it('renders /devices/<id> with raw id when no selectedDevice', () => {
-    useDeviceStore.setState({ selectedDevice: null });
+  it('renders /devices/<id> with the raw id until the page names it', () => {
     const router = createMemoryRouter(
       [{ path: 'devices/:id', element: <Breadcrumbs /> }],
       { initialEntries: ['/devices/raw-id'] },
     );
     render(<RouterProvider router={router} />);
     expect(screen.getByText('raw-id')).toBeInTheDocument();
+  });
+
+  it('names a room by the label its page handed the route', () => {
+    const router = createMemoryRouter(
+      [{ path: 'investigations/:id', element: <Breadcrumbs /> }],
+      { initialEntries: [{ pathname: '/investigations/6f2b9c31-1111-2222-3333-444455556666', state: { crumb: 'cpu-saturated' } }] },
+    );
+    render(<RouterProvider router={router} />);
+    expect(screen.getByText('cpu-saturated')).toBeInTheDocument();
+    expect(screen.queryByText('6f2b9c31')).toBeNull();
   });
 
   it('Dashboard link always points to / and is rendered as an anchor', () => {
@@ -180,13 +184,10 @@ describe('Breadcrumbs', () => {
     expect(link.getAttribute('href')).toBe('/devices');
   });
 
-  it('does not treat a device-id segment outside the devices/* path as a hostname', () => {
-    useDeviceStore.setState({
-      selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-    });
+  it('does not take a page label for a segment outside a named section', () => {
     const router = createMemoryRouter(
       [{ path: 'audit/:id', element: <Breadcrumbs /> }],
-      { initialEntries: ['/audit/d1'] },
+      { initialEntries: [{ pathname: '/audit/d1', state: { crumb: 'web-01' } }] },
     );
     render(<RouterProvider router={router} />);
     expect(screen.queryByText('web-01')).toBeNull();

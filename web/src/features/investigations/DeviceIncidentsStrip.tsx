@@ -6,10 +6,10 @@ import { IncidentSeverityBadge, IncidentStatusBadge } from './IncidentBadges';
 import { countLabel } from './incident-format';
 import { useQueueStore } from './state/queue-store';
 
-/** How often a machine's page re-reads what it is caught up in. */
+/** How often a host's page re-reads what it is caught up in. */
 const STRIP_POLL_MS = 60_000;
 
-/** The open incidents one machine is in, customer-wide ones included; empty renders nothing. */
+/** The open incidents one host is in, customer-wide ones included; empty renders nothing. */
 export function DeviceIncidentsStrip({ deviceId, className = '' }: {
   readonly deviceId: string;
   /** Layout classes the host page applies to the strip. */
@@ -44,7 +44,7 @@ export function DeviceIncidentsStrip({ deviceId, className = '' }: {
               {incident.rule_id}
             </Link>
             <span className="text-xs text-gray-500">
-              {countLabel(incident.occurrences, 'alert', 'alerts')} · {countLabel(incident.device_count, 'machine', 'machines')}
+              {countLabel(incident.occurrences, 'alert', 'alerts')} · {countLabel(incident.device_count, 'host', 'hosts')}
             </span>
           </li>
         ))}

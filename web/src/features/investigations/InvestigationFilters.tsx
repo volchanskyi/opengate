@@ -1,15 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useId } from 'react';
 import type { components } from '../../types/api';
+import { HostSelect } from '../../components/HostSelect';
+import { fireAndForget } from '../../lib/fire-and-forget';
+import { useHostOptions } from '../devices';
+import { useCustomerGate } from '../organizations';
+import { useCatalogueStore } from '../rules';
 import { SEVERITIES, STATUSES, severityLabel, statusLabel } from './incident-lifecycle';
 import { DEFAULT_QUEUE_FILTERS, type QueueFilters } from './state/queue-store';
 
-type Status = components['schemas']['IncidentStatus'];
 type Severity = components['schemas']['IncidentSeverity'];
 
 interface Props {
   readonly filters: QueueFilters;
   readonly onChange: (patch: Partial<QueueFilters>) => void;
 }
+
+const LABEL = 'text-xs text-gray-400 mb-1';
 
 /** Add or remove one value, keeping the vocabulary's own order. */
 function toggle<T>(all: readonly T[], selected: readonly T[], value: T): T[] {
@@ -19,96 +25,110 @@ function toggle<T>(all: readonly T[], selected: readonly T[], value: T): T[] {
   return all.filter((v) => next.includes(v));
 }
 
-function Chip({ label, pressed, onClick }: {
-  readonly label: string;
-  readonly pressed: boolean;
-  readonly onClick: () => void;
-}) {
+function chipTone(on: boolean): string {
+  return on ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600';
+}
+
+function RulePicker({ ruleId, onChange }: { readonly ruleId: string; readonly onChange: (id: string) => void }) {
+  const rules = useCatalogueStore((s) => s.rules);
+  const loaded = useCatalogueStore((s) => s.loaded);
+  const fetchCatalogue = useCatalogueStore((s) => s.fetchCatalogue);
+
+  useEffect(() => {
+    if (!loaded) fireAndForget(fetchCatalogue());
+  }, [loaded, fetchCatalogue]);
+
+  const ids = rules.map((r) => r.id).sort((a, b) => a.localeCompare(b));
+
   return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={`px-2 py-1 rounded text-xs ${pressed ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-    >
-      {label}
-    </button>
+    <label className="flex flex-col gap-1 text-xs text-gray-400">
+      <span>Rule</span>
+      <select
+        value={ruleId}
+        onChange={(e) => { onChange(e.target.value); }}
+        className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-100 w-48"
+      >
+        <option value="">All rules</option>
+        {ids.map((id) => <option key={id} value={id}>{id}</option>)}
+      </select>
+    </label>
   );
 }
 
-/** Queue filters: status and severity apply on click, the rule and device boxes on submit. */
-export function InvestigationFilters({ filters, onChange }: Props) {
-  // The boxes start from the filters already in force.
-  const [ruleId, setRuleId] = useState(filters.ruleId);
-  const [deviceId, setDeviceId] = useState(filters.deviceId);
+function HostPicker({ deviceId, onChange }: { readonly deviceId: string; readonly onChange: (id: string) => void }) {
+  const customer = useCustomerGate();
+  const hosts = useHostOptions(customer);
 
-  const toggleStatus = (status: Status) => {
-    onChange({ status: toggle(STATUSES, filters.status, status) });
-  };
+  return (
+    <div className="flex flex-col gap-1">
+      <span aria-hidden="true" className="text-xs text-gray-400">Host</span>
+      <HostSelect
+        label="Host"
+        hosts={hosts}
+        value={deviceId}
+        onChange={onChange}
+        emptyLabel="All hosts"
+        disabled={customer === null}
+        disabledLabel="Pick a customer first"
+      />
+    </div>
+  );
+}
+
+/** Queue filters; every pick applies at once, and Clear goes back to the new incidents. */
+export function InvestigationFilters({ filters, onChange }: Props) {
+  const statusLabelId = useId();
   const toggleSeverity = (severity: Severity) => {
     onChange({ severity: toggle(SEVERITIES, filters.severity, severity) });
   };
 
   return (
-    <form
-      className="flex flex-wrap items-end gap-4 bg-gray-800 border border-gray-700 rounded-lg p-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onChange({ ruleId: ruleId.trim(), deviceId: deviceId.trim() });
-      }}
-    >
-      <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs text-gray-400 mb-1">Status</legend>
-        <div className="flex gap-1">
+    <div className="flex flex-wrap items-end gap-4 bg-gray-800 border border-gray-700 rounded-lg p-3">
+      <div className="flex flex-col gap-1">
+        <span id={statusLabelId} className={LABEL}>Status</span>
+        <div role="radiogroup" aria-labelledby={statusLabelId} className="flex gap-1">
           {STATUSES.map((s) => (
-            <Chip key={s} label={statusLabel(s)} pressed={filters.status.includes(s)} onClick={() => { toggleStatus(s); }} />
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={filters.status === s}
+              onClick={() => { onChange({ status: s }); }}
+              className={`px-2 py-1 rounded text-xs ${chipTone(filters.status === s)}`}
+            >
+              {statusLabel(s)}
+            </button>
           ))}
         </div>
-      </fieldset>
+      </div>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs text-gray-400 mb-1">Severity</legend>
+        <legend className={LABEL}>Severity</legend>
         <div className="flex gap-1">
           {SEVERITIES.map((s) => (
-            <Chip key={s} label={severityLabel(s)} pressed={filters.severity.includes(s)} onClick={() => { toggleSeverity(s); }} />
+            <button
+              key={s}
+              type="button"
+              aria-pressed={filters.severity.includes(s)}
+              onClick={() => { toggleSeverity(s); }}
+              className={`px-2 py-1 rounded text-xs ${chipTone(filters.severity.includes(s))}`}
+            >
+              {severityLabel(s)}
+            </button>
           ))}
         </div>
       </fieldset>
 
-      <label className="flex flex-col gap-1 text-xs text-gray-400">
-        <span>Rule</span>
-        <input
-          value={ruleId}
-          onChange={(e) => setRuleId(e.target.value)}
-          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-100 w-44"
-        />
-      </label>
+      <RulePicker ruleId={filters.ruleId} onChange={(ruleId) => { onChange({ ruleId }); }} />
+      <HostPicker deviceId={filters.deviceId} onChange={(deviceId) => { onChange({ deviceId }); }} />
 
-      <label className="flex flex-col gap-1 text-xs text-gray-400">
-        <span>Device</span>
-        <input
-          value={deviceId}
-          onChange={(e) => setDeviceId(e.target.value)}
-          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-100 w-44"
-        />
-      </label>
-
-      <div className="flex gap-2">
-        <button type="submit" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium">
-          Apply
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setRuleId(DEFAULT_QUEUE_FILTERS.ruleId);
-            setDeviceId(DEFAULT_QUEUE_FILTERS.deviceId);
-            onChange(DEFAULT_QUEUE_FILTERS);
-          }}
-          className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs font-medium"
-        >
-          Clear
-        </button>
-      </div>
-    </form>
+      <button
+        type="button"
+        onClick={() => { onChange(DEFAULT_QUEUE_FILTERS); }}
+        className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs font-medium"
+      >
+        Clear
+      </button>
+    </div>
   );
 }

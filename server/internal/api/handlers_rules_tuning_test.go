@@ -72,7 +72,7 @@ func TestTheRulePageExplainsWhereAMachinesNumberCameFrom(t *testing.T) {
 	threshold := got.Params["threshold"]
 	assert.InEpsilon(t, 95.0, threshold.Value, 0.0001)
 	assert.Equal(t, ResolvedRuleParameterLevelSite, threshold.Level)
-	assert.Contains(t, threshold.Source, "office")
+	assert.Contains(t, threshold.Source, "site")
 	assert.True(t, got.Delivered)
 
 	sustain := got.Params["sustain_secs"]

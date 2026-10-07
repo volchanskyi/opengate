@@ -4,7 +4,6 @@ type Rule = components['schemas']['Rule'];
 type Rollout = Rule['rollout'];
 type Noise = Rule['noise'];
 type NoiseLevel = Noise['level'];
-type Coverage = Rule['coverage'];
 type Stage = Rollout['stage'];
 
 /**
@@ -21,8 +20,8 @@ const COMPARATOR_WORDING = new Map<Rule['comparator'], string>([
 
 const STAGE_WORDING = new Map<Stage, string>([
   ['off', 'Reaching nobody'],
-  ['canary', 'First machines'],
-  ['staged', 'Some machines'],
+  ['canary', 'First hosts'],
+  ['staged', 'Some hosts'],
   ['full', 'Everywhere'],
 ]);
 
@@ -54,11 +53,7 @@ export function rolloutWording(rollout: Rollout): string {
   if (!rollout.enabled) return 'Off';
   if (rollout.stage === 'full') return STAGE_WORDING.get('full') ?? 'Everywhere';
   const stage = STAGE_WORDING.get(rollout.stage) ?? rollout.stage;
-  return `${stage} — ${rollout.rollout_percent}% of the estate`;
-}
-
-export function coveredMachines(coverage: Coverage): number {
-  return coverage.active;
+  return `${stage} — ${rollout.rollout_percent}% of the fleet`;
 }
 
 export function noiseWording(noise: Noise): string {
@@ -96,8 +91,65 @@ export function selectorWording(selector: Record<string, string>): string {
   const pairs = Object.entries(selector)
     .map(([key, value]) => `${key}=${value}`)
     .sort((a, b) => a.localeCompare(b));
-  if (pairs.length === 0) return 'every machine at this level';
-  return `machines labelled ${pairs.join(', ')}`;
+  if (pairs.length === 0) return 'every host at this level';
+  return `hosts labelled ${pairs.join(', ')}`;
+}
+
+// The other side of a comparison, which is where a reading has to go for an alert to clear.
+const CLEARS_WHEN = new Map<Rule['comparator'], string>([
+  ['gt', 'below'],
+  ['gte', 'below'],
+  ['lt', 'above'],
+  ['lte', 'above'],
+]);
+
+/** Each tunable setting's plain name, and the sentence saying what a value of it does. */
+const TUNING = new Map<string, { readonly name: string; readonly explain: (rule: Rule, value: number) => string }>([
+  ['threshold', {
+    name: 'Alert level',
+    explain: (rule, value) =>
+      `An alert is raised when ${rule.metric ?? 'the reading'} reads ${COMPARATOR_WORDING.get(rule.comparator) ?? rule.comparator} ${value}.`,
+  }],
+  ['clear', {
+    name: 'All-clear level',
+    explain: (rule, value) =>
+      `The alert clears once ${rule.metric ?? 'the reading'} reads ${CLEARS_WHEN.get(rule.comparator) ?? 'back past'} ${value}.`,
+  }],
+  ['sustain_secs', {
+    name: 'Must last for',
+    explain: (_rule, value) => `The reading must hold for ${holdLabel(value)} before an alert is raised.`,
+  }],
+  ['window_secs', {
+    name: 'Averaging window',
+    explain: (_rule, value) => `Readings are averaged over ${holdLabel(value)} before they are compared.`,
+  }],
+]);
+
+/** A setting's plain name with its stored name beside it, such as "Alert level (threshold)". */
+export function settingName(param: string): string {
+  const setting = TUNING.get(param);
+  return setting ? `${setting.name} (${param})` : param;
+}
+
+/** What a typed value of a setting would do on this rule; null for a setting with no sentence. */
+export function tuningExplanation(rule: Rule, param: string, value: number): string | null {
+  return TUNING.get(param)?.explain(rule, value) ?? null;
+}
+
+/** One heading of the rules list and the rules under it, those needing attention first. */
+export interface RuleGroup {
+  readonly key: string;
+  readonly title: string;
+  readonly rules: readonly Rule[];
+}
+
+/** Rules about readings are host rules; rules about log events are Linux rules. */
+export function groupRules(rules: readonly Rule[]): RuleGroup[] {
+  const groups: RuleGroup[] = [
+    { key: 'host', title: 'Host rules', rules: attentionFirst(rules.filter((r) => r.kind !== 'event')) },
+    { key: 'linux', title: 'Linux rules', rules: attentionFirst(rules.filter((r) => r.kind === 'event')) },
+  ];
+  return groups.filter((g) => g.rules.length > 0);
 }
 
 // A stopped rule ranks highest, then a noisy one, then one with a blind spot.

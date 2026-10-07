@@ -13,7 +13,7 @@ type Incident = components['schemas']['Incident'];
 function incident(over: Partial<Incident> = {}): Incident {
   return {
     id: 'i1', organization_id: 'org-1', rule_id: 'cpu.sustained', scope: 'organization',
-    scope_key: 'org-1', severity: 'critical', status: 'new',
+    scope_key: 'org-1', scope_name: 'Contoso', severity: 'critical', status: 'new',
     opened_at: '2026-08-12T09:00:00Z', first_seen: '2026-08-12T08:59:00Z',
     last_seen: '2026-08-12T09:30:00Z', occurrences: 312, device_count: 40, ...over,
   };
@@ -61,9 +61,15 @@ beforeEach(() => {
 });
 
 describe('queue-store — reading the queue', () => {
-  it('opens on the three statuses that are still somebody’s problem', () => {
-    expect(DEFAULT_QUEUE_FILTERS.status).toEqual(['new', 'acknowledged', 'investigating']);
+  it('opens on the new incidents, one status at a time, at every severity', () => {
+    expect(DEFAULT_QUEUE_FILTERS.status).toBe('new');
     expect(DEFAULT_QUEUE_FILTERS.severity).toEqual([]);
+  });
+
+  it('asks for the one status in force as a one-item list', async () => {
+    mockedGet.mockResolvedValue(page([]) as never);
+    await useQueueStore.getState().fetchQueue();
+    expect(lastQuery()).toMatchObject({ status: ['new'] });
   });
 
   it('reads the triage queue and keeps where the next page starts', async () => {
@@ -99,7 +105,7 @@ describe('queue-store — reading the queue', () => {
   it('composes every filter into one read', async () => {
     mockedGet.mockResolvedValue(page([]) as never);
     useQueueStore.getState().setFilters({
-      status: ['investigating'], severity: ['critical', 'warning'],
+      status: 'investigating', severity: ['critical', 'warning'],
       ruleId: 'cpu.sustained', deviceId: 'dev-7',
     });
     await useQueueStore.getState().fetchQueue();
@@ -114,14 +120,32 @@ describe('queue-store — reading the queue', () => {
 
   it('omits a filter nobody set instead of sending an empty one', async () => {
     mockedGet.mockResolvedValue(page([]) as never);
-    useQueueStore.getState().setFilters({ status: [], severity: [], ruleId: '', deviceId: '' });
+    useQueueStore.getState().setFilters({ severity: [], ruleId: '', deviceId: '' });
     await useQueueStore.getState().fetchQueue();
 
     const query = lastQuery();
-    expect(query).not.toHaveProperty('status');
     expect(query).not.toHaveProperty('severity');
     expect(query).not.toHaveProperty('rule_id');
     expect(query).not.toHaveProperty('device_id');
+  });
+
+  it('drops a picked host when the customer changes, since the host belonged to the old one', () => {
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-1' });
+    useQueueStore.getState().setFilters({ deviceId: 'dev-7', ruleId: 'cpu-saturated' });
+
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-2' });
+
+    expect(useQueueStore.getState().filters.deviceId).toBe('');
+    expect(useQueueStore.getState().filters.ruleId).toBe('cpu-saturated');
+  });
+
+  it('keeps a picked host while the customer stays the same', () => {
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-1' });
+    useQueueStore.getState().setFilters({ deviceId: 'dev-7' });
+
+    useOrganizationStore.setState({ customerWanted: 1 });
+
+    expect(useQueueStore.getState().filters.deviceId).toBe('dev-7');
   });
 
   it('narrows to the customer the picker has selected', async () => {

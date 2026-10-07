@@ -47,10 +47,15 @@ var ErrHardwareNotFound = errors.New("device hardware not found")
 // Foreign-key checks bypass row-level security, so this check keeps devices inside their tenant.
 var ErrOrganizationNotFound = errors.New("organization not found in this tenant")
 
+// ErrSiteFilterContradicts is returned for a list asking for one site and for no site at once.
+var ErrSiteFilterContradicts = errors.New("a device list cannot ask for a site and for no site")
+
 // Filter narrows a device list. A zero field matches everything, and set fields narrow together.
 type Filter struct {
 	SiteID         SiteID
 	OrganizationID OrganizationID
+	// WithoutSite narrows to devices filed under no site.
+	WithoutSite bool
 }
 
 // Device is a managed agent installation.

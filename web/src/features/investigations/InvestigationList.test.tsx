@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
 import { useOrganizationStore } from '../organizations';
 import { InvestigationList } from './InvestigationList';
 import { DEFAULT_QUEUE_FILTERS, useQueueStore } from './state/queue-store';
-import { useCatalogueStore } from '../rules/state/catalogue-store';
+import { useCatalogueStore } from '../rules';
 import type { components } from '../../types/api';
 
 vi.mock('../../lib/api', () => ({ api: { GET: vi.fn() } }));
@@ -17,8 +17,8 @@ type Incident = components['schemas']['Incident'];
 
 function incident(over: Partial<Incident> = {}): Incident {
   return {
-    id: 'i1', organization_id: 'org-1', rule_id: 'cpu.sustained', scope: 'organization',
-    scope_key: 'org-1', severity: 'critical', status: 'new',
+    id: 'i1', organization_id: 'org-1', rule_id: 'cpu.sustained', scope: 'device',
+    scope_key: 'dev-1', scope_name: 'reception-pc', severity: 'critical', status: 'new',
     opened_at: '2026-08-12T09:00:00Z', first_seen: '2026-08-12T09:00:00Z',
     last_seen: '2026-08-12T11:05:00Z', occurrences: 312, device_count: 40, ...over,
   };
@@ -55,7 +55,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   setVisibility('visible');
   useOrganizationStore.setState({ selectedOrganizationId: null });
-  useCatalogueStore.setState({ rules: [], fleetSize: 0, loaded: false, loading: false, error: null });
+  useCatalogueStore.setState({
+    rules: [], fleetSize: 0, loaded: true, loading: false, error: null,
+    fetchCatalogue: vi.fn().mockResolvedValue(undefined),
+  });
   useQueueStore.setState({
     items: [], nextCursor: null, loading: false, loaded: false, error: null, pagedOn: false,
     filters: DEFAULT_QUEUE_FILTERS, byDevice: new Map(), deviceErrors: new Map(),
@@ -106,8 +109,27 @@ describe('InvestigationList — the queue', () => {
     expect(within(row).getByText('Critical')).toBeInTheDocument();
     expect(within(row).getByText('New')).toBeInTheDocument();
     expect(within(row).getByText('312 alerts')).toBeInTheDocument();
-    expect(within(row).getByText('40 machines')).toBeInTheDocument();
+    expect(within(row).getByText('40 hosts')).toBeInTheDocument();
     expect(within(row).getByText('2 h 5 m')).toBeInTheDocument();
+  });
+
+  it('names what each room is about rather than printing its id', async () => {
+    mockedGet.mockResolvedValue(page([
+      incident(),
+      incident({ id: 'i2', rule_id: 'disk.await', scope: 'site', scope_key: 'site-1', scope_name: null }),
+    ]) as never);
+    renderList();
+
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('row', { name: /cpu\.sustained/ })).toHaveTextContent('Host · reception-pc');
+    expect(within(table).getByRole('row', { name: /disk\.await/ })).toHaveTextContent('Site · a removed site');
+    expect(within(table).queryByText(/dev-1|site-1/)).toBeNull();
+  });
+
+  it('leaves the rule coverage to the Rules page', async () => {
+    renderList();
+    await screen.findByText(/Nothing to work/i);
+    expect(screen.queryByText('Rule coverage')).toBeNull();
   });
 
   it('opens the room from the row', async () => {
@@ -135,7 +157,7 @@ describe('InvestigationList — narrowing', () => {
     await user.click(screen.getByRole('button', { name: 'Critical' }));
 
     expect(lastQuery()).toMatchObject({
-      status: ['new', 'acknowledged', 'investigating'],
+      status: ['new'],
       severity: ['critical'],
     });
   });

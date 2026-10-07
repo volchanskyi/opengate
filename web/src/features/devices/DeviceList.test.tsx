@@ -6,6 +6,8 @@ import { useDeviceStore } from './state/device-store';
 import { useUpdateStore } from './state/update-store';
 import { useInventoryStore } from './state/inventory-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
+import { useOrganizationStore } from '../organizations';
+import { NOT_ASSIGNED_SITE_ID } from './device-drag';
 import { DeviceList } from './DeviceList';
 
 vi.mock('../../lib/api', () => ({
@@ -584,5 +586,72 @@ describe('DeviceList', () => {
     useUpdateStore.setState({ manifests: [], fetchManifests });
     renderDeviceList();
     expect(fetchManifests).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DeviceList — what the grid is narrowed to', () => {
+  const device = (id: string, hostname: string) => ({
+    id, organization_id: 'org-1', site_id: 'g1', hostname, os: 'linux', agent_version: '1.0.0',
+    capabilities: [], status: 'online' as const, last_seen: new Date().toISOString(), created_at: '', updated_at: '',
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useOrganizationStore.setState({ selectedOrganizationId: 'org-1' });
+    useDeviceStore.setState({
+      sites: [{ id: 'g1', organization_id: 'org-1', name: 'Front Desk', created_at: '', updated_at: '' }],
+      devices: [], selectedSiteId: null, isLoading: false, error: null,
+      fetchSites: vi.fn(), fetchDevices: vi.fn(),
+    });
+    useInventoryStore.setState({ byDevice: new Map(), loading: new Map(), errors: new Map(), fetchInventory: vi.fn() });
+  });
+
+  it('names the picked site on its very first read', () => {
+    const fetchDevices = vi.fn();
+    useDeviceStore.setState({ selectedSiteId: 'g1', fetchDevices });
+    renderDeviceList();
+    expect(fetchDevices).toHaveBeenCalledWith('g1');
+    expect(fetchDevices).not.toHaveBeenCalledWith(undefined);
+  });
+
+  it('says so when no device is left without a site', () => {
+    useDeviceStore.setState({ selectedSiteId: NOT_ASSIGNED_SITE_ID });
+    renderDeviceList();
+    expect(screen.getByText('No devices without a site')).toBeInTheDocument();
+  });
+
+  it('Show All Devices empties the site, the address-bar filter and the search together', async () => {
+    const user = userEvent.setup();
+    const selectSite = vi.fn((id: string | null) => { useDeviceStore.setState({ selectedSiteId: id }); });
+    useDeviceStore.setState({ selectedSiteId: 'g1', selectSite, devices: [device('d1', 'web-01'), device('d2', 'db-01')] });
+    renderDeviceList('/devices?status=offline');
+
+    await user.type(screen.getByPlaceholderText('Search Devices...'), 'web');
+    expect(screen.getByRole('button', { name: /Clear filter/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show All Devices' }));
+
+    expect(selectSite).toHaveBeenCalledWith(null);
+    expect(screen.queryByRole('button', { name: /Clear filter/ })).toBeNull();
+    expect(screen.getByPlaceholderText('Search Devices...')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Show All Devices' })).toBeDisabled();
+  });
+
+  it('keeps Show All Devices on screen but idle when every device is already shown', () => {
+    renderDeviceList();
+    expect(screen.getByRole('button', { name: 'Show All Devices' })).toBeDisabled();
+  });
+
+  it('a customer switch clears the picked site before the grid is read again', async () => {
+    const fetchDevices = vi.fn();
+    useDeviceStore.setState({ selectedSiteId: 'g1', fetchDevices });
+    renderDeviceList();
+    fetchDevices.mockClear();
+
+    act(() => { useOrganizationStore.setState({ selectedOrganizationId: 'org-2' }); });
+
+    await waitFor(() => { expect(fetchDevices).toHaveBeenCalled(); });
+    expect(fetchDevices).toHaveBeenLastCalledWith(undefined);
+    expect(useDeviceStore.getState().selectedSiteId).toBeNull();
   });
 });

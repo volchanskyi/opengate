@@ -39,6 +39,16 @@ everywhere.
 **A noise badge counts a rule's recent alerts** for the selected customer, so
 the person tuning it can see what it is currently costing.
 
+**The Rules list carries all four coverage states against the fleet size**, so a
+split that does not add up is visible rather than rounded away. It groups rules
+as host rules and Linux rules from the kind each rule already states, worked out
+in the browser, so the catalogue gains no field for it.
+
+**Host and site pick-lists belong to one chosen customer.** Under "All
+customers" they wait and ask for one, and the customer picker is marked, because
+a host or site list spanning customers offers picks that belong to someone else.
+A value is aimed at a site picked from a list rather than an id typed in.
+
 ## Consequences
 
 Rollout populations and waiting periods are per rule and per customer, so a

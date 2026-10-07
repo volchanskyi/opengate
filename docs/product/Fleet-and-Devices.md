@@ -67,9 +67,19 @@ customer, or opens it up to the whole tenant.
 ## Finding a device
 
 - **Search** — filter the list by hostname as you type.
-- **Site sidebar** — narrow to one site within the selected customer.
+- **Site sidebar** — narrow to one site within the selected customer, or pick
+  **Not Assigned** for the devices filed under no site. Not Assigned appears once
+  the customer has a site, for everyone; an administrator can also drop a device
+  card on it to take the device out of its site.
 - **URL filters** — `status`, `health` and `maintenance` are query parameters, so
   a filtered view can be bookmarked or pasted to a colleague.
+- **Show All Devices** — beside *Add Device*, clears the picked site (or Not
+  Assigned), the URL filter and the search text in one step. It is greyed out
+  while the list already shows every device.
+
+The picked site stays picked when the reader comes back to the list from another
+page, and choosing another customer drops it — a site belongs to one customer, so *Front Desk* picked under Acme
+Dental gives way to all of Bright Law's devices rather than an empty grid.
 
 Each device card carries a status badge, a health badge, a maintenance badge when
 the machine is in maintenance, and a hint of the machine's discovered footprint

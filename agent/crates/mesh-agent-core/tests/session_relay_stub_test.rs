@@ -86,36 +86,87 @@ async fn empty_and_undecodable_frames_keep_the_session_alive() {
     relay.await.expect("relay stub task");
 }
 
-#[tokio::test]
-async fn ping_is_answered_before_the_session_ends() {
-    let (url, listener) = bind_relay_stub().await;
-    let relay = tokio::spawn(async move {
+/// Sends each payload as a ping and reads one answer per ping, then closes and keeps the rest.
+fn spawn_pinging_relay(
+    listener: TcpListener,
+    payloads: Vec<Vec<u8>>,
+) -> JoinHandle<(Vec<Message>, Vec<Message>)> {
+    tokio::spawn(async move {
         let (stream, _) = listener.accept().await.expect("relay stub accept");
         let mut ws = tokio_tungstenite::accept_async(stream)
             .await
             .expect("relay stub handshake");
 
-        ws.send(Message::Ping(vec![0xB0, 0xA7].into()))
-            .await
-            .expect("relay stub ping");
-        // The answer is read before closing so teardown cannot race it away.
-        let answer = ws.next().await.expect("agent answer").expect("agent frame");
+        let mut answers = Vec::new();
+        for payload in payloads {
+            ws.send(Message::Ping(payload.into()))
+                .await
+                .expect("relay stub ping");
+            // Each answer is read before the next ping, so a stray data message takes a pong's slot.
+            let answer = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+                .await
+                .expect("the agent answers a ping without other traffic")
+                .expect("agent answer")
+                .expect("agent frame");
+            answers.push(answer);
+        }
         ws.send(Message::Close(None))
             .await
             .expect("relay stub close");
-        while ws.next().await.is_some() {}
-        answer
-    });
+
+        let mut rest = Vec::new();
+        while let Some(Ok(msg)) = ws.next().await {
+            rest.push(msg);
+        }
+        (answers, rest)
+    })
+}
+
+fn data_messages(messages: &[Message]) -> Vec<&Message> {
+    messages
+        .iter()
+        .filter(|m| matches!(m, Message::Binary(_) | Message::Text(_)))
+        .collect()
+}
+
+#[tokio::test]
+async fn ping_is_answered_with_a_pong_and_no_data_message() {
+    let (url, listener) = bind_relay_stub().await;
+    let relay = spawn_pinging_relay(listener, vec![vec![0xB0, 0xA7]]);
 
     run_session(&url, no_permissions())
         .await
         .expect("session should end cleanly after a ping");
 
-    let answer = relay.await.expect("relay stub task");
+    let (answers, rest) = relay.await.expect("relay stub task");
+    assert_eq!(answers, vec![Message::Pong(vec![0xB0, 0xA7].into())]);
+    assert!(
+        data_messages(&rest).is_empty(),
+        "a ping must not reach the browser as data: {rest:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_idle_session_answers_each_keep_alive_with_its_own_pong() {
+    let (url, listener) = bind_relay_stub().await;
+    // The server's keep-alive payload is a counter written as text.
+    let relay = spawn_pinging_relay(listener, vec![b"37".to_vec(), b"38".to_vec()]);
+
+    run_session(&url, no_permissions())
+        .await
+        .expect("session should end cleanly after two keep-alives");
+
+    let (answers, rest) = relay.await.expect("relay stub task");
     assert_eq!(
-        answer.into_data().to_vec(),
-        vec![0xB0, 0xA7],
-        "the agent must echo the ping payload back to the relay"
+        answers,
+        vec![
+            Message::Pong(b"37".to_vec().into()),
+            Message::Pong(b"38".to_vec().into()),
+        ]
+    );
+    assert!(
+        data_messages(&rest).is_empty(),
+        "a keep-alive must not reach the browser as data: {rest:?}"
     );
 }
 

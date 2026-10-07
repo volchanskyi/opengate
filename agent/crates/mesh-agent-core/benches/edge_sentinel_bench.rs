@@ -10,7 +10,7 @@ use mesh_agent_core::ml::{
     sampler::{MetricSampler, SysinfoSampler},
     window::AnomalyRateWindow,
 };
-use mesh_protocol::{HistoryPoint, ProcessReportEntry};
+use mesh_protocol::{EvidenceProcess, HistoryPoint};
 use std::hint::black_box;
 
 fn bench_detection_vote_and_window(c: &mut Criterion) {
@@ -132,13 +132,13 @@ fn bench_alert_evidence_at_fire_time(c: &mut Criterion) {
         })
         .collect();
 
-    let processes: Vec<ProcessReportEntry> = (0..PROCESS_ROWS)
-        .map(|i| ProcessReportEntry {
+    let processes: Vec<EvidenceProcess> = (0..PROCESS_ROWS)
+        .map(|i| EvidenceProcess {
             rank: i as u32 + 1,
             basename: "pg_dump".to_string(),
             cmdline_hash: None,
             pid: 4242 + i as u32,
-            cpu: 88.0,
+            cpu_share: Some(37.5),
             mem: 2_147_483_648.0,
         })
         .collect();

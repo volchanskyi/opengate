@@ -10,7 +10,7 @@ use mesh_agent_core::correlate::{
 };
 use mesh_agent_core::ml::sampler::MetricSample;
 use mesh_agent_core::ml::store_sink::dim_series;
-use mesh_protocol::{HistoryPoint, ProcessReportEntry};
+use mesh_protocol::{EvidenceProcess, HistoryPoint};
 use tracing::debug;
 
 use super::SharedSink;
@@ -139,16 +139,16 @@ fn readings_behind(store: Option<&SharedSink>, ranked: &[Ranked], at: i64) -> Ve
 
 /// The processes running when the rule fired, busiest first; the composer redacts the
 /// basenames because a process name is host-chosen free text.
-fn running_now(sample: &MetricSample) -> Vec<ProcessReportEntry> {
+fn running_now(sample: &MetricSample) -> Vec<EvidenceProcess> {
     sample
         .processes
         .iter()
-        .map(|p| ProcessReportEntry {
+        .map(|p| EvidenceProcess {
             rank: u32::from(p.rank),
             basename: p.basename.clone(),
             cmdline_hash: p.cmdline_hash.clone(),
             pid: p.pid,
-            cpu: p.cpu,
+            cpu_share: p.cpu_share,
             mem: p.mem,
         })
         .collect()
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(rows[0].rank, 1);
         assert_eq!(rows[0].basename, "pg_dump");
         assert_eq!(rows[0].pid, 4242);
-        assert_eq!(rows[0].cpu, 88.0);
+        assert_eq!(rows[0].cpu_share, Some(37.5));
         assert_eq!(rows[0].mem, 3.5);
     }
 

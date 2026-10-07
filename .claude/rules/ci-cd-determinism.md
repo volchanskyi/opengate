@@ -104,6 +104,15 @@ A step whose work was refused must not report success.
   one job both publishes the verdict and sends, something downstream reads that
   verdict off `needs.<job>.result`.
 
+### A job names an environment only where a person approves it
+
+- A job that names a GitHub environment waits for GitHub to release it, and one
+  no person approves can be held with no limit — a scheduled run that never
+  starts and never alerts.
+- The only environments a workflow names are `staging` and `production`. Secrets
+  a scheduled job needs are repository secrets.
+- The sweep reads every job's `environment:` as structure, in both of its forms.
+
 ### A configuration the cluster was never given is not a configuration
 
 - Alert rules, dashboards and scrape targets are rendered from this repository,

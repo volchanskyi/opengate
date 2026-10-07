@@ -1027,6 +1027,7 @@ components:
           rule_id,
           scope,
           scope_key,
+          scope_name,
           severity,
           status,
           opened_at,
@@ -1054,6 +1055,12 @@ components:
           type: string
           format: uuid
           description: What the incident is about at that rung.
+        scope_name:
+          type: string
+          nullable: true
+          description: >-
+            The name of the host, site or customer `scope_key` names; null once
+            that record is removed.
         severity:
           $ref: "#/components/schemas/IncidentSeverity"
         status:
@@ -1127,6 +1134,7 @@ components:
           window_end,
           backfilled,
           evidence_bytes,
+          hostname,
         ]
       properties:
         id:
@@ -1135,6 +1143,10 @@ components:
         device_id:
           type: string
           format: uuid
+        hostname:
+          type: string
+          nullable: true
+          description: The name of the host that raised it; null once the host is removed.
         rule_id:
           type: string
         rule_version:
@@ -1209,10 +1221,18 @@ components:
       type: object
       description: The whole of one incident, as somebody opening it sees it.
       required:
-        [incident, alerts, alerts_total, events, events_total]
+        [incident, alerts, alerts_total, events, events_total, people]
       properties:
         incident:
           $ref: "#/components/schemas/Incident"
+        people:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            Display names by user id for the holder, every actor and every
+            assignee the history names, inside the caller's tenant only. An id
+            absent here belongs to a user who has been removed.
         alerts:
           type: array
           items:
@@ -1312,9 +1332,16 @@ components:
         cpu:
           type: number
           format: double
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: >-
+            Share of the whole host's processors, 0–100; null when the agent
+            could not measure it.
         mem:
           type: number
           format: double
+          description: Resident memory in bytes.
 
     AlertEvidence:
       type: object
@@ -2204,8 +2231,10 @@ paths:
       summary: List devices, optionally narrowed by customer and site
       description: >-
         Returns the caller's tenant. organization_id narrows to one customer;
-        site_id narrows to one location inside it. Both narrow together, and
-        omitting both returns the whole tenant.
+        site_id narrows to one location inside it, and without_site to the
+        devices filed under no site. They narrow together, except that site_id
+        and without_site together are refused. Omitting all of them returns the
+        whole tenant.
       security:
         - bearerAuth: []
       parameters:
@@ -2222,6 +2251,12 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: without_site
+          in: query
+          required: false
+          description: Narrow the list to devices filed under no site.
+          schema:
+            type: boolean
       responses:
         "200":
           description: List of devices
@@ -2232,7 +2267,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/Device"
         "400":
-          description: Invalid request
+          description: Invalid request, including site_id and without_site together
           content:
             application/json:
               schema:

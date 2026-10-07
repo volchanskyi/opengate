@@ -8,7 +8,7 @@ import { NoiseBadge } from './NoiseBadge';
 import { ResolvedFor } from './ResolvedFor';
 import { RolloutPanel } from './RolloutPanel';
 import { TuningPanel } from './TuningPanel';
-import { WhatItDoes } from './WhatItDoes';
+import { DefaultConfig } from './DefaultConfig';
 import { noiseWording } from './rule-summary';
 import { useCatalogueStore } from './state/catalogue-store';
 import { useRuleStore } from './state/rule-store';
@@ -59,7 +59,7 @@ export function RuleDetail() {
           <NoiseBadge noise={rule.noise} />
           <span className="text-sm text-gray-400">{noiseWording(rule.noise)}</span>
         </div>
-        <p className="text-sm text-gray-400">{rule.summary}</p>
+        <p className="text-sm text-gray-400">Rule explanation: {rule.summary}</p>
         {error && (
           <p role="alert" className="mt-2 text-sm text-red-400">
             {error}
@@ -67,7 +67,7 @@ export function RuleDetail() {
         )}
       </header>
 
-      <WhatItDoes rule={rule} />
+      <DefaultConfig rule={rule} />
       <TuningPanel rule={rule} bindings={bindings} clamps={clamps} canEdit={canEdit} />
       <ResolvedFor ruleId={rule.id} />
       <CoveragePanel coverage={rule.coverage} fleetSize={fleetSize} />

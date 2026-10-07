@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../../../lib/api';
 import { apiAction, progressAdapter } from '../../../state/api-action';
-import { selectedOrganizationQuery } from '../../organizations';
+import { selectedOrganizationQuery, useOrganizationStore } from '../../organizations';
 import type { components } from '../../../types/api';
 
 type Incident = components['schemas']['Incident'];
@@ -9,7 +9,8 @@ type Status = components['schemas']['IncidentStatus'];
 type Severity = components['schemas']['IncidentSeverity'];
 
 export interface QueueFilters {
-  status: readonly Status[];
+  /** One status at a time; the request carries it as a one-item list. */
+  status: Status;
   severity: readonly Severity[];
   ruleId: string;
   deviceId: string;
@@ -19,7 +20,7 @@ export interface QueueFilters {
 export const OPEN_STATUSES: readonly Status[] = ['new', 'acknowledged', 'investigating'];
 
 export const DEFAULT_QUEUE_FILTERS: QueueFilters = {
-  status: OPEN_STATUSES,
+  status: 'new',
   severity: [],
   ruleId: '',
   deviceId: '',
@@ -47,7 +48,7 @@ function narrowedQuery(filters: QueueFilters, cursor: string | null) {
   const organizationId = selectedOrganizationQuery();
   return {
     ...(organizationId ? { organization_id: organizationId } : {}),
-    ...(filters.status.length > 0 ? { status: [...filters.status] } : {}),
+    status: [filters.status],
     ...(filters.severity.length > 0 ? { severity: [...filters.severity] } : {}),
     ...(filters.ruleId ? { rule_id: filters.ruleId } : {}),
     ...(filters.deviceId ? { device_id: filters.deviceId } : {}),
@@ -122,4 +123,10 @@ export const useQueueStore = create<QueueState>((set, get) => {
       set((s) => ({ byDevice: new Map(s.byDevice).set(deviceId, res.data.items) }));
     },
   };
+});
+
+// A picked host belongs to one customer, so choosing another customer drops it.
+useOrganizationStore.subscribe((state, previous) => {
+  if (state.selectedOrganizationId === previous.selectedOrganizationId) return;
+  useQueueStore.setState((s) => ({ filters: { ...s.filters, deviceId: '' } }));
 });

@@ -7,6 +7,7 @@ import { useUpdateStore } from './state/update-store';
 import { useInventoryStore } from './state/inventory-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { SiteSidebar } from './SiteSidebar';
+import { NOT_ASSIGNED_SITE_ID } from './device-drag';
 import { DeviceCard } from './DeviceCard';
 import { DeviceSearchBar } from './DeviceSearchBar';
 import { fireAndForget } from '../../lib/fire-and-forget';
@@ -42,9 +43,19 @@ function useColumnCount(ref: RefObject<HTMLElement | null>): number {
   return columns;
 }
 
+/** What an empty grid says, by what narrowed it: the search, the address-bar filter or the site. */
+function emptyGrid(searching: boolean, filterLabel: string | null, siteId: string | null): readonly [string, string] {
+  if (searching) return ['No devices match your search', 'Try a different search term.'];
+  if (filterLabel) return [`No devices match the "${filterLabel}" filter`, 'Clear the filter to see all devices.'];
+  if (siteId === NOT_ASSIGNED_SITE_ID) return ['No devices without a site', 'Every device is filed under a site.'];
+  if (siteId) return ['No devices in this site', 'Download and install the agent to add devices.'];
+  return ['Welcome to OpenGate', 'Select a site to filter devices, or add a new device to get started.'];
+}
+
 export function DeviceList() {
   const devices = useDeviceStore((s) => s.devices);
   const selectedSiteId = useDeviceStore((s) => s.selectedSiteId);
+  const selectSite = useDeviceStore((s) => s.selectSite);
   const isLoading = useDeviceStore((s) => s.isLoading);
   const fetchSites = useDeviceStore((s) => s.fetchSites);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
@@ -53,6 +64,8 @@ export function DeviceList() {
   const manifests = useUpdateStore((s) => s.manifests);
   const fetchManifests = useUpdateStore((s) => s.fetchManifests);
   const addToast = useToastStore((s) => s.addToast);
+  // The list owns the typed text so Show All Devices can clear it; the query follows a pause.
+  const [searchText, setSearchText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isUpgradingAll, setIsUpgradingAll] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -68,9 +81,10 @@ export function DeviceList() {
     });
   }, [setSearchParams]);
 
+  // The site is read at the moment of the read, after a customer switch has cleared it.
   useEffect(() => {
     fireAndForget(fetchSites());
-    fireAndForget(fetchDevices());
+    fireAndForget(fetchDevices(useDeviceStore.getState().selectedSiteId ?? undefined));
     fireAndForget(fetchManifests());
   }, [fetchSites, fetchDevices, fetchManifests, selectedOrganizationId]);
 
@@ -82,6 +96,15 @@ export function DeviceList() {
   const columns = useColumnCount(scrollParentRef);
 
   const handleSearch = useCallback((q: string) => setSearchQuery(q), []);
+
+  const showingAll = selectedSiteId === null && !filterLabel && searchText === '';
+  const [emptyTitle, emptyHint] = emptyGrid(searchQuery !== '', filterLabel, selectedSiteId);
+  const showAll = () => {
+    if (selectedSiteId !== null) selectSite(null);
+    clearFilter();
+    setSearchText('');
+    setSearchQuery('');
+  };
 
   const filteredDevices = useMemo(() => {
     const narrowed = applyDeviceFilter(devices, deviceFilter);
@@ -162,6 +185,8 @@ export function DeviceList() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <DeviceSearchBar
+              query={searchText}
+              onQueryChange={setSearchText}
               onSearch={handleSearch}
               totalCount={devices.length}
               filteredCount={filteredDevices.length}
@@ -191,6 +216,14 @@ export function DeviceList() {
                   : `Upgrade All Agents (${outdatedDevices.length})`}
               </button>
             )}
+            <button
+              type="button"
+              onClick={showAll}
+              disabled={showingAll}
+              className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Show All Devices
+            </button>
             <Link to="/setup" className="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm whitespace-nowrap">
               Add Device
             </Link>
@@ -212,24 +245,8 @@ export function DeviceList() {
 
           {!isLoading && filteredDevices.length === 0 && (
             <div className="text-center py-12">
-              <h3 className="text-lg font-semibold mb-2">
-                {searchQuery
-                  ? 'No devices match your search'
-                  : filterLabel
-                    ? `No devices match the "${filterLabel}" filter`
-                    : selectedSiteId
-                      ? 'No devices in this site'
-                      : 'Welcome to OpenGate'}
-              </h3>
-              <p className="text-gray-500 mb-4">
-                {searchQuery
-                  ? 'Try a different search term.'
-                  : filterLabel
-                    ? 'Clear the filter to see all devices.'
-                    : selectedSiteId
-                      ? 'Download and install the agent to add devices.'
-                      : 'Select a site to filter devices, or add a new device to get started.'}
-              </p>
+              <h3 className="text-lg font-semibold mb-2">{emptyTitle}</h3>
+              <p className="text-gray-500 mb-4">{emptyHint}</p>
             </div>
           )}
 

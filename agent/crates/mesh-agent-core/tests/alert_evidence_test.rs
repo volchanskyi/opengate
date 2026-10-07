@@ -7,7 +7,7 @@ use mesh_agent_core::alerts::{
 };
 use mesh_agent_core::correlate::Ranked;
 use mesh_protocol::{
-    AlertEvidence, HistoryPoint, ProcessReportEntry, EVIDENCE_CODEC, MAX_EVIDENCE_BYTES,
+    AlertEvidence, EvidenceProcess, HistoryPoint, EVIDENCE_CODEC, MAX_EVIDENCE_BYTES,
 };
 
 const EVENT_TS: i64 = 1_700_000_000;
@@ -43,14 +43,14 @@ fn readings(count: usize, span_secs: i64) -> Vec<DimSeries> {
         .collect()
 }
 
-fn processes(count: u32) -> Vec<ProcessReportEntry> {
+fn processes(count: u32) -> Vec<EvidenceProcess> {
     (0..count)
-        .map(|i| ProcessReportEntry {
+        .map(|i| EvidenceProcess {
             rank: i,
             basename: format!("worker{i}"),
             cmdline_hash: None,
             pid: 2000 + i,
-            cpu: f64::from(i),
+            cpu_share: Some(f64::from(i)),
             mem: f64::from(i),
         })
         .collect()
@@ -63,7 +63,7 @@ fn log_lines(count: usize) -> Vec<String> {
 fn source<'a>(
     scores: &'a [Ranked],
     series: &'a [DimSeries],
-    procs: &'a [ProcessReportEntry],
+    procs: &'a [EvidenceProcess],
     logs: &'a [String],
 ) -> EvidenceSource<'a> {
     EvidenceSource {
@@ -201,12 +201,12 @@ fn no_field_carries_a_secret_off_the_device() {
             value: 1.0,
         }],
     }];
-    let procs = vec![ProcessReportEntry {
+    let procs = vec![EvidenceProcess {
         rank: 0,
         basename: "backup --token=s3cr3t".to_string(),
         cmdline_hash: None,
         pid: 42,
-        cpu: 1.0,
+        cpu_share: Some(1.0),
         mem: 1.0,
     }];
 
@@ -442,14 +442,14 @@ fn the_process_list_goes_next_and_the_readings_stay_whole() {
     let mut evidence = AlertEvidence {
         log_samples: Vec::new(),
         processes: (0..PROCESS_ROWS)
-            .map(|i| ProcessReportEntry {
+            .map(|i| EvidenceProcess {
                 #[allow(clippy::cast_possible_truncation)]
                 rank: i as u32,
                 basename: noisy_line(i, 16_000),
                 cmdline_hash: None,
                 #[allow(clippy::cast_possible_truncation)]
                 pid: 2000 + i as u32,
-                cpu: 1.0,
+                cpu_share: None,
                 mem: 1.0,
             })
             .collect(),

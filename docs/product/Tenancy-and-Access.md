@@ -78,7 +78,13 @@ The tables behind groups and membership are in
 ## Settings
 
 The settings section is administrator-only. Every user, administrator or not, has
-a `/profile` page for their own display name.
+a `/profile` page for their own display name. That name is how colleagues see them
+in an incident room — holding it, acting in its history, or handed it — and it is
+shown only to members of the same tenant; an email address is never shown there.
+
+A list of hosts or sites a page offers to pick from belongs to one customer, so
+under **All customers** it waits, reading *Pick a customer first*, and the customer
+picker is ringed until a customer is chosen.
 
 | Screen | Path | What you can do |
 |---|---|---|

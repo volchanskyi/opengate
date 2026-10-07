@@ -9,12 +9,14 @@ import (
 
 func TestEveryDeviceReadSharesTheProjectionAndTheTenantClause(t *testing.T) {
 	statements := map[string]string{
-		"get":                           getDeviceQuery,
-		"get by AMT UUID":               getDeviceByAMTUUIDQuery,
-		"list":                          listDevicesQuery,
-		"list by site":                  listDevicesBySiteQuery,
-		"list by organization":          listDevicesByOrganizationQuery,
-		"list by site and organization": listDevicesBySiteAndOrganizationQuery,
+		"get":                                 getDeviceQuery,
+		"get by AMT UUID":                     getDeviceByAMTUUIDQuery,
+		"list":                                listDevicesQuery,
+		"list by site":                        listDevicesBySiteQuery,
+		"list by organization":                listDevicesByOrganizationQuery,
+		"list by site and organization":       listDevicesBySiteAndOrganizationQuery,
+		"list without a site":                 listDevicesWithoutSiteQuery,
+		"list without a site by organization": listDevicesWithoutSiteByOrganizationQuery,
 	}
 	for name, statement := range statements {
 		t.Run(name, func(t *testing.T) {

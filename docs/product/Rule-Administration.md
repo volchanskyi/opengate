@@ -5,7 +5,7 @@
 - [The rule list](#the-rule-list)
   - [The noise badge](#the-noise-badge)
 - [The rule page](#the-rule-page)
-  - [What it does](#what-it-does)
+  - [Default Config](#default-config)
   - [Tuning](#tuning)
   - [Coverage](#coverage)
   - [Rollout](#rollout)
@@ -26,9 +26,9 @@ model.
 
 | Screen | Path | Contents |
 |---|---|---|
-| Rules | `/rules` | One row per rule: what it watches, how far it has reached, how many machines run it, and how much it has raised in the last hour |
-| Rule detail | `/rules/:ruleId` | Description, tuning, coverage and rollout for one rule |
-| Labels | `/rules/labels` | The label values a customer maintains, and bulk assignment to machines |
+| Rules | `/rules` | One row per rule, in two groups: what it watches, how far it has rolled out, its four coverage counts against the fleet, and how much it has raised in the last hour |
+| Rule detail | `/rules/:ruleId` | Explanation, default config, tuning, coverage and rollout for one rule |
+| Labels | `/rules/labels` | The label values a customer maintains, and labelling hosts picked from a checklist |
 | Alert limits | `/rules/alert-limits` | The customer's alert budget |
 
 **Rules is a top-level section.** Every member of the tenant can read it — a
@@ -51,9 +51,17 @@ operator changes about it is whether it runs.
 
 ## The rule list
 
-Anything wanting attention floats to the top — a rule somebody stopped, a rule
-raising far more than it usually does, a rule with machines that cannot run it at
-all.
+The list is in two groups, each a heading that folds its rules away and back:
+**Host rules**, which compare a reading against a line, and **Linux rules**, which
+match the host's own log records. Both start open. Within a group, anything
+wanting attention floats to the top — a rule somebody stopped, a rule raising far
+more than it usually does, a rule with hosts that cannot run it at all.
+
+Each row counts the fleet four ways — **Watching**, **Paused: too costly**,
+**Can't run here** and **Not heard from** — each as *n / fleet*, with *Can't run
+here* in red above zero. The line under the title says what the counts are taken
+against (*Counted against 312 hosts*), and a rule whose four counts do not add up
+to the fleet is named in a warning above the list.
 
 ### The noise badge
 
@@ -66,11 +74,14 @@ sit permanently red, and a rule with no history yet reads neutral.
 
 ## The rule page
 
-### What it does
+Under the rule's name, *Rule explanation:* gives the rule's own one-line summary.
+
+### Default Config
 
 Read-only description: what the rule watches, what counts as bad, how long a
-breach must persist, how its firings group, and what a machine must be able to
-read for the rule to be evaluable on it.
+breach must persist, how its firings group, and what a host must be able to read
+for the rule to be evaluable on it. It says, beside the rule's version, that this
+config ships as part of the rule and cannot be changed.
 
 ### Tuning
 
@@ -83,10 +94,21 @@ then customer — which is the order resolution reads them in.
 - Two values aimed at one rung by different labels are settled by an explicit
   precedence, shown in the list. Across rungs there is no ambiguity: **the
   narrower level always wins**.
+- With nothing set, the page says *No values set (Ships with the default
+  values)*.
 
-**"Why is this machine at 95?"** Name a machine and the page resolves the rule
-exactly the way the delivery path does, showing each number in force and what
-decided it.
+An administrator sets a value for one **site**, picked from the chosen customer's
+sites, with **Apply to site**. Each setting is offered by its plain name with the
+stored name beside it — *Alert level (threshold)*, *All-clear level (clear)*,
+*Must last for (sustain_secs)*, *Averaging window (window_secs)* — and as a value
+is typed the page says what it will do (*An alert is raised when cpu.total reads
+at or above 95.*) and marks it on a bar of the allowed range beside the shipped
+value.
+
+**"Why is this host at 95?"** Pick a host — sorted by name, each with its online
+or offline dot — and the page resolves the rule exactly the way the delivery path
+does, showing each number in force and what decided it. Until a host is picked it
+reads *Select a host to see current values.*
 
 **When a new rule version narrows a range**, the customer's value moves to the
 nearest value the new version allows. The rule keeps firing at the moved value —
@@ -138,8 +160,11 @@ sites, and no rung of the ladder names that set.
 
 - Values come from a list each customer maintains, rather than being typed in
   free-form.
-- Machines are labelled in bulk from the labels page.
-- A machine carries at most one value per key.
+- Hosts are labelled in bulk from the labels page: pick a label, tick the hosts
+  from the chosen customer's checklist, and assign.
+- *Which host carries what* names each host by hostname; a host removed since
+  reads as *a removed host*.
+- A host carries at most one value per key.
 
 > **Deleting a label a rule aims at is refused.** Removing it would take a tuned
 > value off every machine that carried it — which does not read as a deletion, it

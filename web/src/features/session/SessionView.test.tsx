@@ -5,16 +5,16 @@ import { useConnectionStore } from './state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
 import { SessionView } from './SessionView';
 
-vi.mock('../remote-desktop/RemoteDesktopView', () => ({
+vi.mock('../remote-desktop', () => ({
   RemoteDesktopView: () => <div data-testid="desktop-view">Desktop</div>,
 }));
-vi.mock('../terminal/TerminalView', () => ({
+vi.mock('../terminal', () => ({
   TerminalView: () => <div data-testid="terminal-view">Terminal</div>,
 }));
-vi.mock('../file-manager/FileManagerView', () => ({
+vi.mock('../file-manager', () => ({
   FileManagerView: () => <div data-testid="files-view">Files</div>,
 }));
-vi.mock('../messenger/MessengerView', () => ({
+vi.mock('../messenger', () => ({
   MessengerView: () => <div data-testid="messenger-view">Chat</div>,
 }));
 vi.mock('./SessionToolbar', () => ({

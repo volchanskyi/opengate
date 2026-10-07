@@ -4,7 +4,8 @@ import { apiAction } from '../../../state/api-action';
 import { useToastStore } from '../../../lib/feedback/toast-store';
 import type { components } from '../../../types/api';
 import { fireAndForget } from '../../../lib/fire-and-forget';
-import { selectedOrganizationQuery } from '../../organizations';
+import { selectedOrganizationQuery, useOrganizationStore } from '../../organizations';
+import { NOT_ASSIGNED_SITE_ID } from '../device-drag';
 
 type Device = components['schemas']['Device'];
 type Site = components['schemas']['Site'];
@@ -171,9 +172,12 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchDevices: async (siteId?) => {
-    // The picked customer scopes the fleet and the site narrows within it.
+    // The picked customer scopes the fleet and the site, or no site at all, narrows within it.
+    let site = {};
+    if (siteId === NOT_ASSIGNED_SITE_ID) site = { without_site: true };
+    else if (siteId) site = { site_id: siteId };
     const query = {
-      ...(siteId ? { site_id: siteId } : {}),
+      ...site,
       ...(selectedOrganizationQuery() ? { organization_id: selectedOrganizationQuery() } : {}),
     };
     const res = await apiAction(set, () =>
@@ -379,3 +383,9 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     if (res.ok) set({ summary: res.data });
   },
 }));
+
+// A picked site belongs to one customer, so choosing another customer drops it.
+useOrganizationStore.subscribe((state, previous) => {
+  if (state.selectedOrganizationId === previous.selectedOrganizationId) return;
+  useDeviceStore.setState({ selectedSiteId: null });
+});

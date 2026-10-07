@@ -1,6 +1,26 @@
+import { useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DeviceSearchBar } from './DeviceSearchBar';
+
+/** The list owns the typed text; this stands in for it. */
+function Bar({ onSearch, totalCount, filteredCount, initial = '' }: {
+  readonly onSearch: (q: string) => void;
+  readonly totalCount: number;
+  readonly filteredCount: number;
+  readonly initial?: string;
+}) {
+  const [query, setQuery] = useState(initial);
+  return (
+    <DeviceSearchBar
+      query={query}
+      onQueryChange={setQuery}
+      onSearch={onSearch}
+      totalCount={totalCount}
+      filteredCount={filteredCount}
+    />
+  );
+}
 
 async function settleDebounce() {
   await act(async () => { await vi.advanceTimersByTimeAsync(300); });
@@ -20,7 +40,7 @@ describe('DeviceSearchBar', () => {
 
   it('searches once for a burst of keystrokes, with the final query', async () => {
     const onSearch = vi.fn();
-    render(<DeviceSearchBar onSearch={onSearch} totalCount={9} filteredCount={9} />);
+    render(<Bar onSearch={onSearch} totalCount={9} filteredCount={9} />);
     await settleDebounce();
     onSearch.mockClear(); // the mount fires one search for the empty query
 
@@ -32,14 +52,14 @@ describe('DeviceSearchBar', () => {
   });
 
   it('offers no clear control and no match count until something is typed', () => {
-    render(<DeviceSearchBar onSearch={vi.fn()} totalCount={9} filteredCount={9} />);
+    render(<Bar onSearch={vi.fn()} totalCount={9} filteredCount={9} />);
 
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByText(/9 of 9/)).toBeNull();
   });
 
   it('shows how much of the fleet the query matched', () => {
-    render(<DeviceSearchBar onSearch={vi.fn()} totalCount={9} filteredCount={2} />);
+    render(<Bar onSearch={vi.fn()} totalCount={9} filteredCount={2} />);
 
     typeQuery('web');
 
@@ -48,7 +68,7 @@ describe('DeviceSearchBar', () => {
 
   it('clearing the query restores the unfiltered fleet', async () => {
     const onSearch = vi.fn();
-    render(<DeviceSearchBar onSearch={onSearch} totalCount={9} filteredCount={2} />);
+    render(<Bar onSearch={onSearch} totalCount={9} filteredCount={2} />);
     const input = typeQuery('web');
     await settleDebounce();
     onSearch.mockClear();
@@ -60,5 +80,15 @@ describe('DeviceSearchBar', () => {
     expect(onSearch).toHaveBeenCalledWith('');
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByText(/of 9/)).toBeNull();
+  });
+});
+
+describe('DeviceSearchBar — text the list owns', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('shows the text the list hands it', () => {
+    render(<Bar onSearch={vi.fn()} totalCount={9} filteredCount={2} initial="web" />);
+    expect(screen.getByPlaceholderText<HTMLInputElement>('Search Devices...').value).toBe('web');
   });
 });

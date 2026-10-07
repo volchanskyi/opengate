@@ -538,9 +538,8 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # The job result is the observability environment's deployment status: it reports only
-    # whether the trend was published, and the regression verdict is the job below.
-    environment: observability
+    # This job reports only whether the trend was published; the gate job carries the regression
+    # verdict.
     permissions:
       contents: read
     outputs:

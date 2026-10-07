@@ -93,7 +93,7 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/sites` | GET | JWT | List sites, optionally narrowed by customer |
 | `/api/v1/sites/{id}` | GET | JWT | Get a site |
 | `/api/v1/sites/{id}` | DELETE | JWT (admin) | Delete a site; its devices stay with the customer, unfiled |
-| `/api/v1/devices` | GET | JWT | List devices (optional `organization_id` and `site_id` filters) |
+| `/api/v1/devices` | GET | JWT | List devices (optional `organization_id`, `site_id` and `without_site` filters) |
 | `/api/v1/devices/summary` | GET | JWT | Fixed-size fleet rollup for the dashboard (status tiles + edge-health bands) |
 | `/api/v1/devices/{id}` | GET | JWT | Get a device (includes `capabilities` array) |
 | `/api/v1/devices/{id}` | PATCH | JWT (admin) | Update device (file into a `site_id` in its own customer; the all-zeros UUID unfiles it) |
@@ -294,6 +294,12 @@ customer unfiles it in the same operation. Deleting a site leaves its devices
 with their customer, unfiled. Site names are unique within their customer, so two
 customers may each have a "Head Office".
 
+`GET /api/v1/devices?without_site=true` lists the devices filed under no site, and
+narrows together with `organization_id`. Asking for one site and for no site at
+once (`site_id` with `without_site`) answers `400`. Each combination is one fixed
+statement in
+[`postgres_device.go`](../../server/internal/device/postgres_device.go).
+
 ### Fleet summary
 
 `GET /api/v1/devices/summary` answers the dashboard with a fixed-size rollup of
@@ -339,6 +345,22 @@ the row, so a build that cannot read one answers `422` rather than handing back
 bytes. Log lines inside it were redacted on the machine before they were sent
 ([ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md)); this path returns the
 stored structure unchanged.
+
+Every incident carries `scope_name`, the name of the host, site or customer its
+`scope_key` points at, and each folded alert carries `hostname`; either is `null`
+once that record is removed, and the console says so rather than showing an id.
+The detail carries `people`, display names by user id for the holder, every actor
+and every assignee its history names. The names are looked up in the same scoped
+transaction as the rows they sit beside, each lookup naming the tenant itself
+because the administrator flag widens the row policy
+([`queue.go`](../../server/internal/alerts/queue.go),
+[`room.go`](../../server/internal/alerts/room.go)); a user of another tenant is
+never named, and no email address is returned. A name is looked up per returned
+row, so the queue's indexed read keeps the shape it is paged on.
+
+In evidence, `processes[].cpu` is the process's share of the whole host's
+processors, 0–100, and `null` where the agent could not measure it; `mem` is
+resident memory in bytes.
 
 The device page's strip, `GET /api/v1/devices/{id}/incidents`, is the same queue
 read narrowed to the incidents holding an alert that machine raised — including

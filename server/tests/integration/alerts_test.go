@@ -96,10 +96,11 @@ func (e *alertEnv) connectedMachine(t *testing.T) (*quic.Stream, uuid.UUID) {
 func raise(t *testing.T, stream *quic.Stream, change func(*protocol.ControlMessage)) {
 	t.Helper()
 
+	share := 37.5
 	packed, err := msgpack.Marshal(protocol.AlertEvidence{
 		Ranked: []protocol.RankedDim{{Dim: "disk.used_percent", Score: 0.94}},
-		Processes: []protocol.ProcessReportEntry{
-			{Rank: 1, Basename: "pg_dump", PID: 4242, CPU: 88.0},
+		Processes: []protocol.EvidenceProcess{
+			{Rank: 1, Basename: "pg_dump", PID: 4242, CPUShare: &share},
 		},
 	})
 	require.NoError(t, err)

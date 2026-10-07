@@ -2,14 +2,14 @@ import type { components } from '../../types/api';
 
 type RuleCoverage = components['schemas']['RuleCoverage'];
 
-/** One of the four states every machine in the estate falls into for a rule. */
+/** One of the four states every host in the fleet falls into for a rule. */
 export type CoverageState = keyof RuleCoverage;
 
 const STATE_LABELS = {
   active: 'Watching',
-  throttled: 'Throttled',
-  unsupported: 'Cannot evaluate',
-  unknown: 'Never reported',
+  throttled: 'Paused: too costly',
+  unsupported: "Can't run here",
+  unknown: 'Not heard from',
 } satisfies Record<CoverageState, string>;
 
 const STATE_LABEL = new Map<CoverageState, string>(
@@ -23,7 +23,7 @@ export function coverageStateLabel(state: CoverageState): string {
   return STATE_LABEL.get(state) ?? state;
 }
 
-/** How many machines the four states account for. */
+/** How many hosts the four states account for. */
 export function coverageTotal(coverage: RuleCoverage): number {
   return coverage.active + coverage.throttled + coverage.unsupported + coverage.unknown;
 }

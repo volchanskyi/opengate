@@ -1,8 +1,12 @@
 import type { components } from '../../types/api';
-import { shortId } from '../../lib/short-id';
 import { causeLabel, statusLabel } from './incident-lifecycle';
 
 type IncidentEvent = components['schemas']['IncidentEvent'];
+type Incident = components['schemas']['Incident'];
+type Scope = Incident['scope'];
+
+/** Display names by user id, as a room's detail carries them. */
+export type People = Readonly<Record<string, string>>;
 type Status = components['schemas']['IncidentStatus'];
 type CauseCode = components['schemas']['IncidentCauseCode'];
 
@@ -10,6 +14,25 @@ const DASH = '—';
 const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
+
+const SCOPE_WORDS = new Map<Scope, readonly [string, string]>([
+  ['device', ['Host', 'host']],
+  ['site', ['Site', 'site']],
+  ['organization', ['Customer', 'customer']],
+]);
+
+/** What a room is about, such as "Host · reception-pc"; a removed record is said to be removed. */
+export function scopeLabel(incident: Pick<Incident, 'scope' | 'scope_name'>): string {
+  const [word, noun] = SCOPE_WORDS.get(incident.scope) ?? [incident.scope, incident.scope];
+  return `${word} · ${incident.scope_name ?? `a removed ${noun}`}`;
+}
+
+/** A user's display name; an id the room could not name belongs to a removed user. */
+export function personName(people: People, id: string): string {
+  const name = new Map(Object.entries(people)).get(id);
+  if (name === undefined) return 'a removed user';
+  return name.trim() === '' ? 'a user with no name' : name;
+}
 
 /** One timeline entry, split so free text is rendered as text and never as a heading. */
 export interface TimelineLine {
@@ -98,19 +121,19 @@ function resolutionTitle(read: ReturnType<typeof bodyReader>): string {
   return 'Resolved';
 }
 
-function assignmentTitle(read: ReturnType<typeof bodyReader>): string {
+function assignmentTitle(read: ReturnType<typeof bodyReader>, people: People): string {
   if (read.flag('unassigned')) return 'Unassigned';
-  return `Assigned to ${shortId(read.text('assignee_id'))}`;
+  return `Assigned to ${personName(people, read.text('assignee_id'))}`;
 }
 
-/** Renders one line of a room's history. */
-export function eventLine(event: IncidentEvent): TimelineLine {
+/** Renders one line of a room's history, naming people from the room's own list. */
+export function eventLine(event: IncidentEvent, people: People = {}): TimelineLine {
   const read = bodyReader(event.body);
   switch (event.kind) {
     case 'comment':
       return { title: 'Comment', quote: read.text('body') };
     case 'assignment':
-      return { title: assignmentTitle(read), quote: '' };
+      return { title: assignmentTitle(read, people), quote: '' };
     case 'resolution':
       return { title: resolutionTitle(read), quote: '' };
     case 'status_change':
@@ -118,6 +141,6 @@ export function eventLine(event: IncidentEvent): TimelineLine {
     case 'alert_folded':
       return { title: 'Alert folded in', quote: '' };
     case 'device_offline':
-      return { title: 'Device went offline', quote: '' };
+      return { title: 'Host went offline', quote: '' };
   }
 }

@@ -255,6 +255,7 @@ func TestEveryQueueStatementNamesItsTenant(t *testing.T) {
 		"roomSQL":             roomSQL,
 		"roomAlertsSQL":       roomAlertsSQL,
 		"roomEventsSQL":       roomEventsSQL,
+		"roomPeopleSQL":       roomPeopleSQL,
 		"assignRoomSQL":       assignRoomSQL,
 		"alertEvidenceSQL":    alertEvidenceSQL,
 	} {

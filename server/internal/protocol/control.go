@@ -324,10 +324,10 @@ type EvidenceSeries struct {
 // AlertEvidence is everything the device knows about why an alert fired, carried compressed in
 // ControlMessage.Evidence and never fetched afterwards.
 type AlertEvidence struct {
-	Ranked     []RankedDim          `msgpack:"ranked"`
-	Series     []EvidenceSeries     `msgpack:"series"`
-	Processes  []ProcessReportEntry `msgpack:"processes"`
-	LogSamples []string             `msgpack:"log_samples"`
+	Ranked     []RankedDim       `msgpack:"ranked"`
+	Series     []EvidenceSeries  `msgpack:"series"`
+	Processes  []EvidenceProcess `msgpack:"processes"`
+	LogSamples []string          `msgpack:"log_samples"`
 	// Truncated says whether the size cap cost this evidence anything, so
 	// "nothing was dropped" and "nobody checked" never look alike.
 	Truncated bool `msgpack:"truncated"`
@@ -430,6 +430,19 @@ const (
 type RuleCoverage struct {
 	RuleID string            `msgpack:"rule_id"`
 	State  RuleCoverageState `msgpack:"state"`
+}
+
+// EvidenceProcess is one process running when an alert fired, as the device measured it.
+type EvidenceProcess struct {
+	Rank        uint32  `msgpack:"rank"`
+	Basename    string  `msgpack:"basename"`
+	CmdlineHash *string `msgpack:"cmdline_hash,omitempty"`
+	PID         uint32  `msgpack:"pid"`
+	// CPUShare is the share of the whole host's processors, 0–100; nil when the device could
+	// not measure it.
+	CPUShare *float64 `msgpack:"cpu_share,omitempty"`
+	// Mem is resident memory, in bytes.
+	Mem float64 `msgpack:"mem"`
 }
 
 // ProcessReportEntry is a sanitized process sample row from Edge Sentinel.

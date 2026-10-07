@@ -66,7 +66,7 @@ func evidenceToAPI(evidence protocol.AlertEvidence) AlertEvidence {
 			Rank:     int(process.Rank),
 			Basename: process.Basename,
 			Pid:      int(process.PID),
-			Cpu:      process.CPU,
+			Cpu:      process.CPUShare,
 			Mem:      process.Mem,
 		})
 	}

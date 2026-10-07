@@ -11,7 +11,7 @@ type AlertEvidence = components['schemas']['AlertEvidence'];
 
 function alert(over: Partial<IncidentAlert> = {}): IncidentAlert {
   return {
-    id: 'a1', device_id: '6f2b9c31-1111-2222-3333-444455556666', rule_id: 'cpu.sustained',
+    id: 'a1', device_id: '6f2b9c31-1111-2222-3333-444455556666', hostname: 'reception-pc', rule_id: 'cpu.sustained',
     rule_version: 3, severity: 'critical', metric: 'cpu.busy_pct', value: 96.4,
     window_start: '2026-08-12T09:00:00Z', window_end: '2026-08-12T09:01:00Z',
     observed_at: '2026-08-12T09:00:30Z', received_at: '2026-08-12T09:00:45Z',
@@ -43,15 +43,23 @@ beforeEach(() => {
 });
 
 describe('IncidentAlerts — what each alert says', () => {
-  it('names the machine and links to it without asking anything of it', () => {
+  it('names the host and links to it without asking anything of it', () => {
     renderAlerts();
-    const link = screen.getByRole('link', { name: '6f2b9c31' });
+    expect(screen.getByRole('columnheader', { name: 'Host' })).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'reception-pc' });
     expect(link).toHaveAttribute('href', '/devices/6f2b9c31-1111-2222-3333-444455556666');
+  });
+
+  it('says a removed host is removed, with no link to a page that is gone', () => {
+    renderAlerts({ alerts: [alert({ hostname: null })] });
+    expect(screen.getByText('a removed host')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.queryByText(/6f2b9c31/)).toBeNull();
   });
 
   it('shows what crossed the line and when', () => {
     renderAlerts();
-    const row = screen.getByRole('row', { name: /6f2b9c31/ });
+    const row = screen.getByRole('row', { name: /reception-pc/ });
     expect(within(row).getByText('cpu.busy_pct 96.4')).toBeInTheDocument();
     expect(within(row).getByText('Critical')).toBeInTheDocument();
   });
@@ -136,14 +144,14 @@ describe('IncidentAlerts — an incident wider than the alerts on screen', () =>
     expect(screen.getByText(/1 of 312/)).toBeInTheDocument();
   });
 
-  it('says how many machines are on screen against how many the incident covers', () => {
+  it('says how many hosts are on screen against how many the incident covers', () => {
     renderAlerts({ alerts: [alert()], total: 2, deviceCount: 3 });
-    expect(screen.getByText(/1 of 3 machines/)).toBeInTheDocument();
+    expect(screen.getByText(/1 of 3 hosts/)).toBeInTheDocument();
   });
 
   it('says nothing about the counts when the whole incident is on screen', () => {
     renderAlerts({ alerts: [alert()], total: 1, deviceCount: 1 });
-    expect(screen.queryByText(/of 1 machine/)).toBeNull();
+    expect(screen.queryByText(/of 1 host/)).toBeNull();
   });
 
   it('renders a room holding no alerts as a room, not as an error', () => {

@@ -578,8 +578,10 @@ if [ -f "$WORKFLOW" ]; then
   # reviewers would leave a scheduled run waiting for a human who never comes.
   drill_job="$(awk '/^  network-drill:/,/^  [a-z-]+:$/' "$WORKFLOW")"
   assert_lacks "the drill job declares no staging environment" "environment: staging" "$drill_job"
-  assert_contains "only the publishing job takes the observability environment" \
-    "environment: observability" "$wf"
+  publish_job="$(awk '/^  publish:/,/^  gate:$/' "$WORKFLOW")"
+  assert_contains "the workflow has a publishing job" "name:" "$publish_job"
+  assert_lacks "the publish job names no environment, so GitHub never holds it" \
+    "environment:" "$publish_job"
   assert_contains "the nightly runs after the load test, on the same lease" "cron: '0 6 * * *'" "$wf"
   assert_contains "the drill takes the staging namespace before touching it" \
     "staging-lease.sh acquire" "$wf"

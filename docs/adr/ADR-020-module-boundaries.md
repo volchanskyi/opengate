@@ -33,9 +33,16 @@ transactions — consistency is one database and one transaction.
 the agent's inner dispatch by message family. The outer four-branch frame
 dispatch stays plain code, because a multiplexer is not a policy.
 
-**Web — one store per feature.** Each feature folder owns its state; nothing
-imports another feature's store. `useAuthStore` is the single exception, because
-everything needs the session before anything else exists.
+**Web — one store per feature, reached through its index.** Each folder under
+`src/features` is one feature and owns its state. A feature reaches its own files
+freely and another feature only at that feature's `index.ts`, so what a feature
+exports is a decision its index records. Shared components in `src/components`
+use utilities, the global stores, each other and a feature's index, nothing
+deeper. `useAuthStore` in `src/state` is the one global store, because everything
+needs the session before anything else exists. The rules catalogue store is
+shared through the rules index, since the investigations queue picks a rule from
+the same catalogue the Rules list reads. The entry files (`main`, `App`, `router`)
+are a file category that reaches everywhere.
 
 **Three lints hold it**: `eslint-plugin-boundaries` and `dependency-cruiser` on
 the web tree, `cargo-deny` on the agent, and `go-arch-lint` on the server. All
@@ -45,7 +52,8 @@ three fail the build rather than warn.
 extensionless imports to their TypeScript files, since an import it cannot
 resolve escapes every policy, and
 [`eslint-boundaries.test.sh`](../../scripts/tests/eslint-boundaries.test.sh)
-lints a probe import for each allowed and refused pair of layers.
+lints a probe import for each allowed and refused pair of layers — a feature's own
+file, another feature's index and another feature's internals among them.
 [`depcruise-check.sh`](../../scripts/depcruise-check.sh), run by the gauntlet
 and CI alike, fails on any error the dependency check reports as well as on
 warnings past its snapshot.

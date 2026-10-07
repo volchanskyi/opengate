@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
-import { selectorWording } from './rule-summary';
+import { useSiteOptions } from '../devices';
+import { useCustomerGate } from '../organizations';
+import { selectorWording, settingName, tuningExplanation } from './rule-summary';
 import { useRuleStore } from './state/rule-store';
 
 type Rule = components['schemas']['Rule'];
@@ -13,8 +15,8 @@ const HEAD = 'px-3 py-2 text-left text-xs font-semibold text-gray-400';
 
 // A Map, because indexing an object with a value from the wire reaches the prototype chain.
 const LEVEL_WORDING = new Map<RuleBinding['level'], string>([
-  ['device', 'One machine'],
-  ['site', 'One office'],
+  ['device', 'One host'],
+  ['site', 'One site'],
   ['organization', 'The whole customer'],
   ['tenant', 'Every customer'],
 ]);
@@ -27,6 +29,69 @@ function Bounds({ rule, param }: { readonly rule: Rule; readonly param: string }
       {' '}
       (allowed {bounds.min}–{bounds.max}, ships at {bounds.shipped})
     </span>
+  );
+}
+
+/** Where a value sits on the allowed range, as a percentage of the bar, kept on the bar. */
+function along(value: number, min: number, max: number): string {
+  const span = max - min;
+  const share = span > 0 ? ((value - min) / span) * 100 : 0;
+  return `${String(Math.min(100, Math.max(0, share)))}%`;
+}
+
+/** The allowed range as a bar, marking the shipped value and the value being typed. */
+function RangeBar({ rule, param, typed }: {
+  readonly rule: Rule;
+  readonly param: string;
+  readonly typed: number | null;
+}) {
+  const bounds = new Map(Object.entries(rule.tunable)).get(param);
+  if (!bounds) return null;
+  const typedPart = typed === null ? '' : `; typed ${String(typed)}`;
+
+  return (
+    <div
+      role="img"
+      aria-label={`Allowed ${String(bounds.min)} to ${String(bounds.max)}; ships at ${String(bounds.shipped)}${typedPart}`}
+      className="relative mt-3 h-2 w-72 rounded bg-gray-700"
+    >
+      <span
+        className="absolute top-1/2 h-4 w-0.5 -translate-y-1/2 bg-gray-300"
+        style={{ left: along(bounds.shipped, bounds.min, bounds.max) }}
+      />
+      {typed !== null && (
+        <span
+          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-400"
+          style={{ left: along(typed, bounds.min, bounds.max) }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SitePicker({ siteId, onChange }: { readonly siteId: string; readonly onChange: (id: string) => void }) {
+  const customer = useCustomerGate();
+  const sites = useSiteOptions(customer);
+
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs uppercase text-gray-500 font-semibold">Site</span>
+      <select
+        className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-56 disabled:opacity-60"
+        value={customer === null ? '' : siteId}
+        disabled={customer === null}
+        onChange={(e) => { onChange(e.target.value); }}
+      >
+        {customer === null
+          ? <option value="">Pick a customer first</option>
+          : (
+            <>
+              <option value="">Select a site</option>
+              {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+            </>
+          )}
+      </select>
+    </label>
   );
 }
 
@@ -83,6 +148,9 @@ function NewValue({ rule, canEdit }: { readonly rule: Rule; readonly canEdit: bo
 
   if (!canEdit || params.length === 0) return null;
 
+  const typed = value === '' || Number.isNaN(Number(value)) ? null : Number(value);
+  const explanation = typed === null ? null : tuningExplanation(rule, param, typed);
+
   const submit = () => {
     if (!levelKey || value === '') return;
     fireAndForget(saveBinding(rule.id, {
@@ -94,50 +162,45 @@ function NewValue({ rule, canEdit }: { readonly rule: Rule; readonly canEdit: bo
   };
 
   return (
-    <div className="mt-4 flex flex-wrap items-end gap-2">
-      <label className="flex flex-col gap-1">
-        <span className="text-xs uppercase text-gray-500 font-semibold">Office</span>
-        <input
-          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-72"
-          placeholder="office id"
-          aria-label="Office"
-          value={levelKey}
-          onChange={(e) => { setLevelKey(e.target.value); }}
-        />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-xs uppercase text-gray-500 font-semibold">Setting</span>
-        <select
-          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm"
-          aria-label="Setting"
-          value={param}
-          onChange={(e) => { setParam(e.target.value); }}
+    <div className="mt-4">
+      <div className="flex flex-wrap items-end gap-2">
+        <SitePicker siteId={levelKey} onChange={setLevelKey} />
+        <label className="flex flex-col gap-1">
+          <span className="text-xs uppercase text-gray-500 font-semibold">Setting</span>
+          <select
+            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm"
+            aria-label="Setting"
+            value={param}
+            onChange={(e) => { setParam(e.target.value); }}
+          >
+            {params.map((name) => (
+              <option key={name} value={name}>
+                {settingName(name)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs uppercase text-gray-500 font-semibold">Value</span>
+          <input
+            type="number"
+            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-28"
+            aria-label="Value"
+            value={value}
+            onChange={(e) => { setValue(e.target.value); }}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={submit}
+          className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-sm"
         >
-          {params.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-xs uppercase text-gray-500 font-semibold">Value</span>
-        <input
-          type="number"
-          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-28"
-          aria-label="Value"
-          value={value}
-          onChange={(e) => { setValue(e.target.value); }}
-        />
-      </label>
-      <button
-        type="button"
-        onClick={submit}
-        className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-sm"
-      >
-        Set for this office
-      </button>
-      <Bounds rule={rule} param={param} />
+          Apply to site
+        </button>
+        <Bounds rule={rule} param={param} />
+      </div>
+      {explanation && <p className="mt-2 text-sm text-gray-300">{explanation}</p>}
+      <RangeBar rule={rule} param={param} typed={typed} />
     </div>
   );
 }
@@ -163,14 +226,14 @@ export function TuningPanel({
 
       {bindings.length === 0 ? (
         <p className="text-sm text-gray-400">
-          Nothing is retuned. Every machine runs the values the rule ships with.
+          No values set (Ships with the default values)
         </p>
       ) : (
         <table className="w-full">
           <thead>
             <tr>
               <th className={HEAD}>Aimed at</th>
-              <th className={HEAD}>Which machines</th>
+              <th className={HEAD}>Which hosts</th>
               <th className={HEAD}>Order</th>
               <th className={HEAD}>Values</th>
               <th className={HEAD} aria-label="Actions" />

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import type { components } from '../../types/api';
-import { shortId } from '../../lib/short-id';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { useAuthStore } from '../../state/auth-store';
 import {
@@ -10,6 +9,7 @@ import {
   requiresCause,
   statusLabel,
 } from './incident-lifecycle';
+import { personName, type People } from './incident-format';
 import { useRoomStore } from './state/room-store';
 
 type Incident = components['schemas']['Incident'];
@@ -18,7 +18,16 @@ type CauseCode = components['schemas']['IncidentCauseCode'];
 
 const BUTTON = 'px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50';
 
-function Assignment({ incident, disabled }: { readonly incident: Incident; readonly disabled: boolean }) {
+function holderLine(holder: string | null, mine: boolean, people: People): string {
+  if (holder === null) return 'Nobody has taken this';
+  return mine ? 'Held by you' : `Held by ${personName(people, holder)}`;
+}
+
+function Assignment({ incident, people, disabled }: {
+  readonly incident: Incident;
+  readonly people: People;
+  readonly disabled: boolean;
+}) {
   const me = useAuthStore((s) => s.user?.id);
   const setAssignee = useRoomStore((s) => s.setAssignee);
   const holder = incident.assignee_id ?? null;
@@ -30,9 +39,7 @@ function Assignment({ incident, disabled }: { readonly incident: Incident; reado
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs text-gray-400">
-        {holder === null ? 'Nobody has taken this' : `Held by ${shortId(holder)}`}
-      </span>
+      <span className="text-xs text-gray-400">{holderLine(holder, mine, people)}</span>
       {me !== undefined && (
         <button
           type="button"
@@ -120,7 +127,7 @@ function ResolutionForm({ incidentId, disabled, onDone }: {
 }
 
 /** The moves, take and note controls for a room; only lifecycle-permitted moves are rendered. */
-export function IncidentActions({ incident }: { readonly incident: Incident }) {
+export function IncidentActions({ incident, people }: { readonly incident: Incident; readonly people: People }) {
   const [resolving, setResolving] = useState(false);
   const acting = useRoomStore((s) => s.acting);
   const actionError = useRoomStore((s) => s.actionError);
@@ -165,7 +172,7 @@ export function IncidentActions({ incident }: { readonly incident: Incident }) {
         <ResolutionForm incidentId={incident.id} disabled={acting} onDone={() => setResolving(false)} />
       )}
 
-      <Assignment incident={incident} disabled={acting} />
+      <Assignment incident={incident} people={people} disabled={acting} />
       <NoteBox incidentId={incident.id} disabled={acting} />
 
       {actionError && <p role="alert" className="text-xs text-red-400">{actionError}</p>}
