@@ -69,13 +69,13 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
           tool: cargo-nextest@0.9.129
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov@0.8.5
       # One instrumented run reports pass/fail and produces lcov.info; only test files are ignored.
@@ -879,12 +879,12 @@ jobs:
         with:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
-      - uses: github/codeql-action/init@v4.38.2
+      - uses: github/codeql-action/init@v4.38.3
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.38.2
-      - uses: github/codeql-action/analyze@v4.38.2
+      - uses: github/codeql-action/autobuild@v4.38.3
+      - uses: github/codeql-action/analyze@v4.38.3
         with:
           category: go
 
@@ -897,11 +897,11 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4.38.2
+      - uses: github/codeql-action/init@v4.38.3
         with:
           languages: javascript-typescript
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v4.38.2
+      - uses: github/codeql-action/analyze@v4.38.3
         with:
           category: javascript-typescript
 
@@ -915,12 +915,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: github/codeql-action/init@v4.38.2
+      - uses: github/codeql-action/init@v4.38.3
         with:
           languages: rust
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.38.2
-      - uses: github/codeql-action/analyze@v4.38.2
+      - uses: github/codeql-action/autobuild@v4.38.3
+      - uses: github/codeql-action/analyze@v4.38.3
         with:
           category: rust
 
