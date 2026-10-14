@@ -294,4 +294,29 @@ describe('round-trip encode/decode', () => {
       }
     }
   });
+
+  it('round-trips the direct-link messages field for field', () => {
+    const linkMsgs: ControlMessage[] = [
+      { type: 'DirectOffer', sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n' },
+      { type: 'DirectAnswer', sdp: 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n' },
+      { type: 'IceCandidate', candidate: 'candidate:1 1 UDP 2130706431 192.168.1.1 50000 typ host', mid: '0' },
+      { type: 'DirectRefused', reason: 'a direct link is already open for this session' },
+      { type: 'DirectSwitch' },
+      { type: 'DirectFallback', received: 70_000 },
+      { type: 'DirectAck', received: 4_294_967_296 },
+      { type: 'FileDownloadError', path: '/var/log/huge.log', error: 'permission denied' },
+      { type: 'FileListResponse', path: '/var/log', entries: [], more: true },
+    ];
+
+    for (const message of linkMsgs) {
+      const { frame } = decodeFrame(encodeFrame({ type: FRAME_CONTROL, message }));
+      expect(frame).toEqual({ type: FRAME_CONTROL, message });
+    }
+  });
+
+  it('encodes a link-control message as a map keyed type-first, as the host decodes it', () => {
+    const encoded = encodeFrame({ type: FRAME_CONTROL, message: { type: 'DirectSwitch' } });
+    expect(Array.from(encoded.subarray(5))).toEqual(Array.from(encode({ type: 'DirectSwitch' })));
+    expect(encoded.length).toBe(5 + 1 + 1 + 'type'.length + 1 + 'DirectSwitch'.length);
+  });
 });

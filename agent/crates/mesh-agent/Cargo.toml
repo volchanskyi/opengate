@@ -34,7 +34,7 @@ serde.workspace = true
 chrono.workspace = true
 pem = "4"
 semver.workspace = true
-libc = "0.2"
+libc.workspace = true
 sysinfo.workspace = true
 
 [dev-dependencies]

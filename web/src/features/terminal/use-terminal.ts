@@ -57,11 +57,12 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       term.write(textDecoder.decode(frame.data));
     });
 
-    const handleResize = () => fitAddon.fit();
-    window.addEventListener('resize', handleResize);
+    // The panel is hidden while another feature is shown, so it refits whenever its size changes.
+    const panel = new ResizeObserver(() => fitAddon.fit());
+    panel.observe(container);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      panel.disconnect();
       setOnTerminalFrame(null);
       term.dispose();
       termRef.current = null;

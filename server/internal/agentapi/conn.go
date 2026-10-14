@@ -47,7 +47,6 @@ type AgentConn struct {
 	hardware      device.HardwareRepository
 	deviceUpdates updater.DeviceUpdateRepository
 	telemetry     telemetry.NumericWriter
-	processes     telemetry.ProcessRepository
 	inventory     inventory.Repository
 	scheduler     *BackfillScheduler
 	alertRules    AlertRuleProvider
@@ -152,7 +151,6 @@ type AgentConnConfig struct {
 	Hardware      device.HardwareRepository
 	DeviceUpdates updater.DeviceUpdateRepository
 	Telemetry     telemetry.NumericWriter
-	Processes     telemetry.ProcessRepository
 	Inventory     inventory.Repository
 	Scheduler     *BackfillScheduler
 	AlertRules    AlertRuleProvider
@@ -181,7 +179,6 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		hardware:      cfg.Hardware,
 		deviceUpdates: cfg.DeviceUpdates,
 		telemetry:     cfg.Telemetry,
-		processes:     cfg.Processes,
 		inventory:     cfg.Inventory,
 		scheduler:     cfg.Scheduler,
 		alertRules:    cfg.AlertRules,
@@ -230,9 +227,9 @@ func (a *AgentConn) writeFrame(frameType byte, payload []byte) error {
 	return a.codec.WriteFrame(a.stream, frameType, payload)
 }
 
-// SendSessionRequest sends a SessionRequest to the agent; the agent requires a token and relay
-// URL at decode, so an empty one is refused.
-func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions) error {
+// SendSessionRequest sends a SessionRequest naming the relay address and the host's helpers; the
+// agent requires a token and a relay URL, so an empty one is refused.
+func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions, helpers []string) error {
 	if err := requireNonEmptyFields(protocol.MsgSessionRequest,
 		controlField{"token", string(token)},
 		controlField{"relay_url", relayURL},
@@ -244,6 +241,7 @@ func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.Sessi
 		Token:       token,
 		RelayURL:    relayURL,
 		Permissions: &perms,
+		IceServers:  helpers,
 	})
 }
 
@@ -442,8 +440,6 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return a.handleAgentHealthSummary(ctx, msg, len(payload))
 	case protocol.MsgAgentMetricWindow:
 		return a.handleAgentMetricWindow(ctx, msg, len(payload))
-	case protocol.MsgProcessReport:
-		return a.handleProcessReport(ctx, msg, len(payload))
 	case protocol.MsgDiscoveryReport:
 		return a.handleDiscoveryReport(ctx, msg, len(payload))
 	case protocol.MsgHealthWindowResponse:
@@ -482,7 +478,6 @@ func isWritePathMessage(t protocol.ControlMessageType) bool {
 		protocol.MsgAgentHeartbeat,
 		protocol.MsgAgentHealthSummary,
 		protocol.MsgAgentMetricWindow,
-		protocol.MsgProcessReport,
 		protocol.MsgDiscoveryReport,
 		protocol.MsgHealthWindowResponse,
 		protocol.MsgRequestBackfillSlot,

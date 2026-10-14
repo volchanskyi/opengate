@@ -12,7 +12,6 @@
   - [AMT devices](#amt-devices)
   - [Device hardware](#device-hardware)
   - [Device logs](#device-logs)
-  - [Device processes](#device-processes)
   - [Device inventory](#device-inventory)
   - [Rule configuration](#rule-configuration)
   - [Investigations](#investigations)
@@ -119,8 +118,6 @@ Tables are managed by `golang-migrate`. The Phase 13a fresh-start schema lives
 in [`001_initial.up.sql`](../../server/internal/db/migrations/001_initial.up.sql);
 the multi-tenant RLS layer lives in
 [`002_multitenancy.up.sql`](../../server/internal/db/migrations/002_multitenancy.up.sql).
-Edge Sentinel process snapshots are added by
-[`003_telemetry.up.sql`](../../server/internal/db/migrations/003_telemetry.up.sql).
 
 ```
 ┌─────────────────────┐       ┌─────────────────────┐
@@ -142,8 +139,8 @@ Edge Sentinel process snapshots are added by
 │ device_id     FK    │───┤   │ capabilities (JSONB)│
 │ user_id       FK    │───┤   │ status              │
 │ created_at          │   │   │ last_seen           │
-└─────────────────────┘   │   │ created_at          │
-                          │   │ agent_version       │
+│ link_outcomes       │   │   │ created_at          │
+└─────────────────────┘   │   │ agent_version       │
                           │   │ updated_at          │
 ┌─────────────────────┐   │   └─────────────────────┘
 │ web_push_subscriptions│  │
@@ -218,7 +215,10 @@ The web client uses this field to determine which session tabs to show.
 The `devices.group_id` foreign key is nullable with `ON DELETE SET NULL` —
 deleting a group ungroups its devices (sets `group_id` to NULL). Newly
 enrolled devices start with `group_id = NULL` until assigned to a group.
-The `agent_sessions.device_id` foreign key cascades on delete.
+The `agent_sessions.device_id` foreign key cascades on delete, and is unique: a
+host holds one session, and `user_id` is the technician who holds it
+([ADR-059](../adr/ADR-059-session-row-lifecycle.md)). `link_outcomes` keeps one
+bit per direct-link outcome the session has reported, so each is counted once.
 
 ### Device store methods
 
@@ -281,30 +281,6 @@ HTTP response. Nothing raw is persisted centrally, so tenant isolation for raw
 logs is the agent connection's scope rather than an RLS row. See
 [ADR-046](../adr/ADR-046-logs-stay-on-the-machine.md) and the
 [API reference](API-Reference.md).
-
-### Device processes
-
-The `device_processes` table stores sanitized Edge Sentinel process snapshots:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | BIGINT PK | Identity column |
-| `tenant_id` | UUID FK | Tenant scope, protected by forced RLS |
-| `device_id` | UUID FK | References `devices(id)`, CASCADE delete |
-| `ts` | TIMESTAMPTZ | Agent sample timestamp |
-| `rank` | INTEGER | Top-N rank assigned by the agent sampler |
-| `basename` | TEXT | Executable basename only |
-| `cmdline_hash` | TEXT nullable | Optional hash, no raw command line |
-| `pid` | BIGINT | Process id at sample time |
-| `cpu` / `mem` | DOUBLE PRECISION | Reported process utilization values |
-| `created_at` | TIMESTAMPTZ | Ingest timestamp |
-
-The Postgres adapter lives in
-[`server/internal/telemetry`](../../server/internal/telemetry) and always runs
-through `dbtx.Scoped`. Numeric process metrics use rank-only labels in
-VictoriaMetrics; basenames, PIDs, and command-line hashes stay in the RLS table.
-The numeric side's retention and long-term (cold) tier are covered in
-[Monitoring](../infrastructure/Monitoring.md#cold-storage).
 
 ### Device inventory
 
@@ -504,6 +480,19 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   the partial unique index that allows one open incident per grouping key, and
   the check constraints holding severity, status, scope, cause code and event
   kind to their closed sets.
+- [`015_incident_queue`](../../server/internal/db/migrations/015_incident_queue.up.sql)
+  adds the keyset indexes the triage queue pages by, per customer and per
+  tenant, and the index that finds a machine's incidents through its alerts.
+- [`016_rule_administration`](../../server/internal/db/migrations/016_rule_administration.up.sql)
+  adds `device_tag_labels` and `device_tags`, the labels a customer keeps and
+  the machines carrying them.
+- [`017_retention_sweep`](../../server/internal/db/migrations/017_retention_sweep.up.sql)
+  adds the timestamp-led indexes the cross-tenant retention sweep reads.
+- [`018_retire_process_reports`](../../server/internal/db/migrations/018_retire_process_reports.up.sql)
+  drops `device_processes`; an alert's evidence carries its own process rows.
+- [`019_one_session_per_host`](../../server/internal/db/migrations/019_one_session_per_host.up.sql)
+  keeps each host's newest session row, makes `agent_sessions.device_id`
+  unique, and adds `link_outcomes`.
 - Each of the above has a matching `.down.sql` walked by the rollback rehearsal.
 
 The automated rollback/dump rehearsal lives in

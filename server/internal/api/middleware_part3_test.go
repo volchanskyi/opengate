@@ -18,7 +18,7 @@ func TestSecurityHeaders(t *testing.T) {
 	assert.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
 	assert.Equal(t, "max-age=63072000; includeSubDomains; preload", w.Header().Get("Strict-Transport-Security"))
 	assert.Equal(t,
-		"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; "+
+		"default-src 'self'; script-src 'self'; "+
 			"style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "+
 			"font-src 'self'; connect-src 'self' wss:; frame-ancestors 'none'",
 		w.Header().Get("Content-Security-Policy"))

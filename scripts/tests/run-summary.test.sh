@@ -5,6 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SUMMARY="$REPO_ROOT/scripts/run-summary.sh"
+# shellcheck source=scripts/lib/summary-table.sh
+. "$REPO_ROOT/scripts/lib/summary-table.sh"
 
 PASS=0
 FAIL=0
@@ -90,45 +92,60 @@ echo "run-summary:"
 OUT="$("$SUMMARY" render --title "Busy morning (peak)" --profile "$WORK/profile.yaml" \
   --rows "$WORK/rows.json" --bundle "$WORK/bundle.json" --database "$WORK/database.json")"
 
-has_line "the table has the four columns" "| Measurement | Expected | Actual | Result |"
+# Each heading and metric word carries its explanation as hover text.
+p50="$(summary_term p50)" p95="$(summary_term p95)" error_rate="$(summary_term "error rate")"
+level="$(summary_term "Service Level")" not_read="$(summary_term "not read")"
+has_line "the table has the four columns, each explained on hover" "$(summary_table_header | sed -n 1p)"
 has_line "a limit that fails the run, crossed, is FAIL" \
-  "| quic/quic-agents/register p95 | ≤ 500 ms | 1257 ms | FAIL |"
+  "| quic/quic-agents/register $p95 | ≤ 500 ms | 1257 ms | FAIL |"
 has_line "a limit that is only reported, crossed, is over" \
-  "| quic/quic-agents/connect p95 | ≤ 100 ms (reported only) | 150 ms | over |"
+  "| quic/quic-agents/connect $p95 | ≤ 100 ms (reported only) | 150 ms | over |"
 has_line "a reading inside its limit passes" \
-  "| k6/api-baseline/http p95 | ≤ 200 ms | 120.4 ms | pass |"
+  "| k6/api-baseline/http $p95 | ≤ 200 ms | 120.4 ms | pass |"
 has_line "a measurement with no limit says so" \
-  "| quic/quic-agents/register p50 | no limit | 8.9 ms | — |"
+  "| quic/quic-agents/register $p50 | no limit | 8.9 ms | — |"
 has_line "the error rate is a percentage" \
-  "| quic/quic-agents/aggregate error rate | ≤ 2 % | 0.5 % | pass |"
+  "| quic/quic-agents/aggregate $error_rate | ≤ 2 % | 0.5 % | pass |"
 has_line "the server's processor, as a share of its own cap, over the measured phase" \
-  "| Service Level Avg CPU % (server) | — | 34 % of 0.25 processors | — |"
+  "| $level Avg CPU % (server) | — | 34 % of 0.25 processors | — |"
 has_line "the server's memory, the same" \
-  "| Service Level Avg Mem % (server) | — | 12 % of 384 MiB | — |"
+  "| $level Avg Mem % (server) | — | 12 % of 384 MiB | — |"
 has_line "the database's processor, as a share of its own cap" \
-  "| Service Level Avg CPU % (database) | — | 8.2 % of 1 processor | — |"
+  "| $level Avg CPU % (database) | — | 8.2 % of 1 processor | — |"
 has_line "the database's memory, the same" \
-  "| Service Level Avg Mem % (database) | — | 20.5 % of 384 MiB | — |"
-for word in "Expected" "Actual" "Result" "p50" "p95" "p99" "error rate" "Service Level" "not read"; do
-  if grep -q "^- \*\*$word\*\*" <<<"$OUT"; then
-    pass "the legend says what $word means"
+  "| $level Avg Mem % (database) | — | 20.5 % of 384 MiB | — |"
+for word in "Measurement" "Expected" "Actual" "Result" "p50" "p95" "p99" "error rate" "throughput" \
+  "Service Level" "not read"; do
+  if grep -qE "^<span title=\"[^\"]{20,}\">$word</span>$" <<<"$(summary_term "$word")"; then
+    pass "$word carries its explanation as hover text"
   else
-    fail "the legend says what $word means (out=[$OUT])"
+    fail "$word carries its explanation as hover text (got=[$(summary_term "$word")])"
   fi
 done
+if grep -q '^- \*\*' <<<"$OUT"; then
+  fail "no legend follows the table (out=[$OUT])"
+else
+  pass "no legend follows the table"
+fi
+beyond_table="$(grep -vE '^(### |\||$)' <<<"$OUT" || true)"
+if [ -n "$beyond_table" ]; then
+  fail "the summary is its title and its table (out=[$OUT])"
+else
+  pass "the summary is its title and its table"
+fi
 
 jq 'del(.phases[1].target_resident_bytes)' "$WORK/bundle.json" >"$WORK/bundle-unread.json"
 OUT="$("$SUMMARY" render --title "Busy morning (peak)" --profile "$WORK/profile.yaml" \
   --rows "$WORK/rows.json" --bundle "$WORK/bundle-unread.json")"
 has_line "a server reading the run could not take is not read" \
-  "| Service Level Avg Mem % (server) | — | not read | — |"
+  "| $level Avg Mem % (server) | — | $not_read | — |"
 has_line "and a database nobody read is not read" \
-  "| Service Level Avg CPU % (database) | — | not read | — |"
+  "| $level Avg CPU % (database) | — | $not_read | — |"
 echo '{"cpu_percent": null, "memory_percent": 3}' >"$WORK/database-half.json"
 OUT="$("$SUMMARY" render --title "t" --profile "$WORK/profile.yaml" \
   --rows "$WORK/rows.json" --bundle "$WORK/bundle.json" --database "$WORK/database-half.json")"
 has_line "a database reading that is missing is not read, beside one that is there" \
-  "| Service Level Avg CPU % (database) | — | not read | — |"
+  "| $level Avg CPU % (database) | — | $not_read | — |"
 
 if [ "$("$SUMMARY" window "$WORK/profile.yaml" "$WORK/bundle.json")" = "2026-09-29T13:45:35Z 2026-09-29T13:50:35Z" ]; then
   pass "the window is the measured phase's own"

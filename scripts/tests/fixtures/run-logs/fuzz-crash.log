@@ -1,0 +1,84 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2298056990
+INFO: Loaded 1 modules   (351 inline 8-bit counters): 351 [0x56b56e1b45f0, 0x56b56e1b474f), 
+INFO: Loaded 1 PC tables (351 PCs): 351 [0x56b56e1b4750,0x56b56e1b5d40), 
+INFO:        0 files found in /home/runner/work/opengate/opengate/agent/fuzz/corpus/decode
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: A corpus is not provided, starting from an empty corpus
+#2	INITED cov: 16 ft: 17 corp: 1/1b exec/s: 0 rss: 31Mb
+#65	NEW    cov: 18 ft: 19 corp: 2/5b lim: 4 exec/s: 0 rss: 32Mb L: 4/4 MS: 3 CopyPart-CopyPart-CopyPart-
+#482	NEW    cov: 19 ft: 20 corp: 3/13b lim: 8 exec/s: 0 rss: 32Mb L: 8/8 MS: 2 ChangeBit-InsertRepeatedBytes-
+#2745	NEW    cov: 21 ft: 22 corp: 4/17b lim: 29 exec/s: 0 rss: 34Mb L: 4/8 MS: 3 CrossOver-InsertRepeatedBytes-EraseBytes-
+#2778	NEW    cov: 22 ft: 23 corp: 5/25b lim: 29 exec/s: 0 rss: 34Mb L: 8/8 MS: 3 ShuffleBytes-EraseBytes-InsertRepeatedBytes-
+#3186	NEW    cov: 24 ft: 25 corp: 6/46b lim: 33 exec/s: 0 rss: 34Mb L: 21/21 MS: 3 EraseBytes-ChangeBit-InsertRepeatedBytes-
+#3225	REDUCE cov: 24 ft: 25 corp: 6/37b lim: 33 exec/s: 0 rss: 34Mb L: 12/12 MS: 4 ShuffleBytes-ChangeBit-InsertByte-EraseBytes-
+#3316	NEW    cov: 25 ft: 26 corp: 7/41b lim: 33 exec/s: 0 rss: 34Mb L: 4/12 MS: 1 ChangeBit-
+#3646	REDUCE cov: 25 ft: 26 corp: 7/40b lim: 33 exec/s: 0 rss: 34Mb L: 11/11 MS: 5 ChangeByte-ChangeBit-CopyPart-ShuffleBytes-EraseBytes-
+#3727	REDUCE cov: 25 ft: 26 corp: 7/39b lim: 33 exec/s: 0 rss: 34Mb L: 10/10 MS: 1 EraseBytes-
+#4547	REDUCE cov: 25 ft: 26 corp: 7/38b lim: 38 exec/s: 0 rss: 34Mb L: 9/9 MS: 5 EraseBytes-CopyPart-ChangeBinInt-ChangeBit-CrossOver-
+#4723	REDUCE cov: 25 ft: 26 corp: 7/37b lim: 38 exec/s: 0 rss: 34Mb L: 8/8 MS: 1 EraseBytes-
+
+thread '<unnamed>' (75061) panicked at fuzz_targets/decode.rs:6:9:
+frame length overflows its buffer
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+==75061== ERROR: libFuzzer: deadly signal
+    #0 0x56b56e0f8dc1  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0xf9dc1) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #1 0x56b56e1366de  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x1376de) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #2 0x56b56e129809  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x12a809) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #3 0x797c8784251f  (/lib/x86_64-linux-gnu/libc.so.6+0x4251f) (BuildId: 6a6cb5a80fd5e5bb5bf3aeaa111add98e88843a5)
+    #4 0x797c878969bb  (/lib/x86_64-linux-gnu/libc.so.6+0x969bb) (BuildId: 6a6cb5a80fd5e5bb5bf3aeaa111add98e88843a5)
+    #5 0x797c87842475  (/lib/x86_64-linux-gnu/libc.so.6+0x42475) (BuildId: 6a6cb5a80fd5e5bb5bf3aeaa111add98e88843a5)
+    #6 0x797c878287f2  (/lib/x86_64-linux-gnu/libc.so.6+0x287f2) (BuildId: 6a6cb5a80fd5e5bb5bf3aeaa111add98e88843a5)
+    #7 0x56b56e194b99  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x195b99) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #8 0x56b56e193878  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x194878) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #9 0x56b56e123004  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x124004) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #10 0x56b56e193b01  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x194b01) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #11 0x56b56e1819d3  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x1829d3) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #12 0x56b56e17ad88  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x17bd88) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #13 0x56b56e18208c  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x18308c) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #14 0x56b56e1a662b  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x1a762b) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #15 0x56b56e12016f  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x12116f) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #16 0x56b56e121c65  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x122c65) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #17 0x56b56e122b94  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x123b94) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #18 0x56b56e1237d8  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x1247d8) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #19 0x56b56e12228d  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x12328d) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #20 0x56b56e129d70  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x12ad70) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #21 0x56b56e12f483  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x130483) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #22 0x56b56e130528  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x131528) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #23 0x56b56e132957  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x133957) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #24 0x56b56e1456d5  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x1466d5) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #25 0x56b56e147b76  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x148b76) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+    #26 0x797c87829d8f  (/lib/x86_64-linux-gnu/libc.so.6+0x29d8f) (BuildId: 6a6cb5a80fd5e5bb5bf3aeaa111add98e88843a5)
+    #27 0x797c87829e3f  (/lib/x86_64-linux-gnu/libc.so.6+0x29e3f) (BuildId: 6a6cb5a80fd5e5bb5bf3aeaa111add98e88843a5)
+    #28 0x56b56e05b784  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x5c784) (BuildId: a90a845cd1f9aca00fc7daeec5a41145cd7431c5)
+
+NOTE: libFuzzer has rudimentary signal handlers.
+      Combine libFuzzer with AddressSanitizer or similar for better crash reports.
+SUMMARY: libFuzzer: deadly signal
+MS: 3 CrossOver-EraseBytes-InsertRepeatedBytes-; base unit: de335d29f6f72685586f0ed38fede9921bc784c6
+0x4f,0x47,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x14,0x8,0x7a,0x4f,0x4f,0x4f,0x0,0x4a,0xff,0xff,0xff,
+OG\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\024\010zOOO\000J\377\377\377
+artifact_prefix='/home/runner/work/opengate/opengate/agent/fuzz/artifacts/decode/'; Test unit written to /home/runner/work/opengate/opengate/agent/fuzz/artifacts/decode/crash-487b6cb6f2bc0b0e4ab41dfd8f769c72e76ba70c
+Base64: T0cUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQIek9PTwBK////
+
+────────────────────────────────────────────────────────────────────────────────
+
+Failing input:
+
+	artifacts/decode/crash-487b6cb6f2bc0b0e4ab41dfd8f769c72e76ba70c
+
+Output of `std::fmt::Debug`:
+
+	[79, 71, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 8, 122, 79, 79, 79, 0, 74, 255, 255, 255]
+
+Reproduce with:
+
+	cargo fuzz run decode artifacts/decode/crash-487b6cb6f2bc0b0e4ab41dfd8f769c72e76ba70c
+
+Minimize test case with:
+
+	cargo fuzz tmin decode artifacts/decode/crash-487b6cb6f2bc0b0e4ab41dfd8f769c72e76ba70c
+
+────────────────────────────────────────────────────────────────────────────────
+
+Error: Fuzz target exited with exit status: 77

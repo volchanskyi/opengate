@@ -72,10 +72,22 @@ approves, are named by any workflow, and
 refuses any other. The token is readable from any branch; only the owner pushes
 branches, and a pull request from outside receives no secrets.
 
+**The alert is a job of its own, and only it holds the bot token.** Every
+scheduled workflow sends from an `alert` job that holds
+`DEPLOY_TELEGRAM_BOT_TOKEN` and `DEPLOY_TELEGRAM_CHAT_ID` and nothing else, and
+reads the night's verdict through `needs`. A job that writes the run summary, or
+whose result is read as a verdict, holds no bot token, so it can neither print
+the token into the page nor go red on a refused send. On 2026-10-08 the nightly
+configuration job sent from inside its own check, and a bad copy of the token
+turned a passing check red, so the gate reported a configuration the cluster did
+not hold. The chat id sends nothing, and stays with the job that provisions the
+destination from it. [`alert-delivery.test.sh`](../../scripts/tests/alert-delivery.test.sh)
+reads every workflow as structure and refuses a bot token anywhere else.
+
 **A refused send is allowed to fail because the verdict lives elsewhere.** Every
 one of these workflows carries its regression verdict in a separate gate job
 reading `needs.<job>.result`; `pmat-trend` and `terraform-drift` gained one here.
-So a Telegram outage reddens the job that sent and hides nothing.
+So a Telegram outage reddens the alert job and hides nothing.
 
 **The destination is provisioned from a file, not through the interface or the
 API.** The chat id is substituted into the file as a quoted literal by the

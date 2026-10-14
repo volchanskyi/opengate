@@ -1,0 +1,64 @@
+{
+  "description": "No link opens within the attempt budget: both stay on the relay and nothing waits.",
+  "budget_ms": 8000,
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "tick",
+      "ms": 8000
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h2"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "h1",
+        "h2"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "no_route"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "relay",
+      "outcomes": [
+        "no_route"
+      ]
+    }
+  }
+}

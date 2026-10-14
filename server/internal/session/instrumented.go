@@ -23,11 +23,25 @@ func NewInstrumented(inner Repository, observer Observer) *Instrumented {
 	return &Instrumented{inner: inner, observer: observer}
 }
 
-func (i *Instrumented) Create(ctx context.Context, s *Session) error {
+func (i *Instrumented) Create(ctx context.Context, s *Session) (string, error) {
 	start := time.Now()
-	err := i.inner.Create(ctx, s)
+	replaced, err := i.inner.Create(ctx, s)
 	i.observer.Observe("session.Create", time.Since(start), err == nil)
-	return err
+	return replaced, err
+}
+
+func (i *Instrumented) ForDevice(ctx context.Context, deviceID uuid.UUID) (*Session, error) {
+	start := time.Now()
+	s, err := i.inner.ForDevice(ctx, deviceID)
+	i.observer.Observe("session.ForDevice", time.Since(start), err == nil)
+	return s, err
+}
+
+func (i *Instrumented) MarkOutcome(ctx context.Context, token string, outcome int) (bool, error) {
+	start := time.Now()
+	set, err := i.inner.MarkOutcome(ctx, token, outcome)
+	i.observer.Observe("session.MarkOutcome", time.Since(start), err == nil)
+	return set, err
 }
 
 func (i *Instrumented) Get(ctx context.Context, token string) (*Session, error) {

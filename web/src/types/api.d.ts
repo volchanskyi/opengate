@@ -275,6 +275,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/{id}/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End the session open on a device
+         * @description Ends the host's one session, whoever opened it. Open to the session's holder and to an administrator; the holder's tab is told who ended it.
+         */
+        delete: operations["endDeviceSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/devices/{id}/hardware": {
         parameters: {
             query?: never;
@@ -508,8 +528,31 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a relay session */
+        /**
+         * End a session
+         * @description Ends the live session and removes its row. Open to the session's holder and to an administrator; the holder's tab is told who ended it.
+         */
         delete: operations["deleteSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{token}/outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report how a session's direct-link attempt ended
+         * @description Counts one outcome into the fleet-wide direct-link counters, which carry the outcome and nothing else. Only the session's holder may report, and a session counts each outcome once however often it is reported.
+         */
+        post: operations["reportDirectLinkOutcome"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1297,6 +1340,16 @@ export interface components {
             /** @description Operator-supplied reason for the current maintenance window. Present only while maintenance_on is true. */
             maintenance_reason?: string;
             amt?: components["schemas"]["DeviceAMT"];
+            session?: components["schemas"]["SessionHolder"];
+        };
+        /** @description The session open on a host, named by the technician who holds it. A host takes one session at a time; absent while none is open. */
+        SessionHolder: {
+            /** Format: uuid */
+            holder_id: string;
+            /** @description The holder's display name, or their email when they have none. */
+            holder_name: string;
+            /** Format: date-time */
+            started_at: string;
         };
         /** @description The device's Intel AMT property, read alongside the device row. Omitted entirely when the device neither supports AMT nor has an AMT connection. */
         DeviceAMT: {
@@ -1517,23 +1570,39 @@ export interface components {
             permissions?: components["schemas"]["Permissions"];
         };
         CreateSessionResponse: {
+            /** @description The session's relay credential, returned to the technician who opened it alone. */
             token: string;
+            /** @description The relay address, built from the address this request was made to. */
             relay_url: string;
-            ice_servers?: components["schemas"]["ICEServer"][];
+            /** @description Helpers the browser asks for its public address before trying a direct link to the host; the host is given the same list. Empty means the two sides try their local addresses alone. */
+            ice_servers: components["schemas"]["ICEServer"][];
+        };
+        /** @description Why a session was not opened. A host another technician holds names that technician and when their session started. */
+        SessionRefused: {
+            error: string;
+            holder_name?: string;
+            /** Format: date-time */
+            started_at?: string;
         };
         ICEServer: {
             urls: string[];
-            username?: string;
-            credential?: string;
         };
+        /** @description An open session, named by its holder; the relay credential is never listed. */
         AgentSession: {
-            token: string;
             /** Format: uuid */
             device_id: string;
             /** Format: uuid */
             user_id: string;
+            holder_name: string;
             /** Format: date-time */
             created_at: string;
+        };
+        DirectLinkOutcomeReport: {
+            /**
+             * @description How the session's direct-link attempt ended: direct (the link carries the session), no_route (no direct route on this network), unsupported (this browser cannot make one), dropped (the link dropped and the session moved back to the relay).
+             * @enum {string}
+             */
+            outcome: "direct" | "no_route" | "unsupported" | "dropped";
         };
         WebPushSubscribeRequest: {
             endpoint: string;
@@ -2908,6 +2977,53 @@ export interface operations {
             };
         };
     };
+    endDeviceSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session ended */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The caller neither holds the session nor is an administrator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description No session is open on the device */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     getDeviceHardware: {
         parameters: {
             query?: never;
@@ -3820,13 +3936,13 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Agent not connected */
+            /** @description The agent is not connected, or another technician holds a session on the host, named in the reply. */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiError"];
+                    "application/json": components["schemas"]["SessionRefused"];
                 };
             };
         };
@@ -3842,7 +3958,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Session deleted */
+            /** @description Session ended */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -3851,6 +3967,75 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The caller neither holds the session nor is an administrator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Session not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reportDirectLinkOutcome: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DirectLinkOutcomeReport"];
+            };
+        };
+        responses: {
+            /** @description Outcome counted, or already counted for this session */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The caller does not hold the session */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

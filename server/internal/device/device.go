@@ -82,6 +82,17 @@ type Device struct {
 
 	// AMT is nil when the device has neither AMT support nor an AMT connection.
 	AMT *AMT `json:"amt,omitempty"`
+
+	// Session names the technician holding the device's one session; nil while none is open.
+	Session *SessionHolder `json:"session,omitempty"`
+}
+
+// SessionHolder is the technician holding a device's session, and when it started.
+type SessionHolder struct {
+	HolderID uuid.UUID `json:"holder_id"`
+	// HolderName is the display name, or the email when the technician has none.
+	HolderName string    `json:"holder_name"`
+	StartedAt  time.Time `json:"started_at"`
 }
 
 // Site is a location or department inside one customer.

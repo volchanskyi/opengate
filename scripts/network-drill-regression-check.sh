@@ -161,13 +161,11 @@ done < <(jq -r '.[] | [.metric, .scenario, .victim, .value] | @tsv' "$SUMMARY_FI
 if [ -n "$TABLE_FILE" ]; then
   {
     printf '### Network drill\n\n'
-    summary_table_header
+    summary_table_header_explaining "A scenario (s1 dark and back, s2 thin uplink, s3 lossy link, s4 new address) and the machine it measured: the real one, the herd, or the link itself."
     for row in "${TABLE_ROWS[@]}"; do
       IFS=$'\t' read -r measurement expected actual result <<<"$row"
       summary_table_row "$measurement" "$expected" "$actual" "$result"
     done
-    summary_legend
-    printf -- '- **Measurement** — a scenario (s1 dark and back, s2 thin uplink, s3 lossy link, s4 new address) and the machine it measured: the real one, the herd, or the link itself.\n'
   } >"$TABLE_FILE"
 fi
 

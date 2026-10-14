@@ -1,11 +1,11 @@
-import { test as base } from "@playwright/test";
+import { test as base, type Page } from "@playwright/test";
 import { createTestUser, createAdminUser, seedAuth, type TestUser } from "./helpers/auth-helper";
 
 type Fixtures = {
   testUser: TestUser;
   adminUser: TestUser;
-  authedPage: ReturnType<typeof base["page"]> extends Promise<infer P> ? P : never;
-  adminPage: ReturnType<typeof base["page"]> extends Promise<infer P> ? P : never;
+  authedPage: Page;
+  adminPage: Page;
 };
 
 export const test = base.extend<Fixtures>({

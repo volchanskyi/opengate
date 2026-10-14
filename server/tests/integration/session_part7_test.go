@@ -2,12 +2,12 @@ package integration
 
 import (
 	"context"
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
-	"nhooyr.io/websocket"
 	"testing"
 	"time"
 )

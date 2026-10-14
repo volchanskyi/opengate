@@ -35,6 +35,8 @@ func main() {
 	victoriaMetricsURL := flag.String("victoriametrics-url", "", "VictoriaMetrics base URL (or OPENGATE_VICTORIAMETRICS_URL env; optional)")
 	amtUser := flag.String("amt-user", "admin", "AMT WSMAN username for device management")
 	amtPass := flag.String("amt-pass", "", "AMT WSMAN password for device management")
+	agentRelayURL := flag.String("agent-relay-url", "", "scheme and host machines dial for the relay, e.g. wss://opengate.example.com (or OPENGATE_AGENT_RELAY_URL); required")
+	iceServers := flag.String("ice-servers", "", "comma-separated STUN URLs both session sides ask for their public address (or OPENGATE_ICE_SERVERS)")
 	flag.Parse()
 
 	level := slog.LevelInfo
@@ -85,6 +87,8 @@ func main() {
 		TrustedProxies:     os.Getenv("OPENGATE_TRUSTED_PROXIES"),
 		WebDir:             *webDir,
 		InternalListen:     *internalListen,
+		AgentRelayBase:     firstNonEmpty(*agentRelayURL, os.Getenv("OPENGATE_AGENT_RELAY_URL")),
+		Helpers:            firstNonEmpty(*iceServers, os.Getenv("OPENGATE_ICE_SERVERS")),
 	})
 	if err != nil {
 		logger.Error("assemble server", "error", err)

@@ -59,7 +59,8 @@ check_tool() { # KEY, human name, pattern with %s where the version goes
   fi
   checked_tools=$((checked_tools + 1))
   CHECKED_KEYS+=("$key")
-  found="$(grep -rhE "$pattern" "$WORKFLOWS" "$ACTIONS" "$ROOT/Makefile" "$ROOT"/scripts/*.sh || true)"
+  found="$(grep -rhE "$pattern" "$WORKFLOWS" "$ACTIONS" "$ROOT/Makefile" "$ROOT"/scripts/*.sh \
+    "$ROOT"/deploy/scripts/*.sh || true)"
   if [ -z "$found" ]; then
     fail "$name: the manifest pins $want but nothing names it — stale row or renamed step"
     return
@@ -104,6 +105,8 @@ check_tool TFLINT tflint '^\s*PINNED_TFLINT:'
 check_tool TRIVY trivy '^\s*PINNED_TRIVY:'
 check_tool SONAR_SCANNER sonar-scanner '^\s*scannerVersion:'
 check_tool SONAR_SCANNER_IMAGE sonar-scanner-image 'sonar-scanner-cli:'
+# The chart deploy/scripts/ingress-controller-apply.sh installs and reads back.
+check_tool INGRESS_NGINX_CHART ingress-nginx-chart 'TOOL_VERSION_INGRESS_NGINX_CHART'
 
 if [[ "$TOOL_VERSION_SONAR_SCANNER_IMAGE" == *_"${TOOL_VERSION_SONAR_SCANNER%.*}" ]]; then
   pass "the scanner image $TOOL_VERSION_SONAR_SCANNER_IMAGE bundles the pinned CLI $TOOL_VERSION_SONAR_SCANNER"
@@ -111,7 +114,7 @@ else
   fail "the scanner image $TOOL_VERSION_SONAR_SCANNER_IMAGE does not bundle the pinned CLI $TOOL_VERSION_SONAR_SCANNER"
 fi
 
-if [ "$checked_tools" -ge 27 ]; then
+if [ "$checked_tools" -ge 28 ]; then
   pass "$checked_tools manifest rows were checked against every install site"
 else
   fail "only $checked_tools manifest rows were checked — the sweep lost rows"

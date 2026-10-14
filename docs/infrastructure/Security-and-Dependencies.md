@@ -141,7 +141,8 @@ admin. See [ADR-064](../adr/ADR-064-tenancy.md).
 | Class | Authorization rule | Endpoints |
 |---|---|---|
 | Fleet reads | Tenant membership | Device list/detail/summary, metrics, history, inventory, hardware, group list/detail, session list |
-| Device commands | Tenant membership | Session create/delete, restart, maintenance, AMT power |
+| Device commands | Tenant membership | Session create, restart, maintenance, AMT power |
+| A session | Its holder, or an admin | Session delete, ending a device's session; reporting how its direct link ended (holder only) |
 | Configuration | Admin | Device delete, device group move, group create/delete, enrollment tokens, updates, users, security groups, tenant purge |
 | Secret-bearing reads | Admin | Device logs, enrollment tokens, update signing key, audit log, user list |
 
@@ -175,17 +176,20 @@ missing tenant context fails closed instead of leaking rows across tenants.
 
 ### Rate limiting
 
-Per-IP rate limiting is enforced at the middleware level:
+Rate limiting is enforced at the middleware level
+([`ratelimit.go`](../../server/internal/api/ratelimit.go)):
 
-| Scope | Rate | Burst |
-|-------|------|-------|
-| Global (all routes) | 100 req/s | 200 |
-| Auth endpoints (`/auth/login`, `/auth/register`) | 10 req/s | 20 |
+| Scope | Counted under | Rate | Burst |
+|-------|---------------|------|-------|
+| Global (all routes) | The account a valid bearer token names; the client address otherwise | 100 req/s | 200 |
+| Auth endpoints (`/auth/login`, `/auth/register`) | The client address | 10 req/s | 20 |
 
-Rate limits are tracked per client address. A request bucket is an identity, so
-whoever can choose the address a request is counted under can mint a fresh
-allowance per request — which makes *whose* `X-Forwarded-For` is believed part
-of the limit rather than a detail of it.
+A signed-in request is counted under its account, so forty technicians behind
+one office connection each keep their own allowance; a request with no token, or
+a token that fails validation, is counted under its address. A request bucket is
+an identity, so whoever can choose the address a request is counted under can
+mint a fresh allowance per request — which makes *whose* `X-Forwarded-For` is
+believed part of the limit rather than a detail of it.
 
 It is believed only from a peer the deployment has named as one of its proxies,
 in `server.trustedProxies`
@@ -219,20 +223,20 @@ All API error responses return generic messages. Internal error details (SQL err
 
 ### Security headers
 
-The API server adds defense-in-depth headers via `SecurityHeaders` middleware:
+The API server sets every security header on every response, through the
+`SecurityHeaders` middleware in
+[`middleware.go`](../../server/internal/api/middleware.go): Strict-Transport-Security,
+X-Content-Type-Options, X-Frame-Options, Referrer-Policy, a Content-Security-Policy
+that allows scripts from the page's own origin alone, and a Permissions-Policy
+denying the device APIs the console never uses. The server is the one source of
+these headers, so they reach the browser the same way in every environment.
 
-- `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-
-At the edge, the app Helm chart applies the same headers (plus CSP and
-Permissions-Policy) controller-side through the ingress-nginx `add-headers`
-ConfigMap rendered by
-[`custom-headers-configmap.yaml`](../../deploy/helm/opengate/templates/custom-headers-configmap.yaml)
-from the values in [`values.yaml`](../../deploy/helm/opengate/values.yaml). This
-replaces the former per-ingress `configuration-snippet` annotation, so the
-controller runs with snippet annotations disabled.
+The ingress controller adds no header and runs with snippet annotations off, so
+no Ingress in either environment can carry nginx configuration into a controller
+whose account lists Secrets cluster-wide. Its settings live in
+[`deploy/ingress-nginx/values.yaml`](../../deploy/ingress-nginx/values.yaml); a
+production deploy applies them and the nightly configuration job reads them back
+([ADR-030](../adr/ADR-030-kubernetes-on-oke.md)).
 
 ## Tokens in logs
 

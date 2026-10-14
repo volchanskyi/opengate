@@ -25,13 +25,16 @@ export TOOL_VERSION_AGE="1.3.2"
 export TOOL_VERSION_ZSTD="1.5.7"
 export TOOL_VERSION_HADOLINT="2.12.0"
 export TOOL_VERSION_HELM="3.16.3"
+# The ingress controller's chart, installed by a production deploy and read back nightly.
+export TOOL_VERSION_INGRESS_NGINX_CHART="4.15.1"
 export TOOL_VERSION_KUBECONFORM="0.6.7"
 export TOOL_VERSION_CONFTEST="0.55.0"
 export TOOL_VERSION_CHECKOV="3.3.16"
 export TOOL_VERSION_TFLINT="0.64.0"
 export TOOL_VERSION_TRIVY="0.70.0"
-export TOOL_VERSION_STATICCHECK="0.8.1"
-export TOOL_VERSION_GOSEC="2.29.0"
+export TOOL_VERSION_STATICCHECK="0.8.2"
+# A commit: gosec's newest release reads only the export data Go 1.27.1 and older write.
+export TOOL_VERSION_GOSEC="2.29.1-0.20261012130337-71577268350e"
 export TOOL_VERSION_CARGO_NEXTEST="0.9.129"
 export TOOL_VERSION_CARGO_LLVM_COV="0.8.5"
 # The scan action takes the CLI version; make sonar and the CI fallback take the image, which

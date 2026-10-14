@@ -68,6 +68,13 @@ The container runs as a non-root `opengate` user by default.
 
 **Required environment:**
 - `JWT_SECRET` — JWT signing secret
+- `OPENGATE_AGENT_RELAY_URL` — the scheme and host machines dial for a session's
+  relay (or `-agent-relay-url`); the server refuses to start without it
+
+**Optional environment:**
+- `OPENGATE_ICE_SERVERS` — comma-separated `stun:host:port` helpers sent to both
+  sides of a session (or `-ice-servers`); the server answers them itself on the
+  QUIC port
 
 **Default entrypoint:**
 ```

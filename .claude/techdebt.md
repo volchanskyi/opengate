@@ -179,28 +179,6 @@ production's.
 the generator's room at a rung that held. Offer the sessions then, or declare
 `sessions: 0` if the profile turns out not to want them.
 
-### Authenticated requests are still counted per address
-
-[ADR-116](../docs/adr/ADR-116-forwarded-addresses.md)
-narrowed which peer may say what address a request came from, and left the
-question of what a request should be counted under where it was.
-
-Northwind IT's forty technicians share one office connection. Steady browsing is
-nowhere near the limit — their pages refresh every fifteen to sixty seconds, so
-forty idling technicians are about three requests a second. But a bad patch goes
-out at 09:05, everyone opens a machine's page at once, six requests each, two
-hundred and forty in a second or two against a saved-up allowance of two
-hundred. Somewhere past the thirtieth technician the page comes back empty with
-nothing on screen explaining why.
-
-Counting an authenticated request under the account that made it is the answer,
-and it is a product change rather than a load-test one: it would not have solved
-the load run's problem, because every simulated technician in a scenario shares
-one sign-in, so the bucket would have moved from one address to one account.
-
-**Pay-down trigger:** any work on the request path, or the first customer report
-of a refused page during a busy moment.
-
 ### `make ssh` cannot open a session on the cluster's machine
 
 [ADR-018](../docs/adr/ADR-018-operator-node-access.md) gives an operator a shell
@@ -239,22 +217,6 @@ machine rather than enrolling one, and says so in its own header.
 
 **Pay-down trigger:** a Windows or macOS machine in the browser stack, for any
 reason. Point the spec at it and delete the description.
-
-### A second process list nothing uses
-
-The server accepts and stores a stand-alone "busiest programs" report that no real
-agent has ever sent. Only the load test's pretend computers send it, on every
-cycle. Nothing reads the stored rows back, and memory is filed under a name that
-says "percent".
-
-What it costs: an unused table to keep walled off by tenant and to erase, and
-nightly performance tests doing database work real customers never cause. An
-alert's evidence carries its own process rows, so nothing depends on this list.
-
-**Pay-down trigger:** the next change to telemetry ingest or to the nightly
-performance test's workload. Remove the message, its handler, its table and its
-two series, and stop the load test sending it; the performance history restarts
-under a new workload label.
 
 ### OpenAPI request constraints are documentation, not runtime validation
 
@@ -299,7 +261,7 @@ migration time rather than by the tests themselves.
 
 ### E2E worker-scoped identities not adopted; Playwright stays single-worker
 
-82 Playwright tests across 22 spec files provision their own account
+115 Playwright tests across 28 spec files provision their own account
 ([`fixtures.ts`](../web/e2e/fixtures.ts)), and `workers: 1` is a deliberate fix
 for `createAdminUser` racing on shared IAM state. Sharing one identity per worker
 would cut account setup and is the prerequisite for raising the worker count.
@@ -307,9 +269,9 @@ The per-test navigation cost has been halved in the meantime (the token is
 seeded via `addInitScript`, so an authenticated page is reached in one
 navigation instead of two).
 
-The per-spec audit is done, and it names two barriers rather than a diffuse
-risk. Both are properties of the suite, not of the identities, so per-worker
-accounts do not clear either on their own.
+The per-spec audit is done, and it names three barriers rather than a diffuse
+risk. All three are properties of the suite, not of the identities, so
+per-worker accounts do not clear any of them on their own.
 
 The binding one is `cannot remove last admin` in
 [`security-permissions.spec.ts`](../web/e2e/security-permissions.spec.ts). It
@@ -330,19 +292,29 @@ screenshot baselines in
 [`visual-regression.spec.ts`](../web/e2e/visual-regression.spec.ts) among them —
 read them if they overlap.
 
+The third is the machines' one session each: a machine takes one session at a
+time, so two specs opening sessions on the same machine refuse each other. On
+`agent-a` that is [`file-manager`](../web/e2e/file-manager.spec.ts),
+[`session-terminal`](../web/e2e/session-terminal.spec.ts),
+[`session-tab`](../web/e2e/session-tab.spec.ts) and the router specs —
+[`direct-link`](../web/e2e/direct-link.spec.ts),
+[`downloads`](../web/e2e/downloads.spec.ts),
+[`performance`](../web/e2e/performance.spec.ts),
+[`performance-chromium`](../web/e2e/performance-chromium.spec.ts) and
+[`two-routers`](../web/e2e/two-routers.spec.ts) — which also change the office
+and home routers every session behind them crosses. Each ends its sessions and
+puts the routers back in `afterEach`.
+
 The rest of the suite clears the audit on evidence.
 [`device-list.spec.ts`](../web/e2e/device-list.spec.ts) names its sites by
 timestamp, asserts only on the name it created, and deletes them `afterEach`.
 [`restart.spec.ts`](../web/e2e/restart.spec.ts) fulfils the restart route in the
 browser, so `agent-b` is read for its id and never actually restarted. The
 membership tests in `security-permissions.spec.ts` assert `toContain` against a
-user they registered themselves, which no sibling can perturb. Of the two real
-machines, `agent-a` is read-only to
-[`file-manager`](../web/e2e/file-manager.spec.ts),
-[`hardware`](../web/e2e/hardware.spec.ts),
-[`inventory`](../web/e2e/inventory.spec.ts) and
-[`session-terminal`](../web/e2e/session-terminal.spec.ts), and `agent-b` is
-written by `device-site-dnd.spec.ts` alone.
+user they registered themselves, which no sibling can perturb.
+[`hardware`](../web/e2e/hardware.spec.ts) and
+[`inventory`](../web/e2e/inventory.spec.ts) only read `agent-a`, and `agent-b`'s
+site is written by `device-site-dnd.spec.ts` alone.
 
 Two pieces of that audit are enforced rather than pending. The
 `globalTeardown` in [`global-teardown.ts`](../web/e2e/global-teardown.ts) fails
@@ -352,10 +324,11 @@ an empty fleet a way to supply that emptiness instead of reading shared state.
 Both hold at any worker count. Since the tenant — not the creating user — is the
 visibility boundary, raising the count needs the last-admin test in a lane of its
 own and `device-site-dnd.spec.ts` holding uniquely-named sites on a device it
-owns, or it needs a per-worker tenant.
+owns, and the session and router specs in one lane, or it needs a per-worker
+tenant and a stack per worker.
 
 **Pay-down trigger:** E2E wall time becomes a merge-latency problem. The audit no
-longer gates the change; the two barriers above are what the work consists of.
+longer gates the change; the three barriers above are what the work consists of.
 
 ### Device-list filtering is client-side (future server-side concern at scale)
 
@@ -439,13 +412,14 @@ complete; only two **external, user-owned** follow-ups remain (neither bills):
 2. **Cloudflare DNS** (user): retire `status.opengate.cloudisland.net` or CNAME it
    to the SaaS status page.
 
-### ADR-020 WebRTC dispatch — 1 residual equivalent mutant in `handler.rs`
+### An upload request does nothing — 1 residual equivalent mutant in `handler.rs`
 
 `cargo mutants -p mesh-agent-core` leaves one uncaught mutant in
 `session/handler.rs::handle_control`: the `ControlMessage::FileUploadRequest`
-match-arm deletion. It is an **equivalent mutant** — `FileHandler::handle_upload`
-only logs ("not yet implemented"), so deleting the arm is observationally
-identical to the `_ => debug!` fallthrough (no frame, no state change). Killing it
+match-arm deletion. It is an **equivalent mutant** — the dispatcher logs the
+request and `FileHandler::handle_upload` writes nothing, so deleting the arm is
+observationally identical to the `_ => debug!` fallthrough (no frame, no state
+change). Killing it
 requires giving upload an observable side effect (e.g. an ack frame), a
 business-logic change deferred until upload is implemented.
 
@@ -509,7 +483,7 @@ knob added to the catalogue grammar.
 ### Every control frame allocates the whole union
 
 [`ControlMessage`](../server/internal/protocol/control.go) is one struct
-carrying a field for every message type on the wire — 100 fields, 1 416 bytes —
+carrying a field for every message type on the wire — 102 fields, 1 432 bytes —
 and the decoder allocates one per frame. A heartbeat that sets three of those
 fields costs the same as a discovery report that sets twenty, and Go rounds the
 allocation to a size class, so the price rises in steps: eight bytes of new
@@ -533,9 +507,9 @@ a message type to justify the fields that pushed it.
 
 ### Alert state stays out of VictoriaMetrics
 
-Three per-device edge series — `opengate_edge_alert_breach{rule,metric}` and
-`opengate_edge_process_{cpu,mem}_percent{rank}` — sit outside the rule that keeps
-central cardinality O(1), and are left as they are: of the four alternative
+One per-device edge series — `opengate_edge_alert_breach{rule,metric}` — sits
+outside the rule that keeps central cardinality O(1), and is left as it is: of
+the four alternative
 shapes considered, none is satisfying yet. Nothing is blocked by the deferral —
 the per-device cap is enforced over the vitals set, and the aggregate rule
 metrics

@@ -1,9 +1,12 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { useConnectionStore } from './state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
+import { holdsSessionTab } from './session-tab';
 import { SessionView } from './SessionView';
+import { useToastStore } from '../../lib/feedback/toast-store';
 
 vi.mock('../remote-desktop', () => ({
   RemoteDesktopView: () => <div data-testid="desktop-view">Desktop</div>,
@@ -17,198 +20,201 @@ vi.mock('../file-manager', () => ({
 vi.mock('../messenger', () => ({
   MessengerView: () => <div data-testid="messenger-view">Chat</div>,
 }));
-vi.mock('./SessionToolbar', () => ({
-  SessionToolbar: ({ onDisconnect }: { onDisconnect: () => void }) => (
-    <button type="button" data-testid="toolbar" onClick={onDisconnect}>Disconnect</button>
-  ),
-}));
+
+const mockGet = vi.fn();
+const mockPost = vi.fn();
 vi.mock('../../lib/api', () => ({
   api: {
-    GET: vi.fn().mockResolvedValue({ data: undefined, error: { error: 'mock' }, response: { status: 404 } }),
-    POST: vi.fn(),
+    GET: (...args: unknown[]) => mockGet(...args),
+    POST: (...args: unknown[]) => mockPost(...args),
     DELETE: vi.fn(),
   },
 }));
 
-function renderWithRouter(capabilities?: string[]) {
-  const state = { relayUrl: 'ws://localhost/relay/tok', capabilities };
+function jwt(uid: string, tenant: string): string {
+  return `h.${btoa(JSON.stringify({ uid, tenant })).replace(/=+$/, '')}.s`;
+}
+
+const ALICE = jwt('alice', 'northwind');
+
+const DEVICE = {
+  id: 'dev-1',
+  hostname: 'FS01',
+  organization_id: 'org-contoso',
+  capabilities: ['Terminal', 'FileManager'],
+};
+
+function answer(path: string, opts?: { capabilities?: string[] }) {
+  if (path === '/api/v1/devices/{id}') {
+    return { data: { ...DEVICE, capabilities: opts?.capabilities ?? DEVICE.capabilities }, error: undefined, response: { status: 200 } };
+  }
+  if (path === '/api/v1/organizations/{id}') {
+    return { data: { id: 'org-contoso', name: 'Contoso' }, error: undefined, response: { status: 200 } };
+  }
+  return { data: undefined, error: { error: 'unexpected' }, response: { status: 404 } };
+}
+
+function opened() {
+  return {
+    data: { token: 'tok', relay_url: 'wss://edge.test/ws/relay/tok', ice_servers: [{ urls: ['stun:helper.test:9090'] }] },
+    error: undefined,
+    response: { status: 201 },
+  };
+}
+
+function renderPage() {
   return render(
-    <MemoryRouter initialEntries={[{ pathname: '/sessions/tok', state }]}>
+    <MemoryRouter initialEntries={['/devices/dev-1/session']}>
       <Routes>
-        <Route path="/sessions/:token" element={<SessionView />} />
+        <Route path="/devices/:id/session" element={<SessionView />} />
       </Routes>
     </MemoryRouter>,
   );
 }
 
 describe('SessionView', () => {
+  const connect = vi.fn();
+  const disconnect = vi.fn();
+
   beforeEach(() => {
-    vi.clearAllMocks();
-    useConnectionStore.setState({
-      state: 'connected',
-      transport: null,
-      error: null,
-    });
-    useAuthStore.setState({ token: 'jwt' });
+    mockGet.mockReset();
+    mockPost.mockReset();
+    connect.mockReset();
+    disconnect.mockReset();
+    mockGet.mockImplementation((path: string) => Promise.resolve(answer(path)));
+    mockPost.mockResolvedValue(opened());
+    useConnectionStore.setState({ state: 'connected', path: { direct: false }, closedReason: null, transport: null, connect, disconnect });
+    useAuthStore.setState({ token: ALICE });
+    localStorage.setItem('token', ALICE);
+    window.name = '';
   });
 
-  it('shows all tabs when capabilities include RemoteDesktop', () => {
-    renderWithRouter(['RemoteDesktop', 'Terminal', 'FileManager']);
-    expect(screen.getByRole('tab', { name: 'Desktop' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Terminal' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Chat' })).toBeInTheDocument();
+  const originalName = window.name;
+
+  afterEach(() => {
+    localStorage.clear();
+    window.name = originalName;
   });
 
-  it('hides Desktop and Chat tabs on headless device', () => {
-    renderWithRouter(['Terminal', 'FileManager']);
-    expect(screen.queryByRole('tab', { name: 'Desktop' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Terminal' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
+  it('opens a session on the host in the address and joins it with the relay and helpers the server named', async () => {
+    renderPage();
+    await waitFor(() => expect(connect).toHaveBeenCalledWith('tok', 'wss://edge.test/ws/relay/tok', ALICE, ['stun:helper.test:9090']));
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/sessions', expect.objectContaining({ body: expect.objectContaining({ device_id: 'dev-1' }) }));
   });
 
-  it('hides Desktop and Chat when capabilities are undefined', () => {
-    renderWithRouter(undefined);
-    expect(screen.queryByRole('tab', { name: 'Desktop' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Terminal' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
+  it('names the tab after its host and customer, and carries the host’s tab name', async () => {
+    renderPage();
+    await waitFor(() => expect(document.title).toBe('FS01 — Contoso'));
+    expect(screen.getByText('FS01 — Contoso')).toBeInTheDocument();
+    expect(window.name).toBe('opengate-session-dev-1');
   });
 
-  it('the Disconnect button disconnects before leaving for the device list', () => {
-    const disconnect = vi.fn();
-    useConnectionStore.setState({ connect: vi.fn(), disconnect });
-    let disconnectedBeforeLeaving: number | null = null;
-    function DeviceListMarker() {
-      disconnectedBeforeLeaving ??= disconnect.mock.calls.length;
-      return <p>Devices</p>;
-    }
-    render(
-      <MemoryRouter initialEntries={[{ pathname: '/sessions/tok', state: { relayUrl: 'ws://localhost/relay/tok' } }]}>
-        <Routes>
-          <Route path="/sessions/:token" element={<SessionView />} />
-          <Route path="/devices" element={<DeviceListMarker />} />
-        </Routes>
-      </MemoryRouter>,
+  it('reads nothing from the customer chosen in another tab', async () => {
+    localStorage.setItem('selectedOrganizationId', 'org-fabrikam');
+    renderPage();
+    await waitFor(() => expect(document.title).toBe('FS01 — Contoso'));
+    expect(screen.queryByRole('combobox', { name: /customer/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the tabs the host’s capabilities allow', async () => {
+    mockGet.mockImplementation((path: string) =>
+      Promise.resolve(answer(path, { capabilities: ['RemoteDesktop', 'Terminal', 'FileManager'] })),
     );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
-
-    expect(disconnectedBeforeLeaving).toBe(1);
-  });
-
-  it('defaults to Terminal tab', () => {
-    renderWithRouter(['Terminal', 'FileManager']);
+    renderPage();
+    expect(await screen.findByRole('tab', { name: 'Desktop' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Chat' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('Terminal tab renders TerminalView by default', () => {
-    renderWithRouter(['Terminal', 'FileManager']);
-    expect(screen.getByTestId('terminal-view')).toBeInTheDocument();
+  it('hides Desktop and Chat on a host without a screen', async () => {
+    renderPage();
+    expect(await screen.findByRole('tab', { name: 'Terminal' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Desktop' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
   });
 
-  it('clicking Files switches the tab panel to FileManagerView', () => {
-    renderWithRouter(['Terminal', 'FileManager']);
-    fireEvent.click(screen.getByRole('tab', { name: 'Files' }));
+  it('keeps every feature running while another is shown, so a download carries on beside the terminal', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Files' }));
+    expect(screen.getByTestId('files-view')).toBeVisible();
+    expect(screen.getByTestId('terminal-view')).not.toBeVisible();
+
+    await user.click(screen.getByRole('tab', { name: 'Terminal' }));
+    expect(screen.getByTestId('terminal-view')).toBeVisible();
     expect(screen.getByTestId('files-view')).toBeInTheDocument();
-    expect(screen.queryByTestId('terminal-view')).toBeNull();
+    expect(screen.getByTestId('files-view')).not.toBeVisible();
   });
 
-  it('clicking Desktop switches the tab panel to RemoteDesktopView', () => {
-    renderWithRouter(['RemoteDesktop', 'Terminal']);
-    fireEvent.click(screen.getByRole('tab', { name: 'Desktop' }));
-    expect(screen.getByTestId('desktop-view')).toBeInTheDocument();
-    expect(screen.queryByTestId('terminal-view')).toBeNull();
-  });
-
-  it('clicking Chat switches the tab panel to MessengerView', () => {
-    renderWithRouter(['RemoteDesktop', 'Terminal']);
-    fireEvent.click(screen.getByRole('tab', { name: 'Chat' }));
-    expect(screen.getByTestId('messenger-view')).toBeInTheDocument();
-  });
-
-  it('active tab uses the white text + blue underline class set; inactive uses gray', () => {
-    renderWithRouter(['Terminal', 'FileManager']);
-    const terminalTab = screen.getByRole('tab', { name: 'Terminal' });
-    const filesTab = screen.getByRole('tab', { name: 'Files' });
-    expect(terminalTab.className).toContain('text-white');
-    expect(terminalTab.className).toContain('border-blue-500');
-    expect(filesTab.className).toContain('text-gray-400');
-    expect(filesTab.className).not.toContain('border-blue-500');
-  });
-
-  it('connection error banner appears when connectionError is set', () => {
-    // A stubbed connect leaves the preset error in place during mount.
-    useConnectionStore.setState({
-      state: 'connected',
-      error: 'permission denied',
-      transport: null,
-      connect: vi.fn(),
-      disconnect: vi.fn(),
+  it('names the technician holding the host when the server refuses, and joins nothing', async () => {
+    mockPost.mockResolvedValue({
+      data: undefined,
+      error: { error: 'device has an open session', holder_name: 'Alice', started_at: '2026-10-12T14:02:00Z' },
+      response: { status: 409 },
     });
-    renderWithRouter(['Terminal']);
-    expect(screen.getByText('permission denied')).toBeInTheDocument();
+    renderPage();
+    expect(await screen.findByText(/^Session open — Alice, since \d{1,2}:\d{2}/)).toBeInTheDocument();
+    expect(connect).not.toHaveBeenCalled();
   });
 
-  it('connection error banner is hidden when error is null', () => {
-    useConnectionStore.setState({
-      state: 'connected',
-      error: null,
-      transport: null,
-      connect: vi.fn(),
-      disconnect: vi.fn(),
+  it('says why the relay closed and stops showing the session', async () => {
+    renderPage();
+    await screen.findByRole('tab', { name: 'Terminal' });
+    act(() => useConnectionStore.setState({ closedReason: 'Opened elsewhere' }));
+    expect(await screen.findByText('Opened elsewhere')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Terminal' })).not.toBeInTheDocument();
+  });
+
+  it('ends its session when this browser signs out in another tab', async () => {
+    renderPage();
+    await screen.findByRole('tab', { name: 'Terminal' });
+    act(() => {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new StorageEvent('storage', { key: 'token', newValue: null }));
     });
-    renderWithRouter(['Terminal']);
-    const banner = Array.from(document.querySelectorAll('div')).find((el) =>
-      el.className.includes('bg-red-900/50'),
-    );
-    expect(banner).toBeUndefined();
+    expect(await screen.findByText('Signed out')).toBeInTheDocument();
+    expect(disconnect).toHaveBeenCalled();
   });
 
-  it('connect is called on mount with token, relayUrl, and auth token', () => {
-    const connectFn = vi.fn();
-    useConnectionStore.setState({ connect: connectFn, state: 'connected', error: null, transport: null });
-    useAuthStore.setState({ token: 'JWT' });
-    renderWithRouter(['Terminal']);
-    expect(connectFn).toHaveBeenCalledWith('tok', 'ws://localhost/relay/tok', 'JWT');
+  it('ends a session this browser signed out of while it was opening', async () => {
+    let reply: (value: ReturnType<typeof opened>) => void = () => {};
+    mockPost.mockReturnValue(new Promise((resolve) => { reply = resolve; }));
+    renderPage();
+    act(() => {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new StorageEvent('storage', { key: 'token', newValue: null }));
+    });
+    await act(async () => reply(opened()));
+    expect(await screen.findByText('Signed out')).toBeInTheDocument();
+    expect(disconnect).toHaveBeenCalled();
   });
 
-  it('disconnect is called on unmount cleanup', () => {
-    const disconnectFn = vi.fn();
-    useConnectionStore.setState({ disconnect: disconnectFn, state: 'connected', error: null, transport: null });
-    const { unmount } = renderWithRouter(['Terminal']);
-    disconnectFn.mockClear();
+  it('tells this browser’s other pages it holds the host while the session is open', async () => {
+    const { unmount } = renderPage();
+    await screen.findByRole('tab', { name: 'Terminal' });
+    expect(holdsSessionTab('dev-1')).toBe(true);
     unmount();
-    expect(disconnectFn).toHaveBeenCalled();
+    expect(holdsSessionTab('dev-1')).toBe(false);
+    expect(disconnect).toHaveBeenCalled();
   });
 
-  it('disconnect callback navigates to /devices', async () => {
-    const disconnectFn = vi.fn();
-    useConnectionStore.setState({ disconnect: disconnectFn, state: 'connected', error: null, transport: null });
-
-    const router = render(
-      <MemoryRouter initialEntries={[{ pathname: '/sessions/tok', state: { relayUrl: 'ws://x', capabilities: ['Terminal'] } }]}>
-        <Routes>
-          <Route path="/sessions/:token" element={<SessionView />} />
-          <Route path="/devices" element={<p>Devices Page</p>} />
-        </Routes>
-      </MemoryRouter>,
-    );
-    router.unmount();
-    expect(disconnectFn).toHaveBeenCalled();
+  it('shows the messages its features raise, such as a download that failed', async () => {
+    renderPage();
+    await screen.findByRole('tab', { name: 'Terminal' });
+    act(() => useToastStore.getState().addToast("Couldn't download app.log: permission denied", 'error'));
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't download app.log: permission denied");
+    act(() => useToastStore.setState({ toasts: [] }));
   });
 
-  it('does not call connect when relayUrl is missing from location state', () => {
-    const connectFn = vi.fn();
-    useConnectionStore.setState({ connect: connectFn, state: 'connected', error: null, transport: null });
-    render(
-      <MemoryRouter initialEntries={['/sessions/tok']}>
-        <Routes>
-          <Route path="/sessions/:token" element={<SessionView />} />
-        </Routes>
-      </MemoryRouter>,
-    );
-    expect(connectFn).not.toHaveBeenCalled();
+  it('ends the session from its toolbar', async () => {
+    const user = userEvent.setup();
+    const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+    renderPage();
+    await screen.findByRole('tab', { name: 'Terminal' });
+    await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+    expect(disconnect).toHaveBeenCalled();
+    expect(close).toHaveBeenCalled();
+    expect(screen.getByText('Session ended')).toBeInTheDocument();
+    close.mockRestore();
   });
 });

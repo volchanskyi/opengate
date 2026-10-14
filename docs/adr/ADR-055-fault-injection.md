@@ -24,7 +24,16 @@ failing implementation of one.
 credential, applied from version-controlled templates.
 
 **The machine-facing network path is faulted by an unprivileged link shaper in
-the path**, rather than by a privileged agent on the node.
+the path**, rather than by a privileged agent on the node. This holds for the
+cluster.
+
+**The browser test stack's two routers are the one exception.** That stack is
+a throwaway set of containers on a test machine
+([`docker-compose.test.yml`](../../deploy/docker-compose.test.yml)). Its office
+and home routers hold network-admin, which they need to translate addresses,
+drop UDP and shape the rate for the networks behind them. Nothing else in a
+compose stack may hold it, and nothing there runs privileged
+([`compose.rego`](../../policy/docker_compose/compose.rego)).
 
 Rejected: a compiled-in injector, for the reason above. A build-tag fault
 binary, because a non-shipping variant means the drills no longer run against

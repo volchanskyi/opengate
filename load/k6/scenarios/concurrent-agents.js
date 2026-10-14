@@ -5,12 +5,14 @@ import {
   authHeaders,
   devicesUrl,
   http,
+  ownTechnician,
   printCleanupManifest,
-  registerMember,
+  registerTechnicians,
   visibleSiteIds,
 } from "../lib/session.js";
 import {
   arrivalScenarios,
+  arrivalTechnicians,
   measuredThresholds,
   phases,
 } from "../lib/profile.js";
@@ -39,17 +41,19 @@ export const options = {
 };
 
 export function setup() {
-  // One shared member for every VU, reading the sites the organization has.
-  const member = registerMember(BASE_URL, "agent-load");
+  const technicians = registerTechnicians(
+    BASE_URL,
+    "agent-load",
+    arrivalTechnicians(WALK, REQUESTS_PER_PASS)
+  );
   return {
-    token: member.token,
-    email: member.email,
-    siteIds: visibleSiteIds(BASE_URL, member.token),
+    technicians,
+    siteIds: visibleSiteIds(BASE_URL, technicians[0].token),
   };
 }
 
 export default function (data) {
-  const headers = authHeaders(data.token);
+  const headers = authHeaders(ownTechnician(data.technicians).token);
 
   // Simulate agent-like HTTP operations at scale
   const health = http.get(`${BASE_URL}/api/v1/health`, { headers: anonymousHeaders() });
@@ -69,5 +73,5 @@ export default function (data) {
 }
 
 export function teardown(data) {
-  printCleanupManifest([data.email]);
+  printCleanupManifest(data.technicians.map((technician) => technician.email));
 }

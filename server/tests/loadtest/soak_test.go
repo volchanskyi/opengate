@@ -46,14 +46,13 @@ func readControl(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer) *protoc
 
 func TestDefaultTelemetryFrames(t *testing.T) {
 	frames := defaultTelemetryFrames(1_700_000_000)
-	require.Len(t, frames, 3)
+	require.Len(t, frames, 2)
 
-	types := []protocol.ControlMessageType{frames[0].Type, frames[1].Type, frames[2].Type}
+	types := []protocol.ControlMessageType{frames[0].Type, frames[1].Type}
 	assert.Equal(t, []protocol.ControlMessageType{
 		protocol.MsgAgentHealthSummary,
 		protocol.MsgAgentMetricWindow,
-		protocol.MsgProcessReport,
-	}, types)
+	}, types, "a load-run machine sends only what a real one sends")
 
 	for _, f := range frames {
 		assert.Empty(t, f.TenantID, "agent must not assert a tenant; the server assigns it")
@@ -65,9 +64,6 @@ func TestDefaultTelemetryFrames(t *testing.T) {
 	for i, d := range window.Dims {
 		assert.Equal(t, defaultMetricDimNames[i], d.Name, "default window is host metrics")
 	}
-	// The process report is bounded and rank-ordered.
-	require.NotEmpty(t, frames[2].TopN)
-	assert.EqualValues(t, 1, frames[2].TopN[0].Rank)
 }
 
 func TestPlanAgents(t *testing.T) {

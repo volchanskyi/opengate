@@ -870,11 +870,12 @@ cat >"$WORK/regression-table.json" <<'JSON'
 JSON
 "$REGRESSION" "$WORK/regression-table.json" "$WORK/drill-table.md" >/dev/null 2>&1 || true
 table="$(cat "$WORK/drill-table.md" 2>/dev/null || true)"
-assert_contains "the page is the four-column table" "| Measurement | Expected | Actual | Result |" "$table"
+assert_contains "the page is the four-column table, each heading explained on hover" \
+  '| <span title="A scenario (s1 dark and back, s2 thin uplink, s3 lossy link, s4 new address) and the machine it measured: the real one, the herd, or the link itself.">Measurement</span> |' "$table"
 assert_contains "a reading inside its floor passes" "| s1 real: time to come back | ≤ 120 s | 18 s | pass |" "$table"
 assert_contains "a reading past its floor fails" "| s1 real: share of the gap filled in | ≥ 95 % | 40 % | FAIL |" "$table"
 assert_contains "a reading the drill records without a floor says so" "| s1 real: times the machine went offline | no limit | 1 | — |" "$table"
-assert_contains "the legend says what each column means" "- **Expected**" "$table"
+if grep -q '^- \*\*' <<<"$table"; then fail "no legend follows the table"; else pass "no legend follows the table"; fi
 
 # Tonight is judged against the median of the preceding nights, one point per night.
 DRILL_STORE="$WORK/drill-store"

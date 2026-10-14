@@ -1,8 +1,26 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Firefox and WebKit projects run only under PLAYWRIGHT_ALL_BROWSERS=1, in the nightly workflow.
-// WebKit occasionally flakes inside Docker, so the cross-browser path retries once.
+// Firefox and WebKit run only under PLAYWRIGHT_ALL_BROWSERS=1, in the nightly workflow, and retry
+// once, since WebKit occasionally flakes inside Docker.
 const allBrowsers = process.env.PLAYWRIGHT_ALL_BROWSERS === "1";
+// This spec drives the browser server behind the stack's home router.
+const TWO_ROUTERS = /two-routers\.spec\.ts$/;
+// These specs read Chromium's debugging protocol.
+const CHROMIUM_ONLY = /-chromium\.spec\.ts$/;
+
+/** A project whose browser runs on the browser server behind the stack's home router. */
+function behindHomeRouter(browser: string, device: string) {
+  return {
+    name: `${browser}-behind-home-router`,
+    testMatch: TWO_ROUTERS,
+    use: {
+      ...devices[device],
+      // The home router forwards its outer address's port 3000 to the browser server behind it.
+      connectOptions: { wsEndpoint: "ws://10.77.0.3:3000/" },
+      baseURL: "http://10.77.0.10:8080",
+    },
+  };
+}
 
 export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
@@ -31,17 +49,23 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      testIgnore: TWO_ROUTERS,
     },
+    behindHomeRouter("chromium", "Desktop Chrome"),
     ...(allBrowsers
       ? [
           {
             name: "firefox",
             use: { ...devices["Desktop Firefox"] },
+            testIgnore: [TWO_ROUTERS, CHROMIUM_ONLY],
           },
           {
             name: "webkit",
             use: { ...devices["Desktop Safari"] },
+            testIgnore: [TWO_ROUTERS, CHROMIUM_ONLY],
           },
+          behindHomeRouter("firefox", "Desktop Firefox"),
+          behindHomeRouter("webkit", "Desktop Safari"),
         ]
       : []),
   ],

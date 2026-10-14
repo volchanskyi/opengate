@@ -123,9 +123,11 @@ func run() int {
 	// sessionsJoined counts the machine sides answered across every agent, the conservation
 	// denominator.
 	sessionsJoined := &atomic.Int64{}
+	helpers := &helperTally{}
 
 	opts := loadOptions{
 		sessionsJoined:          sessionsJoined,
+		helpers:                 helpers,
 		defaultTelemetry:        *defaultTelemetry,
 		telemetryCycles:         *telemetryCycles,
 		metricWindows:           *metricWindows,
@@ -209,6 +211,9 @@ func run() int {
 	// The closing reading follows the target's wind-down, so retained means what survived it.
 	leakTrail := leakWatching()
 
+	// A session's helper requests may still be on their schedule when its machine leaves.
+	helpers.settle()
+
 	// Registration is read from the server before the results block, which publishes it.
 	registration := readServerRegistration(*metricsURL)
 
@@ -236,6 +241,7 @@ func run() int {
 		Registration:         registration,
 		Fixture:              fixture,
 		Leak:                 leakTrail,
+		Helper:               helpers.count(),
 		Conservation: TargetConservation{
 			Start: targetAtStart,
 			End:   targetAtEnd,

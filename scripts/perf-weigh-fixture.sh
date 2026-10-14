@@ -90,11 +90,10 @@ weigh() {
 
   require_stack || return 2
 
-  local devices sites users process_rows total series
+  local devices sites users total series
   devices="$(table_rows devices)"
   sites="$(table_rows sites)"
   users="$(table_rows users)"
-  process_rows="$(table_rows device_processes)"
   total="$(database_bytes)"
   series="$(telemetry_series)" || return 1
 
@@ -112,7 +111,6 @@ weigh() {
     --argjson devices "${devices:-0}" \
     --argjson sites "${sites:-0}" \
     --argjson users "${users:-0}" \
-    --argjson process_rows "${process_rows:-0}" \
     --argjson telemetry_series "$((series - baseline_series))" \
     --arg fits "$fits" \
     --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -128,7 +126,6 @@ weigh() {
         devices: $devices,
         sites: $sites,
         users: $users,
-        process_rows: $process_rows,
         telemetry_series: $telemetry_series
       }
     }' >"$out"

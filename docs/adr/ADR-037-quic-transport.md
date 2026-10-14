@@ -38,6 +38,18 @@ restart, so the first reconnect after a server restart is always a full
 handshake. Zero-RTT is not used — it would need replay protection the control
 path does not have.
 
+**The agents' UDP port also answers the session helper.** The listener hands a
+packet whose first byte has its two top bits clear — never a QUIC packet, always
+a STUN message — to the helper
+([ADR-127](./ADR-127-direct-link.md)) through `quic-go`'s 32-slot queue for
+non-QUIC packets, which drops overflow without holding agent traffic. That split
+holds only while no agent clears the QUIC fixed bit, and `quinn` clears it only
+when the server offers to let peers do so, which `quic-go` never does.
+[`TestTheAgentListenerNeverOffersToLetPeersClearTheFixedBit`](../../server/tests/integration/helper_test.go)
+reads the transport parameters the listener sends and fails on that offer, so a
+`quic-go` release that makes it cannot route agent packets to the helper
+unnoticed.
+
 ## Consequences
 
 The server needed no change to gain resumption. Measured in production, an

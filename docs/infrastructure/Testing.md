@@ -26,7 +26,7 @@
 - [Cross-component tests](#cross-component-tests)
   - [Agent session handler](#agent-session-handler)
   - [Relay frame round trip](#relay-frame-round-trip)
-  - [WebRTC signalling through the relay](#webrtc-signalling-through-the-relay)
+  - [The direct link](#the-direct-link)
   - [Agent update pipeline](#agent-update-pipeline)
   - [Triage, from agent to resolution](#triage-from-agent-to-resolution)
 - [When production misbehaves](#when-production-misbehaves)
@@ -213,7 +213,21 @@ names in one place: `agent-a` is what the device pages are read against,
 
 [`docker-compose.test.yml`](../../deploy/docker-compose.test.yml) runs the local
 stack — a database, a server listening for machines, and two agents with pinned
-hostnames.
+hostnames — on three networks: an "internet" one, and an office and a home
+network each behind a router container
+([`router.sh`](../../deploy/router/router.sh)) that translates addresses, limits
+the rate and drops UDP when a spec tells it to. `agent-a` sits behind the office
+router and `agent-b` on the internet network beside the server. A Playwright
+browser server sits behind the home router, so a spec can put both sides of a
+session behind routers, the usual case in the field. Only the two routers hold
+network-admin rights, held by
+[`compose.rego`](../../policy/docker_compose/compose.rego);
+[`e2e-stack-machines.test.sh`](../../scripts/tests/e2e-stack-machines.test.sh)
+holds where each container sits, each machine on one CPU — a sender moving
+between CPUs reaches the far side out of order, which the direct link reads as
+loss — and the console published on IPv4 alone, since Firefox offers no
+direct-link address on a page it reached over IPv6 loopback. The networks need
+Docker Engine 28, which the bring-up checks first.
 
 The machines install the way a real one does.
 [`e2e-stack-up.sh`](../../deploy/scripts/e2e-stack-up.sh) starts the database and
@@ -526,11 +540,19 @@ depends on is gone for every later run against that database.
 ### Configuration
 
 - **CI**: `web/playwright.config.ts` — targets `http://localhost:8080` (docker-compose)
+  from Chromium on the test machine, and the two-router spec from a Chromium on
+  the browser server behind the home router. Nightly, Firefox and WebKit run the
+  same way; the specs that read Chromium's debugging protocol run in Chromium
+  alone.
 - **Staging**: `web/playwright.staging.config.ts` — derives from the CI config and
-  overrides only the target and retry policy, so the two cannot drift in how the
-  suite executes; `scripts/tests/playwright-config-parity.test.sh` enforces it.
-  What it does not inherit is the stack: the deploy job stands staging's
-  machines up, which is why they are checked against the same pinned names
+  overrides only the target, the retry policy and the specs that drive the local
+  stack, so the two cannot drift in how the suite executes;
+  `scripts/tests/playwright-config-parity.test.sh` enforces it. Staging has no
+  router, no machine shell and no browser server, so the direct-link, download,
+  performance and two-router specs and the projects behind the home router stay
+  local: staging proves the relay, and the terminal echo there is real. What it
+  does not inherit is the stack: the deploy job stands staging's machines up,
+  which is why they are checked against the same pinned names
 
 ### Running them locally
 
@@ -612,20 +634,19 @@ These tests exercise multi-component interaction paths that unit tests cannot co
 
 ### Agent session handler
 
-[`agent/crates/mesh-agent-core/src/session/handler.rs`](../../agent/crates/mesh-agent-core/src/session/handler.rs) covers frame dispatch, permission enforcement, and error paths. A representative slice:
+[`agent/crates/mesh-agent-core/src/session/handler.rs`](../../agent/crates/mesh-agent-core/src/session/handler.rs) covers frame dispatch, permission enforcement, and error paths:
 
 | Test | What It Verifies |
 |------|-----------------|
-| `test_handle_frame_ping_responds_pong` | Ping frame → Pong response |
-| `test_handle_frame_terminal_no_session` | Terminal frame with no active session — no panic |
-| `test_handle_frame_unexpected_type_ignored` | Desktop frame from browser silently ignored |
-| `test_handle_control_mouse_move_permitted` | `permissions.input = true` → `InputInjector` called |
-| `test_handle_control_mouse_move_denied` | `permissions.input = false` → injector NOT called |
-| `test_handle_control_file_list_success` | `FileListRequest` → `FileListResponse` on channel |
-| `test_handle_control_file_list_error` | `FileListRequest` for nonexistent path → `FileListError` |
-| `test_handle_control_chat_echoes_back` | `ChatMessage` → echoed with `sender: "agent"` |
-| `test_handle_control_chat_preserves_text` | Unicode and empty string preserved in echo |
-| `test_send_frame_closed_channel` | Closed channel → `SessionError::WebSocket` |
+| `a_ping_is_answered_with_a_pong` | Ping frame → Pong response |
+| `terminal_bytes_reach_the_shell_and_are_dropped_without_one` | Terminal bytes reach an open shell, and are dropped with none open |
+| `a_screen_picture_from_the_browser_is_ignored` | A desktop frame from the browser is ignored |
+| `input_is_injected_only_with_the_input_permission` | `permissions.input` decides whether the `InputInjector` is called |
+| `a_key_press_also_reaches_an_open_terminal_and_a_resize_its_size` | Key presses and resizes reach an open terminal |
+| `a_chat_message_is_echoed_as_the_agent` | `ChatMessage` → echoed with `sender: "agent"` |
+| `a_chat_message_too_large_to_echo_is_refused_and_the_session_carries_on` | An echo over the interactive lane's cap is refused, and the session carries on |
+| `file_requests_reach_the_file_handler` | File requests reach the file handler |
+| `an_undecodable_frame_is_dropped` | An undecodable frame is dropped |
 
 Uses `RecordingInjector` mock that records all `inject_*` calls for assertion.
 
@@ -642,16 +663,21 @@ Uses `RecordingInjector` mock that records all `inject_*` calls for assertion.
 
 Sends properly encoded `[type][4-byte BE length][payload]` frames through the full QUIC+WebSocket relay path and verifies msgpack decoding on the receiving side.
 
-### WebRTC signalling through the relay
+### The direct link
 
-[`server/tests/integration/signaling_relay_test.go`](../../server/tests/integration/signaling_relay_test.go):
+The hand-off is proved where it is written, then on real peers, then in browsers
+([ADR-127](../adr/ADR-127-direct-link.md)):
 
-| Test | What It Verifies |
-|------|-----------------|
-| `TestSignalingFlowThroughRelay` | Full negotiation across the relay: SDP offer → answer → ICE candidates → dual SwitchAck, each one carried between the two peers |
-| `TestSignalingOfferReachesTheAgentWithNoAnswer` | An offer the far side never answers still crosses, byte for byte, and the session stays a relayed one |
-
-Uses fake SDP strings — the relay is message-agnostic and just forwards binary frames, which is the outcome both tests state.
+| Where | What it proves |
+|---|---|
+| [`testdata/direct-link/`](../../testdata/direct-link/) | Scripted situations — a drop before the switch, mid-stream in either direction, between a frame's pieces, both sides falling back at once, an interactive frame ahead of queued bulk — with the exact deliveries on both sides. [`direct_link_scenarios_test.rs`](../../agent/crates/mesh-protocol/tests/direct_link_scenarios_test.rs) and [`handoff.test.ts`](../../web/src/lib/direct/handoff.test.ts) replay every one, and each adds 10 000 random drop points |
+| [`direct_link_test.rs`](../../agent/crates/mesh-agent-core/tests/direct_link_test.rs) | A browser-side peer on loopback against the host: the session moves onto the link, a silent peer is noticed within the silence limit, and sockets and tasks per completed session stay flat |
+| [`download_memory_test.rs`](../../agent/crates/mesh-agent-core/tests/download_memory_test.rs) | The host's memory stays flat against file size during a download |
+| [`session_relay_stub_test.rs`](../../agent/crates/mesh-agent-core/tests/session_relay_stub_test.rs) | A second offer refused, a second download refused while one runs, a large folder in pages ahead of nothing |
+| [`signaling_relay_test.go`](../../server/tests/integration/signaling_relay_test.go) | The negotiation — `DirectOffer`, `DirectAnswer`, `IceCandidate`, `DirectSwitch` — crosses the relay byte for byte, and an offer nobody answers leaves the session relayed |
+| [`helper_test.go`](../../server/tests/integration/helper_test.go) | The helper answers a whole burst of session starts beside connected machines, holds a flood from one address and from many to their limits, and the agents' listener never offers to let peers clear the QUIC fixed bit |
+| `link_pieces` in [`agent/fuzz/`](../../agent/fuzz/fuzz_targets/) | Hostile pieces and candidate lines never panic the reassembler or the candidate filter |
+| The direct-link, two-router, download, session-tab and performance specs in [`web/e2e/`](../../web/e2e/) | Real browsers on the compose stack: Direct to each machine and across both routers, Through server where the routers block it, inside the attempt budget; drops, downloads, typing during a download, and memory |
 
 ### Agent update pipeline
 

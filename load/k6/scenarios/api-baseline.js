@@ -6,12 +6,14 @@ import {
   authHeaders,
   devicesUrl,
   http,
+  ownTechnician,
   printCleanupManifest,
-  registerMember,
+  registerTechnicians,
   siteWithDevices,
 } from "../lib/session.js";
 import {
   arrivalScenarios,
+  arrivalTechnicians,
   measuredThresholds,
   phases,
 } from "../lib/profile.js";
@@ -52,21 +54,24 @@ export const options = {
 };
 
 export function setup() {
-  const member = registerMember(BASE_URL, "load");
+  const technicians = registerTechnicians(
+    BASE_URL,
+    "load",
+    arrivalTechnicians(WALK, REQUESTS_PER_JOURNEY)
+  );
   return {
-    token: member.token,
-    email: member.email,
+    technicians,
     // The site holds machines, because two journeys are timed against one.
-    siteId: siteWithDevices(BASE_URL, member.token),
+    siteId: siteWithDevices(BASE_URL, technicians[0].token),
   };
 }
 
 export default function (data) {
-  const headers = authHeaders(data.token);
+  const headers = authHeaders(ownTechnician(data.technicians).token);
   const anonymous = anonymousHeaders();
 
-  // Health check (no auth), still from this technician's address: the allowance
-  // is spent per address whether the request was signed in or not.
+  // Health check (no auth), from this technician's address: a request carrying no account is
+  // counted under its address.
   const health = http.get(`${BASE_URL}/api/v1/health`, { headers: anonymous });
   check(health, { "health 200": (r) => r.status === 200 });
 
@@ -104,5 +109,5 @@ export default function (data) {
 }
 
 export function teardown(data) {
-  printCleanupManifest([data.email]);
+  printCleanupManifest(data.technicians.map((technician) => technician.email));
 }

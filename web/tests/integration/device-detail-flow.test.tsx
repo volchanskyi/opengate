@@ -81,11 +81,10 @@ describe('Device Detail Flow (integration)', () => {
       sendPowerAction: vi.fn(),
     });
     useSessionStore.setState({
-      sessions: [{ token: 'sess-1', device_id: 'd1', user_id: 'u1', created_at: '' }],
+      sessions: [{ device_id: 'd1', user_id: 'u1', holder_name: 'Alice', created_at: '2026-10-12T14:02:00Z' }],
       isLoading: false,
       error: null,
       fetchSessions: vi.fn(),
-      createSession: vi.fn().mockResolvedValue({ token: 'new-tok', relay_url: 'ws://localhost' }),
     });
   });
 
@@ -97,10 +96,10 @@ describe('Device Detail Flow (integration)', () => {
     expect(screen.getByText('Online')).toBeInTheDocument();
   });
 
-  it('shows active sessions', () => {
+  it('shows who holds the host’s session', () => {
     renderDeviceDetailFlow();
     expect(screen.getByText('Active Sessions (1)')).toBeInTheDocument();
-    expect(screen.getByText('sess-1')).toBeInTheDocument();
+    expect(screen.getByText(/^Session open — Alice, since \d{1,2}:\d{2}/)).toBeInTheDocument();
   });
 
   it('navigates back to device list via breadcrumbs', async () => {

@@ -23,6 +23,25 @@ func DeviceLogPullOutcomes() []string {
 	return append([]string(nil), deviceLogPullOutcomes...)
 }
 
+// The ways a session's direct-link attempt ends, as its browser reports them.
+var directLinkOutcomes = []string{"direct", "no_route", "unsupported", "dropped"}
+
+// DirectLinkOutcomes returns the direct-link outcomes counted fleet-wide, each published at zero
+// from start-up.
+func DirectLinkOutcomes() []string {
+	return append([]string(nil), directLinkOutcomes...)
+}
+
+// What the helper did with a request: answered it, or dropped it as malformed, past its
+// sender's allowance, or past the total allowance.
+var helperRequestResults = []string{"answered", "malformed", "address_limit", "total_limit"}
+
+// HelperRequestResults returns what the helper can do with a request, each published at zero
+// from start-up.
+func HelperRequestResults() []string {
+	return append([]string(nil), helperRequestResults...)
+}
+
 // alertSuppressionReasons are the reasons an alert that reached the server is
 // refused a stored row. The value is the alert store's own outcome.
 var alertSuppressionReasons = []string{"organization_ceiling"}
@@ -37,7 +56,7 @@ func AlertSuppressionReasons() []string {
 var edgeTelemetryDropReasons = []string{
 	"payload_too_large", "interval_floor", "tenant_missing", "persist_failed", "persist_slots_full",
 	"tombstoned", "unknown_family", "unknown_dim",
-	"empty_summary", "empty_summaries", "empty_dims", "empty_processes", "empty_discovery",
+	"empty_summary", "empty_summaries", "empty_dims", "empty_discovery",
 	"discovery_payload_too_large", "discovery_interval_floor", "backfill_out_of_retention",
 	"alert_payload_too_large", "alert_severity_unknown", "alert_identity_incomplete",
 	"alert_rule_unknown", "alert_rule_stopped", "alert_timestamp_out_of_range",
@@ -54,7 +73,7 @@ func EdgeTelemetryDropReasons() []string {
 // edgeTelemetryIngestTypes are the message types a connection counts as
 // accepted telemetry. Each is the protocol's own name for the message.
 var edgeTelemetryIngestTypes = []string{
-	"AgentHealthSummary", "AgentMetricWindow", "ProcessReport",
+	"AgentHealthSummary", "AgentMetricWindow",
 	"HealthWindowResponse", "DiscoveryReport", "AgentAlert",
 }
 
@@ -86,4 +105,20 @@ func (m *Metrics) seedOutcomes() {
 	}
 	m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillGrant)
 	m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillDefer)
+	for _, outcome := range directLinkOutcomes {
+		m.DirectLinkOutcomesTotal.WithLabelValues(outcome)
+	}
+	for _, result := range helperRequestResults {
+		m.HelperRequestsTotal.WithLabelValues(result)
+	}
+}
+
+// ObserveDirectLinkOutcome counts one session's direct-link outcome.
+func (m *Metrics) ObserveDirectLinkOutcome(outcome string) {
+	m.DirectLinkOutcomesTotal.WithLabelValues(outcome).Inc()
+}
+
+// ObserveHelperRequest counts one request the helper read, by what it did with it.
+func (m *Metrics) ObserveHelperRequest(result string) {
+	m.HelperRequestsTotal.WithLabelValues(result).Inc()
 }

@@ -165,7 +165,7 @@ The split is a boundary the cluster can enforce and the edge cannot. Everything
 the API listener serves sits behind one catch-all ingress rule, so a path
 mounted on it is published; and the ingress controller runs with snippet
 annotations disabled
-([`NOTES.txt`](../../deploy/helm/opengate/templates/NOTES.txt)), so a per-path
+([`values.yaml`](../../deploy/ingress-nginx/values.yaml)), so a per-path
 denial is not available either. A second port is the boundary that holds in both
 directions: the Service publishes it under the port name `metrics`, and the
 Ingress backs onto the API port alone. Everything that reads the exposition
@@ -198,9 +198,7 @@ that client so the server injects the authoritative `tenant_id` matcher. Every
 sample it writes carries the `namespace` the server runs in, which the chart
 hands it from the cluster, so production's and staging's readings stay apart on
 a dashboard; every read the server makes groups that label away, so a device's
-chart is one line across the readings written before and after it. Process
-snapshots with basenames and optional command-line hashes stay in Postgres RLS;
-see [Database](../architecture/Database.md#device-processes).
+chart is one line across the readings written before and after it.
 
 Host logs are edge-stored and server-proxied: raw lines stay on the device, are
 read on demand through the transient broker, and are never centralized. The
@@ -339,7 +337,7 @@ watched on the dashboard below.
 The load driver is the QUIC agent load harness
 ([`server/tests/loadtest`](../../server/tests/loadtest)). Beyond raw connect/register
 timing it can drive the **default telemetry shape** per agent (`-default-telemetry`:
-a health summary, a host metric window, and a minimal process report), spread
+a health summary and a host metric window), spread
 agents across tenant cohorts (`-tenants`), and run a **fleet-wide reconnect storm**
 (`-backfill-batches`) in which a cohort returns at once with offline backlogs and
 drains through the admission scheduler one acked batch at a time. Run it through

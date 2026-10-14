@@ -54,18 +54,6 @@ fn test_control_message_roundtrip_msgpack() {
                 },
             ],
         },
-        ControlMessage::ProcessReport {
-            ts: 1700000220,
-            tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
-            top_n: vec![ProcessReportEntry {
-                rank: 1,
-                basename: "postgres".to_string(),
-                cmdline_hash: Some("sha256:abcdef".to_string()),
-                pid: 4242,
-                cpu: 12.5,
-                mem: 3.25,
-            }],
-        },
         ControlMessage::RequestHealthWindow {
             since_ts: 1700000000,
             limit: 12,
@@ -102,6 +90,7 @@ fn test_control_message_roundtrip_msgpack() {
                 file_write: false,
                 input: true,
             },
+            ice_servers: vec!["stun:quic.example.com:9090".to_string()],
         },
         ControlMessage::AgentUpdate {
             version: "1.2.3".to_string(),
@@ -110,10 +99,22 @@ fn test_control_message_roundtrip_msgpack() {
             signature: "abc123".to_string(),
         },
         ControlMessage::RelayReady,
-        ControlMessage::SwitchToWebRTC {
-            sdp_offer: "v=0\r\no=- ...".to_string(),
+        ControlMessage::DirectOffer {
+            sdp: "v=0\r\no=- ...".to_string(),
         },
-        ControlMessage::SwitchAck,
+        ControlMessage::DirectAnswer {
+            sdp: "v=0\r\no=- answer".to_string(),
+        },
+        ControlMessage::DirectRefused {
+            reason: "one link per session".to_string(),
+        },
+        ControlMessage::DirectSwitch,
+        ControlMessage::DirectFallback { received: 12 },
+        ControlMessage::DirectAck { received: 1 << 40 },
+        ControlMessage::FileDownloadError {
+            path: "/var/log/app.log".to_string(),
+            error: "permission denied".to_string(),
+        },
         ControlMessage::IceCandidate {
             candidate: "candidate:1 1 UDP ...".to_string(),
             mid: "0".to_string(),
@@ -524,14 +525,60 @@ fn test_edge_sentinel_agent_reports_tolerate_go_omitempty_zero_fields() {
             dims: Vec::new(),
         }
     );
+}
+
+#[test]
+fn link_counts_tolerate_go_omitempty_zero_fields() {
+    use std::collections::BTreeMap;
+
+    let decode_type_only = |msg_type: &str| {
+        let mut map = BTreeMap::new();
+        map.insert("type", msg_type);
+        let encoded = rmp_serde::to_vec_named(&map).unwrap();
+        rmp_serde::from_slice::<ControlMessage>(&encoded).unwrap()
+    };
+
     assert_eq!(
-        decode_type_only("ProcessReport"),
-        ControlMessage::ProcessReport {
-            ts: 0,
-            tenant_id: String::new(),
-            top_n: Vec::new(),
-        }
+        decode_type_only("DirectFallback"),
+        ControlMessage::DirectFallback { received: 0 }
     );
+    assert_eq!(
+        decode_type_only("DirectAck"),
+        ControlMessage::DirectAck { received: 0 }
+    );
+}
+
+#[test]
+fn a_process_report_from_an_older_sender_decodes_as_unknown() {
+    use std::collections::BTreeMap;
+    let mut map = BTreeMap::new();
+    map.insert("type", "ProcessReport");
+    let encoded = rmp_serde::to_vec_named(&map).unwrap();
+    assert_eq!(
+        rmp_serde::from_slice::<ControlMessage>(&encoded).unwrap(),
+        ControlMessage::Unknown
+    );
+}
+
+#[test]
+fn a_session_request_without_helpers_decodes_with_an_empty_list() {
+    let wire = serde_json::json!({
+        "type": "SessionRequest",
+        "token": "ab".repeat(32),
+        "relay_url": "wss://relay.example.com/relay",
+        "permissions": {
+            "desktop": false,
+            "terminal": true,
+            "file_read": true,
+            "file_write": false,
+            "input": false,
+        },
+    });
+    let encoded = rmp_serde::to_vec_named(&wire).unwrap();
+    match rmp_serde::from_slice::<ControlMessage>(&encoded).unwrap() {
+        ControlMessage::SessionRequest { ice_servers, .. } => assert!(ice_servers.is_empty()),
+        other => panic!("expected SessionRequest, got {other:?}"),
+    }
 }
 
 #[test]

@@ -1,15 +1,14 @@
-//! File listing and chunked download for a session.
-
-use std::path::Path;
+//! Directory listings in pages and downloads read one piece at a time, for a session.
 
 use mesh_protocol::{ControlMessage, FileEntry, FileFrame, Frame};
-use tokio::sync::mpsc;
+use tokio::io::AsyncReadExt;
 use tracing::debug;
 
+use crate::session::outbox::{FILE_PIECE, INTERACTIVE_FRAME_CAP};
 use crate::session_error::SessionError;
 
-/// Chunk size for file transfers: 256 KiB.
-const CHUNK_SIZE: usize = 256 * 1024;
+/// Bytes an encoded listing page's entry array header may grow by past an empty one's.
+const ARRAY_HEADER_GROWTH: usize = 4;
 
 /// Handles file operations for a session.
 #[derive(Debug, Clone)]
@@ -28,19 +27,22 @@ impl FileOpsHandler {
         }
     }
 
-    /// Lists directory contents as a `FileListResponse`, directories first.
-    pub fn list_directory(&self, path: &str) -> Result<ControlMessage, SessionError> {
-        if !self.can_read {
-            return Err(SessionError::PermissionDenied(
+    fn require_read(&self) -> Result<(), SessionError> {
+        if self.can_read {
+            Ok(())
+        } else {
+            Err(SessionError::PermissionDenied(
                 "file_read not permitted".to_string(),
-            ));
+            ))
         }
+    }
 
-        let dir_path = Path::new(path);
+    /// Lists a directory, directories first and then by name, ignoring case.
+    pub fn list_directory(&self, path: &str) -> Result<Vec<FileEntry>, SessionError> {
+        self.require_read()?;
+
         let mut entries = Vec::new();
-
-        let read_dir = std::fs::read_dir(dir_path)?;
-        for entry in read_dir {
+        for entry in std::fs::read_dir(path)? {
             // An entry can vanish between readdir() and metadata(); NotFound skips it.
             let entry = match entry {
                 Ok(e) => e,
@@ -72,98 +74,143 @@ impl FileOpsHandler {
                 .cmp(&a.is_dir)
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
+        Ok(entries)
+    }
 
-        Ok(ControlMessage::FileListResponse {
-            path: path.to_string(),
-            entries,
+    /// Opens a file for download and returns it with its size.
+    pub async fn open_download(&self, path: &str) -> Result<(tokio::fs::File, u64), SessionError> {
+        self.require_read()?;
+        let file = tokio::fs::File::open(path).await?;
+        let total_size = file.metadata().await?.len();
+        debug!(path, total_size, "opening file download");
+        Ok((file, total_size))
+    }
+}
+
+/// The pages of one listing, each a `FileListResponse` whose frame is at most
+/// [`INTERACTIVE_FRAME_CAP`] bytes, with `more` set on every page but the last.
+#[derive(Debug)]
+pub struct ListingPages {
+    path: String,
+    entries: std::iter::Peekable<std::vec::IntoIter<FileEntry>>,
+    room: usize,
+    sent_one: bool,
+}
+
+/// Cuts `entries` into pages for `path`.
+pub fn listing_pages(path: &str, entries: Vec<FileEntry>) -> Result<ListingPages, SessionError> {
+    let empty = Frame::Control(ControlMessage::FileListResponse {
+        path: path.to_string(),
+        entries: Vec::new(),
+        more: true,
+    })
+    .encode()?
+    .len();
+    let room = INTERACTIVE_FRAME_CAP
+        .checked_sub(empty + ARRAY_HEADER_GROWTH)
+        .ok_or_else(|| {
+            SessionError::Io(std::io::Error::other("path too long for a listing page"))
+        })?;
+    Ok(ListingPages {
+        path: path.to_string(),
+        entries: entries.into_iter().peekable(),
+        room,
+        sent_one: false,
+    })
+}
+
+impl Iterator for ListingPages {
+    type Item = ControlMessage;
+
+    fn next(&mut self) -> Option<ControlMessage> {
+        if self.sent_one && self.entries.peek().is_none() {
+            return None;
+        }
+        self.sent_one = true;
+        let mut page = Vec::new();
+        let mut used = 0;
+        while let Some(entry) = self.entries.peek() {
+            let size = rmp_serde::to_vec_named(entry).map_or(usize::MAX, |b| b.len());
+            if used + size > self.room && !page.is_empty() {
+                break;
+            }
+            used = used.saturating_add(size);
+            page.extend(self.entries.next());
+        }
+        Some(ControlMessage::FileListResponse {
+            path: self.path.clone(),
+            entries: page,
+            more: self.entries.peek().is_some(),
         })
     }
+}
 
-    /// Streams a file download as `FileFrame` chunks.
-    pub async fn stream_download(
-        &self,
-        path: &str,
-        frame_tx: &mpsc::Sender<Vec<u8>>,
-    ) -> Result<(), SessionError> {
-        if !self.can_read {
-            return Err(SessionError::PermissionDenied(
-                "file_read not permitted".to_string(),
-            ));
-        }
-
-        let file_path = Path::new(path).to_owned();
-        let metadata = tokio::fs::metadata(&file_path).await?;
-        let total_size = metadata.len();
-
-        debug!(path, total_size, "streaming file download");
-
-        let data = tokio::fs::read(&file_path).await?;
-
-        // An empty file yields zero chunks, so one empty frame is sent.
-        if data.is_empty() {
-            let frame = Frame::FileTransfer(FileFrame {
-                offset: 0,
-                total_size: 0,
-                data: vec![],
-            });
-            let encoded = frame.encode()?;
-            frame_tx
-                .send(encoded)
-                .await
-                .map_err(|_| SessionError::WebSocket("send channel closed".to_string()))?;
-            return Ok(());
-        }
-
-        let mut offset: u64 = 0;
-
-        for chunk in data.chunks(CHUNK_SIZE) {
-            let frame = Frame::FileTransfer(FileFrame {
-                offset,
-                total_size,
-                data: chunk.to_vec(),
-            });
-            let encoded = frame.encode()?;
-            frame_tx
-                .send(encoded)
-                .await
-                .map_err(|_| SessionError::WebSocket("send channel closed".to_string()))?;
-            offset += chunk.len() as u64;
-        }
-
-        Ok(())
-    }
+/// Reads the next piece of a download at `offset`: up to [`FILE_PIECE`] bytes, fewer only at
+/// the end of the file.
+pub async fn read_piece(
+    file: &mut tokio::fs::File,
+    offset: u64,
+    total_size: u64,
+) -> Result<FileFrame, SessionError> {
+    let mut data = Vec::with_capacity(FILE_PIECE);
+    let mut chunk = file.take(FILE_PIECE as u64);
+    chunk.read_to_end(&mut data).await?;
+    Ok(FileFrame {
+        offset,
+        total_size,
+        data,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_list_directory_permission_denied() {
-        let handler = FileOpsHandler::new(false, false);
-        let result = handler.list_directory("/tmp");
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("permission denied"));
-    }
-
-    #[test]
-    fn test_list_directory_success() {
-        let handler = FileOpsHandler::new(true, false);
-        let result = handler.list_directory("/tmp");
-        assert!(result.is_ok());
-        match result.unwrap() {
-            ControlMessage::FileListResponse { path, entries: _ } => {
-                assert_eq!(path, "/tmp");
-            }
-            _ => panic!("expected FileListResponse"),
+    fn entry(name: &str) -> FileEntry {
+        FileEntry {
+            name: name.to_string(),
+            is_dir: false,
+            size: 1,
+            modified: 1_700_000_000,
         }
     }
 
+    fn page_bytes(page: &ControlMessage) -> usize {
+        Frame::Control(page.clone()).encode().unwrap().len()
+    }
+
     #[test]
-    fn test_list_directory_concurrent_churn() {
+    fn listing_without_read_permission_is_refused() {
+        let handler = FileOpsHandler::new(false, false);
+        let err = handler.list_directory("/tmp").unwrap_err();
+        assert!(err.to_string().contains("permission denied"));
+    }
+
+    #[test]
+    fn a_directory_lists_directories_first_then_by_name_ignoring_case() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("b.txt"), b"x").unwrap();
+        std::fs::write(tmp.path().join("A.txt"), b"x").unwrap();
+        std::fs::create_dir(tmp.path().join("zdir")).unwrap();
+
+        let handler = FileOpsHandler::new(true, false);
+        let names: Vec<String> = handler
+            .list_directory(tmp.path().to_str().unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, vec!["zdir", "A.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn a_missing_directory_is_an_error() {
+        let handler = FileOpsHandler::new(true, false);
+        assert!(handler.list_directory("/nonexistent/path/12345").is_err());
+    }
+
+    #[test]
+    fn listing_survives_entries_vanishing_while_it_reads() {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
 
@@ -188,12 +235,11 @@ mod tests {
         });
 
         let handler = FileOpsHandler::new(true, false);
-        let dir_str = dir.to_str().expect("utf-8");
         for _ in 0..200 {
-            let result = handler.list_directory(dir_str);
+            let result = handler.list_directory(dir.to_str().expect("utf-8"));
             assert!(
                 result.is_ok(),
-                "list_directory must not fail under concurrent churn: {:?}",
+                "listing failed under churn: {:?}",
                 result.err()
             );
         }
@@ -202,151 +248,99 @@ mod tests {
     }
 
     #[test]
-    fn test_list_directory_nonexistent() {
-        let handler = FileOpsHandler::new(true, false);
-        let result = handler.list_directory("/nonexistent/path/12345");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_list_directory_sorts_dirs_first() {
-        let handler = FileOpsHandler::new(true, false);
-        if let Ok(ControlMessage::FileListResponse { entries, .. }) = handler.list_directory("/tmp")
-        {
-            let mut seen_file = false;
-            for entry in &entries {
-                if !entry.is_dir {
-                    seen_file = true;
-                }
-                if entry.is_dir && seen_file {
-                    panic!("directory found after file in sorted listing");
-                }
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_stream_download_permission_denied() {
-        let handler = FileOpsHandler::new(false, false);
-        let (tx, _rx) = mpsc::channel(8);
-        let result = handler.stream_download("/etc/hostname", &tx).await;
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("permission denied"));
-    }
-
-    #[tokio::test]
-    async fn test_stream_download_success() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("test.txt");
-        std::fs::write(&file_path, "hello world").unwrap();
-
-        let handler = FileOpsHandler::new(true, false);
-        let (tx, mut rx) = mpsc::channel(8);
-
-        handler
-            .stream_download(file_path.to_str().unwrap(), &tx)
-            .await
-            .unwrap();
-
-        let data = rx.try_recv().unwrap();
-        let (frame, _) = Frame::decode(&data).unwrap();
-        match frame {
-            Frame::FileTransfer(ff) => {
-                assert_eq!(ff.offset, 0);
-                assert_eq!(ff.total_size, 11);
-                assert_eq!(ff.data, b"hello world");
-            }
-            _ => panic!("expected FileTransfer frame"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_stream_download_empty_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("empty.txt");
-        std::fs::write(&file_path, "").unwrap();
-
-        let handler = FileOpsHandler::new(true, false);
-        let (tx, mut rx) = mpsc::channel(8);
-
-        handler
-            .stream_download(file_path.to_str().unwrap(), &tx)
-            .await
-            .unwrap();
-
-        let data = rx.try_recv().unwrap();
-        let (frame, _) = Frame::decode(&data).unwrap();
-        match frame {
-            Frame::FileTransfer(ff) => {
-                assert_eq!(ff.offset, 0);
-                assert_eq!(ff.total_size, 0);
-                assert!(ff.data.is_empty());
-            }
-            _ => panic!("expected FileTransfer frame"),
-        }
-
-        assert!(rx.try_recv().is_err());
-    }
-
-    #[tokio::test]
-    async fn stream_download_chunk_size_is_256_kib_not_256_plus_1024() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("absolute_size.bin");
-        std::fs::write(&file_path, vec![0xCDu8; 300_000]).unwrap();
-
-        let handler = FileOpsHandler::new(true, false);
-        let (tx, mut rx) = mpsc::channel(512);
-        handler
-            .stream_download(file_path.to_str().unwrap(), &tx)
-            .await
-            .unwrap();
-
-        let mut frames = 0;
-        while rx.try_recv().is_ok() {
-            frames += 1;
-        }
+    fn an_empty_directory_is_one_last_page() {
+        let pages: Vec<ControlMessage> = listing_pages("/empty", Vec::new()).unwrap().collect();
         assert_eq!(
-            frames, 2,
-            "300 KiB must split into exactly 2 chunks (CHUNK_SIZE=256 KiB)"
+            pages,
+            vec![ControlMessage::FileListResponse {
+                path: "/empty".into(),
+                entries: Vec::new(),
+                more: false,
+            }]
         );
     }
 
+    #[test]
+    fn a_large_directory_goes_out_in_pages_that_each_fit_one_piece() {
+        let entries: Vec<FileEntry> = (0..120_000)
+            .map(|i| entry(&format!("file-{i:06}-with-a-name-of-forty-two-chars.log")))
+            .collect();
+        let pages: Vec<ControlMessage> = listing_pages("/var/tmp", entries.clone())
+            .unwrap()
+            .collect();
+
+        assert!(pages.len() > 100);
+        let mut listed = Vec::new();
+        for (i, page) in pages.iter().enumerate() {
+            assert!(
+                page_bytes(page) <= INTERACTIVE_FRAME_CAP,
+                "page {i} is past one piece"
+            );
+            let ControlMessage::FileListResponse {
+                path,
+                entries,
+                more,
+            } = page
+            else {
+                panic!("a page is a listing response");
+            };
+            assert_eq!(path, "/var/tmp");
+            assert_eq!(*more, i + 1 < pages.len(), "only the last page clears more");
+            listed.extend(entries.iter().cloned());
+        }
+        assert_eq!(listed, entries, "every entry once, in order");
+    }
+
+    #[test]
+    fn pages_fill_close_to_the_limit() {
+        let entries: Vec<FileEntry> = (0..2_000).map(|i| entry(&format!("n{i}"))).collect();
+        let pages: Vec<ControlMessage> = listing_pages("/", entries).unwrap().collect();
+        let first = page_bytes(&pages[0]);
+        assert!(
+            first > INTERACTIVE_FRAME_CAP - 200,
+            "a full page used {first} bytes"
+        );
+    }
+
+    #[test]
+    fn a_path_too_long_for_any_page_is_an_error() {
+        let path = "/".repeat(INTERACTIVE_FRAME_CAP);
+        assert!(listing_pages(&path, Vec::new()).is_err());
+    }
+
     #[tokio::test]
-    async fn test_stream_download_chunked() {
+    async fn a_download_without_read_permission_is_refused() {
+        let handler = FileOpsHandler::new(false, false);
+        let err = handler.open_download("/etc/hostname").await.unwrap_err();
+        assert!(err.to_string().contains("permission denied"));
+    }
+
+    #[tokio::test]
+    async fn a_download_is_read_in_pieces_of_256_kib() {
         let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("big.bin");
-        let data = vec![0xABu8; CHUNK_SIZE + 100];
-        std::fs::write(&file_path, &data).unwrap();
+        let path = dir.path().join("big.bin");
+        let data: Vec<u8> = (0..FILE_PIECE + 100).map(|i| i as u8).collect();
+        std::fs::write(&path, &data).unwrap();
 
         let handler = FileOpsHandler::new(true, false);
-        let (tx, mut rx) = mpsc::channel(8);
+        let (mut file, total) = handler.open_download(path.to_str().unwrap()).await.unwrap();
+        assert_eq!(total, data.len() as u64);
 
-        handler
-            .stream_download(file_path.to_str().unwrap(), &tx)
+        let first = read_piece(&mut file, 0, total).await.unwrap();
+        assert_eq!(first.offset, 0);
+        assert_eq!(first.data.len(), FILE_PIECE);
+        let second = read_piece(&mut file, FILE_PIECE as u64, total)
             .await
             .unwrap();
+        assert_eq!(second.offset, FILE_PIECE as u64);
+        assert_eq!(second.data, data[FILE_PIECE..]);
+        let end = read_piece(&mut file, total, total).await.unwrap();
+        assert!(end.data.is_empty(), "past the end a read is empty");
+    }
 
-        let frame1 = rx.try_recv().unwrap();
-        let (f1, _) = Frame::decode(&frame1).unwrap();
-        match f1 {
-            Frame::FileTransfer(ff) => {
-                assert_eq!(ff.offset, 0);
-                assert_eq!(ff.data.len(), CHUNK_SIZE);
-            }
-            _ => panic!("expected FileTransfer"),
-        }
-
-        let frame2 = rx.try_recv().unwrap();
-        let (f2, _) = Frame::decode(&frame2).unwrap();
-        match f2 {
-            Frame::FileTransfer(ff) => {
-                assert_eq!(ff.offset, CHUNK_SIZE as u64);
-                assert_eq!(ff.data.len(), 100);
-            }
-            _ => panic!("expected FileTransfer"),
-        }
+    #[tokio::test]
+    async fn a_missing_file_cannot_be_opened() {
+        let handler = FileOpsHandler::new(true, false);
+        assert!(handler.open_download("/nonexistent/file").await.is_err());
     }
 }

@@ -12,6 +12,23 @@ const STATE_LABELS = {
   unknown: 'Not heard from',
 } satisfies Record<CoverageState, string>;
 
+const STATE_EXPLANATIONS = {
+  active: 'Hosts running this rule now.',
+  throttled:
+    'Hosts that stopped running this rule because it used more of the host than it is allowed. ' +
+    'They are not being checked for it.',
+  unsupported:
+    "Hosts that can't run this rule at all, for example because they can't take the reading it " +
+    'needs. They are never checked for it.',
+  unknown:
+    "Hosts that haven't reported on this rule, usually because they are offline. Whether they are " +
+    'checked is unknown.',
+} satisfies Record<CoverageState, string>;
+
+const STATE_EXPLANATION = new Map<CoverageState, string>(
+  Object.entries(STATE_EXPLANATIONS) as [CoverageState, string][],
+);
+
 const STATE_LABEL = new Map<CoverageState, string>(
   Object.entries(STATE_LABELS) as [CoverageState, string][],
 );
@@ -21,6 +38,11 @@ export const COVERAGE_STATES = Object.keys(STATE_LABELS) as readonly CoverageSta
 
 export function coverageStateLabel(state: CoverageState): string {
   return STATE_LABEL.get(state) ?? state;
+}
+
+/** What a state's hosts are doing about the rule, in the words its heading explains itself with. */
+export function coverageStateExplanation(state: CoverageState): string {
+  return STATE_EXPLANATION.get(state) ?? '';
 }
 
 /** How many hosts the four states account for. */

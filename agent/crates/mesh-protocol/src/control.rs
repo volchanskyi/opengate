@@ -192,17 +192,10 @@ pub struct AlertBreach {
     pub value: f64,
 }
 
-/// Whether a `u32` field carries nothing, so it is omitted the way the server's
+/// Whether a field holds its type's default, so it is omitted the way the server's
 /// `omitempty` omits it and the two encoders stay byte-identical.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn is_zero_u32(value: &u32) -> bool {
-    *value == 0
-}
-
-/// The same test for the timestamp fields.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn is_zero_i64(value: &i64) -> bool {
-    *value == 0
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 /// How bad an alert is; a closed set, and the server refuses a value outside it.
@@ -306,18 +299,6 @@ pub struct EvidenceProcess {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_share: Option<f64>,
     /// Resident memory, in bytes.
-    pub mem: f64,
-}
-
-/// Sanitized process sample row for Edge Sentinel reporting.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ProcessReportEntry {
-    pub rank: u32,
-    pub basename: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cmdline_hash: Option<String>,
-    pub pid: u32,
-    pub cpu: f64,
     pub mem: f64,
 }
 
@@ -470,14 +451,6 @@ pub enum ControlMessage {
         #[serde(default)]
         dims: Vec<MetricDim>,
     },
-    ProcessReport {
-        #[serde(default)]
-        ts: i64,
-        #[serde(default)]
-        tenant_id: String,
-        #[serde(default)]
-        top_n: Vec<ProcessReportEntry>,
-    },
     SessionAccept {
         token: SessionToken,
         relay_url: String,
@@ -492,6 +465,9 @@ pub enum ControlMessage {
         token: SessionToken,
         relay_url: String,
         permissions: Permissions,
+        /// Helper URLs the host asks for its public address; empty when none is configured.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ice_servers: Vec<String>,
     },
     AgentUpdate {
         version: String,
@@ -509,13 +485,35 @@ pub enum ControlMessage {
 
     // Bidirectional
     RelayReady,
-    SwitchToWebRTC {
-        sdp_offer: String,
+
+    // Direct link: the first six travel on the relay only, `DirectAck` on the link only.
+    /// Browser → host: the browser's session description for the one link of a session.
+    DirectOffer {
+        sdp: String,
     },
-    SwitchAck,
+    /// Host → browser: the host's session description answering `DirectOffer`.
+    DirectAnswer {
+        sdp: String,
+    },
     IceCandidate {
         candidate: String,
         mid: String,
+    },
+    /// Host → browser: the offer is refused and the session stays on the relay.
+    DirectRefused {
+        reason: String,
+    },
+    /// Both: the sender's last session-data frame on the relay; later ones go on the link.
+    DirectSwitch,
+    /// Both: the sender left the link, having delivered `received` of the peer's link frames.
+    DirectFallback {
+        #[serde(default, skip_serializing_if = "is_default")]
+        received: u64,
+    },
+    /// Both, on the link: the sender has delivered `received` of the peer's link frames.
+    DirectAck {
+        #[serde(default, skip_serializing_if = "is_default")]
+        received: u64,
     },
 
     // Input (browser → agent via relay)
@@ -545,6 +543,9 @@ pub enum ControlMessage {
     FileListResponse {
         path: String,
         entries: Vec<FileEntry>,
+        /// Set on every page of a listing but the last.
+        #[serde(default, skip_serializing_if = "is_default")]
+        more: bool,
     },
     FileListError {
         path: String,
@@ -556,6 +557,11 @@ pub enum ControlMessage {
     FileUploadRequest {
         path: String,
         total_size: u64,
+    },
+    /// Host → browser: the download of `path` ended unfinished, or never started.
+    FileDownloadError {
+        path: String,
+        error: String,
     },
 
     // Chat
@@ -804,7 +810,7 @@ pub enum ControlMessage {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         rule_id: String,
         /// Which revision of that rule fired, counting from one.
-        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        #[serde(default, skip_serializing_if = "is_default")]
         rule_version: u32,
         /// How bad the rule says this is.
         #[serde(default)]
@@ -816,13 +822,13 @@ pub enum ControlMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<f64>,
         /// Start of the window the rule decided on, in seconds; part of the alert's identity.
-        #[serde(default, skip_serializing_if = "is_zero_i64")]
+        #[serde(default, skip_serializing_if = "is_default")]
         window_start_ts: i64,
         /// End of that window, in seconds.
-        #[serde(default, skip_serializing_if = "is_zero_i64")]
+        #[serde(default, skip_serializing_if = "is_default")]
         window_end_ts: i64,
         /// When the device raised the alert, in seconds; a backfilled finding lies after its window.
-        #[serde(default, skip_serializing_if = "is_zero_i64")]
+        #[serde(default, skip_serializing_if = "is_default")]
         observed_ts: i64,
         /// Whether the device found this by re-running a rule over stored history.
         #[serde(default)]

@@ -34,9 +34,15 @@ rustls-pemfile = "2"
 
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
+# TCP_NOTSENT_LOWAT on the relay socket is behind the "all" feature.
+socket2 = { version = "0.6", features = ["all"] }
+# The relay socket's unacknowledged and delivered bytes are read through SIOCOUTQ and TCP_INFO.
+libc = "0.2"
 portable-pty = "0.9"
 url = "2"
 webrtc = "0.21"
+# webrtc keeps rtc private; its SCTP message-size setting is named from here, at the same version.
+rtc = "0.21"
 
 gethostname = "1.1"
 sysinfo = "0.39"

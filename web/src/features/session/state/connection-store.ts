@@ -1,79 +1,49 @@
 import { create } from 'zustand';
-import { WSTransport, type ConnectionState, type TransportEvents } from '../../../lib/transport/ws-transport';
-import { WebRTCTransport, type RTCConfig } from '../../../lib/transport/webrtc-transport';
-import { useToastStore } from '../../../lib/feedback/toast-store';
+import { api } from '../../../lib/api';
+import { fireAndForget } from '../../../lib/fire-and-forget';
+import {
+  SessionChannel,
+  type ConnectionState,
+  type ReportedOutcome,
+  type SessionChannelEvents,
+  type SessionPath,
+} from '../../../lib/transport/session-channel';
 import type { ControlMessage, DesktopFrame, TerminalFrame, FileFrame } from '../../../lib/protocol/types';
-
-let webrtcFallbackToastShown = false;
-function notifyWebRTCFallback(reason: string): void {
-  if (webrtcFallbackToastShown) return;
-  webrtcFallbackToastShown = true;
-  useToastStore.getState().addToast(
-    `WebRTC unavailable, using WebSocket fallback (${reason})`,
-    'info',
-  );
-}
-
-type SignalingState = 'relay-only' | 'upgrading' | 'webrtc' | 'fallback';
 
 interface ConnectionStore {
   state: ConnectionState;
   token: string | null;
   error: string | null;
-  transport: WSTransport | null;
+  /** The session's sending point; every feature sends through it. */
+  transport: SessionChannel | null;
+  /** Direct or through the server, with the reason in plain words. */
+  path: SessionPath;
+  /** Why the relay closed, as the server said it: "Opened elsewhere", "Ended by <name>". */
+  closedReason: string | null;
 
-  webrtcTransport: WebRTCTransport | null;
-  signalingState: SignalingState;
-  iceServers: RTCIceServer[];
-
-  connect: (token: string, relayUrl: string, authToken: string, iceServers?: RTCIceServer[]) => void;
+  connect: (token: string, relayUrl: string, authToken: string, helpers: string[]) => void;
   disconnect: () => void;
-  initiateWebRTCUpgrade: () => void;
 
-  onControlMessage: ((msg: ControlMessage) => void) | null;
+  /** Every feature listening for control messages; each takes the types it handles. */
+  controlListeners: ReadonlySet<ControlListener>;
   onDesktopFrame: ((frame: DesktopFrame) => void) | null;
   onTerminalFrame: ((frame: TerminalFrame) => void) | null;
   onFileFrame: ((frame: FileFrame) => void) | null;
 
-  setOnControlMessage: (cb: ((msg: ControlMessage) => void) | null) => void;
+  /** Adds a control-message listener and returns what removes it. */
+  listenControl: (cb: ControlListener) => () => void;
   setOnDesktopFrame: (cb: ((frame: DesktopFrame) => void) | null) => void;
   setOnTerminalFrame: (cb: ((frame: TerminalFrame) => void) | null) => void;
   setOnFileFrame: (cb: ((frame: FileFrame) => void) | null) => void;
 }
 
-function handleSignalingMessage(msg: ControlMessage, get: () => ConnectionStore, set: (state: Partial<ConnectionStore>) => void): boolean {
-  const { webrtcTransport, transport } = get();
+type ControlListener = (msg: ControlMessage) => void;
 
-  switch (msg.type) {
-    case 'SwitchToWebRTC': {
-      if (webrtcTransport && get().signalingState === 'upgrading') {
-        webrtcTransport.handleAnswer(msg.sdp_offer).catch((err: unknown) => {
-          console.warn('[webrtc] handleAnswer failed:', err);
-          set({ signalingState: 'fallback' });
-          notifyWebRTCFallback(err instanceof Error ? err.message : 'handleAnswer failed');
-        });
-      }
-      return true;
-    }
-    case 'IceCandidate': {
-      if (webrtcTransport) {
-        webrtcTransport.addIceCandidate(msg.candidate, msg.mid).catch((err: unknown) => {
-          // A failed ICE candidate is recoverable, so it is only logged.
-          console.warn('[webrtc] addIceCandidate failed:', err);
-        });
-      }
-      return true;
-    }
-    case 'SwitchAck': {
-      if (webrtcTransport && get().signalingState === 'upgrading') {
-        transport?.sendControl({ type: 'SwitchAck' });
-        set({ signalingState: 'webrtc' });
-      }
-      return true;
-    }
-    default:
-      return false;
-  }
+const THROUGH_SERVER: SessionPath = { direct: false };
+
+/** Counts an outcome into the fleet-wide counters; a failed report changes nothing on screen. */
+function report(token: string, outcome: ReportedOutcome): void {
+  fireAndForget(api.POST('/api/v1/sessions/{token}/outcome', { params: { path: { token } }, body: { outcome } }));
 }
 
 export const useConnectionStore = create<ConnectionStore>((set, get) => ({
@@ -81,109 +51,58 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   token: null,
   error: null,
   transport: null,
+  path: THROUGH_SERVER,
+  closedReason: null,
 
-  webrtcTransport: null,
-  signalingState: 'relay-only',
-  iceServers: [],
-
-  onControlMessage: null,
+  controlListeners: new Set(),
   onDesktopFrame: null,
   onTerminalFrame: null,
   onFileFrame: null,
 
-  setOnControlMessage: (cb) => set({ onControlMessage: cb }),
+  listenControl: (cb) => {
+    set({ controlListeners: new Set(get().controlListeners).add(cb) });
+    return () => {
+      const rest = new Set(get().controlListeners);
+      rest.delete(cb);
+      set({ controlListeners: rest });
+    };
+  },
   setOnDesktopFrame: (cb) => set({ onDesktopFrame: cb }),
   setOnTerminalFrame: (cb) => set({ onTerminalFrame: cb }),
   setOnFileFrame: (cb) => set({ onFileFrame: cb }),
 
-  connect: (token, relayUrl, authToken, iceServers) => {
-    const current = get();
-    if (current.transport) {
-      current.transport.disconnect();
-    }
-    if (current.webrtcTransport) {
-      current.webrtcTransport.close();
-    }
+  connect: (token, relayUrl, authToken, helpers) => {
+    get().transport?.disconnect();
 
-    const events: TransportEvents = {
+    const events: SessionChannelEvents = {
       onStateChange: (state) => set({ state }),
       onControlMessage: (msg) => {
-        if (!handleSignalingMessage(msg, get, set)) {
-          get().onControlMessage?.(msg);
-        }
+        for (const listener of get().controlListeners) listener(msg);
       },
       onDesktopFrame: (frame) => get().onDesktopFrame?.(frame),
       onTerminalFrame: (frame) => get().onTerminalFrame?.(frame),
       onFileFrame: (frame) => get().onFileFrame?.(frame),
       onError: (err) => set({ error: err.message }),
+      onPath: (path) => set({ path }),
+      onOutcome: (outcome) => report(token, outcome),
+      onClosed: (reason) => set({ closedReason: reason }),
     };
 
-    const transport = new WSTransport(events);
-    set({
-      transport,
-      token,
-      error: null,
-      signalingState: 'relay-only',
-      webrtcTransport: null,
-      iceServers: iceServers ?? [],
-    });
+    const transport = new SessionChannel(events, helpers);
+    set({ transport, token, error: null, closedReason: null, path: THROUGH_SERVER });
     transport.connect(relayUrl, authToken);
   },
 
-  initiateWebRTCUpgrade: () => {
-    const { transport, iceServers, signalingState } = get();
-    if (!transport || signalingState !== 'relay-only' || iceServers.length === 0) {
-      return;
-    }
-
-    const webrtcEvents: TransportEvents = {
-      onStateChange: () => {},
-      onControlMessage: (msg) => get().onControlMessage?.(msg),
-      onDesktopFrame: (frame) => get().onDesktopFrame?.(frame),
-      onTerminalFrame: (frame) => get().onTerminalFrame?.(frame),
-      onFileFrame: (frame) => get().onFileFrame?.(frame),
-      onError: (err) => {
-        set({ signalingState: 'fallback', error: err.message });
-        notifyWebRTCFallback(err.message);
-      },
-    };
-
-    const webrtc = new WebRTCTransport(webrtcEvents);
-
-    webrtc.onLocalIceCandidate = (candidate, mid) => {
-      transport.sendControl({ type: 'IceCandidate', candidate, mid });
-    };
-
-    set({ webrtcTransport: webrtc, signalingState: 'upgrading' });
-
-    const config: RTCConfig = { iceServers };
-    webrtc.createOffer(config).then((sdpOffer) => {
-      transport.sendControl({ type: 'SwitchToWebRTC', sdp_offer: sdpOffer });
-    }).catch((err: unknown) => {
-      console.warn('[webrtc] createOffer failed:', err);
-      set({ signalingState: 'fallback' });
-      notifyWebRTCFallback(err instanceof Error ? err.message : 'createOffer failed');
-    });
-  },
-
   disconnect: () => {
-    const { transport, webrtcTransport } = get();
-    if (transport) {
-      transport.disconnect();
-    }
-    if (webrtcTransport) {
-      webrtcTransport.close();
-    }
-    webrtcFallbackToastShown = false;
+    get().transport?.disconnect();
     set({
       transport: null,
-      webrtcTransport: null,
       token: null,
       state: 'disconnected',
-      signalingState: 'relay-only',
-      iceServers: [],
       error: null,
-      onControlMessage: null,
+      path: THROUGH_SERVER,
+      closedReason: null,
+      controlListeners: new Set(),
       onDesktopFrame: null,
       onTerminalFrame: null,
       onFileFrame: null,

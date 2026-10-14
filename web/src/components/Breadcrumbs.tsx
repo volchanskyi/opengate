@@ -19,7 +19,6 @@ const SELF = 'path';
 const SEGMENTS = new Map<string, SegmentRule>([
   ['devices', { label: 'Devices', link: '/devices' }],
   ['investigations', { label: 'Investigations', link: '/investigations' }],
-  ['sessions', { label: 'Sessions', lastLabel: 'Session', link: SELF }],
   ['settings', { label: 'Settings', link: '/settings' }],
   ['users', { label: 'Users', link: SELF }],
   ['audit', { label: 'Audit Log', link: SELF }],
@@ -53,10 +52,6 @@ export function Breadcrumbs() {
     const rule = SEGMENTS.get(seg);
     if (rule) {
       crumbs.push(fixedCrumb(rule, path, isLast));
-      return;
-    }
-    if (seg === params.token) {
-      crumbs.push({ label: 'Session' });
       return;
     }
     if (seg !== params.id) return;

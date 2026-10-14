@@ -8,24 +8,26 @@ import (
 	"sync"
 	"time"
 
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"golang.org/x/time/rate"
 )
 
-type ipEntry struct {
+type bucketEntry struct {
 	limiter  *rate.Limiter
 	lastSeen time.Time
 }
 
-type ipLimiter struct {
+// bucketTable holds one token bucket per key and evicts a bucket unused for five minutes.
+type bucketTable struct {
 	mu      sync.Mutex
-	entries map[string]*ipEntry
+	entries map[string]*bucketEntry
 	rps     rate.Limit
 	burst   int
 }
 
-func newIPLimiter(rps float64, burst int) *ipLimiter {
-	l := &ipLimiter{
-		entries: make(map[string]*ipEntry),
+func newBucketTable(rps float64, burst int) *bucketTable {
+	l := &bucketTable{
+		entries: make(map[string]*bucketEntry),
 		rps:     rate.Limit(rps),
 		burst:   burst,
 	}
@@ -33,48 +35,63 @@ func newIPLimiter(rps float64, burst int) *ipLimiter {
 	return l
 }
 
-func (l *ipLimiter) get(ip string) *rate.Limiter {
+func (l *bucketTable) get(key string) *rate.Limiter {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	e, ok := l.entries[ip]
+	e, ok := l.entries[key]
 	if !ok {
-		e = &ipEntry{limiter: rate.NewLimiter(l.rps, l.burst)}
-		l.entries[ip] = e
+		e = &bucketEntry{limiter: rate.NewLimiter(l.rps, l.burst)}
+		l.entries[key] = e
 	}
 	e.lastSeen = time.Now()
 	return e.limiter
 }
 
-func (l *ipLimiter) cleanup() {
+func (l *bucketTable) cleanup() {
 	ticker := time.NewTicker(3 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
 		l.mu.Lock()
 		cutoff := time.Now().Add(-5 * time.Minute)
-		for ip, e := range l.entries {
+		for key, e := range l.entries {
 			if e.lastSeen.Before(cutoff) {
-				delete(l.entries, ip)
+				delete(l.entries, key)
 			}
 		}
 		l.mu.Unlock()
 	}
 }
 
-// RateLimiter returns per-IP token bucket middleware that answers 429 past the limit.
-// A nil trust buckets by the peer address alone.
-func RateLimiter(rps float64, burst int, trust *TrustedProxies) func(http.Handler) http.Handler {
-	limiter := newIPLimiter(rps, burst)
+// limitBy returns token bucket middleware that answers 429 once the bucket key names is empty.
+func limitBy(rps float64, burst int, key func(*http.Request) string) func(http.Handler) http.Handler {
+	buckets := newBucketTable(rps, burst)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := extractIP(r, trust)
-			if !limiter.get(ip).Allow() {
+			if !buckets.get(key(r)).Allow() {
 				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// RateLimiter returns token bucket middleware that counts each request under its client's
+// address. A nil trust buckets by the peer address alone.
+func RateLimiter(rps float64, burst int, trust *TrustedProxies) func(http.Handler) http.Handler {
+	return limitBy(rps, burst, func(r *http.Request) string { return extractIP(r, trust) })
+}
+
+// AccountRateLimiter counts a request whose bearer token validates under its account, so a shared
+// office connection is no shared allowance; anything else, a forged token too, counts by address.
+func AccountRateLimiter(rps float64, burst int, trust *TrustedProxies, jwtCfg *auth.JWTConfig) func(http.Handler) http.Handler {
+	return limitBy(rps, burst, func(r *http.Request) string {
+		if claims, err := jwtCfg.ValidateToken(bearerToken(r.Header.Get("Authorization"))); err == nil {
+			return "account:" + claims.UserID.String()
+		}
+		return "address:" + extractIP(r, trust)
+	})
 }
 
 type emailEntry struct {

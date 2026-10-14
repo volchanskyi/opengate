@@ -136,6 +136,10 @@ func forwardMigrationSteps() []rehearsalStep {
 			verify: assertRuleAdministrationIntroduced},
 		{note: "017 added the orders the age sweep reads",
 			verify: assertRetentionIndexesIntroduced},
+		{note: "018 retired the process table", verify: assertProcessReportRetired},
+		{note: "019 kept one session per host",
+			before: seedHeldSessions,
+			verify: assertOneSessionPerHost},
 	}
 }
 
@@ -143,7 +147,7 @@ func forwardMigrationSteps() []rehearsalStep {
 func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	assertRehearsalRLS(t, ctx, db, "public")
-	assertTelemetryProcessRLS(t, ctx, db, "public")
+	assertProcessReportRetired(t, ctx, db)
 	assertDeviceLogsRetired(t, ctx, db)
 	assertInventoryRLS(t, ctx, db, "public")
 	assertDataLifecycleTables(t, ctx, db)
@@ -158,6 +162,7 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertQueueIndexesIntroduced(t, ctx, db)
 	assertRuleAdministrationIntroduced(t, ctx, db)
 	assertRetentionIndexesIntroduced(t, ctx, db)
+	assertOneSessionPerHost(t, ctx, db)
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, newest migration first.
@@ -167,6 +172,8 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"019 lifted the one-session rule and its outcome flags", assertOneSessionPerHostDownReversal},
+		{"018 restored the process table", assertProcessReportDownReversal},
 		{"017 removed the orders the age sweep reads", assertRetentionIndexesDownReversal},
 		{"016 removed the rule-administration tables and rollout settings", assertRuleAdministrationDownReversal},
 		{"015 removed the triage queue's orders", assertQueueIndexesDownReversal},

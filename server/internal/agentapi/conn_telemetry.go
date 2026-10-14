@@ -2,8 +2,6 @@ package agentapi
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
@@ -111,59 +109,6 @@ func (a *AgentConn) handleAgentMetricWindow(ctx context.Context, msg *protocol.C
 	return nil
 }
 
-func (a *AgentConn) handleProcessReport(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
-	if (a.telemetry == nil && a.processes == nil) || !a.acceptTelemetry(protocol.MsgProcessReport, msg.TS, payloadLen) {
-		return nil
-	}
-	if len(msg.TopN) == 0 {
-		a.dropTelemetry("empty_processes", "type", protocol.MsgProcessReport)
-		return nil
-	}
-	ts := a.telemetryTimestamp(msg.TS)
-	processSamples := make([]telemetry.ProcessSample, 0, len(msg.TopN))
-	numericSamples := make([]telemetry.Sample, 0, len(msg.TopN)*2)
-	for _, entry := range msg.TopN {
-		processSamples = append(processSamples, telemetry.ProcessSample{
-			Rank:        entry.Rank,
-			Basename:    sanitizeProcessBasename(entry.Basename),
-			CmdlineHash: entry.CmdlineHash,
-			PID:         entry.PID,
-			CPU:         entry.CPU,
-			Mem:         entry.Mem,
-		})
-		rank := fmt.Sprintf("%d", entry.Rank)
-		numericSamples = append(numericSamples,
-			telemetry.Sample{
-				Name:   "opengate_edge_process_cpu_percent",
-				Value:  entry.CPU,
-				TS:     ts,
-				Labels: map[string]string{"rank": rank},
-			},
-			telemetry.Sample{
-				Name:   "opengate_edge_process_mem_percent",
-				Value:  entry.Mem,
-				TS:     ts,
-				Labels: map[string]string{"rank": rank},
-			},
-		)
-	}
-	// Report rows have their own persist slot; exactly one of the two writes owns the
-	// report's accounting, so a failed flush does not double-count it.
-	if a.processes != nil {
-		owned := 0
-		if a.telemetry == nil {
-			owned = 1
-		}
-		a.persistTelemetry(ctx, owned, func(jobCtx context.Context, _ dbtx.Tenant) error {
-			return a.processes.UpsertReport(jobCtx, a.DeviceID, ts, processSamples)
-		})
-	}
-	if a.telemetry != nil {
-		a.bufferTelemetry(ctx, numericSamples)
-	}
-	return nil
-}
-
 func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
 	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgHealthWindowResponse, msg.TS, payloadLen) {
 		return nil
@@ -234,18 +179,4 @@ func (a *AgentConn) flushTelemetry(ctx context.Context) {
 	a.persistTelemetry(ctx, msgs, func(jobCtx context.Context, tenant dbtx.Tenant) error {
 		return a.telemetry.WriteSamples(jobCtx, tenant.TenantID, a.DeviceID, batch)
 	})
-}
-
-func sanitizeProcessBasename(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return ""
-	}
-	if strings.ContainsAny(name, " \t\r\n") {
-		return "[redacted]"
-	}
-	if idx := strings.LastIndexAny(name, `/\`); idx >= 0 && idx < len(name)-1 {
-		name = name[idx+1:]
-	}
-	return name
 }

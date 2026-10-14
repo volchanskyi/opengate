@@ -1,5 +1,18 @@
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+
+// The scenarios both hand-off suites replay, found upward so a copied tree still reaches them.
+function sharedScenarios(): string {
+  for (let dir = dirname(fileURLToPath(import.meta.url)); ; dir = dirname(dir)) {
+    const candidate = join(dir, 'testdata', 'direct-link')
+    if (existsSync(candidate)) return candidate
+    if (dirname(dir) === dir) throw new Error('testdata/direct-link is not above web/')
+  }
+}
+const scenarios = sharedScenarios()
 
 // Under Stryker the reporters are pinned to default, which skips vitest's auto-loaded
 // github-actions reporter and its duplicate summary section per mutant run.
@@ -7,6 +20,8 @@ const isUnderStryker = Boolean(process.env.STRYKER_MUTATOR_WORKER)
 
 export default defineConfig({
   plugins: [react()],
+  resolve: { alias: { '@direct-link-scenarios': scenarios } },
+  server: { fs: { allow: ['.', scenarios] } },
   test: {
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],

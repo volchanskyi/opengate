@@ -26,78 +26,97 @@ describe('session store', () => {
 
   it('fetchSessions with deviceId', async () => {
     mockGet.mockResolvedValueOnce({
-      data: [{ token: 't1', device_id: 'd1', user_id: 'u1', created_at: '' }],
+      data: [{ device_id: 'd1', user_id: 'u1', holder_name: 'Alice', created_at: '' }],
       error: undefined,
     });
 
     await useSessionStore.getState().fetchSessions('d1');
 
     expect(useSessionStore.getState().sessions).toHaveLength(1);
-    expect(useSessionStore.getState().sessions[0]?.token).toBe('t1');
+    expect(useSessionStore.getState().sessions[0]?.holder_name).toBe('Alice');
     expect(mockGet).toHaveBeenCalledWith('/api/v1/sessions', {
       params: { query: { device_id: 'd1' } },
     });
   });
 
-  it('createSession returns token and relay_url and sends ALL permissions=true', async () => {
+  it('startSession opens a session with every permission and hands back where to meet', async () => {
     mockPost.mockResolvedValueOnce({
-      data: { token: 'session-token', relay_url: 'ws://localhost/ws/relay/session-token' },
+      data: {
+        token: 'session-token',
+        relay_url: 'wss://edge.test/ws/relay/session-token',
+        ice_servers: [{ urls: ['stun:quic.example.test:9090'] }, { urls: ['stun:b.test:3478', 'stun:c.test:3478'] }],
+      },
       error: undefined,
+      response: { status: 201 },
     });
 
-    const result = await useSessionStore.getState().createSession('d1');
+    const result = await useSessionStore.getState().startSession('d1');
 
     expect(result).toEqual({
+      kind: 'opened',
       token: 'session-token',
-      relay_url: 'ws://localhost/ws/relay/session-token',
+      relayUrl: 'wss://edge.test/ws/relay/session-token',
+      helpers: ['stun:quic.example.test:9090', 'stun:b.test:3478', 'stun:c.test:3478'],
     });
-    // Pin every permission flag literally — kills BooleanLiteral mutants on each.
     expect(mockPost).toHaveBeenCalledWith('/api/v1/sessions', {
       body: {
         device_id: 'd1',
-        permissions: {
-          desktop: true,
-          terminal: true,
-          file_read: true,
-          file_write: true,
-          input: true,
-        },
+        permissions: { desktop: true, terminal: true, file_read: true, file_write: true, input: true },
       },
     });
   });
 
+  it('startSession names the technician holding the host when it is refused', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: undefined,
+      error: { error: 'device has an open session', holder_name: 'Alice', started_at: '2026-10-12T14:02:00Z' },
+      response: { status: 409 },
+    });
+
+    expect(await useSessionStore.getState().startSession('d1')).toEqual({
+      kind: 'held',
+      holderName: 'Alice',
+      startedAt: '2026-10-12T14:02:00Z',
+    });
+  });
+
+  it('startSession says why it failed otherwise', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: undefined,
+      error: { error: 'agent not connected' },
+      response: { status: 404 },
+    });
+
+    expect(await useSessionStore.getState().startSession('d1')).toEqual({
+      kind: 'failed',
+      error: 'agent not connected',
+    });
+  });
+
   it('fetchSessions clears prior list before fetching new device', async () => {
-    // Seed prior sessions, then fetch with a new deviceId; after the synchronous
-    // clear the prior list must be gone *before* the await resolves.
     useSessionStore.setState({
-      sessions: [{ token: 'old', device_id: 'd0', user_id: 'u1', created_at: '' }],
+      sessions: [{ device_id: 'd0', user_id: 'u1', holder_name: 'Alice', created_at: '' }],
       sessionsDeviceId: 'd0',
     });
     mockGet.mockResolvedValueOnce({
-      data: [{ token: 'new', device_id: 'd1', user_id: 'u1', created_at: '' }],
+      data: [{ device_id: 'd1', user_id: 'u2', holder_name: 'Bob', created_at: '' }],
       error: undefined,
     });
 
     const promise = useSessionStore.getState().fetchSessions('d1');
-    // Synchronous clear pins `set({ sessions: [] })` → kills `set({})` mutant.
     expect(useSessionStore.getState().sessions).toEqual([]);
     await promise;
     expect(useSessionStore.getState().sessions).toEqual([
-      { token: 'new', device_id: 'd1', user_id: 'u1', created_at: '' },
+      { device_id: 'd1', user_id: 'u2', holder_name: 'Bob', created_at: '' },
     ]);
   });
 
   it('a repeat fetch for the same device leaves the list up while it reloads', async () => {
     // The device page re-reads its sessions on every poll; blanking the list
-    // first would flash "Active Sessions" out of the card twice a minute.
-    useSessionStore.setState({
-      sessions: [{ token: 't1', device_id: 'd1', user_id: 'u1', created_at: '' }],
-      sessionsDeviceId: 'd1',
-    });
-    mockGet.mockResolvedValueOnce({
-      data: [{ token: 't1', device_id: 'd1', user_id: 'u1', created_at: '' }],
-      error: undefined,
-    });
+    // first would flash the holder out of the card twice a minute.
+    const held = { device_id: 'd1', user_id: 'u1', holder_name: 'Alice', created_at: '' };
+    useSessionStore.setState({ sessions: [held], sessionsDeviceId: 'd1' });
+    mockGet.mockResolvedValueOnce({ data: [held], error: undefined });
 
     const promise = useSessionStore.getState().fetchSessions('d1');
     expect(useSessionStore.getState().sessions).toHaveLength(1);
@@ -105,46 +124,28 @@ describe('session store', () => {
     expect(useSessionStore.getState().sessions).toHaveLength(1);
   });
 
-  it('deleteSession does NOT mutate list on error', async () => {
+  it('endDeviceSession ends the host’s session and clears the list', async () => {
     useSessionStore.setState({
-      sessions: [
-        { token: 't1', device_id: 'd1', user_id: 'u1', created_at: '' },
-        { token: 't2', device_id: 'd1', user_id: 'u1', created_at: '' },
-      ],
+      sessions: [{ device_id: 'd1', user_id: 'u1', holder_name: 'Alice', created_at: '' }],
+      sessionsDeviceId: 'd1',
     });
-    mockDelete.mockResolvedValueOnce({ error: { error: 'forbidden' } });
+    mockDelete.mockResolvedValueOnce({ error: undefined, response: { ok: true, status: 204 } });
 
-    await useSessionStore.getState().deleteSession('t1');
-
-    // Both sessions must remain — kills `if (res.ok)` → `if (true)` mutant.
-    expect(useSessionStore.getState().sessions).toHaveLength(2);
+    expect(await useSessionStore.getState().endDeviceSession('d1')).toBe(true);
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/devices/{id}/session', { params: { path: { id: 'd1' } } });
+    expect(useSessionStore.getState().sessions).toEqual([]);
   });
 
-  it('createSession returns null on error', async () => {
-    mockPost.mockResolvedValueOnce({
-      data: undefined,
-      error: { error: 'agent not connected' },
-    });
-
-    const result = await useSessionStore.getState().createSession('d1');
-
-    expect(result).toBeNull();
-    expect(useSessionStore.getState().error).toBe('agent not connected');
-  });
-
-  it('deleteSession removes from list', async () => {
+  it('endDeviceSession keeps the list when it is refused', async () => {
     useSessionStore.setState({
-      sessions: [
-        { token: 't1', device_id: 'd1', user_id: 'u1', created_at: '' },
-        { token: 't2', device_id: 'd1', user_id: 'u1', created_at: '' },
-      ],
+      sessions: [{ device_id: 'd1', user_id: 'u1', holder_name: 'Alice', created_at: '' }],
+      sessionsDeviceId: 'd1',
     });
-    mockDelete.mockResolvedValueOnce({ error: undefined });
+    mockDelete.mockResolvedValueOnce({ error: { error: 'forbidden' }, response: { ok: false, status: 403 } });
 
-    await useSessionStore.getState().deleteSession('t1');
-
+    expect(await useSessionStore.getState().endDeviceSession('d1')).toBe(false);
     expect(useSessionStore.getState().sessions).toHaveLength(1);
-    expect(useSessionStore.getState().sessions[0]?.token).toBe('t2');
+    expect(useSessionStore.getState().error).toBe('forbidden');
   });
 
   it('fetchSessions error sets error state', async () => {

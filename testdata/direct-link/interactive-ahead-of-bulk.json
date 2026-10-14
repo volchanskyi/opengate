@@ -1,0 +1,84 @@
+{
+  "description": "A keystroke echo queued behind file frames is chosen first, then numbered, so the stream stays one ordered stream.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "bulk",
+      "frames": [
+        {
+          "label": "f1",
+          "size": 40000
+        },
+        {
+          "label": "f2",
+          "size": 40000
+        }
+      ]
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "t1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host",
+      "count": 1
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "t2"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "t1",
+        "t2",
+        "f1",
+        "f2"
+      ],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    }
+  }
+}

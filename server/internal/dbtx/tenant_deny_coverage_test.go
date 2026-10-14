@@ -26,7 +26,6 @@ var tenantDenyProofs = map[string][]string{
 	"rules":         {"TestStoreDeniesCrossTenantAccess", "TestTagsDenyCrossTenantAccess"},
 	"session":       {"TestPostgresSessions_TenantDeny"},
 	"settings":      {"TestScopeForAnotherTenantsDeviceIsNotFound"},
-	"telemetry":     {"TestPostgresProcessRepositoryTenantDeny"},
 	"updater":       {"TestPostgresDeviceUpdates_TenantDeny", "TestPostgresEnrollment_TenantDeny"},
 }
 

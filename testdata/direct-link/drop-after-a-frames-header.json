@@ -1,0 +1,68 @@
+{
+  "description": "Only the first piece, carrying the frame's header, arrives; the part is discarded and the whole frame re-sent.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "bulk",
+      "frames": [
+        {
+          "label": "f1",
+          "size": 40000
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "browser",
+      "count": 1
+    },
+    {
+      "step": "cut"
+    },
+    {
+      "step": "lose",
+      "side": "browser",
+      "reason": "silence"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "f1"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    }
+  }
+}

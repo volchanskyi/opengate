@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/go-chi/chi/v5"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
-	"nhooyr.io/websocket"
 )
 
 // defaultRelayPeerTimeout bounds half-open relay entries so a missing peer cannot keep a
@@ -53,8 +53,8 @@ func bearerToken(header string) string {
 	return strings.TrimSpace(token)
 }
 
-// authenticateBrowser requires a server-signed JWT and a session visible in the caller's tenant,
-// so a leaked relay token cannot attach a console; browsers send the JWT in ?auth= or a header.
+// authenticateBrowser requires a server-signed JWT naming the session's holder, so a leaked relay
+// token attaches nobody else; browsers send the JWT in ?auth= or a header.
 func (s *Server) authenticateBrowser(r *http.Request, sessionToken string) bool {
 	credential := bearerToken(r.Header.Get("Authorization"))
 	if credential == "" {
@@ -71,10 +71,11 @@ func (s *Server) authenticateBrowser(r *http.Request, sessionToken string) bool 
 
 	// The caller's tenant scope keeps a relay token from joining another tenant's session.
 	scoped := dbtx.WithTenant(r.Context(), claims.TenantID, claims.IsAdmin)
-	if _, err := s.sessions.Get(scoped, sessionToken); err != nil {
+	held, err := s.sessions.Get(scoped, sessionToken)
+	if err != nil {
 		return false
 	}
-	return true
+	return held.UserID == claims.UserID
 }
 
 // parseSide determines the relay side from the ?side= query param.

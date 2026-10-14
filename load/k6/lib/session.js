@@ -63,12 +63,17 @@ export function scenarioBlock(name) {
   return hash % SCENARIO_BLOCKS;
 }
 
-/** The address this virtual user presents, stable for the life of the run. */
-export function technicianAddress() {
+/** The address virtual user `vu` presents, stable for the life of the run. */
+function addressOf(vu) {
   const scenario = __ENV.LOADTEST_SCENARIO || "adhoc";
   return presentedAddress(
-    scenarioBlock(scenario) * ADDRESSES_PER_SCENARIO + (__VU % ADDRESSES_PER_SCENARIO)
+    scenarioBlock(scenario) * ADDRESSES_PER_SCENARIO + (vu % ADDRESSES_PER_SCENARIO)
   );
+}
+
+/** The address this virtual user presents, stable for the life of the run. */
+export function technicianAddress() {
+  return addressOf(__VU);
 }
 
 /** Authorization headers for a bearer token, from this technician's address. */
@@ -96,15 +101,15 @@ export function runId() {
 }
 
 /**
- * Registers a throwaway member of the staging organization and returns its token with the email
- * for the cleanup manifest. Throws on any unexpected status.
+ * Registers throwaway member `n` of the staging organization from that member's own address, and
+ * returns its token with the email for the cleanup manifest. Throws on any unexpected status.
  */
-export function registerMember(baseUrl, prefix) {
-  const email = loadTestEmail(prefix, runId(), __VU);
+function registerMember(baseUrl, prefix, n) {
+  const email = loadTestEmail(prefix, runId(), n);
   const resp = http.post(
     `${baseUrl}/api/v1/auth/register`,
     JSON.stringify({ email, password: LOAD_TEST_PASSWORD }),
-    { headers: { "Content-Type": "application/json", "X-Forwarded-For": technicianAddress() } }
+    { headers: { "Content-Type": "application/json", "X-Forwarded-For": addressOf(n) } }
   );
   if (resp.status !== 201) {
     throw new Error(`setup: register returned ${resp.status}: ${resp.body}`);
@@ -114,6 +119,23 @@ export function registerMember(baseUrl, prefix) {
     throw new Error("setup: register returned no token");
   }
   return { token, email };
+}
+
+/**
+ * Registers `count` members, one per simulated technician, since the server counts a signed-in
+ * request under its account. Setup calls it; each virtual user signs in as `ownTechnician`.
+ */
+export function registerTechnicians(baseUrl, prefix, count) {
+  const technicians = [];
+  for (let n = 1; n <= count; n++) {
+    technicians.push(registerMember(baseUrl, prefix, n));
+  }
+  return technicians;
+}
+
+/** The account this virtual user signs in as; virtual users beyond the count share in turn. */
+export function ownTechnician(technicians) {
+  return technicians[(__VU - 1) % technicians.length];
 }
 
 /** Ids of the sites visible to this member; empty when the organization has none. */

@@ -1,11 +1,7 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createMemoryRouter, RouterProvider, useLocation } from 'react-router';
 import { useDeviceStore } from './state/device-store';
 import { useSessionStore } from '../session';
-import { useToastStore } from '../../lib/feedback/toast-store';
-import { DeviceDetail } from './DeviceDetail';
 import { mockDevice, renderDetail, seedDeviceDetailStores } from './DeviceDetail.testkit';
 
 vi.mock('../../lib/api', () => ({
@@ -38,95 +34,31 @@ describe('DeviceDetail — sessions', () => {
     vi.useRealTimers();
   });
 
-  it('shows active sessions', () => {
+  it('lists who holds the host and since when, and never a session token', () => {
     renderDetail();
     expect(screen.getByText('Active Sessions (1)')).toBeInTheDocument();
-    expect(screen.getByText('tok1')).toBeInTheDocument();
+    expect(screen.getAllByText(/^Session open — Alice, since \d{1,2}:\d{2}/).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toMatch(/tok/);
   });
 
-  it('has start session button in header', () => {
+  it('offers to open a free host’s session in its own tab', () => {
     renderDetail();
-    expect(screen.getByRole('button', { name: 'Start Session' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open session' })).toBeEnabled();
   });
 
-  it('shows error toast when session creation fails', async () => {
-    vi.useRealTimers();
-    const user = userEvent.setup();
-    useSessionStore.setState({
-      ...useSessionStore.getState(),
-      createSession: vi.fn().mockResolvedValue(null),
+  it('shows the holder in the header of a host another technician holds', () => {
+    useDeviceStore.setState({
+      selectedDevice: { ...mockDevice, session: { holder_id: 'u2', holder_name: 'Alice', started_at: '2026-10-12T14:02:00Z' } },
     });
-    useToastStore.setState({ toasts: [] });
-
     renderDetail();
-    await user.click(screen.getByRole('button', { name: 'Start Session' }));
-
-    const toasts = useToastStore.getState().toasts;
-    expect(toasts).toHaveLength(1);
-    expect(toasts[0]!.message).toMatch(/failed to start session/i);
-    expect(toasts[0]!.type).toBe('error');
-  });
-
-  it('navigates to session view on successful creation', async () => {
-    vi.useRealTimers();
-    const user = userEvent.setup();
-    const router = createMemoryRouter(
-      [
-        { path: '/devices/:id', element: <DeviceDetail /> },
-        { path: '/sessions/:token', element: <p>Session View</p> },
-      ],
-      { initialEntries: ['/devices/d1'] },
-    );
-    render(<RouterProvider router={router} />);
-
-    await user.click(screen.getByRole('button', { name: 'Start Session' }));
-
-    expect(await screen.findByText('Session View')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open session' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'End session' })).toBeInTheDocument();
   });
 
   it('Active Sessions heading hidden when sessions array is empty', () => {
     useSessionStore.setState({ sessions: [] });
     renderDetail();
     expect(screen.queryByText(/Active Sessions/)).not.toBeInTheDocument();
-  });
-
-  it('handleStartSession passes relayUrl and capabilities through navigation state', async () => {
-    vi.useRealTimers();
-    const user = userEvent.setup();
-    useDeviceStore.setState({
-      selectedDevice: { ...mockDevice, capabilities: ['terminal', 'files'] },
-    });
-    useSessionStore.setState({
-      ...useSessionStore.getState(),
-      createSession: vi.fn().mockResolvedValue({ token: 'new-tok', relay_url: 'wss://relay.example' }),
-    });
-
-    function SessionProbe() {
-      const location = useLocation();
-      const state = location.state as { relayUrl?: string; capabilities?: string[] } | null;
-      return (
-        <>
-          <p>Session View</p>
-          <p data-testid="relay">{state?.relayUrl ?? ''}</p>
-          <p data-testid="caps">{(state?.capabilities ?? []).join(',')}</p>
-        </>
-      );
-    }
-
-    const router = createMemoryRouter(
-      [
-        { path: '/devices/:id', element: <DeviceDetail /> },
-        { path: '/sessions/:token', element: <SessionProbe /> },
-      ],
-      { initialEntries: ['/devices/d1'] },
-    );
-    render(<RouterProvider router={router} />);
-
-    await user.click(screen.getByRole('button', { name: 'Start Session' }));
-
-    expect(await screen.findByText('Session View')).toBeInTheDocument();
-    expect(screen.getByTestId('relay').textContent).toBe('wss://relay.example');
-    expect(screen.getByTestId('caps').textContent).toBe('terminal,files');
   });
 
   it('the 30s poll re-reads the session list so ended sessions drop out', () => {

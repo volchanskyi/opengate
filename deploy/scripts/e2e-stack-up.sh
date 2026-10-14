@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Brings up the browser test stack: a database, a server and two real machines.
-# The machines start after an enrolment token is minted through the server's public endpoints.
+# Brings up the browser test stack: a database, a server, two real machines and a browser server,
+# with agent-a and the browser each behind a router. The machines enrol with a token it mints.
 
 set -euo pipefail
 
@@ -11,10 +11,23 @@ COMPOSE_FILE="$DEPLOY_DIR/docker-compose.test.yml"
 AGENT_ENV="$DEPLOY_DIR/.e2e-agent.env"
 AGENT_BINARY="$DEPLOY_DIR/agent-bin/mesh-agent"
 
+# The stack's networks use gateway priority and trusted host interfaces, which Engine 28 added.
+engine="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
+engine_major="${engine%%.*}"
+if ! [[ "$engine_major" =~ ^[0-9]+$ ]] || [ "$engine_major" -lt 28 ]; then
+  echo "✗ the browser test stack needs Docker Engine 28; this machine reports '${engine:-no engine}'" >&2
+  echo "  Fix: upgrade Docker Engine to 28 or later." >&2
+  exit 1
+fi
+
 BASE_URL="${E2E_BASE_URL:-http://localhost:8080}"
 # The first registered user becomes administrator, so the bootstrap operator registers first.
 BOOTSTRAP_EMAIL="bootstrap-admin@test.local"
 BOOTSTRAP_PASSWORD="BootstrapPass123!"
+
+# The browser server runs the suite's own Playwright, which a remote browser has to match.
+PLAYWRIGHT_VERSION="$(node -p "require('$ROOT/web/package-lock.json').packages['node_modules/@playwright/test'].version")"
+export PLAYWRIGHT_VERSION
 
 compose() {
   DOCKER_CONFIG="$("$ROOT/scripts/docker-credstore-guard.sh")" \
@@ -65,8 +78,9 @@ fi
 umask 077
 printf 'OPENGATE_ENROLL_TOKEN=%s\n' "$enrolment" >"$AGENT_ENV"
 
-echo "▶ starting the machines"
+echo "▶ starting the machines and the browser server behind their routers"
 compose up -d --build agent-a agent-b
+compose up -d --build --wait browser
 
 echo "▶ waiting for both machines to come online"
 for attempt in $(seq 1 60); do

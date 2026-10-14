@@ -57,6 +57,9 @@ type runBundleInputs struct {
 
 	// Leak is what grew inside the target between the profiles of a long run; nil is a run not watched.
 	Leak *LeakTrail
+
+	// Helper is what the run's sessions asked the server's helper; nil is a run that asked nothing.
+	Helper *HelperCount
 }
 
 // arrivedAgents counts the machines that connected, handshook and registered, whatever
@@ -111,6 +114,7 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		GeneratorHeadroom: in.Headroom,
 		Cleanup:           uncountedCleanup(in),
 		Leak:              in.Leak,
+		Helper:            in.Helper,
 	}
 
 	// The breaking point is read off the phases the run walked, so an early stop answers
@@ -127,6 +131,7 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		Headroom:          bundle.GeneratorHeadroom,
 		Phases:            bundle.Phases,
 		Target:            in.Conservation,
+		Helper:            in.Helper,
 	})
 
 	return bundle

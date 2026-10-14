@@ -43,7 +43,7 @@ func TestSendSessionRequest_RefusesUndecodableFrame(t *testing.T) {
 			t.Parallel()
 			ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
-			err := ac.SendSessionRequest(context.Background(), tt.token, tt.relayURL, perms)
+			err := ac.SendSessionRequest(context.Background(), tt.token, tt.relayURL, perms, nil)
 
 			assertRefusedIncomplete(t, err, buf, tt.wantField, protocol.MsgSessionRequest)
 		})
@@ -56,11 +56,13 @@ func TestSendSessionRequest_SendsCompleteFrame(t *testing.T) {
 	token := protocol.GenerateSessionToken()
 
 	require.NoError(t, ac.SendSessionRequest(context.Background(), token, "wss://relay/test",
-		protocol.Permissions{Desktop: true}))
+		protocol.Permissions{Desktop: true}, []string{"stun:helper.example.com:9090"}))
 
 	decoded := readReply(t, ac, buf)
 	assert.Equal(t, token, decoded.Token)
 	assert.Equal(t, "wss://relay/test", decoded.RelayURL)
+	assert.Equal(t, []string{"stun:helper.example.com:9090"}, decoded.IceServers,
+		"the host is given the helpers the server is configured with")
 }
 
 func TestSendAgentUpdate_RefusesUndecodableFrame(t *testing.T) {

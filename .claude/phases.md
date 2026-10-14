@@ -35,6 +35,7 @@
 | Seeing inside a leak | A long run keeps the target's profiles on an interval and reports what grew at a named line; a core taken off the running server says what still holds the heaviest objects. [ADR-119](../docs/adr/ADR-119-finding-a-leak.md). |
 | Comments and repeated code | Every comment is a short positive statement about its code, checked at write time and on every commit; repeated code is read from the scanner's own report for every file, and no production file repeats more than 3% of its lines. [ADR-125](../docs/adr/ADR-125-comments-and-repeated-code.md), [ADR-012](../docs/Architecture-Decision-Records.md). |
 | Advisory exceptions | An npm advisory that no release fixes may be excepted by ID with a reason and a review date; the exception lapses on its own on that date, on a new release of the package, or once the audit stops reporting it. [ADR-126](../docs/adr/ADR-126-advisory-exceptions-lapse.md). |
+| Direct link | A session moves onto a direct link when the networks allow and back without losing a frame; one technician per host, each session in its own tab, downloads streamed one at a time, and the ingress controller's settings held by the repository. [ADR-127](../docs/adr/ADR-127-direct-link.md), [ADR-059](../docs/adr/ADR-059-session-row-lifecycle.md), [ADR-030](../docs/adr/ADR-030-kubernetes-on-oke.md). |
 
 ## In Progress
 

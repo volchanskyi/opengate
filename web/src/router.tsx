@@ -42,6 +42,8 @@ export const router = createBrowserRouter([
     path: '/',
     element: <AuthGuard />,
     children: [
+      // A session tab renders without the fleet navigation and the customer picker.
+      { path: 'devices/:id/session', element: withSuspense(SessionView) },
       {
         element: <Layout />,
         children: [
@@ -50,7 +52,6 @@ export const router = createBrowserRouter([
           { path: 'devices/:id', element: withSuspense(DeviceDetail) },
           { path: 'investigations', element: withSuspense(InvestigationList) },
           { path: 'investigations/:id', element: withSuspense(InvestigationDetail) },
-          { path: 'sessions/:token', element: withSuspense(SessionView) },
           // Everyone in the tenant reads rules; each screen decides whether the viewer may change them.
           { path: 'rules', element: withSuspense(RuleList) },
           { path: 'rules/alert-limits', element: withSuspense(AlertLimits) },

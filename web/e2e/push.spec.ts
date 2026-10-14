@@ -13,7 +13,7 @@ async function installFakePush(
   page: Parameters<Parameters<typeof test>[2]>[0]["authedPage"],
 ) {
   await page.addInitScript(
-    ({ endpoint }) => {
+    ({ endpoint }: { endpoint: string }) => {
       const sub = {
         endpoint,
         toJSON: () => ({ endpoint, keys: { p256dh: "p256dh-e2e", auth: "auth-e2e" } }),

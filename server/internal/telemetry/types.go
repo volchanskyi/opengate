@@ -1,5 +1,5 @@
-// Package telemetry owns Edge Sentinel server-side telemetry persistence:
-// numeric samples in VictoriaMetrics and process snapshots in Postgres RLS.
+// Package telemetry owns Edge Sentinel server-side telemetry persistence: numeric samples in
+// VictoriaMetrics.
 package telemetry
 
 import (
@@ -20,21 +20,4 @@ type Sample struct {
 // NumericWriter persists numeric telemetry points.
 type NumericWriter interface {
 	WriteSamples(ctx context.Context, tenantID uuid.UUID, deviceID uuid.UUID, samples []Sample) error
-}
-
-// ProcessSample is one sanitized process row from an Edge Sentinel report.
-type ProcessSample struct {
-	TS          time.Time
-	Rank        uint32
-	Basename    string
-	CmdlineHash *string
-	PID         uint32
-	CPU         float64
-	Mem         float64
-}
-
-// ProcessRepository persists and reads tenant-scoped process snapshots.
-type ProcessRepository interface {
-	UpsertReport(ctx context.Context, deviceID uuid.UUID, ts time.Time, samples []ProcessSample) error
-	ListLatest(ctx context.Context, deviceID uuid.UUID, limit int) ([]ProcessSample, error)
 }

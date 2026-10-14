@@ -9,6 +9,7 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
+use crate::session::outbox::Outbox;
 use crate::session::TerminalHandle;
 use crate::session_error::SessionError;
 
@@ -33,10 +34,10 @@ impl TerminalSession {
         Ok(Self { pair })
     }
 
-    /// Spawns a shell, forwards its output as `TerminalFrame`s on `frame_tx`, and returns a handle.
+    /// Spawns a shell, queues its output as `TerminalFrame`s in the outbox, and returns a handle.
     pub async fn run(
         self,
-        frame_tx: mpsc::Sender<Vec<u8>>,
+        outbox: Outbox,
         running: Arc<AtomicBool>,
     ) -> Result<TerminalHandle, SessionError> {
         let shell = default_shell();
@@ -68,7 +69,7 @@ impl TerminalSession {
         let reader_running = running.clone();
         let reader_shutdown = shutdown.clone();
         tokio::task::spawn_blocking(move || {
-            pty_reader_loop(reader, frame_tx, reader_running, reader_shutdown);
+            pty_reader_loop(reader, outbox, reader_running, reader_shutdown);
         });
 
         let writer_shutdown = shutdown.clone();
@@ -94,7 +95,7 @@ impl TerminalSession {
 
 pub(crate) fn pty_reader_loop(
     mut reader: Box<dyn Read + Send>,
-    frame_tx: mpsc::Sender<Vec<u8>>,
+    outbox: Outbox,
     running: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
 ) {
@@ -110,7 +111,7 @@ pub(crate) fn pty_reader_loop(
                     data: buf[..n].to_vec(),
                 });
                 if let Ok(encoded) = frame.encode() {
-                    if frame_tx.blocking_send(encoded).is_err() {
+                    if outbox.blocking_send_encoded(encoded).is_err() {
                         break;
                     }
                 }
@@ -176,6 +177,7 @@ fn default_shell() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::outbox::Lanes;
 
     #[test]
     fn test_default_shell_is_not_empty() {
@@ -207,77 +209,66 @@ mod tests {
         assert!(term.is_ok());
     }
 
-    #[test]
-    fn pty_reader_loop_breaks_on_eof() {
-        let reader: Box<dyn Read + Send> = Box::new(std::io::Cursor::new(b"hello"));
-        let (frame_tx, mut frame_rx) = mpsc::channel(8);
-        let running = Arc::new(AtomicBool::new(true));
-        let shutdown = Arc::new(AtomicBool::new(false));
+    /// Runs the reader on a blocking thread, as the session does, and returns its lanes.
+    async fn read_all(reader: Box<dyn Read + Send>, running: bool, shutdown: bool) -> Lanes {
+        let (outbox, lanes) = Outbox::new();
+        let running = Arc::new(AtomicBool::new(running));
+        let shutdown = Arc::new(AtomicBool::new(shutdown));
+        tokio::task::spawn_blocking(move || pty_reader_loop(reader, outbox, running, shutdown))
+            .await
+            .expect("pty_reader_loop must return");
+        lanes
+    }
 
-        pty_reader_loop(reader, frame_tx, running, shutdown);
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pty_reader_loop_breaks_on_eof() {
+        let mut lanes = read_all(Box::new(std::io::Cursor::new(b"hello")), true, false).await;
 
-        let data = frame_rx.try_recv().expect("expected one frame");
-        let (frame, _) = mesh_protocol::Frame::decode(&data).unwrap();
-        match frame {
+        let data = lanes.try_next().expect("expected one frame");
+        match mesh_protocol::Frame::decode(&data).unwrap().0 {
             mesh_protocol::Frame::Terminal(tf) => assert_eq!(tf.data, b"hello"),
             other => panic!("expected Terminal frame, got {other:?}"),
         }
-        assert!(matches!(
-            frame_rx.try_recv(),
-            Err(mpsc::error::TryRecvError::Disconnected | mpsc::error::TryRecvError::Empty)
-        ));
+        assert!(lanes.try_next().is_none());
     }
 
-    #[test]
-    fn pty_reader_loop_breaks_when_shutdown_alone_set() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pty_reader_loop_breaks_when_shutdown_alone_set() {
         // The reader still holds data, so only the flags can end the loop.
-        let reader: Box<dyn Read + Send> = Box::new(std::io::repeat(0xAB).take(1_000_000));
-        let (frame_tx, _frame_rx) = mpsc::channel(64);
-        let running = Arc::new(AtomicBool::new(true));
-        let shutdown = Arc::new(AtomicBool::new(true));
-
-        let r = running.clone();
-        let s = shutdown.clone();
-        let handle = std::thread::spawn(move || {
-            pty_reader_loop(reader, frame_tx, r, s);
-        });
-        handle
-            .join()
-            .expect("pty_reader_loop must terminate when shutdown is set");
+        let reader = Box::new(std::io::repeat(0xAB).take(1_000_000));
+        let mut lanes = read_all(reader, true, true).await;
+        assert!(lanes.try_next().is_none());
     }
 
-    #[test]
-    fn pty_reader_loop_breaks_when_running_false_alone() {
-        let reader: Box<dyn Read + Send> = Box::new(std::io::repeat(0x42).take(1_000_000));
-        let (frame_tx, _frame_rx) = mpsc::channel(64);
-        let running = Arc::new(AtomicBool::new(false));
-        let shutdown = Arc::new(AtomicBool::new(false));
-
-        let handle = std::thread::spawn(move || {
-            pty_reader_loop(reader, frame_tx, running, shutdown);
-        });
-        handle
-            .join()
-            .expect("pty_reader_loop must terminate when running is false");
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pty_reader_loop_breaks_when_running_false_alone() {
+        let reader = Box::new(std::io::repeat(0x42).take(1_000_000));
+        let mut lanes = read_all(reader, false, false).await;
+        assert!(lanes.try_next().is_none());
     }
 
-    #[test]
-    fn pty_reader_loop_breaks_on_io_error() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pty_reader_loop_breaks_on_io_error() {
         struct ErrReader;
         impl Read for ErrReader {
             fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
                 Err(std::io::Error::other("simulated PTY error"))
             }
         }
-        let reader: Box<dyn Read + Send> = Box::new(ErrReader);
-        let (frame_tx, mut frame_rx) = mpsc::channel(8);
-        let running = Arc::new(AtomicBool::new(true));
-        let shutdown = Arc::new(AtomicBool::new(false));
-        pty_reader_loop(reader, frame_tx, running, shutdown);
-        assert!(matches!(
-            frame_rx.try_recv(),
-            Err(mpsc::error::TryRecvError::Disconnected | mpsc::error::TryRecvError::Empty)
-        ));
+        let mut lanes = read_all(Box::new(ErrReader), true, false).await;
+        assert!(lanes.try_next().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn terminal_output_frames_each_fit_the_interactive_lane() {
+        let reader = Box::new(std::io::repeat(b'x').take(64 * 1024));
+        let mut lanes = read_all(reader, true, false).await;
+        let mut total = 0;
+        while let Some(frame) = lanes.try_next() {
+            assert!(frame.len() <= crate::session::outbox::INTERACTIVE_FRAME_CAP);
+            total += frame.len();
+        }
+        assert!(total >= 64 * 1024);
     }
 
     #[test]

@@ -5,7 +5,7 @@ import { useChatStore } from './state/chat-store';
 export function MessengerView() {
   const connectionState = useConnectionStore((s) => s.state);
   const transport = useConnectionStore((s) => s.transport);
-  const setOnControlMessage = useConnectionStore((s) => s.setOnControlMessage);
+  const listenControl = useConnectionStore((s) => s.listenControl);
   const messages = useChatStore((s) => s.messages);
   const addMessage = useChatStore((s) => s.addMessage);
   const [input, setInput] = useState('');
@@ -13,14 +13,13 @@ export function MessengerView() {
 
   // Listen for incoming ChatMessage control messages
   useEffect(() => {
-    if (!transport) return;
-    setOnControlMessage((msg) => {
+    if (!transport) return undefined;
+    return listenControl((msg) => {
       if (msg.type === 'ChatMessage') {
         addMessage({ text: msg.text, sender: msg.sender });
       }
     });
-    return () => setOnControlMessage(null);
-  }, [transport, setOnControlMessage, addMessage]);
+  }, [transport, listenControl, addMessage]);
 
   // Auto-scroll on new messages
   useEffect(() => {

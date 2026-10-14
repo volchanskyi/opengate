@@ -34,6 +34,10 @@ type loadOptions struct {
 	// completed session. Nil counts nothing.
 	sessionsJoined *atomic.Int64
 
+	// helpers counts the helper requests the joined sessions made and the answers they got.
+	// Nil asks nothing.
+	helpers *helperTally
+
 	// reconnect keeps a machine in the run after its connection breaks. Off by default so a
 	// severance is reported.
 	reconnect bool

@@ -17,9 +17,24 @@ believing a forwarded header from any peer lets a caller claim to be anyone.
 believed only from a peer it named.** From anything else, the address is the
 address the connection came from.
 
-**A load run presents one address per technician and one per machine**, so a
-per-caller limit is measured per caller rather than being hit at once by one
-generator pretending to be a fleet.
+**A signed-in request is counted under its account, not its address.**
+[`AccountRateLimiter`](../../server/internal/api/ratelimit.go) keys a request
+whose bearer token validates by the account it names, so forty technicians
+behind one office connection each keep their own allowance; a request with no
+token, or one that fails validation, is counted by its address as above.
+
+**The address a machine dials for a session is a setting, never read from a
+request.** The server sends a host the relay address in
+`OPENGATE_AGENT_RELAY_URL` (or `-agent-relay-url`), which it refuses to start
+without, and builds the browser's address from the browser's own request, so no
+header a browser sends decides where a host connects. Helm defaults the setting
+to the release's own in-cluster service; the compose stacks name the server's
+container.
+
+**A load run presents one address per technician and one per machine**, and
+signs each simulated technician in to an account of its own, so a per-caller
+limit is measured per caller rather than being hit at once by one generator
+pretending to be a fleet.
 
 **A run counts how much of what it asked was refused, and carries the count into
 its own evidence.** The chain that makes a presented address believed runs

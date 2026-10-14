@@ -18,7 +18,7 @@ func TestAgentConn_SendSessionRequest(t *testing.T) {
 		Terminal: true,
 	}
 
-	err := ac.SendSessionRequest(context.Background(), token, "wss://relay/test", perms)
+	err := ac.SendSessionRequest(context.Background(), token, "wss://relay/test", perms, nil)
 	require.NoError(t, err)
 
 	frameType, payload, err := ac.codec.ReadFrame(buf)

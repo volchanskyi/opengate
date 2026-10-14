@@ -15,7 +15,7 @@
   - [What the relay reports](#what-the-relay-reports)
   - [Middleware compatibility](#middleware-compatibility)
 - [Session lifecycle](#session-lifecycle)
-  - [Direct connection upgrade](#direct-connection-upgrade)
+  - [The direct link](#the-direct-link)
   - [Agent session handler](#agent-session-handler)
 - [What the web client is for](#what-the-web-client-is-for)
 - [Notifications](#notifications)
@@ -204,16 +204,17 @@ sequenceDiagram
   Relay-->>Agent: browser frames
 ```
 
-1. Browser creates a session via REST API (`POST /api/v1/sessions`), gets back `{token, relay_url}`
-2. Agent receives a `SessionRequest` control message with the same token
-3. Both sides connect to the relay WebSocket at `/ws/relay/{token}` with their side parameter
+1. The session tab creates a session via REST API (`POST /api/v1/sessions`) and gets back `{token, relay_url, ice_servers}`; the relay address is built from the tab's own request. A host another technician holds refuses with `409` and the holder's name ([ADR-059](../adr/ADR-059-session-row-lifecycle.md))
+2. Agent receives a `SessionRequest` control message with the same token, the relay address the server is configured with (`OPENGATE_AGENT_RELAY_URL`, never read from a request — [ADR-116](../adr/ADR-116-forwarded-addresses.md)) and the same helpers
+3. Both sides connect to the relay WebSocket at `/ws/relay/{token}` with their side parameter; the relay admits a browser side only from the session's holder
 4. The relay pipes binary frames bidirectionally — desktop, terminal, file, and control frames all flow through the same connection
 5. Browser authenticates via `?auth=<jwt>` query parameter (browser WebSocket API cannot set custom headers)
 6. When the relay releases a token, its `OnSessionEnd` callback deletes the DB session record through a background, relay-scoped repository operation, keeping the session table consistent with active connections
 
 ### Limits and cleanup
 
-- **Max message size**: 4 MiB per WebSocket message (prevents memory exhaustion from oversized frames)
+- **Max message size**: 4 MiB per WebSocket message (prevents memory exhaustion from oversized frames); each side's sending point caps its frames far below it, and a directory listing travels in pages
+- **Ending a session from outside it**: `Relay.End` closes both sides of a live session with close code `StatusSessionEnded` and a reason the session tab shows — "Opened elsewhere" when its holder opens the host again, "Ended by <name>" when the holder or an administrator deletes it
 - **Orphaned session cleanup**: When a relay send to an agent fails, the server automatically cleans up the orphaned session record from the database
 - **Bounded unpaired release**: The relay bounds how long either side may wait for its peer. If that deadline expires, the handler releases the token — dropping the entry, the active-session count and the session row together
 - **Background row deletion**: `OnSessionEnd` deletes by globally unique token through the relay-scoped repository path, so cleanup is not tied to a disconnected request's tenant context. Relay bookkeeping and row cleanup run before a potentially blocking graceful WebSocket close
@@ -265,10 +266,10 @@ sequenceDiagram
 
   Note over Browser,Relay: Establish
   Browser->>REST: POST /api/v1/sessions
-  REST->>AgentAPI: SessionRequest (token, relay_url)
+  REST->>AgentAPI: SessionRequest (token, relay_url, ice_servers)
   AgentAPI->>Agent: SessionRequest
   Agent-->>AgentAPI: SessionAccept
-  REST-->>Browser: token + relay_url
+  REST-->>Browser: token + relay_url + ice_servers
   Browser->>Relay: connect ?side=browser&auth=jwt
   opt agent accepts before peer deadline
     Agent->>Relay: connect ?side=agent
@@ -291,11 +292,13 @@ sequenceDiagram
   Note over Agent,Relay: agent returns to idle
 ```
 
-### Direct connection upgrade
+### The direct link
 
-A session runs on the relay from the moment it is established, and may upgrade to
-a direct browser↔agent WebRTC connection for lower latency. The relay carries the
-signaling.
+A session runs on the relay from the moment it is established. Once the relay
+connects, the session tab tries once to move it onto a direct WebRTC link
+carrying one ordered data channel. The relay stays open for the whole session:
+it carries the negotiation, and it carries the session again if the link drops.
+[ADR-127](../adr/ADR-127-direct-link.md) holds the rules and what was measured.
 
 ```mermaid
 sequenceDiagram
@@ -303,38 +306,55 @@ sequenceDiagram
   participant Relay
   participant Agent
 
-  Browser->>Relay: SwitchToWebRTC (SDP offer)
-  Relay->>Agent: SwitchToWebRTC (SDP offer)
-  Agent-->>Relay: SwitchToWebRTC (SDP answer)
-  Relay-->>Browser: SwitchToWebRTC (SDP answer)
-  loop trickle ICE
+  Note over Browser,Agent: the session already runs on the relay
+  Browser->>Relay: DirectOffer
+  Relay->>Agent: DirectOffer
+  Agent-->>Relay: DirectAnswer
+  Relay-->>Browser: DirectAnswer
+  loop trickle
     Browser->>Agent: IceCandidate (via relay)
     Agent->>Browser: IceCandidate (via relay)
   end
-  Agent-->>Browser: SwitchAck (upgrade complete)
-  Note over Browser,Agent: data channels carry frames directly
+  Note over Browser,Agent: data channel open
+  Browser->>Agent: DirectSwitch (via relay)
+  Agent->>Browser: DirectSwitch (via relay)
+  Note over Browser,Agent: session frames on the link, confirmed by DirectAck
+  opt silence past the limit, a failed link or the attempt budget
+    Agent->>Browser: DirectFallback (via relay)
+    Browser->>Agent: DirectFallback (via relay)
+    Note over Browser,Agent: each re-sends on the relay what the other did not receive
+  end
 ```
 
-Three data channels match the frame routing:
-
-| Channel | ID | Ordered | Reliable | Purpose |
-|---------|-----|---------|----------|---------|
-| `control` | 0 | Yes | Yes | Control messages, signaling |
-| `desktop` | 1 | No | No (`maxRetransmits=0`) | Screen frames (latest wins) |
-| `bulk` | 2 | Yes | Yes | Terminal I/O, file transfers |
-
-The negotiation runs between the two peers. The relay copies bytes between the
-two connections without decoding a frame, so the server sees the offer, the
-answer and the candidates go past without reading any of them, and it holds no
-view of how far the upgrade has got. The peers do, which is where the decision
-belongs: an upgrade that never completes leaves the relay connection carrying
-the session unchanged, which is what the session was already doing.
-
-**ICE configuration.** The server's one part in the negotiation is naming the
-STUN/TURN servers to try. It returns them in the `CreateSession` response
-(`ice_servers`), and both the browser and the agent use them to find a path. The
-default configuration ([`config.go`](../../server/internal/signaling/config.go))
-points at Google's public STUN server.
+- **Link-control and session data.** `DirectOffer`, `DirectAnswer`,
+  `IceCandidate`, `DirectRefused`, `DirectSwitch` and `DirectFallback` travel on
+  the relay only and are never numbered or held. Every other frame is session
+  data: numbered on the link, kept by its sender until a `DirectAck` confirms it,
+  and re-sent through the relay after a fallback, so each direction delivers
+  every frame once and in order across a change of path.
+- **One sending point per side.** The host's
+  [`session/core.rs`](../../agent/crates/mesh-agent-core/src/session/core.rs) and
+  the browser's
+  [`session-channel.ts`](../../web/src/lib/transport/session-channel.ts) keep two
+  lanes — interactive before bulk — choose the path, and pace what they write to
+  it, so typing overtakes a download on either path. The hand-off rules are a
+  pure state machine on each side,
+  [`handoff.rs`](../../agent/crates/mesh-protocol/src/direct/handoff.rs) and
+  [`handoff.ts`](../../web/src/lib/direct/handoff.ts), held equal by the scenario
+  files in [`testdata/direct-link/`](../../testdata/direct-link/).
+- **The relay stays path-unaware.** It copies bytes between the two connections
+  without decoding a frame, so the server sees the negotiation go past without
+  reading it and holds no view of the link.
+- **Helpers.** The server answers STUN Binding requests itself, on the agents'
+  UDP port ([`stunhelper`](../../server/internal/stunhelper/helper.go)), bounded
+  per address and in total. The list of helpers is the `OPENGATE_ICE_SERVERS`
+  setting, read by [`config.go`](../../server/internal/signaling/config.go),
+  returned in the create-session response and sent to the agent in
+  `SessionRequest`.
+- **Outcomes.** The session tab reports how its attempt ended to
+  `POST /api/v1/sessions/{token}/outcome`, and the server counts it in
+  `opengate_direct_link_outcomes_total` by outcome alone
+  ([Metrics Reference](Metrics-Reference.md)).
 
 ### Agent session handler
 
@@ -342,11 +362,15 @@ When the server assigns a session to an agent, the agent connects to the relay a
 `relay_url?side=agent` and the `SessionHandler` (Rust) drives the session:
 
 - **Desktop capture** — JPEG-encoded screen frames at ~10 FPS (quality 70,
-  falling back to raw on encode failure)
+  falling back to raw on encode failure) from the platform's screen source; the
+  agent binary wires the no-display stand-in on every host, so no host advertises
+  remote desktop
 - **Terminal** — spawns a PTY (`portable-pty`) and bridges stdin/stdout over
   terminal frames
-- **File operations** — directory listing and chunked download (256 KiB),
-  permission-gated
+- **File operations** — directory listing in pages of at most 16 KiB, each
+  marked `more` until the last, and downloads read one 256 KiB piece at a time as
+  the bulk lane drains, one download per session, permission-gated; a failed read
+  or a second request while one runs answers `FileDownloadError`
 - **Input injection** — mouse and keyboard events forwarded to the OS through the
   platform traits
 - **Chat echo** — a `ChatMessage` from the browser is echoed back with

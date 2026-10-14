@@ -21,4 +21,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "link_pieces"
+path = "fuzz_targets/link_pieces.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

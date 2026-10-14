@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guards the load run against outgrowing the server's per-address rate limit.
+# Guards the load run against outgrowing the server's per-account rate limit.
 
 set -euo pipefail
 
@@ -9,6 +9,7 @@ API="$ROOT/server/internal/api/api.go"
 SCENARIO_DIR="$ROOT/load/k6/scenarios"
 PROFILE_DIR="$ROOT/load/profiles"
 SESSION_LIB="$ROOT/load/k6/lib/session.js"
+PROFILE_LIB="$ROOT/load/k6/lib/profile.js"
 RATELIMIT="$ROOT/server/internal/api/ratelimit.go"
 WORKFLOW="$ROOT/.github/workflows/load-test.yml"
 CHART="$ROOT/deploy/helm/opengate"
@@ -45,15 +46,20 @@ if [ ! -f "$API" ]; then
   summarize
 fi
 
-# The leading non-letter excludes AuthRateLimiter, which ends in the same name.
-LIMIT="$(grep -oE '[^A-Za-z]RateLimiter\([0-9]+(\.[0-9]+)?, *[0-9]+' "$API" | head -1 \
+LIMIT="$(grep -oE 'AccountRateLimiter\([0-9]+(\.[0-9]+)?, *[0-9]+' "$API" | head -1 \
   | grep -oE '\(([0-9]+(\.[0-9]+)?)' | tr -d '(' || true)"
 
 if [ -z "$LIMIT" ]; then
-  fail "api.go declares a per-address RateLimiter(rps, burst) the budget can be read from"
+  fail "api.go declares an AccountRateLimiter(rps, burst) the budget can be read from"
   summarize
 fi
-pass "per-address rate limit read from api.go: ${LIMIT} rps"
+pass "per-account rate limit read from api.go: ${LIMIT} rps"
+
+if grep -qE "^export const ACCOUNT_REQUESTS_PER_SECOND = ${LIMIT};" "$PROFILE_LIB"; then
+  pass "the generator sizes its accounts against the server's ${LIMIT} rps"
+else
+  fail "the generator sizes its accounts against the server's ${LIMIT} rps — profile.js says otherwise"
+fi
 
 requests_per_iteration() {
   local f="$1" body
@@ -61,25 +67,26 @@ requests_per_iteration() {
   grep -cE 'http\.(get|post|put|patch|del|options|head|request)\(' <<<"$body" || true
 }
 
+# accounts_for prints how many accounts a scenario signs in as over a walk, as profile.js sizes it.
+accounts_for() {
+  local kind="$1" walk="$2" reqs="$3"
+  node --input-type=module -e '
+    const [lib, kind, walk, reqs] = process.argv.slice(1);
+    const profile = await import(lib);
+    const phases = JSON.parse(walk);
+    const n = kind === "arrival"
+      ? profile.arrivalTechnicians(phases, Number(reqs))
+      : profile.sessionTechnicians(phases);
+    process.stdout.write(String(n));
+  ' "file://$PROFILE_LIB" "$kind" "$walk" "$reqs"
+}
+
 shopt -s nullglob
 scenarios=("$SCENARIO_DIR"/*.js)
 if [ "${#scenarios[@]}" -eq 0 ]; then
   fail "load/k6/scenarios contains at least one scenario"
 fi
-
-peak_rate=0
-for profile in "$PROFILE_DIR"/*.yaml; do
-  rate="$(profile_phases "$profile" | jq -r '[.[].arrivals_per_second] | max')" || {
-    fail "$(basename "$profile") declares a walk this gate can read"
-    continue
-  }
-  peak_rate="$(awk -v a="$peak_rate" -v b="$rate" 'BEGIN { print (b > a ? b : a) }')"
-done
-if [ "$(awk -v r="$peak_rate" 'BEGIN { print (r > 0) }')" != "1" ]; then
-  fail "the profiles declare an arrival rate this gate can size a budget against"
-  summarize
-fi
-pass "busiest declared arrival rate across the profiles: ${peak_rate}/s"
+profiles=("$PROFILE_DIR"/*.yaml)
 
 for f in "${scenarios[@]}"; do
   name="$(basename "$f" .js)"
@@ -88,11 +95,49 @@ for f in "${scenarios[@]}"; do
     fail "$name declares an iteration loop whose requests this gate can count"
     continue
   fi
-  offered="$reqs"
-  if awk -v o="$offered" -v l="$LIMIT" 'BEGIN { exit !(o < l) }'; then
-    pass "$name offers ${offered} rps per presented address (${reqs} req a journey) under the ${LIMIT} rps limit"
+  if grep -q 'registerTechnicians(' "$f" && grep -q 'ownTechnician(' "$f"; then
+    pass "$name signs each virtual user in as one of the accounts its setup registered"
   else
-    fail "$name offers ${offered} rps per presented address at or over the ${LIMIT} rps limit — one technician would collect 429s and the run would measure the rate limiter"
+    fail "$name signs every virtual user in as one shared account, which spends one account's allowance"
+  fi
+  if grep -q 'arrivalScenarios(' "$f"; then
+    kind=arrival
+  elif grep -q 'sessionScenarios(' "$f"; then
+    kind=session
+  else
+    fail "$name builds its executors from arrivalScenarios or sessionScenarios"
+    continue
+  fi
+  worst=0
+  for profile in "${profiles[@]}"; do
+    walk="$(profile_phases "$profile")" || {
+      fail "$(basename "$profile") declares a walk this gate can read"
+      continue
+    }
+    if [ "$kind" = arrival ]; then
+      peak="$(jq -r '[.[].arrivals_per_second] | max' <<<"$walk")"
+      accounts="$(accounts_for arrival "$walk" "$reqs")" || {
+        fail "profile.js sizes $name's accounts over $(basename "$profile")"
+        continue
+      }
+      offered="$(awk -v p="$peak" -v r="$reqs" -v a="$accounts" 'BEGIN { print p * r / a }')"
+    else
+      # A held session's virtual user makes one iteration a second at most, on an account of its own.
+      accounts="$(accounts_for session "$walk" "$reqs")" || {
+        fail "profile.js sizes $name's accounts over $(basename "$profile")"
+        continue
+      }
+      if [ "$accounts" -lt "$(jq -r '[.[].sessions] | max' <<<"$walk")" ]; then
+        fail "$name holds more sessions in a phase of $(basename "$profile") than it has accounts"
+      fi
+      offered="$reqs"
+    fi
+    worst="$(awk -v a="$worst" -v b="$offered" 'BEGIN { print (b > a ? b : a) }')"
+  done
+  if awk -v o="$worst" -v l="$LIMIT" 'BEGIN { exit !(o < l) }'; then
+    pass "$name offers at most ${worst} rps to any one account under the ${LIMIT} rps limit"
+  else
+    fail "$name offers ${worst} rps to one account, at or over the ${LIMIT} rps limit — the run would measure the rate limiter"
   fi
 done
 

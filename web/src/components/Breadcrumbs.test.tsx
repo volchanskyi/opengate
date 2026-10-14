@@ -71,23 +71,6 @@ describe('Breadcrumbs', () => {
     expect(link.getAttribute('href')).toBe(href);
   });
 
-  it('renders /sessions/abc as Session label (params.token branch)', () => {
-    const router = createMemoryRouter(
-      [{ path: 'sessions/:token', element: <Breadcrumbs /> }],
-      { initialEntries: ['/sessions/abc'] },
-    );
-    render(<RouterProvider router={router} />);
-    const sessionsLink = screen.getByText('Sessions');
-    expect(sessionsLink.tagName).toBe('A');
-    expect(sessionsLink.getAttribute('href')).toBe('/sessions');
-    expect(screen.getByText('Session')).toBeInTheDocument();
-  });
-
-  it('renders /sessions as last segment with Session label', () => {
-    renderAt('/sessions');
-    expect(screen.getByText('Session')).toBeInTheDocument();
-  });
-
   it('renders /permissions with Permissions label', () => {
     renderAt('/permissions');
     expect(screen.getByText('Permissions')).toBeInTheDocument();

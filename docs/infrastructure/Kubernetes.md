@@ -47,17 +47,23 @@ flowchart TB
 ## The Helm chart
 
 The application chart is [`deploy/helm/opengate`](../../deploy/helm/opengate). Its
-templates translate the compose services one-for-one:
+templates render:
 
-| Compose service | Kubernetes object |
+| Workload | Kubernetes object |
 |---|---|
-| `server` | Deployment + ClusterIP Service (HTTP) + hostPort L4 (QUIC/MPS) |
-| `postgres` | StatefulSet + headless Service + `oci-bv` PVC |
-| `postgres-backup` | CronJob (`pg_dump` → OCI Object Storage via a write-only PAR; [ADR-035](../adr/ADR-035-block-volume-budget.md)) |
-| `caddy` | `Ingress` (ingress-nginx) + cert-manager `ClusterIssuer` |
-| `web-init` + `web-assets` volume | *removed* — the server serves the SPA itself (`-web-dir`) |
+| The server | Deployment + ClusterIP Service (HTTP) + hostPort L4 (QUIC/MPS); it serves the SPA itself (`-web-dir`) |
+| The database | StatefulSet + headless Service + `oci-bv` PVC |
+| Backups | CronJob (`pg_dump` → OCI Object Storage via a write-only PAR; [ADR-035](../adr/ADR-035-block-volume-budget.md)) |
+| The HTTP edge | `Ingress` (ingress-nginx) + cert-manager `ClusterIssuer` |
 
-Environment overlays mirror the compose split:
+The address machines dial for a session is `server.agentRelayURL`, defaulting to
+the release's own in-cluster service, and the session helpers the server names
+are `server.iceServers` ([`values.yaml`](../../deploy/helm/opengate/values.yaml)).
+Production names its public host for the first and its public QUIC host for the
+second; staging names its in-cluster service as the helper, so its load runs
+carry the helper's traffic.
+
+Environment overlays:
 [`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml) and
 [`values-production.yaml`](../../deploy/helm/opengate/values-production.yaml). The
 tunable surface is documented inline in
@@ -67,11 +73,22 @@ tunable surface is documented inline in
 
 Installed once per cluster, outside the chart (the chart's
 [`NOTES.txt`](../../deploy/helm/opengate/templates/NOTES.txt) prints the exact
-commands): **ingress-nginx** (snippet annotations disabled; security headers are
-applied controller-side via the `add-headers` ConfigMap rendered by
-[`custom-headers-configmap.yaml`](../../deploy/helm/opengate/templates/custom-headers-configmap.yaml))
-and **cert-manager** (CRDs + controller). The OKE cluster + node pool are
-provisioned by the [`oke` Terraform module](../../deploy/terraform/modules/oke).
+commands):
+
+- **ingress-nginx**, from the repository's
+  [`values.yaml`](../../deploy/ingress-nginx/values.yaml) at the chart version in
+  [`tool-versions.sh`](../../scripts/lib/tool-versions.sh), with snippet
+  annotations off. [`ingress-controller-apply.sh`](../../deploy/scripts/ingress-controller-apply.sh)
+  installs it on every production deploy and reads it back; its `check` mode, run
+  by the nightly configuration job, reads it back and installs nothing. A new
+  cluster takes the load balancer's subnet from Terraform's `oke_lb_subnet_id`
+  output as `INGRESS_LB_SUBNET_ID`; a running one keeps the subnet its Service
+  already names. The server sets every security header itself, so the controller
+  adds none ([ADR-030](../adr/ADR-030-kubernetes-on-oke.md)).
+- **cert-manager** (CRDs + controller), installed by hand.
+
+The OKE cluster + node pool are provisioned by the
+[`oke` Terraform module](../../deploy/terraform/modules/oke).
 
 ### Secrets
 

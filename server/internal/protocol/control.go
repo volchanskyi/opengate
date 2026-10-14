@@ -9,16 +9,22 @@ const (
 	MsgAgentHeartbeat     ControlMessageType = "AgentHeartbeat"
 	MsgAgentHealthSummary ControlMessageType = "AgentHealthSummary"
 	MsgAgentMetricWindow  ControlMessageType = "AgentMetricWindow"
-	MsgProcessReport      ControlMessageType = "ProcessReport"
 	MsgSessionAccept      ControlMessageType = "SessionAccept"
 	MsgSessionReject      ControlMessageType = "SessionReject"
 	MsgSessionRequest     ControlMessageType = "SessionRequest"
 	MsgAgentUpdate        ControlMessageType = "AgentUpdate"
 	MsgAgentUpdateAck     ControlMessageType = "AgentUpdateAck"
 	MsgRelayReady         ControlMessageType = "RelayReady"
-	MsgSwitchToWebRTC     ControlMessageType = "SwitchToWebRTC"
-	MsgSwitchAck          ControlMessageType = "SwitchAck"
-	MsgIceCandidate       ControlMessageType = "IceCandidate"
+
+	// Direct link: six relay messages that set up, switch and drop the link, and the link's
+	// own confirmation. The relay forwards them unread.
+	MsgDirectOffer    ControlMessageType = "DirectOffer"
+	MsgDirectAnswer   ControlMessageType = "DirectAnswer"
+	MsgIceCandidate   ControlMessageType = "IceCandidate"
+	MsgDirectRefused  ControlMessageType = "DirectRefused"
+	MsgDirectSwitch   ControlMessageType = "DirectSwitch"
+	MsgDirectFallback ControlMessageType = "DirectFallback"
+	MsgDirectAck      ControlMessageType = "DirectAck"
 
 	// Input (browser → agent via relay)
 	MsgMouseMove      ControlMessageType = "MouseMove"
@@ -32,6 +38,7 @@ const (
 	MsgFileListError       ControlMessageType = "FileListError"
 	MsgFileDownloadRequest ControlMessageType = "FileDownloadRequest"
 	MsgFileUploadRequest   ControlMessageType = "FileUploadRequest"
+	MsgFileDownloadError   ControlMessageType = "FileDownloadError"
 
 	// Chat
 	MsgChatMessage ControlMessageType = "ChatMessage"
@@ -151,18 +158,17 @@ type ControlMessage struct {
 	Timestamp int64 `msgpack:"timestamp,omitempty"`
 
 	// Edge Sentinel telemetry
-	TS              int64                `msgpack:"ts,omitempty"`
-	TenantID        string               `msgpack:"tenant_id,omitempty"`
-	NodeAnomalyRate float64              `msgpack:"node_anomaly_rate,omitempty"`
-	PerFamilyRates  []FamilyAnomalyRate  `msgpack:"per_family_rates,omitempty"`
-	RecentBitmask   []byte               `msgpack:"recent_bitmask,omitempty"`
-	SamplerVersion  string               `msgpack:"sampler_ver,omitempty"`
-	ModelVersion    string               `msgpack:"model_ver,omitempty"`
-	Dims            []MetricDim          `msgpack:"dims,omitempty"`
-	TopN            []ProcessReportEntry `msgpack:"top_n,omitempty"`
-	SinceTS         int64                `msgpack:"since_ts,omitempty"`
-	Limit           uint32               `msgpack:"limit,omitempty"`
-	Summaries       []HealthSummary      `msgpack:"summaries,omitempty"`
+	TS              int64               `msgpack:"ts,omitempty"`
+	TenantID        string              `msgpack:"tenant_id,omitempty"`
+	NodeAnomalyRate float64             `msgpack:"node_anomaly_rate,omitempty"`
+	PerFamilyRates  []FamilyAnomalyRate `msgpack:"per_family_rates,omitempty"`
+	RecentBitmask   []byte              `msgpack:"recent_bitmask,omitempty"`
+	SamplerVersion  string              `msgpack:"sampler_ver,omitempty"`
+	ModelVersion    string              `msgpack:"model_ver,omitempty"`
+	Dims            []MetricDim         `msgpack:"dims,omitempty"`
+	SinceTS         int64               `msgpack:"since_ts,omitempty"`
+	Limit           uint32              `msgpack:"limit,omitempty"`
+	Summaries       []HealthSummary     `msgpack:"summaries,omitempty"`
 
 	// Breaches and RuleCoverage ride an AgentHealthSummary (agent to server); AlertRules ride a
 	// PushAlertRules (server to agent).
@@ -195,8 +201,10 @@ type ControlMessage struct {
 	RelayURL string       `msgpack:"relay_url,omitempty"`
 	Reason   string       `msgpack:"reason,omitempty"`
 
-	// SessionRequest
+	// SessionRequest: the session's permissions, and the helper URLs the host asks for its
+	// public address.
 	Permissions *Permissions `msgpack:"permissions,omitempty"`
+	IceServers  []string     `msgpack:"ice_servers,omitempty"`
 
 	// AgentRegister (version also used by AgentUpdate / AgentUpdateAck)
 	Version string `msgpack:"version,omitempty"`
@@ -210,12 +218,15 @@ type ControlMessage struct {
 	Success  *bool  `msgpack:"success,omitempty"`
 	AckError string `msgpack:"error,omitempty"`
 
-	// SwitchToWebRTC
-	SDPOffer string `msgpack:"sdp_offer,omitempty"`
+	// DirectOffer / DirectAnswer
+	SDP string `msgpack:"sdp,omitempty"`
 
 	// IceCandidate
 	Candidate string `msgpack:"candidate,omitempty"`
 	Mid       string `msgpack:"mid,omitempty"`
+
+	// DirectFallback / DirectAck: how many of the peer's link frames the sender delivered.
+	Received uint64 `msgpack:"received,omitempty"`
 
 	// MouseMove / MouseClick
 	X      uint16 `msgpack:"x,omitempty"`
@@ -232,9 +243,11 @@ type ControlMessage struct {
 	Cols uint16 `msgpack:"cols,omitempty"`
 	Rows uint16 `msgpack:"rows,omitempty"`
 
-	// FileListRequest / FileListResponse / FileDownloadRequest / FileUploadRequest
+	// FileListRequest / FileListResponse / FileDownloadRequest / FileUploadRequest /
+	// FileDownloadError; More is set on every page of a listing but the last.
 	Path    string      `msgpack:"path,omitempty"`
 	Entries []FileEntry `msgpack:"entries,omitempty"`
+	More    bool        `msgpack:"more,omitempty"`
 
 	// FileUploadRequest
 	TotalSize uint64 `msgpack:"total_size,omitempty"`
@@ -443,16 +456,6 @@ type EvidenceProcess struct {
 	CPUShare *float64 `msgpack:"cpu_share,omitempty"`
 	// Mem is resident memory, in bytes.
 	Mem float64 `msgpack:"mem"`
-}
-
-// ProcessReportEntry is a sanitized process sample row from Edge Sentinel.
-type ProcessReportEntry struct {
-	Rank        uint32  `msgpack:"rank"`
-	Basename    string  `msgpack:"basename"`
-	CmdlineHash *string `msgpack:"cmdline_hash,omitempty"`
-	PID         uint32  `msgpack:"pid"`
-	CPU         float64 `msgpack:"cpu"`
-	Mem         float64 `msgpack:"mem"`
 }
 
 // HealthSummary is one bounded health summary point returned for read-back requests.

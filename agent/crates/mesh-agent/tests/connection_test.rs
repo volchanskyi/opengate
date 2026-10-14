@@ -126,6 +126,7 @@ async fn test_quic_session_request_response() {
                     file_write: false,
                     input: true,
                 },
+                ice_servers: vec!["stun:relay.test:9090".to_string()],
             })
             .await
             .expect("send SessionRequest");
@@ -180,8 +181,10 @@ async fn test_quic_session_request_response() {
             token,
             relay_url,
             permissions,
+            ice_servers,
         } => {
             assert_eq!(relay_url, "wss://relay.test/session");
+            assert_eq!(ice_servers, &["stun:relay.test:9090"]);
             assert!(permissions.desktop);
             assert!(permissions.terminal);
 

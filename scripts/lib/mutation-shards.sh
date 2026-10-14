@@ -28,6 +28,7 @@ mutation_rust_shards() {
     rust-core-correlate-ranking
     rust-core-session-terminal
     rust-core-session-dispatch
+    rust-core-session-link
     rust-core-discovery
     rust-core-runtime-lifecycle
     rust-core-runtime
@@ -51,6 +52,7 @@ mutation_rust_shard_package() {
     rust-core-alerts-event | rust-core-alerts-sink) echo "mesh-agent-core" ;;
     rust-core-correlate-divergence | rust-core-correlate-ranking) echo "mesh-agent-core" ;;
     rust-core-session-terminal | rust-core-session-dispatch) echo "mesh-agent-core" ;;
+    rust-core-session-link) echo "mesh-agent-core" ;;
     rust-core-discovery | rust-core-runtime-lifecycle | rust-core-runtime) echo "mesh-agent-core" ;;
     rust-tsdb-blocks | rust-tsdb-encoding | rust-tsdb-surface) echo "edge-tsdb" ;;
     rust-agent-loops) echo "mesh-agent" ;;
@@ -114,6 +116,9 @@ mutation_rust_shard_units() {
       ;;
     rust-core-session-dispatch)
       echo "dir:crates/mesh-agent-core/src/session/handlers file:crates/mesh-agent-core/src/session/handler.rs file:crates/mesh-agent-core/src/session/relay.rs file:crates/mesh-agent-core/src/session/mod.rs"
+      ;;
+    rust-core-session-link)
+      echo "dir:crates/mesh-agent-core/src/link file:crates/mesh-agent-core/src/session/core.rs"
       ;;
     rust-core-discovery) echo "dir:crates/mesh-agent-core/src/discovery" ;;
     rust-core-runtime-lifecycle)
@@ -203,7 +208,8 @@ mutation_rust_shard_budget_minutes() {
 # scaled by the 0.78 the `mutants` cargo profile takes off a rebuild; each mutant relinks the tests.
 mutation_rust_package_milliminutes_per_mutant() {
   case "$1" in
-    mesh-agent-core) echo 460 ;;
+    # The nightly 460 plus the 5.7 s the two direct-link tests add to every run.
+    mesh-agent-core) echo 555 ;;
     edge-tsdb) echo 40 ;;
     mesh-agent) echo 94 ;;
     mesh-protocol) echo 56 ;;
@@ -338,7 +344,7 @@ mutation_go_shard_units() {
       echo "dir:internal/protocol dir:internal/osutil"
       ;;
     go-relay-signaling)
-      echo "dir:internal/relay dir:internal/signaling dir:internal/clientapi"
+      echo "dir:internal/relay dir:internal/signaling dir:internal/clientapi dir:internal/stunhelper"
       ;;
     go-observability-harness)
       echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:internal/testreaper dir:tests/loadtest dir:tests/netfault"

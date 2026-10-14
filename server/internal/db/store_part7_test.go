@@ -42,6 +42,18 @@ func tenantScopedTables(siteTable string) []string {
 	}
 }
 
+// presentTableCount counts the listed tables that exist at the schema version under test.
+func presentTableCount(t *testing.T, ctx context.Context, db *sql.DB, tables []string) int {
+	t.Helper()
+	present := 0
+	for _, table := range tables {
+		if tableExists(t, ctx, db, "public."+table) {
+			present++
+		}
+	}
+	return present
+}
+
 const (
 	tenantScopeSettingBefore = "app.current_org"
 	tenantScopeSettingAfter  = "app.current_tenant"
@@ -74,7 +86,8 @@ func assertTenancyRenamed(t *testing.T, ctx context.Context, db *sql.DB, siteTab
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.tenants')`).Scan(&tenants))
 	assert.True(t, tenants.Valid, "the tenants table should exist after the rename")
 
-	assert.Equal(t, len(tenantScopedTables(siteTable)), tenantScopeColumnCount(t, ctx, db, siteTable, "tenant_id"),
+	assert.Equal(t, presentTableCount(t, ctx, db, tenantScopedTables(siteTable)),
+		tenantScopeColumnCount(t, ctx, db, siteTable, "tenant_id"),
 		"every tenant-scoped table should carry tenant_id")
 	assert.Zero(t, tenantScopeColumnCount(t, ctx, db, siteTable, "org_id"),
 		"no table should keep the introduced scope column name")

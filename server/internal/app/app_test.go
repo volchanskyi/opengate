@@ -27,10 +27,12 @@ func quietLogger() *slog.Logger {
 func baseConfig(t *testing.T) app.Config {
 	t.Helper()
 	return app.Config{
-		Store:     testutil.NewTestStore(t),
-		DataDir:   t.TempDir(),
-		JWTSecret: "app-package-test-secret-32-bytes!",
-		Logger:    quietLogger(),
+		Store:          testutil.NewTestStore(t),
+		DataDir:        t.TempDir(),
+		JWTSecret:      "app-package-test-secret-32-bytes!",
+		Logger:         quietLogger(),
+		AgentRelayBase: "wss://opengate.example.com",
+		Helpers:        "stun:quic.example.com:9090",
 	}
 }
 
@@ -47,6 +49,13 @@ func TestBuildNamesTheDependencyItIsMissing(t *testing.T) {
 		{"no jwt secret", func(c *app.Config) { c.JWTSecret = "" }, "JWTSecret"},
 		{"short jwt secret", func(c *app.Config) { c.JWTSecret = "too-short" }, "JWTSecret"},
 		{"no logger", func(c *app.Config) { c.Logger = nil }, "Logger"},
+		{"no host relay address", func(c *app.Config) { c.AgentRelayBase = "" }, "relay"},
+		{"a host relay address hosts cannot dial", func(c *app.Config) {
+			c.AgentRelayBase = "https://opengate.example.com"
+		}, "relay"},
+		{"a helper that is not a STUN address", func(c *app.Config) {
+			c.Helpers = "turn:relay.example.com:3478"
+		}, "helper"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,6 +85,8 @@ func TestBuildAssemblesTheWholeProduct(t *testing.T) {
 	require.NotNil(t, assembly.AMT)
 	require.NotNil(t, assembly.Relay)
 	require.NotNil(t, assembly.Signaling)
+	assert.Equal(t, "wss://opengate.example.com/ws/relay/t", assembly.Signaling.AgentRelayURL("t"))
+	assert.Equal(t, []string{"stun:quic.example.com:9090"}, assembly.Signaling.Helpers)
 	require.NotNil(t, assembly.Metrics)
 	require.NotNil(t, assembly.MetricsRegistry)
 	require.NotNil(t, assembly.Cert)

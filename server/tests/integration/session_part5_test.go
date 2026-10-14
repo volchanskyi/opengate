@@ -53,7 +53,7 @@ func TestSessionLifecycle_AgentRejectsSession(t *testing.T) {
 	}, 2*time.Second, 25*time.Millisecond, "relay session count should drop to 0 after reject")
 }
 
-func TestSessionLifecycle_MultipleSessionsSameDevice(t *testing.T) {
+func TestSessionLifecycle_ASecondSessionOnOneDeviceReplacesTheFirst(t *testing.T) {
 	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
@@ -71,24 +71,16 @@ func TestSessionLifecycle_MultipleSessionsSameDevice(t *testing.T) {
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
-	// Create 2 sessions
 	result1 := env.createSession(t, jwtToken, deviceID, nil)
 	result2 := env.createSession(t, jwtToken, deviceID, nil)
+	require.NotEqual(t, result1.Token, result2.Token)
 
-	// List sessions should return 2
 	sessions := env.listSessions(t, jwtToken, deviceID)
-	assert.Len(t, sessions, 2)
+	assert.Len(t, sessions, 1, "a device holds one session; the holder's second replaced the first")
 
-	// Delete one
-	status := env.deleteSession(t, jwtToken, result1.Token)
-	assert.Equal(t, http.StatusNoContent, status)
-
-	sessions = env.listSessions(t, jwtToken, deviceID)
-	assert.Len(t, sessions, 1)
-
-	// Delete the other
-	status = env.deleteSession(t, jwtToken, result2.Token)
-	assert.Equal(t, http.StatusNoContent, status)
+	assert.Equal(t, http.StatusNotFound, env.deleteSession(t, jwtToken, result1.Token),
+		"the replaced session is gone")
+	assert.Equal(t, http.StatusNoContent, env.deleteSession(t, jwtToken, result2.Token))
 
 	sessions = env.listSessions(t, jwtToken, deviceID)
 	assert.Empty(t, sessions)

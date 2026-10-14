@@ -1,0 +1,37 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1690284346
+INFO: Loaded 1 modules   (58276 inline 8-bit counters): 58276 [0x5636a717a630, 0x5636a71889d4), 
+INFO: Loaded 1 PC tables (58276 PCs): 58276 [0x5636a71889d8,0x5636a726c418), 
+INFO:        9 files found in /home/runner/work/opengate/opengate/agent/fuzz/corpus/decode
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 9 min: 1b max: 122b total: 146b rss: 47Mb
+#10	INITED cov: 227 ft: 230 corp: 8/144b exec/s: 0 rss: 50Mb
+#24	NEW    cov: 228 ft: 231 corp: 9/146b lim: 122 exec/s: 0 rss: 50Mb L: 2/122 MS: 4 ShuffleBytes-CopyPart-ShuffleBytes-ChangeBit-
+#45	REDUCE cov: 228 ft: 231 corp: 9/145b lim: 122 exec/s: 0 rss: 50Mb L: 2/122 MS: 1 EraseBytes-
+#75	NEW    cov: 229 ft: 232 corp: 10/147b lim: 122 exec/s: 0 rss: 50Mb L: 2/122 MS: 5 ChangeByte-EraseBytes-ShuffleBytes-EraseBytes-ChangeBinInt-
+	NEW_FUNC[1/2]: 0x5636a6e8e990  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x344990) (BuildId: 08af8f1b4ab561ea80b538647bf2d623ae944b20)
+	NEW_FUNC[2/2]: 0x5636a6f70dc0  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x426dc0) (BuildId: 08af8f1b4ab561ea80b538647bf2d623ae944b20)
+#86	NEW    cov: 252 ft: 256 corp: 11/269b lim: 122 exec/s: 0 rss: 51Mb L: 122/122 MS: 1 ChangeBinInt-
+	NEW_FUNC[1/2]: 0x5636a6f69140  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x41f140) (BuildId: 08af8f1b4ab561ea80b538647bf2d623ae944b20)
+	NEW_FUNC[2/2]: 0x5636a70b4ec0  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x56aec0) (BuildId: 08af8f1b4ab561ea80b538647bf2d623ae944b20)
+#93	NEW    cov: 279 ft: 284 corp: 12/391b lim: 122 exec/s: 0 rss: 51Mb L: 122/122 MS: 2 ChangeASCIIInt-ChangeByte-
+	NEW_FUNC[1/1]: 0x5636a6ed9c40  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x38fc40) (BuildId: 08af8f1b4ab561ea80b538647bf2d623ae944b20)
+#104	NEW    cov: 288 ft: 303 corp: 13/513b lim: 122 exec/s: 0 rss: 51Mb L: 122/122 MS: 1 ChangeByte-
+	NEW_FUNC[1/2]: 0x5636a6e30720  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x2e6720) (BuildId: 08af8f1b4ab561ea80b538647bf2d623ae944b20)
+	NEW_FUNC[2/2]: 0x5636a6e33280  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x2e9280) (BuildId: 08af8f1b4ab561ea80b538647bf2d623ae944b20)
+#106	NEW    cov: 303 ft: 339 corp: 14/635b lim: 122 exec/s: 0 rss: 51Mb L: 122/122 MS: 2 ChangeBit-CopyPart-
+#107	NEW    cov: 306 ft: 342 corp: 15/757b lim: 122 exec/s: 0 rss: 51Mb L: 122/122 MS: 1 CMP- DE: "\000\000\000\001"-
+#113	NEW    cov: 307 ft: 355 corp: 16/879b lim: 122 exec/s: 0 rss: 51Mb L: 122/122 MS: 1 CopyPart-
+	NEW_FUNC[1/1]: 0x5636a6e81640  (/home/runner/work/opengate/opengate/agent/fuzz/target/x86_64-unknown-linux-gnu/release/decode+0x337640) (BuildId: 08af8f1b4ab561ea80b538647bf2d623ae944b20)
+#119	NEW    cov: 316 ft: 364 corp: 17/967b lim: 122 exec/s: 0 rss: 51Mb L: 88/122 MS: 1 InsertRepeatedBytes-
+#4997281	REDUCE cov: 8726 ft: 15055 corp: 4471/474Kb lim: 4096 exec/s: 48050 rss: 228Mb L: 122/373 MS: 1 EraseBytes-
+#4997397	REDUCE cov: 8726 ft: 15055 corp: 4471/474Kb lim: 4096 exec/s: 48051 rss: 228Mb L: 54/373 MS: 1 EraseBytes-
+#4998954	REDUCE cov: 8726 ft: 15055 corp: 4471/474Kb lim: 4096 exec/s: 48066 rss: 228Mb L: 192/373 MS: 2 ChangeByte-EraseBytes-
+#4999333	REDUCE cov: 8726 ft: 15055 corp: 4471/474Kb lim: 4096 exec/s: 48070 rss: 228Mb L: 125/373 MS: 4 InsertByte-ChangeBit-ChangeASCIIInt-EraseBytes-
+#5000000	DONE   cov: 8726 ft: 15055 corp: 4471/474Kb lim: 4096 exec/s: 48076 rss: 228Mb
+###### Recommended dictionary. ######
+"\000\000\000\001" # Uses: 1093
+"\001\000\000s" # Uses: 1083
+"\200\000\000\000\000\000\0002" # Uses: 1038
+###### End of recommended dictionary. ######
+Done 5000000 runs in 104 second(s)

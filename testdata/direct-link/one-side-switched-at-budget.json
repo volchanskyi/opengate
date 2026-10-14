@@ -1,0 +1,60 @@
+{
+  "description": "The host switched but the browser's link never opened; at the budget the host's link frames come back on the relay.",
+  "budget_ms": 8000,
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "host"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h1"
+        },
+        {
+          "label": "h2"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "cut"
+    },
+    {
+      "step": "tick",
+      "ms": 8000
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "h1",
+        "h2"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "no_route"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "relay",
+      "outcomes": [
+        "no_route"
+      ]
+    }
+  }
+}

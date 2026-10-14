@@ -95,26 +95,30 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `AgentHealthSummary` | Agent → Server | `ts`, `tenant_id`, `node_anomaly_rate`, `per_family_rates`, `recent_bitmask`, `sampler_ver`, `model_ver`, `breaches`, `rule_coverage` |
 | `PushAlertRules` | Server → Agent | `rules` |
 | `AgentMetricWindow` | Agent → Server | `ts`, `tenant_id`, `dims` |
-| `ProcessReport` | Agent → Server | `ts`, `tenant_id`, `top_n` |
 | `SessionAccept` | Agent → Server | `token`, `relay_url` |
 | `SessionReject` | Agent → Server | `token`, `reason` |
-| `SessionRequest` | Server → Agent | `token`, `relay_url`, `permissions` |
+| `SessionRequest` | Server → Agent | `token`, `relay_url`, `permissions`, `ice_servers` (omitted when empty) |
 | `AgentUpdate` | Server → Agent | `version`, `url`, `sha256`, `signature` |
 | `AgentUpdateAck` | Agent → Server | `version`, `success`, `error` |
 | `AgentDeregistered` | Server → Agent | `reason` |
 | `RelayReady` | Bidirectional | _(none)_ |
-| `SwitchToWebRTC` | Bidirectional | `sdp_offer` |
-| `SwitchAck` | Bidirectional | _(none)_ |
-| `IceCandidate` | Bidirectional | `candidate`, `mid` |
+| `DirectOffer` | Browser → Agent, on the relay | `sdp` |
+| `DirectAnswer` | Agent → Browser, on the relay | `sdp` |
+| `IceCandidate` | Bidirectional, on the relay | `candidate`, `mid` |
+| `DirectRefused` | Agent → Browser, on the relay | `reason` |
+| `DirectSwitch` | Bidirectional, on the relay | _(none)_ |
+| `DirectFallback` | Bidirectional, on the relay | `received` (omitted when 0) |
+| `DirectAck` | Bidirectional, on the link | `received` (omitted when 0) |
 | `MouseMove` | Browser → Agent | `x`, `y` |
 | `MouseClick` | Browser → Agent | `button`, `pressed`, `x`, `y` |
 | `KeyPress` | Browser → Agent | `key`, `pressed` |
 | `TerminalResize` | Browser → Agent | `cols`, `rows` |
 | `FileListRequest` | Browser → Agent | `path` |
-| `FileListResponse` | Agent → Browser | `path`, `entries` |
+| `FileListResponse` | Agent → Browser | `path`, `entries`, `more` (set on every page but the last) |
 | `FileListError` | Agent → Browser | `path`, `error` |
 | `FileDownloadRequest` | Browser → Agent | `path` |
 | `FileUploadRequest` | Browser → Agent | `path`, `total_size` |
+| `FileDownloadError` | Agent → Browser | `path`, `error` |
 | `ChatMessage` | Bidirectional | `text`, `sender` |
 | `RestartAgent` | Server → Agent | `reason` |
 | `RequestHardwareReport` | Server → Agent | _(none)_ |
@@ -390,7 +394,9 @@ The agent parses daily-rotated log files written by `tracing-subscriber` and ret
 
 **TerminalFrame**: `data` (raw bytes)
 
-**FileFrame**: `offset`, `total_size`, `data` (raw bytes, 256 KiB chunks). The browser sends a `FileDownloadRequest` control message, then the agent streams back FileFrame chunks. The browser accumulates chunks via `DownloadAccumulator` and on completion either triggers a browser download (save-to-disk) or displays the content in an in-browser file viewer. Empty files produce a single frame with `total_size: 0` and empty `data`.
+**FileFrame**: `offset`, `total_size`, `data` (raw bytes, 256 KiB pieces). The browser sends a `FileDownloadRequest` control message, then the agent reads and sends one piece at a time as its bulk lane drains, and ends a failed or refused download with `FileDownloadError`. A session runs one download at a time. The browser hands each piece to its service worker, which saves it as an ordinary browser download, or, for View, keeps a file of up to 1 MiB for the in-browser viewer. Empty files produce a single frame with `total_size: 0` and empty `data`.
+
+The six `Direct*`/`IceCandidate` relay messages set up, switch and drop the direct link, and are never numbered; an `IceCandidate`'s `mid` names the media section of the browser's offer; every other frame is session data, which the link numbers and `DirectAck` confirms. On the link, a frame is cut into pieces of at most 16 KiB, and its own length header marks its end ([ADR-127](../adr/ADR-127-direct-link.md)).
 
 ## Rust and Go compatibility
 

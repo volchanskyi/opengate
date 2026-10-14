@@ -21,9 +21,6 @@ the control path knows which enrolled device this is and therefore which tenant.
 A tenant in the payload is ignored. Reads go through the same package, which
 injects the caller's own tenant and rejects a caller-supplied one.
 
-**Process listings go to Postgres**, in `device_processes`, with a tenant column
-under forced row-level security, cascading with the device.
-
 **Readings stream live over `AgentMetricWindow`.** The sampler folds its
 one-second samples into a window aligned to 60 seconds and sends one message per
 closed window over a bounded channel, drained on the heartbeat. The channel

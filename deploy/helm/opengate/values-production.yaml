@@ -18,10 +18,13 @@ server:
   # Agents dial quicHost:quicPort directly, bypassing the CDN, and validate the certificate.
   quicHost: quic.opengate.cloudisland.net
   baseURL: https://opengate.cloudisland.net
+  agentRelayURL: wss://opengate.cloudisland.net
+  # The server answers helper requests on the QUIC port, at the name machines already dial.
+  iceServers:
+    - stun:quic.opengate.cloudisland.net:9090
 
 ingress:
   tls: true
-  hsts: true
 
 certManager:
   issuerName: letsencrypt-prod

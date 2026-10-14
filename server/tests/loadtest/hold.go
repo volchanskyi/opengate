@@ -116,19 +116,27 @@ func answerHeldFrame(codec *protocol.Codec, w io.Writer, msg *protocol.ControlMe
 		if !opts.relaySessions {
 			return nil
 		}
-		return joinRequestedSession(msg, opts.sessionsJoined)
+		return joinRequestedSession(msg, opts.sessionsJoined, opts.helpers)
 	}
 	return nil
 }
 
 // joinRequestedSession echoes on its own goroutine so the control stream stays readable while
-// the relay session is open.
-func joinRequestedSession(msg *protocol.ControlMessage, counter *atomic.Int64) error {
+// the relay session is open. Beside the join it asks the session's helpers what an attempt asks.
+func joinRequestedSession(msg *protocol.ControlMessage, counter *atomic.Int64, helpers *helperTally) error {
 	req, err := RelayRequestFrom(msg)
 	if err != nil {
 		return fmt.Errorf("session request: %w", err)
 	}
+	helperAddrs, err := helperAddresses(msg.IceServers)
+	if err != nil {
+		return fmt.Errorf("session request: %w", err)
+	}
 
+	// The requests outlive a short session, as an attempt's gathering does; the schedule ends them.
+	if helpers != nil && len(helperAddrs) > 0 {
+		helpers.start(context.Background(), helperAddrs, rfc8489Schedule)
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), relaySessionLifetime)
 		defer cancel()

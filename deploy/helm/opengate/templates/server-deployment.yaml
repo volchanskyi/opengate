@@ -89,6 +89,12 @@ spec:
             - name: OPENGATE_BASE_URL
               value: {{ .Values.server.baseURL | quote }}
             {{- end }}
+            - name: OPENGATE_AGENT_RELAY_URL
+              value: {{ .Values.server.agentRelayURL | default (printf "ws://%s-server:%v" (include "opengate.fullname" .) .Values.server.httpPort) | quote }}
+            {{- if .Values.server.iceServers }}
+            - name: OPENGATE_ICE_SERVERS
+              value: {{ join "," .Values.server.iceServers | quote }}
+            {{- end }}
             {{- if .Values.server.trustedProxies }}
             # Peers whose X-Forwarded-For is trusted, joined into one comma-separated variable.
             - name: OPENGATE_TRUSTED_PROXIES

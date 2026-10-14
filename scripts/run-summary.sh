@@ -68,7 +68,9 @@ render() {
 
   printf '### %s\n\n' "$title"
   summary_table_header
-  jq -r --argjson gates "$gates" --argjson server "$server" --argjson db "$db" '
+  jq -r --argjson gates "$gates" --argjson server "$server" --argjson db "$db" \
+    --argjson terms "$(summary_terms_json p50 p95 p99 "error rate" throughput "Service Level" "not read")" '
+    def term($w): "<span title=\"\($terms[$w])\">\($w)</span>";
     def num: (. * 10 | round) / 10 | tostring;
     def words($m): {latency_p50_ms: "p50", latency_p95_ms: "p95", latency_p99_ms: "p99",
                     error_rate: "error rate", rps: "throughput"}[$m];
@@ -79,7 +81,7 @@ render() {
     def bytes($b): if $b == null then ""
                    elif $b >= 1073741824 then " of \($b / 1073741824 | num) GiB"
                    else " of \($b / 1048576 | num) MiB" end;
-    def level($p; $cap): if $p == null then "not read" else "\($p | num) %\($cap)" end;
+    def level($p; $cap): if $p == null then term("not read") else "\($p | num) %\($cap)" end;
     (.[] as $row
      | ("latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "error_rate", "rps") as $m
      | $row[$m] as $v
@@ -93,17 +95,15 @@ render() {
           | (($g.max != null and $v > $g.max) or ($g.min != null and $v < $g.min)) as $crossed
           | [$expected, (if $crossed | not then "pass" elif $g.blocking then "FAIL" else "over" end)]
         end) as $judged
-     | [ "\($series) \(words($m))", $judged[0], shown($m; $v), $judged[1] ]),
-    ["Service Level Avg CPU % (server)", "—", level($server.cpu_percent; cpus($server.cpu_cap)), "—"],
-    ["Service Level Avg Mem % (server)", "—", level($server.memory_percent; bytes($server.memory_bytes)), "—"],
-    ["Service Level Avg CPU % (database)", "—",
+     | [ "\($series) \(term(words($m)))", $judged[0], shown($m; $v), $judged[1] ]),
+    ["\(term("Service Level")) Avg CPU % (server)", "—", level($server.cpu_percent; cpus($server.cpu_cap)), "—"],
+    ["\(term("Service Level")) Avg Mem % (server)", "—", level($server.memory_percent; bytes($server.memory_bytes)), "—"],
+    ["\(term("Service Level")) Avg CPU % (database)", "—",
       level($db.cpu_percent; (if $db.cpu_cap then " of \($db.cpu_cap)" else "" end)), "—"],
-    ["Service Level Avg Mem % (database)", "—",
+    ["\(term("Service Level")) Avg Mem % (database)", "—",
       level($db.memory_percent; (if $db.memory_cap then " of \($db.memory_cap)" else "" end)), "—"]
     | "| \(.[0]) | \(.[1]) | \(.[2]) | \(.[3]) |"
   ' "$rows"
-  summary_legend
-  summary_legend_terms p50 p95 p99 "error rate" "Service Level"
 }
 
 main() {

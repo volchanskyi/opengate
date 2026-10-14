@@ -1,6 +1,6 @@
 name: Fuzz
 
-# Nightly fuzzing of the mesh-protocol wire decoder on a bounded budget; it gates no merge.
+# Nightly fuzzing of mesh-protocol's decoder and link pieces on a bounded budget; it gates no merge.
 # libFuzzer needs nightly Rust; the stable replay is mesh-protocol's decode_corpus_test.rs.
 
 on:
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   decode:
-    name: Fuzz mesh-protocol decode
+    name: Fuzz mesh-protocol's decoder and link pieces
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -45,11 +45,15 @@ jobs:
       - name: Run bounded fuzz session
         working-directory: ${{ github.workspace }}
         run: make fuzz-rust FUZZ_RUNS=${{ github.event.inputs.runs || '5000000' }}
+      - name: Write the run summary
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: scripts/fuzz-summarize.sh agent/fuzz >>"$GITHUB_STEP_SUMMARY"
       - name: Upload crash artifacts
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz-decode-artifacts
+          name: fuzz-artifacts
           path: agent/fuzz/artifacts/
           if-no-files-found: ignore
 

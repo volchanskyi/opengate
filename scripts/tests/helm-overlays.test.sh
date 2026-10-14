@@ -220,6 +220,36 @@ else
   fail "loadtest-cleanup.sh must exempt the service account"
 fi
 
+# The address a machine dials for the relay and the helpers it asks are settings per environment.
+server_env() { # release, values file, variable name
+  helm template "$1" "$CHART" -f "$2" 2>/dev/null \
+    | python3 -c '
+import sys, yaml
+name = sys.argv[1]
+for doc in yaml.safe_load_all(sys.stdin):
+    if doc and doc.get("kind") == "Deployment" and doc["metadata"]["name"].endswith("-server"):
+        for c in doc["spec"]["template"]["spec"]["containers"]:
+            for e in c.get("env", []):
+                if e["name"] == name:
+                    print(e.get("value", ""))
+' "$3"
+}
+expect_env() { # what, got, want
+  if [ "$2" = "$3" ]; then
+    pass "$1"
+  else
+    fail "$1 (got '$2', want '$3')"
+  fi
+}
+expect_env "production machines dial the relay at the public name" \
+  "$(server_env opengate "$PRODUCTION" OPENGATE_AGENT_RELAY_URL)" "wss://opengate.cloudisland.net"
+expect_env "production sessions ask the server's own helper" \
+  "$(server_env opengate "$PRODUCTION" OPENGATE_ICE_SERVERS)" "stun:quic.opengate.cloudisland.net:9090"
+expect_env "staging machines dial the release's in-cluster service" \
+  "$(server_env opengate-staging "$STAGING" OPENGATE_AGENT_RELAY_URL)" "ws://opengate-staging-server:8080"
+expect_env "staging sessions ask the release's helper, which the load run's machines reach" \
+  "$(server_env opengate-staging "$STAGING" OPENGATE_ICE_SERVERS)" "stun:opengate-staging-server:9090"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

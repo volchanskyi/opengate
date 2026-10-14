@@ -121,6 +121,7 @@ fn session_request_decodes_when_fully_populated() {
             file_write: false,
             input: true,
         },
+        ice_servers: vec!["stun:quic.example.com:9090".to_string()],
     };
     let bytes = rmp_serde::to_vec_named(&msg).expect("encode SessionRequest");
     let decoded: ControlMessage = rmp_serde::from_slice(&bytes).expect("decode SessionRequest");

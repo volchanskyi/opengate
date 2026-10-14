@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
-	"nhooyr.io/websocket"
 )
 
 const (
@@ -355,11 +355,12 @@ func TestRelayWebSocket(t *testing.T) {
 		device := testutil.SeedDevice(t, tenantCtx, srv.store, site.ID)
 
 		token := protocol.GenerateSessionToken()
-		require.NoError(t, srv.sessions.Create(tenantCtx, &session.Session{
+		_, err := srv.sessions.Create(tenantCtx, &session.Session{
 			Token:    string(token),
 			DeviceID: device.ID,
 			UserID:   user.ID,
-		}))
+		})
+		require.NoError(t, err)
 
 		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.TenantID)
 		require.NoError(t, err)

@@ -1,36 +1,18 @@
 /// <reference types="node" />
 import { test, expect } from "./fixtures";
 import type { WebSocketRoute } from "@playwright/test";
-import { decode, encode } from "@msgpack/msgpack";
 import { enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
+import { decodeControlFrame, encodeControlFrame } from "./helpers/frames";
+import { openSessionTab, stubSessionStart } from "./helpers/session-tab";
 
-// The relay WebSocket is mocked at the wire level, so the browser decodes real msgpack frames.
-
-// Control frame type byte, as in web/src/lib/protocol/types.ts.
-const FRAME_CONTROL = 0x01;
+// The session start and the relay WebSocket are mocked on the context, so the session tab the
+// device page opens decodes real msgpack frames and no session holds the machine.
 
 interface FileEntry {
   name: string;
   is_dir: boolean;
   size: number;
   modified: number;
-}
-
-/** Encodes a wire frame: [type=0x01][4-byte BE length][msgpack]. */
-function encodeControlFrame(message: object): Buffer {
-  const payload = encode(message);
-  const buf = Buffer.alloc(5 + payload.length);
-  buf[0] = FRAME_CONTROL;
-  buf.writeUInt32BE(payload.length, 1);
-  buf.set(payload, 5);
-  return buf;
-}
-
-function decodeControlFrame(data: Buffer): { type: string; [key: string]: unknown } | null {
-  if (data.length < 5 || data[0] !== FRAME_CONTROL) return null;
-  const len = data.readUInt32BE(1);
-  const payload = data.subarray(5, 5 + len);
-  return decode(payload) as { type: string; [key: string]: unknown };
 }
 
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
@@ -42,7 +24,8 @@ async function mockRelay(
 ): Promise<{ requestedPaths: string[] }> {
   const requestedPaths: string[] = [];
 
-  await page.routeWebSocket(
+  await stubSessionStart(page.context(), test.info().project.use.baseURL!);
+  await page.context().routeWebSocket(
     (url: URL) => url.pathname.includes("/relay"),
     (ws: WebSocketRoute) => {
       ws.onMessage((raw) => {
@@ -68,10 +51,9 @@ async function mockRelay(
 }
 
 async function openFilesTab(page: AuthedPage, deviceID: string) {
-  await page.goto(`/devices/${deviceID}`);
-  await page.getByRole("button", { name: /start session/i }).click();
-  await expect(page).toHaveURL(/\/sessions\/[^/]+$/);
-  await page.getByRole("tab", { name: "Files" }).click();
+  const tab = await openSessionTab(page, deviceID);
+  await tab.getByRole("tab", { name: "Files" }).click();
+  return tab;
 }
 
 test.describe("File Manager flow", () => {
@@ -87,10 +69,10 @@ test.describe("File Manager flow", () => {
       ],
     });
 
-    await openFilesTab(authedPage, machine.id);
+    const tab = await openFilesTab(authedPage, machine.id);
 
-    await expect(authedPage.getByText("docs")).toBeVisible();
-    await expect(authedPage.getByText("README.md")).toBeVisible();
+    await expect(tab.getByText("docs")).toBeVisible();
+    await expect(tab.getByText("README.md")).toBeVisible();
     expect(tracker.requestedPaths).toContain("/");
   });
 
@@ -106,17 +88,17 @@ test.describe("File Manager flow", () => {
       ],
     });
 
-    await openFilesTab(authedPage, machine.id);
+    const tab = await openFilesTab(authedPage, machine.id);
 
-    await expect(authedPage.getByRole("button", { name: "docs" })).toBeVisible();
-    await authedPage.getByRole("button", { name: "docs" }).click();
+    await expect(tab.getByRole("button", { name: "docs" })).toBeVisible();
+    await tab.getByRole("button", { name: "docs" }).click();
 
-    await expect(authedPage.getByText("guide.txt")).toBeVisible();
-    await expect(authedPage.getByText("/docs")).toBeVisible();
+    await expect(tab.getByText("guide.txt")).toBeVisible();
+    await expect(tab.getByText("/docs")).toBeVisible();
     expect(tracker.requestedPaths).toEqual(["/", "/docs"]);
 
-    await authedPage.getByRole("button", { name: ".." }).click();
-    await expect(authedPage.getByRole("button", { name: "docs" })).toBeVisible();
+    await tab.getByRole("button", { name: ".." }).click();
+    await expect(tab.getByRole("button", { name: "docs" })).toBeVisible();
     expect(tracker.requestedPaths).toEqual(["/", "/docs", "/"]);
   });
 
@@ -128,9 +110,9 @@ test.describe("File Manager flow", () => {
       { "/secret": "permission denied" },
     );
 
-    await openFilesTab(authedPage, machine.id);
-    await authedPage.getByRole("button", { name: "secret" }).click();
+    const tab = await openFilesTab(authedPage, machine.id);
+    await tab.getByRole("button", { name: "secret" }).click();
 
-    await expect(authedPage.getByText(/permission denied/i)).toBeVisible();
+    await expect(tab.getByText(/permission denied/i)).toBeVisible();
   });
 });

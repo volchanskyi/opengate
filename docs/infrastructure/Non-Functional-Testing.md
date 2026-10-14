@@ -370,12 +370,13 @@ building its executors from the profile the night walks:
 | Scenario | Exercises |
 |----------|-----------|
 | [`api-baseline.js`](../../load/k6/scenarios/api-baseline.js) | A technician's round: health, current user, sites and the device list, then one machine's page and one instruction sent to it, each timed on its own |
-| [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | A real remote session: the operator's side of the relay, timing its own frame coming back from the machine |
+| [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | A real remote session: the operator's side of the relay, timing its own frame coming back from the machine. Each held session takes a machine of its own, since a machine takes one session at a time, and the setup refuses a fleet smaller than the sessions the profile holds |
 | [`concurrent-agents.js`](../../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's sites |
 
-`setup()` registers a throwaway member of the staging organization through
-[`load/k6/lib/session.js`](../../load/k6/lib/session.js) and reads the sites that
-member can see. Where a scenario times a journey against one machine, it reads
+`setup()` registers throwaway members of the staging organization through
+[`load/k6/lib/session.js`](../../load/k6/lib/session.js) — one account per
+simulated technician, from a pool sized so no account passes its own request
+allowance — and reads the sites they can see. Where a scenario times a journey against one machine, it reads
 the fleet from a site chosen for holding machines: an estate spreads its fleet
 over its sites, so a site picked for sorting first is empty as often as not, and
 a journey with nothing to open publishes a zero indistinguishable from a fast
@@ -415,16 +416,18 @@ past the drain.
 
 #### One address per technician
 
-The server counts requests per address, at about a hundred a second
+The server counts a signed-in request under its account and any other under its
+address, at about a hundred a second
 ([API router](../../server/internal/api/api.go)). A run driving the server from
-one pod used to spend one allowance between all of it, which made the rate
-limiter the run's throughput: the latency figures described an idle system and
-no throughput regression could show.
+one pod under one account and one address would spend one allowance between all
+of it, making the rate limiter the run's throughput: the latency figures would
+describe an idle system and no throughput regression could show.
 
-Each simulated technician now presents an address of its own, and so does each
-arriving machine — from 198.18.0.0/15, which RFC 2544 reserves for benchmark
-traffic, so a synthetic address can never be somebody real. The limit is still
-enforced at full strength; the budget is simply per technician.
+Each simulated technician signs in to an account of its own and presents an
+address of its own, and so does each arriving machine — from 198.18.0.0/15, which
+RFC 2544 reserves for benchmark traffic, so a synthetic address can never be
+somebody real. The limit is still enforced at full strength; the budget is
+simply per technician.
 
 A presented address is believed only from a peer the deployment has named as a
 proxy, which is narrower than the rule it replaced — see
@@ -557,6 +560,16 @@ directly.
 Every address the harness dials goes through one allowlist — the configured
 target and the relay URL that arrives inside a session request alike — so a field
 on the wire cannot send a generator somewhere the run is forbidden to go.
+
+A machine that takes a session asks the session helper what a direct-link attempt
+asks — six address requests, from sockets of its own, retried on the schedule
+RFC 8489 sets ([`helper_requests.go`](../../server/tests/loadtest/helper_requests.go))
+— so the helper shares the agents' UDP port with the whole fleet's QUIC traffic,
+as it does in production. The bundle carries what was asked and what was
+answered, and a run in which any request went unanswered is not a valid night.
+Sessions themselves stay on the relay: a direct session's bytes never cross the
+server, so the relay-only case is the server's worst
+([ADR-127](../adr/ADR-127-direct-link.md)).
 
 Against staging the harness is launched detached inside its own cluster pod
 through [`scripts/loadtest-quic-incluster.sh`](../../scripts/loadtest-quic-incluster.sh),
@@ -712,21 +725,31 @@ cd web && lhci autorun
 
 ## Fuzzing
 
-The wire decoder is the agent's primary untrusted-input surface, so
-[`Frame::decode`](../../agent/crates/mesh-protocol/src/codec.rs) has a coverage-guided
-cargo-fuzz / libFuzzer target ([`agent/fuzz/fuzz_targets/decode.rs`](../../agent/fuzz/fuzz_targets/decode.rs))
-that asserts arbitrary bytes never panic. libFuzzer needs a nightly toolchain, so
-the bounded session runs as observability — `make fuzz-rust` locally, and the
-nightly [fuzz.yml workflow](../../.github/workflows/fuzz.yml) in CI — never as a
-merge gate.
+The agent's untrusted-input surfaces each have a coverage-guided cargo-fuzz /
+libFuzzer target in [`agent/fuzz/fuzz_targets/`](../../agent/fuzz/fuzz_targets/):
+[`decode.rs`](../../agent/fuzz/fuzz_targets/decode.rs) asserts arbitrary bytes
+never panic [`Frame::decode`](../../agent/crates/mesh-protocol/src/codec.rs), and
+[`link_pieces.rs`](../../agent/fuzz/fuzz_targets/link_pieces.rs) feeds the direct
+link's reassembler hostile pieces and its candidate filter hostile candidate
+lines, holding both to no panic and memory within one 4 MiB frame. libFuzzer
+needs a nightly toolchain, so the bounded session runs as observability —
+`make fuzz-rust` locally, and the nightly
+[fuzz.yml workflow](../../.github/workflows/fuzz.yml) in CI — never as a merge
+gate. `make fuzz-rust` runs every target the crate names, after a crash too, and
+keeps each one's output; the run's summary
+([`fuzz-summarize.sh`](../../scripts/fuzz-summarize.sh)) opens with its purpose,
+then gives per target the runs, the time, the code paths reached, the inputs kept
+and the crashes found, naming a crash's input file. A local run adds the inputs
+it kept to the corpus directories; only minimized crashes are committed.
 
-The always-run guard on stable is
-[`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs):
-it replays every seed in [`agent/fuzz/corpus/decode/`](../../agent/fuzz/corpus/decode)
-(crafted edge cases per decode branch, a real encoded frame, plus any minimized
-crash) through the decoder under plain `cargo test`. A crash found by the nightly
-fuzzer is minimized and committed back into that corpus, so the stable replay
-re-runs it forever.
+The always-run guards on stable are
+[`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs)
+and [`link_pieces_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/link_pieces_corpus_test.rs):
+each replays every seed in its target's directory under
+[`agent/fuzz/corpus/`](../../agent/fuzz/corpus) (crafted edge cases per branch, a
+real encoded frame, plus any minimized crash) under plain `cargo test`. A crash
+found by the nightly fuzzer is minimized and committed back into that corpus, so
+the stable replay re-runs it forever.
 
 The server side of the same surface uses Go's native fuzzing in
 [`codec_fuzz_test.go`](../../server/internal/protocol/codec_fuzz_test.go):

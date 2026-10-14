@@ -21,23 +21,30 @@ func NewPostgresDevices(db *sql.DB) *PostgresDevices {
 	return &PostgresDevices{db: db}
 }
 
-// deviceSelect is the projection every device read shares; its LEFT JOINs supply the AMT property.
+// deviceSelect is the projection every device read shares; its LEFT JOINs supply the AMT property
+// and the holder of the device's one session.
 const deviceSelect = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
-	        h.amt_available, a.status, a.uuid
+	        h.amt_available, a.status, a.uuid,
+	        s.user_id, s.created_at, COALESCE(NULLIF(u.display_name, ''), u.email, '')
 	 FROM devices d
 	 LEFT JOIN device_hardware h ON h.device_id = d.id
-	 LEFT JOIN amt_devices a ON a.device_id = d.id `
+	 LEFT JOIN amt_devices a ON a.device_id = d.id
+	 LEFT JOIN agent_sessions s ON s.device_id = d.id
+	 LEFT JOIN users u ON u.id = s.user_id `
 
 // Every device read is a fixed statement built at compile time, with no runtime-assembled SQL.
 const (
 	// The single-row reads spell deviceSelect out in one literal, which a test holds equal to it.
 	getDeviceQuery = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
-	        h.amt_available, a.status, a.uuid
+	        h.amt_available, a.status, a.uuid,
+	        s.user_id, s.created_at, COALESCE(NULLIF(u.display_name, ''), u.email, '')
 	 FROM devices d
 	 LEFT JOIN device_hardware h ON h.device_id = d.id
-	 LEFT JOIN amt_devices a ON a.device_id = d.id WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.id = $1`
+	 LEFT JOIN amt_devices a ON a.device_id = d.id
+	 LEFT JOIN agent_sessions s ON s.device_id = d.id
+	 LEFT JOIN users u ON u.id = s.user_id WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.id = $1`
 
 	listDevicesQuery = deviceSelect +
 		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid
@@ -67,10 +74,13 @@ const (
 
 	getDeviceByAMTUUIDQuery = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
-	        h.amt_available, a.status, a.uuid
+	        h.amt_available, a.status, a.uuid,
+	        s.user_id, s.created_at, COALESCE(NULLIF(u.display_name, ''), u.email, '')
 	 FROM devices d
 	 LEFT JOIN device_hardware h ON h.device_id = d.id
-	 LEFT JOIN amt_devices a ON a.device_id = d.id WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND a.uuid = $1`
+	 LEFT JOIN amt_devices a ON a.device_id = d.id
+	 LEFT JOIN agent_sessions s ON s.device_id = d.id
+	 LEFT JOIN users u ON u.id = s.user_id WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND a.uuid = $1`
 )
 
 func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
@@ -82,10 +92,17 @@ func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
 	var amtAvailable sql.NullBool
 	var amtStatus sql.NullString
 	var amtUUID uuid.NullUUID
+	var holderID uuid.NullUUID
+	var heldSince sql.NullTime
+	var holderName string
 	if err := sc.Scan(&d.ID, &d.OrganizationID, &siteID, &d.Hostname, &d.OS, &d.OsDisplay, &d.AgentVersion, &capsJSON, &d.Status, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt,
 		&d.MaintenanceOn, &maintSince, &maintBy, &d.MaintenanceReason,
-		&amtAvailable, &amtStatus, &amtUUID); err != nil {
+		&amtAvailable, &amtStatus, &amtUUID,
+		&holderID, &heldSince, &holderName); err != nil {
 		return nil, err
+	}
+	if holderID.Valid {
+		d.Session = &SessionHolder{HolderID: holderID.UUID, HolderName: holderName, StartedAt: heldSince.Time}
 	}
 	if siteID.Valid {
 		d.SiteID = siteID.UUID

@@ -14,9 +14,9 @@ never part of the Helm chart. The mechanism decision lives in
 | `edge-504` | Shrinks the staging Ingress `proxy-read`/`proxy-send` timeout so a backend delay (Chaos Mesh, FI5) exceeds it and nginx returns `504`. | [`edge-504-timeout.json`](./edge-504-timeout.json) merge patch |
 | `edge-502` | Scales the staging server Deployment to zero so the upstream is unavailable and nginx returns `502`. No annotation — the apply script performs the scale. | — |
 
-`502` is produced by upstream unavailability, **not** a reviewed critical-risk
-nginx configuration snippet (the controller runs with snippet annotations
-disabled — see [`../../helm/opengate/templates/ingress.yaml`](../../helm/opengate/templates/ingress.yaml)).
+`502` is produced by upstream unavailability, since the controller runs with
+snippet annotations off — see
+[`../../ingress-nginx/values.yaml`](../../ingress-nginx/values.yaml).
 
 ## Guarantees
 

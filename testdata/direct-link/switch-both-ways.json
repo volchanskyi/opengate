@@ -1,0 +1,107 @@
+{
+  "description": "Frames sent before a side's switch notice arrive before its link frames, which wait for that notice.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h2"
+        },
+        {
+          "label": "h3"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "queue",
+      "side": "browser",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "b1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "browser"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "browser"
+    },
+    {
+      "step": "expect",
+      "side": "browser",
+      "delivered": []
+    },
+    {
+      "step": "carry",
+      "path": "relay",
+      "to": "browser"
+    },
+    {
+      "step": "expect",
+      "side": "browser",
+      "delivered": [
+        "h1",
+        "h2",
+        "h3"
+      ]
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "h1",
+        "h2",
+        "h3"
+      ],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    },
+    "host": {
+      "delivered": [
+        "b1"
+      ],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    }
+  }
+}

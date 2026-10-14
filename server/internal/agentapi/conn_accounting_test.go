@@ -29,7 +29,6 @@ const testDim = "cpu.total"
 var countedIngestByIdent = map[string]protocol.ControlMessageType{
 	"MsgAgentHealthSummary":   protocol.MsgAgentHealthSummary,
 	"MsgAgentMetricWindow":    protocol.MsgAgentMetricWindow,
-	"MsgProcessReport":        protocol.MsgProcessReport,
 	"MsgDiscoveryReport":      protocol.MsgDiscoveryReport,
 	"MsgHealthWindowResponse": protocol.MsgHealthWindowResponse,
 	"MsgAgentAlert":           protocol.MsgAgentAlert,
@@ -77,14 +76,6 @@ func (s *accountingSinks) accept() error {
 
 func (s *accountingSinks) WriteSamples(context.Context, uuid.UUID, uuid.UUID, []telemetry.Sample) error {
 	return s.accept()
-}
-
-func (s *accountingSinks) UpsertReport(context.Context, uuid.UUID, time.Time, []telemetry.ProcessSample) error {
-	return s.accept()
-}
-
-func (s *accountingSinks) ListLatest(context.Context, uuid.UUID, int) ([]telemetry.ProcessSample, error) {
-	return nil, nil
 }
 
 func (s *accountingSinks) Replace(context.Context, uuid.UUID, time.Time, []inventory.Component) error {
@@ -165,7 +156,6 @@ func accountingCases(now int64) []accountingCase {
 	pkg := protocol.DiscoveredPackage{Name: "openssl", Version: "3.0.13"}
 	dim := protocol.MetricDim{Name: testDim, Avg: 12.5}
 	summary := protocol.HealthSummary{TS: now, NodeAnomalyRate: 0.4, SamplerVersion: "s1"}
-	entry := protocol.ProcessReportEntry{Rank: 1, Basename: "postgres", PID: 222, CPU: 12.5, Mem: 3.25}
 	coalesced := []*protocol.ControlMessage{
 		metricWindowMsg(now, dim),
 		metricWindowMsg(now+minTelemetryIntervalSeconds, dim),
@@ -218,20 +208,6 @@ func accountingCases(now int64) []accountingCase {
 		},
 		overCap("health summary", &protocol.ControlMessage{
 			Type: protocol.MsgAgentHealthSummary, TS: now, SamplerVersion: "s1",
-		}),
-		{
-			name: "process report persists rows and rank numerics",
-			msgs: []*protocol.ControlMessage{{
-				Type: protocol.MsgProcessReport, TS: now, TopN: []protocol.ProcessReportEntry{entry},
-			}},
-			ingested:  1,
-			persisted: 1,
-			writes:    2,
-		},
-		typedDrop("process report with no processes",
-			&protocol.ControlMessage{Type: protocol.MsgProcessReport, TS: now}, "empty_processes"),
-		overCap("process report", &protocol.ControlMessage{
-			Type: protocol.MsgProcessReport, TS: now, TopN: []protocol.ProcessReportEntry{entry},
 		}),
 		{
 			name: "health window response persists its summaries",
@@ -340,7 +316,6 @@ func runAccountingCase(t *testing.T, m *appmetrics.Metrics, tc accountingCase) i
 		stream:    &buf,
 		codec:     &protocol.Codec{},
 		telemetry: sinks,
-		processes: sinks,
 		inventory: sinks,
 		// An alert is filed against the machine's customer, so that rung must resolve.
 		settings: fixedReader{scope: settings.Scope{

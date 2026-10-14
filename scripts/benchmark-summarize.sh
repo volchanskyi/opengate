@@ -229,7 +229,9 @@ summary_page() {
     printf '### Benchmarks\n\n'
     summary_table_header
     jq -r --argjson rows "$rows" --argjson window "$window" \
-      --argjson reltol "$NS_REL_TOL" --argjson ceiltol "$NS_ABS_CEIL_TOL" --argjson minn "$NS_MIN_WINDOW_SAMPLES" '
+      --argjson reltol "$NS_REL_TOL" --argjson ceiltol "$NS_ABS_CEIL_TOL" --argjson minn "$NS_MIN_WINDOW_SAMPLES" \
+      --argjson terms "$(summary_terms_json ns/op allocs/op B/op)" '
+      def term($w): "<span title=\"\($terms[$w])\">\($w)</span>";
       def num: (. * 100 | round) / 100 | tostring;
       . as $baseline
       | ($baseline.default_tolerances // {}) as $defaults
@@ -238,7 +240,7 @@ summary_page() {
       | ("\($row.lang)/\($row.name)") as $name
       | ((["allocs_op", "bytes_op"][] as $m
           | select($row[$m] != null)
-          | ($m | sub("_op$"; "/op")) as $unit
+          | ($m | sub("_op$"; "/op") | sub("^bytes"; "B") | term(.)) as $unit
           | if $base == null or $base[$m] == null then [$name + " " + $unit, "no limit", ($row[$m] | num), "—"]
             else ($base.tolerances[$m] // $defaults[$m] // 0.02) as $tol
               | ($base[$m] * (1 + $tol)) as $limit
@@ -254,12 +256,10 @@ summary_page() {
                (if $ceiling != null then "≤ \($ceiling | num) ns (baseline × \(1 + $ceiltol | num))" else empty end) ]
              | if length == 0 then "no limit" else join("; ") end) as $expected
           | (($band != null and $row.ns_op > $band) or ($ceiling != null and $row.ns_op > $ceiling)) as $crossed
-          | [$name + " ns/op", $expected, "\($row.ns_op | num) ns",
+          | [$name + " " + term("ns/op"), $expected, "\($row.ns_op | num) ns",
              (if $band == null and $ceiling == null then "—" elif $crossed then "FAIL" else "pass" end)]))
       | "| \(.[0]) | \(.[1]) | \(.[2]) | \(.[3]) |"
     ' <<<"$baseline"
-    summary_legend
-    printf -- '- **ns/op, allocs/op, B/op** — the time, the allocations and the bytes one call of the benchmark took. Allocations are held to the committed baseline; time is held to the median of the nights before and to a ceiling over the baseline, because a runner'"'"'s speed varies from night to night.\n'
   } >"$BENCHMARK_SUMMARY_FILE"
 }
 

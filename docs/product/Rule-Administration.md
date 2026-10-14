@@ -31,6 +31,12 @@ model.
 | Labels | `/rules/labels` | The label values a customer maintains, and labelling hosts picked from a checklist |
 | Alert limits | `/rules/alert-limits` | The customer's alert budget |
 
+Every column heading on the Rules list explains itself: hover over it, or move to
+it with the keyboard, and a short note says what the column counts — what
+*Rolled out* means and what *Off* and *Stopped* say, what each of the four
+coverage states means for the hosts in it, and what *Recent alerts* covers.
+Escape, or moving away, closes the note.
+
 **Rules is a top-level section.** Every member of the tenant can read it — a
 technician resolving an incident as a false alarm has to be able to see the rule
 that produced it. Only an administrator can change anything.

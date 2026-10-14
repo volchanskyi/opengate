@@ -61,6 +61,16 @@ describe('DeviceCard', () => {
     expect(screen.getByText('OS: linux')).toBeInTheDocument();
   });
 
+  it('names who holds a host’s session and since when', () => {
+    renderCard({ session: { holder_id: 'u2', holder_name: 'Alice', started_at: '2026-10-12T14:02:00Z' } });
+    expect(screen.getByText(/^Session open — Alice, since \d{1,2}:\d{2}/)).toBeInTheDocument();
+  });
+
+  it('shows no holder for a host without a session', () => {
+    renderCard();
+    expect(screen.queryByText(/Session open/)).not.toBeInTheDocument();
+  });
+
   it('shows status badge', () => {
     renderCard();
     expect(screen.getByText('Online')).toBeInTheDocument();

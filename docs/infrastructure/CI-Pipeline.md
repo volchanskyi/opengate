@@ -97,7 +97,8 @@ human commits  ──► dev ──► main
               CD Workflow (cd.yml)
               ├─ resolve-tag + cosign verify
               ├─ deploy-staging-k8s → Helm upgrade → smoke-test + Playwright via port-forward
-              └─ deploy-production-k8s (environment approval) → Helm upgrade → smoke-test via port-forward
+              └─ deploy-production-k8s (environment approval) → ingress controller settings → Helm upgrade
+                   → monitoring configuration → smoke tests (port-forward, public edge) → session helper check
 ```
 
 ## Jobs
@@ -173,13 +174,16 @@ toolchain's own internals — the core reader the endurance run walks a heap wit
 — is proved against it by [`core-walk.yml`](../../.github/workflows/core-walk.yml)
 whenever either pin moves and every night, beside the newest upstream reader so
 that the patch the pinned one carries is removed the night upstream no longer
-needs it ([ADR-119](../adr/ADR-119-finding-a-leak.md)). Opening the encrypted
+needs it ([ADR-119](../adr/ADR-119-finding-a-leak.md)). Each run writes a summary
+([`core-walk-summarize.sh`](../../scripts/core-walk-summarize.sh)) opening with
+the check's purpose, then its result, the Go version, whether the pinned reader
+walked the dump, and whether the unpatched upstream reader can yet. Opening the encrypted
 dump an endurance run uploads is in
 [Non-Functional Testing](./Non-Functional-Testing.md#opening-a-soak-dump).
 
 ### Generated API code
 
-The `go-lint` job verifies that generated Go code from the OpenAPI spec is up to date. It runs `go generate ./internal/api/` and then `git diff --exit-code` — if the generated output differs from what is committed, the job fails. This can also be checked locally via `make verify-codegen`.
+The `go-lint` job in [`ci.yml`](../../.github/workflows/ci.yml) regenerates the Go server code from the OpenAPI spec with `oapi-codegen` and fails when the output differs from what is committed. `make verify-codegen` runs the same check locally over the Go and TypeScript output, against the staged copies, so generated files are staged before it runs.
 
 ## Coverage
 
@@ -187,8 +191,8 @@ All three language test jobs enforce a minimum line-coverage threshold — the b
 
 | Language | Tool | Threshold | Exclusions | Output | Artifact |
 |----------|------|-----------|------------|--------|----------|
-| Go | `go test -coverprofile` | 80% line | `testutil/`, `metrics/`, `openapi_gen.go` | `server/coverage.out` | `go-coverage` |
-| Rust | `cargo-llvm-cov` | 80% line | `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/` | `agent/lcov.info` | `rust-coverage` |
+| Go | `go test -coverprofile` | 80% line | `testutil/`, `openapi_gen.go` | `server/coverage.out` | `go-coverage` |
+| Rust | `cargo-llvm-cov` | 80% line | `tests/` | `agent/lcov.info` | `rust-coverage` |
 | TypeScript | `@vitest/coverage-v8` | 80% line | `coverage.exclude` in [`vitest.config.ts`](../../web/vitest.config.ts) | `web/coverage/lcov.info` | `web-coverage` |
 
 ### Coverage badges

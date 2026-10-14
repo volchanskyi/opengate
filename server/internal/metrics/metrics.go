@@ -41,6 +41,12 @@ type Metrics struct {
 	// Every audited action is written, failed or shed, so the three outcomes account for each row.
 	AuditWritesTotal *prometheus.CounterVec
 
+	// DirectLinkOutcomesTotal counts how sessions' direct-link attempts end, each outcome once per
+	// session; it names no address, host, customer or technician.
+	DirectLinkOutcomesTotal *prometheus.CounterVec
+	// HelperRequestsTotal counts the requests the helper on the QUIC port read, by what it did.
+	HelperRequestsTotal *prometheus.CounterVec
+
 	// Database
 	DBQueryDuration *prometheus.HistogramVec
 	DBQueriesTotal  *prometheus.CounterVec
@@ -207,6 +213,14 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			"Total agent QUIC connections that reached the application handshake, by whether the TLS session resumed. The population is connections whose control stream opened, so one lost before that is not counted. Dividing the resumed series by the sum of both is the share of reconnects that skipped the asymmetric handshake.",
 			"resumed"),
 
+		DirectLinkOutcomesTotal: counterVec("direct_link_outcomes_total",
+			"Total sessions whose direct-link attempt ended each way, as the session's browser reported it: direct (the link carried the session), no_route (no direct route on the network), unsupported (the browser cannot make one), dropped (the link dropped and the session moved back to the relay). A session counts each outcome once.",
+			"outcome"),
+
+		HelperRequestsTotal: counterVec("helper_requests_total",
+			"Total address requests the helper on the agent QUIC port read, by result: answered, or dropped as malformed, past the sender's per-second allowance, or past the total allowance.",
+			"result"),
+
 		MetricsGridMisalignedTotal: counter("metrics_grid_misalignment_total",
 			"Total chart samples the time-series store returned outside the request-derived grid of the query it answered. The read is issued at the grid's own instants, so any non-zero value is a defect."),
 	}
@@ -233,6 +247,8 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.IncidentsOpen,
 		m.RuleCoverage,
 		m.AgentTLSHandshakesTotal,
+		m.DirectLinkOutcomesTotal,
+		m.HelperRequestsTotal,
 		m.MetricsGridMisalignedTotal,
 	)
 	reg.MustRegister(newRegistrationAndPoolMetrics(m)...)

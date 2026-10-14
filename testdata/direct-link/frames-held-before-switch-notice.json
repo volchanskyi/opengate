@@ -1,0 +1,103 @@
+{
+  "description": "Link frames that beat the switch notice wait for it, then follow the relay frames sent before it.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "r1"
+        },
+        {
+          "label": "r2"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "open",
+      "side": "host"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "l1"
+        },
+        {
+          "label": "l2"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "browser"
+    },
+    {
+      "step": "expect",
+      "side": "browser",
+      "delivered": []
+    },
+    {
+      "step": "carry",
+      "path": "relay",
+      "to": "browser",
+      "count": 1
+    },
+    {
+      "step": "expect",
+      "side": "browser",
+      "delivered": [
+        "r1"
+      ]
+    },
+    {
+      "step": "carry",
+      "path": "relay",
+      "to": "browser"
+    },
+    {
+      "step": "open",
+      "side": "browser"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "r1",
+        "r2",
+        "l1",
+        "l2"
+      ],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    }
+  }
+}

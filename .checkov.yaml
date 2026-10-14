@@ -1,4 +1,4 @@
-# Only the listed frameworks run; compose files are scanned by policy/docker_compose/images.rego.
+# Only the listed frameworks run; compose files are held by policy/docker_compose/compose.rego.
 
 framework:
   - terraform
@@ -15,7 +15,6 @@ skip-check:
   - CKV_K8S_35    # secrets as env — the server consumes JWT_SECRET/DATABASE_URL via env
   - CKV_K8S_22    # read-only rootfs — the official postgres image writes runtime files
   - CKV_K8S_21    # default namespace — false positive of the static render
-  - CKV_K8S_153   # ingress snippet annotation — chart-controlled headers on a single-tenant cluster
   - CKV2_K8S_6    # default-deny NetworkPolicy — not yet applied
   - CKV_K8S_17    # hostPID — node-exporter reads per-process node metrics from the host PID namespace
   - CKV_K8S_38    # SA token mount — promtail needs the token for kubernetes_sd log discovery

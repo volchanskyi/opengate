@@ -45,7 +45,7 @@ import (
 type AgentControl interface {
 	// Control-writes (server → agent). The capability-gated sends return a typed
 	// capability error the handlers detect via agentapi.IsCapabilityError.
-	SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions) error
+	SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions, helpers []string) error
 	SendAgentUpdate(ctx context.Context, version, url, sha256, signature string) error
 	SendRestartAgent(ctx context.Context, reason string) error
 	SendRequestHardwareReport(ctx context.Context) error
@@ -304,6 +304,12 @@ func resolveNotificationsHandlers(cfg ServerConfig) *notifications.Handlers {
 	return nil
 }
 
+// noLiveSessions is the session ender of a server built without a relay, which holds no live
+// session to end.
+type noLiveSessions struct{}
+
+func (noLiveSessions) End(protocol.SessionToken, string) bool { return false }
+
 // resolveSessionUseCase returns cfg.SessionUseCase, or builds it from the sessions, notifier
 // and audit dependencies; it returns nil when any is missing.
 func resolveSessionUseCase(cfg ServerConfig) *usecase.SessionService {
@@ -311,7 +317,11 @@ func resolveSessionUseCase(cfg ServerConfig) *usecase.SessionService {
 		return cfg.SessionUseCase
 	}
 	if cfg.Sessions != nil && cfg.Notifier != nil && cfg.Audit != nil {
-		return usecase.NewSessionService(cfg.Sessions, cfg.Notifier, cfg.Audit)
+		var ender usecase.SessionEnder = noLiveSessions{}
+		if cfg.Relay != nil {
+			ender = cfg.Relay
+		}
+		return usecase.NewSessionService(cfg.Sessions, cfg.Notifier, cfg.Audit, ender)
 	}
 	return nil
 }
@@ -436,7 +446,7 @@ func (s *Server) routes() {
 	// WebSocket routes stay outside so TimeoutHandler doesn't break upgrades.
 	r.Group(func(apiRouter chi.Router) {
 		apiRouter.Use(RequestTimeout(s.requestTimeout))
-		apiRouter.Use(RateLimiter(100, 200, s.trustedProxies))
+		apiRouter.Use(AccountRateLimiter(100, 200, s.trustedProxies, s.jwt))
 
 		HandlerWithOptions(strictHandler, ChiServerOptions{
 			BaseRouter: apiRouter,

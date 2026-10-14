@@ -19,6 +19,11 @@ export const usePushStore = create<PushState>((set) => ({
 
   syncSubscriptionStatus: async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in globalThis)) return;
+    // A subscription exists only once notifications are permitted, so nothing is asked before.
+    if (globalThis.Notification?.permission !== 'granted') {
+      set({ isSubscribed: false });
+      return;
+    }
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     set({ isSubscribed: !!sub });

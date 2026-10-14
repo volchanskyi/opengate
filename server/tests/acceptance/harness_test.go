@@ -32,6 +32,13 @@ const (
 // productSecret signs the harness's operator tokens and meets the assembly's minimum length.
 const productSecret = "acceptance-harness-secret-32-byte"
 
+// machinesRelayBase is the relay address the product is configured to give machines; nothing
+// listens there, so a machine told it was told the setting and no request's address.
+const machinesRelayBase = "ws://machines.acceptance.test"
+
+// sessionHelper is the helper both sides of a session are told to ask for their public address.
+const sessionHelper = "stun:helper.acceptance.test:9090"
+
 // Product is one whole installation with its own schema, data directory and listeners,
 // sharing nothing with other products.
 type Product struct {
@@ -89,11 +96,13 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 	hardware := newManagedHardware()
 
 	cfg := app.Config{
-		Store:       testutil.NewTestStore(t),
-		DataDir:     t.TempDir(),
-		JWTSecret:   productSecret,
-		Logger:      logger,
-		AMTOperator: hardware,
+		Store:          testutil.NewTestStore(t),
+		DataDir:        t.TempDir(),
+		JWTSecret:      productSecret,
+		Logger:         logger,
+		AMTOperator:    hardware,
+		AgentRelayBase: machinesRelayBase,
+		Helpers:        sessionHelper,
 	}
 	var readingStore *telemetry.VMClient
 	if options.numericTelemetry {

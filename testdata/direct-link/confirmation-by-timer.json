@@ -1,0 +1,128 @@
+{
+  "description": "Below a quarter of the window a receiver confirms 250 ms after the first unconfirmed frame.",
+  "window": 100000,
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "t1",
+          "size": 1000
+        },
+        {
+          "label": "t2",
+          "size": 1000
+        },
+        {
+          "label": "t3",
+          "size": 1000
+        },
+        {
+          "label": "t4",
+          "size": 1000
+        },
+        {
+          "label": "t5",
+          "size": 1000
+        },
+        {
+          "label": "t6",
+          "size": 1000
+        },
+        {
+          "label": "t7",
+          "size": 1000
+        },
+        {
+          "label": "t8",
+          "size": 1000
+        },
+        {
+          "label": "t9",
+          "size": 1000
+        },
+        {
+          "label": "t10",
+          "size": 1000
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "browser"
+    },
+    {
+      "step": "tick",
+      "ms": 249
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "host"
+    },
+    {
+      "step": "expect",
+      "side": "host",
+      "kept": 10
+    },
+    {
+      "step": "tick",
+      "ms": 1
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "host"
+    },
+    {
+      "step": "expect",
+      "side": "host",
+      "kept": 0
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8",
+        "t9",
+        "t10"
+      ],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    }
+  }
+}

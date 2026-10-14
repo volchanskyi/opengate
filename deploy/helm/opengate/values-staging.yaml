@@ -4,7 +4,6 @@ domain: staging.opengate.example.com
 
 ingress:
   tls: false
-  hsts: false
 
 certManager:
   issuerName: letsencrypt-staging
@@ -18,6 +17,9 @@ server:
   trustedProxies:
     - ingress-nginx-controller.ingress-nginx
     - opengate-staging-loadtest-generators.opengate-staging
+  # The load run's machines reach the helper in the cluster; a browser outside it stays on the relay.
+  iceServers:
+    - stun:opengate-staging-server:9090
   # Production's own shape, with requests equal to limits so the pod is not evicted early
   # during a load run.
   resources:

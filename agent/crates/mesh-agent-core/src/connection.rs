@@ -123,12 +123,14 @@ impl<S: ControlStream> AgentConnection<S> {
         Ok(msg)
     }
 
-    /// Accepts a SessionRequest and spawns a `SessionHandler` task that connects to the relay.
+    /// Accepts a SessionRequest and spawns a `SessionHandler` task that connects to the relay and
+    /// asks `helpers` for the host's public address when the browser offers a direct link.
     pub async fn handle_session_request(
         &mut self,
         token: mesh_protocol::SessionToken,
         relay_url: String,
         permissions: mesh_protocol::Permissions,
+        helpers: Vec<String>,
         capture: Box<dyn ScreenCapture>,
         injector: Box<dyn InputInjector>,
     ) -> Result<tokio::task::JoinHandle<()>, ConnectionError> {
@@ -140,7 +142,7 @@ impl<S: ControlStream> AgentConnection<S> {
 
         info!(token = %token.redacted(), "accepted session, connecting to relay");
 
-        let handler = SessionHandler::new(token, permissions);
+        let handler = SessionHandler::new(token, permissions).with_helpers(helpers);
         let handle = tokio::spawn(async move {
             if let Err(e) = handler.run(&relay_url, capture, injector).await {
                 warn!("session ended with error: {e}");
@@ -426,6 +428,7 @@ mod tests {
                 file_write: false,
                 input: false,
             },
+            ice_servers: vec!["stun:quic.example.com:9090".to_string()],
         };
 
         let frame = Frame::Control(msg);
@@ -443,9 +446,11 @@ mod tests {
                 token: t,
                 relay_url,
                 permissions,
+                ice_servers,
             } => {
                 assert_eq!(t.as_str(), token.as_str());
                 assert_eq!(relay_url, "wss://relay/test");
+                assert_eq!(ice_servers, ["stun:quic.example.com:9090"]);
                 assert!(permissions.desktop);
                 assert!(!permissions.terminal);
             }

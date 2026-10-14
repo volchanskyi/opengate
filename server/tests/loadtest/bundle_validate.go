@@ -26,6 +26,10 @@ func (b *Bundle) Validate() error {
 	problems = append(problems, b.validateCleanup()...)
 	problems = append(problems, b.validateBreakingPoint()...)
 	problems = append(problems, b.validateLeakTrail()...)
+	if b.Helper != nil && b.Helper.Answered > b.Helper.Asked {
+		problems = append(problems, fmt.Errorf("helper answered %d of %d requests, more than were asked",
+			b.Helper.Answered, b.Helper.Asked))
+	}
 	if b.Verdict.Result == "" {
 		problems = append(problems, errors.New("verdict names no result"))
 	}

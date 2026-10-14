@@ -63,8 +63,9 @@ What that means in practice:
   connection and keep it. There is no listening port on the agent for anyone to
   find, and no NAT traversal to configure.
 - **No VPN and no jump host** for remote sessions. A session rides the existing
-  connection through the server's relay, and upgrades itself to a direct
-  peer-to-peer path when both networks allow it.
+  connection through the server's relay, and moves onto a direct link between
+  browser and machine when both networks allow it, losing nothing if it has to
+  move back.
 - **Egress is all a customer firewall needs to allow**: the QUIC port to your
   server, plus HTTPS for enrollment and binary download. Ports are configurable.
 
